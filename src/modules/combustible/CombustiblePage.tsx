@@ -42,6 +42,53 @@ const ESTADO_LABEL: Record<string, string> = {
   por_aprobar: '⏳ Por aprobar', aprobada: '✅ Aprobada', finalizada: '🏁 Finalizada', cancelada: '✖ Cancelada',
 };
 
+/* ───────────── Origen/destino físico (tanques · se reflejan en inventario) ───────────── */
+// Tanques activos del combustible elegido (o sin combustible asignado).
+function tanquesDelCombustible(tanques: Tanque[], combustibleId: string): Tanque[] {
+  return tanques.filter((t) => t.estado === 'activo' && (!t.combustible_id || t.combustible_id === combustibleId));
+}
+// Valor por defecto del selector: primer tanque del combustible, o su almacén "casa".
+function defaultOrigen(tanques: Tanque[], comb: Combustible | null, almacenes: string[], combustibleId: string): string {
+  const tqs = tanquesDelCombustible(tanques, combustibleId);
+  if (tqs.length) return `tnk:${tqs[0].id}`;
+  return `alm:${comb?.home_almacen || almacenes[0] || ''}`;
+}
+// Resuelve el valor del select ('tnk:<id>' | 'alm:<nombre>') a {almacen, tanque}.
+// Al ser tanque, el inventario se refleja en el almacén "casa" del combustible.
+function resolverOrigen(sel: string, comb: Combustible | null, almacenes: string[], tanques: Tanque[]):
+  { almacen: string; tanqueId: string | null; tanqueNombre: string | null } {
+  if (sel.startsWith('tnk:')) {
+    const id = sel.slice(4);
+    const t = tanques.find((x) => x.id === id) ?? null;
+    return { almacen: comb?.home_almacen || almacenes[0] || 'General', tanqueId: id, tanqueNombre: t?.nombre ?? null };
+  }
+  return { almacen: sel.replace(/^alm:/, ''), tanqueId: null, tanqueNombre: null };
+}
+// Selector combinado: tanques (primero) + almacenes de inventario.
+function OrigenSelect({ tanques, almacenes, combustibleId, value, onChange, label, help }: {
+  tanques: Tanque[]; almacenes: string[]; combustibleId: string;
+  value: string; onChange: (v: string) => void; label: string; help?: string;
+}) {
+  const tqs = tanquesDelCombustible(tanques, combustibleId);
+  return (
+    <div className="form-row">
+      <label>{label}</label>
+      <select className="select" value={value} onChange={(e) => onChange(e.target.value)} required>
+        {tqs.length > 0 && (
+          <optgroup label="🛢 Tanques">
+            {tqs.map((t) => <option key={t.id} value={`tnk:${t.id}`}>🛢 {t.nombre} · {num(t.litros)}/{num(t.capacidad_litros)} L{t.ubicacion ? ` · ${t.ubicacion}` : ''}</option>)}
+          </optgroup>
+        )}
+        <optgroup label="Almacenes (inventario)">
+          {!almacenes.length && <option value="">— sin almacenes —</option>}
+          {almacenes.map((a) => <option key={a} value={`alm:${a}`}>{a}</option>)}
+        </optgroup>
+      </select>
+      {help && <small className="muted">{help}</small>}
+    </div>
+  );
+}
+
 export function CombustiblePage() {
   const { user } = useSession();
   const { can: canPerm, appUser } = usePermissions();
@@ -232,11 +279,11 @@ export function CombustiblePage() {
       )}
 
       {modal === 'solicitud' && (
-        <SolicitudModal combustibles={activos} almacenes={almacenes} actor={actor} defaultSolicitante={miNombre}
+        <SolicitudModal combustibles={activos} almacenes={almacenes} tanques={tanques} actor={actor} defaultSolicitante={miNombre}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'ingreso' && (
-        <IngresoModal combustibles={activos} almacenes={almacenes} actor={actor}
+        <IngresoModal combustibles={activos} almacenes={almacenes} tanques={tanques} actor={actor}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'gestionar' && (
@@ -273,14 +320,14 @@ export function CombustiblePage() {
 
 /* ───────────── Modales ───────────── */
 
-function SolicitudModal({ combustibles, almacenes, actor, defaultSolicitante, onClose, onSaved }: {
-  combustibles: Combustible[]; almacenes: string[]; actor: string; defaultSolicitante: string;
+function SolicitudModal({ combustibles, almacenes, tanques, actor, defaultSolicitante, onClose, onSaved }: {
+  combustibles: Combustible[]; almacenes: string[]; tanques: Tanque[]; actor: string; defaultSolicitante: string;
   onClose: () => void; onSaved: () => void;
 }) {
   const [combustibleId, setCombustibleId] = useState(combustibles[0]?.id ?? '');
   const [solicitante, setSolicitante] = useState(defaultSolicitante);
   const [destino, setDestino] = useState('');
-  const [almacen, setAlmacen] = useState(combustibles[0]?.home_almacen ?? almacenes[0] ?? '');
+  const [origenSel, setOrigenSel] = useState(() => defaultOrigen(tanques, combustibles[0] ?? null, almacenes, combustibles[0]?.id ?? ''));
   const [litros, setLitros] = useState('');
   const [motivo, setMotivo] = useState('');
   const [saving, setSaving] = useState(false);
@@ -289,8 +336,8 @@ function SolicitudModal({ combustibles, almacenes, actor, defaultSolicitante, on
   const litrosNum = Number(litros) || 0;
   const excede = comb ? litrosNum > Number(comb.litros) : false;
 
-  // Al cambiar de combustible, sugerimos su almacén "casa".
-  useEffect(() => { if (comb?.home_almacen) setAlmacen(comb.home_almacen); }, [combustibleId]);
+  // Al cambiar de combustible, sugerimos su tanque (o almacén "casa").
+  useEffect(() => { setOrigenSel(defaultOrigen(tanques, comb, almacenes, combustibleId)); }, [combustibleId]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -298,12 +345,14 @@ function SolicitudModal({ combustibles, almacenes, actor, defaultSolicitante, on
     if (!combustibleId) { setError('Elegí el combustible.'); return; }
     if (litrosNum <= 0) { setError('Indicá los litros solicitados.'); return; }
     if (!solicitante.trim()) { setError('Indicá quién solicita.'); return; }
-    if (!almacen.trim()) { setError('Indicá de qué almacén sale.'); return; }
+    const org = resolverOrigen(origenSel, comb, almacenes, tanques);
+    if (!org.almacen.trim() && !org.tanqueId) { setError('Indicá de qué tanque o almacén sale.'); return; }
     if (!destino.trim()) { setError('Indicá a dónde va.'); return; }
     setSaving(true);
     try {
       const s = await crearSolicitudCombustible({
-        combustibleId, combustibleNombre: comb?.nombre ?? '', solicitante, destino, almacen,
+        combustibleId, combustibleNombre: comb?.nombre ?? '', solicitante, destino,
+        almacen: org.almacen, tanqueId: org.tanqueId, tanqueNombre: org.tanqueNombre,
         litros: litrosNum, motivo: motivo.trim() || null, actor,
       });
       notify(`Solicitud de combustible creada: ${s.codigo} · ${num(litrosNum)} L → ${destino}`, 'success', { link: '#/app/combustible' });
@@ -342,14 +391,12 @@ function SolicitudModal({ combustibles, almacenes, actor, defaultSolicitante, on
           <label>Quién hace la solicitud</label>
           <input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Nombre de quien solicita" required />
         </div>
-        <div className="form-row">
-          <label>De qué almacén sale</label>
-          <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
-            {!almacenes.length && <option value="">— sin almacenes —</option>}
-            {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-          <small className="muted">Al finalizar, los litros salen del stock de este almacén.</small>
-        </div>
+        <OrigenSelect
+          tanques={tanques} almacenes={almacenes} combustibleId={combustibleId}
+          value={origenSel} onChange={setOrigenSel}
+          label="De qué tanque / almacén sale"
+          help="Al finalizar, los litros salen del tanque elegido y se reflejan en el inventario."
+        />
         <DestinoSelect value={destino} onChange={setDestino} almacenes={almacenes} label="A dónde va ese combustible" />
         <div className="form-row">
           <label>Motivo / detalle (opcional)</label>
@@ -360,11 +407,11 @@ function SolicitudModal({ combustibles, almacenes, actor, defaultSolicitante, on
   );
 }
 
-function IngresoModal({ combustibles, almacenes, actor, onClose, onSaved }: {
-  combustibles: Combustible[]; almacenes: string[]; actor: string; onClose: () => void; onSaved: () => void;
+function IngresoModal({ combustibles, almacenes, tanques, actor, onClose, onSaved }: {
+  combustibles: Combustible[]; almacenes: string[]; tanques: Tanque[]; actor: string; onClose: () => void; onSaved: () => void;
 }) {
   const [combustibleId, setCombustibleId] = useState(combustibles[0]?.id ?? '');
-  const [almacen, setAlmacen] = useState(combustibles[0]?.home_almacen ?? almacenes[0] ?? '');
+  const [origenSel, setOrigenSel] = useState(() => defaultOrigen(tanques, combustibles[0] ?? null, almacenes, combustibles[0]?.id ?? ''));
   const [litros, setLitros] = useState('');
   const [costo, setCosto] = useState('');
   const [saving, setSaving] = useState(false);
@@ -373,19 +420,20 @@ function IngresoModal({ combustibles, almacenes, actor, onClose, onSaved }: {
   const costoNum = Number(costo) || 0;
   const comb = combustibles.find((c) => c.id === combustibleId) ?? null;
 
-  // Al cambiar de combustible, sugerimos su almacén "casa".
-  useEffect(() => { if (comb?.home_almacen) setAlmacen(comb.home_almacen); }, [combustibleId]);
+  // Al cambiar de combustible, sugerimos su tanque (o almacén "casa").
+  useEffect(() => { setOrigenSel(defaultOrigen(tanques, comb, almacenes, combustibleId)); }, [combustibleId]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!combustibleId) { setError('Elegí el combustible.'); return; }
-    if (!almacen.trim()) { setError('Indicá el almacén del ingreso.'); return; }
+    const org = resolverOrigen(origenSel, comb, almacenes, tanques);
+    if (!org.almacen.trim()) { setError('Indicá el tanque o almacén del ingreso.'); return; }
     if (litrosNum <= 0) { setError('Indicá los litros que ingresan.'); return; }
     setSaving(true);
     try {
-      await registrarIngreso({ combustibleId, almacen, litros: litrosNum, costoLitro: costoNum, actor });
-      notify(`Ingreso de combustible: +${num(litrosNum)} L → ${almacen}`, 'success', { link: '#/app/combustible' });
+      await registrarIngreso({ combustibleId, almacen: org.almacen, tanqueId: org.tanqueId, litros: litrosNum, costoLitro: costoNum, actor });
+      notify(`Ingreso de combustible: +${num(litrosNum)} L → ${org.tanqueNombre ?? org.almacen}`, 'success', { link: '#/app/combustible' });
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar el ingreso.');
@@ -409,14 +457,12 @@ function IngresoModal({ combustibles, almacenes, actor, onClose, onSaved }: {
               {combustibles.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
           </div>
-          <div className="form-row">
-            <label>Almacén destino</label>
-            <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
-              {!almacenes.length && <option value="">— sin almacenes —</option>}
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-            <small className="muted">Entra como ENTRADA al inventario de este almacén.</small>
-          </div>
+          <OrigenSelect
+            tanques={tanques} almacenes={almacenes} combustibleId={combustibleId}
+            value={origenSel} onChange={setOrigenSel}
+            label="Tanque / almacén destino"
+            help="Entra al tanque elegido y se refleja como ENTRADA en el inventario."
+          />
         </div>
         <div className="form-grid">
           <div className="form-row">
@@ -714,7 +760,8 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
     ['Código', s.codigo],
     ['Combustible', s.combustible_nombre],
     ['Quién solicita', s.solicitante],
-    ['Almacén de origen', s.almacen || '—'],
+    ['Tanque de origen', s.tanque_nombre || '—'],
+    ['Almacén (inventario)', s.almacen || '—'],
     ['A dónde va', s.destino],
     ['Total de litros', `${num(s.litros)} L`],
     ['Estado', ESTADO_LABEL[s.estado] ?? s.estado],

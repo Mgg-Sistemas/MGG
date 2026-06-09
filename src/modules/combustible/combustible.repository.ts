@@ -155,6 +155,8 @@ export async function registrarIngreso(input: {
   almacen: string;
   litros: number;
   costoLitro: number;
+  /** Tanque destino opcional: además del inventario, suma litros a ese tanque. */
+  tanqueId?: string | null;
   actor: string;
   actorName?: string | null;
   detalle?: string | null;
@@ -164,6 +166,17 @@ export async function registrarIngreso(input: {
   const almacen = (input.almacen || '').trim();
   if (!almacen) throw new Error('Indicá el almacén del ingreso.');
   const costo = Math.max(0, Number(input.costoLitro) || 0);
+
+  // Si entra a un tanque, validamos capacidad antes de tocar el inventario.
+  if (input.tanqueId) {
+    const { data: tq } = await supabase.from('combustible_tanques').select('litros, capacidad_litros, nombre').eq('id', input.tanqueId).maybeSingle();
+    if (tq) {
+      const nuevos = (Number(tq.litros) || 0) + litros;
+      if (nuevos > (Number(tq.capacidad_litros) || 0) + 0.0001) {
+        throw new Error(`El ingreso supera la capacidad del tanque "${tq.nombre}" (${tq.capacidad_litros} L).`);
+      }
+    }
+  }
 
   const { data: comb, error: cErr } = await supabase
     .from('combustibles')
@@ -211,6 +224,16 @@ export async function registrarIngreso(input: {
     .update({ litros: litrosDespues, costo_litro: nuevoCosto, updated_at: new Date().toISOString() })
     .eq('id', input.combustibleId);
   if (uErr) throw uErr;
+
+  // 3) Tanque destino: suma los litros (se refleja en el tanque además del inventario).
+  if (input.tanqueId) {
+    const { data: tq } = await supabase.from('combustible_tanques').select('litros').eq('id', input.tanqueId).maybeSingle();
+    if (tq) {
+      await supabase.from('combustible_tanques')
+        .update({ litros: (Number(tq.litros) || 0) + litros, updated_at: new Date().toISOString() })
+        .eq('id', input.tanqueId);
+    }
+  }
 }
 
 export async function listMovimientosCombustible(combustibleId: string): Promise<MovimientoCombustible[]> {
@@ -372,6 +395,9 @@ export async function crearSolicitudCombustible(input: {
   destino: string;
   /** Almacén del inventario de donde saldrá el combustible. */
   almacen: string;
+  /** Tanque origen opcional: al finalizar descuenta del tanque y del inventario. */
+  tanqueId?: string | null;
+  tanqueNombre?: string | null;
   litros: number;
   motivo?: string | null;
   actor: string;
@@ -395,6 +421,8 @@ export async function crearSolicitudCombustible(input: {
       solicitante: input.solicitante.trim(),
       destino: input.destino.trim(),
       almacen,
+      tanque_id: input.tanqueId || null,
+      tanque_nombre: input.tanqueNombre?.trim() || null,
       litros,
       estado: 'por_aprobar',
       motivo: input.motivo?.trim() || null,
@@ -450,6 +478,15 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
   // Validamos contra la existencia REAL de ese almacén (fuente de verdad del inventario).
   const stockAlmacen = await stockEnAlmacen(productoId, almacen);
   if (litros > stockAlmacen) throw new Error(`Stock insuficiente en ${almacen}. Disponible: ${stockAlmacen} L.`);
+  // Si la salida es de un tanque, validamos también sus litros propios.
+  let tanqueLitrosAntes: number | null = null;
+  if (s.tanque_id) {
+    const { data: tq } = await supabase.from('combustible_tanques').select('litros, nombre').eq('id', s.tanque_id).maybeSingle();
+    if (tq) {
+      tanqueLitrosAntes = Number(tq.litros) || 0;
+      if (litros > tanqueLitrosAntes) throw new Error(`El tanque "${tq.nombre}" no tiene litros suficientes. Disponible: ${tanqueLitrosAntes} L.`);
+    }
+  }
   const litrosDespues = Math.max(0, litrosAntes - litros);
 
   // 1) Sale del INVENTARIO (salida en el almacén de origen).
@@ -491,6 +528,13 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
     .update({ litros: litrosDespues, updated_at: new Date().toISOString() })
     .eq('id', s.combustible_id);
   if (uErr) throw uErr;
+
+  // 3) Tanque origen: descuenta sus litros propios (se refleja en el tanque además del inventario).
+  if (s.tanque_id && tanqueLitrosAntes != null) {
+    await supabase.from('combustible_tanques')
+      .update({ litros: Math.max(0, tanqueLitrosAntes - litros), updated_at: new Date().toISOString() })
+      .eq('id', s.tanque_id);
+  }
 
   const { error: sErr } = await supabase
     .from('combustible_solicitudes')

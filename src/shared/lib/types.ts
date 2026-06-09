@@ -309,6 +309,9 @@ export interface SolicitudCombustible {
   destino: string;
   /** Almacén del inventario de donde sale el combustible al finalizar. */
   almacen?: string | null;
+  /** Tanque origen (opcional): al finalizar descuenta del tanque y del inventario. */
+  tanque_id?: string | null;
+  tanque_nombre?: string | null;
   litros: number;
   estado: EstadoSolicitudCombustible;
   motivo?: string | null;

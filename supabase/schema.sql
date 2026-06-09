@@ -439,6 +439,11 @@ alter table public.combustible_tanques enable row level security;
 create policy "tanques read auth"      on public.combustible_tanques for select using (auth.role()='authenticated');
 create policy "tanques write operativo" on public.combustible_tanques for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- La solicitud de combustible puede salir de un TANQUE registrado (además del
+-- almacén de inventario): al finalizar descuenta del tanque y del inventario.
+alter table public.combustible_solicitudes add column if not exists tanque_id     uuid references public.combustible_tanques(id) on delete set null;
+alter table public.combustible_solicitudes add column if not exists tanque_nombre text;
+
 -- Solicitudes de salida/traslado (material y dinero) con flujo de aprobación.
 -- El obrero crea (por_aprobar); admin/analista aprueba y ejecuta (gate en el front).
 -- Al ejecutar se realiza el movimiento real (movimientos / movimientos_caja) y se guarda mov_id.
