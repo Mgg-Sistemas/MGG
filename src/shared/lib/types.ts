@@ -280,6 +280,43 @@ export interface Tanque {
   updated_at?: string | null;
 }
 
+/** Vehículo o máquina al que se destina una salida de combustible. */
+export interface VehiculoMaquina {
+  id: string;
+  nombre: string;
+  descripcion?: string | null;
+  estado: EstadoGenerico;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+/** Traslado de combustible (litros) entre dos sistemas independientes (cada uno
+ *  su Supabase). Mismo patrón que TransferenciaInter pero el recurso son litros
+ *  que, al confirmar, entran a un tanque de MGG. `transf_id` es el id global. */
+export interface TransferenciaCombustibleInter {
+  id: string;
+  transf_id: string;
+  direccion: DireccionTransfer;
+  estado: EstadoTransfer;
+  empresa_origen: string;
+  empresa_destino: string;
+  combustible_nombre: string;
+  litros: number;
+  costo_litro?: number | null;
+  /** Tanque MGG que recibe (se elige al confirmar la entrante). */
+  tanque_id?: string | null;
+  tanque_nombre?: string | null;
+  resumen?: string | null;
+  motivo?: string | null;
+  callback_base?: string | null;
+  mensaje_error?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  confirmada_at?: string | null;
+}
+
 export type TipoMovCombustible = 'ingreso' | 'salida' | 'ajuste';
 
 export interface MovimientoCombustible {

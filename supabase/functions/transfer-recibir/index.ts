@@ -41,9 +41,13 @@ Deno.serve(async (req) => {
   const transfId = payload.transf_id as string | undefined;
   if (!transfId) return json({ error: 'transf_id requerido' }, 400);
 
+  // El recurso determina la tabla destino: dinero (default) o combustible (litros).
+  const recurso = (payload.recurso as string | undefined) === 'combustible' ? 'combustible' : 'dinero';
+  const TABLE = recurso === 'combustible' ? 'transferencias_combustible_inter' : 'transferencias_inter';
+
   // ── ACK: el otro sistema confirmó nuestra saliente ──
   if (payload.tipo === 'ack') {
-    const { error } = await supabase.from('transferencias_inter')
+    const { error } = await supabase.from(TABLE)
       .update({ estado: 'recibida', confirmada_at: new Date().toISOString() })
       .eq('transf_id', transfId).eq('direccion', 'saliente');
     if (error) return json({ error: error.message }, 500);
@@ -51,20 +55,35 @@ Deno.serve(async (req) => {
   }
 
   // ── Transferencia nueva: guardar como entrante (idempotente) ──
-  const { data: existe } = await supabase.from('transferencias_inter')
+  const { data: existe } = await supabase.from(TABLE)
     .select('id, estado').eq('transf_id', transfId).maybeSingle();
   if (existe) return json({ ok: true, dedup: true, estado: (existe as { estado: string }).estado });
 
-  const cajaEntrante = Deno.env.get('INTER_CAJA_ENTRANTE_ID') || null;
-  const { error } = await supabase.from('transferencias_inter').insert({
+  // Fila común a ambos recursos.
+  const base = {
     transf_id: transfId, direccion: 'entrante', estado: 'por_confirmar',
     empresa_origen: payload.empresa_origen ?? 'desconocido',
     empresa_destino: payload.empresa_destino ?? 'desconocido',
-    caja_id: cajaEntrante,
-    legs: payload.legs ?? [], resumen: payload.resumen ?? null, motivo: payload.motivo ?? null,
+    resumen: payload.resumen ?? null, motivo: payload.motivo ?? null,
     callback_base: payload.callback_base ?? null,
     actor: payload.actor ?? null, actor_name: payload.actor_name ?? null,
-  });
+  };
+
+  const fila = recurso === 'combustible'
+    ? {
+        ...base,
+        combustible_nombre: payload.combustible_nombre ?? 'Combustible',
+        litros: payload.litros ?? 0,
+        costo_litro: payload.costo_litro ?? null,
+        // El tanque MGG que recibe lo elige el operador al confirmar.
+      }
+    : {
+        ...base,
+        caja_id: Deno.env.get('INTER_CAJA_ENTRANTE_ID') || null,
+        legs: payload.legs ?? [],
+      };
+
+  const { error } = await supabase.from(TABLE).insert(fila);
   if (error) {
     // Si chocó por unicidad (carrera con otro reintento), es idempotencia OK.
     if ((error as { code?: string }).code === '23505') return json({ ok: true, dedup: true });

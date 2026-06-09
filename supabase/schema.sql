@@ -325,12 +325,46 @@ alter table public.transferencias_inter enable row level security;
 create policy "transf read auth"  on public.transferencias_inter for select using (auth.role()='authenticated');
 create policy "transf write auth" on public.transferencias_inter for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
 
+-- ============================================================
+-- Puente inter-sistema · COMBUSTIBLE (litros). Mismo patrón que el de dinero
+-- pero el recurso son litros de combustible: el otro sistema traslada litros y
+-- este los recibe y, al confirmar, los acredita a un TANQUE de MGG (que se
+-- refleja en el inventario). Reusa las mismas Edge Functions con recurso='combustible'.
+-- transf_id es el id GLOBAL compartido (idempotencia).
+-- ============================================================
+create table if not exists public.transferencias_combustible_inter (
+  id                 uuid primary key default gen_random_uuid(),
+  transf_id          uuid not null unique,
+  direccion          text not null check (direccion in ('saliente','entrante')),
+  estado             text not null default 'enviada'
+                       check (estado in ('enviada','por_confirmar','recibida','rechazada','error')),
+  empresa_origen     text not null,
+  empresa_destino    text not null,
+  combustible_nombre text not null,                  -- nombre del combustible (ids distintos por sistema)
+  litros             numeric not null check (litros > 0),
+  costo_litro        numeric,                         -- costo/litro informado por el origen (opcional)
+  tanque_id          uuid references public.combustible_tanques(id) on delete set null,  -- tanque MGG que recibe
+  tanque_nombre      text,
+  resumen            text,
+  motivo             text,
+  callback_base      text,                            -- functions url del origen (para el ACK)
+  mensaje_error      text,
+  actor              text,
+  actor_name         text,
+  created_at         timestamptz not null default now(),
+  confirmada_at      timestamptz
+);
+create index if not exists idx_transf_comb_dir_estado on public.transferencias_combustible_inter(direccion, estado);
+alter table public.transferencias_combustible_inter enable row level security;
+create policy "transf comb read auth"  on public.transferencias_combustible_inter for select using (auth.role()='authenticated');
+create policy "transf comb write auth" on public.transferencias_combustible_inter for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
+
 -- Realtime: el sistema es multiusuario; lo que registra un usuario se refleja en
 -- los demás. Se publica el conjunto operativo (idempotente).
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','transferencias_combustible_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','combustible_vehiculos','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
@@ -443,6 +477,21 @@ create policy "tanques write operativo" on public.combustible_tanques for all us
 -- almacén de inventario): al finalizar descuenta del tanque y del inventario.
 alter table public.combustible_solicitudes add column if not exists tanque_id     uuid references public.combustible_tanques(id) on delete set null;
 alter table public.combustible_solicitudes add column if not exists tanque_nombre text;
+
+-- Vehículos / máquinas: a dónde se destina la salida de combustible. Se registran
+-- desde la vista de Combustible y aparecen como lista en la solicitud de salida.
+create table if not exists public.combustible_vehiculos (
+  id          uuid primary key default gen_random_uuid(),
+  nombre      text not null,
+  descripcion text,
+  estado      text not null default 'activo' check (estado in ('activo','inactivo')),
+  created_by  text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz
+);
+alter table public.combustible_vehiculos enable row level security;
+create policy "vehiculos read auth"      on public.combustible_vehiculos for select using (auth.role()='authenticated');
+create policy "vehiculos write operativo" on public.combustible_vehiculos for all using (public.is_operativo()) with check (public.is_operativo());
 
 -- Solicitudes de salida/traslado (material y dinero) con flujo de aprobación.
 -- El obrero crea (por_aprobar); admin/analista aprueba y ejecuta (gate en el front).
