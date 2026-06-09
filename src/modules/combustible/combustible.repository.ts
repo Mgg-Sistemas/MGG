@@ -11,6 +11,7 @@ import type {
   MovimientoCombustible,
   SolicitudCombustible,
   Tanque,
+  VehiculoMaquina,
 } from '@/shared/lib/types';
 import { createProducto, listProductos, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -286,6 +287,105 @@ export async function consumoCombustiblePeriodo(desde: Date, hasta: Date): Promi
   }));
 }
 
+/**
+ * Salida DIRECTA de combustible de un tanque (sin pasar por una solicitud):
+ * descuenta del inventario (almacén "casa"), de la tarjeta de combustible y del
+ * tanque. La usa el traslado inter-sistema (litros que salen hacia otro sistema).
+ * Valida stock del inventario y litros del tanque antes de tocar nada.
+ */
+export async function salidaCombustibleDirecta(input: {
+  combustibleId: string;
+  almacen?: string | null;
+  tanqueId?: string | null;
+  litros: number;
+  destino: string;
+  motivo?: string | null;
+  refTipo: string;
+  refId?: string | null;
+  refCodigo?: string | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<{ movId: string }> {
+  const litros = Number(input.litros) || 0;
+  if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+
+  const { data: comb, error: cErr } = await supabase
+    .from('combustibles')
+    .select('id, nombre, litros, costo_litro, producto_id')
+    .eq('id', input.combustibleId)
+    .single();
+  if (cErr || !comb) throw cErr ?? new Error('Combustible no encontrado.');
+  const litrosAntes = Number(comb.litros) || 0;
+  const costo = Number(comb.costo_litro) || 0;
+
+  const productoId = await ensureProductoCombustible(comb as Combustible, input.almacen?.trim() || 'General');
+  const almacen = (input.almacen?.trim()) || (await (async () => {
+    const { data } = await supabase.from('productos').select('almacen').eq('id', productoId).maybeSingle();
+    return (data?.almacen as string) || 'General';
+  })());
+
+  const stockAlmacen = await stockEnAlmacen(productoId, almacen);
+  if (litros > stockAlmacen) throw new Error(`Stock insuficiente en ${almacen}. Disponible: ${stockAlmacen} L.`);
+
+  let tanqueLitrosAntes: number | null = null;
+  if (input.tanqueId) {
+    const { data: tq } = await supabase.from('combustible_tanques').select('litros, nombre').eq('id', input.tanqueId).maybeSingle();
+    if (tq) {
+      tanqueLitrosAntes = Number(tq.litros) || 0;
+      if (litros > tanqueLitrosAntes) throw new Error(`El tanque "${tq.nombre}" no tiene litros suficientes. Disponible: ${tanqueLitrosAntes} L.`);
+    }
+  }
+  const litrosDespues = Math.max(0, litrosAntes - litros);
+
+  // 1) Sale del INVENTARIO.
+  await registrarMovimiento({
+    producto_id: productoId,
+    tipo: 'salida',
+    delta: -litros,
+    almacen,
+    destino: input.destino,
+    actor: input.actor,
+    actor_name: input.actorName ?? null,
+    ref_tipo: input.refTipo,
+    ref_id: input.refId ?? null,
+    ref_codigo: input.refCodigo ?? null,
+    detalle: `Salida → ${input.destino}`,
+  });
+
+  // 2) Tarjeta de combustible + kardex.
+  const { data: mov, error: mErr } = await supabase
+    .from('combustible_movimientos')
+    .insert({
+      combustible_id: input.combustibleId,
+      tipo: 'salida',
+      litros: -litros,
+      costo_litro: costo,
+      litros_antes: litrosAntes,
+      litros_despues: litrosDespues,
+      detalle: `${input.motivo ?? 'Salida'} → ${input.destino} · ${almacen}`,
+      actor: input.actor,
+      actor_name: input.actorName ?? null,
+    })
+    .select('id')
+    .single();
+  if (mErr) throw mErr;
+
+  const { error: uErr } = await supabase
+    .from('combustibles')
+    .update({ litros: litrosDespues, updated_at: new Date().toISOString() })
+    .eq('id', input.combustibleId);
+  if (uErr) throw uErr;
+
+  // 3) Tanque origen: descuenta sus litros propios.
+  if (input.tanqueId && tanqueLitrosAntes != null) {
+    await supabase.from('combustible_tanques')
+      .update({ litros: Math.max(0, tanqueLitrosAntes - litros), updated_at: new Date().toISOString() })
+      .eq('id', input.tanqueId);
+  }
+
+  return { movId: (mov as { id: string }).id };
+}
+
 /* ───────────── Tanques (depósitos físicos de combustible) ───────────── */
 
 export async function listTanques(): Promise<Tanque[]> {
@@ -359,6 +459,62 @@ export async function setEstadoTanque(id: string, estado: 'activo' | 'inactivo')
 
 export async function eliminarTanque(id: string): Promise<void> {
   const { error } = await supabase.from('combustible_tanques').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ───────────── Vehículos / máquinas (destino de la salida) ───────────── */
+
+export async function listVehiculos(): Promise<VehiculoMaquina[]> {
+  const { data, error } = await supabase
+    .from('combustible_vehiculos')
+    .select('*')
+    .order('nombre', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as VehiculoMaquina[];
+}
+
+export async function crearVehiculo(input: {
+  nombre: string;
+  descripcion?: string | null;
+  actorEmail?: string | null;
+}): Promise<VehiculoMaquina> {
+  const nombre = input.nombre.trim();
+  if (!nombre) throw new Error('El nombre del vehículo / máquina es obligatorio.');
+  const { data, error } = await supabase
+    .from('combustible_vehiculos')
+    .insert({
+      nombre,
+      descripcion: input.descripcion?.trim() || null,
+      created_by: input.actorEmail ?? null,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as VehiculoMaquina;
+}
+
+export async function actualizarVehiculo(id: string, input: {
+  nombre?: string;
+  descripcion?: string | null;
+}): Promise<void> {
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.nombre !== undefined) {
+    const n = input.nombre.trim();
+    if (!n) throw new Error('El nombre no puede estar vacío.');
+    patch.nombre = n;
+  }
+  if (input.descripcion !== undefined) patch.descripcion = input.descripcion?.trim() || null;
+  const { error } = await supabase.from('combustible_vehiculos').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function setEstadoVehiculo(id: string, estado: 'activo' | 'inactivo'): Promise<void> {
+  const { error } = await supabase.from('combustible_vehiculos').update({ estado, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarVehiculo(id: string): Promise<void> {
+  const { error } = await supabase.from('combustible_vehiculos').delete().eq('id', id);
   if (error) throw error;
 }
 

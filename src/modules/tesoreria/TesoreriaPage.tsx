@@ -233,22 +233,26 @@ export function TesoreriaPage() {
           <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
             {cajas.map((c) => {
               const sc = saldos.filter((s) => s.caja_id === c.id && (Number(s.saldo) || 0) !== 0);
-              const totalBs = saldos.filter((s) => s.caja_id === c.id).reduce((a, s) => a + equivBs(s), 0);
+              // Saldo en la moneda "casa" de la caja (cifra principal) y otras monedas con saldo.
+              const saldoHome = sc.filter((s) => s.moneda === c.moneda).reduce((a, s) => a + (Number(s.saldo) || 0), 0);
+              const otras = sc.filter((s) => s.moneda !== c.moneda);
               return (
                 <button key={c.id} className="card" onClick={() => setCajaSel(c)}
                   style={{ padding: '.6rem .9rem', minWidth: 170, textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--card, transparent)' }}
                   title="Ver detalle, ingresar dinero y trazabilidad">
                   <div className="muted" style={{ fontSize: '.72rem' }}>{c.nombre} <span style={{ float: 'right' }}>⚙</span></div>
-                  {sc.length ? (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.25rem .5rem', margin: '.2rem 0' }}>
-                      {sc.map((s) => (
-                        <span key={s.id} className="mono" style={{ fontSize: '.82rem' }}>
-                          {monto(s.saldo, s.moneda)}
-                        </span>
+                  {/* Cifra principal en la moneda "casa" de la caja: $ en Multimoneda (USD),
+                      USDT en la de USDT, Bs en la de Bs. Otras monedas con saldo se listan pequeñas. */}
+                  <strong className="mono" style={{ fontSize: '.95rem', display: 'block', margin: '.2rem 0 .1rem' }}>
+                    {monto(saldoHome, c.moneda)}
+                  </strong>
+                  {otras.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.2rem .45rem' }}>
+                      {otras.map((s) => (
+                        <span key={s.id} className="muted mono" style={{ fontSize: '.7rem' }}>{monto(s.saldo, s.moneda)}</span>
                       ))}
                     </div>
-                  ) : <strong className="mono">{monto(0, c.moneda)}</strong>}
-                  <div className="muted" style={{ fontSize: '.66rem' }}>≈ {monto(totalBs, 'Bs')}</div>
+                  )}
                 </button>
               );
             })}

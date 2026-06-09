@@ -8,8 +8,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
-import { DestinoSelect } from '@/modules/salidas/DestinoSelect';
-import type { Combustible, SolicitudCombustible, Tanque } from '@/shared/lib/types';
+import type { Combustible, SolicitudCombustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter } from '@/shared/lib/types';
 import {
   listCombustibles,
   listSolicitudesCombustible,
@@ -26,10 +25,21 @@ import {
   crearTanque,
   actualizarTanque,
   eliminarTanque,
+  listVehiculos,
+  crearVehiculo,
+  actualizarVehiculo,
+  setEstadoVehiculo,
+  eliminarVehiculo,
 } from './combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { descargarSolicitudCombustiblePdf } from './combustiblePdf';
 import { enviarCombustibleAMultiples } from './enviarCombustible';
+import {
+  listTransferenciasCombustible,
+  confirmarTransferenciaCombustibleEntrante,
+  reintentarTransferenciaCombustible,
+  crearTransferenciaCombustibleSaliente,
+} from './transferenciasCombustibleInter.repository';
 
 type Vista = 'kanban' | 'lista';
 const COLS: { key: SolicitudCombustible['estado']; label: string }[] = [
@@ -89,6 +99,46 @@ function OrigenSelect({ tanques, almacenes, combustibleId, value, onChange, labe
   );
 }
 
+/* ───────────── Destino de la salida: Almacén o Vehículo / Máquina ───────────── */
+// Reemplaza al "Persona" genérico: aquí el combustible se entrega a un vehículo o
+// máquina registrado (o a un almacén). La lista de vehículos se administra desde
+// el botón "🚜 Vehículos / Máquinas" de la vista principal.
+function DestinoCombustibleSelect({ value, onChange, almacenes, vehiculos, label }: {
+  value: string; onChange: (v: string) => void; almacenes: string[]; vehiculos: VehiculoMaquina[]; label: string;
+}) {
+  const ESPECIALES = ['Consumo Interno'];
+  const opcionesAlmacen = [...ESPECIALES, ...almacenes.filter((a) => !ESPECIALES.includes(a))];
+  const activos = vehiculos.filter((v) => v.estado === 'activo');
+  const [modo, setModo] = useState<'almacen' | 'vehiculo'>('almacen');
+
+  function cambiarModo(next: 'almacen' | 'vehiculo') { setModo(next); onChange(''); }
+
+  return (
+    <div className="form-row">
+      <label>{label}</label>
+      <div className="view-toggle" role="tablist" aria-label="Tipo de destino" style={{ marginBottom: '.4rem', marginLeft: 0 }}>
+        <button type="button" className={modo === 'almacen' ? 'active' : ''} onClick={() => cambiarModo('almacen')}>▣ Almacén</button>
+        <button type="button" className={modo === 'vehiculo' ? 'active' : ''} onClick={() => cambiarModo('vehiculo')}>🚜 Vehículo / Máquina</button>
+      </div>
+
+      {modo === 'almacen' ? (
+        <select className="select" value={opcionesAlmacen.includes(value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
+          <option value="">— elegí el almacén —</option>
+          {opcionesAlmacen.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+      ) : (
+        <>
+          <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+            <option value="">— elegí el vehículo / máquina —</option>
+            {activos.map((v) => <option key={v.id} value={v.nombre}>🚜 {v.nombre}{v.descripcion ? ` · ${v.descripcion}` : ''}</option>)}
+          </select>
+          {!activos.length && <small className="muted">No hay vehículos / máquinas registrados. Agregalos con "🚜 Vehículos / Máquinas".</small>}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function CombustiblePage() {
   const { user } = useSession();
   const { can: canPerm, appUser } = usePermissions();
@@ -100,23 +150,29 @@ export function CombustiblePage() {
   const [combustibles, setCombustibles] = useState<Combustible[]>([]);
   const [solicitudes, setSolicitudes] = useState<SolicitudCombustible[]>([]);
   const [tanques, setTanques] = useState<Tanque[]>([]);
+  const [vehiculos, setVehiculos] = useState<VehiculoMaquina[]>([]);
+  const [transfers, setTransfers] = useState<TransferenciaCombustibleInter[]>([]);
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
-  const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar' | 'consumo' | 'tanque'>('none');
+  const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar' | 'consumo' | 'tanque' | 'vehiculos' | 'traslado-inter'>('none');
   const [detalle, setDetalle] = useState<SolicitudCombustible | null>(null);
   const [tanqueEdit, setTanqueEdit] = useState<Tanque | null>(null);
 
   const reload = useCallback(async () => {
-    const [cs, ss, ts, alms] = await Promise.all([
+    const [cs, ss, ts, vs, trs, alms] = await Promise.all([
       listCombustibles(),
       listSolicitudesCombustible(),
       listTanques(),
+      listVehiculos(),
+      listTransferenciasCombustible().catch(() => [] as TransferenciaCombustibleInter[]),
       getNombresAlmacenes(),
     ]);
     setCombustibles(cs);
     setSolicitudes(ss);
     setTanques(ts);
+    setVehiculos(vs);
+    setTransfers(trs);
     setAlmacenes(alms);
   }, []);
 
@@ -129,7 +185,7 @@ export function CombustiblePage() {
   }, [reload]);
 
   // Realtime multiusuario: combustibles, solicitudes y tanques se reflejan al instante.
-  useRealtime(['combustibles', 'combustible_solicitudes', 'combustible_tanques'], () => { void reload(); });
+  useRealtime(['combustibles', 'combustible_solicitudes', 'combustible_tanques', 'combustible_vehiculos', 'transferencias_combustible_inter'], () => { void reload(); });
 
   const activos = useMemo(() => combustibles.filter((c) => c.estado === 'activo'), [combustibles]);
   const valorTotal = useMemo(() => combustibles.reduce((a, c) => a + (Number(c.litros) || 0) * (Number(c.costo_litro) || 0), 0), [combustibles]);
@@ -155,12 +211,20 @@ export function CombustiblePage() {
               {/* Sin combustibles, este es el ÚNICO botón que crea el primero: lo resaltamos. */}
               <button className={activos.length ? 'btn btn-ghost' : 'btn btn-primary'} onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
               <button className="btn btn-ghost" onClick={() => setModal('tanque')}>🛢 Agregar Tanque</button>
+              <button className="btn btn-ghost" onClick={() => setModal('vehiculos')}>🚜 Vehículos / Máquinas</button>
+              <button className="btn btn-ghost" onClick={() => setModal('traslado-inter')} disabled={!tanques.some((t) => t.estado === 'activo')} title={!tanques.some((t) => t.estado === 'activo') ? 'Necesitás un tanque activo' : 'Trasladar litros a otro sistema'}>🔁 Trasladar a otro sistema</button>
               <button className="btn btn-ghost" onClick={() => setModal('ingreso')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>⬇ Registrar ingreso</button>
               <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>+ Nueva solicitud de salida</button>
             </>
           )}
         </div>
       </div>
+
+      {/* Litros pendientes por recepción (puente inter-sistema) */}
+      <RecepcionCombustibleInterPanel
+        transfers={transfers} tanques={tanques} canWrite={canWrite}
+        actor={actor} actorName={miNombre} onChanged={reload}
+      />
 
       {/* Tarjetas de inventario */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
@@ -279,7 +343,15 @@ export function CombustiblePage() {
       )}
 
       {modal === 'solicitud' && (
-        <SolicitudModal combustibles={activos} almacenes={almacenes} tanques={tanques} actor={actor} defaultSolicitante={miNombre}
+        <SolicitudModal combustibles={activos} almacenes={almacenes} tanques={tanques} vehiculos={vehiculos} actor={actor} defaultSolicitante={miNombre}
+          onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
+      )}
+      {modal === 'vehiculos' && (
+        <VehiculosModal vehiculos={vehiculos} actor={actor}
+          onClose={() => setModal('none')} onChanged={reload} />
+      )}
+      {modal === 'traslado-inter' && (
+        <TrasladoInterModal combustibles={activos} tanques={tanques} actor={actor} actorName={miNombre}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'ingreso' && (
@@ -320,8 +392,8 @@ export function CombustiblePage() {
 
 /* ───────────── Modales ───────────── */
 
-function SolicitudModal({ combustibles, almacenes, tanques, actor, defaultSolicitante, onClose, onSaved }: {
-  combustibles: Combustible[]; almacenes: string[]; tanques: Tanque[]; actor: string; defaultSolicitante: string;
+function SolicitudModal({ combustibles, almacenes, tanques, vehiculos, actor, defaultSolicitante, onClose, onSaved }: {
+  combustibles: Combustible[]; almacenes: string[]; tanques: Tanque[]; vehiculos: VehiculoMaquina[]; actor: string; defaultSolicitante: string;
   onClose: () => void; onSaved: () => void;
 }) {
   const [combustibleId, setCombustibleId] = useState(combustibles[0]?.id ?? '');
@@ -397,7 +469,7 @@ function SolicitudModal({ combustibles, almacenes, tanques, actor, defaultSolici
           label="De qué tanque / almacén sale"
           help="Al finalizar, los litros salen del tanque elegido y se reflejan en el inventario."
         />
-        <DestinoSelect value={destino} onChange={setDestino} almacenes={almacenes} label="A dónde va ese combustible" />
+        <DestinoCombustibleSelect value={destino} onChange={setDestino} almacenes={almacenes} vehiculos={vehiculos} label="A dónde va ese combustible" />
         <div className="form-row">
           <label>Motivo / detalle (opcional)</label>
           <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Referencia, equipo, etc." />
@@ -705,6 +777,110 @@ function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
   );
 }
 
+/* ───────────── Modal: vehículos / máquinas ───────────── */
+function VehiculosModal({ vehiculos, actor, onClose, onChanged }: {
+  vehiculos: VehiculoMaquina[]; actor: string; onClose: () => void; onChanged: () => Promise<void>;
+}) {
+  const [nombre, setNombre] = useState('');
+  const [descripcion, setDescripcion] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [editando, setEditando] = useState<{ id: string; nombre: string; descripcion: string } | null>(null);
+
+  async function crear() {
+    setOkMsg(null);
+    if (!nombre.trim()) { setError('Escribí el nombre del vehículo o máquina (ej.: Camión 350, Retroexcavadora).'); return; }
+    setError(null);
+    setBusy(true);
+    try {
+      await crearVehiculo({ nombre, descripcion, actorEmail: actor });
+      const msg = `"${nombre.trim()}" registrado.`;
+      toast(msg, 'success');
+      setOkMsg(msg);
+      setNombre(''); setDescripcion('');
+      await onChanged();
+    } catch (e) {
+      const m = e instanceof Error ? e.message : 'No se pudo registrar.';
+      setError(m); toast(m, 'error');
+    } finally { setBusy(false); }
+  }
+  async function guardarEdicion() {
+    if (!editando) return;
+    if (!editando.nombre.trim()) { toast('Indicá el nombre', 'error'); return; }
+    setBusy(true);
+    try {
+      await actualizarVehiculo(editando.id, { nombre: editando.nombre, descripcion: editando.descripcion });
+      setEditando(null);
+      await onChanged();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+    finally { setBusy(false); }
+  }
+  async function toggleEstado(v: VehiculoMaquina) {
+    try { await setEstadoVehiculo(v.id, v.estado === 'activo' ? 'inactivo' : 'activo'); await onChanged(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
+  }
+  async function borrar(v: VehiculoMaquina) {
+    try { await eliminarVehiculo(v.id); await onChanged(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  }
+
+  return (
+    <Modal title="Vehículos / Máquinas" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div className="card-title"><span>Nuevo vehículo / máquina</span></div>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', margin: '0 0 .75rem' }}><strong>No se pudo registrar:</strong> {error}</div>}
+        {okMsg && <div className="card" style={{ borderColor: 'var(--success, var(--primary))', margin: '0 0 .75rem' }}>✅ {okMsg}</div>}
+        <div className="form-grid">
+          <div className="form-row"><label>Nombre *</label><input className="input" value={nombre} onChange={(e) => { setNombre(e.target.value); if (error) setError(null); }} placeholder="Camión 350, Retroexcavadora, Planta eléctrica…" autoFocus /></div>
+          <div className="form-row"><label>Descripción (opcional)</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Placa, modelo, área…" /></div>
+        </div>
+        <small className="muted" style={{ display: 'block', margin: '0 0 .6rem' }}>Aparecerá en la lista "A dónde va ese combustible" al crear una solicitud de salida.</small>
+        <button className="btn btn-primary btn-sm" onClick={crear} disabled={busy}>+ Registrar</button>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead><tr><th>Vehículo / Máquina</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            {!vehiculos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin vehículos / máquinas.</td></tr>}
+            {vehiculos.map((v) => (
+              <tr key={v.id}>
+                <td>🚜 {v.nombre}</td>
+                <td className="muted">{v.descripcion || '—'}</td>
+                <td>{v.estado === 'activo' ? '🟢 Activo' : '⚪ Inactivo'}</td>
+                <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setEditando({ id: v.id, nombre: v.nombre, descripcion: v.descripcion ?? '' })}>✎</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => toggleEstado(v)}>{v.estado === 'activo' ? 'Deshabilitar' : 'Habilitar'}</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => borrar(v)}>Eliminar</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {editando && (
+        <Modal title="Editar vehículo / máquina" size="md" onClose={() => setEditando(null)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setEditando(null)} disabled={busy}>Cancelar</button>
+            <button className="btn btn-primary" onClick={guardarEdicion} disabled={busy}>Guardar</button>
+          </>
+        }>
+          <div className="form-row">
+            <label>Nombre</label>
+            <input className="input" autoFocus value={editando.nombre} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdicion(); }} placeholder="Camión 350, Retroexcavadora…" />
+          </div>
+          <div className="form-row">
+            <label>Descripción (opcional)</label>
+            <input className="input" value={editando.descripcion} onChange={(e) => setEditando({ ...editando, descripcion: e.target.value })} placeholder="Placa, modelo, área…" />
+          </div>
+        </Modal>
+      )}
+    </Modal>
+  );
+}
+
 function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
   solicitud: SolicitudCombustible; canWrite: boolean; actor: string;
   onClose: () => void; onChanged: () => Promise<void>;
@@ -816,6 +992,225 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
           </div>
         </Modal>
       )}
+    </Modal>
+  );
+}
+
+/* ───────────── Litros pendientes por recepción (puente inter-sistema) ───────────── */
+
+const ESTADO_TRANSFER_COMB: Record<string, { label: string; color: string }> = {
+  enviada: { label: 'En tránsito · esperando confirmación', color: 'var(--warning)' },
+  por_confirmar: { label: 'Por confirmar', color: 'var(--warning)' },
+  recibida: { label: 'Recibida ✓', color: 'var(--success)' },
+  rechazada: { label: 'Rechazada', color: 'var(--danger)' },
+  error: { label: 'Pendiente de entrega ⟳', color: 'var(--danger)' },
+};
+
+// Tarjeta SIEMPRE visible (igual que "Dinero por entrar"): muestra los litros que
+// otro sistema traslada hacia MGG. Al confirmar, los litros entran al tanque elegido
+// (que se refleja en el inventario) y se avisa al origen (ACK).
+function RecepcionCombustibleInterPanel({ transfers, tanques, canWrite, actor, actorName, onChanged }: {
+  transfers: TransferenciaCombustibleInter[]; tanques: Tanque[]; canWrite: boolean;
+  actor: string; actorName: string | null; onChanged: () => void | Promise<void>;
+}) {
+  const [sel, setSel] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const entrantes = transfers.filter((t) => t.direccion === 'entrante' && t.estado === 'por_confirmar');
+  const salientesVivas = transfers.filter((t) => t.direccion === 'saliente' && t.estado !== 'recibida');
+  const tanquesActivos = tanques.filter((t) => t.estado === 'activo');
+  const totalLitros = entrantes.reduce((a, t) => a + (Number(t.litros) || 0), 0);
+
+  // Tanque sugerido por entrante: el que almacena ese combustible, si existe.
+  function tanqueSugerido(t: TransferenciaCombustibleInter): string {
+    const match = tanquesActivos.find((tq) => (tq.combustible_nombre || '').trim().toLowerCase() === t.combustible_nombre.trim().toLowerCase());
+    return sel[t.id] ?? match?.id ?? tanquesActivos[0]?.id ?? '';
+  }
+
+  async function confirmar(t: TransferenciaCombustibleInter) {
+    const tanqueId = tanqueSugerido(t);
+    if (!tanqueId) { toast('Necesitás un tanque activo que reciba los litros.', 'error'); return; }
+    setBusy(t.id);
+    try {
+      await confirmarTransferenciaCombustibleEntrante({ row: t, tanqueId, actor, actorName });
+      notify(`Recepción confirmada · +${num(t.litros)} L de ${t.empresa_origen}`, 'success', { link: '#/app/combustible' });
+      await onChanged();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo confirmar', 'error'); }
+    finally { setBusy(null); }
+  }
+  async function reintentar(t: TransferenciaCombustibleInter) {
+    setBusy(t.id);
+    try { await reintentarTransferenciaCombustible(t); toast('Reintento enviado al otro sistema', 'success'); await onChanged(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'Sigue sin poder entregarse', 'error'); }
+    finally { setBusy(null); }
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: '1.25rem', borderColor: entrantes.length ? 'var(--brand, #ff8a00)' : undefined }}>
+      {/* Cabecera tipo banner (siempre visible) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.9rem', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: '2rem', lineHeight: 1 }}>⛽⬇</div>
+        <div style={{ flex: '1 1 240px' }}>
+          <div style={{ fontWeight: 800, letterSpacing: '.03em' }}>LITROS PENDIENTES POR RECEPCIÓN</div>
+          <div className="muted" style={{ fontSize: '.84rem' }}>
+            {entrantes.length
+              ? `${entrantes.length} ${entrantes.length === 1 ? 'traslado' : 'traslados'} de otro sistema esperando que confirmes la recepción`
+              : 'Sin recepciones pendientes'}
+          </div>
+        </div>
+        {entrantes.length > 0 && (
+          <div className="mono" style={{ fontSize: '1.7rem', fontWeight: 700, color: 'var(--primary-3)' }}>{num(totalLitros)} L</div>
+        )}
+      </div>
+
+      {/* Entrantes por confirmar */}
+      {entrantes.length > 0 && (
+        <div style={{ display: 'grid', gap: '.45rem', marginTop: '.8rem' }}>
+          {entrantes.map((t) => (
+            <div key={t.id} className="card" style={{ margin: 0, padding: '.55rem .7rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem' }}>
+              <div style={{ flex: '1 1 240px', fontSize: '.85rem' }}>
+                <strong>De {t.empresa_origen}</strong> · <span className="mono">{num(t.litros)} L</span> de ⛽ {t.combustible_nombre}
+                {t.motivo ? <span className="muted"> · {t.motivo}</span> : null}
+                <div className="muted" style={{ fontSize: '.72rem' }}>{dateTime(t.created_at)}</div>
+              </div>
+              <select className="select" value={tanqueSugerido(t)} onChange={(e) => setSel((m) => ({ ...m, [t.id]: e.target.value }))} style={{ maxWidth: 220 }}>
+                {!tanquesActivos.length && <option value="">— sin tanques activos —</option>}
+                {tanquesActivos.map((tq) => <option key={tq.id} value={tq.id}>🛢 {tq.nombre} · {num(tq.litros)}/{num(tq.capacidad_litros)} L</option>)}
+              </select>
+              {canWrite && (
+                <button className="btn btn-sm btn-primary" disabled={busy === t.id || !tanquesActivos.length} onClick={() => confirmar(t)}>
+                  {busy === t.id ? 'Confirmando…' : '✓ Confirmar recepción'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Salientes (litros que MGG envió a otro sistema) en tránsito / con error */}
+      {salientesVivas.length > 0 && (
+        <div style={{ marginTop: '.8rem' }}>
+          <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.35rem' }}>Salientes (litros enviados a otro sistema)</div>
+          <div style={{ display: 'grid', gap: '.4rem' }}>
+            {salientesVivas.map((t) => {
+              const est = ESTADO_TRANSFER_COMB[t.estado] ?? { label: t.estado, color: 'var(--muted)' };
+              return (
+                <div key={t.id} className="card" style={{ margin: 0, padding: '.5rem .7rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem' }}>
+                  <div style={{ flex: '1 1 240px', fontSize: '.84rem' }}>
+                    <strong>→ {t.empresa_destino}</strong> · <span className="mono">{num(t.litros)} L</span> de ⛽ {t.combustible_nombre}
+                    <div style={{ fontSize: '.72rem', color: est.color }}>{est.label}{t.mensaje_error ? ` · ${t.mensaje_error}` : ''}</div>
+                  </div>
+                  {canWrite && t.estado === 'error' && (
+                    <button className="btn btn-sm btn-ghost" disabled={busy === t.id} onClick={() => reintentar(t)}>
+                      {busy === t.id ? 'Reintentando…' : '⟳ Reintentar'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── Modal: trasladar litros a otro sistema (saliente) ───────────── */
+function TrasladoInterModal({ combustibles, tanques, actor, actorName, onClose, onSaved }: {
+  combustibles: Combustible[]; tanques: Tanque[]; actor: string; actorName: string | null;
+  onClose: () => void; onSaved: () => void;
+}) {
+  const tanquesActivos = tanques.filter((t) => t.estado === 'activo');
+  const [combustibleId, setCombustibleId] = useState(combustibles[0]?.id ?? '');
+  // Tanques del combustible elegido (o sin combustible asignado).
+  const tanquesElegibles = tanquesActivos.filter((t) => !t.combustible_id || t.combustible_id === combustibleId);
+  const [tanqueId, setTanqueId] = useState(tanquesElegibles[0]?.id ?? '');
+  const [litros, setLitros] = useState('');
+  const [empresaDestino, setEmpresaDestino] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const comb = combustibles.find((c) => c.id === combustibleId) ?? null;
+  const tanque = tanquesActivos.find((t) => t.id === tanqueId) ?? null;
+  const litrosNum = Number(litros) || 0;
+
+  // Al cambiar de combustible, re-sugerimos un tanque elegible.
+  useEffect(() => {
+    const elegibles = tanquesActivos.filter((t) => !t.combustible_id || t.combustible_id === combustibleId);
+    setTanqueId((prev) => (elegibles.some((t) => t.id === prev) ? prev : elegibles[0]?.id ?? ''));
+  }, [combustibleId]);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!combustibleId) { setError('Elegí el combustible.'); return; }
+    if (!tanqueId) { setError('Elegí el tanque del que salen los litros.'); return; }
+    if (litrosNum <= 0) { setError('Indicá los litros a trasladar.'); return; }
+    if (tanque && litrosNum > Number(tanque.litros)) { setError(`El tanque "${tanque.nombre}" solo tiene ${num(tanque.litros)} L.`); return; }
+    if (!empresaDestino.trim()) { setError('Indicá el sistema destino.'); return; }
+    setSaving(true);
+    try {
+      await crearTransferenciaCombustibleSaliente({
+        empresaDestino: empresaDestino.trim(),
+        combustibleId, combustibleNombre: comb?.nombre ?? '',
+        tanqueId, tanqueNombre: tanque?.nombre ?? null, almacen: comb?.home_almacen ?? null,
+        litros: litrosNum, costoLitro: comb?.costo_litro ?? null,
+        motivo: motivo.trim() || 'Traslado inter-sistema', actor, actorName,
+      });
+      notify(`Traslado enviado · ${num(litrosNum)} L → ${empresaDestino.trim()}`, 'success', { link: '#/app/combustible' });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo trasladar.');
+    } finally { setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="cmb-tras-inter" className="btn btn-primary" disabled={saving}>{saving ? 'Enviando…' : 'Trasladar litros'}</button>
+    </>
+  );
+  return (
+    <Modal title="Trasladar combustible a otro sistema" size="lg" onClose={onClose} footer={footer}>
+      <form id="cmb-tras-inter" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        <p className="muted" style={{ margin: '0 0 .75rem', fontSize: '.84rem' }}>
+          Los litros se descuentan del tanque y del inventario de MGG, y se envían al otro sistema. Allá quedan "por confirmar" hasta que su operador acepte la recepción.
+        </p>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Combustible</label>
+            <select className="select" value={combustibleId} onChange={(e) => setCombustibleId(e.target.value)}>
+              {!combustibles.length && <option value="">— sin combustibles —</option>}
+              {combustibles.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {num(c.litros)} L disp.</option>)}
+            </select>
+          </div>
+          <div className="form-row">
+            <label>Tanque de origen</label>
+            <select className="select" value={tanqueId} onChange={(e) => setTanqueId(e.target.value)}>
+              {!tanquesElegibles.length && <option value="">— sin tanques —</option>}
+              {tanquesElegibles.map((t) => <option key={t.id} value={t.id}>🛢 {t.nombre} · {num(t.litros)}/{num(t.capacidad_litros)} L</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Litros a trasladar</label>
+            <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required />
+            {tanque && <small className="muted">Disponible en el tanque: <strong className="mono">{num(tanque.litros)} L</strong></small>}
+          </div>
+          <div className="form-row">
+            <label>Sistema destino</label>
+            <input className="input" value={empresaDestino} onChange={(e) => setEmpresaDestino(e.target.value)} placeholder="Ej.: peramanal" required />
+            <small className="muted">Código/nombre del sistema que recibe (centro de acopio externo).</small>
+          </div>
+        </div>
+        <div className="form-row">
+          <label>Motivo / detalle (opcional)</label>
+          <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Referencia del traslado" />
+        </div>
+      </form>
     </Modal>
   );
 }
