@@ -189,10 +189,9 @@ export function TesoreriaPage() {
       {vista === 'tesoreria' && (
       <>
           {/* Disponibilidad financiera */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
             <DispCard titulo="Disponible en USD" valor={monto(disp?.usd ?? 0, 'USD')} />
             <DispCard titulo="Disponible en USDT" valor={monto(disp?.usdt ?? 0, 'USDT')} />
-            <DispCard titulo="Equivalente en Bs" valor={monto(disp?.usdEnBs ?? 0, 'Bs')} nota={disp?.tasaUsd != null ? `USD + USDT × tasa ${monto(disp.tasaUsd, 'Bs')}` : 'sin tasa del día'} />
             <DispCard titulo="Total en Bs" valor={monto(disp?.bs ?? 0, 'Bs')} nota="solo lo ingresado en la cuenta Bs" destacado />
           </div>
 
