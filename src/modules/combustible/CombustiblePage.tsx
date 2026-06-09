@@ -38,7 +38,6 @@ import {
   listTransferenciasCombustible,
   confirmarTransferenciaCombustibleEntrante,
   reintentarTransferenciaCombustible,
-  crearTransferenciaCombustibleSaliente,
 } from './transferenciasCombustibleInter.repository';
 
 type Vista = 'kanban' | 'lista';
@@ -155,7 +154,7 @@ export function CombustiblePage() {
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
-  const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar' | 'consumo' | 'tanque' | 'vehiculos' | 'traslado-inter'>('none');
+  const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar' | 'consumo' | 'tanque' | 'vehiculos'>('none');
   const [detalle, setDetalle] = useState<SolicitudCombustible | null>(null);
   const [tanqueEdit, setTanqueEdit] = useState<Tanque | null>(null);
 
@@ -212,7 +211,6 @@ export function CombustiblePage() {
               <button className={activos.length ? 'btn btn-ghost' : 'btn btn-primary'} onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
               <button className="btn btn-ghost" onClick={() => setModal('tanque')}>🛢 Agregar Tanque</button>
               <button className="btn btn-ghost" onClick={() => setModal('vehiculos')}>🚜 Vehículos / Máquinas</button>
-              <button className="btn btn-ghost" onClick={() => setModal('traslado-inter')} disabled={!tanques.some((t) => t.estado === 'activo')} title={!tanques.some((t) => t.estado === 'activo') ? 'Necesitás un tanque activo' : 'Trasladar litros a otro sistema'}>🔁 Trasladar a otro sistema</button>
               <button className="btn btn-ghost" onClick={() => setModal('ingreso')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>⬇ Registrar ingreso</button>
               <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>+ Nueva solicitud de salida</button>
             </>
@@ -349,10 +347,6 @@ export function CombustiblePage() {
       {modal === 'vehiculos' && (
         <VehiculosModal vehiculos={vehiculos} actor={actor}
           onClose={() => setModal('none')} onChanged={reload} />
-      )}
-      {modal === 'traslado-inter' && (
-        <TrasladoInterModal combustibles={activos} tanques={tanques} actor={actor} actorName={miNombre}
-          onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'ingreso' && (
         <IngresoModal combustibles={activos} almacenes={almacenes} tanques={tanques} actor={actor}
@@ -1115,102 +1109,3 @@ function RecepcionCombustibleInterPanel({ transfers, tanques, canWrite, actor, a
   );
 }
 
-/* ───────────── Modal: trasladar litros a otro sistema (saliente) ───────────── */
-function TrasladoInterModal({ combustibles, tanques, actor, actorName, onClose, onSaved }: {
-  combustibles: Combustible[]; tanques: Tanque[]; actor: string; actorName: string | null;
-  onClose: () => void; onSaved: () => void;
-}) {
-  const tanquesActivos = tanques.filter((t) => t.estado === 'activo');
-  const [combustibleId, setCombustibleId] = useState(combustibles[0]?.id ?? '');
-  // Tanques del combustible elegido (o sin combustible asignado).
-  const tanquesElegibles = tanquesActivos.filter((t) => !t.combustible_id || t.combustible_id === combustibleId);
-  const [tanqueId, setTanqueId] = useState(tanquesElegibles[0]?.id ?? '');
-  const [litros, setLitros] = useState('');
-  const [empresaDestino, setEmpresaDestino] = useState('');
-  const [motivo, setMotivo] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const comb = combustibles.find((c) => c.id === combustibleId) ?? null;
-  const tanque = tanquesActivos.find((t) => t.id === tanqueId) ?? null;
-  const litrosNum = Number(litros) || 0;
-
-  // Al cambiar de combustible, re-sugerimos un tanque elegible.
-  useEffect(() => {
-    const elegibles = tanquesActivos.filter((t) => !t.combustible_id || t.combustible_id === combustibleId);
-    setTanqueId((prev) => (elegibles.some((t) => t.id === prev) ? prev : elegibles[0]?.id ?? ''));
-  }, [combustibleId]);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (!combustibleId) { setError('Elegí el combustible.'); return; }
-    if (!tanqueId) { setError('Elegí el tanque del que salen los litros.'); return; }
-    if (litrosNum <= 0) { setError('Indicá los litros a trasladar.'); return; }
-    if (tanque && litrosNum > Number(tanque.litros)) { setError(`El tanque "${tanque.nombre}" solo tiene ${num(tanque.litros)} L.`); return; }
-    if (!empresaDestino.trim()) { setError('Indicá el sistema destino.'); return; }
-    setSaving(true);
-    try {
-      await crearTransferenciaCombustibleSaliente({
-        empresaDestino: empresaDestino.trim(),
-        combustibleId, combustibleNombre: comb?.nombre ?? '',
-        tanqueId, tanqueNombre: tanque?.nombre ?? null, almacen: comb?.home_almacen ?? null,
-        litros: litrosNum, costoLitro: comb?.costo_litro ?? null,
-        motivo: motivo.trim() || 'Traslado inter-sistema', actor, actorName,
-      });
-      notify(`Traslado enviado · ${num(litrosNum)} L → ${empresaDestino.trim()}`, 'success', { link: '#/app/combustible' });
-      onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo trasladar.');
-    } finally { setSaving(false); }
-  }
-
-  const footer = (
-    <>
-      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cmb-tras-inter" className="btn btn-primary" disabled={saving}>{saving ? 'Enviando…' : 'Trasladar litros'}</button>
-    </>
-  );
-  return (
-    <Modal title="Trasladar combustible a otro sistema" size="lg" onClose={onClose} footer={footer}>
-      <form id="cmb-tras-inter" onSubmit={submit}>
-        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-        <p className="muted" style={{ margin: '0 0 .75rem', fontSize: '.84rem' }}>
-          Los litros se descuentan del tanque y del inventario de MGG, y se envían al otro sistema. Allá quedan "por confirmar" hasta que su operador acepte la recepción.
-        </p>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Combustible</label>
-            <select className="select" value={combustibleId} onChange={(e) => setCombustibleId(e.target.value)}>
-              {!combustibles.length && <option value="">— sin combustibles —</option>}
-              {combustibles.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {num(c.litros)} L disp.</option>)}
-            </select>
-          </div>
-          <div className="form-row">
-            <label>Tanque de origen</label>
-            <select className="select" value={tanqueId} onChange={(e) => setTanqueId(e.target.value)}>
-              {!tanquesElegibles.length && <option value="">— sin tanques —</option>}
-              {tanquesElegibles.map((t) => <option key={t.id} value={t.id}>🛢 {t.nombre} · {num(t.litros)}/{num(t.capacidad_litros)} L</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Litros a trasladar</label>
-            <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required />
-            {tanque && <small className="muted">Disponible en el tanque: <strong className="mono">{num(tanque.litros)} L</strong></small>}
-          </div>
-          <div className="form-row">
-            <label>Sistema destino</label>
-            <input className="input" value={empresaDestino} onChange={(e) => setEmpresaDestino(e.target.value)} placeholder="Ej.: peramanal" required />
-            <small className="muted">Código/nombre del sistema que recibe (centro de acopio externo).</small>
-          </div>
-        </div>
-        <div className="form-row">
-          <label>Motivo / detalle (opcional)</label>
-          <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Referencia del traslado" />
-        </div>
-      </form>
-    </Modal>
-  );
-}
