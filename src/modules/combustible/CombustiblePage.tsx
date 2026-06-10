@@ -127,10 +127,12 @@ function DestinoCombustibleSelect({ value, onChange, almacenes, vehiculos, label
         </select>
       ) : (
         <>
-          <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
-            <option value="">— elegí el vehículo / máquina —</option>
-            {activos.map((v) => <option key={v.id} value={v.nombre}>🚜 {v.nombre}{v.descripcion ? ` · ${v.descripcion}` : ''}</option>)}
-          </select>
+          {/* Buscador: escribí parte del nombre y elegí de la lista filtrada. */}
+          <input className="input" list="cmb-veh-list" value={value} onChange={(e) => onChange(e.target.value)}
+            placeholder="🔎 Buscá el vehículo / máquina…" autoComplete="off" />
+          <datalist id="cmb-veh-list">
+            {activos.map((v) => <option key={v.id} value={v.nombre}>{v.descripcion ? `🚜 ${v.descripcion}` : '🚜'}</option>)}
+          </datalist>
           {!activos.length && <small className="muted">No hay vehículos / máquinas registrados. Agregalos con "🚜 Vehículos / Máquinas".</small>}
         </>
       )}
@@ -781,6 +783,12 @@ function VehiculosModal({ vehiculos, actor, onClose, onChanged }: {
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [editando, setEditando] = useState<{ id: string; nombre: string; descripcion: string } | null>(null);
+  const [busqueda, setBusqueda] = useState('');
+
+  // Búsqueda tolerante (sin acentos / mayúsculas) sobre nombre y descripción.
+  const norm = (s: string | null | undefined) => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const q = norm(busqueda);
+  const filtrados = q ? vehiculos.filter((v) => norm(v.nombre).includes(q) || norm(v.descripcion).includes(q)) : vehiculos;
 
   async function crear() {
     setOkMsg(null);
@@ -832,12 +840,17 @@ function VehiculosModal({ vehiculos, actor, onClose, onChanged }: {
         <small className="muted" style={{ display: 'block', margin: '0 0 .6rem' }}>Aparecerá en la lista "A dónde va ese combustible" al crear una solicitud de salida.</small>
         <button className="btn btn-primary btn-sm" onClick={crear} disabled={busy}>+ Registrar</button>
       </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: '0 0 .6rem' }}>
+        <input className="input" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="🔎 Buscar vehículo / máquina…" style={{ flex: 1 }} />
+        <span className="muted" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{filtrados.length} de {vehiculos.length}</span>
+      </div>
       <div className="table-wrap">
         <table className="table">
           <thead><tr><th>Vehículo / Máquina</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
           <tbody>
             {!vehiculos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin vehículos / máquinas.</td></tr>}
-            {vehiculos.map((v) => (
+            {!!vehiculos.length && !filtrados.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin resultados para "{busqueda}".</td></tr>}
+            {filtrados.map((v) => (
               <tr key={v.id}>
                 <td>🚜 {v.nombre}</td>
                 <td className="muted">{v.descripcion || '—'}</td>
