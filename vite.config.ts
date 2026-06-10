@@ -1,10 +1,35 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
+
+// Identificador de versión del build = hash corto del commit de main desplegado.
+// Se hornea en el cliente (import.meta.env.VITE_APP_VERSION) y se emite en
+// `version.json`. El cliente compara ambos para detectar un despliegue real.
+function appVersion(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return `b${Date.now()}`; // fallback si no hay git disponible en el build
+  }
+}
+const APP_VERSION = appVersion();
+
+// Plugin que escribe dist/version.json al construir (lo sirve nginx).
+const versionJsonPlugin = {
+  name: 'mgg-version-json',
+  generateBundle() {
+    // @ts-expect-error this.emitFile existe en el contexto de Rollup
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: APP_VERSION }) });
+  },
+};
 
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? (process.env.VITE_BASE_PATH ?? '/proyecto/') : '/',
-  plugins: [react()],
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(APP_VERSION),
+  },
+  plugins: [react(), versionJsonPlugin],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
