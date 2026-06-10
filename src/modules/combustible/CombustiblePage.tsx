@@ -98,6 +98,60 @@ function OrigenSelect({ tanques, almacenes, combustibleId, value, onChange, labe
   );
 }
 
+/* ───────────── Combo buscador estilizado (input + lista filtrada con el tema) ─────────────
+   Reemplaza al <datalist> nativo (que el navegador no deja estilizar): muestra
+   una lista propia, filtrada en vivo, con hover/scroll y los colores del sistema. */
+function ComboBuscador({ value, onChange, opciones, placeholder, icono }: {
+  value: string; onChange: (v: string) => void;
+  opciones: { value: string; label: string; sub?: string | null }[];
+  placeholder: string; icono?: string;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [hover, setHover] = useState<string | null>(null);
+  const norm = (s: string | null | undefined) => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const q = norm(value);
+  const filtradas = (q ? opciones.filter((o) => norm(o.label).includes(q) || norm(o.sub).includes(q)) : opciones).slice(0, 60);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        className="input"
+        value={value}
+        placeholder={placeholder}
+        autoComplete="off"
+        onChange={(e) => { onChange(e.target.value); setAbierto(true); }}
+        onFocus={() => setAbierto(true)}
+        onBlur={() => window.setTimeout(() => setAbierto(false), 150)}
+      />
+      {abierto && filtradas.length > 0 && (
+        <div style={{
+          position: 'absolute', zIndex: 60, top: 'calc(100% + 4px)', left: 0, right: 0,
+          maxHeight: 260, overflowY: 'auto',
+          background: 'var(--card, #161d2b)', border: '1px solid var(--border)', borderRadius: 10,
+          boxShadow: '0 10px 28px rgba(0,0,0,.45)',
+        }}>
+          {filtradas.map((o) => (
+            <button
+              type="button"
+              key={o.value}
+              onMouseEnter={() => setHover(o.value)}
+              onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setAbierto(false); }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left', padding: '.5rem .7rem',
+                background: hover === o.value ? 'var(--primary-2, rgba(255,138,0,.16))' : 'transparent',
+                border: 'none', borderBottom: '1px solid var(--border)', color: 'var(--text, #e6edf3)', cursor: 'pointer',
+              }}
+            >
+              <div style={{ fontSize: '.86rem', fontWeight: value === o.value ? 700 : 400 }}>{icono ? `${icono} ` : ''}{o.label}</div>
+              {o.sub && <div className="muted" style={{ fontSize: '.72rem' }}>{o.sub}</div>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ───────────── Destino de la salida: Almacén o Vehículo / Máquina ───────────── */
 // Reemplaza al "Persona" genérico: aquí el combustible se entrega a un vehículo o
 // máquina registrado (o a un almacén). La lista de vehículos se administra desde
@@ -120,19 +174,18 @@ function DestinoCombustibleSelect({ value, onChange, almacenes, vehiculos, label
         <button type="button" className={modo === 'vehiculo' ? 'active' : ''} onClick={() => cambiarModo('vehiculo')}>🚜 Vehículo / Máquina</button>
       </div>
 
+      {/* Ambos modos con buscador estilizado (lista filtrada con el tema). */}
       {modo === 'almacen' ? (
-        <select className="select" value={opcionesAlmacen.includes(value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
-          <option value="">— elegí el almacén —</option>
-          {opcionesAlmacen.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
+        <ComboBuscador
+          value={value} onChange={onChange} placeholder="🔎 Buscá el almacén…" icono="▣"
+          opciones={opcionesAlmacen.map((a) => ({ value: a, label: a }))}
+        />
       ) : (
         <>
-          {/* Buscador: escribí parte del nombre y elegí de la lista filtrada. */}
-          <input className="input" list="cmb-veh-list" value={value} onChange={(e) => onChange(e.target.value)}
-            placeholder="🔎 Buscá el vehículo / máquina…" autoComplete="off" />
-          <datalist id="cmb-veh-list">
-            {activos.map((v) => <option key={v.id} value={v.nombre}>{v.descripcion ? `🚜 ${v.descripcion}` : '🚜'}</option>)}
-          </datalist>
+          <ComboBuscador
+            value={value} onChange={onChange} placeholder="🔎 Buscá el vehículo / máquina…" icono="🚜"
+            opciones={activos.map((v) => ({ value: v.nombre, label: v.nombre, sub: v.descripcion }))}
+          />
           {!activos.length && <small className="muted">No hay vehículos / máquinas registrados. Agregalos con "🚜 Vehículos / Máquinas".</small>}
         </>
       )}
