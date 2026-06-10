@@ -364,7 +364,7 @@ create policy "transf comb write auth" on public.transferencias_combustible_inte
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','transferencias_combustible_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','combustible_vehiculos','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','transferencias_combustible_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','combustible_vehiculos','combustible_planta_movimientos','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
@@ -473,6 +473,17 @@ alter table public.combustible_tanques enable row level security;
 create policy "tanques read auth"      on public.combustible_tanques for select using (auth.role()='authenticated');
 create policy "tanques write operativo" on public.combustible_tanques for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Tanque: tasa editable, nota de cubicación y geometría para calcular litros según
+-- el nivel medido con varilla. Forma 'cilindro' (Ø + largo) o 'rectangular' (largo
+-- en longitud_cm + ancho + altura). litros = V(nivel) según la forma.
+alter table public.combustible_tanques add column if not exists tasa        numeric default 0.50;
+alter table public.combustible_tanques add column if not exists cubicacion  text;
+alter table public.combustible_tanques add column if not exists forma       text default 'cilindro';
+alter table public.combustible_tanques add column if not exists diametro_cm numeric;
+alter table public.combustible_tanques add column if not exists longitud_cm numeric;
+alter table public.combustible_tanques add column if not exists ancho_cm    numeric;
+alter table public.combustible_tanques add column if not exists altura_cm   numeric;
+
 -- La solicitud de combustible puede salir de un TANQUE registrado (además del
 -- almacén de inventario): al finalizar descuenta del tanque y del inventario.
 alter table public.combustible_solicitudes add column if not exists tanque_id     uuid references public.combustible_tanques(id) on delete set null;
@@ -492,6 +503,31 @@ create table if not exists public.combustible_vehiculos (
 alter table public.combustible_vehiculos enable row level security;
 create policy "vehiculos read auth"      on public.combustible_vehiculos for select using (auth.role()='authenticated');
 create policy "vehiculos write operativo" on public.combustible_vehiculos for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Planta Eléctrica: movimientos de consumo por horómetro, atados a un tanque.
+-- HRS = horómetro_final − horómetro_inicial · litros = HRS × litros_por_hora (12 por defecto).
+-- Al registrar descuenta del tanque (y del inventario si el tanque tiene combustible).
+create table if not exists public.combustible_planta_movimientos (
+  id                uuid primary key default gen_random_uuid(),
+  planta            text,
+  tanque_id         uuid references public.combustible_tanques(id) on delete set null,
+  tanque_nombre     text,
+  fecha             timestamptz not null default now(),
+  horometro_inicial numeric not null,
+  horometro_final   numeric not null,
+  horas             numeric not null,
+  litros_por_hora   numeric not null default 12,
+  tasa              numeric,
+  litros_consumidos numeric not null,
+  litros_acumulados numeric,
+  nota              text,
+  actor             text, actor_name text,
+  created_at        timestamptz not null default now()
+);
+create index if not exists idx_planta_mov_tanque on public.combustible_planta_movimientos(tanque_id);
+alter table public.combustible_planta_movimientos enable row level security;
+create policy "planta read auth"      on public.combustible_planta_movimientos for select using (auth.role()='authenticated');
+create policy "planta write operativo" on public.combustible_planta_movimientos for all using (public.is_operativo()) with check (public.is_operativo());
 
 -- Solicitudes de salida/traslado (material y dinero) con flujo de aprobación.
 -- El obrero crea (por_aprobar); admin/analista aprueba y ejecuta (gate en el front).
