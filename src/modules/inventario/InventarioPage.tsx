@@ -11,14 +11,19 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Almacen, Existencia, Orden, Producto } from '@/shared/lib/types';
 import {
   addCategoria,
+  addUnidad,
   contarProductosPorCategoria,
+  contarProductosPorUnidad,
   createProducto,
   eliminarCategoria,
+  eliminarUnidad,
   findBySku,
   getCategorias,
+  getUnidadesRaw,
   listProductos,
   listRecepcionesPendientes,
   renombrarCategoria,
+  renombrarUnidad,
   setEstadoProducto,
   updateProducto,
   type ProductoInput,
@@ -133,10 +138,14 @@ export function InventarioPage() {
   const [importing, setImporting] = useState(false);
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
   const [conteoCats, setConteoCats] = useState<Record<string, number>>({});
+  const [unidadesGestion, setUnidadesGestion] = useState<string[]>([]);
+  const [conteoMedidas, setConteoMedidas] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!gestionCatsOpen) return;
     contarProductosPorCategoria().then(setConteoCats).catch(() => setConteoCats({}));
+    contarProductosPorUnidad().then(setConteoMedidas).catch(() => setConteoMedidas({}));
+    getUnidadesRaw(productos).then(setUnidadesGestion).catch(() => setUnidadesGestion([]));
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
@@ -446,7 +455,7 @@ export function InventarioPage() {
             <button
               className="btn btn-ghost"
               onClick={() => setGestionCatsOpen(true)}
-              title="Renombrar / depurar categorías de inventario"
+              title="Gestionar categorías y medidas (renombrar, depurar, eliminar)"
             >
               ⚙ Categorías
             </button>
@@ -772,21 +781,42 @@ export function InventarioPage() {
 
       {gestionCatsOpen && (
         <GestionarCategoriasModal
-          titulo="Categorías de inventario"
-          categorias={categorias}
-          conteoUso={conteoCats}
-          entidadLabel="producto"
-          onRenombrar={(o, n) => renombrarCategoria(o, n, productoActor)}
-          onEliminar={(n) => eliminarCategoria(n)}
-          onAgregar={(n) => addCategoria(n, productoActor)}
-          onCambioAplicado={async () => {
-            await reload();
-            const cs = await getCategorias(productos);
-            setCategorias(cs);
-            const c = await contarProductosPorCategoria();
-            setConteoCats(c);
-          }}
+          titulo="Categorías y medidas de inventario"
           onClose={() => setGestionCatsOpen(false)}
+          modos={[
+            {
+              key: 'categorias',
+              label: 'Categorías',
+              categorias,
+              conteoUso: conteoCats,
+              entidadLabel: 'producto',
+              terminoSingular: 'categoría',
+              onRenombrar: (o, n) => renombrarCategoria(o, n, productoActor),
+              onEliminar: (n) => eliminarCategoria(n),
+              onAgregar: (n) => addCategoria(n, productoActor),
+              onCambioAplicado: async () => {
+                await reload();
+                setCategorias(await getCategorias(productos));
+                setConteoCats(await contarProductosPorCategoria());
+              },
+            },
+            {
+              key: 'medidas',
+              label: 'Medidas',
+              categorias: unidadesGestion,
+              conteoUso: conteoMedidas,
+              entidadLabel: 'producto',
+              terminoSingular: 'medida',
+              onRenombrar: (o, n) => renombrarUnidad(o, n, productoActor),
+              onEliminar: (n) => eliminarUnidad(n),
+              onAgregar: (n) => addUnidad(n, productoActor),
+              onCambioAplicado: async () => {
+                await reload();
+                setUnidadesGestion(await getUnidadesRaw(productos));
+                setConteoMedidas(await contarProductosPorUnidad());
+              },
+            },
+          ]}
         />
       )}
     </div>

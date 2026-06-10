@@ -11,6 +11,19 @@ export type Scope =
 
 const cache = new Map<Scope, Promise<string[]>>();
 
+/**
+ * Clave normalizada para comparar valores ignorando mayúsculas/minúsculas,
+ * espacios sobrantes y puntos finales. Así "kg", "Kg." y "KG" son el mismo valor.
+ */
+export function claveTaxonomia(s: string): string {
+  return (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
+}
+
+/** ¿Dos valores son el mismo ignorando mayúsculas/puntos? */
+export function mismaTaxonomia(a: string, b: string): boolean {
+  return claveTaxonomia(a) === claveTaxonomia(b);
+}
+
 async function fetchScope(scope: Scope): Promise<string[]> {
   const { data, error } = await supabase
     .from('taxonomias')
@@ -36,6 +49,13 @@ export async function listTaxonomia(scope: Scope): Promise<string[]> {
 export async function addTaxonomia(scope: Scope, valor: string, actorEmail?: string): Promise<string | null> {
   const clean = valor.trim();
   if (!clean) return null;
+  // Validación case-insensitive: si ya existe una variante (kg vs Kg.), devolvemos esa
+  // en vez de crear un duplicado.
+  try {
+    const existentes = await listTaxonomia(scope);
+    const ya = existentes.find((v) => mismaTaxonomia(v, clean));
+    if (ya) return ya;
+  } catch { /* sin cache disponible: seguimos al insert (la UNIQUE evita exactos) */ }
   const { error } = await supabase.from('taxonomias').insert({
     scope,
     valor: clean,
