@@ -648,7 +648,9 @@ create table if not exists public.tasa_cambio (
 create index if not exists tasa_cambio_fecha_idx on public.tasa_cambio (fecha desc);
 alter table public.tasa_cambio enable row level security;
 create policy tasa_cambio_read on public.tasa_cambio for select to authenticated using (true);
-create policy tasa_cambio_write on public.tasa_cambio for all to authenticated using (public.is_admin()) with check (public.is_admin());
+-- Escritura para cualquier usuario registrado (el acceso al módulo de Tesorería lo
+-- gobierna la matriz del front; antes era is_admin() y bloqueaba a analistas).
+create policy tasa_cambio_write on public.tasa_cambio for all to authenticated using (public.is_operativo()) with check (public.is_operativo());
 
 -- ─────────────────────────────────────────────────────────────
 -- 8.1 Tesorería multimoneda (Fase 0) — cajas con varias monedas,
@@ -1252,6 +1254,14 @@ begin
     execute format('create policy "%I write operativo" on public.%I for all using (public.is_operativo()) with check (public.is_operativo())', t, t);
   end loop;
 end$$;
+
+-- facturas: el módulo de facturación lo usan analistas/tesorería, no solo el
+-- admin. Escritura para cualquier usuario registrado (la matriz del front decide
+-- quién ve el módulo); antes era is_admin() y bloqueaba a usuarios con permiso.
+drop policy if exists "facturas write admin"     on public.facturas;
+drop policy if exists "facturas write operativo" on public.facturas;
+create policy "facturas write operativo" on public.facturas for all
+  using (public.is_operativo()) with check (public.is_operativo());
 
 -- productos: además de la escritura operativa, permitimos que cualquier
 -- autenticado INSERTE un producto (alta rápida de "producto nuevo" desde una
