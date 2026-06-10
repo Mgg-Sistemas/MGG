@@ -9,6 +9,7 @@ import type {
   Combustible,
   EventoHistorial,
   MovimientoCombustible,
+  PlantaMovimiento,
   SolicitudCombustible,
   Tanque,
   VehiculoMaquina,
@@ -406,6 +407,13 @@ export async function crearTanque(input: {
   capacidadLitros: number;
   litrosIniciales?: number;
   ubicacion?: string | null;
+  tasa?: number | null;
+  cubicacion?: string | null;
+  forma?: 'cilindro' | 'rectangular' | null;
+  diametroCm?: number | null;
+  longitudCm?: number | null;
+  anchoCm?: number | null;
+  alturaCm?: number | null;
   actorEmail?: string | null;
 }): Promise<Tanque> {
   const nombre = input.nombre.trim();
@@ -423,6 +431,13 @@ export async function crearTanque(input: {
       capacidad_litros: capacidad,
       litros,
       ubicacion: input.ubicacion?.trim() || null,
+      tasa: input.tasa ?? null,
+      cubicacion: input.cubicacion?.trim() || null,
+      forma: input.forma ?? 'cilindro',
+      diametro_cm: input.diametroCm ?? null,
+      longitud_cm: input.longitudCm ?? null,
+      ancho_cm: input.anchoCm ?? null,
+      altura_cm: input.alturaCm ?? null,
       created_by: input.actorEmail ?? null,
     })
     .select('*')
@@ -437,6 +452,13 @@ export async function actualizarTanque(id: string, input: {
   capacidadLitros?: number;
   litros?: number;
   ubicacion?: string | null;
+  tasa?: number | null;
+  cubicacion?: string | null;
+  forma?: 'cilindro' | 'rectangular' | null;
+  diametroCm?: number | null;
+  longitudCm?: number | null;
+  anchoCm?: number | null;
+  alturaCm?: number | null;
 }): Promise<void> {
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.nombre !== undefined) {
@@ -448,6 +470,13 @@ export async function actualizarTanque(id: string, input: {
   if (input.capacidadLitros !== undefined) patch.capacidad_litros = Number(input.capacidadLitros) || 0;
   if (input.litros !== undefined) patch.litros = Math.max(0, Number(input.litros) || 0);
   if (input.ubicacion !== undefined) patch.ubicacion = input.ubicacion?.trim() || null;
+  if (input.tasa !== undefined) patch.tasa = input.tasa;
+  if (input.cubicacion !== undefined) patch.cubicacion = input.cubicacion?.trim() || null;
+  if (input.forma !== undefined) patch.forma = input.forma ?? 'cilindro';
+  if (input.diametroCm !== undefined) patch.diametro_cm = input.diametroCm;
+  if (input.longitudCm !== undefined) patch.longitud_cm = input.longitudCm;
+  if (input.anchoCm !== undefined) patch.ancho_cm = input.anchoCm;
+  if (input.alturaCm !== undefined) patch.altura_cm = input.alturaCm;
   const { error } = await supabase.from('combustible_tanques').update(patch).eq('id', id);
   if (error) throw error;
 }
@@ -715,4 +744,104 @@ export async function cancelarSolicitudCombustible(s: SolicitudCombustible, acto
     })
     .eq('id', s.id);
   if (error) throw error;
+}
+
+/* ───────────── Planta Eléctrica (consumo por horómetro, atado a un tanque) ───────────── */
+
+/** Umbral de alerta de consumo acumulado de la planta (L). */
+export const PLANTA_ALERTA_LITROS = 100;
+
+export async function listPlantaMovimientos(filtros?: { tanqueId?: string; planta?: string }): Promise<PlantaMovimiento[]> {
+  let q = supabase.from('combustible_planta_movimientos').select('*').order('fecha', { ascending: false });
+  if (filtros?.tanqueId) q = q.eq('tanque_id', filtros.tanqueId);
+  if (filtros?.planta) q = q.eq('planta', filtros.planta);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as PlantaMovimiento[];
+}
+
+/**
+ * Registra un movimiento de consumo de la Planta Eléctrica:
+ *   HRS = horómetroF − horómetroI · litros = HRS × litrosPorHora (12 por defecto).
+ * Descuenta del tanque (y del inventario si el tanque tiene combustible asignado),
+ * acumula el consumo y avisa si cruza el umbral de alerta (100 L).
+ */
+export async function crearPlantaMovimiento(input: {
+  planta?: string | null;
+  tanqueId: string;
+  horometroInicial: number;
+  horometroFinal: number;
+  litrosPorHora?: number;
+  tasa?: number | null;
+  nota?: string | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<{ row: PlantaMovimiento; alerta: boolean; acumulado: number }> {
+  const hi = Number(input.horometroInicial) || 0;
+  const hf = Number(input.horometroFinal) || 0;
+  const horas = Math.round((hf - hi) * 100) / 100;
+  if (horas <= 0) throw new Error('El horómetro final debe ser mayor que el inicial.');
+  const litrosPorHora = Number(input.litrosPorHora) || 12;
+  const litros = Math.round(horas * litrosPorHora * 100) / 100;
+
+  const { data: tq, error: tErr } = await supabase
+    .from('combustible_tanques')
+    .select('id, nombre, litros, combustible_id, tasa')
+    .eq('id', input.tanqueId)
+    .single();
+  if (tErr || !tq) throw tErr ?? new Error('Tanque no encontrado.');
+
+  // Descuento: si el tanque tiene combustible, sale del inventario + tanque + tarjeta;
+  // si no, solo del tanque (validando que haya litros suficientes).
+  if (tq.combustible_id) {
+    const combustibles = await listCombustibles();
+    const comb = combustibles.find((c) => c.id === tq.combustible_id);
+    await salidaCombustibleDirecta({
+      combustibleId: tq.combustible_id,
+      almacen: comb?.home_almacen ?? null,
+      tanqueId: input.tanqueId,
+      litros,
+      destino: `Planta ${input.planta ?? ''}`.trim(),
+      motivo: 'Consumo planta eléctrica',
+      refTipo: 'planta_consumo',
+      actor: input.actor,
+      actorName: input.actorName ?? null,
+    });
+  } else {
+    const disp = Number(tq.litros) || 0;
+    if (litros > disp) throw new Error(`El tanque "${tq.nombre}" solo tiene ${disp} L y el consumo es ${litros} L.`);
+    await supabase.from('combustible_tanques')
+      .update({ litros: Math.max(0, disp - litros), updated_at: new Date().toISOString() })
+      .eq('id', input.tanqueId);
+  }
+
+  // Acumulado de consumo del tanque (suma de movimientos previos + este).
+  const previos = await listPlantaMovimientos({ tanqueId: input.tanqueId });
+  const acumPrevio = previos.reduce((a, m) => a + (Number(m.litros_consumidos) || 0), 0);
+  const acumulado = Math.round((acumPrevio + litros) * 100) / 100;
+
+  const { data, error } = await supabase
+    .from('combustible_planta_movimientos')
+    .insert({
+      planta: input.planta?.trim() || null,
+      tanque_id: input.tanqueId,
+      tanque_nombre: tq.nombre,
+      horometro_inicial: hi,
+      horometro_final: hf,
+      horas,
+      litros_por_hora: litrosPorHora,
+      tasa: input.tasa ?? tq.tasa ?? null,
+      litros_consumidos: litros,
+      litros_acumulados: acumulado,
+      nota: input.nota?.trim() || null,
+      actor: input.actor,
+      actor_name: input.actorName ?? null,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+
+  // Alerta al cruzar el umbral (antes < 100, ahora ≥ 100).
+  const alerta = acumPrevio < PLANTA_ALERTA_LITROS && acumulado >= PLANTA_ALERTA_LITROS;
+  return { row: data as PlantaMovimiento, alerta, acumulado };
 }

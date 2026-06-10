@@ -8,7 +8,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
-import type { Combustible, SolicitudCombustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter } from '@/shared/lib/types';
+import type { Combustible, SolicitudCombustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter, PlantaMovimiento } from '@/shared/lib/types';
 import {
   listCombustibles,
   listSolicitudesCombustible,
@@ -30,6 +30,9 @@ import {
   actualizarVehiculo,
   setEstadoVehiculo,
   eliminarVehiculo,
+  listPlantaMovimientos,
+  crearPlantaMovimiento,
+  PLANTA_ALERTA_LITROS,
 } from './combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { descargarSolicitudCombustiblePdf } from './combustiblePdf';
@@ -39,6 +42,7 @@ import {
   confirmarTransferenciaCombustibleEntrante,
   reintentarTransferenciaCombustible,
 } from './transferenciasCombustibleInter.repository';
+import { litrosCilindroHorizontal, longitudDesdeCapacidad, capacidadCilindro, tablaCubicacion, litrosRectangular, capacidadRectangular, tablaCubicacionRect } from './cubicacion';
 
 type Vista = 'kanban' | 'lista';
 const COLS: { key: SolicitudCombustible['estado']; label: string }[] = [
@@ -209,7 +213,7 @@ export function CombustiblePage() {
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
-  const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar' | 'consumo' | 'tanque' | 'vehiculos'>('none');
+  const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar' | 'consumo' | 'tanque' | 'vehiculos' | 'planta'>('none');
   const [detalle, setDetalle] = useState<SolicitudCombustible | null>(null);
   const [tanqueEdit, setTanqueEdit] = useState<Tanque | null>(null);
 
@@ -266,6 +270,7 @@ export function CombustiblePage() {
               <button className={activos.length ? 'btn btn-ghost' : 'btn btn-primary'} onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
               <button className="btn btn-ghost" onClick={() => setModal('tanque')}>🛢 Agregar Tanque</button>
               <button className="btn btn-ghost" onClick={() => setModal('vehiculos')}>🚜 Vehículos / Máquinas</button>
+              <button className="btn btn-ghost" onClick={() => setModal('planta')}>⚡ Planta Eléctrica</button>
               <button className="btn btn-ghost" onClick={() => setModal('ingreso')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>⬇ Registrar ingreso</button>
               <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>+ Nueva solicitud de salida</button>
             </>
@@ -401,6 +406,10 @@ export function CombustiblePage() {
       )}
       {modal === 'vehiculos' && (
         <VehiculosModal vehiculos={vehiculos} actor={actor}
+          onClose={() => setModal('none')} onChanged={reload} />
+      )}
+      {modal === 'planta' && (
+        <PlantaModal tanques={tanques} vehiculos={vehiculos} actor={actor} actorName={miNombre}
           onClose={() => setModal('none')} onChanged={reload} />
       )}
       {modal === 'ingreso' && (
@@ -742,11 +751,37 @@ function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
   const [capacidad, setCapacidad] = useState(tanque ? String(tanque.capacidad_litros) : '');
   const [litros, setLitros] = useState(tanque ? String(tanque.litros) : '');
   const [ubicacion, setUbicacion] = useState(tanque?.ubicacion ?? '');
+  const [tasa, setTasa] = useState(tanque?.tasa != null ? String(tanque.tasa) : '0.50');
+  const [forma, setForma] = useState<'cilindro' | 'rectangular'>((tanque?.forma as 'cilindro' | 'rectangular') ?? 'cilindro');
+  const [diametro, setDiametro] = useState(tanque?.diametro_cm != null ? String(tanque.diametro_cm) : '');
+  const [longitud, setLongitud] = useState(tanque?.longitud_cm != null ? String(tanque.longitud_cm) : '');
+  const [ancho, setAncho] = useState(tanque?.ancho_cm != null ? String(tanque.ancho_cm) : '');
+  const [altura, setAltura] = useState(tanque?.altura_cm != null ? String(tanque.altura_cm) : '');
+  const [cubicacion, setCubicacion] = useState(tanque?.cubicacion ?? '');
+  const [nivel, setNivel] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const capNum = Number(capacidad) || 0;
   const litNum = Number(litros) || 0;
+  const diaNum = Number(diametro) || 0;
+  const anchoNum = Number(ancho) || 0;
+  const alturaNum = Number(altura) || 0;
+  const nivelNum = Number(nivel) || 0;
+  // Largo: el indicado o, si está vacío y es cilindro, derivado de la capacidad y el diámetro.
+  const largoNum = Number(longitud) || (forma === 'cilindro' && diaNum > 0 && capNum > 0 ? longitudDesdeCapacidad(capNum, diaNum) : 0);
+  // Geometría suficiente según la forma.
+  const geoOk = forma === 'cilindro' ? (diaNum > 0 && largoNum > 0) : (largoNum > 0 && anchoNum > 0 && alturaNum > 0);
+  const nivelMax = forma === 'cilindro' ? diaNum : alturaNum;
+  const litrosNivel = !geoOk ? 0 : forma === 'cilindro'
+    ? litrosCilindroHorizontal(nivelNum, diaNum, largoNum)
+    : litrosRectangular(nivelNum, largoNum, anchoNum, alturaNum);
+  const capCalc = !geoOk ? 0 : forma === 'cilindro'
+    ? capacidadCilindro(diaNum, largoNum)
+    : capacidadRectangular(largoNum, anchoNum, alturaNum);
+  const tabla = !geoOk ? [] : forma === 'cilindro'
+    ? tablaCubicacion(diaNum, largoNum, Math.max(1, Math.round(diaNum / 8)))
+    : tablaCubicacionRect(largoNum, anchoNum, alturaNum, Math.max(1, Math.round(alturaNum / 8)));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -756,15 +791,24 @@ function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
     if (litNum > capNum) { setError('Los litros actuales no pueden superar la capacidad.'); return; }
     setSaving(true);
     try {
+      const geo = {
+        tasa: tasa.trim() === '' ? null : Number(tasa),
+        forma,
+        diametroCm: forma === 'cilindro' && diametro.trim() !== '' ? diaNum : null,
+        longitudCm: longitud.trim() === '' ? (largoNum || null) : Number(longitud),
+        anchoCm: forma === 'rectangular' && ancho.trim() !== '' ? anchoNum : null,
+        alturaCm: forma === 'rectangular' && altura.trim() !== '' ? alturaNum : null,
+        cubicacion: cubicacion.trim() || null,
+      };
       if (esEdicion && tanque) {
         await actualizarTanque(tanque.id, {
-          nombre, combustibleId: combustibleId || null, capacidadLitros: capNum, litros: litNum, ubicacion,
+          nombre, combustibleId: combustibleId || null, capacidadLitros: capNum, litros: litNum, ubicacion, ...geo,
         });
         notify(`Tanque "${nombre.trim()}" actualizado`, 'success', { link: '#/app/combustible' });
       } else {
         await crearTanque({
           nombre, combustibleId: combustibleId || null, capacidadLitros: capNum,
-          litrosIniciales: litNum, ubicacion, actorEmail: actor,
+          litrosIniciales: litNum, ubicacion, ...geo, actorEmail: actor,
         });
         notify(`Tanque "${nombre.trim()}" agregado · ${num(capNum)} L de capacidad`, 'success', { link: '#/app/combustible' });
       }
@@ -792,7 +836,7 @@ function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
   );
 
   return (
-    <Modal title={esEdicion ? `Editar tanque · ${tanque?.nombre}` : 'Agregar tanque'} size="md" onClose={onClose} footer={footer}>
+    <Modal title={esEdicion ? `Editar tanque · ${tanque?.nombre}` : 'Agregar tanque'} size="lg" onClose={onClose} footer={footer}>
       <form id="tanque-form" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
         <div className="form-row">
@@ -817,9 +861,97 @@ function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
             {combustibles.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
         </div>
-        <div className="form-row">
-          <label>Ubicación</label>
-          <input className="input" value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} placeholder="Patio Matanzas, Sede Los Pinos…" />
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Ubicación</label>
+            <input className="input" value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} placeholder="Patio Matanzas, Sede Los Pinos…" />
+          </div>
+          <div className="form-row">
+            <label>Tasa</label>
+            <input className="input mono" type="number" step="any" value={tasa} onChange={(e) => setTasa(e.target.value)} placeholder="0.50" />
+          </div>
+        </div>
+
+        {/* ── Cubicación: cilindro horizontal o rectangular ── */}
+        <div className="card" style={{ marginTop: '.5rem' }}>
+          <div className="card-title"><span>📐 Cubicación</span></div>
+          <div className="view-toggle" role="tablist" aria-label="Forma del tanque" style={{ marginBottom: '.5rem', marginLeft: 0 }}>
+            <button type="button" className={forma === 'cilindro' ? 'active' : ''} onClick={() => setForma('cilindro')}>⬭ Cilindro horizontal</button>
+            <button type="button" className={forma === 'rectangular' ? 'active' : ''} onClick={() => setForma('rectangular')}>▭ Rectangular</button>
+          </div>
+          <small className="muted" style={{ display: 'block', margin: '0 0 .6rem' }}>
+            {forma === 'cilindro'
+              ? 'Cargá el diámetro y el largo. Con el nivel medido con varilla calculamos los litros aproximados.'
+              : 'Cargá largo, ancho y altura. Litros = largo × ancho × nivel medido.'}
+          </small>
+          {forma === 'cilindro' ? (
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Diámetro (cm)</label>
+                <input className="input mono" type="number" step="any" value={diametro} onChange={(e) => setDiametro(e.target.value)} placeholder="50" />
+              </div>
+              <div className="form-row">
+                <label>Largo del cilindro (cm)</label>
+                <input className="input mono" type="number" step="any" value={longitud} onChange={(e) => setLongitud(e.target.value)}
+                  placeholder={diaNum > 0 && capNum > 0 ? `auto: ${num(largoNum)}` : 'cm'} />
+                {!longitud.trim() && largoNum > 0 && <small className="muted">Derivado de la capacidad: <strong className="mono">{num(largoNum)} cm</strong></small>}
+              </div>
+            </div>
+          ) : (
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Largo (cm)</label>
+                <input className="input mono" type="number" step="any" value={longitud} onChange={(e) => setLongitud(e.target.value)} placeholder="140" />
+              </div>
+              <div className="form-row">
+                <label>Ancho (cm)</label>
+                <input className="input mono" type="number" step="any" value={ancho} onChange={(e) => setAncho(e.target.value)} placeholder="76" />
+              </div>
+              <div className="form-row">
+                <label>Altura (cm)</label>
+                <input className="input mono" type="number" step="any" value={altura} onChange={(e) => setAltura(e.target.value)} placeholder="30" />
+              </div>
+            </div>
+          )}
+
+          {geoOk ? (
+            <>
+              <div className="form-grid" style={{ alignItems: 'end' }}>
+                <div className="form-row">
+                  <label>Nivel medido (cm)</label>
+                  <input className="input mono" type="number" min={0} max={nivelMax} step="any" value={nivel} onChange={(e) => setNivel(e.target.value)} placeholder={`0 a ${num(nivelMax)}`} />
+                </div>
+                <div className="form-row">
+                  <label>Litros aproximados</label>
+                  <div className="card" style={{ margin: 0, padding: '.5rem .7rem', borderColor: 'var(--primary)' }}>
+                    <strong className="mono" style={{ fontSize: '1.25rem', color: 'var(--primary-3)' }}>{num(litrosNivel)} L</strong>
+                    {capCalc > 0 && <span className="muted" style={{ fontSize: '.74rem' }}> · {Math.min(100, Math.round((litrosNivel / capCalc) * 100))}%</span>}
+                  </div>
+                </div>
+              </div>
+              <small className="muted">Capacidad teórica ({forma === 'cilindro' ? 'cilindro' : 'rectangular'}): <strong className="mono">{num(capCalc)} L</strong>.</small>
+              {/* Tabla de referencia */}
+              {tabla.length > 0 && (
+                <div className="table-wrap" style={{ marginTop: '.5rem', maxHeight: 180, overflowY: 'auto' }}>
+                  <table className="table" style={{ fontSize: '.8rem' }}>
+                    <thead><tr><th>Nivel (cm)</th><th style={{ textAlign: 'right' }}>Litros</th></tr></thead>
+                    <tbody>
+                      {tabla.map((f) => (
+                        <tr key={f.nivel}><td className="mono">{num(f.nivel)}</td><td className="mono" style={{ textAlign: 'right' }}>{num(f.litros)} L</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          ) : (
+            <small className="muted">{forma === 'cilindro' ? 'Cargá el diámetro (el largo se deriva de la capacidad) para ver la calculadora.' : 'Cargá largo, ancho y altura para ver la calculadora.'}</small>
+          )}
+
+          <div className="form-row" style={{ marginTop: '.5rem' }}>
+            <label>Nota de cubicación (opcional)</label>
+            <textarea className="input" rows={2} value={cubicacion} onChange={(e) => setCubicacion(e.target.value)} placeholder="Observaciones, tabla manual, referencia de la varilla…" />
+          </div>
         </div>
       </form>
     </Modal>
@@ -1172,6 +1304,203 @@ function RecepcionCombustibleInterPanel({ transfers, tanques, canWrite, actor, a
         </div>
       )}
     </div>
+  );
+}
+
+/* ───────────── Planta Eléctrica: movimientos por horómetro (atados a un tanque) ───────────── */
+function PlantaModal({ tanques, vehiculos, actor, actorName, onClose, onChanged }: {
+  tanques: Tanque[]; vehiculos: VehiculoMaquina[]; actor: string; actorName: string | null;
+  onClose: () => void; onChanged: () => Promise<void>;
+}) {
+  const [movs, setMovs] = useState<PlantaMovimiento[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filtroTanque, setFiltroTanque] = useState('');
+  const [filtroPlanta, setFiltroPlanta] = useState('');
+  const [agregar, setAgregar] = useState(false);
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try { setMovs(await listPlantaMovimientos()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void cargar(); }, [cargar]);
+  useRealtime(['combustible_planta_movimientos'], () => { void cargar(); });
+
+  const norm = (s: string | null | undefined) => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const filtrados = movs.filter((m) =>
+    (!filtroTanque || m.tanque_id === filtroTanque) &&
+    (!filtroPlanta || norm(m.planta).includes(norm(filtroPlanta))));
+
+  const totalLitros = filtrados.reduce((a, m) => a + (Number(m.litros_consumidos) || 0), 0);
+
+  return (
+    <Modal title="⚡ Planta Eléctrica · movimientos de consumo" size="xl" onClose={onClose} footer={
+      <>
+        <button className="btn btn-primary" onClick={() => setAgregar(true)}>+ Agregar Movimiento</button>
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      </>
+    }>
+      {/* Filtros */}
+      <div className="filterbar" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+        <input className="input" value={filtroPlanta} onChange={(e) => setFiltroPlanta(e.target.value)} placeholder="🔎 Filtrar por planta…" style={{ flex: '1 1 200px' }} />
+        <select className="select" value={filtroTanque} onChange={(e) => setFiltroTanque(e.target.value)} style={{ flex: '1 1 180px' }}>
+          <option value="">Todos los tanques</option>
+          {tanques.map((t) => <option key={t.id} value={t.id}>🛢 {t.nombre}</option>)}
+        </select>
+        <span className="muted" style={{ alignSelf: 'center', fontSize: '.8rem' }}>{filtrados.length} mov · <strong className="mono">{num(totalLitros)} L</strong></span>
+      </div>
+
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.84rem' }}>
+          <thead><tr>
+            <th>Fecha y hora</th><th>Planta</th><th>Tanque</th>
+            <th style={{ textAlign: 'right' }}>HI</th><th style={{ textAlign: 'right' }}>HF</th><th style={{ textAlign: 'right' }}>HRS</th>
+            <th style={{ textAlign: 'right' }}>L/h</th><th style={{ textAlign: 'right' }}>Litros</th><th style={{ textAlign: 'right' }}>Acum.</th>
+          </tr></thead>
+          <tbody>
+            {loading && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !filtrados.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Sin movimientos.</td></tr>}
+            {filtrados.map((m) => {
+              const alerta = (Number(m.litros_acumulados) || 0) >= PLANTA_ALERTA_LITROS;
+              return (
+                <tr key={m.id}>
+                  <td className="muted">{dateTime(m.fecha)}</td>
+                  <td>{m.planta || '—'}</td>
+                  <td>🛢 {m.tanque_nombre || '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(m.horometro_inicial)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(m.horometro_final)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(m.horas)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(m.litros_por_hora)}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(m.litros_consumidos)} L</td>
+                  <td className="mono" style={{ textAlign: 'right', color: alerta ? 'var(--danger)' : undefined }}>
+                    {num(m.litros_acumulados ?? 0)} L{alerta ? ' ⚠' : ''}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>Alerta cuando el consumo acumulado de un tanque supera los {PLANTA_ALERTA_LITROS} L.</small>
+
+      {agregar && (
+        <AgregarMovimientoModal tanques={tanques} vehiculos={vehiculos} actor={actor} actorName={actorName}
+          onClose={() => setAgregar(false)}
+          onSaved={async () => { setAgregar(false); await cargar(); await onChanged(); }} />
+      )}
+    </Modal>
+  );
+}
+
+function AgregarMovimientoModal({ tanques, vehiculos, actor, actorName, onClose, onSaved }: {
+  tanques: Tanque[]; vehiculos: VehiculoMaquina[]; actor: string; actorName: string | null;
+  onClose: () => void; onSaved: () => void;
+}) {
+  const tanquesActivos = tanques.filter((t) => t.estado === 'activo');
+  const plantas = vehiculos.filter((v) => v.estado === 'activo' && /planta|generad/i.test(v.nombre));
+  const [planta, setPlanta] = useState('');
+  const [tanqueId, setTanqueId] = useState(tanquesActivos[0]?.id ?? '');
+  const [hi, setHi] = useState('');
+  const [hf, setHf] = useState('');
+  const [litrosHora, setLitrosHora] = useState('12');
+  const [nota, setNota] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const tanque = tanquesActivos.find((t) => t.id === tanqueId) ?? null;
+  const hiN = Number(hi) || 0;
+  const hfN = Number(hf) || 0;
+  const horas = Math.round((hfN - hiN) * 100) / 100;
+  const lph = Number(litrosHora) || 0;
+  const litros = horas > 0 ? Math.round(horas * lph * 100) / 100 : 0;
+  const dispTanque = tanque ? Number(tanque.litros) || 0 : 0;
+  const excede = litros > dispTanque;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!tanqueId) { setError('Elegí el tanque.'); return; }
+    if (horas <= 0) { setError('El horómetro final debe ser mayor que el inicial.'); return; }
+    setSaving(true);
+    try {
+      const { alerta, acumulado } = await crearPlantaMovimiento({
+        planta: planta.trim() || null, tanqueId,
+        horometroInicial: hiN, horometroFinal: hfN, litrosPorHora: lph,
+        tasa: tanque?.tasa ?? null, nota: nota.trim() || null, actor, actorName,
+      });
+      notify(`Movimiento de planta: ${num(horas)} h · ${num(litros)} L`, 'success', { link: '#/app/combustible' });
+      if (alerta) notify(`⚠ La planta superó los ${PLANTA_ALERTA_LITROS} L acumulados (${num(acumulado)} L) en el tanque ${tanque?.nombre ?? ''}`, 'warning', { link: '#/app/combustible' });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo registrar el movimiento.');
+    } finally { setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="planta-mov" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar movimiento'}</button>
+    </>
+  );
+  return (
+    <Modal title="Agregar movimiento de planta" size="lg" onClose={onClose} footer={footer}>
+      <form id="planta-mov" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        <div className="form-row">
+          <label>Fecha y hora</label>
+          <input className="input" value="Se registra automáticamente al guardar" disabled />
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Planta</label>
+            <ComboBuscador value={planta} onChange={setPlanta} placeholder="🔎 Buscá la planta…" icono="⚡"
+              opciones={plantas.map((v) => ({ value: v.nombre, label: v.nombre, sub: v.descripcion }))} />
+          </div>
+          <div className="form-row">
+            <label>Tanque (cap. {tanque ? num(tanque.capacidad_litros) : '—'} L)</label>
+            <select className="select" value={tanqueId} onChange={(e) => setTanqueId(e.target.value)}>
+              {!tanquesActivos.length && <option value="">— sin tanques —</option>}
+              {tanquesActivos.map((t) => <option key={t.id} value={t.id}>🛢 {t.nombre} · {num(t.litros)}/{num(t.capacidad_litros)} L</option>)}
+            </select>
+            {tanque && <small className="muted">Disponible: <strong className="mono">{num(tanque.litros)} L</strong>{tanque.tasa != null ? ` · tasa ${num(tanque.tasa)}` : ''}</small>}
+          </div>
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Horómetro inicial (HI)</label>
+            <input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} required />
+          </div>
+          <div className="form-row">
+            <label>Horómetro final (HF)</label>
+            <input className="input mono" type="number" step="any" value={hf} onChange={(e) => setHf(e.target.value)} required />
+          </div>
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Litros por hora</label>
+            <input className="input mono" type="number" step="any" value={litrosHora} onChange={(e) => setLitrosHora(e.target.value)} />
+            <small className="muted">Consumo de la planta (12 L/h por defecto).</small>
+          </div>
+          <div className="form-row">
+            <label>HRS (HF − HI)</label>
+            <input className="input mono" value={horas > 0 ? num(horas) : '—'} disabled />
+          </div>
+        </div>
+        {/* Resumen del consumo */}
+        <div className="card" style={{ marginTop: '.4rem', borderColor: excede ? 'var(--warning)' : 'var(--primary)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+            <span className="muted">Total litros consumido</span>
+            <strong className="mono" style={{ fontSize: '1.3rem', color: 'var(--primary-3)' }}>{num(litros)} L</strong>
+          </div>
+          {excede && <small style={{ color: 'var(--warning)' }}>El consumo ({num(litros)} L) supera lo disponible en el tanque ({num(dispTanque)} L).</small>}
+        </div>
+        <div className="form-row" style={{ marginTop: '.6rem' }}>
+          <label>Nota (opcional)</label>
+          <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia, turno, etc." />
+        </div>
+      </form>
+    </Modal>
   );
 }
 

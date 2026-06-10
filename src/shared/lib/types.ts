@@ -274,10 +274,43 @@ export interface Tanque {
   /** Litros actuales en el tanque (suben con ingresos, bajan con salidas). */
   litros: number;
   ubicacion?: string | null;
+  /** Tasa del tanque (p. ej. 0.50), editable. */
+  tasa?: number | null;
+  /** Nota de cubicación del tanque (editable). */
+  cubicacion?: string | null;
+  /** Forma del tanque para la cubicación. */
+  forma?: 'cilindro' | 'rectangular' | null;
+  /** Geometría (cm). Cilindro: diámetro + longitud(largo). Rectangular: longitud(largo) + ancho + altura. */
+  diametro_cm?: number | null;
+  longitud_cm?: number | null;
+  ancho_cm?: number | null;
+  altura_cm?: number | null;
   estado: EstadoGenerico;
   created_by?: string | null;
   created_at: string;
   updated_at?: string | null;
+}
+
+/** Movimiento de consumo de una Planta Eléctrica (por horómetro), atado a un tanque.
+ *  HRS = horómetro_final − horómetro_inicial · litros = HRS × litros_por_hora (12 por defecto). */
+export interface PlantaMovimiento {
+  id: string;
+  planta?: string | null;
+  tanque_id?: string | null;
+  tanque_nombre?: string | null;
+  fecha: string;
+  horometro_inicial: number;
+  horometro_final: number;
+  horas: number;
+  litros_por_hora: number;
+  tasa?: number | null;
+  litros_consumidos: number;
+  /** Litros acumulados consumidos (para la alerta de 100 L). */
+  litros_acumulados?: number | null;
+  nota?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
 }
 
 /** Vehículo o máquina al que se destina una salida de combustible. */
