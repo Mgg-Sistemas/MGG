@@ -10,6 +10,7 @@ import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
 import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
 import { Modal } from '@/shared/ui/Modal';
+import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
@@ -364,6 +365,8 @@ export function AppShell() {
           </button>
         </div>
       </header>
+
+      <AvisoActualizacion />
 
       <main className="main">
         <Outlet />

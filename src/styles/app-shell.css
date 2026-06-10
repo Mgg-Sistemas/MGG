@@ -5,9 +5,10 @@
 .app {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
-  grid-template-rows: var(--topbar-h) 1fr;
+  grid-template-rows: var(--topbar-h) auto 1fr;
   grid-template-areas:
     "sidebar topbar"
+    "sidebar aviso"
     "sidebar main";
   min-height: 100vh;
 }
@@ -153,6 +154,46 @@
   overflow-y: auto;
   overflow-x: hidden;       /* el scroll horizontal vive dentro de .table-wrap */
   min-width: 0;             /* permite que la columna 1fr encoja (no desborda) */
+}
+
+/* Aviso de actualización (aparece solo tras un despliegue real). */
+.update-banner {
+  grid-area: aviso;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin: .75rem 2rem 0;
+  padding: .6rem .9rem;
+  border: 1px solid var(--primary);
+  border-radius: var(--r-md);
+  background: linear-gradient(90deg, rgba(255, 138, 0, .16), rgba(255, 138, 0, .04));
+  color: var(--text);
+  font-size: .9rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .28);
+}
+.update-banner__icon {
+  font-size: 1.15rem;
+  line-height: 1;
+  animation: update-spin 2.4s linear infinite;
+}
+@keyframes update-spin { to { transform: rotate(360deg); } }
+.update-banner__text { flex: 1; min-width: 0; }
+.update-banner__btn { padding: .4rem .85rem; font-size: .85rem; white-space: nowrap; }
+.update-banner__close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: .9rem;
+  line-height: 1;
+  padding: .25rem .4rem;
+  border-radius: var(--r-md);
+}
+.update-banner__close:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
+
+@media (max-width: 768px) {
+  .update-banner { margin: .6rem 1rem 0; flex-wrap: wrap; }
+  .update-banner__text { flex-basis: 100%; }
 }
 
 /* Overlay del drawer móvil (oculto en desktop). */
@@ -631,8 +672,8 @@ tr.row-selectable:active { transform: scale(0.998); }
   /* Layout de una sola columna: el sidebar sale del flujo (drawer). */
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: var(--topbar-h) 1fr;
-    grid-template-areas: "topbar" "main";
+    grid-template-rows: var(--topbar-h) auto 1fr;
+    grid-template-areas: "topbar" "aviso" "main";
   }
 
   /* Sidebar como panel deslizable sobre el contenido. */
