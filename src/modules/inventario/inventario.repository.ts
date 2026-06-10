@@ -86,7 +86,32 @@ export function siguienteSku(categoria: string, productos: Producto[] = []): str
 
 /* Catálogos compartidos: persistidos en Supabase (tabla `taxonomias`) +
    valores ya presentes en productos (por compatibilidad con datos legados). */
-import { addTaxonomia, deleteTaxonomia, listTaxonomia, renameTaxonomia } from '@/shared/lib/taxonomias';
+import { addTaxonomia, claveTaxonomia, deleteTaxonomia, listTaxonomia, renameTaxonomia } from '@/shared/lib/taxonomias';
+
+/** Agrupa por clave normalizada y deja un solo representante por grupo (canónico).
+ *  Ej.: ["kg","Kg.","caja","Caja."] → ["kg","caja"]. */
+function dedupePorClave(valores: string[]): string[] {
+  const grupos = new Map<string, string[]>();
+  for (const v of valores) {
+    if (!v) continue;
+    const k = claveTaxonomia(v);
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k)!.push(v);
+  }
+  const out: string[] = [];
+  for (const [k, miembros] of grupos) {
+    // Preferimos el valor que ya es la forma limpia (igual a su clave); si no, el más corto.
+    const canon = miembros.find((m) => m === k) ?? [...miembros].sort((a, b) => a.length - b.length)[0];
+    out.push(canon);
+  }
+  return out.sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/** ¿La unidad es de líquido/volumen? (litros, galones). Para esas no aplican los bultos. */
+export function esUnidadLiquida(unidad?: string | null): boolean {
+  const k = claveTaxonomia(unidad ?? '');
+  return ['l', 'lt', 'lts', 'litro', 'litros', 'gal', 'galon', 'galones', 'ml', 'cc'].includes(k);
+}
 
 export async function getCategorias(fromProductos: Producto[] = []): Promise<string[]> {
   const set = new Set<string>();
@@ -137,7 +162,9 @@ export async function eliminarCategoria(nombre: string): Promise<void> {
   await deleteTaxonomia('inventario.categoria', nombre);
 }
 
-export async function getUnidades(fromProductos: Producto[] = []): Promise<string[]> {
+/** Unidades CRUDAS (sin deduplicar): para el gestor de Medidas, que necesita ver
+ *  todas las variantes (kg, Kg.) para poder fusionarlas/eliminarlas. */
+export async function getUnidadesRaw(fromProductos: Producto[] = []): Promise<string[]> {
   const set = new Set<string>();
   try {
     const extras = await listTaxonomia('inventario.unidad');
@@ -148,8 +175,34 @@ export async function getUnidades(fromProductos: Producto[] = []): Promise<strin
   return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
 }
 
+/** Unidades DEDUPLICADAS (case-insensitive): para los selectores del producto. */
+export async function getUnidades(fromProductos: Producto[] = []): Promise<string[]> {
+  return dedupePorClave(await getUnidadesRaw(fromProductos));
+}
+
 export async function addUnidad(nombre: string, actorEmail?: string): Promise<string | null> {
   return addTaxonomia('inventario.unidad', nombre, actorEmail);
+}
+
+/** Elimina una unidad del catálogo, solo si ningún producto la usa (case-insensitive). */
+export async function eliminarUnidad(nombre: string): Promise<void> {
+  const { data, error } = await supabase.from('productos').select('unidad');
+  if (error) throw error;
+  const k = claveTaxonomia(nombre);
+  const usos = (data ?? []).filter((r) => claveTaxonomia((r as { unidad: string }).unidad) === k).length;
+  if (usos > 0) throw new Error(`No se puede eliminar: ${usos} producto(s) usan esta medida`);
+  await deleteTaxonomia('inventario.unidad', nombre);
+}
+
+/** Conteo de productos por unidad (agrupado por clave normalizada para los selectores deduplicados). */
+export async function contarProductosPorUnidad(): Promise<Record<string, number>> {
+  const { data, error } = await supabase.from('productos').select('unidad');
+  if (error) throw error;
+  return (data ?? []).reduce<Record<string, number>>((acc, row) => {
+    const u = (row as { unidad: string }).unidad;
+    if (u) acc[u] = (acc[u] ?? 0) + 1;
+    return acc;
+  }, {});
 }
 
 export async function renombrarUnidad(oldNombre: string, newNombre: string, actorEmail?: string): Promise<number> {

@@ -23,6 +23,8 @@ import {
   type ProveedorInput,
 } from './proveedores.repository';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
+import { MultiSelectBuscador } from '@/shared/ui/MultiSelectBuscador';
+import { mismaTaxonomia } from '@/shared/lib/taxonomias';
 import { useSession } from '@/modules/auth/authStore';
 
 type EstadoFilter = '' | EstadoGenerico;
@@ -428,10 +430,25 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
   }
 
   async function handleAddCategoria() {
+    const clean = nuevaCat.trim();
+    if (!clean) {
+      toast('Escribe un nombre para la categoría', 'error');
+      return;
+    }
+    // No permitir la misma categoría dos veces (ignora mayúsculas/minúsculas).
+    const existente = categorias.find((c) => mismaTaxonomia(c, clean));
+    if (existente) {
+      setForm((prev) =>
+        prev.categorias.includes(existente) ? prev : { ...prev, categorias: [...prev.categorias, existente] },
+      );
+      setNuevaCat('');
+      toast(`La categoría "${existente}" ya existe — se marcó`, 'warning');
+      return;
+    }
     try {
-      const added = await addCategoria(nuevaCat);
+      const added = await addCategoria(clean);
       if (!added) {
-        toast('Escribe un nombre para la categoría', 'error');
+        toast('No se pudo añadir la categoría', 'error');
         return;
       }
       setCategorias((prev) => (prev.includes(added) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
@@ -597,33 +614,12 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
 
         <div className="form-row">
           <label>Categorías que ofrece</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
-            {categorias.map((c) => {
-              const checked = form.categorias.includes(c);
-              return (
-                <label
-                  key={c}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '.3rem',
-                    padding: '.35rem .65rem',
-                    background: 'var(--bg-1)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) => toggleCategoria(c, e.target.checked)}
-                  />
-                  <span style={{ fontSize: '.82rem' }}>{c}</span>
-                </label>
-              );
-            })}
-          </div>
+          <MultiSelectBuscador
+            opciones={categorias}
+            seleccionadas={form.categorias}
+            onToggle={toggleCategoria}
+            placeholder="Buscar categoría…"
+          />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem', alignItems: 'center' }}>
             <input
               className="input"

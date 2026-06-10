@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
+import { mismaTaxonomia } from '@/shared/lib/taxonomias';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import {
   addCategoria,
   addUnidad,
+  esUnidadLiquida,
   getCategorias,
   getUnidades,
   siguienteSku,
@@ -103,9 +106,19 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   }
 
   async function handleAddCategoria() {
+    const clean = nuevaCat.trim();
+    if (!clean) { toast('Escribe un nombre para la categoría', 'error'); return; }
+    // No permitir la misma categoría dos veces (ignora mayúsculas/minúsculas).
+    const existente = categorias.find((c) => mismaTaxonomia(c, clean));
+    if (existente) {
+      setForm((prev) => ({ ...prev, categoria: existente }));
+      setNuevaCat('');
+      toast(`La categoría "${existente}" ya existe — se seleccionó`, 'warning');
+      return;
+    }
     try {
-      const added = await addCategoria(nuevaCat);
-      if (!added) { toast('Escribe un nombre para la categoría', 'error'); return; }
+      const added = await addCategoria(clean);
+      if (!added) { toast('No se pudo añadir la categoría', 'error'); return; }
       setCategorias((prev) => (prev.includes(added) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
       setForm((prev) => ({ ...prev, categoria: added }));
       setNuevaCat('');
@@ -116,9 +129,19 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   }
 
   async function handleAddUnidad() {
+    const clean = nuevaUnid.trim();
+    if (!clean) { toast('Escribe un nombre para la unidad', 'error'); return; }
+    // No permitir la misma medida dos veces (ignora mayúsculas/minúsculas: kg vs Kg.).
+    const existente = unidades.find((u) => mismaTaxonomia(u, clean));
+    if (existente) {
+      setForm((prev) => ({ ...prev, unidad: existente }));
+      setNuevaUnid('');
+      toast(`La medida "${existente}" ya existe — se seleccionó`, 'warning');
+      return;
+    }
     try {
-      const added = await addUnidad(nuevaUnid);
-      if (!added) { toast('Escribe un nombre para la unidad', 'error'); return; }
+      const added = await addUnidad(clean);
+      if (!added) { toast('No se pudo añadir la unidad', 'error'); return; }
       setUnidades((prev) => (prev.includes(added) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
       setForm((prev) => ({ ...prev, unidad: added }));
       setNuevaUnid('');
@@ -170,8 +193,11 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       almacen: form.almacen.trim() || 'General',
       estado: form.estado,
       restock_pct: restockRaw === '' ? null : Math.max(0, Number(restockRaw)),
-      presentacion: form.presentacion.trim() || null,
-      unidades_empaque: form.unidades_empaque.trim() === '' ? null : Math.max(0, Number(form.unidades_empaque)) || null,
+      // Unidades líquidas (litros) no usan bultos: no persistimos esos campos.
+      presentacion: esUnidadLiquida(form.unidad) ? null : (form.presentacion.trim() || null),
+      unidades_empaque: esUnidadLiquida(form.unidad)
+        ? null
+        : (form.unidades_empaque.trim() === '' ? null : Math.max(0, Number(form.unidades_empaque)) || null),
       receta_fundicion: form.esReceta && form.receta_fundicion ? (form.receta_fundicion as RecetaFundicion) : null,
       // Marcar receta no se des-marca al editar (lo añade el toggle o el alta desde fundición).
       es_receta: form.esReceta || (producto?.es_receta ?? false),
@@ -278,15 +304,12 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
           </div>
           <div className="form-row">
             <label>Unidad</label>
-            <select
-              className="select"
+            <SearchSelect
+              options={unidades.map((u) => ({ value: u, label: u }))}
               value={form.unidad}
-              onChange={(e) => update('unidad', e.target.value)}
-            >
-              {unidades.map((u) => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
+              onChange={(v) => update('unidad', v)}
+              placeholder="Buscar unidad…"
+            />
             <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
               <input
                 className="input"
@@ -449,35 +472,37 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
           </div>
         </div>
 
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Presentación de compra (opcional)</label>
-            <input
-              className="input"
-              value={form.presentacion}
-              onChange={(e) => update('presentacion', e.target.value)}
-              placeholder="Ej: Caja, Bulto, Paca…"
-            />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
-              Cómo se compra (por bulto/caja). El stock siempre se guarda en {form.unidad || 'unidades'}.
-            </small>
+        {!esUnidadLiquida(form.unidad) && (
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Presentación de compra (opcional)</label>
+              <input
+                className="input"
+                value={form.presentacion}
+                onChange={(e) => update('presentacion', e.target.value)}
+                placeholder="Ej: Caja, Bulto, Paca…"
+              />
+              <small className="muted" style={{ fontSize: '.72rem' }}>
+                Cómo se compra (por bulto/caja). El stock siempre se guarda en {form.unidad || 'unidades'}.
+              </small>
+            </div>
+            <div className="form-row">
+              <label>Unidades por bulto (sugerido)</label>
+              <input
+                className="input mono"
+                type="number"
+                min={0}
+                step="any"
+                value={form.unidades_empaque}
+                onChange={(e) => update('unidades_empaque', e.target.value)}
+                placeholder="Ej: 24"
+              />
+              <small className="muted" style={{ fontSize: '.72rem' }}>
+                Valor sugerido para el conversor de bultos al ingresar stock. Se puede ajustar en cada ingreso (el tamaño puede variar).
+              </small>
+            </div>
           </div>
-          <div className="form-row">
-            <label>Unidades por bulto (sugerido)</label>
-            <input
-              className="input mono"
-              type="number"
-              min={0}
-              step="any"
-              value={form.unidades_empaque}
-              onChange={(e) => update('unidades_empaque', e.target.value)}
-              placeholder="Ej: 24"
-            />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
-              Valor sugerido para el conversor de bultos al ingresar stock. Se puede ajustar en cada ingreso (el tamaño puede variar).
-            </small>
-          </div>
-        </div>
+        )}
       </form>
     </Modal>
   );
