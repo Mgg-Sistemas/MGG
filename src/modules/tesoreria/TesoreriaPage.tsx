@@ -1263,6 +1263,13 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const destino = centros.find((c) => c.id === destinoId) ?? null;
 
   useEffect(() => { listCentrosAcopio().then(setCentros).catch(() => setCentros([])); }, []);
+  // Traslado al OTRO SISTEMA (centro externo): el motivo por defecto es la ruta
+  // "CAJA ORIGEN / CAJA DESTINO" (ej. "CAJA MULTIMONEDAS MGG / CAJA GT PERAMANAL").
+  // Queda editable por si se quiere detallar más.
+  useEffect(() => {
+    if (destino?.externo && origen) setMotivo(`${origen.nombre} / ${destino.nombre}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origenId, destinoId]);
   useEffect(() => {
     if (!origenId) { setSaldos([]); return; }
     setLoadingSaldos(true);
