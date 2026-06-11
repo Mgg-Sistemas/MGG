@@ -4,7 +4,7 @@
  */
 export type Role = string;
 export type EstadoGenerico = 'activo' | 'inactivo';
-export type EstadoOrden = 'pendiente' | 'aprobada' | 'oc_creada' | 'confirmada_metodo' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'desistida_proveedor' | 'reasignada' | 'por_recibir' | 'cuenta_abierta';
+export type EstadoOrden = 'pendiente' | 'aprobada' | 'oc_creada' | 'confirmada_metodo' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'anulada' | 'desistida_proveedor' | 'reasignada' | 'por_recibir' | 'cuenta_abierta';
 
 /** Condiciones de pago de una oferta. */
 export type CondicionPago = 'contra_entrega' | 'anticipado' | 'credito';

@@ -23,9 +23,11 @@ import {
   aprobarOrden,
   aprobarOcsEnLote,
   actualizarComprarItems,
+  anularOrden,
   cancelarOrden,
   crearOrden,
   desistirProveedor,
+  reabrirOcAOfertas,
   finalizarPedido,
   getCurrentUsuario,
   getHistoricoPreciosPorSku,
@@ -94,6 +96,7 @@ const KANBAN_COLS_OC: { key: EstadoOrden; label: string }[] = [
   { key: 'pagada', label: 'Pagada' },
   { key: 'recibida', label: 'Recibida' },
   { key: 'finalizada', label: 'Finalizada' },
+  { key: 'anulada', label: 'Anulada' },
   { key: 'desistida_proveedor', label: 'Proveedor desistió' },
 ];
 
@@ -152,6 +155,8 @@ type ModalKind =
   | { kind: 'confirm-oc'; orden: Orden }
   | { kind: 'metodo-pago'; orden: Orden }
   | { kind: 'cancel'; orden: Orden }
+  | { kind: 'anular-oc'; orden: Orden }
+  | { kind: 'modificar-oc'; orden: Orden }
   | { kind: 'desistir'; orden: Orden }
   | { kind: 'receive'; orden: Orden }
   | { kind: 'abono'; orden: Orden }
@@ -484,6 +489,8 @@ export function PedidosPage() {
           onConfirmOc={() => setModal({ kind: 'confirm-oc', orden: currentDetail })}
           onEnviarPagar={() => setModal({ kind: 'metodo-pago', orden: currentDetail })}
           onCancel={() => setModal({ kind: 'cancel', orden: currentDetail })}
+          onAnular={() => setModal({ kind: 'anular-oc', orden: currentDetail })}
+          onModificar={() => setModal({ kind: 'modificar-oc', orden: currentDetail })}
           onDesistir={() => setModal({ kind: 'desistir', orden: currentDetail })}
           onReceive={() => setModal({ kind: 'receive', orden: currentDetail })}
           onAbono={() => setModal({ kind: 'abono', orden: currentDetail })}
@@ -595,6 +602,49 @@ export function PedidosPage() {
               await refresh();
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error', 'error');
+            }
+          }}
+        />
+      )}
+
+      {/* Modal: anular OC (pendiente de aprobación del gerente) */}
+      {modal.kind === 'anular-oc' && (
+        <MotivoModal
+          title={`Anular OC · ${modal.orden.oc_codigo ?? modal.orden.codigo}`}
+          confirmText="Anular OC"
+          danger
+          intro="La OC pasa a estado ANULADA y no continúa el flujo. No mueve inventario ni caja."
+          label="Motivo de la anulación"
+          placeholder="Ya no se requiere, error de carga, se reemplaza por otra…"
+          onClose={() => setModal({ kind: 'none' })}
+          onConfirm={async (motivo) => {
+            try {
+              await anularOrden(modal.orden, usuario?.email ?? user?.email ?? 'sistema', motivo);
+              notify(`OC anulada: ${modal.orden.oc_codigo ?? modal.orden.codigo}`, 'warning', { link: '#/app/pedidos' });
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'Error al anular', 'error');
+            }
+          }}
+        />
+      )}
+
+      {/* Modal: modificar OC → vuelve a la etapa de ofertas para re-elegir */}
+      {modal.kind === 'modificar-oc' && (
+        <ConfirmDialog
+          title={`Modificar OC · ${modal.orden.oc_codigo ?? modal.orden.codigo}`}
+          message="La OC vuelve a “Pendiente · cargar ofertas”: se reabren las ofertas de los proveedores para que elijas de nuevo la ganadora. ¿Continuar?"
+          confirmText="Modificar (volver a ofertas)"
+          onCancel={() => setModal({ kind: 'none' })}
+          onConfirm={async () => {
+            try {
+              await reabrirOcAOfertas(modal.orden, usuario?.email ?? user?.email ?? 'sistema');
+              notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} reabierta para re-elegir oferta`, 'info', { link: '#/app/pedidos' });
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'Error al modificar', 'error');
             }
           }}
         />
@@ -1536,6 +1586,8 @@ interface OrdenDetailModalProps {
   onConfirmOc: () => void;
   onEnviarPagar: () => void;
   onCancel: () => void;
+  onAnular: () => void;
+  onModificar: () => void;
   onDesistir: () => void;
   onReceive: () => void;
   onAbono: () => void;
@@ -1561,6 +1613,8 @@ function OrdenDetailModal({
   onConfirmOc,
   onEnviarPagar,
   onCancel,
+  onAnular,
+  onModificar,
   onDesistir,
   onReceive,
   onAbono,
@@ -1673,7 +1727,9 @@ function OrdenDetailModal({
       {isOcCreada && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={onDesistir} title="Proveedor no cumplió">⚠ Proveedor desistió</button>
+          <button className="btn btn-ghost" onClick={onModificar} title="Volver a la etapa de ofertas para re-elegir la oferta ganadora">✎ Modificar OC</button>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (queda en estado Anulada)">⊘ Anular OC</button>
         </>
       )}
       {isOcCreada && isAdmin && (

@@ -1024,6 +1024,68 @@ export async function cancelarOrden(
   return data as Orden;
 }
 
+/**
+ * Anula una OC que está pendiente de aprobación del gerente (`oc_creada`).
+ * Estado terminal `anulada` (rojo). No mueve inventario ni caja.
+ */
+export async function anularOrden(
+  o: Orden,
+  actorEmail: string,
+  motivo: string
+): Promise<Orden> {
+  if (o.estado !== 'oc_creada')
+    throw new Error('Solo se anula una OC pendiente de aprobación del gerente');
+  if (!motivo.trim()) throw new Error('Debes indicar un motivo');
+  const patch = {
+    estado: 'anulada' as EstadoOrden,
+    historial: appendHistorial(o, 'anulada', actorEmail, { motivo }),
+  };
+  const { data, error } = await supabase
+    .from(TABLE)
+    .update(patch)
+    .eq('id', o.id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as Orden;
+}
+
+/**
+ * "Modificar" una OC pendiente de aprobación del gerente: la devuelve a la etapa
+ * de ofertas (`aprobada` · Pendiente · cargar ofertas) y reabre todas las ofertas
+ * para volver a elegir la ganadora. Limpia el proveedor y la condición ya casados.
+ */
+export async function reabrirOcAOfertas(
+  o: Orden,
+  actorEmail: string
+): Promise<Orden> {
+  if (o.estado !== 'oc_creada')
+    throw new Error('Solo se modifica una OC pendiente de aprobación del gerente');
+  // Reabrir todas las ofertas (la aceptada y las descartadas) para re-elegir.
+  const { error: reopenErr } = await supabase
+    .from('ofertas_proveedor')
+    .update({ estado: 'pendiente', motivo_descarte: null, decidida_por_email: null, decidida_en: null })
+    .eq('orden_id', o.id)
+    .in('estado', ['aceptada', 'descartada']);
+  if (reopenErr) throw reopenErr;
+  const patch = {
+    estado: 'aprobada' as EstadoOrden,
+    proveedor_id: null,
+    condiciones_pago: null,
+    oc_creada_por: null,
+    oc_creada_en: null,
+    historial: appendHistorial(o, 'oc_reabierta', actorEmail, { motivo: 'Modificación: volver a elegir oferta' }),
+  };
+  const { data, error } = await supabase
+    .from(TABLE)
+    .update(patch)
+    .eq('id', o.id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 export async function desistirProveedor(
   o: Orden,
   actorEmail: string,

@@ -944,6 +944,7 @@ alter table public.caja_saldos drop constraint if exists caja_saldos_moneda_chec
 alter table public.caja_lotes  drop constraint if exists caja_lotes_moneda_check;
 alter table public.tasa_cambio drop constraint if exists tasa_cambio_moneda_check;
 alter type public.estado_orden add value if not exists 'finalizada';
+alter type public.estado_orden add value if not exists 'anulada';
 alter table public.ordenes add column if not exists oc_codigo       text;
 alter table public.ordenes add column if not exists oc_emitida_por  text;
 alter table public.ordenes add column if not exists oc_emitida_en   timestamptz;

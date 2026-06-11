@@ -7,7 +7,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { date, money } from '@/shared/lib/format';
 import { listOcPorLote, nextCodigoChecklist, type OcLoteRow } from './ocLote.repository';
-import { aprobarOcsEnLote } from './pedidos.repository';
+import { aprobarOcsEnLote, anularOrden, reabrirOcAOfertas } from './pedidos.repository';
 import { descargarChecklistOcPdf } from './checklistOcPdf';
 import { enviarChecklistAMultiples } from './enviarChecklist';
 
@@ -22,6 +22,10 @@ export function OcPorLoteView() {
   const [correoOpen, setCorreoOpen] = useState(false);
   const [confirmAprob, setConfirmAprob] = useState(false);
   const [aprobando, setAprobando] = useState(false);
+  const [confirmModificar, setConfirmModificar] = useState(false);
+  const [anularOpen, setAnularOpen] = useState(false);
+  const [motivoAnular, setMotivoAnular] = useState('');
+  const [procesando, setProcesando] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
 
   function toggle(id: string) {
@@ -75,12 +79,50 @@ export function OcPorLoteView() {
     finally { setAprobando(false); }
   }
 
+  // Modificar en lote: cada OC seleccionada (oc_creada) vuelve a la etapa de ofertas.
+  async function modificarLote() {
+    if (!isAdmin) { toast('Solo el administrador puede modificar las órdenes de compra.', 'error'); return; }
+    const elegidas = porConfirmar(rows);
+    if (!elegidas.length) { toast('No hay órdenes por confirmar seleccionadas', 'error'); return; }
+    setProcesando(true);
+    try {
+      for (const r of elegidas) await reabrirOcAOfertas(r.orden, user?.email ?? 'sistema');
+      notify(`${elegidas.length} OC reabierta(s) para re-elegir oferta`, 'info', { link: '#/app/pedidos' });
+      setSel(new Set());
+      setConfirmModificar(false);
+      await reload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo modificar', 'error'); }
+    finally { setProcesando(false); }
+  }
+
+  // Anular en lote: cada OC seleccionada (oc_creada) pasa a estado ANULADA.
+  async function anularLote() {
+    if (!isAdmin) { toast('Solo el administrador puede anular las órdenes de compra.', 'error'); return; }
+    const elegidas = porConfirmar(rows);
+    if (!elegidas.length) { toast('No hay órdenes por confirmar seleccionadas', 'error'); return; }
+    if (!motivoAnular.trim()) { toast('Indicá el motivo de la anulación', 'error'); return; }
+    setProcesando(true);
+    try {
+      for (const r of elegidas) await anularOrden(r.orden, user?.email ?? 'sistema', motivoAnular.trim());
+      notify(`${elegidas.length} OC anulada(s)`, 'warning', { link: '#/app/pedidos' });
+      setSel(new Set());
+      setAnularOpen(false);
+      setMotivoAnular('');
+      await reload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo anular', 'error'); }
+    finally { setProcesando(false); }
+  }
+
   return (
     <div>
       <div className="filterbar" style={{ justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {isAdmin && (
-            <button className="btn btn-primary" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setConfirmAprob(true); }}>✔ Aprobar en lote ({porConfirmar(rows).length})</button>
+            <>
+              <button className="btn btn-primary" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setConfirmAprob(true); }}>✔ Aprobar en lote ({porConfirmar(rows).length})</button>
+              <button className="btn btn-ghost" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setConfirmModificar(true); }} title="Reabrir las OC seleccionadas para re-elegir oferta">✎ Modificar ({porConfirmar(rows).length})</button>
+              <button className="btn btn-danger" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setAnularOpen(true); }} title="Anular las OC seleccionadas">⊘ Anular ({porConfirmar(rows).length})</button>
+            </>
           )}
           <button className="btn btn-ghost" onClick={pdf}>↓ PDF ({sel.size})</button>
           <button className="btn btn-ghost" onClick={() => { if (!sel.size) { toast('Seleccioná al menos una orden', 'error'); return; } setCorreoOpen(true); }}>✉ Enviar por correo</button>
@@ -148,6 +190,38 @@ export function OcPorLoteView() {
           onConfirm={aprobar}
           onCancel={() => !aprobando && setConfirmAprob(false)}
         />
+      )}
+
+      {confirmModificar && (
+        <ConfirmDialog
+          title="Modificar órdenes de compra en lote"
+          message={`Vas a reabrir ${porConfirmar(rows).length} orden(es) de compra a “Pendiente · cargar ofertas” para re-elegir la oferta ganadora. ¿Continuar?`}
+          confirmText={procesando ? 'Procesando…' : 'Modificar (volver a ofertas)'}
+          onConfirm={modificarLote}
+          onCancel={() => !procesando && setConfirmModificar(false)}
+        />
+      )}
+
+      {anularOpen && (
+        <Modal
+          title="Anular órdenes de compra en lote"
+          size="md"
+          onClose={() => { if (!procesando) { setAnularOpen(false); setMotivoAnular(''); } }}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => { setAnularOpen(false); setMotivoAnular(''); }} disabled={procesando}>Cancelar</button>
+              <button className="btn btn-danger" onClick={anularLote} disabled={procesando || !motivoAnular.trim()}>{procesando ? 'Anulando…' : `Anular ${porConfirmar(rows).length} OC`}</button>
+            </>
+          }
+        >
+          <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+            Las {porConfirmar(rows).length} OC seleccionadas pasan a estado <strong>ANULADA</strong>. No mueven inventario ni caja.
+          </p>
+          <div className="form-row">
+            <label>Motivo de la anulación</label>
+            <textarea className="input" rows={3} value={motivoAnular} onChange={(e) => setMotivoAnular(e.target.value)} placeholder="Ya no se requiere, error de carga, se reemplaza por otra…" autoFocus />
+          </div>
+        </Modal>
       )}
     </div>
   );
