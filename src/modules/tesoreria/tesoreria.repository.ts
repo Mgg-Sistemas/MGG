@@ -146,7 +146,15 @@ export interface Disponibilidad {
 export async function disponibilidadFinanciera(): Promise<Disponibilidad> {
   // Multimoneda: se calcula desde caja_saldos (Bs jurídica/personal, USD, USDT, COP).
   // Cada divisa se valora en Bs con su tasa promedio ponderada (costo real).
-  const { data, error } = await supabase.from('caja_saldos').select('moneda, saldo, tasa_prom');
+  // SOLO cajas propias: el dinero trasladado a un sistema externo (p. ej. Peramanal)
+  // ya no es disponibilidad de MGG, así que esas cajas (externo=true) se excluyen.
+  const { data: internas } = await supabase.from('cajas').select('id').eq('externo', false);
+  const ids = (internas ?? []).map((c) => (c as { id: string }).id);
+  if (!ids.length) {
+    const tasaVacia = await getTasaHoy();
+    return { usd: 0, usdt: 0, bs: 0, tasaUsd: tasaVacia.usd, usdEnBs: 0, totalBs: 0, fecha: tasaVacia.fecha };
+  }
+  const { data, error } = await supabase.from('caja_saldos').select('moneda, saldo, tasa_prom').in('caja_id', ids);
   if (error) throw error;
   const rows = (data ?? []) as Array<{ moneda: string; saldo: number; tasa_prom: number | null }>;
   const equiv = (r: { moneda: string; saldo: number; tasa_prom: number | null }) =>

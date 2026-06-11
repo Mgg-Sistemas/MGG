@@ -1253,6 +1253,11 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const [destinoId, setDestinoId] = useState('');
   const [centros, setCentros] = useState<Caja[]>([]);
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
+  // Saldos de TODAS las cajas (para mostrar el saldo real en el desplegable "Desde";
+  // `cajas.saldo` no se mantiene en las cajas multimoneda y siempre es 0).
+  const [todosSaldos, setTodosSaldos] = useState<CajaSaldo[]>([]);
+  const saldoHomeDe = (c: Caja) =>
+    todosSaldos.filter((s) => s.caja_id === c.id && s.moneda === c.moneda).reduce((a, s) => a + (Number(s.saldo) || 0), 0);
   const [montos, setMontos] = useState<Record<string, string>>({}); // key = saldo.id
   const [motivo, setMotivo] = useState('');
   const [loadingSaldos, setLoadingSaldos] = useState(false);
@@ -1263,6 +1268,7 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const destino = centros.find((c) => c.id === destinoId) ?? null;
 
   useEffect(() => { listCentrosAcopio().then(setCentros).catch(() => setCentros([])); }, []);
+  useEffect(() => { listSaldos().then(setTodosSaldos).catch(() => setTodosSaldos([])); }, []);
   // Traslado al OTRO SISTEMA (centro externo): el motivo por defecto es la ruta
   // "CAJA ORIGEN / CAJA DESTINO" (ej. "CAJA MULTIMONEDAS MGG / CAJA GT PERAMANAL").
   // Queda editable por si se quiere detallar más.
@@ -1325,7 +1331,7 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
           <div className="form-row">
             <label>Desde</label>
             <select className="select" value={origenId} onChange={(e) => { setOrigenId(e.target.value); setDestinoId(destinoId); }}>
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {monto(c.saldo, c.moneda)}</option>)}
+              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {monto(saldoHomeDe(c), c.moneda)}</option>)}
             </select>
           </div>
           <div className="form-row">
