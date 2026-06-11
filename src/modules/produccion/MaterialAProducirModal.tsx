@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
-import { updateProducto } from '@/modules/inventario/inventario.repository';
+import { getUnidades, updateProducto } from '@/modules/inventario/inventario.repository';
 import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput } from './produccion.repository';
 import { crearHorno } from './hornos.repository';
 
@@ -59,6 +60,25 @@ export function MaterialAProducirModal({
   const [productoSelId, setProductoSelId] = useState(preselect || producibles[0]?.id || '');
   const [nombreNuevo, setNombreNuevo] = useState('');
   const [unidadNuevo, setUnidadNuevo] = useState('und');
+
+  // Unidades buscables (catálogo del inventario + estándares Und/Kg/Ton), sin repetir.
+  const [unidadesCat, setUnidadesCat] = useState<string[]>(['und', 'kg', 'ton']);
+  useEffect(() => {
+    let cancel = false;
+    getUnidades(productos).then((u) => { if (!cancel) setUnidadesCat(u); }).catch(() => { /* defaults */ });
+    return () => { cancel = true; };
+  }, [productos]);
+  const opcionesUnidad = useMemo(() => {
+    const vistos = new Set<string>();
+    const out: string[] = [];
+    for (const u of [...unidadesCat, 'und', 'kg', 'ton']) {
+      const k = u.trim().toLowerCase();
+      if (!k || vistos.has(k)) continue;
+      vistos.add(k);
+      out.push(u);
+    }
+    return out.sort((a, b) => a.localeCompare(b, 'es')).map((u) => ({ value: u, label: u }));
+  }, [unidadesCat]);
 
   const [cantidad, setCantidad] = useState('1');
   const [almacenDestino, setAlmacenDestino] = useState(almacenes[0]);
@@ -350,7 +370,7 @@ export function MaterialAProducirModal({
           ) : (
             <div className="form-grid">
               <input className="input" placeholder="Nombre del producto a producir" value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value.toUpperCase())} />
-              <input className="input" placeholder="Unidad" value={unidadNuevo} onChange={(e) => setUnidadNuevo(e.target.value)} />
+              <SearchSelect options={opcionesUnidad} value={unidadNuevo} onChange={setUnidadNuevo} placeholder="Unidad…" />
             </div>
           )}
           {modoOutput === 'nuevo' && (
@@ -457,7 +477,7 @@ export function MaterialAProducirModal({
                 <div style={{ display: 'grid', gap: '.4rem' }}>
                   <div className="form-grid">
                     <input className="input" placeholder="Nombre del insumo" value={nuevo.nombre} onChange={(e) => setNuevo((p) => ({ ...p, nombre: e.target.value.toUpperCase() }))} />
-                    <input className="input" placeholder="Unidad" value={nuevo.unidad} onChange={(e) => setNuevo((p) => ({ ...p, unidad: e.target.value }))} />
+                    <SearchSelect options={opcionesUnidad} value={nuevo.unidad} onChange={(v) => setNuevo((p) => ({ ...p, unidad: v }))} placeholder="Unidad…" />
                   </div>
                   <div className="form-grid">
                     <select className="select" value={nuevo.almacen} onChange={(e) => setNuevo((p) => ({ ...p, almacen: e.target.value }))}>
