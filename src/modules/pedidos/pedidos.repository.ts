@@ -18,6 +18,23 @@ import type {
 /** Bucket de Storage para los adjuntos de pago de OC (factura / retención). */
 const BUCKET_OC = 'compras-oc';
 
+/**
+ * Guard de capa de datos: la confirmación/aprobación de OC es EXCLUSIVA del
+ * administrador (gerente general). El front ya oculta los botones a otros roles,
+ * pero re-verificamos el rol del usuario logueado contra la tabla `usuarios`
+ * para que el flujo no se pueda disparar por otra vía. No toca RLS (el acceso
+ * por rol vive en el front, según la arquitectura del sistema).
+ */
+async function assertAdmin(accion: string): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id;
+  if (!uid) throw new Error('Sesión no válida. Volvé a iniciar sesión.');
+  const { data, error } = await supabase.from('usuarios').select('role').eq('id', uid).single();
+  if (error || data?.role !== 'admin') {
+    throw new Error(`Solo el administrador puede ${accion}.`);
+  }
+}
+
 /* ============================================================
    MGG · Pedidos (Órdenes) · Repository
    Portado del demo `src-full/modules/ordenes/ordenes.controller.*`
@@ -276,6 +293,7 @@ export async function aprobarOcsEnLote(
   actorEmail: string,
   almacenDestino?: string | null,
 ): Promise<number> {
+  await assertAdmin('confirmar las órdenes de compra');
   const elegibles = ordenes.filter((o) => o.estado === 'oc_creada');
   if (!elegibles.length) throw new Error('No hay órdenes de compra por confirmar.');
   const destino = almacenDestino?.trim() || null;
