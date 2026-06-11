@@ -14,6 +14,7 @@ import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
+import { prefetchRoute } from '@/shared/lib/routePrefetch';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -419,7 +420,14 @@ function NavItem({
     );
   }
   return (
-    <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end>
+    // Prefetch del chunk de la página al pasar el mouse o enfocar: el clic abre al instante.
+    <NavLink
+      to={to}
+      className={({ isActive }) => (isActive ? 'active' : '')}
+      end
+      onMouseEnter={() => prefetchRoute(to)}
+      onFocus={() => prefetchRoute(to)}
+    >
       <span className="icn">{icon}</span> <span>{label}</span>
     </NavLink>
   );
