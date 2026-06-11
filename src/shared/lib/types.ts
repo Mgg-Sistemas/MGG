@@ -324,6 +324,44 @@ export interface VehiculoMaquina {
   updated_at?: string | null;
 }
 
+/** Ítem de catálogo simple del módulo Combustible (autorizados, ubicaciones). */
+export interface CatalogoCombustible {
+  id: string;
+  nombre: string;
+  estado: EstadoGenerico;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+/** Tipo de movimiento de tanque: ingreso/retorno suman, consumo/merma restan. */
+export type TipoMovimientoTanque = 'ingreso' | 'consumo' | 'retorno' | 'merma';
+
+/** Movimiento de un tanque (botón "Registrar Movimiento" / vista "MOVIMIENTOS"). */
+export interface TanqueMovimiento {
+  id: string;
+  tanque_id?: string | null;
+  tanque_nombre?: string | null;
+  tipo: TipoMovimientoTanque;
+  fecha: string;
+  litros: number;
+  litros_antes?: number | null;
+  litros_despues?: number | null;
+  horometro_inicial?: number | null;
+  horometro_final?: number | null;
+  contador_global_ini?: number | null;
+  contador_global_fin?: number | null;
+  equipo?: string | null;
+  autorizado_por?: string | null;
+  destino?: string | null;
+  observacion?: string | null;
+  combustible_id?: string | null;
+  costo_litro?: number | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
 /** Traslado de combustible (litros) entre dos sistemas independientes (cada uno
  *  su Supabase). Mismo patrón que TransferenciaInter pero el recurso son litros
  *  que, al confirmar, entran a un tanque de MGG. `transf_id` es el id global. */

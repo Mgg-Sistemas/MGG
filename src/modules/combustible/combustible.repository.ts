@@ -6,12 +6,15 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type {
+  CatalogoCombustible,
   Combustible,
   EventoHistorial,
   MovimientoCombustible,
   PlantaMovimiento,
   SolicitudCombustible,
   Tanque,
+  TanqueMovimiento,
+  TipoMovimientoTanque,
   VehiculoMaquina,
 } from '@/shared/lib/types';
 import { createProducto, listProductos, siguienteSku } from '@/modules/inventario/inventario.repository';
@@ -544,6 +547,184 @@ export async function setEstadoVehiculo(id: string, estado: 'activo' | 'inactivo
 
 export async function eliminarVehiculo(id: string): Promise<void> {
   const { error } = await supabase.from('combustible_vehiculos').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ───────────── Catálogos simples (autorizados, ubicaciones) ───────────── */
+
+export type TablaCatalogo = 'combustible_autorizados' | 'combustible_ubicaciones';
+
+export async function listCatalogo(tabla: TablaCatalogo): Promise<CatalogoCombustible[]> {
+  const { data, error } = await supabase.from(tabla).select('*').order('nombre', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as CatalogoCombustible[];
+}
+
+export async function crearCatalogo(tabla: TablaCatalogo, nombre: string, actorEmail?: string | null): Promise<CatalogoCombustible> {
+  const n = nombre.trim();
+  if (!n) throw new Error('El nombre es obligatorio.');
+  const { data, error } = await supabase.from(tabla).insert({ nombre: n, created_by: actorEmail ?? null }).select('*').single();
+  if (error) throw error;
+  return data as CatalogoCombustible;
+}
+
+export async function actualizarCatalogo(tabla: TablaCatalogo, id: string, nombre: string): Promise<void> {
+  const n = nombre.trim();
+  if (!n) throw new Error('El nombre no puede estar vacío.');
+  const { error } = await supabase.from(tabla).update({ nombre: n, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function setEstadoCatalogo(tabla: TablaCatalogo, id: string, estado: 'activo' | 'inactivo'): Promise<void> {
+  const { error } = await supabase.from(tabla).update({ estado, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+/* ───────────── Movimientos de tanque (botón "Registrar Movimiento") ─────────────
+   El tipo define el signo: ingreso/retorno suman litros, consumo/merma restan.
+   Si el tanque tiene combustible asignado, se reusa la lógica de inventario
+   (registrarIngreso / salidaCombustibleDirecta) para mantener todo consistente. */
+
+const TIPO_TANQUE_SUMA: Record<TipoMovimientoTanque, boolean> = { ingreso: true, retorno: true, consumo: false, merma: false };
+export const TIPO_TANQUE_LABEL: Record<TipoMovimientoTanque, string> = { ingreso: 'Ingreso', consumo: 'Consumo', retorno: 'Retorno', merma: 'Merma' };
+
+/** Almacén "casa" del combustible (donde vive su existencia en el inventario). */
+async function almacenCasaCombustible(combustibleId: string): Promise<string> {
+  const { data: comb } = await supabase.from('combustibles').select('producto_id').eq('id', combustibleId).maybeSingle();
+  const pid = (comb as { producto_id?: string } | null)?.producto_id;
+  if (pid) {
+    const { data: p } = await supabase.from('productos').select('almacen').eq('id', pid).maybeSingle();
+    const alm = (p as { almacen?: string } | null)?.almacen;
+    if (alm) return alm;
+  }
+  return 'General';
+}
+
+export async function listTanqueMovimientos(filtros?: { tanqueId?: string; tipo?: TipoMovimientoTanque }): Promise<TanqueMovimiento[]> {
+  let q = supabase.from('combustible_tanque_movimientos').select('*').order('fecha', { ascending: false });
+  if (filtros?.tanqueId) q = q.eq('tanque_id', filtros.tanqueId);
+  if (filtros?.tipo) q = q.eq('tipo', filtros.tipo);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as TanqueMovimiento[];
+}
+
+/** Último horómetro final registrado para un equipo (para precargar el HI del próximo movimiento). */
+export async function ultimoHorometroEquipo(equipo: string): Promise<number | null> {
+  const e = equipo.trim();
+  if (!e) return null;
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('horometro_final')
+    .eq('equipo', e)
+    .not('horometro_final', 'is', null)
+    .order('fecha', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  const hf = (data as { horometro_final?: number } | null)?.horometro_final;
+  return hf != null ? Number(hf) : null;
+}
+
+/** Último contador global (totalizador del surtidor) registrado para un tanque. */
+export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {
+  if (!tanqueId) return null;
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('contador_global_fin')
+    .eq('tanque_id', tanqueId)
+    .not('contador_global_fin', 'is', null)
+    .order('fecha', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  const cf = (data as { contador_global_fin?: number } | null)?.contador_global_fin;
+  return cf != null ? Number(cf) : null;
+}
+
+export async function crearTanqueMovimiento(input: {
+  tanqueId: string;
+  tipo: TipoMovimientoTanque;
+  litros: number;
+  fecha?: string | null;
+  horometroInicial?: number | null;
+  horometroFinal?: number | null;
+  contadorIni?: number | null;
+  contadorFin?: number | null;
+  equipo?: string | null;
+  autorizadoPor?: string | null;
+  destino?: string | null;
+  observacion?: string | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<void> {
+  const litros = Number(input.litros) || 0;
+  if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+  const { data: tq, error: tErr } = await supabase
+    .from('combustible_tanques')
+    .select('id, nombre, litros, capacidad_litros, combustible_id')
+    .eq('id', input.tanqueId)
+    .maybeSingle();
+  if (tErr) throw tErr;
+  if (!tq) throw new Error('Elegí un tanque.');
+
+  const suma = TIPO_TANQUE_SUMA[input.tipo];
+  const litrosAntes = Number(tq.litros) || 0;
+  if (suma && litrosAntes + litros > (Number(tq.capacidad_litros) || 0) + 0.0001)
+    throw new Error(`El ingreso supera la capacidad del tanque "${tq.nombre}" (${tq.capacidad_litros} L).`);
+  if (!suma && litros > litrosAntes)
+    throw new Error(`El tanque "${tq.nombre}" no tiene litros suficientes. Disponible: ${litrosAntes} L.`);
+  const litrosDespues = suma ? litrosAntes + litros : litrosAntes - litros;
+
+  const etiqueta = TIPO_TANQUE_LABEL[input.tipo];
+  const combustibleId = (tq.combustible_id as string | null) ?? null;
+  let costoLitro: number | null = null;
+
+  if (combustibleId) {
+    if (suma) {
+      const { data: comb } = await supabase.from('combustibles').select('costo_litro').eq('id', combustibleId).maybeSingle();
+      costoLitro = Number((comb as { costo_litro?: number } | null)?.costo_litro) || 0;
+      const almacen = await almacenCasaCombustible(combustibleId);
+      await registrarIngreso({ combustibleId, almacen, tanqueId: tq.id, litros, costoLitro, actor: input.actor, actorName: input.actorName, detalle: etiqueta });
+    } else {
+      await salidaCombustibleDirecta({
+        combustibleId, tanqueId: tq.id, litros,
+        destino: input.destino?.trim() || input.equipo?.trim() || etiqueta,
+        motivo: etiqueta, refTipo: 'tanque_movimiento', refId: tq.id,
+        actor: input.actor, actorName: input.actorName,
+      });
+    }
+  } else {
+    const { error } = await supabase.from('combustible_tanques')
+      .update({ litros: Math.max(0, litrosDespues), updated_at: new Date().toISOString() })
+      .eq('id', tq.id);
+    if (error) throw error;
+  }
+
+  const { error: mErr } = await supabase.from('combustible_tanque_movimientos').insert({
+    tanque_id: tq.id, tanque_nombre: tq.nombre, tipo: input.tipo,
+    fecha: input.fecha ?? new Date().toISOString(),
+    litros, litros_antes: litrosAntes, litros_despues: Math.max(0, litrosDespues),
+    horometro_inicial: input.horometroInicial ?? null, horometro_final: input.horometroFinal ?? null,
+    contador_global_ini: input.contadorIni ?? null, contador_global_fin: input.contadorFin ?? null,
+    equipo: input.equipo?.trim() || null, autorizado_por: input.autorizadoPor?.trim() || null,
+    destino: input.destino?.trim() || null, observacion: input.observacion?.trim() || null,
+    combustible_id: combustibleId, costo_litro: costoLitro,
+    actor: input.actor, actor_name: input.actorName ?? null,
+  });
+  if (mErr) throw mErr;
+}
+
+/** Edita el combustible registrado desde su tarjeta: nombre y/o costo por litro. */
+export async function actualizarCombustible(id: string, input: { nombre?: string; costoLitro?: number }): Promise<void> {
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.nombre !== undefined) {
+    const n = input.nombre.trim();
+    if (!n) throw new Error('El nombre no puede estar vacío.');
+    patch.nombre = n;
+  }
+  if (input.costoLitro !== undefined) patch.costo_litro = Math.max(0, Number(input.costoLitro) || 0);
+  const { error } = await supabase.from('combustibles').update(patch).eq('id', id);
   if (error) throw error;
 }
 

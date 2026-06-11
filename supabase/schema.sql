@@ -364,7 +364,7 @@ create policy "transf comb write auth" on public.transferencias_combustible_inte
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','transferencias_combustible_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','combustible_vehiculos','combustible_planta_movimientos','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','transferencias_combustible_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','combustible_vehiculos','combustible_planta_movimientos','combustible_autorizados','combustible_ubicaciones','combustible_tanque_movimientos','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
@@ -528,6 +528,57 @@ create index if not exists idx_planta_mov_tanque on public.combustible_planta_mo
 alter table public.combustible_planta_movimientos enable row level security;
 create policy "planta read auth"      on public.combustible_planta_movimientos for select using (auth.role()='authenticated');
 create policy "planta write operativo" on public.combustible_planta_movimientos for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Catálogos del módulo Combustible (gestionados desde el botón "Catálogo"):
+--   · autorizados  → quién autoriza un movimiento de tanque
+--   · ubicaciones  → destino de un movimiento de tanque
+-- (los equipos/máquinas viven en combustible_vehiculos). Soportan deshabilitar.
+create table if not exists public.combustible_autorizados (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  estado text not null default 'activo' check (estado in ('activo','inactivo')),
+  created_by text, created_at timestamptz not null default now(), updated_at timestamptz
+);
+alter table public.combustible_autorizados enable row level security;
+create policy "comb_autorizados read auth" on public.combustible_autorizados for select using (auth.role()='authenticated');
+create policy "comb_autorizados write op"  on public.combustible_autorizados for all using (public.is_operativo()) with check (public.is_operativo());
+
+create table if not exists public.combustible_ubicaciones (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  estado text not null default 'activo' check (estado in ('activo','inactivo')),
+  created_by text, created_at timestamptz not null default now(), updated_at timestamptz
+);
+alter table public.combustible_ubicaciones enable row level security;
+create policy "comb_ubicaciones read auth" on public.combustible_ubicaciones for select using (auth.role()='authenticated');
+create policy "comb_ubicaciones write op"  on public.combustible_ubicaciones for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Movimientos de tanque (botón "Registrar Movimiento"). El tipo define el signo:
+--   ingreso / retorno → suman litros al tanque · consumo / merma → restan.
+-- Si el tanque tiene combustible asignado, se refleja también en el inventario.
+create table if not exists public.combustible_tanque_movimientos (
+  id uuid primary key default gen_random_uuid(),
+  tanque_id uuid references public.combustible_tanques(id) on delete set null,
+  tanque_nombre text,
+  tipo text not null check (tipo in ('ingreso','consumo','retorno','merma')),
+  fecha timestamptz not null default now(),
+  litros numeric not null check (litros > 0),
+  litros_antes numeric, litros_despues numeric,
+  horometro_inicial numeric, horometro_final numeric,  -- por equipo: el HF pasa a ser el HI del próximo movimiento del mismo equipo
+  contador_global_ini numeric, contador_global_fin numeric,  -- totalizador del surtidor (por tanque): el fin pasa a ser el ini del próximo movimiento del tanque
+  equipo text,            -- vehículo/máquina (combustible_vehiculos)
+  autorizado_por text,    -- combustible_autorizados
+  destino text,           -- combustible_ubicaciones
+  observacion text,
+  combustible_id uuid references public.combustibles(id) on delete set null,
+  costo_litro numeric,
+  actor text, actor_name text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_comb_tanque_mov_tanque on public.combustible_tanque_movimientos(tanque_id, fecha desc);
+alter table public.combustible_tanque_movimientos enable row level security;
+create policy "comb_tanque_mov read auth" on public.combustible_tanque_movimientos for select using (auth.role()='authenticated');
+create policy "comb_tanque_mov write op"  on public.combustible_tanque_movimientos for all using (public.is_operativo()) with check (public.is_operativo());
 
 -- Solicitudes de salida/traslado (material y dinero) con flujo de aprobación.
 -- El obrero crea (por_aprobar); admin/analista aprueba y ejecuta (gate en el front).

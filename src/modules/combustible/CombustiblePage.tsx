@@ -8,14 +8,14 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
-import type { Combustible, SolicitudCombustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter, PlantaMovimiento } from '@/shared/lib/types';
+import type { Combustible, SolicitudCombustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter, PlantaMovimiento, CatalogoCombustible, TanqueMovimiento, TipoMovimientoTanque } from '@/shared/lib/types';
 import {
   listCombustibles,
   listSolicitudesCombustible,
   crearCombustible,
-  registrarIngreso,
   renombrarCombustible,
   setEstadoCombustible,
+  actualizarCombustible,
   crearSolicitudCombustible,
   aprobarSolicitudCombustible,
   finalizarSolicitudCombustible,
@@ -29,10 +29,19 @@ import {
   crearVehiculo,
   actualizarVehiculo,
   setEstadoVehiculo,
-  eliminarVehiculo,
   listPlantaMovimientos,
   crearPlantaMovimiento,
   PLANTA_ALERTA_LITROS,
+  listCatalogo,
+  crearCatalogo,
+  actualizarCatalogo,
+  setEstadoCatalogo,
+  crearTanqueMovimiento,
+  listTanqueMovimientos,
+  ultimoHorometroEquipo,
+  ultimoContadorTanque,
+  TIPO_TANQUE_LABEL,
+  type TablaCatalogo,
 } from './combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { descargarSolicitudCombustiblePdf } from './combustiblePdf';
@@ -54,53 +63,22 @@ const COLS: { key: SolicitudCombustible['estado']; label: string }[] = [
 const ESTADO_LABEL: Record<string, string> = {
   por_aprobar: '⏳ Por aprobar', aprobada: '✅ Aprobada', finalizada: '🏁 Finalizada', cancelada: '✖ Cancelada',
 };
+// Destinos fijos de la solicitud de salida ("a dónde va ese combustible").
+const DESTINOS_SALIDA = ['Almacén Los Pinos', 'Almacén Matanzas'] as const;
+// Tipos de movimiento de tanque (suman / restan).
+const TIPOS_MOVIMIENTO: { value: TipoMovimientoTanque; label: string; signo: '+' | '−' }[] = [
+  { value: 'ingreso', label: 'Ingreso (carga al tanque)', signo: '+' },
+  { value: 'consumo', label: 'Consumo (uso de equipo)', signo: '−' },
+  { value: 'retorno', label: 'Retorno (devolución al tanque)', signo: '+' },
+  { value: 'merma', label: 'Merma (pérdida)', signo: '−' },
+];
 
-/* ───────────── Origen/destino físico (tanques · se reflejan en inventario) ───────────── */
+/* ───────────── Origen físico (tanques · se reflejan en inventario) ───────────── */
 // Tanques activos del combustible elegido (o sin combustible asignado).
 function tanquesDelCombustible(tanques: Tanque[], combustibleId: string): Tanque[] {
   return tanques.filter((t) => t.estado === 'activo' && (!t.combustible_id || t.combustible_id === combustibleId));
 }
-// Valor por defecto del selector: primer tanque del combustible, o su almacén "casa".
-function defaultOrigen(tanques: Tanque[], comb: Combustible | null, almacenes: string[], combustibleId: string): string {
-  const tqs = tanquesDelCombustible(tanques, combustibleId);
-  if (tqs.length) return `tnk:${tqs[0].id}`;
-  return `alm:${comb?.home_almacen || almacenes[0] || ''}`;
-}
-// Resuelve el valor del select ('tnk:<id>' | 'alm:<nombre>') a {almacen, tanque}.
-// Al ser tanque, el inventario se refleja en el almacén "casa" del combustible.
-function resolverOrigen(sel: string, comb: Combustible | null, almacenes: string[], tanques: Tanque[]):
-  { almacen: string; tanqueId: string | null; tanqueNombre: string | null } {
-  if (sel.startsWith('tnk:')) {
-    const id = sel.slice(4);
-    const t = tanques.find((x) => x.id === id) ?? null;
-    return { almacen: comb?.home_almacen || almacenes[0] || 'General', tanqueId: id, tanqueNombre: t?.nombre ?? null };
-  }
-  return { almacen: sel.replace(/^alm:/, ''), tanqueId: null, tanqueNombre: null };
-}
-// Selector combinado: tanques (primero) + almacenes de inventario.
-function OrigenSelect({ tanques, almacenes, combustibleId, value, onChange, label, help }: {
-  tanques: Tanque[]; almacenes: string[]; combustibleId: string;
-  value: string; onChange: (v: string) => void; label: string; help?: string;
-}) {
-  const tqs = tanquesDelCombustible(tanques, combustibleId);
-  return (
-    <div className="form-row">
-      <label>{label}</label>
-      <select className="select" value={value} onChange={(e) => onChange(e.target.value)} required>
-        {tqs.length > 0 && (
-          <optgroup label="🛢 Tanques">
-            {tqs.map((t) => <option key={t.id} value={`tnk:${t.id}`}>🛢 {t.nombre} · {num(t.litros)}/{num(t.capacidad_litros)} L{t.ubicacion ? ` · ${t.ubicacion}` : ''}</option>)}
-          </optgroup>
-        )}
-        <optgroup label="Almacenes (inventario)">
-          {!almacenes.length && <option value="">— sin almacenes —</option>}
-          {almacenes.map((a) => <option key={a} value={`alm:${a}`}>{a}</option>)}
-        </optgroup>
-      </select>
-      {help && <small className="muted">{help}</small>}
-    </div>
-  );
-}
+// (Selector combinado tanque/almacén eliminado: la salida ahora usa solo tanques.)
 
 /* ───────────── Combo buscador estilizado (input + lista filtrada con el tema) ─────────────
    Reemplaza al <datalist> nativo (que el navegador no deja estilizar): muestra
@@ -156,46 +134,6 @@ function ComboBuscador({ value, onChange, opciones, placeholder, icono }: {
   );
 }
 
-/* ───────────── Destino de la salida: Almacén o Vehículo / Máquina ───────────── */
-// Reemplaza al "Persona" genérico: aquí el combustible se entrega a un vehículo o
-// máquina registrado (o a un almacén). La lista de vehículos se administra desde
-// el botón "🚜 Vehículos / Máquinas" de la vista principal.
-function DestinoCombustibleSelect({ value, onChange, almacenes, vehiculos, label }: {
-  value: string; onChange: (v: string) => void; almacenes: string[]; vehiculos: VehiculoMaquina[]; label: string;
-}) {
-  const ESPECIALES = ['Consumo Interno'];
-  const opcionesAlmacen = [...ESPECIALES, ...almacenes.filter((a) => !ESPECIALES.includes(a))];
-  const activos = vehiculos.filter((v) => v.estado === 'activo');
-  const [modo, setModo] = useState<'almacen' | 'vehiculo'>('almacen');
-
-  function cambiarModo(next: 'almacen' | 'vehiculo') { setModo(next); onChange(''); }
-
-  return (
-    <div className="form-row">
-      <label>{label}</label>
-      <div className="view-toggle" role="tablist" aria-label="Tipo de destino" style={{ marginBottom: '.4rem', marginLeft: 0 }}>
-        <button type="button" className={modo === 'almacen' ? 'active' : ''} onClick={() => cambiarModo('almacen')}>▣ Almacén</button>
-        <button type="button" className={modo === 'vehiculo' ? 'active' : ''} onClick={() => cambiarModo('vehiculo')}>🚜 Vehículo / Máquina</button>
-      </div>
-
-      {/* Ambos modos con buscador estilizado (lista filtrada con el tema). */}
-      {modo === 'almacen' ? (
-        <ComboBuscador
-          value={value} onChange={onChange} placeholder="🔎 Buscá el almacén…" icono="▣"
-          opciones={opcionesAlmacen.map((a) => ({ value: a, label: a }))}
-        />
-      ) : (
-        <>
-          <ComboBuscador
-            value={value} onChange={onChange} placeholder="🔎 Buscá el vehículo / máquina…" icono="🚜"
-            opciones={activos.map((v) => ({ value: v.nombre, label: v.nombre, sub: v.descripcion }))}
-          />
-          {!activos.length && <small className="muted">No hay vehículos / máquinas registrados. Agregalos con "🚜 Vehículos / Máquinas".</small>}
-        </>
-      )}
-    </div>
-  );
-}
 
 export function CombustiblePage() {
   const { user } = useSession();
@@ -213,9 +151,12 @@ export function CombustiblePage() {
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
-  const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar' | 'consumo' | 'tanque' | 'vehiculos' | 'planta'>('none');
+  const [modal, setModal] = useState<'none' | 'solicitud' | 'movimiento' | 'movimientos' | 'gestionar' | 'consumo' | 'tanque' | 'catalogo' | 'planta'>('none');
   const [detalle, setDetalle] = useState<SolicitudCombustible | null>(null);
   const [tanqueEdit, setTanqueEdit] = useState<Tanque | null>(null);
+  const [combEdit, setCombEdit] = useState<Combustible | null>(null);
+  // Histórico de movimientos: null = todos los tanques; id = filtra por ese tanque.
+  const [movTanqueId, setMovTanqueId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const [cs, ss, ts, vs, trs, alms] = await Promise.all([
@@ -243,11 +184,12 @@ export function CombustiblePage() {
   }, [reload]);
 
   // Realtime multiusuario: combustibles, solicitudes y tanques se reflejan al instante.
-  useRealtime(['combustibles', 'combustible_solicitudes', 'combustible_tanques', 'combustible_vehiculos', 'transferencias_combustible_inter'], () => { void reload(); });
+  useRealtime(['combustibles', 'combustible_solicitudes', 'combustible_tanques', 'combustible_vehiculos', 'transferencias_combustible_inter', 'combustible_tanque_movimientos', 'combustible_autorizados', 'combustible_ubicaciones'], () => { void reload(); });
 
   const activos = useMemo(() => combustibles.filter((c) => c.estado === 'activo'), [combustibles]);
   const valorTotal = useMemo(() => combustibles.reduce((a, c) => a + (Number(c.litros) || 0) * (Number(c.costo_litro) || 0), 0), [combustibles]);
   const litrosTotal = useMemo(() => combustibles.reduce((a, c) => a + (Number(c.litros) || 0), 0), [combustibles]);
+  const hoyStr = new Date().toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
   const porEstado = useMemo(() => {
     const m: Record<string, SolicitudCombustible[]> = { por_aprobar: [], aprobada: [], finalizada: [], cancelada: [] };
@@ -264,14 +206,15 @@ export function CombustiblePage() {
         </div>
         <div className="actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-primary" onClick={() => setModal('consumo')} title="Gráfica de consumo de combustible por tipo">📊 Consumo</button>
+          <button className="btn btn-ghost" onClick={() => { setMovTanqueId(null); setModal('movimientos'); }} title="Histórico de movimientos de tanque (por mes)">🗒 Movimientos</button>
           {canWrite && (
             <>
               {/* Sin combustibles, este es el ÚNICO botón que crea el primero: lo resaltamos. */}
               <button className={activos.length ? 'btn btn-ghost' : 'btn btn-primary'} onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
               <button className="btn btn-ghost" onClick={() => setModal('tanque')}>🛢 Agregar Tanque</button>
-              <button className="btn btn-ghost" onClick={() => setModal('vehiculos')}>🚜 Vehículos / Máquinas</button>
+              <button className="btn btn-ghost" onClick={() => setModal('catalogo')}>📒 Catálogo</button>
               <button className="btn btn-ghost" onClick={() => setModal('planta')}>⚡ Planta Eléctrica</button>
-              <button className="btn btn-ghost" onClick={() => setModal('ingreso')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>⬇ Registrar ingreso</button>
+              <button className="btn btn-ghost" onClick={() => setModal('movimiento')} disabled={!tanques.length} title={!tanques.length ? 'Creá primero un tanque con "🛢 Agregar Tanque"' : undefined}>⬇ Registrar Movimiento</button>
               <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>+ Nueva solicitud de salida</button>
             </>
           )}
@@ -290,12 +233,14 @@ export function CombustiblePage() {
           const litros = Number(c.litros) || 0;
           const costo = Number(c.costo_litro) || 0;
           return (
-            <div key={c.id} className="card" style={{ opacity: c.estado === 'activo' ? 1 : 0.55 }}>
-              <div className="card-title"><span>⛽ {c.nombre}</span>{c.estado !== 'activo' && <span className="badge">inactivo</span>}</div>
+            <div key={c.id} className="card" style={{ opacity: c.estado === 'activo' ? 1 : 0.55, cursor: canWrite ? 'pointer' : 'default' }}
+              onClick={() => { if (canWrite) setCombEdit(c); }} title={canWrite ? 'Editar combustible (nombre / costo por litro)' : undefined}>
+              <div className="card-title"><span>⛽ {c.nombre}</span>{canWrite ? <span className="muted" style={{ fontSize: '.8rem' }}>✎</span> : c.estado !== 'activo' && <span className="badge">inactivo</span>}</div>
               <div style={{ fontSize: '1.5rem', fontWeight: 700 }} className="mono">{num(litros)} L</div>
               <div className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>
                 <div>Costo por litro: <strong className="mono">{money(costo)}</strong></div>
                 <div>Valor total: <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(litros * costo)}</strong></div>
+                <div style={{ marginTop: '.3rem', color: 'var(--text)' }}>Al {hoyStr} hay: <strong className="mono">{num(litros)} L</strong> · <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(litros * costo)}</strong></div>
               </div>
             </div>
           );
@@ -305,7 +250,8 @@ export function CombustiblePage() {
             <div className="card-title"><span>TOTAL GENERAL</span></div>
             <div style={{ fontSize: '1.5rem', fontWeight: 700 }} className="mono">{num(litrosTotal)} L</div>
             <div className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>
-              Valor: <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(valorTotal)}</strong>
+              <div>Valor: <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(valorTotal)}</strong></div>
+              <div style={{ marginTop: '.3rem', color: 'var(--text)' }}>Al {hoyStr} hay: <strong className="mono">{num(litrosTotal)} L</strong> · <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(valorTotal)}</strong></div>
             </div>
           </div>
         )}
@@ -325,9 +271,16 @@ export function CombustiblePage() {
               const pct = cap > 0 ? Math.min(100, Math.round((lit / cap) * 100)) : 0;
               const color = pct >= 60 ? 'var(--success, #2ea043)' : pct >= 25 ? 'var(--warning, #ffae00)' : 'var(--danger, #e5484d)';
               return (
-                <div key={t.id} className="card" style={{ opacity: t.estado === 'activo' ? 1 : 0.55, cursor: canWrite ? 'pointer' : 'default' }}
-                  onClick={() => { if (canWrite) setTanqueEdit(t); }}>
-                  <div className="card-title"><span>🛢 {t.nombre}</span>{t.estado !== 'activo' && <span className="badge">inactivo</span>}</div>
+                <div key={t.id} className="card" style={{ opacity: t.estado === 'activo' ? 1 : 0.55, cursor: 'pointer' }}
+                  onClick={() => { setMovTanqueId(t.id); setModal('movimientos'); }} title="Ver histórico de movimientos de este tanque">
+                  <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                    <span>🛢 {t.nombre}</span>
+                    {t.estado !== 'activo' && <span className="badge">inactivo</span>}
+                    {canWrite && (
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto', padding: '.1rem .4rem' }}
+                        onClick={(e) => { e.stopPropagation(); setTanqueEdit(t); }} title="Editar tanque">✎</button>
+                    )}
+                  </div>
                   <div className="mono" style={{ fontSize: '1.35rem', fontWeight: 700 }}>{num(lit)} <span style={{ fontSize: '.85rem', fontWeight: 400 }} className="muted">/ {num(cap)} L</span></div>
                   {/* Medidor de nivel */}
                   <div style={{ height: 10, borderRadius: 999, background: 'var(--border)', overflow: 'hidden', margin: '.5rem 0 .35rem' }}>
@@ -401,20 +354,28 @@ export function CombustiblePage() {
       )}
 
       {modal === 'solicitud' && (
-        <SolicitudModal combustibles={activos} almacenes={almacenes} tanques={tanques} vehiculos={vehiculos} actor={actor} defaultSolicitante={miNombre}
+        <SolicitudModal combustibles={activos} tanques={tanques} actor={actor} defaultSolicitante={miNombre}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
-      {modal === 'vehiculos' && (
-        <VehiculosModal vehiculos={vehiculos} actor={actor}
+      {modal === 'catalogo' && (
+        <CatalogoModal vehiculos={vehiculos} actor={actor}
           onClose={() => setModal('none')} onChanged={reload} />
       )}
       {modal === 'planta' && (
         <PlantaModal tanques={tanques} vehiculos={vehiculos} actor={actor} actorName={miNombre}
           onClose={() => setModal('none')} onChanged={reload} />
       )}
-      {modal === 'ingreso' && (
-        <IngresoModal combustibles={activos} almacenes={almacenes} tanques={tanques} actor={actor}
+      {modal === 'movimiento' && (
+        <RegistrarMovimientoModal tanques={tanques} vehiculos={vehiculos} actor={actor} actorName={miNombre}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
+      )}
+      {modal === 'movimientos' && (
+        <MovimientosModal tanques={tanques} tanqueId={movTanqueId}
+          onClose={() => { setModal('none'); setMovTanqueId(null); }} />
+      )}
+      {combEdit && (
+        <EditarCombustibleModal combustible={combEdit}
+          onClose={() => setCombEdit(null)} onSaved={async () => { setCombEdit(null); await reload(); }} />
       )}
       {modal === 'gestionar' && (
         <GestionarModal combustibles={combustibles} almacenes={almacenes} actor={actor}
@@ -450,14 +411,13 @@ export function CombustiblePage() {
 
 /* ───────────── Modales ───────────── */
 
-function SolicitudModal({ combustibles, almacenes, tanques, vehiculos, actor, defaultSolicitante, onClose, onSaved }: {
-  combustibles: Combustible[]; almacenes: string[]; tanques: Tanque[]; vehiculos: VehiculoMaquina[]; actor: string; defaultSolicitante: string;
+function SolicitudModal({ combustibles, tanques, actor, defaultSolicitante, onClose, onSaved }: {
+  combustibles: Combustible[]; tanques: Tanque[]; actor: string; defaultSolicitante: string;
   onClose: () => void; onSaved: () => void;
 }) {
   const [combustibleId, setCombustibleId] = useState(combustibles[0]?.id ?? '');
   const [solicitante, setSolicitante] = useState(defaultSolicitante);
-  const [destino, setDestino] = useState('');
-  const [origenSel, setOrigenSel] = useState(() => defaultOrigen(tanques, combustibles[0] ?? null, almacenes, combustibles[0]?.id ?? ''));
+  const [destino, setDestino] = useState<string>(DESTINOS_SALIDA[0]);
   const [litros, setLitros] = useState('');
   const [motivo, setMotivo] = useState('');
   const [saving, setSaving] = useState(false);
@@ -465,9 +425,10 @@ function SolicitudModal({ combustibles, almacenes, tanques, vehiculos, actor, de
   const comb = combustibles.find((c) => c.id === combustibleId) ?? null;
   const litrosNum = Number(litros) || 0;
   const excede = comb ? litrosNum > Number(comb.litros) : false;
-
-  // Al cambiar de combustible, sugerimos su tanque (o almacén "casa").
-  useEffect(() => { setOrigenSel(defaultOrigen(tanques, comb, almacenes, combustibleId)); }, [combustibleId]);
+  // Origen: SOLO tanques registrados (activos) del combustible elegido.
+  const tanquesDisp = useMemo(() => tanquesDelCombustible(tanques, combustibleId), [tanques, combustibleId]);
+  const [tanqueId, setTanqueId] = useState(tanquesDisp[0]?.id ?? '');
+  useEffect(() => { setTanqueId(tanquesDelCombustible(tanques, combustibleId)[0]?.id ?? ''); }, [combustibleId]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -475,14 +436,14 @@ function SolicitudModal({ combustibles, almacenes, tanques, vehiculos, actor, de
     if (!combustibleId) { setError('Elegí el combustible.'); return; }
     if (litrosNum <= 0) { setError('Indicá los litros solicitados.'); return; }
     if (!solicitante.trim()) { setError('Indicá quién solicita.'); return; }
-    const org = resolverOrigen(origenSel, comb, almacenes, tanques);
-    if (!org.almacen.trim() && !org.tanqueId) { setError('Indicá de qué tanque o almacén sale.'); return; }
+    if (!tanqueId) { setError('Elegí el tanque de donde sale (no hay tanques para este combustible).'); return; }
     if (!destino.trim()) { setError('Indicá a dónde va.'); return; }
+    const tq = tanques.find((t) => t.id === tanqueId) ?? null;
     setSaving(true);
     try {
       const s = await crearSolicitudCombustible({
         combustibleId, combustibleNombre: comb?.nombre ?? '', solicitante, destino,
-        almacen: org.almacen, tanqueId: org.tanqueId, tanqueNombre: org.tanqueNombre,
+        almacen: comb?.home_almacen || 'General', tanqueId, tanqueNombre: tq?.nombre ?? null,
         litros: litrosNum, motivo: motivo.trim() || null, actor,
       });
       notify(`Solicitud de combustible creada: ${s.codigo} · ${num(litrosNum)} L → ${destino}`, 'success', { link: '#/app/combustible' });
@@ -521,13 +482,22 @@ function SolicitudModal({ combustibles, almacenes, tanques, vehiculos, actor, de
           <label>Quién hace la solicitud</label>
           <input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Nombre de quien solicita" required />
         </div>
-        <OrigenSelect
-          tanques={tanques} almacenes={almacenes} combustibleId={combustibleId}
-          value={origenSel} onChange={setOrigenSel}
-          label="De qué tanque / almacén sale"
-          help="Al finalizar, los litros salen del tanque elegido y se reflejan en el inventario."
-        />
-        <DestinoCombustibleSelect value={destino} onChange={setDestino} almacenes={almacenes} vehiculos={vehiculos} label="A dónde va ese combustible" />
+        <div className="form-grid">
+          <div className="form-row">
+            <label>De qué tanque sale</label>
+            <select className="select" value={tanqueId} onChange={(e) => setTanqueId(e.target.value)} required>
+              {!tanquesDisp.length && <option value="">— sin tanques para este combustible —</option>}
+              {tanquesDisp.map((t) => <option key={t.id} value={t.id}>🛢 {t.nombre} · {num(t.litros)}/{num(t.capacidad_litros)} L{t.ubicacion ? ` · ${t.ubicacion}` : ''}</option>)}
+            </select>
+            <small className="muted">Solo tanques registrados. Al finalizar, los litros salen de ese tanque y se reflejan en el inventario.</small>
+          </div>
+          <div className="form-row">
+            <label>A dónde va ese combustible</label>
+            <select className="select" value={destino} onChange={(e) => setDestino(e.target.value)} required>
+              {DESTINOS_SALIDA.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+        </div>
         <div className="form-row">
           <label>Motivo / detalle (opcional)</label>
           <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Referencia, equipo, etc." />
@@ -537,75 +507,308 @@ function SolicitudModal({ combustibles, almacenes, tanques, vehiculos, actor, de
   );
 }
 
-function IngresoModal({ combustibles, almacenes, tanques, actor, onClose, onSaved }: {
-  combustibles: Combustible[]; almacenes: string[]; tanques: Tanque[]; actor: string; onClose: () => void; onSaved: () => void;
+/* ───────────── Registrar Movimiento de tanque (reemplaza "Registrar ingreso") ───────────── */
+function RegistrarMovimientoModal({ tanques, vehiculos, actor, actorName, onClose, onSaved }: {
+  tanques: Tanque[]; vehiculos: VehiculoMaquina[]; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const [combustibleId, setCombustibleId] = useState(combustibles[0]?.id ?? '');
-  const [origenSel, setOrigenSel] = useState(() => defaultOrigen(tanques, combustibles[0] ?? null, almacenes, combustibles[0]?.id ?? ''));
+  const activosTq = useMemo(() => tanques.filter((t) => t.estado === 'activo'), [tanques]);
+  const [tanqueId, setTanqueId] = useState(activosTq[0]?.id ?? '');
+  const [tipo, setTipo] = useState<TipoMovimientoTanque>('ingreso');
+  const ahora = new Date();
+  const [fecha, setFecha] = useState(() => ahora.toLocaleDateString('en-CA')); // YYYY-MM-DD local
+  const [hora, setHora] = useState(() => ahora.toTimeString().slice(0, 5)); // HH:MM
   const [litros, setLitros] = useState('');
-  const [costo, setCosto] = useState('');
+  const [equipo, setEquipo] = useState('');
+  const [hi, setHi] = useState('');
+  const [hf, setHf] = useState('');
+  const [ci, setCi] = useState('');
+  const [cf, setCf] = useState('');
+  const [autorizado, setAutorizado] = useState('');
+  const [destino, setDestino] = useState('');
+  const [observacion, setObservacion] = useState('');
+  const [autorizados, setAutorizados] = useState<CatalogoCombustible[]>([]);
+  const [ubicaciones, setUbicaciones] = useState<CatalogoCombustible[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const litrosNum = Number(litros) || 0;
-  const costoNum = Number(costo) || 0;
-  const comb = combustibles.find((c) => c.id === combustibleId) ?? null;
 
-  // Al cambiar de combustible, sugerimos su tanque (o almacén "casa").
-  useEffect(() => { setOrigenSel(defaultOrigen(tanques, comb, almacenes, combustibleId)); }, [combustibleId]);
+  useEffect(() => {
+    listCatalogo('combustible_autorizados').then((r) => setAutorizados(r.filter((x) => x.estado === 'activo'))).catch(() => setAutorizados([]));
+    listCatalogo('combustible_ubicaciones').then((r) => setUbicaciones(r.filter((x) => x.estado === 'activo'))).catch(() => setUbicaciones([]));
+  }, []);
+  // El contador inicial (CI) se precarga con el último contador final (CF) del tanque (totalizador del surtidor).
+  useEffect(() => {
+    setCi(''); setCf('');
+    if (tanqueId) ultimoContadorTanque(tanqueId).then((c) => { if (c != null) setCi(String(c)); }).catch(() => {});
+  }, [tanqueId]);
+
+  const tq = tanques.find((t) => t.id === tanqueId) ?? null;
+  const vehiculosAct = vehiculos.filter((v) => v.estado === 'activo');
+  const tipoInfo = TIPOS_MOVIMIENTO.find((t) => t.value === tipo)!;
+  const litrosNum = Number(litros) || 0;
+
+  // Al elegir un equipo, el HI se precarga con el último HF registrado para ese equipo.
+  async function cambiarEquipo(nombre: string) {
+    setEquipo(nombre);
+    setHi(''); setHf('');
+    if (nombre) {
+      const ultimoHf = await ultimoHorometroEquipo(nombre).catch(() => null);
+      if (ultimoHf != null) setHi(String(ultimoHf));
+    }
+  }
+  const hiNum = Number(hi);
+  const hfNum = Number(hf);
+  const horasEquipo = hi !== '' && hf !== '' && hfNum > hiNum ? Math.round((hfNum - hiNum) * 100) / 100 : null;
+  const ciNum = Number(ci);
+  const cfNum = Number(cf);
+  const contadorDif = ci !== '' && cf !== '' && cfNum >= ciNum ? Math.round((cfNum - ciNum) * 100) / 100 : null;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!combustibleId) { setError('Elegí el combustible.'); return; }
-    const org = resolverOrigen(origenSel, comb, almacenes, tanques);
-    if (!org.almacen.trim()) { setError('Indicá el tanque o almacén del ingreso.'); return; }
-    if (litrosNum <= 0) { setError('Indicá los litros que ingresan.'); return; }
+    if (!tanqueId) { setError('Elegí el tanque.'); return; }
+    if (litrosNum <= 0) { setError('Indicá los litros del movimiento.'); return; }
+    if (hi !== '' && hf !== '' && hfNum < hiNum) { setError('El horómetro final no puede ser menor que el inicial.'); return; }
+    if (ci !== '' && cf !== '' && cfNum < ciNum) { setError('El contador final no puede ser menor que el inicial.'); return; }
+    const fechaIso = fecha ? new Date(`${fecha}T${hora || '00:00'}:00`).toISOString() : new Date().toISOString();
     setSaving(true);
     try {
-      await registrarIngreso({ combustibleId, almacen: org.almacen, tanqueId: org.tanqueId, litros: litrosNum, costoLitro: costoNum, actor });
-      notify(`Ingreso de combustible: +${num(litrosNum)} L → ${org.tanqueNombre ?? org.almacen}`, 'success', { link: '#/app/combustible' });
+      await crearTanqueMovimiento({
+        tanqueId, tipo, litros: litrosNum, fecha: fechaIso,
+        horometroInicial: hi !== '' ? hiNum : null, horometroFinal: hf !== '' ? hfNum : null,
+        contadorIni: ci !== '' ? ciNum : null, contadorFin: cf !== '' ? cfNum : null,
+        equipo: equipo.trim() || null, autorizadoPor: autorizado.trim() || null,
+        destino: destino.trim() || null, observacion: observacion.trim() || null,
+        actor, actorName,
+      });
+      notify(`${TIPO_TANQUE_LABEL[tipo]} en ${tq?.nombre ?? 'tanque'}: ${tipoInfo.signo}${num(litrosNum)} L`, 'success', { link: '#/app/combustible' });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar el ingreso.');
+      setError(err instanceof Error ? err.message : 'No se pudo registrar el movimiento.');
     } finally { setSaving(false); }
   }
 
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cmb-ing" className="btn btn-primary" disabled={saving}>{saving ? 'Registrando…' : 'Registrar ingreso'}</button>
+      <button type="submit" form="cmb-mov" className="btn btn-primary" disabled={saving}>{saving ? 'Registrando…' : 'Registrar Movimiento'}</button>
     </>
   );
   return (
-    <Modal title="Registrar ingreso de combustible" size="md" onClose={onClose} footer={footer}>
-      <form id="cmb-ing" onSubmit={submit}>
+    <Modal title="Nuevo movimiento de tanque" size="lg" onClose={onClose} footer={footer}>
+      <form id="cmb-mov" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
         <div className="form-grid">
           <div className="form-row">
-            <label>Combustible</label>
-            <select className="select" value={combustibleId} onChange={(e) => setCombustibleId(e.target.value)}>
-              {combustibles.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            <label>Tanque</label>
+            <select className="select" value={tanqueId} onChange={(e) => setTanqueId(e.target.value)} required>
+              {!activosTq.length && <option value="">— sin tanques —</option>}
+              {activosTq.map((t) => <option key={t.id} value={t.id}>{t.nombre} · {num(t.litros)} L</option>)}
             </select>
           </div>
-          <OrigenSelect
-            tanques={tanques} almacenes={almacenes} combustibleId={combustibleId}
-            value={origenSel} onChange={setOrigenSel}
-            label="Tanque / almacén destino"
-            help="Entra al tanque elegido y se refleja como ENTRADA en el inventario."
-          />
+          <div className="form-row">
+            <label>Tipo de movimiento</label>
+            <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoMovimientoTanque)}>
+              {TIPOS_MOVIMIENTO.map((t) => <option key={t.value} value={t.value}>{t.signo === '+' ? '⬆' : '⬇'} {t.label}</option>)}
+            </select>
+            <small className="muted">{tipoInfo.signo === '+' ? 'Suma' : 'Resta'} litros al tanque seleccionado.</small>
+          </div>
         </div>
         <div className="form-grid">
           <div className="form-row">
-            <label>Litros que ingresan</label>
-            <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required />
+            <label>Fecha</label>
+            <input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required />
           </div>
           <div className="form-row">
-            <label>Costo por litro (USD)</label>
-            <input className="input mono" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
-            <small className="muted">Entra al inventario y recalcula el costo promedio (PMP).</small>
+            <label>Hora (opcional)</label>
+            <input className="input" type="time" value={hora} onChange={(e) => setHora(e.target.value)} />
           </div>
         </div>
+        <div className="form-row">
+          <label>Litros</label>
+          <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required autoFocus />
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Equipo</label>
+            <ComboBuscador value={equipo} onChange={(v) => void cambiarEquipo(v)}
+              opciones={vehiculosAct.map((v) => ({ value: v.nombre, label: v.nombre }))}
+              placeholder="🔎 Buscá el equipo…" icono="🚜" />
+          </div>
+          <div className="form-row">
+            <label>Autorizado por</label>
+            <ComboBuscador value={autorizado} onChange={setAutorizado}
+              opciones={autorizados.map((a) => ({ value: a.nombre, label: a.nombre }))}
+              placeholder="🔎 Buscá quién autorizó…" icono="🧑‍⚖️" />
+          </div>
+        </div>
+        {/* Horómetro por equipo: el HF queda como HI del próximo movimiento del mismo equipo. */}
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Horómetro inicial (HI)</label>
+            <input className="input mono" type="number" min={0} step="any" value={hi} onChange={(e) => setHi(e.target.value)}
+              placeholder={equipo ? 'Último HF del equipo' : 'Elegí un equipo'} />
+            {equipo && <small className="muted">Se precarga con el último HF de {equipo}.</small>}
+          </div>
+          <div className="form-row">
+            <label>Horómetro final (HF)</label>
+            <input className="input mono" type="number" min={0} step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
+            {horasEquipo != null && <small className="muted">HRS = HF − HI = <strong className="mono">{num(horasEquipo)} h</strong></small>}
+          </div>
+        </div>
+        {/* Contador global del surtidor (totalizador): el CI se precarga con el último CF del tanque. */}
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Contador inicial (surtidor)</label>
+            <input className="input mono" type="number" min={0} step="any" value={ci} onChange={(e) => setCi(e.target.value)}
+              placeholder={tanqueId ? 'Último contador del tanque' : 'Elegí un tanque'} />
+            <small className="muted">Se precarga con el último contador final de este tanque.</small>
+          </div>
+          <div className="form-row">
+            <label>Contador final (surtidor)</label>
+            <input className="input mono" type="number" min={0} step="any" value={cf} onChange={(e) => setCf(e.target.value)} />
+            {contadorDif != null && <small className="muted">Diferencia = <strong className="mono">{num(contadorDif)}</strong></small>}
+          </div>
+        </div>
+        <div className="form-row">
+          <label>Destino</label>
+          <ComboBuscador value={destino} onChange={setDestino}
+            opciones={ubicaciones.map((u) => ({ value: u.nombre, label: u.nombre }))}
+            placeholder="🔎 Buscá el destino…" icono="📍" />
+          <small className="muted">¿Falta un destino? Agregalo en 📒 Catálogo → Ubicaciones.</small>
+        </div>
+        <div className="form-row">
+          <label>Observación</label>
+          <textarea className="input" rows={2} value={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="Suministro combustible…" />
+        </div>
       </form>
+    </Modal>
+  );
+}
+
+/* ───────────── Editar combustible desde la tarjeta (nombre + costo por litro) ───────────── */
+function EditarCombustibleModal({ combustible, onClose, onSaved }: {
+  combustible: Combustible; onClose: () => void; onSaved: () => void;
+}) {
+  const [nombre, setNombre] = useState(combustible.nombre);
+  const [costo, setCosto] = useState(String(combustible.costo_litro ?? 0));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!nombre.trim()) { setError('El nombre es obligatorio.'); return; }
+    setSaving(true);
+    try {
+      await actualizarCombustible(combustible.id, { nombre: nombre.trim(), costoLitro: Number(costo) || 0 });
+      notify(`Combustible "${nombre.trim()}" actualizado`, 'success', { link: '#/app/combustible' });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo actualizar.');
+    } finally { setSaving(false); }
+  }
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="cmb-edit" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
+    </>
+  );
+  return (
+    <Modal title={`Editar combustible · ${combustible.nombre}`} size="md" onClose={onClose} footer={footer}>
+      <form id="cmb-edit" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        <div className="form-row">
+          <label>Nombre</label>
+          <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus />
+        </div>
+        <div className="form-row">
+          <label>Costo por litro (USD)</label>
+          <input className="input mono" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
+          <small className="muted">Los litros se ajustan con los movimientos de tanque (Ingreso / Consumo / Retorno / Merma).</small>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/* ───────────── Histórico de movimientos de tanque (botón "Movimientos" · por mes) ───────────── */
+function MovimientosModal({ tanques, tanqueId, onClose }: {
+  tanques: Tanque[]; tanqueId: string | null; onClose: () => void;
+}) {
+  const [movs, setMovs] = useState<TanqueMovimiento[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filtroTanque, setFiltroTanque] = useState<string>(tanqueId ?? '');
+  const mesActual = new Date().toLocaleDateString('en-CA').slice(0, 7); // YYYY-MM
+  const [mes, setMes] = useState<string>(mesActual);
+
+  useEffect(() => {
+    setLoading(true);
+    listTanqueMovimientos(filtroTanque ? { tanqueId: filtroTanque } : undefined)
+      .then(setMovs).catch(() => setMovs([])).finally(() => setLoading(false));
+  }, [filtroTanque]);
+  useRealtime(['combustible_tanque_movimientos'], () => {
+    listTanqueMovimientos(filtroTanque ? { tanqueId: filtroTanque } : undefined).then(setMovs).catch(() => {});
+  });
+
+  const delMes = useMemo(() => movs.filter((m) => (m.fecha || '').slice(0, 7) === mes), [movs, mes]);
+  const totalIng = delMes.filter((m) => m.tipo === 'ingreso' || m.tipo === 'retorno').reduce((a, m) => a + (Number(m.litros) || 0), 0);
+  const totalSal = delMes.filter((m) => m.tipo === 'consumo' || m.tipo === 'merma').reduce((a, m) => a + (Number(m.litros) || 0), 0);
+  const tanqueNombre = tanqueId ? (tanques.find((t) => t.id === tanqueId)?.nombre ?? '') : '';
+
+  return (
+    <Modal title={`🗒 Histórico de movimientos${tanqueNombre ? ` · ${tanqueNombre}` : ''}`} size="xl" onClose={onClose}
+      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div className="filterbar" style={{ gap: '.6rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+        <div className="form-row" style={{ margin: 0 }}>
+          <label style={{ fontSize: '.72rem' }}>Mes</label>
+          <input className="input" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
+        </div>
+        {!tanqueId && (
+          <div className="form-row" style={{ margin: 0 }}>
+            <label style={{ fontSize: '.72rem' }}>Tanque</label>
+            <select className="select" value={filtroTanque} onChange={(e) => setFiltroTanque(e.target.value)}>
+              <option value="">Todos los tanques</option>
+              {tanques.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="muted" style={{ marginLeft: 'auto', alignSelf: 'flex-end', fontSize: '.82rem' }}>
+          {delMes.length} mov. · entra <strong className="mono" style={{ color: 'var(--success)' }}>+{num(totalIng)} L</strong> · sale <strong className="mono" style={{ color: 'var(--danger)' }}>−{num(totalSal)} L</strong>
+        </div>
+      </div>
+      <div className="table-wrap" style={{ maxHeight: 460, overflowY: 'auto' }}>
+        <table className="table" style={{ fontSize: '.82rem' }}>
+          <thead><tr>
+            <th>Fecha y hora</th><th>Tanque</th><th>Tipo</th><th style={{ textAlign: 'right' }}>Litros</th>
+            <th>Equipo</th><th style={{ textAlign: 'right' }}>HI</th><th style={{ textAlign: 'right' }}>HF</th><th style={{ textAlign: 'right' }}>HRS</th>
+            <th style={{ textAlign: 'right' }}>Contador</th><th>Autorizado por</th><th>Destino</th><th>Observación</th>
+          </tr></thead>
+          <tbody>
+            {loading && <tr><td colSpan={12} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !delMes.length && <tr><td colSpan={12} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin movimientos en este mes.</td></tr>}
+            {delMes.map((m) => {
+              const suma = m.tipo === 'ingreso' || m.tipo === 'retorno';
+              const hrs = m.horometro_inicial != null && m.horometro_final != null ? Math.round((Number(m.horometro_final) - Number(m.horometro_inicial)) * 100) / 100 : null;
+              return (
+                <tr key={m.id}>
+                  <td className="muted">{dateTime(m.fecha)}</td>
+                  <td>{m.tanque_nombre || '—'}</td>
+                  <td><span className="badge">{TIPO_TANQUE_LABEL[m.tipo]}</span></td>
+                  <td className="mono" style={{ textAlign: 'right', color: suma ? 'var(--success)' : 'var(--danger)', fontWeight: 700 }}>{suma ? '+' : '−'}{num(m.litros)}</td>
+                  <td>{m.equipo || '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{m.horometro_inicial != null ? num(m.horometro_inicial) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{m.horometro_final != null ? num(m.horometro_final) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{hrs != null ? num(hrs) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{m.contador_global_ini != null || m.contador_global_fin != null ? `${m.contador_global_ini != null ? num(m.contador_global_ini) : '—'} → ${m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}` : '—'}</td>
+                  <td>{m.autorizado_por || '—'}</td>
+                  <td>{m.destino || '—'}</td>
+                  <td className="muted">{m.observacion || '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </Modal>
   );
 }
@@ -761,6 +964,9 @@ function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
   const [nivel, setNivel] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Confirmación de borrado: hay que escribir el nombre del tanque.
+  const [borrarOpen, setBorrarOpen] = useState(false);
+  const [confirmNombre, setConfirmNombre] = useState('');
 
   const capNum = Number(capacidad) || 0;
   const litNum = Number(litros) || 0;
@@ -818,16 +1024,17 @@ function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
     } finally { setSaving(false); }
   }
 
+  const nombreOk = !!tanque && confirmNombre.trim() === tanque.nombre.trim();
   async function borrar() {
-    if (!tanque) return;
+    if (!tanque || !nombreOk) return;
     setSaving(true);
     try { await eliminarTanque(tanque.id); notify(`Tanque "${tanque.nombre}" eliminado`, 'info', { link: '#/app/combustible' }); onSaved(); }
-    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo eliminar'); setSaving(false); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo eliminar'); setSaving(false); setBorrarOpen(false); }
   }
 
   const footer = (
     <>
-      {esEdicion && <button type="button" className="btn btn-danger" onClick={borrar} disabled={saving} style={{ marginRight: 'auto' }}>Eliminar</button>}
+      {esEdicion && <button type="button" className="btn btn-danger" onClick={() => { setConfirmNombre(''); setBorrarOpen(true); }} disabled={saving} style={{ marginRight: 'auto' }}>Eliminar</button>}
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button type="submit" form="tanque-form" className="btn btn-primary" disabled={saving}>
         {saving ? 'Guardando…' : esEdicion ? 'Guardar cambios' : 'Agregar tanque'}
@@ -954,96 +1161,132 @@ function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
           </div>
         </div>
       </form>
+
+      {borrarOpen && tanque && (
+        <Modal title="Eliminar tanque" size="md" onClose={() => { if (!saving) setBorrarOpen(false); }} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setBorrarOpen(false)} disabled={saving}>Cancelar</button>
+            <button className="btn btn-danger" onClick={() => void borrar()} disabled={saving || !nombreOk}>{saving ? 'Eliminando…' : 'Eliminar tanque'}</button>
+          </>
+        }>
+          <p style={{ marginTop: 0 }}>¿Seguro que deseás eliminar el tanque <strong>{tanque.nombre}</strong>? Esta acción no se puede deshacer.</p>
+          <div className="form-row">
+            <label>Para confirmar, escribí el nombre del tanque: <strong>{tanque.nombre}</strong></label>
+            <input className="input" value={confirmNombre} onChange={(e) => setConfirmNombre(e.target.value)} placeholder={tanque.nombre} autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter' && nombreOk) void borrar(); }} />
+            {confirmNombre && !nombreOk && <small style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>}
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }
 
 /* ───────────── Modal: vehículos / máquinas ───────────── */
-function VehiculosModal({ vehiculos, actor, onClose, onChanged }: {
+/* ───────────── Catálogo (switch: Vehículos/Máquinas · Autorizados · Ubicaciones) ───────────── */
+function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
   vehiculos: VehiculoMaquina[]; actor: string; onClose: () => void; onChanged: () => Promise<void>;
 }) {
+  type Tab = 'vehiculos' | 'autorizados' | 'ubicaciones';
+  const META: Record<Tab, { label: string; icon: string; tabla?: TablaCatalogo; conDesc: boolean; singular: string }> = {
+    vehiculos: { label: 'Vehículos / Máquinas', icon: '🚜', conDesc: true, singular: 'vehículo / máquina' },
+    autorizados: { label: 'Autorizados', icon: '🧑‍⚖️', tabla: 'combustible_autorizados', conDesc: false, singular: 'autorizado' },
+    ubicaciones: { label: 'Ubicaciones', icon: '📍', tabla: 'combustible_ubicaciones', conDesc: false, singular: 'ubicación' },
+  };
+  const [tab, setTab] = useState<Tab>('vehiculos');
+  const [autorizados, setAutorizados] = useState<CatalogoCombustible[]>([]);
+  const [ubicaciones, setUbicaciones] = useState<CatalogoCombustible[]>([]);
   const [nombre, setNombre] = useState('');
   const [descripcion, setDescripcion] = useState('');
+  const [edit, setEdit] = useState<{ id: string; nombre: string; descripcion: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
-  const [editando, setEditando] = useState<{ id: string; nombre: string; descripcion: string } | null>(null);
-  const [busqueda, setBusqueda] = useState('');
 
-  // Búsqueda tolerante (sin acentos / mayúsculas) sobre nombre y descripción.
-  const norm = (s: string | null | undefined) => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const q = norm(busqueda);
-  const filtrados = q ? vehiculos.filter((v) => norm(v.nombre).includes(q) || norm(v.descripcion).includes(q)) : vehiculos;
+  const cargar = useCallback(async () => {
+    const [a, u] = await Promise.all([
+      listCatalogo('combustible_autorizados').catch(() => [] as CatalogoCombustible[]),
+      listCatalogo('combustible_ubicaciones').catch(() => [] as CatalogoCombustible[]),
+    ]);
+    setAutorizados(a); setUbicaciones(u);
+  }, []);
+  useEffect(() => { void cargar(); }, [cargar]);
+  useEffect(() => { setNombre(''); setDescripcion(''); setEdit(null); }, [tab]);
 
-  async function crear() {
-    setOkMsg(null);
-    if (!nombre.trim()) { setError('Escribí el nombre del vehículo o máquina (ej.: Camión 350, Retroexcavadora).'); return; }
-    setError(null);
+  const meta = META[tab];
+  const items: { id: string; nombre: string; descripcion?: string | null; estado: string }[] =
+    tab === 'vehiculos' ? vehiculos : tab === 'autorizados' ? autorizados : ubicaciones;
+
+  async function refrescar() { await cargar(); await onChanged(); }
+
+  async function agregar() {
+    if (!nombre.trim()) { toast('Escribí el nombre', 'error'); return; }
     setBusy(true);
     try {
-      await crearVehiculo({ nombre, descripcion, actorEmail: actor });
-      const msg = `"${nombre.trim()}" registrado.`;
-      toast(msg, 'success');
-      setOkMsg(msg);
+      if (tab === 'vehiculos') await crearVehiculo({ nombre, descripcion, actorEmail: actor });
+      else await crearCatalogo(meta.tabla!, nombre, actor);
       setNombre(''); setDescripcion('');
-      await onChanged();
-    } catch (e) {
-      const m = e instanceof Error ? e.message : 'No se pudo registrar.';
-      setError(m); toast(m, 'error');
-    } finally { setBusy(false); }
+      await refrescar();
+      toast('Agregado', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
+    finally { setBusy(false); }
   }
-  async function guardarEdicion() {
-    if (!editando) return;
-    if (!editando.nombre.trim()) { toast('Indicá el nombre', 'error'); return; }
+  async function guardarEdit() {
+    if (!edit) return;
+    if (!edit.nombre.trim()) { toast('Indicá el nombre', 'error'); return; }
     setBusy(true);
     try {
-      await actualizarVehiculo(editando.id, { nombre: editando.nombre, descripcion: editando.descripcion });
-      setEditando(null);
-      await onChanged();
+      if (tab === 'vehiculos') await actualizarVehiculo(edit.id, { nombre: edit.nombre, descripcion: edit.descripcion });
+      else await actualizarCatalogo(meta.tabla!, edit.id, edit.nombre);
+      setEdit(null);
+      await refrescar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
     finally { setBusy(false); }
   }
-  async function toggleEstado(v: VehiculoMaquina) {
-    try { await setEstadoVehiculo(v.id, v.estado === 'activo' ? 'inactivo' : 'activo'); await onChanged(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
-  }
-  async function borrar(v: VehiculoMaquina) {
-    try { await eliminarVehiculo(v.id); await onChanged(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  async function toggle(it: { id: string; estado: string }) {
+    const nuevo = it.estado === 'activo' ? 'inactivo' : 'activo';
+    try {
+      if (tab === 'vehiculos') await setEstadoVehiculo(it.id, nuevo);
+      else await setEstadoCatalogo(meta.tabla!, it.id, nuevo);
+      await refrescar();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
 
   return (
-    <Modal title="Vehículos / Máquinas" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+    <Modal title="📒 Catálogo de combustible" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div className="view-toggle" role="tablist" style={{ marginBottom: '.8rem', marginLeft: 0 }}>
+        {(Object.keys(META) as Tab[]).map((k) => (
+          <button key={k} type="button" className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{META[k].icon} {META[k].label}</button>
+        ))}
+      </div>
+
       <div className="card" style={{ marginBottom: '1rem' }}>
-        <div className="card-title"><span>Nuevo vehículo / máquina</span></div>
-        {error && <div className="card" style={{ borderColor: 'var(--danger)', margin: '0 0 .75rem' }}><strong>No se pudo registrar:</strong> {error}</div>}
-        {okMsg && <div className="card" style={{ borderColor: 'var(--success, var(--primary))', margin: '0 0 .75rem' }}>✅ {okMsg}</div>}
-        <div className="form-grid">
-          <div className="form-row"><label>Nombre *</label><input className="input" value={nombre} onChange={(e) => { setNombre(e.target.value); if (error) setError(null); }} placeholder="Camión 350, Retroexcavadora, Planta eléctrica…" autoFocus /></div>
-          <div className="form-row"><label>Descripción (opcional)</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Placa, modelo, área…" /></div>
+        <div className="card-title"><span>Agregar {meta.singular}</span></div>
+        <div className={meta.conDesc ? 'form-grid' : 'form-row'}>
+          <div className="form-row">
+            <label>Nombre *</label>
+            <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter' && !meta.conDesc) { e.preventDefault(); void agregar(); } }}
+              placeholder={tab === 'vehiculos' ? 'Camión 350, Retroexcavadora…' : tab === 'autorizados' ? 'Nombre de quien autoriza' : 'Patio, Frente de trabajo…'} />
+          </div>
+          {meta.conDesc && (
+            <div className="form-row"><label>Descripción (opcional)</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Placa, modelo, área…" /></div>
+          )}
         </div>
-        <small className="muted" style={{ display: 'block', margin: '0 0 .6rem' }}>Aparecerá en la lista "A dónde va ese combustible" al crear una solicitud de salida.</small>
-        <button className="btn btn-primary btn-sm" onClick={crear} disabled={busy}>+ Registrar</button>
+        <button className="btn btn-primary btn-sm" onClick={() => void agregar()} disabled={busy} style={{ marginTop: '.5rem' }}>+ Agregar</button>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: '0 0 .6rem' }}>
-        <input className="input" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="🔎 Buscar vehículo / máquina…" style={{ flex: 1 }} />
-        <span className="muted" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{filtrados.length} de {vehiculos.length}</span>
-      </div>
-      <div className="table-wrap">
+
+      <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}>
         <table className="table">
-          <thead><tr><th>Vehículo / Máquina</th><th>Descripción</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>{meta.label}</th>{meta.conDesc && <th>Descripción</th>}<th>Estado</th><th></th></tr></thead>
           <tbody>
-            {!vehiculos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin vehículos / máquinas.</td></tr>}
-            {!!vehiculos.length && !filtrados.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin resultados para "{busqueda}".</td></tr>}
-            {filtrados.map((v) => (
-              <tr key={v.id}>
-                <td>🚜 {v.nombre}</td>
-                <td className="muted">{v.descripcion || '—'}</td>
-                <td>{v.estado === 'activo' ? '🟢 Activo' : '⚪ Inactivo'}</td>
+            {!items.length && <tr><td colSpan={meta.conDesc ? 4 : 3} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin {meta.label.toLowerCase()}.</td></tr>}
+            {items.map((it) => (
+              <tr key={it.id} style={{ opacity: it.estado === 'activo' ? 1 : 0.55 }}>
+                <td>{meta.icon} {it.nombre}</td>
+                {meta.conDesc && <td className="muted">{it.descripcion || '—'}</td>}
+                <td>{it.estado === 'activo' ? '🟢 Activo' : '⚪ Inactivo'}</td>
                 <td className="actions" style={{ whiteSpace: 'nowrap' }}>
-                  <button className="btn btn-sm btn-ghost" onClick={() => setEditando({ id: v.id, nombre: v.nombre, descripcion: v.descripcion ?? '' })}>✎</button>
-                  <button className="btn btn-sm btn-ghost" onClick={() => toggleEstado(v)}>{v.estado === 'activo' ? 'Deshabilitar' : 'Habilitar'}</button>
-                  <button className="btn btn-sm btn-danger" onClick={() => borrar(v)}>Eliminar</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setEdit({ id: it.id, nombre: it.nombre, descripcion: it.descripcion ?? '' })}>✎ Editar</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => void toggle(it)}>{it.estado === 'activo' ? 'Deshabilitar' : 'Habilitar'}</button>
                 </td>
               </tr>
             ))}
@@ -1051,22 +1294,24 @@ function VehiculosModal({ vehiculos, actor, onClose, onChanged }: {
         </table>
       </div>
 
-      {editando && (
-        <Modal title="Editar vehículo / máquina" size="md" onClose={() => setEditando(null)} footer={
+      {edit && (
+        <Modal title={`Editar ${meta.singular}`} size="md" onClose={() => setEdit(null)} footer={
           <>
-            <button className="btn btn-ghost" onClick={() => setEditando(null)} disabled={busy}>Cancelar</button>
-            <button className="btn btn-primary" onClick={guardarEdicion} disabled={busy}>Guardar</button>
+            <button className="btn btn-ghost" onClick={() => setEdit(null)} disabled={busy}>Cancelar</button>
+            <button className="btn btn-primary" onClick={() => void guardarEdit()} disabled={busy}>Guardar</button>
           </>
         }>
           <div className="form-row">
             <label>Nombre</label>
-            <input className="input" autoFocus value={editando.nombre} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })}
-              onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdicion(); }} placeholder="Camión 350, Retroexcavadora…" />
+            <input className="input" autoFocus value={edit.nombre} onChange={(e) => setEdit({ ...edit, nombre: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !meta.conDesc) void guardarEdit(); }} />
           </div>
-          <div className="form-row">
-            <label>Descripción (opcional)</label>
-            <input className="input" value={editando.descripcion} onChange={(e) => setEditando({ ...editando, descripcion: e.target.value })} placeholder="Placa, modelo, área…" />
-          </div>
+          {meta.conDesc && (
+            <div className="form-row">
+              <label>Descripción (opcional)</label>
+              <input className="input" value={edit.descripcion} onChange={(e) => setEdit({ ...edit, descripcion: e.target.value })} placeholder="Placa, modelo, área…" />
+            </div>
+          )}
         </Modal>
       )}
     </Modal>
