@@ -719,12 +719,19 @@ export function InventarioPage() {
           onSubmit={handleRegistrarMovimiento}
         />
       )}
-      {modal.kind === 'confirmToggle' && (
+      {modal.kind === 'confirmToggle' && modal.producto.estado === 'activo' && (
+        // Borrado (desactivación): destructivo → exige escribir el nombre del producto.
+        <EliminarProductoDialog
+          producto={modal.producto}
+          onCancel={() => setModal({ kind: 'none' })}
+          onConfirm={() => handleToggleEstado(modal.producto)}
+        />
+      )}
+      {modal.kind === 'confirmToggle' && modal.producto.estado !== 'activo' && (
         <ConfirmDialog
-          title={modal.producto.estado === 'activo' ? 'Desactivar producto' : 'Activar producto'}
-          message={`¿Confirmas ${modal.producto.estado === 'activo' ? 'desactivar' : 'activar'} "${modal.producto.nombre}" (${modal.producto.sku})?`}
-          confirmText={modal.producto.estado === 'activo' ? 'Desactivar' : 'Activar'}
-          danger={modal.producto.estado === 'activo'}
+          title="Activar producto"
+          message={`¿Confirmas activar "${modal.producto.nombre}" (${modal.producto.sku})?`}
+          confirmText="Activar"
           onCancel={() => setModal({ kind: 'none' })}
           onConfirm={() => handleToggleEstado(modal.producto)}
         />
@@ -861,6 +868,43 @@ function EliminarAlmacenDialog({ almacen, onCancel, onConfirm }: {
           autoFocus
           value={texto}
           placeholder={clave}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && ok) onConfirm(); }}
+        />
+        {texto.trim() !== '' && !ok && (
+          <small className="muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────── Borrar producto: confirmación escribiendo el nombre ───────── */
+function EliminarProductoDialog({ producto, onCancel, onConfirm }: {
+  producto: Producto; onCancel: () => void; onConfirm: () => void;
+}) {
+  const [texto, setTexto] = useState('');
+  const ok = texto.trim() !== '' && normalizarTexto(texto) === normalizarTexto(producto.nombre);
+  return (
+    <Modal title="Borrar producto" size="md" onClose={onCancel} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
+        <button className="btn btn-danger" disabled={!ok} onClick={() => { if (ok) onConfirm(); }}>
+          Borrar producto
+        </button>
+      </>
+    }>
+      <p style={{ marginTop: 0 }}>
+        ¿Seguro que deseas borrar el producto <strong>«{producto.nombre}»</strong> ({producto.sku})?
+        Quedará <strong>inactivo</strong> y dejará de aparecer en el inventario activo (su historial se conserva).
+      </p>
+      <div className="form-row">
+        <label>Para confirmar, escribí el nombre del producto: <strong>{producto.nombre}</strong></label>
+        <input
+          className="input"
+          autoFocus
+          value={texto}
+          placeholder={producto.nombre}
           onChange={(e) => setTexto(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && ok) onConfirm(); }}
         />
