@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { listDirectorioUsuarios, type PersonaDirectorio } from './salidas.repository';
+import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
+import type { Almacen } from '@/shared/lib/types';
 
 type Modo = 'almacen' | 'persona';
 
 /**
  * Selector de destino ("a quién va dirigido") con switch:
- *  - Almacén  → desplegable de almacenes registrados (+ Consumo Interno).
+ *  - Almacén  → selector jerárquico Sede → Almacén (+ Consumo Interno).
  *  - Persona  → desplegable de usuarios registrados (cargo · nombre apellido).
  */
 export function DestinoSelect({
@@ -13,16 +15,18 @@ export function DestinoSelect({
   onChange,
   almacenes,
   label = 'A quién va dirigido',
+  permitirAlmacen = true,
 }: {
   value: string;
   onChange: (v: string) => void;
-  almacenes: string[];
+  almacenes: Almacen[];
   label?: string;
+  /** Si es false, el destino solo puede ser una persona (o Consumo Interno):
+   *  el switch y el selector Sede → Almacén no se muestran. Para salidas
+   *  (mandar material a otro almacén es un traslado, no una salida). */
+  permitirAlmacen?: boolean;
 }) {
-  const ESPECIALES = ['Consumo Interno'];
-  const opcionesAlmacen = [...ESPECIALES, ...almacenes.filter((a) => !ESPECIALES.includes(a))];
-
-  const [modo, setModo] = useState<Modo>('almacen');
+  const [modo, setModo] = useState<Modo>(permitirAlmacen ? 'almacen' : 'persona');
   const [personas, setPersonas] = useState<PersonaDirectorio[]>([]);
   const [cargando, setCargando] = useState(false);
 
@@ -49,19 +53,19 @@ export function DestinoSelect({
   return (
     <div className="form-row">
       <label>{label}</label>
-      <div className="view-toggle" role="tablist" aria-label="Tipo de destino" style={{ marginBottom: '.4rem', marginLeft: 0 }}>
-        <button type="button" className={modo === 'almacen' ? 'active' : ''} onClick={() => cambiarModo('almacen')}>▣ Almacén</button>
-        <button type="button" className={modo === 'persona' ? 'active' : ''} onClick={() => cambiarModo('persona')}>👤 Persona</button>
-      </div>
+      {permitirAlmacen && (
+        <div className="view-toggle" role="tablist" aria-label="Tipo de destino" style={{ marginBottom: '.4rem', marginLeft: 0 }}>
+          <button type="button" className={modo === 'almacen' ? 'active' : ''} onClick={() => cambiarModo('almacen')}>▣ Almacén</button>
+          <button type="button" className={modo === 'persona' ? 'active' : ''} onClick={() => cambiarModo('persona')}>👤 Persona</button>
+        </div>
+      )}
 
-      {modo === 'almacen' ? (
-        <select className="select" value={opcionesAlmacen.includes(value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
-          <option value="">— elegí el almacén —</option>
-          {opcionesAlmacen.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
+      {permitirAlmacen && modo === 'almacen' ? (
+        <AlmacenPicker value={value} onChange={onChange} almacenes={almacenes} extraOpciones={['Consumo Interno']} sedeLabel="Sede / destino" label="Almacén" />
       ) : (
         <select className="select" value={value} onChange={(e) => onChange(e.target.value)} disabled={cargando}>
           <option value="">{cargando ? 'Cargando…' : '— elegí la persona —'}</option>
+          {!permitirAlmacen && <option value="Consumo Interno">Consumo Interno</option>}
           {personas.map((p) => {
             const label = etiquetaPersona(p);
             return <option key={p.id} value={label}>{label}</option>;

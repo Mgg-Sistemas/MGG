@@ -2,22 +2,22 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
-import type { Existencia, Producto } from '@/shared/lib/types';
+import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { DestinoSelect } from './DestinoSelect';
+import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 
 export function SalidaMaterialForm({
-  productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
+  productos, existencias, almacenesObj, actor, actorName, onClose, onSaved,
 }: {
   productos: Producto[];
   existencias: Existencia[];
-  almacenesList: string[];
+  almacenesObj: Almacen[];
   actor: string;
   actorName?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const almacenes = almacenesList.length ? almacenesList : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
   const exMap = useMemo(() => {
     const m = new Map<string, Existencia>();
@@ -25,7 +25,7 @@ export function SalidaMaterialForm({
     return m;
   }, [existencias]);
 
-  const [almacen, setAlmacen] = useState(almacenes[0]);
+  const [almacen, setAlmacen] = useState('');
   // Productos que ESE almacén contiene (con existencia > 0).
   const productosEnAlmacen = useMemo(
     () => activos.filter((p) => (Number(exMap.get(`${p.id}|${almacen}`)?.stock) || 0) > 0),
@@ -40,7 +40,7 @@ export function SalidaMaterialForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [almacen, productosEnAlmacen]);
   const [cantidad, setCantidad] = useState('1');
-  const [destino, setDestino] = useState(almacenes[0] ?? '');
+  const [destino, setDestino] = useState('');
   const [motivo, setMotivo] = useState('');
   const [precio, setPrecio] = useState('0');
   const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().slice(0, 10));
@@ -112,12 +112,7 @@ export function SalidaMaterialForm({
       <form id="salida-mat-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-        <div className="form-row">
-          <label>Almacén origen</label>
-          <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
-            {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
+        <AlmacenPicker value={almacen} onChange={setAlmacen} almacenes={almacenesObj} sedeLabel="Sede origen" label="Almacén origen" />
 
         <div className="form-grid">
           <div className="form-row">
@@ -135,7 +130,7 @@ export function SalidaMaterialForm({
           </div>
         </div>
 
-        <DestinoSelect value={destino} onChange={setDestino} almacenes={almacenes} />
+        <DestinoSelect value={destino} onChange={setDestino} almacenes={almacenesObj} permitirAlmacen={false} />
 
         <div className="form-grid">
           <div className="form-row">

@@ -304,14 +304,17 @@ export async function _setStockRaw(id: string, nuevoStock: number): Promise<void
 }
 
 /**
- * Recepciones finalizadas: órdenes ya cerradas (estado 'finalizada').
- * Se muestran como tarjetas en el módulo de inventario.
+ * Órdenes con mercancía POR RECIBIR (esperando entrar al inventario): confirmadas
+ * y pagadas (anticipado), pendientes por recepción (contra entrega / crédito saldado)
+ * y las legadas (oc_emitida). Excluye las ya recibidas. Desde acá se asigna el
+ * almacén destino (principal → subalmacén) y se da entrada al stock.
  */
 export async function listRecepcionesPendientes(): Promise<Orden[]> {
   const { data, error } = await supabase
     .from('ordenes')
     .select('*')
-    .eq('estado', 'finalizada')
+    .in('estado', ['por_recibir', 'pagada', 'oc_emitida'])
+    .is('recibida_en', null)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as Orden[];

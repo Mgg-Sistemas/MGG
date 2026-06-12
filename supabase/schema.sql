@@ -401,6 +401,9 @@ create table if not exists public.compras_directas (
   updated_at      timestamptz not null default now()
 );
 create index if not exists idx_compra_directa_estado on public.compras_directas(estado, created_at desc);
+-- Proveedor de la compra directa (opcional; si es nuevo, se da de alta en `proveedores`).
+alter table public.compras_directas add column if not exists proveedor_id uuid references public.proveedores(id) on delete set null;
+alter table public.compras_directas add column if not exists proveedor_nombre text;
 -- RLS: lectura para autenticados, escritura para operativo (admin/analista/obrero).
 -- Bucket privado 'compras-directas' (storage) con políticas para autenticados.
 -- (Ver migración aplicada; políticas: compra_directa read/write + cd_obj_* en storage.objects.)

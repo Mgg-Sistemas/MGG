@@ -1043,16 +1043,22 @@ export async function cancelarOrden(
 }
 
 /**
- * Anula una OC que está pendiente de aprobación del gerente (`oc_creada`).
- * Estado terminal `anulada` (rojo). No mueve inventario ni caja.
+ * Anula una OC ANTES de que mueva dinero o inventario: pendiente de aprobación
+ * (`oc_creada`), ya confirmada por el gerente y aún sin pagar (`confirmada_metodo`,
+ * `oc_aprobada`), pendiente de recepción (`por_recibir`) o a crédito sin abonos
+ * (`cuenta_abierta`). Estado terminal `anulada` (rojo). No mueve inventario ni caja.
+ * No se puede anular si ya se pagó/recibió (habría que revertir el movimiento).
  */
+const ESTADOS_ANULABLES: EstadoOrden[] = ['oc_creada', 'confirmada_metodo', 'oc_aprobada', 'por_recibir', 'cuenta_abierta'];
 export async function anularOrden(
   o: Orden,
   actorEmail: string,
   motivo: string
 ): Promise<Orden> {
-  if (o.estado !== 'oc_creada')
-    throw new Error('Solo se anula una OC pendiente de aprobación del gerente');
+  if (!ESTADOS_ANULABLES.includes(o.estado))
+    throw new Error('Solo se puede anular una OC antes de pagarse o recibirse.');
+  if (o.estado === 'cuenta_abierta' && (Number(o.abonado_total) || 0) > 0)
+    throw new Error('No se puede anular: el crédito ya tiene abonos pagados. Revertí los abonos primero.');
   if (!motivo.trim()) throw new Error('Debes indicar un motivo');
   const patch = {
     estado: 'anulada' as EstadoOrden,

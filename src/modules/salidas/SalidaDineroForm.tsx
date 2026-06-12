@@ -2,22 +2,21 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
-import type { Caja } from '@/shared/lib/types';
+import type { Almacen, Caja } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { DestinoSelect } from './DestinoSelect';
 
 export function SalidaDineroForm({
-  cajas, almacenesList, actor, actorName, onClose, onSaved,
+  cajas, almacenesObj, actor, actorName, onClose, onSaved,
 }: {
   cajas: Caja[];
-  almacenesList: string[];
+  almacenesObj: Almacen[];
   actor: string;
   actorName?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const activas = useMemo(() => cajas.filter((c) => c.estado === 'activo'), [cajas]);
-  const almacenes = almacenesList.length ? almacenesList : ['General'];
 
   const [cajaId, setCajaId] = useState(activas[0]?.id ?? '');
   const [destino, setDestino] = useState('');
@@ -83,7 +82,7 @@ export function SalidaDineroForm({
           {caja && <small className="muted">Saldo disponible: <strong className="mono">{money(saldo)} {caja.moneda}</strong></small>}
         </div>
 
-        <DestinoSelect value={destino} onChange={setDestino} almacenes={almacenes} label="A quién va dirigido el dinero" />
+        <DestinoSelect value={destino} onChange={setDestino} almacenes={almacenesObj} label="A quién va dirigido el dinero" permitirAlmacen={false} />
 
         <div className="form-grid">
           <div className="form-row">

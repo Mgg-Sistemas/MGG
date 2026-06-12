@@ -149,7 +149,7 @@ export function InventarioPage() {
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
-  useRealtime(['productos', 'movimientos', 'almacenes'], () => { void reload(); });
+  useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes'], () => { void reload(); });
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -503,8 +503,8 @@ export function InventarioPage() {
         </div>
       )}
 
-      {/* KPIs y alertas: solo en inventario general / recepciones, no en almacenes */}
-      {ui.view !== 'almacenes' && (
+      {/* KPIs y alertas: SOLO en inventario general (no en almacenes ni recepciones). */}
+      {ui.view === 'productos' && (
       <>
       <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
         <div className="kpi">
@@ -547,7 +547,7 @@ export function InventarioPage() {
       )}
 
       {ui.view === 'recepciones' ? (
-        <RecepcionesPendientes ordenes={recepciones} />
+        <RecepcionesPendientes ordenes={recepciones} almacenes={almacenes} actor={productoActor} actorName={actorName} onRecibida={reload} />
       ) : ui.view === 'almacenes' ? (
         almacenSel ? (
           <>

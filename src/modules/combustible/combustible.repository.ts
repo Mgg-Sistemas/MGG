@@ -292,6 +292,39 @@ export async function consumoCombustiblePeriodo(desde: Date, hasta: Date): Promi
 }
 
 /**
+ * Consumo de combustible POR EQUIPO/VEHÍCULO en un rango de fechas. Suma los
+ * movimientos de tanque tipo 'consumo' (uso de máquina) agrupados por `equipo`.
+ * El valor en $ usa el costo por litro del movimiento; si falta, el del combustible.
+ */
+export async function consumoCombustiblePorEquipo(desde: Date, hasta: Date): Promise<ConsumoCombustibleItem[]> {
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('equipo, litros, costo_litro, fecha, combustible:combustibles(costo_litro)')
+    .eq('tipo', 'consumo')
+    .gte('fecha', desde.toISOString())
+    .lte('fecha', hasta.toISOString());
+  if (error) throw error;
+
+  const acc = new Map<string, ConsumoCombustibleItem>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const litros = Math.abs(Number(row.litros) || 0);
+    if (litros <= 0) continue;
+    const equipo = ((row.equipo as string) || '').trim() || '(Sin equipo)';
+    const comb = (row.combustible ?? {}) as { costo_litro?: number };
+    const costo = Number(row.costo_litro) || Number(comb.costo_litro) || 0;
+    const cur = acc.get(equipo) ?? { id: equipo, nombre: equipo, cantidad: 0, valor: 0 };
+    cur.cantidad += litros;
+    cur.valor += litros * costo;
+    acc.set(equipo, cur);
+  }
+  return Array.from(acc.values()).map((x) => ({
+    ...x,
+    cantidad: Math.round(x.cantidad * 100) / 100,
+    valor: Math.round(x.valor * 100) / 100,
+  }));
+}
+
+/**
  * Salida DIRECTA de combustible de un tanque (sin pasar por una solicitud):
  * descuenta del inventario (almacén "casa"), de la tarjeta de combustible y del
  * tanque. La usa el traslado inter-sistema (litros que salen hacia otro sistema).
@@ -726,6 +759,80 @@ export async function actualizarCombustible(id: string, input: { nombre?: string
   if (input.costoLitro !== undefined) patch.costo_litro = Math.max(0, Number(input.costoLitro) || 0);
   const { error } = await supabase.from('combustibles').update(patch).eq('id', id);
   if (error) throw error;
+}
+
+/**
+ * Ajusta los litros del combustible a un valor EXACTO (corrección manual desde la
+ * tarjeta). Registra un movimiento de AJUSTE por la diferencia y lo refleja en el
+ * inventario (existencia del almacén) y en el kardex de combustible, para que el
+ * stock no quede descuadrado. No cambia el costo por litro (PMP).
+ */
+export async function ajustarLitrosCombustible(
+  id: string,
+  nuevosLitros: number,
+  opts: { actor: string; actorName?: string | null; motivo?: string | null },
+): Promise<void> {
+  const objetivo = Math.max(0, Number(nuevosLitros) || 0);
+  const { data: comb, error: cErr } = await supabase
+    .from('combustibles')
+    .select('id, nombre, litros, costo_litro, producto_id')
+    .eq('id', id)
+    .single();
+  if (cErr || !comb) throw cErr ?? new Error('Combustible no encontrado.');
+  const litrosAntes = Number(comb.litros) || 0;
+  const delta = Math.round((objetivo - litrosAntes) * 10000) / 10000;
+  if (delta === 0) return; // sin cambio: nada que registrar
+  const costo = Number(comb.costo_litro) || 0;
+
+  // Almacén "casa" del combustible (donde vive su existencia en inventario).
+  const productoId = await ensureProductoCombustible(comb as Combustible, 'General');
+  const { data: prod } = await supabase.from('productos').select('almacen').eq('id', productoId).maybeSingle();
+  const almacen = (prod?.almacen as string) || 'General';
+
+  // Al reducir, la existencia del almacén tiene que alcanzar.
+  if (delta < 0) {
+    const stock = await stockEnAlmacen(productoId, almacen);
+    if (-delta > stock + 0.0001) {
+      throw new Error(`No se puede reducir a ${objetivo} L: la existencia en ${almacen} es de ${stock} L.`);
+    }
+  }
+
+  const litrosDespues = Math.max(0, litrosAntes + delta);
+  const motivo = opts.motivo?.trim() || 'Ajuste de litros';
+
+  // 1) Inventario: movimiento de ajuste (delta con signo; no toca el PMP).
+  await registrarMovimiento({
+    producto_id: productoId,
+    tipo: 'ajuste',
+    delta,
+    almacen,
+    actor: opts.actor,
+    actor_name: opts.actorName ?? null,
+    ref_tipo: 'ajuste_combustible',
+    ref_id: id,
+    detalle: `${motivo} (${litrosAntes} → ${litrosDespues} L)`,
+  });
+
+  // 2) Kardex de combustible.
+  const { error: mErr } = await supabase.from('combustible_movimientos').insert({
+    combustible_id: id,
+    tipo: 'ajuste',
+    litros: delta,
+    costo_litro: costo,
+    litros_antes: litrosAntes,
+    litros_despues: litrosDespues,
+    detalle: `${motivo} · ${almacen}`,
+    actor: opts.actor,
+    actor_name: opts.actorName ?? null,
+  });
+  if (mErr) throw mErr;
+
+  // 3) Tarjeta de combustible.
+  const { error: uErr } = await supabase
+    .from('combustibles')
+    .update({ litros: litrosDespues, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (uErr) throw uErr;
 }
 
 /* ───────────── Solicitudes de salida ───────────── */

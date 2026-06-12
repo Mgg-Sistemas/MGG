@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
 import { getUnidades, updateProducto } from '@/modules/inventario/inventario.repository';
+import { AlmacenPicker, AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
 import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput } from './produccion.repository';
 import { crearHorno } from './hornos.repository';
 
@@ -81,7 +82,7 @@ export function MaterialAProducirModal({
   }, [unidadesCat]);
 
   const [cantidad, setCantidad] = useState('1');
-  const [almacenDestino, setAlmacenDestino] = useState(almacenes[0]);
+  const [almacenDestino, setAlmacenDestino] = useState('');
   // Horno a utilizar: selección desde el catálogo (+ alta inline de uno nuevo).
   const [horno, setHorno] = useState(hornosList[0] ?? '');
   const [hornoAddOpen, setHornoAddOpen] = useState(false);
@@ -384,10 +385,7 @@ export function MaterialAProducirModal({
             <input className="input mono" type="number" min={1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} required />
           </div>
           <div className="form-row">
-            <label>Almacén destino</label>
-            <select className="select" value={almacenDestino} onChange={(e) => setAlmacenDestino(e.target.value)}>
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <AlmacenPicker value={almacenDestino} onChange={setAlmacenDestino} sedeLabel="Sede destino" label="Almacén destino" />
           </div>
         </div>
 
@@ -480,9 +478,7 @@ export function MaterialAProducirModal({
                     <SearchSelect options={opcionesUnidad} value={nuevo.unidad} onChange={(v) => setNuevo((p) => ({ ...p, unidad: v }))} placeholder="Unidad…" />
                   </div>
                   <div className="form-grid">
-                    <select className="select" value={nuevo.almacen} onChange={(e) => setNuevo((p) => ({ ...p, almacen: e.target.value }))}>
-                      {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-                    </select>
+                    <AlmacenSelectAgrupado value={nuevo.almacen} onChange={(v) => setNuevo((p) => ({ ...p, almacen: v }))} extraNombres={almacenes} />
                     <input className="input mono" type="number" min={0} placeholder="Stock inicial" value={nuevo.stock} onChange={(e) => setNuevo((p) => ({ ...p, stock: e.target.value }))} />
                     <input className="input mono" type="number" min={0} step="0.01" placeholder="Costo unit." value={nuevo.costo} onChange={(e) => setNuevo((p) => ({ ...p, costo: e.target.value }))} />
                   </div>
@@ -524,9 +520,7 @@ export function MaterialAProducirModal({
                         <td><input type="checkbox" checked={row.checked} onChange={(e) => setRow(m.id, { checked: e.target.checked })} /></td>
                         <td><strong>{m.nombre}</strong><div className="muted mono" style={{ fontSize: '.7rem' }}>{m.sku}</div></td>
                         <td>
-                          <select className="select" style={{ minWidth: 110 }} value={row.almacen} onChange={(e) => setRow(m.id, { almacen: e.target.value })}>
-                            {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-                          </select>
+                          <AlmacenSelectAgrupado value={row.almacen} onChange={(v) => setRow(m.id, { almacen: v })} extraNombres={almacenes} style={{ minWidth: 110 }} />
                         </td>
                         <td className="mono" style={{ textAlign: 'right', color: exceso ? 'var(--danger)' : undefined }}>{num(disp)}</td>
                         <td style={{ textAlign: 'right' }}>

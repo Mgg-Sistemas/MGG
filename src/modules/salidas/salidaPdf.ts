@@ -171,7 +171,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const TX = logo ? MARGIN + LOGO + 14 : MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* opcional */ } }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
-  doc.text('ORDEN DE SALIDA', TX, y + 20);
+  doc.text(esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA', TX, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
   doc.text(`N° ${sol.codigo}  ·  ${esTraslado ? 'Traslado de material' : 'Salida de material'}`, TX, y + 38);
   doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
@@ -193,10 +193,10 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
 
   // ── Detalle de la salida ──
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text('DETALLE DE LA SALIDA', MARGIN, y);
+  doc.text(esTraslado ? 'DETALLE DEL TRASLADO' : 'DETALLE DE LA SALIDA', MARGIN, y);
   y += 8;
   const ficha: Array<[string, string]> = [
-    ['Material a salir', sol.producto_nombre || '—'],
+    [esTraslado ? 'Material a trasladar' : 'Material a salir', sol.producto_nombre || '—'],
     ['Cantidad', fmt.num(cant)],
     [esTraslado ? 'Almacén origen' : 'Almacén de salida', sol.almacen_origen || '—'],
     [esTraslado ? 'Almacén destino' : 'Dirigido a', (esTraslado ? sol.almacen_destino : sol.destino) || '—'],
@@ -204,7 +204,8 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
       ['Precio unitario', `${fmt.money(precio)} USD`],
       ['Precio total', `${fmt.money(precio * cant)} USD`],
     ] as Array<[string, string]>) : []),
-    ['Motivo de la salida', sol.motivo || '—'],
+    [esTraslado ? 'Motivo del traslado' : 'Motivo de la salida', sol.motivo || '—'],
+    ...(sol.nota_entrega ? [['Nota de entrega', sol.nota_entrega] as [string, string]] : []),
     ['Solicitado por', sol.solicitante || '—'],
     ['Fecha de solicitud', fmt.dateTime(sol.created_at)],
     ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
@@ -235,5 +236,5 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
 
-  doc.save(`orden-salida-${sol.codigo}.pdf`);
+  doc.save(`orden-${esTraslado ? 'traslado' : 'salida'}-${sol.codigo}.pdf`);
 }

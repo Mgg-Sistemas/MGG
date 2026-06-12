@@ -152,7 +152,6 @@ type ModalKind =
   | { kind: 'detail'; ordenId: string }
   | { kind: 'create' }
   | { kind: 'approve'; orden: Orden }
-  | { kind: 'confirm-oc'; orden: Orden }
   | { kind: 'metodo-pago'; orden: Orden }
   | { kind: 'cancel'; orden: Orden }
   | { kind: 'anular-oc'; orden: Orden }
@@ -486,7 +485,16 @@ export function PedidosPage() {
           }}
           onClose={() => setModal({ kind: 'none' })}
           onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
-          onConfirmOc={() => setModal({ kind: 'confirm-oc', orden: currentDetail })}
+          onConfirmOc={async () => {
+            try {
+              await aprobarOcsEnLote([currentDetail], usuario?.email ?? user?.email ?? 'sistema', null);
+              notify(`OC confirmada: ${currentDetail.oc_codigo ?? currentDetail.codigo} · falta indicar el método de pago (el almacén destino se elige al recibir)`, 'success', { link: '#/app/pedidos' });
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'Error al confirmar', 'error');
+            }
+          }}
           onEnviarPagar={() => setModal({ kind: 'metodo-pago', orden: currentDetail })}
           onCancel={() => setModal({ kind: 'cancel', orden: currentDetail })}
           onAnular={() => setModal({ kind: 'anular-oc', orden: currentDetail })}
@@ -650,24 +658,6 @@ export function PedidosPage() {
         />
       )}
 
-      {/* Modal: confirmar OC individual (Gerente General) · elige almacén destino */}
-      {modal.kind === 'confirm-oc' && (
-        <ConfirmarOcModal
-          orden={modal.orden}
-          onClose={() => setModal({ kind: 'none' })}
-          onConfirm={async (almacenDestino) => {
-            try {
-              await aprobarOcsEnLote([modal.orden], usuario?.email ?? user?.email ?? 'sistema', almacenDestino);
-              notify(`OC confirmada: ${modal.orden.oc_codigo ?? modal.orden.codigo} · destino ${almacenDestino} · falta indicar el método de pago`, 'success', { link: '#/app/pedidos' });
-              setModal({ kind: 'none' });
-              await refresh();
-            } catch (e) {
-              toast(e instanceof Error ? e.message : 'Error al confirmar', 'error');
-            }
-          }}
-        />
-      )}
-
       {/* Modal: indicar método de pago (multipago) → Enviar para Pagar */}
       {modal.kind === 'metodo-pago' && (
         <MetodoPagoModal
@@ -802,83 +792,6 @@ function AddOfferGate({
       onClose={onClose}
       onCreated={onCreated}
     />
-  );
-}
-
-/* ─────────────────────────────────────────────
-   Modal: confirmar OC eligiendo el almacén destino de la mercancía
-   ───────────────────────────────────────────── */
-function ConfirmarOcModal({
-  orden,
-  onClose,
-  onConfirm,
-}: {
-  orden: Orden;
-  onClose: () => void;
-  onConfirm: (almacenDestino: string) => Promise<void> | void;
-}) {
-  const [almacenes, setAlmacenes] = useState<Almacen[] | null>(null);
-  const [destino, setDestino] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    listAlmacenes()
-      .then((rows) => {
-        if (cancelled) return;
-        setAlmacenes(rows);
-        const activos = rows.filter((a) => a.estado !== 'inactivo');
-        setDestino((activos[0] ?? rows[0])?.nombre ?? 'General');
-      })
-      .catch(() => { if (!cancelled) { setAlmacenes([]); setDestino('General'); } });
-    return () => { cancelled = true; };
-  }, []);
-
-  const lista = (almacenes ?? []).filter((a) => a.estado !== 'inactivo');
-
-  async function handleConfirm() {
-    if (!destino) { toast('Elegí el almacén destino', 'error'); return; }
-    setSaving(true);
-    try { await onConfirm(destino); }
-    finally { setSaving(false); }
-  }
-
-  return (
-    <Modal
-      title={`Confirmar OC ${orden.oc_codigo ?? orden.codigo}`}
-      size="md"
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="btn btn-success" onClick={handleConfirm} disabled={saving || !destino}>
-            {saving ? 'Confirmando…' : 'Confirmar OC'}
-          </button>
-        </>
-      }
-    >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
-        Al confirmar, la OC pasa a <strong>"Confirmada (por pagar)"</strong> y queda disponible en Tesorería para el pago.
-        Indicá <strong>a qué almacén se dirige la mercancía</strong>: ahí entrará el stock al recibirla.
-      </p>
-
-      <div className="form-row">
-        <label>Almacén destino *</label>
-        {almacenes === null ? (
-          <div className="muted">Cargando almacenes…</div>
-        ) : (
-          <select className="select" value={destino} onChange={(e) => setDestino(e.target.value)}>
-            {!lista.length && <option value="General">General</option>}
-            {lista.map((a) => (
-              <option key={a.id} value={a.nombre}>
-                {a.nombre}{a.ubicacion ? ` · ${a.ubicacion}` : ''}
-              </option>
-            ))}
-          </select>
-        )}
-        <small className="muted">Se desglosan los almacenes existentes del módulo de inventario.</small>
-      </div>
-    </Modal>
   );
 }
 
@@ -1744,11 +1657,17 @@ function OrdenDetailModal({
           <button className="btn btn-primary" onClick={onEnviarPagar} title="Indicar método de pago y enviar a Tesorería">
             💳 Indicar método de pago / Enviar para Pagar
           </button>
+          <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (aún no se pagó ni recibió)">⊘ Anular OC</button>
         </>
       )}
       {/* OC confirmada pagar: el pago se hace en Tesorería → Órdenes pendientes por pagar. */}
       {isOcAprobada && (
-        <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+        <>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          {canManageProcurement && (
+            <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (aún no se pagó en Tesorería)">⊘ Anular OC</button>
+          )}
+        </>
       )}
       {/* Crédito · cuenta abierta. Los abonos se registran en TESORERÍA; acá el
           analista hace seguimiento y mueve la orden según corresponda. */}
@@ -1770,6 +1689,10 @@ function OrdenDetailModal({
               📦 Enviar a Pendiente por recepción
             </button>
           )}
+          {/* Crédito sin abonos todavía: se puede anular. */}
+          {!(Number(o.abonado_total) || 0) && (
+            <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC a crédito (aún sin abonos)">⊘ Anular OC</button>
+          )}
         </>
       )}
       {/* Pendiente por recepción (contra entrega / crédito saldado): confirmar lo recibido. */}
@@ -1777,6 +1700,9 @@ function OrdenDetailModal({
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
           <button className="btn btn-primary" onClick={onReceive}>📦 Confirmar recepción</button>
+          {!o.recibida_en && (
+            <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (aún no se recibió)">⊘ Anular OC</button>
+          )}
         </>
       )}
       {/* Contra entrega ya recibida: indicar método para pagar SOLO lo recibido. */}

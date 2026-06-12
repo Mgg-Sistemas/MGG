@@ -2,21 +2,21 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
-import type { Existencia, Producto } from '@/shared/lib/types';
+import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 
 export function TrasladoMaterialForm({
-  productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
+  productos, existencias, almacenesObj, actor, actorName, onClose, onSaved,
 }: {
   productos: Producto[];
   existencias: Existencia[];
-  almacenesList: string[];
+  almacenesObj: Almacen[];
   actor: string;
   actorName?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const almacenes = almacenesList.length ? almacenesList : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
   const exMap = useMemo(() => {
     const m = new Map<string, Existencia>();
@@ -25,8 +25,8 @@ export function TrasladoMaterialForm({
   }, [existencias]);
 
   const [productoId, setProductoId] = useState(activos[0]?.id ?? '');
-  const [origen, setOrigen] = useState(almacenes[0]);
-  const [destino, setDestino] = useState(almacenes.find((a) => a !== almacenes[0]) ?? almacenes[0]);
+  const [origen, setOrigen] = useState('');
+  const [destino, setDestino] = useState('');
   const [cantidad, setCantidad] = useState('1');
   const [motivo, setMotivo] = useState('');
   const [notaOn, setNotaOn] = useState(false);
@@ -52,6 +52,8 @@ export function TrasladoMaterialForm({
     e.preventDefault();
     setError(null);
     if (!productoId) { setError('Elegí el producto.'); return; }
+    if (!origen) { setError('Elegí la sede y el almacén de origen.'); return; }
+    if (!destino) { setError('Elegí la sede y el almacén de destino.'); return; }
     if (origen === destino) { setError('El almacén origen y destino deben ser distintos.'); return; }
     if (cantNum <= 0) { setError('La cantidad debe ser mayor que 0.'); return; }
     if (cantNum > stock) { setError(`No hay stock suficiente en ${origen}. Disponible: ${num(stock)}.`); return; }
@@ -96,20 +98,13 @@ export function TrasladoMaterialForm({
           </select>
         </div>
 
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Almacén origen</label>
-            <select className="select" value={origen} onChange={(e) => setOrigen(e.target.value)}>
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-            <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong></small>
-          </div>
-          <div className="form-row">
-            <label>Almacén destino</label>
-            <select className="select" value={destino} onChange={(e) => setDestino(e.target.value)}>
-              {almacenes.filter((a) => a !== origen).map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
+        <div>
+          <AlmacenPicker value={origen} onChange={setOrigen} almacenes={almacenesObj} sedeLabel="Sede origen" label="Almacén origen" />
+          <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong></small>
+        </div>
+        <div style={{ marginTop: '.6rem' }}>
+          <AlmacenPicker value={destino} onChange={setDestino} almacenes={almacenesObj} sedeLabel="Sede destino" label="Almacén destino" />
+          {origen && destino === origen && <small style={{ color: 'var(--danger)' }}>El destino no puede ser igual al origen.</small>}
         </div>
 
         <div className="form-grid">
