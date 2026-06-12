@@ -10,6 +10,7 @@ import {
   type ExportFiltros,
 } from './inventarioBulk';
 import { getCategorias } from './inventario.repository';
+import { AlmacenSelectAgrupado } from './AlmacenPicker';
 
 interface Props {
   productos: Producto[];
@@ -137,10 +138,7 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
       <div className="form-grid">
         <div className="form-row">
           <label>Almacén</label>
-          <select className="select" value={f.almacen ?? ''} onChange={(e) => update('almacen', e.target.value)}>
-            <option value="">Todos</option>
-            {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
+          <AlmacenSelectAgrupado value={f.almacen ?? ''} onChange={(v) => update('almacen', v)} todosLabel="Todos" extraNombres={almacenes} />
         </div>
         <div className="form-row">
           <label>Unidad</label>

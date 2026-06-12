@@ -104,10 +104,6 @@ export function SalidasPage() {
   useRealtime(['movimientos', 'movimientos_caja', 'cajas', 'productos'], () => { void reload(); });
   useEffect(() => { void reload(); }, [reload]);
 
-  const almacenesActivos = useMemo(
-    () => almacenes.filter((a) => a.estado === 'activo').map((a) => a.nombre),
-    [almacenes],
-  );
 
   const esMaterial = tipo === 'material';
   const esSalida = scope === 'salidas';
@@ -178,15 +174,15 @@ export function SalidasPage() {
       )}
 
       {modal.kind === 'salida-material' && (
-        <SalidaMaterialForm productos={productos} existencias={existencias} almacenesList={almacenesActivos}
+        <SalidaMaterialForm productos={productos} existencias={existencias} almacenesObj={almacenes}
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'traslado-material' && (
-        <TrasladoMaterialForm productos={productos} existencias={existencias} almacenesList={almacenesActivos}
+        <TrasladoMaterialForm productos={productos} existencias={existencias} almacenesObj={almacenes}
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'salida-dinero' && (
-        <SalidaDineroForm cajas={cajas} almacenesList={almacenesActivos}
+        <SalidaDineroForm cajas={cajas} almacenesObj={almacenes}
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'traslado-dinero' && (
@@ -194,7 +190,7 @@ export function SalidasPage() {
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'conciliar' && (
-        <ConciliarMineralModal salida={modal.salida} productos={productos} almacenesList={almacenesActivos}
+        <ConciliarMineralModal salida={modal.salida} productos={productos} almacenesObj={almacenes}
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'cajas' && (

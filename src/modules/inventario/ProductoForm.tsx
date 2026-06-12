@@ -3,8 +3,9 @@ import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { mismaTaxonomia } from '@/shared/lib/taxonomias';
-import type { Producto, RecetaFundicion } from '@/shared/lib/types';
+import type { Almacen, Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
+import { AlmacenPicker } from './AlmacenPicker';
 import {
   addCategoria,
   addUnidad,
@@ -14,7 +15,7 @@ import {
   siguienteSku,
   type ProductoInput,
 } from './inventario.repository';
-import { getNombresAlmacenes, crearAlmacen } from './almacenes.repository';
+import { listAlmacenes, crearAlmacen } from './almacenes.repository';
 
 interface ProductoFormProps {
   producto: Producto | null; // null => crear
@@ -65,20 +66,19 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   const isEdit = !!producto;
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
-  const [almacenesList, setAlmacenesList] = useState<string[]>([]);
+  const [almacenesObj, setAlmacenesObj] = useState<Almacen[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getCategorias(productos), getUnidades(productos), getNombresAlmacenes(productos)])
-      .then(([cats, unids, alms]) => {
+    Promise.all([getCategorias(productos), getUnidades(productos), listAlmacenes().catch(() => [] as Almacen[])])
+      .then(([cats, unids, almObj]) => {
         if (cancelled) return;
         setCategorias(cats);
         setUnidades(unids);
-        setAlmacenesList(alms);
-        // Defaults para producto nuevo: almacén y categoría al primero disponible.
+        setAlmacenesObj(almObj);
+        // Defaults: categoría al primero; el almacén se elige por Sede → Almacén.
         setForm((prev) => ({
           ...prev,
-          almacen: prev.almacen || (alms[0] ?? 'General'),
           categoria: prev.categoria || (cats[0] ?? ''),
         }));
       })
@@ -156,7 +156,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
     if (!nombre) { toast('Escribe un nombre para el almacén', 'error'); return; }
     try {
       const creado = await crearAlmacen({ nombre });
-      setAlmacenesList((prev) => (prev.includes(creado.nombre) ? prev : [...prev, creado.nombre].sort((a, b) => a.localeCompare(b, 'es'))));
+      setAlmacenesObj((prev) => (prev.some((a) => a.id === creado.id) ? prev : [...prev, creado]));
       setForm((prev) => ({ ...prev, almacen: creado.nombre }));
       setNuevoAlmacen('');
       toast(`Almacén "${creado.nombre}" añadido`, 'success');
@@ -360,19 +360,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
         </div>
 
         <div className="form-row">
-          <label>Almacén</label>
-          <select
-            className="select"
-            value={form.almacen}
-            onChange={(e) => update('almacen', e.target.value)}
-          >
-            {!almacenesList.includes(form.almacen) && form.almacen && (
-              <option value={form.almacen}>{form.almacen}</option>
-            )}
-            {almacenesList.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
+          <AlmacenPicker value={form.almacen} onChange={(v) => update('almacen', v)} almacenes={almacenesObj} />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
             <input
               className="input"

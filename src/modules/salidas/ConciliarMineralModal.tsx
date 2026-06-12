@@ -2,28 +2,28 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
-import type { MovimientoCaja, Producto } from '@/shared/lib/types';
+import type { Almacen, MovimientoCaja, Producto } from '@/shared/lib/types';
 import { conciliarConMineral } from './cajas.repository';
+import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 
 /** Registra la recepción del mineral que concilia una salida de dinero pendiente. */
 export function ConciliarMineralModal({
-  salida, productos, almacenesList, actor, actorName, onClose, onSaved,
+  salida, productos, almacenesObj, actor, actorName, onClose, onSaved,
 }: {
   salida: MovimientoCaja;
   productos: Producto[];
-  almacenesList: string[];
+  almacenesObj: Almacen[];
   actor: string;
   actorName?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const almacenes = almacenesList.length ? almacenesList : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
 
   const [modo, setModo] = useState<'existente' | 'nuevo'>(activos.length ? 'existente' : 'nuevo');
   const [productoId, setProductoId] = useState(activos[0]?.id ?? '');
   const [nombreNuevo, setNombreNuevo] = useState('');
-  const [almacen, setAlmacen] = useState(almacenes[0]);
+  const [almacen, setAlmacen] = useState('');
   const [cantidad, setCantidad] = useState('1');
   const [unidad, setUnidad] = useState<'KG' | 'G'>('KG');
   const [costoUnit, setCostoUnit] = useState('0');
@@ -42,6 +42,7 @@ export function ConciliarMineralModal({
     if (modo === 'existente' && !productoId) { setError('Elegí el mineral.'); return; }
     if (modo === 'nuevo' && !nombreNuevo.trim()) { setError('Escribí el nombre del mineral.'); return; }
     if (cantNum <= 0) { setError('El total entrante debe ser mayor que 0.'); return; }
+    if (!almacen) { setError('Elegí la sede y el almacén destino.'); return; }
     setSaving(true);
     try {
       await conciliarConMineral({
@@ -98,13 +99,8 @@ export function ConciliarMineralModal({
           )}
         </div>
 
+        <AlmacenPicker value={almacen} onChange={setAlmacen} almacenes={almacenesObj} />
         <div className="form-grid">
-          <div className="form-row">
-            <label>Almacén destino</label>
-            <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
           <div className="form-row">
             <label>Unidad</label>
             <select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value as 'KG' | 'G')}>

@@ -119,6 +119,24 @@ export async function insert(payload: ProveedorInput): Promise<Proveedor> {
   return data as Proveedor;
 }
 
+/**
+ * Alta rápida de proveedor (desde Compra Directa): razón social + RIF. Si ya existe
+ * uno con ese RIF, lo devuelve (no duplica). Se crea con categorías vacías y origen
+ * nacional por defecto; los demás datos se completan luego desde Proveedores.
+ */
+export async function crearProveedorRapido(razonSocial: string, rif: string): Promise<Proveedor> {
+  const nombre = razonSocial.trim();
+  const r = rif.trim().toUpperCase();
+  if (!nombre) throw new Error('Indicá la razón social del proveedor.');
+  if (!r) throw new Error('Indicá el RIF del proveedor.');
+  const { data: existente } = await supabase.from('proveedores').select('*').eq('rif', r).maybeSingle();
+  if (existente) return existente as Proveedor;
+  return insert({
+    rif: r, razon_social: nombre, categorias: [], origen: 'nacional', estado: 'activo',
+    contacto: null, telefono: null, email: null, direccion: null,
+  } as ProveedorInput);
+}
+
 export async function update(id: string, patch: ProveedorPatch): Promise<Proveedor> {
   const { data, error } = await supabase
     .from('proveedores')

@@ -1,8 +1,9 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto, TipoMovimiento } from '@/shared/lib/types';
 import { calcularPMP, type MovimientoInput } from './movimientos.repository';
+import { AlmacenPicker } from './AlmacenPicker';
 
 interface MovimientoFormProps {
   producto: Producto;
@@ -40,12 +41,6 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const [detalle, setDetalle] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Lista de almacenes para los selectores (incluye el del producto aunque sea legado).
-  const opcionesAlmacen = useMemo(() => {
-    const set = new Set<string>([almacenInicial, ...almacenesList]);
-    return Array.from(set).filter(Boolean);
-  }, [almacenInicial, almacenesList]);
 
   // Existencia (stock + costo) del almacén seleccionado.
   const exSel = existencias.find((e) => e.almacen === almacen);
@@ -199,28 +194,21 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
           </div>
         </div>
 
-        <div className="form-grid">
+        {fixedAlmacen ? (
           <div className="form-row">
             <label>Almacén</label>
-            <select
-              className="select"
-              value={almacen}
-              onChange={(e) => onChangeAlmacen(e.target.value)}
-              disabled={!!fixedAlmacen}
-            >
-              {opcionesAlmacen.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
+            <input className="input" value={almacen} readOnly tabIndex={-1} />
           </div>
-          <div className="form-row">
-            <label>Tipo de movimiento</label>
-            <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoManual)}>
-              {OPCIONES.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
+        ) : (
+          <AlmacenPicker value={almacen} onChange={onChangeAlmacen} />
+        )}
+        <div className="form-row">
+          <label>Tipo de movimiento</label>
+          <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoManual)}>
+            {OPCIONES.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
         </div>
 
         {/* Conversor de bultos: solo al ingresar mercancía (entrada). */}
@@ -304,19 +292,8 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
         )}
 
         {esTransferencia && (
-          <div className="form-row">
-            <label>Almacén destino</label>
-            <select
-              className="select"
-              value={almacenDestino}
-              onChange={(e) => setAlmacenDestino(e.target.value)}
-              required
-            >
-              <option value="">— elegí el destino —</option>
-              {opcionesAlmacen.filter((a) => a !== almacen).map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
+          <div>
+            <AlmacenPicker value={almacenDestino} onChange={setAlmacenDestino} sedeLabel="Sede destino" label="Almacén destino" />
             <small className="muted" style={{ fontSize: '.72rem' }}>
               Se descuenta de {almacen} y se suma al destino llevando su costo (PMP).
             </small>

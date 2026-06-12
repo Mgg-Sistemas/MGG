@@ -49,10 +49,13 @@ function rangoDePreset(preset: Preset, desdeStr: string, hastaStr: string): { de
  * muestra una barra por cada producto/combustible consumido y una tabla con la
  * cantidad y su equivalente en $. Lo usan Inventario (por almacén) y Combustible.
  */
-export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
+export function ConsumoChartModal({ title, subtitle, cargar, grupos, onClose }: {
   title: string;
   subtitle?: string;
-  cargar: (desde: Date, hasta: Date) => Promise<ConsumoRow[]>;
+  /** Carga las filas del período. Si hay `grupos`, recibe la clave del grupo activo. */
+  cargar: (desde: Date, hasta: Date, grupo: string) => Promise<ConsumoRow[]>;
+  /** Opcional: agrupaciones alternativas (ej. Por tipo / Por equipo). La 1ª es la activa. */
+  grupos?: { key: string; label: string }[];
   onClose: () => void;
 }) {
   const hoy = isoDay(new Date());
@@ -60,6 +63,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
   const [desdeStr, setDesdeStr] = useState(hoy);
   const [hastaStr, setHastaStr] = useState(hoy);
   const [metrica, setMetrica] = useState<'valor' | 'cantidad'>('valor');
+  const [grupo, setGrupo] = useState<string>(grupos?.[0]?.key ?? '');
   const [rows, setRows] = useState<ConsumoRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,13 +78,13 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
     setLoading(true); setError(null);
     try {
       const { desde, hasta } = rangoDePreset(preset, desdeStr, hastaStr);
-      const data = await cargarRef.current(desde, hasta);
+      const data = await cargarRef.current(desde, hasta, grupo);
       setRows(data.slice().sort((a, b) => b.valor - a.valor));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar el consumo');
       setRows([]);
     } finally { setLoading(false); }
-  }, [preset, desdeStr, hastaStr]);
+  }, [preset, desdeStr, hastaStr, grupo]);
   useEffect(() => { void recargar(); }, [recargar]);
 
   const totalCantidad = rows.reduce((a, r) => a + r.cantidad, 0);
@@ -99,6 +103,16 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
     <Modal title={title} size="xl" onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       {subtitle && <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>{subtitle}</p>}
+
+      {/* Agrupación (opcional): ej. Por tipo / Por equipo */}
+      {grupos && grupos.length > 1 && (
+        <div style={{ display: 'inline-flex', gap: '.3rem', marginBottom: '.6rem' }}>
+          {grupos.map((g) => (
+            <button key={g.key} className={`btn btn-sm ${grupo === g.key ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setGrupo(g.key)}>{g.label}</button>
+          ))}
+        </div>
+      )}
 
       {/* Filtros de período */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', alignItems: 'center', marginBottom: '.6rem' }}>

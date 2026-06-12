@@ -7,7 +7,7 @@ import { dateTime, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import type { Combustible, SolicitudCombustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter, PlantaMovimiento, CatalogoCombustible, TanqueMovimiento, TipoMovimientoTanque } from '@/shared/lib/types';
 import {
   listCombustibles,
@@ -16,11 +16,12 @@ import {
   renombrarCombustible,
   setEstadoCombustible,
   actualizarCombustible,
+  ajustarLitrosCombustible,
   crearSolicitudCombustible,
   aprobarSolicitudCombustible,
   finalizarSolicitudCombustible,
   cancelarSolicitudCombustible,
-  consumoCombustiblePeriodo,
+  consumoCombustiblePorEquipo,
   listTanques,
   crearTanque,
   actualizarTanque,
@@ -63,8 +64,6 @@ const COLS: { key: SolicitudCombustible['estado']; label: string }[] = [
 const ESTADO_LABEL: Record<string, string> = {
   por_aprobar: '⏳ Por aprobar', aprobada: '✅ Aprobada', finalizada: '🏁 Finalizada', cancelada: '✖ Cancelada',
 };
-// Destinos fijos de la solicitud de salida ("a dónde va ese combustible").
-const DESTINOS_SALIDA = ['Almacén Los Pinos', 'Almacén Matanzas'] as const;
 // Tipos de movimiento de tanque (suman / restan).
 const TIPOS_MOVIMIENTO: { value: TipoMovimientoTanque; label: string; signo: '+' | '−' }[] = [
   { value: 'ingreso', label: 'Ingreso (carga al tanque)', signo: '+' },
@@ -148,7 +147,6 @@ export function CombustiblePage() {
   const [tanques, setTanques] = useState<Tanque[]>([]);
   const [vehiculos, setVehiculos] = useState<VehiculoMaquina[]>([]);
   const [transfers, setTransfers] = useState<TransferenciaCombustibleInter[]>([]);
-  const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
   const [modal, setModal] = useState<'none' | 'solicitud' | 'movimiento' | 'movimientos' | 'gestionar' | 'consumo' | 'tanque' | 'catalogo' | 'planta'>('none');
@@ -159,20 +157,18 @@ export function CombustiblePage() {
   const [movTanqueId, setMovTanqueId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    const [cs, ss, ts, vs, trs, alms] = await Promise.all([
+    const [cs, ss, ts, vs, trs] = await Promise.all([
       listCombustibles(),
       listSolicitudesCombustible(),
       listTanques(),
       listVehiculos(),
       listTransferenciasCombustible().catch(() => [] as TransferenciaCombustibleInter[]),
-      getNombresAlmacenes(),
     ]);
     setCombustibles(cs);
     setSolicitudes(ss);
     setTanques(ts);
     setVehiculos(vs);
     setTransfers(trs);
-    setAlmacenes(alms);
   }, []);
 
   useEffect(() => {
@@ -354,7 +350,7 @@ export function CombustiblePage() {
       )}
 
       {modal === 'solicitud' && (
-        <SolicitudModal combustibles={activos} tanques={tanques} actor={actor} defaultSolicitante={miNombre}
+        <SolicitudModal combustibles={activos} tanques={tanques} vehiculos={vehiculos} actor={actor} defaultSolicitante={miNombre}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'catalogo' && (
@@ -374,11 +370,11 @@ export function CombustiblePage() {
           onClose={() => { setModal('none'); setMovTanqueId(null); }} />
       )}
       {combEdit && (
-        <EditarCombustibleModal combustible={combEdit}
+        <EditarCombustibleModal combustible={combEdit} actor={actor} actorName={miNombre}
           onClose={() => setCombEdit(null)} onSaved={async () => { setCombEdit(null); await reload(); }} />
       )}
       {modal === 'gestionar' && (
-        <GestionarModal combustibles={combustibles} almacenes={almacenes} actor={actor}
+        <GestionarModal combustibles={combustibles} actor={actor}
           onClose={() => setModal('none')} onChanged={reload} />
       )}
       {(modal === 'tanque' || tanqueEdit) && (
@@ -393,9 +389,9 @@ export function CombustiblePage() {
       {modal === 'consumo' && (
         <ConsumoChartModal
           title="Consumo de combustible"
-          subtitle="Litros consumidos por tipo de combustible (salidas). El valor en $ usa el costo por litro de cada salida."
+          subtitle="Litros consumidos por equipo/vehículo en el período. Cambiá entre cantidad (litros) y valor en $. El valor usa el costo por litro de cada movimiento."
           cargar={async (desde, hasta) => {
-            const items = await consumoCombustiblePeriodo(desde, hasta);
+            const items = await consumoCombustiblePorEquipo(desde, hasta);
             return items.map((x) => ({ id: x.id, label: x.nombre, unidad: 'Lt', cantidad: x.cantidad, valor: x.valor }));
           }}
           onClose={() => setModal('none')}
@@ -411,13 +407,14 @@ export function CombustiblePage() {
 
 /* ───────────── Modales ───────────── */
 
-function SolicitudModal({ combustibles, tanques, actor, defaultSolicitante, onClose, onSaved }: {
-  combustibles: Combustible[]; tanques: Tanque[]; actor: string; defaultSolicitante: string;
+function SolicitudModal({ combustibles, tanques, vehiculos, actor, defaultSolicitante, onClose, onSaved }: {
+  combustibles: Combustible[]; tanques: Tanque[]; vehiculos: VehiculoMaquina[]; actor: string; defaultSolicitante: string;
   onClose: () => void; onSaved: () => void;
 }) {
   const [combustibleId, setCombustibleId] = useState(combustibles[0]?.id ?? '');
   const [solicitante, setSolicitante] = useState(defaultSolicitante);
-  const [destino, setDestino] = useState<string>(DESTINOS_SALIDA[0]);
+  const [destino, setDestino] = useState<string>('');
+  const vehiculosAct = useMemo(() => vehiculos.filter((v) => v.estado === 'activo'), [vehiculos]);
   const [litros, setLitros] = useState('');
   const [motivo, setMotivo] = useState('');
   const [saving, setSaving] = useState(false);
@@ -493,9 +490,10 @@ function SolicitudModal({ combustibles, tanques, actor, defaultSolicitante, onCl
           </div>
           <div className="form-row">
             <label>A dónde va ese combustible</label>
-            <select className="select" value={destino} onChange={(e) => setDestino(e.target.value)} required>
-              {DESTINOS_SALIDA.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
+            <ComboBuscador value={destino} onChange={setDestino}
+              opciones={vehiculosAct.map((v) => ({ value: v.nombre, label: v.nombre }))}
+              placeholder="🔎 Buscá el vehículo / máquina…" icono="🚜" />
+            <small className="muted">Elegí el vehículo o máquina que recibe el combustible. ¿Falta uno? Agregalo en 📒 Catálogo.</small>
           </div>
         </div>
         <div className="form-row">
@@ -686,22 +684,38 @@ function RegistrarMovimientoModal({ tanques, vehiculos, actor, actorName, onClos
 }
 
 /* ───────────── Editar combustible desde la tarjeta (nombre + costo por litro) ───────────── */
-function EditarCombustibleModal({ combustible, onClose, onSaved }: {
-  combustible: Combustible; onClose: () => void; onSaved: () => void;
+function EditarCombustibleModal({ combustible, actor, actorName, onClose, onSaved }: {
+  combustible: Combustible; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
+  const litrosActuales = Number(combustible.litros) || 0;
   const [nombre, setNombre] = useState(combustible.nombre);
   const [costo, setCosto] = useState(String(combustible.costo_litro ?? 0));
+  const [litros, setLitros] = useState(String(litrosActuales));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const litrosNum = Number(litros);
+  const litrosValido = litros.trim() !== '' && !Number.isNaN(litrosNum) && litrosNum >= 0;
+  const delta = litrosValido ? Math.round((litrosNum - litrosActuales) * 10000) / 10000 : 0;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!nombre.trim()) { setError('El nombre es obligatorio.'); return; }
+    if (!litrosValido) { setError('Indicá unos litros válidos (0 o más).'); return; }
     setSaving(true);
     try {
       await actualizarCombustible(combustible.id, { nombre: nombre.trim(), costoLitro: Number(costo) || 0 });
-      notify(`Combustible "${nombre.trim()}" actualizado`, 'success', { link: '#/app/combustible' });
+      // Si cambió la cantidad, se registra un ajuste que también mueve el inventario.
+      if (delta !== 0) {
+        await ajustarLitrosCombustible(combustible.id, litrosNum, { actor, actorName, motivo: 'Ajuste manual desde la tarjeta' });
+      }
+      notify(
+        delta !== 0
+          ? `Combustible "${nombre.trim()}" actualizado · ajuste de ${delta > 0 ? '+' : ''}${num(delta)} L (ahora ${num(litrosNum)} L)`
+          : `Combustible "${nombre.trim()}" actualizado`,
+        'success', { link: '#/app/combustible' },
+      );
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo actualizar.');
@@ -724,7 +738,19 @@ function EditarCombustibleModal({ combustible, onClose, onSaved }: {
         <div className="form-row">
           <label>Costo por litro (USD)</label>
           <input className="input mono" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
-          <small className="muted">Los litros se ajustan con los movimientos de tanque (Ingreso / Consumo / Retorno / Merma).</small>
+        </div>
+        <div className="form-row">
+          <label>Litros (cantidad actual)</label>
+          <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} />
+          {delta !== 0 && litrosValido ? (
+            <small className="muted">
+              Ajuste: de <strong className="mono">{num(litrosActuales)} L</strong> a <strong className="mono">{num(litrosNum)} L</strong>
+              {' '}(<strong className="mono" style={{ color: delta > 0 ? 'var(--success)' : 'var(--danger)' }}>{delta > 0 ? '+' : ''}{num(delta)} L</strong>).
+              Se registra un <strong>movimiento de ajuste</strong> y se refleja en el inventario.
+            </small>
+          ) : (
+            <small className="muted">Si cambiás la cantidad, se registra un <strong>ajuste</strong> (entra/sale del inventario) para no descuadrar el stock.</small>
+          )}
         </div>
       </form>
     </Modal>
@@ -813,11 +839,11 @@ function MovimientosModal({ tanques, tanqueId, onClose }: {
   );
 }
 
-function GestionarModal({ combustibles, almacenes, actor, onClose, onChanged }: {
-  combustibles: Combustible[]; almacenes: string[]; actor: string; onClose: () => void; onChanged: () => Promise<void>;
+function GestionarModal({ combustibles, actor, onClose, onChanged }: {
+  combustibles: Combustible[]; actor: string; onClose: () => void; onChanged: () => Promise<void>;
 }) {
   const [nombre, setNombre] = useState('');
-  const [almacen, setAlmacen] = useState(almacenes[0] ?? '');
+  const [almacen, setAlmacen] = useState('');
   const [litros, setLitros] = useState('');
   const [costo, setCosto] = useState('');
   const [busy, setBusy] = useState(false);
@@ -826,9 +852,6 @@ function GestionarModal({ combustibles, almacenes, actor, onClose, onChanged }: 
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [renombrando, setRenombrando] = useState<{ id: string; actual: string } | null>(null);
   const [nuevoNombre, setNuevoNombre] = useState('');
-
-  // Si el modal abre sin almacén seleccionado (carga tardía), tomamos el primero disponible.
-  useEffect(() => { if (!almacen && almacenes.length) setAlmacen(almacenes[0]); }, [almacenes, almacen]);
 
   async function crear() {
     setOkMsg(null);
@@ -880,16 +903,10 @@ function GestionarModal({ combustibles, almacenes, actor, onClose, onChanged }: 
         {okMsg && <div className="card" style={{ borderColor: 'var(--success, var(--primary))', margin: '0 0 .75rem' }}>✅ {okMsg}</div>}
         <div className="form-grid">
           <div className="form-row"><label>Nombre</label><input className="input" value={nombre} onChange={(e) => { setNombre(e.target.value); if (error) setError(null); }} placeholder="Diésel, Gasolina 95…" autoFocus /></div>
-          <div className="form-row">
-            <label>Almacén</label>
-            <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
-              {!almacenes.length && <option value="">— sin almacenes —</option>}
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
           <div className="form-row"><label>Litros iniciales (opcional)</label><input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} /></div>
           <div className="form-row"><label>Costo por litro (opcional)</label><input className="input mono" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} /></div>
         </div>
+        <AlmacenPicker value={almacen} onChange={setAlmacen} />
         <small className="muted" style={{ display: 'block', margin: '0 0 .6rem' }}>Se registra primero en el inventario (almacén elegido) y se vincula al módulo de Combustible.</small>
         <button className="btn btn-primary btn-sm" onClick={crear} disabled={busy}>+ Crear combustible</button>
       </div>

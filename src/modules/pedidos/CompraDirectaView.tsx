@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
 import { descargarCompraDirectaPdf } from './compraDirectaPdf';
-import type { Caja, Producto, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
+import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
+import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
+import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos } from '@/modules/inventario/inventario.repository';
-import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { saldosDeCaja, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
@@ -33,20 +35,22 @@ function montoCaja(n: number | null | undefined, moneda: string): string {
 export function CompraDirectaView({ actor, actorName }: { actor: string; actorName?: string | null }) {
   const [compras, setCompras] = useState<CompraDirecta[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
   const [cajas, setCajas] = useState<Caja[]>([]);
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
   const [crear, setCrear] = useState(false);
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
-    const [cs, pds, alms, cats, unis, cjs] = await Promise.all([
-      listComprasDirectas(), listProductos(), getNombresAlmacenes(), getCategorias(), getUnidades(), listCajasActivas(),
+    const [cs, pds, cats, unis, cjs, provs] = await Promise.all([
+      listComprasDirectas(), listProductos(), getCategorias(), getUnidades(), listCajasActivas(),
+      listProveedores().catch(() => [] as Proveedor[]),
     ]);
-    setCompras(cs); setProductos(pds); setAlmacenes(alms); setCategorias(cats); setUnidades(unis); setCajas(cjs);
+    setCompras(cs); setProductos(pds); setCategorias(cats); setUnidades(unis); setCajas(cjs);
+    setProveedores(provs.filter((p) => p.estado === 'activo'));
   }, []);
 
   useEffect(() => {
@@ -57,7 +61,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   }, [reload]);
 
   // Realtime multiusuario: las compras directas se reflejan al instante.
-  useRealtime(['compras_directas', 'productos'], () => { void reload(); });
+  useRealtime(['compras_directas', 'productos', 'proveedores'], () => { void reload(); });
 
   const porEstado = useMemo(() => {
     const m: Record<string, CompraDirecta[]> = { en_proceso: [], finalizada: [] };
@@ -102,12 +106,13 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       ) : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Material(es)</th><th>Almacén</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
+            <thead><tr><th>Material(es)</th><th>Almacén</th><th>Proveedor</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
             <tbody>
               {compras.map((c) => (
                 <tr key={c.id}>
                   <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : (c.producto_sku ? <span className="muted"> · {c.producto_sku}</span> : null)}</td>
                   <td>{c.almacen}</td>
+                  <td>{c.proveedor_nombre || '—'}</td>
                   <td className="mono">{num(c.cantidad)}</td>
                   <td>{ESTADO_LABEL[c.estado] ?? c.estado}</td>
                   <td className="mono">{c.gasto != null ? money(c.gasto) : '—'}</td>
@@ -126,7 +131,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       )}
 
       {crear && (
-        <CrearCompraModal productos={productos} almacenes={almacenes} categorias={categorias} unidades={unidades}
+        <CrearCompraModal productos={productos} categorias={categorias} unidades={unidades} proveedores={proveedores}
           actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await reload(); }} />
       )}
 
@@ -148,6 +153,7 @@ function CompraCard({ compra, onFinalizar, onPdf }: {
         <span className="badge">{num(compra.cantidad)}</span>
       </div>
       <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>→ {compra.almacen}</div>
+      {compra.proveedor_nombre && <div className="muted" style={{ fontSize: '.74rem' }}>🏭 {compra.proveedor_nombre}</div>}
       {compra.items.length > 1 && (
         <ul className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0', paddingLeft: '1rem' }}>
           {compra.items.map((it, i) => <li key={i}>{it.producto_nombre} · {num(it.cantidad)}</li>)}
@@ -185,18 +191,22 @@ function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
 
 interface LineaUI { id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string }
 
-function CrearCompraModal({ productos, almacenes, categorias, unidades, actor, actorName, onClose, onSaved }: {
-  productos: Producto[]; almacenes: string[]; categorias: string[]; unidades: string[];
+function CrearCompraModal({ productos, categorias, unidades, proveedores, actor, actorName, onClose, onSaved }: {
+  productos: Producto[]; categorias: string[]; unidades: string[]; proveedores: Proveedor[];
   actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const alms = almacenes.length ? almacenes : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
   const nuevaLinea = (id: number): LineaUI => ({
     id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
     nombre: '', categoria: categorias[0] ?? '', unidad: unidades[0] ?? 'und', cantidad: '1',
   });
   const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
-  const [almacen, setAlmacen] = useState(alms[0]);
+  const [almacen, setAlmacen] = useState('');
+  // Proveedor: elegir uno existente (buscable) o dar de alta uno nuevo (razón social + RIF).
+  const [provModo, setProvModo] = useState<'existente' | 'nuevo'>('existente');
+  const [proveedorId, setProveedorId] = useState('');
+  const [provNombre, setProvNombre] = useState('');
+  const [provRif, setProvRif] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seq, setSeq] = useState(2);
@@ -207,6 +217,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, actor, a
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
+    if (!almacen) { setError('Elegí la sede y el almacén destino.'); return; }
     const payload: LineaCompra[] = [];
     for (const l of lineas) {
       const cant = Number(l.cantidad) || 0;
@@ -221,8 +232,18 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, actor, a
     }
     setSaving(true);
     try {
-      await crearCompraDirecta({ lineas: payload, almacen, actor, actorName }, productos);
-      notify(`Compra directa creada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
+      // Resolver el proveedor: existente elegido, o alta rápida si es nuevo.
+      let proveedorId2: string | null = null;
+      let proveedorNombre: string | null = null;
+      if (provModo === 'nuevo' && provNombre.trim()) {
+        const prov = await crearProveedorRapido(provNombre, provRif);
+        proveedorId2 = prov.id; proveedorNombre = prov.razon_social;
+      } else if (provModo === 'existente' && proveedorId) {
+        const prov = proveedores.find((p) => p.id === proveedorId) ?? null;
+        proveedorId2 = proveedorId; proveedorNombre = prov?.razon_social ?? null;
+      }
+      await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorId2, proveedorNombre, actor, actorName }, productos);
+      notify(`Compra directa creada · ${payload.length} material(es)${proveedorNombre ? ` · ${proveedorNombre}` : ''}`, 'success', { link: '#/app/pedidos' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear la compra directa.'); setSaving(false); }
   }
@@ -239,11 +260,37 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, actor, a
       <form id="cd-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
+        <AlmacenPicker value={almacen} onChange={setAlmacen} sedeLabel="Sede destino" label="Almacén destino" />
+
+        {/* Proveedor: existente (buscable) o alta rápida de uno nuevo (pasa a la BD). */}
         <div className="form-row">
-          <label>Almacén destino</label>
-          <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} style={{ maxWidth: 280 }}>
-            {alms.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
+          <label>Proveedor (opcional)</label>
+          <div className="view-toggle" role="tablist" style={{ margin: '0 0 .4rem' }}>
+            <button type="button" className={provModo === 'existente' ? 'active' : ''} onClick={() => setProvModo('existente')}>🔎 Existente</button>
+            <button type="button" className={provModo === 'nuevo' ? 'active' : ''} onClick={() => setProvModo('nuevo')}>＋ Nuevo proveedor</button>
+          </div>
+          {provModo === 'existente' ? (
+            <SearchSelect
+              value={proveedorId}
+              onChange={setProveedorId}
+              options={proveedores.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ` · ${p.rif}` : ''}` }))}
+              placeholder="🔎 Buscá el proveedor…"
+              emptyText="Sin proveedores. Usá ＋ Nuevo proveedor."
+              style={{ maxWidth: 420 }}
+            />
+          ) : (
+            <div className="form-grid">
+              <div className="form-row" style={{ margin: 0 }}>
+                <label>Razón social del nuevo proveedor</label>
+                <input className="input" value={provNombre} onChange={(e) => setProvNombre(e.target.value)} placeholder="Nombre / razón social" />
+              </div>
+              <div className="form-row" style={{ margin: 0 }}>
+                <label>RIF</label>
+                <input className="input" value={provRif} onChange={(e) => setProvRif(e.target.value.toUpperCase())} placeholder="J-12345678-9" />
+              </div>
+              <small className="muted" style={{ gridColumn: '1 / -1' }}>Se da de alta en el módulo Proveedores (razón social + RIF). Lo demás se completa luego.</small>
+            </div>
+          )}
         </div>
 
         {lineas.map((l, idx) => (
