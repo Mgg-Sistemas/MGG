@@ -10,7 +10,6 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { MovimientosAcopioView, type ResumenAcopio } from './MovimientosAcopioView';
 import { CategoriasModal } from './CategoriasModal';
 import { listProductos } from '@/modules/inventario/inventario.repository';
-import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { Producto, RecepcionAcopio } from '@/shared/lib/types';
 import {
   createRecepcion,
@@ -21,7 +20,9 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
+import { listVehiculos } from '@/modules/combustible/combustible.repository';
+import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import type { ClasificacionAcopio } from '@/shared/lib/types';
@@ -33,6 +34,8 @@ const ESTADO_LABEL: Record<string, string> = {
 };
 /** Filas por defecto en una recepción nueva (la plantilla original trae 25). */
 const FILAS_DEFAULT = 25;
+/** Sub-almacén destino fijo del mineral recibido (sede LA ESPERANZA). */
+const ALMACEN_ACOPIO = 'CASITERITA';
 
 export function AcopioPage() {
   const { user } = useSession();
@@ -42,7 +45,6 @@ export function AcopioPage() {
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [cajas, setCajas] = useState<CajaCierre[]>([]);
   const [editar, setEditar] = useState<RecepcionAcopio | null>(null);
   const [nuevo, setNuevo] = useState(false);
@@ -70,11 +72,10 @@ export function AcopioPage() {
   }, [resumen.tasa]);
 
   const reload = useCallback(async () => {
-    const [ps, alms, cjs] = await Promise.all([
-      listProductos(), getNombresAlmacenes(), listCajas(),
+    const [ps, cjs] = await Promise.all([
+      listProductos(), listCajas(),
     ]);
     setProductos(ps);
-    setAlmacenes(alms);
     setCajas(cjs);
   }, []);
 
@@ -150,7 +151,6 @@ export function AcopioPage() {
         <RecepcionModal
           recepcion={editar}
           productos={productos}
-          almacenes={almacenes}
           canWrite={canWrite}
           actor={actor}
           actorName={actorName}
@@ -174,6 +174,8 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [gastos, setGastos] = useState('');
   const [gastoCat, setGastoCat] = useState('');
+  const [gastoVehiculo, setGastoVehiculo] = useState(''); // vehículo imputado (solo categorías de REPUESTOS-REPARACIONES-SERVICIOS)
+  const [vehiculos, setVehiculos] = useState<{ value: string; label: string }[]>([]);
   const [descGastos, setDescGastos] = useState('');
   const [nominas, setNominas] = useState('');
   const [nominaCat, setNominaCat] = useState('');
@@ -187,8 +189,15 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { listClasificacionesAll().then(setCats).catch(() => setCats([])); }, []);
+  // Equipos/maquinaria del módulo de Combustible: alimentan el buscador cuando el gasto va anclado a un vehículo.
+  useEffect(() => {
+    listVehiculos()
+      .then((vs) => setVehiculos(vs.filter((v) => v.estado === 'activo').map((v) => ({ value: v.nombre, label: v.nombre }))))
+      .catch(() => setVehiculos([]));
+  }, []);
   const gastosCats = useMemo(() => cats.filter((c) => c.grupo === 'gastos_caja' && c.activo), [cats]);
   const nominaCats = useMemo(() => cats.filter((c) => c.grupo === 'nomina' && c.activo), [cats]);
+  const gastoEsVehiculo = esClasifVehiculo(gastoCat);
 
   // Redondeo a 2 decimales para los montos en $.
   const r2 = (s: string) => Math.round((Number(s) || 0) * 100) / 100;
@@ -206,7 +215,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       // Una fila por concepto: así cada monto conserva su categoría y la distribución
       // por grupo (Gastos/Nómina/Traslado) queda correcta.
       const filas: CajaMovimientoInput[] = [];
-      if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
+      if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, vehiculo: gastoEsVehiculo ? (gastoVehiculo.trim() || null) : null, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
       if (nom > 0) filas.push({ fecha, nominas: nom, clasif_grupo: 'nomina', clasif_valor: nominaCat, descripcion: descNominas.trim() || nominaCat, caja_id: cajaId });
       if (tras > 0) filas.push({ fecha, traslado: tras, clasif_grupo: 'traslado', descripcion: descTraslado.trim() || 'Traslado de caja', caja_id: cajaId });
       if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: descKg.trim() || 'Kg recibidos por MGG', caja_id: cajaId });
@@ -259,6 +268,16 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
           </select>
         </div>
       </div>
+      {/* Vehículo/maquinaria: solo cuando la categoría es de REPUESTOS - REPARACIONES - SERVICIOS (opcional). */}
+      {gastoEsVehiculo && (
+        <div className="form-row">
+          <label>🚜 Vehículo / maquinaria <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          <SearchSelect value={gastoVehiculo} onChange={setGastoVehiculo}
+            options={vehiculos} placeholder="🔎 Buscá el equipo del catálogo de Combustible…"
+            emptyText="Sin equipos. Agregalos en Combustible → Catálogo → Equipos." />
+          <small className="muted">El gasto queda imputado a este equipo y se ve en el consumo $ por vehículo del resumen.</small>
+        </div>
+      )}
       {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto')}
 
       {/* Nómina: monto + categoría + descripción */}
@@ -300,6 +319,8 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
   const [error, setError] = useState<string | null>(null);
   const [bajando, setBajando] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
+  // Categoría de vehículo seleccionada para ver su consumo en $ por vehículo (gráfica).
+  const [consumoCat, setConsumoCat] = useState<string | null>(null);
   // Filtro por rango de fechas: el resumen se recalcula solo con los movimientos del rango.
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -337,8 +358,9 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
     </div>
   );
 
-  const TablaCat = ({ titulo, filas, totalLabel, totalMonto, totalPct, color }: {
+  const TablaCat = ({ titulo, filas, totalLabel, totalMonto, totalPct, color, onVerVehiculo }: {
     titulo: string; filas: { valor: string; monto: number; pct: number }[]; totalLabel: string; totalMonto: number; totalPct: number; color: string;
+    onVerVehiculo?: (valor: string) => void;
   }) => (
     <>
       <div className="card-title" style={{ marginTop: '1rem' }}><span style={{ color }}>{titulo}</span></div>
@@ -347,13 +369,18 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
           <table className="table" style={{ fontSize: '.8rem' }}>
             <thead><tr><th>Categoría</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>% del total gastado</th></tr></thead>
             <tbody>
-              {filas.map((c) => (
-                <tr key={c.valor}>
-                  <td>{c.valor}</td>
+              {filas.map((c) => {
+                const esVeh = !!onVerVehiculo && esClasifVehiculo(c.valor);
+                return (
+                <tr key={c.valor} onClick={esVeh ? () => onVerVehiculo!(c.valor) : undefined}
+                  style={esVeh ? { cursor: 'pointer' } : undefined}
+                  title={esVeh ? 'Ver consumo en $ por vehículo' : undefined}>
+                  <td>{c.valor}{esVeh && <span className="muted" style={{ marginLeft: '.4rem' }} title="Ver consumo $ por vehículo">📊</span>}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(c.monto)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{pct(c.pct)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
               <td>{totalLabel}</td>
@@ -419,9 +446,22 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
             <Kpi titulo="Diferencia" valor={`${num(r.diferenciaKg)} Kg`} color={r.diferenciaKg < 0 ? 'var(--danger)' : 'var(--success)'} />
           </div>
 
-          <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" />
+          <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" onVerVehiculo={setConsumoCat} />
+          <p className="muted" style={{ fontSize: '.74rem', marginTop: '.3rem' }}>💡 Las categorías de <strong>repuestos · reparaciones · servicios</strong> (📊) se pueden tocar para ver el <strong>consumo en $ por vehículo</strong>.</p>
           <TablaCat titulo="Nómina por categoría" filas={r.nominaPorCategoria} totalLabel="Total nómina" totalMonto={r.totalNominas} totalPct={r.pctNomina} color="#a855f7" />
         </>
+      )}
+
+      {consumoCat && (
+        <ConsumoChartModal
+          title={`📊 Consumo $ por vehículo · ${consumoCat}`}
+          subtitle="Total gastado por vehículo/maquinaria en esta categoría (repuestos · reparaciones · servicios). Buscá un equipo por nombre."
+          cargar={async (d, h) => {
+            const filas = await consumoPorVehiculoAcopio(d, h, consumoCat);
+            return filas.map((f) => ({ id: f.id, label: f.nombre, unidad: 'compra(s)', cantidad: f.compras, valor: f.valor }));
+          }}
+          onClose={() => setConsumoCat(null)}
+        />
       )}
 
       {correoOpen && r && (
@@ -461,10 +501,9 @@ const n = (v: string) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 /** Verf. = IF(precinto_inicio = precinto_final, "V", "F") del Excel. */
 const verf = (f: FilaLote) => f.precinto_inicio.trim() === f.precinto_final.trim();
 
-function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, actorName, onClose, onSaved }: {
+function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onClose, onSaved }: {
   recepcion: RecepcionAcopio | null;
   productos: Producto[];
-  almacenes: string[];
   canWrite: boolean;
   actor: string;
   actorName: string | null;
@@ -478,7 +517,8 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
   const [centro, setCentro] = useState(recepcion?.centro_acopio ?? 'La Esperanza');
   const [aliado, setAliado] = useState(recepcion?.aliado ?? '');
   const [productoId, setProductoId] = useState(recepcion?.producto_id ?? '');
-  const [almacen, setAlmacen] = useState(recepcion?.almacen ?? almacenes[0] ?? '');
+  // El stock de la recepción va DIRECTO al sub-almacén CASITERITA (sede LA ESPERANZA).
+  const [almacen] = useState(recepcion?.almacen ?? ALMACEN_ACOPIO);
   const [entNombre, setEntNombre] = useState(recepcion?.entregado_nombre ?? '');
   const [entCi, setEntCi] = useState(recepcion?.entregado_ci ?? '');
   const [recNombre, setRecNombre] = useState(recepcion?.recibido_nombre ?? '');
@@ -649,10 +689,9 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
           </div>
           <div className="form-row">
             <label>Almacén destino del stock</label>
-            <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} disabled={ro}>
-              {!almacenes.length && <option value="">— sin almacenes —</option>}
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <input className="input" value={`LA ESPERANZA › ${almacen}`} readOnly disabled
+              title="El stock recibido entra directo al sub-almacén CASITERITA de LA ESPERANZA." />
+            <small className="muted">Fijo: el mineral entra directo al sub-almacén <strong>{almacen}</strong> (sede LA ESPERANZA).</small>
           </div>
         </div>
 
