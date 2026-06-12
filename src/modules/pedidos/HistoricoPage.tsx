@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { dateTime, money } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
 import { listOrdenes, listProveedoresActivos } from './pedidos.repository';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
@@ -42,22 +43,22 @@ export function HistoricoPage() {
   const [sortDesc, setSortDesc] = useState(true);
   const [demandaOpen, setDemandaOpen] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [os, pvs] = await Promise.all([listOrdenes(), listProveedoresActivos()]);
-        if (cancelled) return;
-        setOrdenes(os);
-        setProveedores(pvs);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Error al cargar histórico');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+  const reload = useCallback(async () => {
+    try {
+      const [os, pvs] = await Promise.all([listOrdenes(), listProveedoresActivos()]);
+      setOrdenes(os);
+      setProveedores(pvs);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al cargar histórico');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { void reload(); }, [reload]);
+  // Realtime: el histórico de compras se actualiza en vivo con cada orden/proveedor.
+  useRealtime(['ordenes', 'proveedores'], reload);
 
   const proveedorMap = useMemo(
     () => new Map(proveedores.map((p) => [p.id, p])),

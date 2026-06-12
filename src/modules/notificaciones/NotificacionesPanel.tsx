@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { relTime } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { listLatest, markAllRead, markRead, pruneOld } from './notif.repository';
 import type { Notificacion } from '@/shared/lib/types';
 
@@ -38,19 +39,24 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
     onClose();
   }
 
+  // Mostramos solo las 10 más recientes y, en segundo plano, borramos las viejas
+  // (DELETE es admin-only: si no sos admin simplemente no borra nada).
+  const cargar = useCallback(() => {
+    if (!open) return;
+    setLoading(true);
+    listLatest(10)
+      .then(setItems)
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
-    let cancelled = false;
-    setLoading(true);
-    // Mostramos solo las 10 más recientes y, en segundo plano, borramos las viejas
-    // (DELETE es admin-only: si no sos admin simplemente no borra nada).
-    listLatest(10)
-      .then((data) => { if (!cancelled) setItems(data); })
-      .catch(() => { if (!cancelled) setItems([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    cargar();
     pruneOld(10).catch(() => { /* sin permiso (no-admin) o sin red: se ignora */ });
-    return () => { cancelled = true; };
-  }, [open]);
+  }, [open, cargar]);
+  // Realtime: la lista se actualiza en vivo si entra una notificación nueva.
+  useRealtime(['notificaciones'], cargar);
 
   async function handleMarkAll() {
     setMarking(true);

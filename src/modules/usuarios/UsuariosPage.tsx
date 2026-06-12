@@ -6,6 +6,7 @@ import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Usuario } from '@/shared/lib/types';
 import {
   crearUsuario,
@@ -96,6 +97,8 @@ export function UsuariosPage() {
     setLoading(true);
     refresh().finally(() => setLoading(false));
   }, [refresh]);
+  // Realtime: usuarios + roles/permisos (altas, cambios de rol o departamento en vivo).
+  useRealtime(['usuarios', 'roles_permisos', 'custom_roles', 'taxonomias'], () => { void refresh(); });
 
   const activos = useMemo(() => usuarios.filter((u) => u.estado === 'activo').length, [usuarios]);
   const inactivos = useMemo(() => usuarios.filter((u) => u.estado === 'inactivo').length, [usuarios]);

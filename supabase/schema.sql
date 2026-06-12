@@ -2127,3 +2127,24 @@ do $$ begin
   alter publication supabase_realtime add table public.acopio_cuentas_cobrar;
   alter publication supabase_realtime add table public.acopio_cobrar_abonos;
 exception when duplicate_object then null; end $$;
+
+-- ============================================================
+-- Realtime en TODOS los módulos: publica las tablas de datos del esquema
+-- public que aún no estén en supabase_realtime (multiusuario en vivo).
+-- ============================================================
+do $$
+declare t text;
+declare faltantes text[] := array[
+  'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
+  'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
+  'ofertas_proveedor','produccion','produccion_materiales','proveedor_datos_pago','proveedores',
+  'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
+];
+begin
+  foreach t in array faltantes loop
+    if exists (select 1 from pg_tables where schemaname='public' and tablename=t)
+       and not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end$$;
