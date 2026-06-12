@@ -8,6 +8,9 @@ import { money, num } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { MovimientosAcopioView, type ResumenAcopio } from './MovimientosAcopioView';
+// Vistas «Por aliado» y «Cuentas por cobrar»: backend listo y datos importados;
+// se ocultan del front por ahora (se mostrarán de otra manera). Los componentes
+// AliadosAcopioView / CuentasCobrarView siguen en el código para reactivarlos.
 import { CategoriasModal } from './CategoriasModal';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import type { Producto, RecepcionAcopio } from '@/shared/lib/types';

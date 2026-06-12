@@ -2037,3 +2037,93 @@ insert into public.almacenes (nombre, sede, estado) values ('LA ESPERANZA','LA E
 insert into public.almacenes (nombre, sede, parent_id, estado)
   select 'CASITERITA','LA ESPERANZA',(select id from public.almacenes where nombre='LA ESPERANZA'),'activo'
   on conflict (nombre) do nothing;
+
+-- ============================================================
+-- Centro de Acopio · Sub-ledgers (Por aliado + Cuentas por cobrar)
+-- Cada hoja del Excel («CENTRO ACOPIO - {ALIADO}» y «CUENTA POR COBRAR»)
+-- es su propio libro con saldos corridos calculados en el front.
+-- Integración: cada CIERRE de aliado genera un TRASLADO en la caja general
+-- (acopio_caja_movimientos) y entra como USD ENTREGADO en el ledger del aliado.
+-- Los Kg de un abono entran a stock de CASITERITA solo si se marca (opt-in).
+-- ============================================================
+create table if not exists public.acopio_aliados (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  centro_nombre text not null default 'LA ESPERANZA',
+  activo boolean not null default true,
+  created_by text,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists ux_acopio_aliados_nombre on public.acopio_aliados(centro_nombre, lower(nombre));
+
+create table if not exists public.acopio_aliado_movimientos (
+  id uuid primary key default gen_random_uuid(),
+  aliado_id uuid not null references public.acopio_aliados(id) on delete cascade,
+  fecha date not null,
+  corte integer,
+  tipo text not null default 'cierre' check (tipo in ('cierre','abono')),
+  descripcion text,
+  usd_entregado numeric not null default 0,   -- E
+  kg_cerrados numeric not null default 0,      -- F (Kg comprometidos en el cierre)
+  precio_usd_kg numeric not null default 0,    -- G  (H facturado = F*G se calcula en el front)
+  kg_recibidos numeric not null default 0,     -- K (Kg entregados como abono)
+  gastos numeric not null default 0,           -- salidas de gasto del aliado (plantilla Entrada/Salida/Gastos)
+  caja_mov_id uuid references public.acopio_caja_movimientos(id) on delete set null, -- traslado reflejado en la caja general
+  reflejo_casiterita boolean not null default false,
+  recepcion_mov_id uuid,                       -- movimiento de inventario (entrada a CASITERITA) si aplicó
+  orden integer not null default 0,
+  created_by text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_acopio_aliadomov_aliado on public.acopio_aliado_movimientos(aliado_id, fecha, orden);
+
+create table if not exists public.acopio_cuentas_cobrar (
+  id uuid primary key default gen_random_uuid(),
+  centro_nombre text not null default 'LA ESPERANZA',
+  cliente text not null,
+  descripcion text,                            -- "Venta de Camión NHR"
+  monto_factura numeric not null default 0,    -- D inicial (deuda)
+  precio_usd_kg numeric not null default 0,    -- F referencia $/Kg
+  estado text not null default 'abierta' check (estado in ('abierta','saldada')),
+  created_by text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+
+create table if not exists public.acopio_cobrar_abonos (
+  id uuid primary key default gen_random_uuid(),
+  cuenta_id uuid not null references public.acopio_cuentas_cobrar(id) on delete cascade,
+  fecha date not null,
+  descripcion text,
+  monto_factura numeric not null default 0,    -- D (normalmente 0; permite cargos extra a la deuda)
+  kg_entregados numeric not null default 0,    -- E
+  precio_usd_kg numeric not null default 0,    -- F  (G total usd = E*F se calcula en el front)
+  reflejo_casiterita boolean not null default false,
+  recepcion_mov_id uuid,
+  orden integer not null default 0,
+  created_by text, actor_name text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_acopio_cobrarabono_cuenta on public.acopio_cobrar_abonos(cuenta_id, fecha, orden);
+
+alter table public.acopio_aliados            enable row level security;
+alter table public.acopio_aliado_movimientos enable row level security;
+alter table public.acopio_cuentas_cobrar     enable row level security;
+alter table public.acopio_cobrar_abonos      enable row level security;
+do $$ begin
+  create policy "acopio_aliados read"  on public.acopio_aliados            for select using (auth.role()='authenticated');
+  create policy "acopio_aliados write" on public.acopio_aliados            for all using (public.is_operativo()) with check (public.is_operativo());
+  create policy "acopio_amov read"     on public.acopio_aliado_movimientos for select using (auth.role()='authenticated');
+  create policy "acopio_amov write"    on public.acopio_aliado_movimientos for all using (public.is_operativo()) with check (public.is_operativo());
+  create policy "acopio_cobrar read"   on public.acopio_cuentas_cobrar     for select using (auth.role()='authenticated');
+  create policy "acopio_cobrar write"  on public.acopio_cuentas_cobrar     for all using (public.is_operativo()) with check (public.is_operativo());
+  create policy "acopio_cabono read"   on public.acopio_cobrar_abonos      for select using (auth.role()='authenticated');
+  create policy "acopio_cabono write"  on public.acopio_cobrar_abonos      for all using (public.is_operativo()) with check (public.is_operativo());
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.acopio_aliados;
+  alter publication supabase_realtime add table public.acopio_aliado_movimientos;
+  alter publication supabase_realtime add table public.acopio_cuentas_cobrar;
+  alter publication supabase_realtime add table public.acopio_cobrar_abonos;
+exception when duplicate_object then null; end $$;

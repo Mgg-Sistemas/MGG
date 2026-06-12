@@ -524,7 +524,7 @@ export async function exportarInventarioPdf(productos: Producto[]): Promise<void
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 30;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   const LOGO_SIZE = 50;
@@ -567,7 +567,7 @@ export async function exportarInventarioPdf(productos: Producto[]): Promise<void
       5: { halign: 'right' }, 6: { halign: 'right' },
       7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' },
     },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
   const stamp = new Date().toISOString().slice(0, 10);

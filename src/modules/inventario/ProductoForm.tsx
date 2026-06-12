@@ -20,6 +20,9 @@ import { listAlmacenes, crearAlmacen } from './almacenes.repository';
 interface ProductoFormProps {
   producto: Producto | null; // null => crear
   productos?: Producto[];
+  /** Si se crea desde DENTRO de un almacén, la ubicación viene fija y NO se puede cambiar
+   *  (evita errores humanos: el producto entra justo en ese almacén/sub-almacén). */
+  fixedAlmacen?: string | null;
   onClose: () => void;
   onSubmit: (data: ProductoInput) => Promise<void>;
 }
@@ -42,7 +45,7 @@ interface FormState {
   receta_fundicion: RecetaFundicion | '';
 }
 
-function initialState(p: Producto | null, cats: string[], unids: string[]): FormState {
+function initialState(p: Producto | null, cats: string[], unids: string[], fixedAlmacen?: string | null): FormState {
   return {
     sku: p?.sku ?? '',
     nombre: p?.nombre ?? '',
@@ -52,7 +55,8 @@ function initialState(p: Producto | null, cats: string[], unids: string[]): Form
     stock_min: String(p?.stock_min ?? 0),
     precio: String(p?.precio ?? 0),
     precio_venta: p?.precio_venta != null ? String(p.precio_venta) : '',
-    almacen: p?.almacen ?? 'General',
+    // Al crear desde dentro de un almacén, la ubicación arranca (y queda) en ese almacén.
+    almacen: p?.almacen ?? fixedAlmacen ?? 'General',
     estado: p?.estado ?? 'activo',
     restock_pct: p?.restock_pct != null ? String(p.restock_pct) : '',
     presentacion: p?.presentacion ?? '',
@@ -62,8 +66,10 @@ function initialState(p: Producto | null, cats: string[], unids: string[]): Form
   };
 }
 
-export function ProductoForm({ producto, productos = [], onClose, onSubmit }: ProductoFormProps) {
+export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, onSubmit }: ProductoFormProps) {
   const isEdit = !!producto;
+  // Ubicación fija: solo al CREAR desde dentro de un almacén concreto.
+  const ubicacionFija = !isEdit && !!(fixedAlmacen && fixedAlmacen.trim());
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
   const [almacenesObj, setAlmacenesObj] = useState<Almacen[]>([]);
@@ -85,7 +91,12 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       .catch(() => { /* defaults ya vienen del fallback en repo */ });
     return () => { cancelled = true; };
   }, [productos]);
-  const [form, setForm] = useState<FormState>(() => initialState(producto, categorias, unidades));
+  const [form, setForm] = useState<FormState>(() => initialState(producto, categorias, unidades, fixedAlmacen));
+  // Sede del almacén fijo (para mostrar "Sede › Almacén" en el campo bloqueado).
+  const sedeFija = useMemo(
+    () => (ubicacionFija ? (almacenesObj.find((a) => a.nombre === fixedAlmacen)?.sede?.trim() || '') : ''),
+    [ubicacionFija, almacenesObj, fixedAlmacen],
+  );
   const [nuevaCat, setNuevaCat] = useState('');
   const [nuevaUnid, setNuevaUnid] = useState('');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
@@ -359,23 +370,40 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
           )}
         </div>
 
-        <div className="form-row">
-          <AlmacenPicker value={form.almacen} onChange={(v) => update('almacen', v)} almacenes={almacenesObj} />
-          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+        {ubicacionFija ? (
+          // Creado desde dentro de un almacén: ubicación fija y NO editable (evita errores humanos).
+          <div className="form-row">
+            <label>📦 Ubicación (fija)</label>
             <input
               className="input"
-              style={{ flex: 1 }}
-              placeholder="Nuevo almacén…"
-              value={nuevoAlmacen}
-              onChange={(e) => setNuevoAlmacen(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddAlmacen(); } }}
-              maxLength={40}
+              value={sedeFija ? `${sedeFija} › ${fixedAlmacen}` : (fixedAlmacen ?? '')}
+              readOnly
+              disabled
+              title="El producto se crea en este almacén. No se puede cambiar para evitar errores."
             />
-            <button type="button" className="btn btn-sm btn-ghost" onClick={handleAddAlmacen}>
-              + Añadir
-            </button>
+            <small className="muted" style={{ fontSize: '.72rem' }}>
+              Se crea directo en <strong>{fixedAlmacen}</strong>. La ubicación no se puede modificar para evitar errores.
+            </small>
           </div>
-        </div>
+        ) : (
+          <div className="form-row">
+            <AlmacenPicker value={form.almacen} onChange={(v) => update('almacen', v)} almacenes={almacenesObj} />
+            <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+              <input
+                className="input"
+                style={{ flex: 1 }}
+                placeholder="Nuevo almacén…"
+                value={nuevoAlmacen}
+                onChange={(e) => setNuevoAlmacen(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddAlmacen(); } }}
+                maxLength={40}
+              />
+              <button type="button" className="btn btn-sm btn-ghost" onClick={handleAddAlmacen}>
+                + Añadir
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="form-grid">
           <div className="form-row">

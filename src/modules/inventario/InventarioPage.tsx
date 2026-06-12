@@ -689,6 +689,8 @@ export function InventarioPage() {
         <ProductoForm
           producto={null}
           productos={productos}
+          /* Dentro de un almacén/sub-almacén: el nuevo producto entra ahí y la ubicación queda fija. */
+          fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={handleCreateOrUpdate}
         />

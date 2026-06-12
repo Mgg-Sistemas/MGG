@@ -1127,6 +1127,72 @@ export interface CajaResumen {
   tasa: number;
 }
 
+/* ───────────── Sub-ledgers del acopio (Por aliado · Cuentas por cobrar) ───────────── */
+
+/** Aliado/proveedor del centro de acopio (cabecera de la hoja «CENTRO ACOPIO - {ALIADO}»). */
+export interface AliadoAcopio {
+  id: string;
+  nombre: string;
+  centro_nombre: string;
+  activo: boolean;
+  created_by?: string | null;
+  created_at: string;
+}
+
+/** Una fila del libro por aliado. tipo 'cierre' = entrega $ + compromete Kg; 'abono' = entrega Kg. */
+export interface AliadoMovimiento {
+  id: string;
+  aliado_id: string;
+  fecha: string;
+  corte?: number | null;
+  tipo: 'cierre' | 'abono';
+  descripcion?: string | null;
+  usd_entregado: number;     // E
+  kg_cerrados: number;       // F
+  precio_usd_kg: number;     // G  (facturado H = F*G, corrido en el front)
+  kg_recibidos: number;      // K
+  gastos: number;            // salidas de gasto del aliado (plantilla Entrada/Salida/Gastos)
+  caja_mov_id?: string | null;        // traslado reflejado en la caja general
+  reflejo_casiterita: boolean;
+  recepcion_mov_id?: string | null;   // entrada a stock de CASITERITA si aplicó
+  orden: number;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
+/** Cuenta por cobrar (cabecera): deuda en $ que se paga con mineral. */
+export interface CuentaCobrarAcopio {
+  id: string;
+  centro_nombre: string;
+  cliente: string;
+  descripcion?: string | null;
+  monto_factura: number;     // D inicial
+  precio_usd_kg: number;     // F referencia
+  estado: 'abierta' | 'saldada';
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+/** Abono de una cuenta por cobrar (en Kg de mineral). */
+export interface CobrarAbono {
+  id: string;
+  cuenta_id: string;
+  fecha: string;
+  descripcion?: string | null;
+  monto_factura: number;     // D (normalmente 0; permite cargos extra)
+  kg_entregados: number;     // E
+  precio_usd_kg: number;     // F  (G total usd = E*F, corrido en el front)
+  reflejo_casiterita: boolean;
+  recepcion_mov_id?: string | null;
+  orden: number;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
 /* ───────────── Cuadre de Caja (Efectivo) · Centro de Acopio ───────────── */
 
 export type TipoMovCuadre = 'entrada' | 'salida';

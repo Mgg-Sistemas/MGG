@@ -38,7 +38,7 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 40;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   const LOGO_SIZE = 60;
@@ -85,7 +85,7 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null) {
     startY: y + 6,
     head: [['Movimiento', '']],
     body: filasMov,
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     styles: { fontSize: 9, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: { 0: { cellWidth: 150, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
@@ -112,7 +112,7 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null) {
       startY: afterY,
       head: [['Orden pagada', '']],
       body: filasOrden,
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
       styles: { fontSize: 9, cellPadding: 4, overflow: 'linebreak' },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 150, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },

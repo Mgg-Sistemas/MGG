@@ -16,7 +16,7 @@ async function construir(prod: Produccion) {
   const logo = await loadLogoDataUrl().catch(() => null);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 36;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 60 : MARGIN;
@@ -45,7 +45,7 @@ async function construir(prod: Produccion) {
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 2 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 130 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = (doc.lastAutoTable?.finalY ?? y) + 14;
@@ -59,7 +59,7 @@ async function construir(prod: Produccion) {
     theme: 'grid',
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 8 },
     styles: { fontSize: 8, cellPadding: 3 },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   // @ts-expect-error lastAutoTable
   y = (doc.lastAutoTable?.finalY ?? y) + 14;
@@ -79,7 +79,7 @@ async function construir(prod: Produccion) {
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 2 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 220 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
   return { doc, filename: `produccion-${prod.producto_nombre}-${prod.id.slice(0, 8)}.pdf` };

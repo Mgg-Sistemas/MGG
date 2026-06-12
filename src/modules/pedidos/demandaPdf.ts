@@ -35,7 +35,7 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 40;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   // ─── Header ────────────────────────────────────────────
@@ -114,7 +114,7 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
     columnStyles: { 0: { cellWidth: 26, halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
   // ─── Footer ────────────────────────────────────────────
