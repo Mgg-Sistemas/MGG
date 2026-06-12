@@ -17,6 +17,8 @@ import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti } from './cajaSaldos.repository';
+// Vínculo Tesorería → Centro de Acopio interno: el traspaso se refleja como entrada (USD ENTREGADOS) en el acopio.
+import { entradaTesoreriaACentroAcopio, centroAcopioShort } from '@/modules/acopio/caja.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
   listTransferenciasInter,
@@ -1269,11 +1271,14 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
 
   useEffect(() => { listCentrosAcopio().then(setCentros).catch(() => setCentros([])); }, []);
   useEffect(() => { listSaldos().then(setTodosSaldos).catch(() => setTodosSaldos([])); }, []);
-  // Traslado al OTRO SISTEMA (centro externo): el motivo por defecto es la ruta
-  // "CAJA ORIGEN / CAJA DESTINO" (ej. "CAJA MULTIMONEDAS MGG / CAJA GT PERAMANAL").
-  // Queda editable por si se quiere detallar más.
+  // Motivo por defecto (editable):
+  //  · Centro EXTERNO (otro sistema): la ruta "CAJA ORIGEN / CAJA DESTINO".
+  //  · Centro INTERNO: "CAJA MULTIMONEDAS MGG / CAJA <CENTRO>" — es el texto que se
+  //    muestra como descripción de la entrada en ese centro de acopio.
   useEffect(() => {
-    if (destino?.externo && origen) setMotivo(`${origen.nombre} / ${destino.nombre}`);
+    if (!destino) return;
+    if (destino.externo) { if (origen) setMotivo(`${origen.nombre} / ${destino.nombre}`); }
+    else setMotivo(`CAJA MULTIMONEDAS MGG / CAJA ${centroAcopioShort(destino.nombre)}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origenId, destinoId]);
   useEffect(() => {
@@ -1314,7 +1319,16 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
         });
         notify(`Traslado a ${destino.nombre} registrado y enviado al otro sistema`, 'success', { link: '#/app/tesoreria' });
       } else {
-        notify('Traslado a centro de acopio registrado', 'success', { link: '#/app/tesoreria' });
+        // Centro de acopio INTERNO: además de la salida en Tesorería, se refleja como
+        // ENTRADA (USD ENTREGADOS) en ese centro de acopio, con el motivo como descripción.
+        let tasaUsd = 0;
+        if (legs.some((l) => l.moneda === 'Bs')) { try { tasaUsd = (await getTasaHoy()).usd ?? 0; } catch { /* sin tasa */ } }
+        const montoUsd = legs.reduce((a, l) => a + (l.moneda === 'Bs' ? (tasaUsd > 0 ? l.monto / tasaUsd : 0) : l.monto), 0);
+        await entradaTesoreriaACentroAcopio({
+          centroNombre: centroAcopioShort(destino?.nombre ?? ''),
+          montoUsd, descripcion: motivo.trim(), actor, actorName,
+        });
+        notify(`Traslado a ${destino?.nombre ?? 'centro de acopio'} registrado · entró ${monto(montoUsd, 'USD')} al acopio`, 'success', { link: '#/app/tesoreria' });
       }
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo trasladar.'); setSaving(false); }

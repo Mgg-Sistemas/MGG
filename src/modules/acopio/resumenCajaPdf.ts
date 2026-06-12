@@ -28,7 +28,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
   doc.text(`Centro de Acopio: ${r.centro}`, tx, y + 32);
   doc.setFontSize(9);
-  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 16, { align: 'right' });
+  doc.text(`${r.centro} · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 16, { align: 'right' });
   y += 54;
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5); doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 14;
 

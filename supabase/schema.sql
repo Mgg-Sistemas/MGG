@@ -1985,8 +1985,13 @@ create table if not exists public.acopio_cajas (
   cerrada_por   text, cerrada_en timestamptz,
   created_by    text,
   created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now()
+  updated_at    timestamptz not null default now(),
+  -- Centro de acopio dueño de la caja (LA ESPERANZA, LOS PIJIGUAOS…). Cada centro ve
+  -- solo lo suyo; el traspaso de Tesorería entra a la caja abierta de su centro.
+  centro_nombre text
 );
+alter table public.acopio_cajas add column if not exists centro_nombre text;
+update public.acopio_cajas set centro_nombre = 'LA ESPERANZA' where centro_nombre is null;
 alter table public.acopio_caja_movimientos add column if not exists caja_id uuid references public.acopio_cajas(id) on delete set null;
 alter table public.acopio_caja_movimientos add column if not exists costo_clasificacion text;
 alter table public.acopio_caja_movimientos add column if not exists costo_subclasificacion text;

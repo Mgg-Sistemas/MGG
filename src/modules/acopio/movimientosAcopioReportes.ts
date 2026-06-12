@@ -52,7 +52,7 @@ async function construirDoc(rows: MovAcopioRow[], meta: MovAcopioMeta = {}) {
   doc.text('Movimientos del Centro de Acopio', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text('Saldo Kg casiterita = saldo anterior + Kg Cerrados − Kg Recibidos por MGG', tx, y + 33);
-  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
+  doc.text(`LA ESPERANZA · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
   doc.text(`${rows.length} movimiento(s)${meta.filtro ? ` · ${meta.filtro}` : ''}`, PAGE_W - MARGIN, y + 33, { align: 'right' });
   y += 54;
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5); doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 8;
@@ -99,7 +99,7 @@ export async function descargarMovAcopioExcel(rows: MovAcopioRow[]): Promise<voi
     r.fecha, r.descripcion, r.usdEntregado ?? '', r.kgCerrados, r.precioUsdKg ?? '', r.usdFacturados,
     r.gastosGt ?? '', r.nominasGt ?? '', r.saldoUsd, r.kgRecibidosMgg ?? '', r.saldoKgCasiterita,
   ]);
-  const aoa: unknown[][] = [['MOVIMIENTOS DEL CENTRO DE ACOPIO · GOLDEN TOUCH 1127 C.A.'], [`${rows.length} movimiento(s) · ${dateTime(new Date().toISOString())}`], [], HEAD, ...filas];
+  const aoa: unknown[][] = [['MOVIMIENTOS DEL CENTRO DE ACOPIO · LA ESPERANZA'], [`${rows.length} movimiento(s) · ${dateTime(new Date().toISOString())}`], [], HEAD, ...filas];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   (ws as Record<string, unknown>)['!cols'] = [
     { wch: 12 }, { wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 },

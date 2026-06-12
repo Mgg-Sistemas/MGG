@@ -21,6 +21,14 @@ export const grupoColor = (g?: string | null) => GRUPOS.find((x) => x.key === g)
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
+/** Centro de acopio por defecto del módulo (hoy solo LA ESPERANZA tiene vista). */
+export const CENTRO_ACOPIO_DEFECTO = 'LA ESPERANZA';
+
+/** "Centro de Acopio LA ESPERANZA" → "LA ESPERANZA" (nombre corto del centro). */
+export function centroAcopioShort(nombreTesoreria: string): string {
+  return (nombreTesoreria || '').replace(/^centro de acopio\s*/i, '').trim() || nombreTesoreria;
+}
+
 /* ───────────── Clasificaciones ───────────── */
 
 export async function listClasificaciones(): Promise<ClasificacionAcopio[]> {
@@ -118,14 +126,22 @@ export function esClasifVehiculo(valor?: string | null): boolean {
  * (K = saldo $ y M = saldo Kg) acumulando fila a fila, como en el Excel.
  * Si se pasa `cajaId`, filtra a ese cierre.
  */
-export async function listCajaMovimientos(cajaId?: string): Promise<CajaMovimiento[]> {
+export async function listCajaMovimientos(cajaId?: string, centroNombre: string | null = CENTRO_ACOPIO_DEFECTO): Promise<CajaMovimiento[]> {
   let q = supabase
     .from('acopio_caja_movimientos')
     .select('*')
     .order('fecha', { ascending: true })
     .order('orden', { ascending: true })
     .order('created_at', { ascending: true });
-  if (cajaId) q = q.eq('caja_id', cajaId);
+  if (cajaId) {
+    q = q.eq('caja_id', cajaId);
+  } else if (centroNombre) {
+    // Acota a las cajas del centro (multi-centro): así cada centro de acopio ve solo lo suyo.
+    const { data: cs } = await supabase.from('acopio_cajas').select('id').eq('centro_nombre', centroNombre);
+    const ids = (cs ?? []).map((c) => (c as { id: string }).id);
+    if (!ids.length) return [];
+    q = q.in('caja_id', ids);
+  }
   const { data, error } = await q;
   if (error) throw error;
   let saldoUsd = 0;
@@ -231,7 +247,7 @@ export async function resumenCajaAcopio(
   const dias = fechaInicio ? Math.max(0, Math.round((Date.parse(fechaActualizacion) - Date.parse(fechaInicio)) / 86400000)) : 0;
 
   return {
-    centro: 'PERAMANAL GT',
+    centro: 'LA ESPERANZA',
     fechaInicio, fechaActualizacion, dias, movimientos: movs.length,
     totalEntregado, totalFacturado, totalGastos, totalNominas, totalTraslado, totalGastado, saldoUsd,
     pctGastos: totalGastado > 0 ? totalGastos / totalGastado : 0,
@@ -364,19 +380,66 @@ export async function actualizarMovimientoCaja(id: string, input: CajaMovimiento
   return data as CajaMovimiento;
 }
 
+/**
+ * ENTRADA de dinero desde Tesorería a un centro de acopio interno (traspaso).
+ * Se registra como un movimiento del acopio que SUMA en la columna USD ENTREGADOS
+ * (grupo «movimientos_caja»), con la descripción/motivo que viene de Tesorería
+ * (p. ej. "CAJA MULTIMONEDAS MGG / CAJA LA ESPERANZA"). Si el centro no tiene una
+ * caja abierta, se crea una. La usa el traspaso de dinero de Tesorería.
+ */
+export async function entradaTesoreriaACentroAcopio(input: {
+  centroNombre: string;        // nombre corto del centro, ej. "LA ESPERANZA"
+  montoUsd: number;            // equivalente en USD del traspaso
+  descripcion: string;         // motivo (editable desde Tesorería)
+  fecha?: string | null;       // YYYY-MM-DD; por defecto hoy
+  actor: string;
+  actorName?: string | null;
+}): Promise<void> {
+  const usd = Math.round((Number(input.montoUsd) || 0) * 100) / 100;
+  if (usd <= 0) return;
+  const centro = input.centroNombre.trim();
+  const fecha = (input.fecha?.trim()) || new Date().toISOString().slice(0, 10);
+
+  // Caja abierta del centro (o se crea una).
+  const { data: abierta } = await supabase
+    .from('acopio_cajas').select('id').eq('centro_nombre', centro).eq('estado', 'abierta')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+  let cajaId = (abierta as { id?: string } | null)?.id ?? null;
+  if (!cajaId) {
+    const caja = await crearCaja({ numero: centro, nombre: `CAJA ${centro}`, fecha_inicio: fecha, centroNombre: centro }, input.actor);
+    cajaId = caja.id;
+  }
+
+  // Orden siguiente dentro de la caja.
+  const { data: maxRow } = await supabase
+    .from('acopio_caja_movimientos').select('orden').eq('caja_id', cajaId)
+    .order('orden', { ascending: false }).limit(1).maybeSingle();
+  const orden = ((maxRow as { orden?: number } | null)?.orden ?? 0) + 1;
+
+  const desc = input.descripcion.trim() || `CAJA MULTIMONEDAS MGG / CAJA ${centro}`;
+  const { error } = await supabase.from('acopio_caja_movimientos').insert({
+    caja_id: cajaId, fecha, descripcion: desc, usd_entregado: usd,
+    clasif_grupo: 'movimientos_caja', clasif_valor: desc, orden,
+    created_by: input.actor, actor_name: input.actorName ?? null,
+  });
+  if (error) throw error;
+}
+
 /* ───────────── Cierres (cajas) + taxonomía de costos + resumen ───────────── */
 
-export async function listCajas(): Promise<CajaCierre[]> {
-  const { data, error } = await supabase
+export async function listCajas(centroNombre: string | null = CENTRO_ACOPIO_DEFECTO): Promise<CajaCierre[]> {
+  let q = supabase
     .from('acopio_cajas')
     .select('*')
     .order('fecha_inicio', { ascending: false })
     .order('created_at', { ascending: false });
+  if (centroNombre) q = q.eq('centro_nombre', centroNombre);
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as CajaCierre[];
 }
 
-export async function crearCaja(input: { numero: string; nombre?: string | null; recepcion?: string | null; fecha_inicio: string }, actor: string): Promise<CajaCierre> {
+export async function crearCaja(input: { numero: string; nombre?: string | null; recepcion?: string | null; fecha_inicio: string; centroNombre?: string }, actor: string): Promise<CajaCierre> {
   const { data, error } = await supabase
     .from('acopio_cajas')
     .insert({
@@ -385,6 +448,7 @@ export async function crearCaja(input: { numero: string; nombre?: string | null;
       recepcion: input.recepcion?.trim() || null,
       fecha_inicio: input.fecha_inicio,
       estado: 'abierta',
+      centro_nombre: input.centroNombre?.trim() || CENTRO_ACOPIO_DEFECTO,
       created_by: actor,
     })
     .select('*')
