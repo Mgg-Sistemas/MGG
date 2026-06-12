@@ -189,6 +189,7 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
   // Totales de la vista (para la fila de totales de la tabla, respeta el filtro).
   const totUsdEntregadoVista = mostradas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);
   const totKgVista = mostradas.reduce((a, f) => a + f.kgCerrados, 0);
+  const totTrasladoVista = mostradas.reduce((a, f) => a + (f.trasladoCaja ?? 0), 0);
   // Saldo final del rango filtrado = el del movimiento cronológicamente más nuevo (no depende del orden mostrado).
   const ascFiltradas = ordenDesc ? mostradas.slice().reverse() : mostradas;
   const saldoVista = ascFiltradas.length ? ascFiltradas[ascFiltradas.length - 1].saldoKgCasiterita : 0;
@@ -244,6 +245,7 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
                 <th>$Usd Facturados</th>
                 <th>Gastos</th>
                 <th>Nóminas</th>
+                <th>Traspaso de Caja</th>
                 <th>Saldo en moneda $ Usd</th>
                 <th title="Saldo corrido = saldo anterior + Kg Cerrados − Kg Recibidos por MGG">Saldo en Kg de casiterita ⓘ</th>
                 <th style={{ width: 60 }}></th>
@@ -251,7 +253,7 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
             </thead>
             <tbody>
               {!mostradas.length && (
-                <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={11} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {mostradas.map((f) => (
                 <tr
@@ -271,6 +273,7 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
                   <td className="mono">{money(f.usdFacturados)}</td>
                   <td className="mono">{f.gastosGt == null ? '—' : money(f.gastosGt)}</td>
                   <td className="mono">{f.nominasGt == null ? '—' : money(f.nominasGt)}</td>
+                  <td className="mono">{f.trasladoCaja == null ? '—' : money(f.trasladoCaja)}</td>
                   <td className="mono"><strong>{money(f.saldoUsd)}</strong></td>
                   {/* Saldo corrido de casiterita → resaltado (permite negativo) */}
                   <td className="mono" style={{ fontWeight: 800, color: f.saldoKgCasiterita < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(f.saldoKgCasiterita)}</td>
@@ -288,7 +291,9 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
                 <td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>Totales</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--success, #45c08a)' }}>{totUsdEntregadoVista ? money(totUsdEntregadoVista) : '—'}</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
-                <td colSpan={4}></td>
+                <td colSpan={3}></td>
+                <td className="mono" style={{ fontWeight: 800 }}>{totTrasladoVista ? money(totTrasladoVista) : '—'}</td>
+                <td></td>
                 <td className="mono" style={{ fontWeight: 800, color: saldoVista < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(saldoVista)}</td>
                 <td></td>
               </tr>
