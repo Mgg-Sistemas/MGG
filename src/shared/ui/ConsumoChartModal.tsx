@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
-import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
+import { RankedBarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { money, num } from '@/shared/lib/format';
 
 /** Una fila de consumo: un producto/combustible consumido en el período. */
@@ -157,8 +157,8 @@ export function ConsumoChartModal({ title, subtitle, cargar, grupos, onClose }: 
           <span>Consumo por producto {metrica === 'valor' ? '(en $)' : '(en cantidad)'}</span>
           <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${rows.length} producto(s)`}</span>
         </div>
-        <BarChart data={data} color="#10b981"
-          yFormatter={(v) => (metrica === 'valor' ? money(v) : num(v))}
+        <RankedBarChart data={data}
+          valueFormatter={(v) => (metrica === 'valor' ? money(v) : num(v))}
           emptyMessage={loading ? 'Cargando…' : 'Sin consumo en el período seleccionado.'} />
       </div>
 
