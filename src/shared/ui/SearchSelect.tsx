@@ -18,6 +18,7 @@ export function SearchSelect({
   emptyText = 'Sin resultados',
   style,
   id,
+  disabled = false,
 }: {
   options: SearchOption[];
   value: string;
@@ -26,6 +27,7 @@ export function SearchSelect({
   emptyText?: string;
   style?: CSSProperties;
   id?: string;
+  disabled?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -83,13 +85,14 @@ export function SearchSelect({
         id={id}
         className="input"
         autoComplete="off"
+        disabled={disabled}
         value={open ? query : (selected?.label ?? '')}
         placeholder={selected ? selected.label : placeholder}
-        onFocus={() => { setOpen(true); setQuery(''); setHi(0); }}
+        onFocus={() => { if (disabled) return; setOpen(true); setQuery(''); setHi(0); }}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setHi(0); }}
         onKeyDown={onKeyDown}
       />
-      {open && (
+      {open && !disabled && (
         <div
           role="listbox"
           style={{
