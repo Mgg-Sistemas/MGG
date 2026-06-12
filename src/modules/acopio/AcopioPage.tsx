@@ -51,6 +51,9 @@ export function AcopioPage() {
   const [movAcopio, setMovAcopio] = useState(false);
   const [categorias, setCategorias] = useState(false);
   const [resumenCaja, setResumenCaja] = useState(false);
+  // Switch «Listar movimientos»: oculto por defecto. Apagado = solo tarjetas + Resumen/Categorías;
+  // encendido = se muestra la lista de movimientos y el botón de agregar movimiento.
+  const [listarMovs, setListarMovs] = useState(false);
   // Resumen único que alimenta TODAS las tarjetas (misma fuente que la tabla de movimientos).
   const [resumen, setResumen] = useState<ResumenAcopio>({ saldoKg: 0, tasa: 0, usdEntregado: 0, saldoUsd: 0, gastos: 0, nominas: 0, facturado: 0 });
   const onResumenAcopio = useCallback((r: ResumenAcopio) => { setResumen(r); }, []);
@@ -96,11 +99,23 @@ export function AcopioPage() {
           <h1>🏭 Centro de Acopio LA ESPERANZA</h1>
           <p className="muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
         </div>
-        <div className="actions">
-          <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
-          <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
-          {canWrite && <button className="btn btn-primary" onClick={() => setMovAcopio(true)}>+ Agregar Movimiento</button>}
-        </div>
+      </div>
+
+      {/* Botones + switch «Listar movimientos», debajo del título. Apagado = solo tarjetas;
+          encendido = aparece la lista de movimientos y el botón para agregar uno nuevo. */}
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem', marginBottom: '1.25rem' }}>
+        <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
+        <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
+        <label className="switch-row" style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+          <span className="switch">
+            <input type="checkbox" checked={listarMovs} onChange={(e) => setListarMovs(e.target.checked)} />
+            <span className="slider-toggle" />
+          </span>
+          <strong style={{ letterSpacing: '.02em' }}>📋 Listar movimientos</strong>
+        </label>
+        {listarMovs && canWrite && (
+          <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setMovAcopio(true)}>+ Agregar Movimiento</button>
+        )}
       </div>
 
       {/* Tarjeta protagonista: TASA ACTUAL DEL MATERIAL (varía con los gastos) */}
@@ -123,14 +138,16 @@ export function AcopioPage() {
           <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--success)' }} className="mono">{money(resumen.usdEntregado)}</div>
           <div className="muted" style={{ fontSize: '.72rem' }}>suma de lo que entra (incluye el dinero recibido del otro sistema)</div>
         </div>
+        <div className="card"><div className="card-title"><span>$Usd Facturados</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-3)' }} className="mono">{money(resumen.facturado)}</div><div className="muted" style={{ fontSize: '.72rem' }}>sumatoria de toda la columna $Usd Facturados</div></div>
         <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo en moneda $ Usd (corrido)</div></div>
         <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
-        <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div></div>
-        <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.nominas)}</div></div>
+        <div className="card"><div className="card-title"><span>Gastos</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div></div>
+        <div className="card"><div className="card-title"><span>Nóminas</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.nominas)}</div></div>
       </div>
 
-      {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí) */}
-      <MovimientosAcopioView onResumen={onResumenAcopio} />
+      {/* La vista se mantiene montada (oculta cuando el switch está apagado) para que sus
+          cálculos sigan alimentando las tarjetas de arriba vía onResumen. */}
+      <MovimientosAcopioView onResumen={onResumenAcopio} visible={listarMovs} />
 
       {categorias && <CategoriasModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
 
@@ -207,7 +224,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
     const gas = r2(gastos), nom = r2(nominas), tras = r2(traslado);
     const kg = Number(kgRecibidos) || 0;
     if (gas <= 0 && nom <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
-    if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto (Gastos GT).'); return; }
+    if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto.'); return; }
     if (nom > 0 && !nominaCat) { setError('Elegí la categoría de la nómina.'); return; }
     setSaving(true);
     try {
@@ -259,7 +276,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
 
       {/* Gastos GT: monto + categoría + descripción */}
       <div className="form-grid">
-        {campoUsd('$ Gastos GT', gastos, setGastos)}
+        {campoUsd('$ Gastos', gastos, setGastos)}
         <div className="form-row">
           <label>Categoría del gasto</label>
           <select className="select" value={gastoCat} onChange={(e) => setGastoCat(e.target.value)}>
@@ -434,8 +451,8 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
               <div title={`Nómina ${pct(r.pctNomina)}`} style={{ width: `${r.pctNomina * 100}%`, background: '#a855f7' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '.4rem', fontSize: '.82rem' }}>
-              <span><span style={{ color: '#ef4444' }}>■</span> Gastos GT <strong>{pct(r.pctGastos)}</strong> · {money(r.totalGastos)}</span>
-              <span><span style={{ color: '#a855f7' }}>■</span> Nómina GT <strong>{pct(r.pctNomina)}</strong> · {money(r.totalNominas)}</span>
+              <span><span style={{ color: '#ef4444' }}>■</span> Gastos <strong>{pct(r.pctGastos)}</strong> · {money(r.totalGastos)}</span>
+              <span><span style={{ color: '#a855f7' }}>■</span> Nómina <strong>{pct(r.pctNomina)}</strong> · {money(r.totalNominas)}</span>
             </div>
           </div>
 
@@ -701,7 +718,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onCl
             <thead>
               <tr>
                 <th colSpan={7} style={{ textAlign: 'center', fontSize: '.72rem', background: 'var(--surface-3)' }}>DATOS DEL LOTE EN EL CENTRO DE ACOPIO</th>
-                <th colSpan={4} style={{ textAlign: 'center', fontSize: '.72rem', background: 'var(--primary)', color: '#1c1f24' }}>RECEPCIÓN GOLDEN TOUCH 1127 C.A. · PUERTO ORDAZ</th>
+                <th colSpan={4} style={{ textAlign: 'center', fontSize: '.72rem', background: 'var(--primary)', color: '#1c1f24' }}>RECEPCIÓN LA ESPERANZA · PUERTO ORDAZ</th>
               </tr>
               <tr>
                 <th style={thStyle}>{'N° de Lote\nAsignado'}</th>
@@ -767,7 +784,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onCl
             <div className="form-row"><label>N° C.I.</label><input className="input" value={entCi} onChange={(e) => setEntCi(e.target.value)} disabled={ro} /></div>
           </div>
           <div className="card" style={{ background: 'var(--surface-2)' }}>
-            <div className="card-title" style={{ justifyContent: 'center' }}><span>Conforme Recibido por GOLDEN TOUCH 1127 C.A.</span></div>
+            <div className="card-title" style={{ justifyContent: 'center' }}><span>Conforme Recibido por LA ESPERANZA</span></div>
             <div className="form-row"><label>Nombres y Apellidos</label><input className="input" value={recNombre} onChange={(e) => setRecNombre(e.target.value)} disabled={ro} /></div>
             <div className="form-row"><label>N° C.I.</label><input className="input" value={recCi} onChange={(e) => setRecCi(e.target.value)} disabled={ro} /></div>
           </div>

@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
-import type { ContratoAcopio, CajaMovimiento } from '@/shared/lib/types';
+import type { ContratoAcopio, CajaMovimiento, GrupoClasificacion } from '@/shared/lib/types';
 // Desacoplado: el módulo de producción/contratos aún no existe en este sistema.
 // Stub local que devuelve []. Reemplazar al construir contratos. (Centro de Acopio standalone)
 import { listContratos } from './contratos.stub';
-import { listCajaMovimientos } from './caja.repository';
+import { listCajaMovimientos, actualizarMovimientoCaja, GRUPOS } from './caja.repository';
 import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorreo } from './movimientosAcopioReportes';
 
 /**
@@ -49,11 +51,14 @@ export interface ResumenAcopio {
   facturado: number;
 }
 
-export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAcopio) => void } = {}) {
+export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen?: (r: ResumenAcopio) => void; visible?: boolean } = {}) {
   const { user } = useSession();
+  const { can } = usePermissions();
+  const canWrite = can('acopio', 'escritura');
   const navigate = useNavigate();
   const [contratos, setContratos] = useState<ContratoAcopio[]>([]);
   const [cajaMovs, setCajaMovs] = useState<CajaMovimiento[]>([]);
+  const [movEdit, setMovEdit] = useState<CajaMovimiento | null>(null);
   const [loading, setLoading] = useState(true);
   // Filtros (estilo Tesorería).
   const [fTexto, setFTexto] = useState('');
@@ -188,6 +193,10 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
   const ascFiltradas = ordenDesc ? mostradas.slice().reverse() : mostradas;
   const saldoVista = ascFiltradas.length ? ascFiltradas[ascFiltradas.length - 1].saldoKgCasiterita : 0;
 
+  // Oculto (switch «Listar movimientos» apagado): los hooks de arriba siguen
+  // corriendo y alimentando las tarjetas vía onResumen; solo no se pinta la tabla.
+  if (!visible) return null;
+
   return (
     <div className="card" style={{ marginBottom: '1.25rem' }}>
       <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
@@ -233,15 +242,16 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                 <th>$Usd entregado</th>
                 <th>Kg Cerrados</th>
                 <th>$Usd Facturados</th>
-                <th>Gastos GT</th>
-                <th>Nóminas GT</th>
+                <th>Gastos</th>
+                <th>Nóminas</th>
                 <th>Saldo en moneda $ Usd</th>
                 <th title="Saldo corrido = saldo anterior + Kg Cerrados − Kg Recibidos por MGG">Saldo en Kg de casiterita ⓘ</th>
+                <th style={{ width: 60 }}></th>
               </tr>
             </thead>
             <tbody>
               {!mostradas.length && (
-                <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {mostradas.map((f) => (
                 <tr
@@ -264,6 +274,12 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                   <td className="mono"><strong>{money(f.saldoUsd)}</strong></td>
                   {/* Saldo corrido de casiterita → resaltado (permite negativo) */}
                   <td className="mono" style={{ fontWeight: 800, color: f.saldoKgCasiterita < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(f.saldoKgCasiterita)}</td>
+                  <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                    {!f.contratoId && canWrite && (() => {
+                      const orig = cajaMovs.find((m) => m.id === f.id);
+                      return orig ? <button className="btn btn-sm btn-ghost" title="Editar movimiento" onClick={(e) => { e.stopPropagation(); setMovEdit(orig); }}>✎</button> : null;
+                    })()}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -274,6 +290,7 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
                 <td colSpan={4}></td>
                 <td className="mono" style={{ fontWeight: 800, color: saldoVista < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(saldoVista)}</td>
+                <td></td>
               </tr>
             </tfoot>
           </table>
@@ -295,6 +312,85 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
           onClose={() => setCorreoOpen(false)}
         />
       )}
+
+      {movEdit && (
+        <EditarMovimientoCajaModal mov={movEdit} onClose={() => setMovEdit(null)} onSaved={() => { setMovEdit(null); void recargar(); }} />
+      )}
     </div>
+  );
+}
+
+/* ───────────── Editar un movimiento de la caja del acopio ───────────── */
+function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimiento; onClose: () => void; onSaved: () => void }) {
+  const [fecha, setFecha] = useState((mov.fecha ?? '').slice(0, 10));
+  const [descripcion, setDescripcion] = useState(mov.descripcion ?? '');
+  const [usdEntregado, setUsdEntregado] = useState(String(mov.usd_entregado ?? 0));
+  const [kgCerrados, setKgCerrados] = useState(String(mov.kg_cerrados ?? 0));
+  const [facturados, setFacturados] = useState(String(mov.facturados ?? 0));
+  const [gastos, setGastos] = useState(String(mov.gastos ?? 0));
+  const [nominas, setNominas] = useState(String(mov.nominas ?? 0));
+  const [traslado, setTraslado] = useState(String(mov.traslado ?? 0));
+  const [kgRecibidos, setKgRecibidos] = useState(String(mov.kg_recibidos ?? 0));
+  const [grupo, setGrupo] = useState<GrupoClasificacion | ''>((mov.clasif_grupo as GrupoClasificacion) ?? '');
+  const [clasifValor, setClasifValor] = useState(mov.clasif_valor ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const nzr = (s: string) => Math.round((Number(s) || 0) * 100) / 100;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (!fecha) { setError('Indicá la fecha.'); return; }
+    setSaving(true);
+    try {
+      await actualizarMovimientoCaja(mov.id, {
+        fecha,
+        descripcion: descripcion.trim() || null,
+        usd_entregado: nzr(usdEntregado), kg_cerrados: nzr(kgCerrados), facturados: nzr(facturados),
+        gastos: nzr(gastos), nominas: nzr(nominas), traslado: nzr(traslado), kg_recibidos: nzr(kgRecibidos),
+        clasif_grupo: grupo || null, clasif_valor: clasifValor.trim() || null,
+      });
+      toast('Movimiento actualizado', 'success');
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar.'); setSaving(false); }
+  }
+
+  const campo = (label: string, val: string, set: (v: string) => void) => (
+    <div className="form-row"><label>{label}</label>
+      <input className="input mono" type="number" step="0.01" value={val} onChange={(e) => set(e.target.value)} /></div>
+  );
+
+  return (
+    <Modal title="Editar movimiento" size="md" onClose={onClose} footer={
+      <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="acopio-mov-edit" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button></>
+    }>
+      <form id="acopio-mov-edit" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        <div className="form-grid">
+          <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required /></div>
+          <div className="form-row"><label>Clasificación (grupo)</label>
+            <select className="select" value={grupo} onChange={(e) => setGrupo(e.target.value as GrupoClasificacion | '')}>
+              <option value="">— sin grupo —</option>
+              {GRUPOS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-row"><label>Descripción</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} /></div>
+        <div className="form-row"><label>Categoría (valor)</label><input className="input" value={clasifValor} onChange={(e) => setClasifValor(e.target.value)} placeholder="Categoría / clasificación" /></div>
+        <div className="form-grid">
+          {campo('$Usd entregado', usdEntregado, setUsdEntregado)}
+          {campo('Kg Cerrados', kgCerrados, setKgCerrados)}
+        </div>
+        <div className="form-grid">
+          {campo('$Usd Facturados', facturados, setFacturados)}
+          {campo('Kg Recibidos por MGG', kgRecibidos, setKgRecibidos)}
+        </div>
+        <div className="form-grid">
+          {campo('Gastos', gastos, setGastos)}
+          {campo('Nóminas', nominas, setNominas)}
+        </div>
+        {campo('Traslado de caja', traslado, setTraslado)}
+      </form>
+    </Modal>
   );
 }

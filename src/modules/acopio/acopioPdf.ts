@@ -29,7 +29,7 @@ async function construir(r: RecepcionAcopio) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text('Control de Recepción de Mineral por Centro de Acopio', tx, y + 16);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-  doc.text(`${r.numero} · GOLDEN TOUCH 1127 C.A. · Estado: ${ESTADO_LABEL[r.estado] ?? r.estado}`, tx, y + 32);
+  doc.text(`${r.numero} · LA ESPERANZA · Estado: ${ESTADO_LABEL[r.estado] ?? r.estado}`, tx, y + 32);
   doc.text(`Generado ${fmt.dateTime(new Date().toISOString())}`, tx, y + 45);
   y += 60;
 
@@ -103,7 +103,7 @@ async function construir(r: RecepcionAcopio) {
     doc.text('Firma: ____________________', x, y + 50);
   };
   firma(MARGIN, 'Conforme Entregado', r.entregado_nombre, r.entregado_ci);
-  firma(MARGIN + colW + 24, 'Conforme Recibido por GOLDEN TOUCH 1127 C.A.', r.recibido_nombre, r.recibido_ci);
+  firma(MARGIN + colW + 24, 'Conforme Recibido por LA ESPERANZA', r.recibido_nombre, r.recibido_ci);
 
   if (r.observaciones) {
     doc.setFontSize(8.5); doc.setTextColor(90);
