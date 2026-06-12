@@ -77,6 +77,8 @@ export async function crearCombustible(input: {
   nombre: string;
   /** Almacén del inventario donde se registra el combustible (traza Inventario → Combustible). */
   almacen: string;
+  /** Sede dueña del combustible (LOS PINOS, MATANZAS…). */
+  sede?: string | null;
   litrosIniciales?: number;
   costoLitro?: number;
   actorEmail?: string;
@@ -106,11 +108,11 @@ export async function crearCombustible(input: {
   // 2) Se crea el combustible vinculado a ese producto.
   const { data, error } = await supabase
     .from('combustibles')
-    .insert({ nombre, litros: 0, costo_litro: costo, producto_id: prod.id, created_by: input.actorEmail ?? null })
+    .insert({ nombre, sede: input.sede?.trim() || null, litros: 0, costo_litro: costo, producto_id: prod.id, created_by: input.actorEmail ?? null })
     .select('*')
     .single();
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ya existe un combustible con ese nombre.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ya existe un combustible con ese nombre en esta sede.');
     throw error;
   }
 
@@ -443,6 +445,7 @@ export async function crearTanque(input: {
   capacidadLitros: number;
   litrosIniciales?: number;
   ubicacion?: string | null;
+  sede?: string | null;
   tasa?: number | null;
   cubicacion?: string | null;
   forma?: 'cilindro' | 'rectangular' | null;
@@ -467,6 +470,7 @@ export async function crearTanque(input: {
       capacidad_litros: capacidad,
       litros,
       ubicacion: input.ubicacion?.trim() || null,
+      sede: input.sede?.trim() || null,
       tasa: input.tasa ?? null,
       cubicacion: input.cubicacion?.trim() || null,
       forma: input.forma ?? 'cilindro',
@@ -488,6 +492,7 @@ export async function actualizarTanque(id: string, input: {
   capacidadLitros?: number;
   litros?: number;
   ubicacion?: string | null;
+  sede?: string | null;
   tasa?: number | null;
   cubicacion?: string | null;
   forma?: 'cilindro' | 'rectangular' | null;
@@ -506,6 +511,7 @@ export async function actualizarTanque(id: string, input: {
   if (input.capacidadLitros !== undefined) patch.capacidad_litros = Number(input.capacidadLitros) || 0;
   if (input.litros !== undefined) patch.litros = Math.max(0, Number(input.litros) || 0);
   if (input.ubicacion !== undefined) patch.ubicacion = input.ubicacion?.trim() || null;
+  if (input.sede !== undefined) patch.sede = input.sede?.trim() || null;
   if (input.tasa !== undefined) patch.tasa = input.tasa;
   if (input.cubicacion !== undefined) patch.cubicacion = input.cubicacion?.trim() || null;
   if (input.forma !== undefined) patch.forma = input.forma ?? 'cilindro';
@@ -746,6 +752,119 @@ export async function crearTanqueMovimiento(input: {
     actor: input.actor, actor_name: input.actorName ?? null,
   });
   if (mErr) throw mErr;
+}
+
+/**
+ * Aplica un ajuste de litros (positivo o negativo) al tanque, al combustible y al
+ * inventario. Lo usan la edición y la eliminación de un movimiento de tanque para
+ * mantener todo cuadrado (las tarjetas reflejan el cambio).
+ */
+async function ajustarBalancesTanqueMov(
+  tanqueId: string | null,
+  combustibleId: string | null,
+  delta: number,
+  motivo: string,
+  actor: string,
+  actorName?: string | null,
+): Promise<void> {
+  if (Math.abs(delta) < 0.00001) return;
+  if (tanqueId) {
+    const { data: tq } = await supabase.from('combustible_tanques').select('litros, capacidad_litros').eq('id', tanqueId).maybeSingle();
+    if (tq) {
+      const cap = Number((tq as { capacidad_litros?: number }).capacidad_litros) || 0;
+      const actual = Number((tq as { litros?: number }).litros) || 0;
+      const nuevo = Math.min(cap || Infinity, Math.max(0, actual + delta));
+      await supabase.from('combustible_tanques').update({ litros: nuevo, updated_at: new Date().toISOString() }).eq('id', tanqueId);
+    }
+  }
+  if (combustibleId) {
+    const { data: comb } = await supabase.from('combustibles').select('litros, producto_id').eq('id', combustibleId).maybeSingle();
+    if (comb) {
+      const actual = Number((comb as { litros?: number }).litros) || 0;
+      const nuevo = Math.max(0, actual + delta);
+      await supabase.from('combustibles').update({ litros: nuevo, updated_at: new Date().toISOString() }).eq('id', combustibleId);
+      const pid = (comb as { producto_id?: string | null }).producto_id ?? null;
+      if (pid) {
+        const almacen = await almacenCasaCombustible(combustibleId);
+        await registrarMovimiento({
+          producto_id: pid, tipo: 'ajuste', delta, almacen,
+          actor, actor_name: actorName ?? null,
+          ref_tipo: 'tanque_movimiento_ajuste', ref_id: tanqueId,
+          detalle: motivo,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Elimina un movimiento de tanque y REVIERTE su efecto: si sumaba litros, ahora
+ * los resta del tanque/combustible/inventario, y viceversa. Las tarjetas quedan
+ * cuadradas.
+ */
+export async function eliminarTanqueMovimiento(id: string, actor: string, actorName?: string | null): Promise<void> {
+  const { data: mov, error } = await supabase.from('combustible_tanque_movimientos').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!mov) throw new Error('Movimiento no encontrado.');
+  const m = mov as Record<string, unknown>;
+  const litros = Math.abs(Number(m.litros) || 0);
+  const tipo = m.tipo as TipoMovimientoTanque;
+  const suma = TIPO_TANQUE_SUMA[tipo];
+  // Reverso: el efecto original era +litros (suma) o -litros (resta); aplicamos el inverso.
+  const delta = suma ? -litros : litros;
+  await ajustarBalancesTanqueMov(
+    (m.tanque_id as string) ?? null,
+    (m.combustible_id as string) ?? null,
+    delta,
+    `Reverso por eliminación de movimiento de tanque (${TIPO_TANQUE_LABEL[tipo]})`,
+    actor, actorName,
+  );
+  const { error: dErr } = await supabase.from('combustible_tanque_movimientos').delete().eq('id', id);
+  if (dErr) throw dErr;
+}
+
+/**
+ * Edita un movimiento de tanque. Si cambian litros o tipo, recalcula la diferencia
+ * y la aplica al tanque/combustible/inventario para que todo siga cuadrado.
+ */
+export async function actualizarTanqueMovimiento(
+  id: string,
+  patch: {
+    litros?: number; tipo?: TipoMovimientoTanque; equipo?: string | null;
+    autorizadoPor?: string | null; destino?: string | null; observacion?: string | null; fecha?: string | null;
+  },
+  actor: string,
+  actorName?: string | null,
+): Promise<void> {
+  const { data: mov, error } = await supabase.from('combustible_tanque_movimientos').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!mov) throw new Error('Movimiento no encontrado.');
+  const m = mov as Record<string, unknown>;
+  const oldLitros = Math.abs(Number(m.litros) || 0);
+  const oldTipo = m.tipo as TipoMovimientoTanque;
+  const newLitros = patch.litros != null ? Math.abs(Number(patch.litros) || 0) : oldLitros;
+  const newTipo = patch.tipo ?? oldTipo;
+  if (newLitros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+
+  const oldEff = TIPO_TANQUE_SUMA[oldTipo] ? oldLitros : -oldLitros;
+  const newEff = TIPO_TANQUE_SUMA[newTipo] ? newLitros : -newLitros;
+  const diff = newEff - oldEff;
+  await ajustarBalancesTanqueMov(
+    (m.tanque_id as string) ?? null,
+    (m.combustible_id as string) ?? null,
+    diff,
+    `Ajuste por edición de movimiento de tanque (${TIPO_TANQUE_LABEL[oldTipo]} → ${TIPO_TANQUE_LABEL[newTipo]})`,
+    actor, actorName,
+  );
+
+  const upd: Record<string, unknown> = { litros: newLitros, tipo: newTipo };
+  if (patch.equipo !== undefined) upd.equipo = patch.equipo?.trim() || null;
+  if (patch.autorizadoPor !== undefined) upd.autorizado_por = patch.autorizadoPor?.trim() || null;
+  if (patch.destino !== undefined) upd.destino = patch.destino?.trim() || null;
+  if (patch.observacion !== undefined) upd.observacion = patch.observacion?.trim() || null;
+  if (patch.fecha !== undefined && patch.fecha) upd.fecha = patch.fecha;
+  const { error: uErr } = await supabase.from('combustible_tanque_movimientos').update(upd).eq('id', id);
+  if (uErr) throw uErr;
 }
 
 /** Edita el combustible registrado desde su tarjeta: nombre y/o costo por litro. */

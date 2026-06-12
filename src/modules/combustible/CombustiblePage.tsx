@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
@@ -38,6 +38,8 @@ import {
   actualizarCatalogo,
   setEstadoCatalogo,
   crearTanqueMovimiento,
+  actualizarTanqueMovimiento,
+  eliminarTanqueMovimiento,
   listTanqueMovimientos,
   ultimoHorometroEquipo,
   ultimoContadorTanque,
@@ -64,6 +66,15 @@ const COLS: { key: SolicitudCombustible['estado']; label: string }[] = [
 const ESTADO_LABEL: Record<string, string> = {
   por_aprobar: '⏳ Por aprobar', aprobada: '✅ Aprobada', finalizada: '🏁 Finalizada', cancelada: '✖ Cancelada',
 };
+
+// Sedes del combustible. Por ahora solo LOS PINOS y MGG (Matanzas).
+// `key` = valor guardado en BD (combustibles.sede / tanques.sede).
+const SEDES_COMBUSTIBLE: { key: string; tarjeta: string; titulo: string }[] = [
+  { key: 'LOS PINOS', tarjeta: 'LOS PINOS', titulo: 'COMBUSTIBLE LOS PINOS' },
+  { key: 'MATANZAS', tarjeta: 'MGG', titulo: 'COMBUSTIBLE MGG - MATANZAS' },
+];
+const SEDE_POR_DEFECTO = 'MATANZAS'; // los datos legados (sin sede) cuentan acá.
+function sedeDe(x: { sede?: string | null }): string { return (x.sede || '').trim() || SEDE_POR_DEFECTO; }
 // Tipos de movimiento de tanque (suman / restan).
 const TIPOS_MOVIMIENTO: { value: TipoMovimientoTanque; label: string; signo: '+' | '−' }[] = [
   { value: 'ingreso', label: 'Ingreso (carga al tanque)', signo: '+' },
@@ -155,6 +166,8 @@ export function CombustiblePage() {
   const [combEdit, setCombEdit] = useState<Combustible | null>(null);
   // Histórico de movimientos: null = todos los tanques; id = filtra por ese tanque.
   const [movTanqueId, setMovTanqueId] = useState<string | null>(null);
+  // Sede seleccionada: null = pantalla con las dos tarjetas; valor = vista de esa sede.
+  const [sedeActiva, setSedeActiva] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const [cs, ss, ts, vs, trs] = await Promise.all([
@@ -182,50 +195,96 @@ export function CombustiblePage() {
   // Realtime multiusuario: combustibles, solicitudes y tanques se reflejan al instante.
   useRealtime(['combustibles', 'combustible_solicitudes', 'combustible_tanques', 'combustible_vehiculos', 'transferencias_combustible_inter', 'combustible_tanque_movimientos', 'combustible_autorizados', 'combustible_ubicaciones'], () => { void reload(); });
 
-  const activos = useMemo(() => combustibles.filter((c) => c.estado === 'activo'), [combustibles]);
-  const valorTotal = useMemo(() => combustibles.reduce((a, c) => a + (Number(c.litros) || 0) * (Number(c.costo_litro) || 0), 0), [combustibles]);
-  const litrosTotal = useMemo(() => combustibles.reduce((a, c) => a + (Number(c.litros) || 0), 0), [combustibles]);
+  // Vista por sede: solo el combustible/tanques/solicitudes de la sede activa.
+  const combSede = useMemo(() => (sedeActiva ? combustibles.filter((c) => sedeDe(c) === sedeActiva) : combustibles), [combustibles, sedeActiva]);
+  const tanquesSede = useMemo(() => (sedeActiva ? tanques.filter((t) => sedeDe(t) === sedeActiva) : tanques), [tanques, sedeActiva]);
+  const activos = useMemo(() => combSede.filter((c) => c.estado === 'activo'), [combSede]);
+  const valorTotal = useMemo(() => combSede.reduce((a, c) => a + (Number(c.litros) || 0) * (Number(c.costo_litro) || 0), 0), [combSede]);
+  const litrosTotal = useMemo(() => combSede.reduce((a, c) => a + (Number(c.litros) || 0), 0), [combSede]);
   const hoyStr = new Date().toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+  // Totales por sede para las dos tarjetas grandes de la pantalla inicial.
+  const totalesPorSede = useMemo(() => SEDES_COMBUSTIBLE.map((s) => {
+    const list = combustibles.filter((c) => sedeDe(c) === s.key);
+    const litros = list.reduce((a, c) => a + (Number(c.litros) || 0), 0);
+    const valor = list.reduce((a, c) => a + (Number(c.litros) || 0) * (Number(c.costo_litro) || 0), 0);
+    return { ...s, litros, valor, nTanques: tanques.filter((t) => sedeDe(t) === s.key).length };
+  }), [combustibles, tanques]);
+
+  const solicitudesSede = useMemo(() => {
+    if (!sedeActiva) return solicitudes;
+    const ids = new Set(combSede.map((c) => c.id));
+    return solicitudes.filter((s) => !s.combustible_id || ids.has(s.combustible_id));
+  }, [solicitudes, combSede, sedeActiva]);
 
   const porEstado = useMemo(() => {
     const m: Record<string, SolicitudCombustible[]> = { por_aprobar: [], aprobada: [], finalizada: [], cancelada: [] };
-    solicitudes.forEach((s) => { (m[s.estado] ??= []).push(s); });
+    solicitudesSede.forEach((s) => { (m[s.estado] ??= []).push(s); });
     return m;
-  }, [solicitudes]);
+  }, [solicitudesSede]);
 
   return (
     <div>
       <div className="page-head">
         <div>
-          <h1>⛽ Combustible</h1>
-          <p className="muted">Inventario de combustible y solicitudes de salida. Flujo: Por aprobar → Aprobada → Finalizada (descuenta litros).</p>
+          <h1>⛽ {sedeActiva ? SEDES_COMBUSTIBLE.find((s) => s.key === sedeActiva)?.titulo ?? 'Combustible' : 'Combustible'}</h1>
+          <p className="muted">
+            {sedeActiva
+              ? <>← <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => { setSedeActiva(null); setModal('none'); }}>Volver a las sedes</span> · Por aprobar → Aprobada → Finalizada (descuenta litros).</>
+              : 'Elegí una sede para ver y gestionar su combustible, tanques y solicitudes.'}
+          </p>
         </div>
-        <div className="actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" onClick={() => setModal('consumo')} title="Gráfica de consumo de combustible por tipo">📊 Consumo</button>
-          <button className="btn btn-ghost" onClick={() => { setMovTanqueId(null); setModal('movimientos'); }} title="Histórico de movimientos de tanque (por mes)">🗒 Movimientos</button>
-          {canWrite && (
-            <>
-              {/* Sin combustibles, este es el ÚNICO botón que crea el primero: lo resaltamos. */}
-              <button className={activos.length ? 'btn btn-ghost' : 'btn btn-primary'} onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
-              <button className="btn btn-ghost" onClick={() => setModal('tanque')}>🛢 Agregar Tanque</button>
-              <button className="btn btn-ghost" onClick={() => setModal('catalogo')}>📒 Catálogo</button>
-              <button className="btn btn-ghost" onClick={() => setModal('planta')}>⚡ Planta Eléctrica</button>
-              <button className="btn btn-ghost" onClick={() => setModal('movimiento')} disabled={!tanques.length} title={!tanques.length ? 'Creá primero un tanque con "🛢 Agregar Tanque"' : undefined}>⬇ Registrar Movimiento</button>
-              <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>+ Nueva solicitud de salida</button>
-            </>
-          )}
-        </div>
+        {sedeActiva && (
+          <div className="actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={() => setModal('consumo')} title="Gráfica de consumo de combustible por tipo">📊 Consumo</button>
+            <button className="btn btn-ghost" onClick={() => { setMovTanqueId(null); setModal('movimientos'); }} title="Histórico de movimientos de tanque (por mes)">🗒 Movimientos</button>
+            {canWrite && (
+              <>
+                {/* Sin combustibles, este es el ÚNICO botón que crea el primero: lo resaltamos. */}
+                <button className={activos.length ? 'btn btn-ghost' : 'btn btn-primary'} onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
+                <button className="btn btn-ghost" onClick={() => setModal('tanque')}>🛢 Agregar Tanque</button>
+                <button className="btn btn-ghost" onClick={() => setModal('catalogo')}>📒 Catálogo</button>
+                <button className="btn btn-ghost" onClick={() => setModal('planta')}>⚡ Planta Eléctrica</button>
+                <button className="btn btn-ghost" onClick={() => setModal('movimiento')} disabled={!tanquesSede.length} title={!tanquesSede.length ? 'Creá primero un tanque con "🛢 Agregar Tanque"' : undefined}>⬇ Registrar Movimiento</button>
+                <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>+ Nueva solicitud de salida</button>
+              </>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Pantalla inicial: dos tarjetas grandes por sede */}
+      {sedeActiva === null && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem', marginTop: '1rem' }}>
+          {totalesPorSede.map((s) => (
+            <div
+              key={s.key}
+              className="card"
+              style={{ cursor: 'pointer', padding: '1.6rem', borderColor: 'var(--primary)', borderWidth: 1 }}
+              onClick={() => setSedeActiva(s.key)}
+              title={`Ver el combustible de ${s.tarjeta}`}
+            >
+              <div className="card-title" style={{ fontSize: '1.15rem' }}><span>⛽ {s.tarjeta}</span><span className="muted" style={{ fontSize: '.8rem' }}>entrar →</span></div>
+              <div className="mono" style={{ fontSize: '2.4rem', fontWeight: 800, marginTop: '.4rem' }}>{num(s.litros)} <span style={{ fontSize: '1rem', fontWeight: 400 }} className="muted">L</span></div>
+              <div style={{ marginTop: '.4rem', fontSize: '1.05rem' }}>Total: <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(s.valor)}</strong></div>
+              <div className="muted" style={{ fontSize: '.82rem', marginTop: '.5rem' }}>{s.nTanques} tanque(s) · al {hoyStr}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {sedeActiva !== null && (
+      <>{/* ── Vista de la sede activa ── */}
 
       {/* Litros pendientes por recepción (puente inter-sistema) */}
       <RecepcionCombustibleInterPanel
-        transfers={transfers} tanques={tanques} canWrite={canWrite}
+        transfers={transfers} tanques={tanquesSede} canWrite={canWrite}
         actor={actor} actorName={miNombre} onChanged={reload}
       />
 
       {/* Tarjetas de inventario */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
-        {combustibles.map((c) => {
+        {combSede.map((c) => {
           const litros = Number(c.litros) || 0;
           const costo = Number(c.costo_litro) || 0;
           return (
@@ -241,7 +300,7 @@ export function CombustiblePage() {
             </div>
           );
         })}
-        {combustibles.length > 0 && (
+        {combSede.length > 0 && (
           <div className="card" style={{ borderColor: 'var(--primary)' }}>
             <div className="card-title"><span>TOTAL GENERAL</span></div>
             <div style={{ fontSize: '1.5rem', fontWeight: 700 }} className="mono">{num(litrosTotal)} L</div>
@@ -251,17 +310,17 @@ export function CombustiblePage() {
             </div>
           </div>
         )}
-        {!combustibles.length && !loading && (
-          <div className="card"><p className="muted" style={{ margin: 0 }}>Sin combustibles. Creá uno con "⛽ Combustibles".</p></div>
+        {!combSede.length && !loading && (
+          <div className="card"><p className="muted" style={{ margin: 0 }}>Sin combustibles en esta sede. Creá uno con "⛽ Combustibles".</p></div>
         )}
       </div>
 
       {/* Tanques (depósitos físicos) */}
-      {tanques.length > 0 && (
+      {tanquesSede.length > 0 && (
         <div style={{ marginBottom: '1.25rem' }}>
           <h2 style={{ fontSize: '1rem', margin: '0 0 .6rem' }}>🛢 Tanques</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1rem' }}>
-            {tanques.map((t) => {
+            {tanquesSede.map((t) => {
               const cap = Number(t.capacidad_litros) || 0;
               const lit = Number(t.litros) || 0;
               const pct = cap > 0 ? Math.min(100, Math.round((lit / cap) * 100)) : 0;
@@ -304,7 +363,7 @@ export function CombustiblePage() {
 
       {loading ? (
         <EmptyState message="Cargando…" icon="◔" />
-      ) : !solicitudes.length ? (
+      ) : !solicitudesSede.length ? (
         <EmptyState message="Sin solicitudes de salida de combustible." icon="⛽" />
       ) : vista === 'kanban' ? (
         <div className="kanban">
@@ -333,7 +392,7 @@ export function CombustiblePage() {
           <table className="table">
             <thead><tr><th>Código</th><th>Combustible</th><th>Solicita</th><th>Destino</th><th>Litros</th><th>Estado</th><th>Creada</th></tr></thead>
             <tbody>
-              {solicitudes.map((s) => (
+              {solicitudesSede.map((s) => (
                 <tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => setDetalle(s)}>
                   <td className="mono">{s.codigo}</td>
                   <td>{s.combustible_nombre}</td>
@@ -349,8 +408,11 @@ export function CombustiblePage() {
         </div>
       )}
 
+      </>
+      )}
+
       {modal === 'solicitud' && (
-        <SolicitudModal combustibles={activos} tanques={tanques} vehiculos={vehiculos} actor={actor} defaultSolicitante={miNombre}
+        <SolicitudModal combustibles={activos} tanques={tanquesSede} vehiculos={vehiculos} actor={actor} defaultSolicitante={miNombre}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'catalogo' && (
@@ -358,15 +420,15 @@ export function CombustiblePage() {
           onClose={() => setModal('none')} onChanged={reload} />
       )}
       {modal === 'planta' && (
-        <PlantaModal tanques={tanques} vehiculos={vehiculos} actor={actor} actorName={miNombre}
+        <PlantaModal tanques={tanquesSede} vehiculos={vehiculos} actor={actor} actorName={miNombre}
           onClose={() => setModal('none')} onChanged={reload} />
       )}
       {modal === 'movimiento' && (
-        <RegistrarMovimientoModal tanques={tanques} vehiculos={vehiculos} actor={actor} actorName={miNombre}
+        <RegistrarMovimientoModal tanques={tanquesSede} vehiculos={vehiculos} actor={actor} actorName={miNombre}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'movimientos' && (
-        <MovimientosModal tanques={tanques} tanqueId={movTanqueId}
+        <MovimientosModal tanques={tanquesSede} tanqueId={movTanqueId} actor={actor} actorName={miNombre} canWrite={canWrite} onChanged={reload}
           onClose={() => { setModal('none'); setMovTanqueId(null); }} />
       )}
       {combEdit && (
@@ -374,13 +436,14 @@ export function CombustiblePage() {
           onClose={() => setCombEdit(null)} onSaved={async () => { setCombEdit(null); await reload(); }} />
       )}
       {modal === 'gestionar' && (
-        <GestionarModal combustibles={combustibles} actor={actor}
+        <GestionarModal combustibles={combSede} sede={sedeActiva} actor={actor}
           onClose={() => setModal('none')} onChanged={reload} />
       )}
       {(modal === 'tanque' || tanqueEdit) && (
         <TanqueModal
           tanque={tanqueEdit}
-          combustibles={combustibles}
+          combustibles={combSede}
+          sede={sedeActiva}
           actor={actor}
           onClose={() => { setModal('none'); setTanqueEdit(null); }}
           onSaved={async () => { setModal('none'); setTanqueEdit(null); await reload(); }}
@@ -758,23 +821,42 @@ function EditarCombustibleModal({ combustible, actor, actorName, onClose, onSave
 }
 
 /* ───────────── Histórico de movimientos de tanque (botón "Movimientos" · por mes) ───────────── */
-function MovimientosModal({ tanques, tanqueId, onClose }: {
-  tanques: Tanque[]; tanqueId: string | null; onClose: () => void;
+function MovimientosModal({ tanques, tanqueId, actor, actorName, canWrite, onChanged, onClose }: {
+  tanques: Tanque[]; tanqueId: string | null; actor: string; actorName?: string | null; canWrite: boolean;
+  onChanged?: () => void | Promise<void>; onClose: () => void;
 }) {
   const [movs, setMovs] = useState<TanqueMovimiento[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroTanque, setFiltroTanque] = useState<string>(tanqueId ?? '');
   const mesActual = new Date().toLocaleDateString('en-CA').slice(0, 7); // YYYY-MM
   const [mes, setMes] = useState<string>(mesActual);
+  const [editMov, setEditMov] = useState<TanqueMovimiento | null>(null);
+  const [borrarMov, setBorrarMov] = useState<TanqueMovimiento | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const recargar = useCallback(() => {
+    listTanqueMovimientos(filtroTanque ? { tanqueId: filtroTanque } : undefined).then(setMovs).catch(() => {});
+  }, [filtroTanque]);
 
   useEffect(() => {
     setLoading(true);
     listTanqueMovimientos(filtroTanque ? { tanqueId: filtroTanque } : undefined)
       .then(setMovs).catch(() => setMovs([])).finally(() => setLoading(false));
   }, [filtroTanque]);
-  useRealtime(['combustible_tanque_movimientos'], () => {
-    listTanqueMovimientos(filtroTanque ? { tanqueId: filtroTanque } : undefined).then(setMovs).catch(() => {});
-  });
+  useRealtime(['combustible_tanque_movimientos'], () => { recargar(); });
+
+  async function confirmarBorrar() {
+    if (!borrarMov) return;
+    setBusy(true);
+    try {
+      await eliminarTanqueMovimiento(borrarMov.id, actor, actorName);
+      toast('Movimiento eliminado y revertido en las tarjetas', 'success');
+      setBorrarMov(null);
+      recargar();
+      await onChanged?.();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setBusy(false); }
+  }
 
   const delMes = useMemo(() => movs.filter((m) => (m.fecha || '').slice(0, 7) === mes), [movs, mes]);
   const totalIng = delMes.filter((m) => m.tipo === 'ingreso' || m.tipo === 'retorno').reduce((a, m) => a + (Number(m.litros) || 0), 0);
@@ -808,10 +890,11 @@ function MovimientosModal({ tanques, tanqueId, onClose }: {
             <th>Fecha y hora</th><th>Tanque</th><th>Tipo</th><th style={{ textAlign: 'right' }}>Litros</th>
             <th>Equipo</th><th style={{ textAlign: 'right' }}>HI</th><th style={{ textAlign: 'right' }}>HF</th><th style={{ textAlign: 'right' }}>HRS</th>
             <th style={{ textAlign: 'right' }}>Contador</th><th>Autorizado por</th><th>Destino</th><th>Observación</th>
+            {canWrite && <th></th>}
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={12} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !delMes.length && <tr><td colSpan={12} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin movimientos en este mes.</td></tr>}
+            {loading && <tr><td colSpan={canWrite ? 13 : 12} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !delMes.length && <tr><td colSpan={canWrite ? 13 : 12} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin movimientos en este mes.</td></tr>}
             {delMes.map((m) => {
               const suma = m.tipo === 'ingreso' || m.tipo === 'retorno';
               const hrs = m.horometro_inicial != null && m.horometro_final != null ? Math.round((Number(m.horometro_final) - Number(m.horometro_inicial)) * 100) / 100 : null;
@@ -829,18 +912,101 @@ function MovimientosModal({ tanques, tanqueId, onClose }: {
                   <td>{m.autorizado_por || '—'}</td>
                   <td>{m.destino || '—'}</td>
                   <td className="muted">{m.observacion || '—'}</td>
+                  {canWrite && (
+                    <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-sm btn-ghost" title="Editar movimiento" onClick={() => setEditMov(m)}>✎</button>
+                      <button className="btn btn-sm btn-ghost" title="Eliminar movimiento" onClick={() => setBorrarMov(m)}>🗑</button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+
+      {editMov && (
+        <EditarTanqueMovModal
+          mov={editMov} actor={actor} actorName={actorName}
+          onClose={() => setEditMov(null)}
+          onSaved={async () => { setEditMov(null); recargar(); await onChanged?.(); }}
+        />
+      )}
+      {borrarMov && (
+        <ConfirmDialog
+          title="Eliminar movimiento"
+          message={`¿Eliminar este movimiento de ${TIPO_TANQUE_LABEL[borrarMov.tipo]} de ${num(borrarMov.litros)} L? Se revertirá en el tanque, el combustible y el inventario.`}
+          confirmText={busy ? 'Eliminando…' : 'Eliminar y revertir'}
+          danger
+          onCancel={() => setBorrarMov(null)}
+          onConfirm={() => void confirmarBorrar()}
+        />
+      )}
     </Modal>
   );
 }
 
-function GestionarModal({ combustibles, actor, onClose, onChanged }: {
-  combustibles: Combustible[]; actor: string; onClose: () => void; onChanged: () => Promise<void>;
+/* ───────────── Editar un movimiento de tanque (recalcula balances) ───────────── */
+function EditarTanqueMovModal({ mov, actor, actorName, onClose, onSaved }: {
+  mov: TanqueMovimiento; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+}) {
+  const [tipo, setTipo] = useState<TipoMovimientoTanque>(mov.tipo);
+  const [litros, setLitros] = useState(String(mov.litros ?? ''));
+  const [equipo, setEquipo] = useState(mov.equipo ?? '');
+  const [autorizado, setAutorizado] = useState(mov.autorizado_por ?? '');
+  const [destino, setDestino] = useState(mov.destino ?? '');
+  const [observacion, setObservacion] = useState(mov.observacion ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    const l = Number(litros);
+    if (!Number.isFinite(l) || l <= 0) { setError('Los litros deben ser mayores que 0.'); return; }
+    setSaving(true); setError(null);
+    try {
+      await actualizarTanqueMovimiento(mov.id, {
+        litros: l, tipo, equipo, autorizadoPor: autorizado, destino, observacion,
+      }, actor, actorName);
+      toast('Movimiento actualizado · tarjetas ajustadas', 'success');
+      onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
+  }
+
+  return (
+    <Modal title="✎ Editar movimiento de tanque" size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Tipo</label>
+          <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoMovimientoTanque)}>
+            {TIPOS_MOVIMIENTO.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <label>Litros</label>
+          <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} />
+        </div>
+      </div>
+      <div className="form-row"><label>Equipo</label><input className="input" value={equipo} onChange={(e) => setEquipo(e.target.value)} /></div>
+      <div className="form-grid">
+        <div className="form-row"><label>Autorizado por</label><input className="input" value={autorizado} onChange={(e) => setAutorizado(e.target.value)} /></div>
+        <div className="form-row"><label>Destino</label><input className="input" value={destino} onChange={(e) => setDestino(e.target.value)} /></div>
+      </div>
+      <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} /></div>
+      <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
+        Si cambiás el tipo o los litros, la diferencia se ajusta automáticamente en el tanque, el combustible y el inventario.
+      </p>
+    </Modal>
+  );
+}
+
+function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
+  combustibles: Combustible[]; sede: string | null; actor: string; onClose: () => void; onChanged: () => Promise<void>;
 }) {
   const [nombre, setNombre] = useState('');
   const [almacen, setAlmacen] = useState('');
@@ -860,7 +1026,7 @@ function GestionarModal({ combustibles, actor, onClose, onChanged }: {
     setError(null);
     setBusy(true);
     try {
-      await crearCombustible({ nombre, almacen, litrosIniciales: Number(litros) || 0, costoLitro: Number(costo) || 0, actorEmail: actor });
+      await crearCombustible({ nombre, almacen, sede, litrosIniciales: Number(litros) || 0, costoLitro: Number(costo) || 0, actorEmail: actor });
       const msg = `Combustible "${nombre.trim()}" registrado en ${almacen}.`;
       toast(msg, 'success');
       setOkMsg(msg);
@@ -961,8 +1127,8 @@ function GestionarModal({ combustibles, actor, onClose, onChanged }: {
 }
 
 /* ───────────── Modal: agregar / editar tanque ───────────── */
-function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
-  tanque: Tanque | null; combustibles: Combustible[]; actor: string;
+function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
+  tanque: Tanque | null; combustibles: Combustible[]; sede: string | null; actor: string;
   onClose: () => void; onSaved: () => void;
 }) {
   const esEdicion = !!tanque;
@@ -1031,7 +1197,7 @@ function TanqueModal({ tanque, combustibles, actor, onClose, onSaved }: {
       } else {
         await crearTanque({
           nombre, combustibleId: combustibleId || null, capacidadLitros: capNum,
-          litrosIniciales: litNum, ubicacion, ...geo, actorEmail: actor,
+          litrosIniciales: litNum, ubicacion, sede, ...geo, actorEmail: actor,
         });
         notify(`Tanque "${nombre.trim()}" agregado · ${num(capNum)} L de capacidad`, 'success', { link: '#/app/combustible' });
       }

@@ -416,7 +416,8 @@ alter table public.compras_directas add column if not exists proveedor_nombre te
 -- ─────────────────────────────────────────────────────────────
 create table if not exists public.combustibles (
   id          uuid primary key default gen_random_uuid(),
-  nombre      text not null unique,
+  nombre      text not null,
+  sede        text,            -- sede duena del combustible (LOS PINOS, MATANZAS…)
   litros      numeric not null default 0,
   costo_litro numeric not null default 0,
   estado      estado_generico not null default 'activo',
@@ -426,6 +427,8 @@ create table if not exists public.combustibles (
   created_by  text,
   updated_at  timestamptz not null default now()
 );
+-- Un combustible por (sede, nombre): cada sede tiene su propio DIESEL/GASOLINA.
+create unique index if not exists uq_combustibles_sede_nombre on public.combustibles(sede, lower(nombre));
 create table if not exists public.combustible_movimientos (
   id               uuid primary key default gen_random_uuid(),
   combustible_id   uuid not null references public.combustibles(id) on delete cascade,
@@ -467,6 +470,7 @@ create table if not exists public.combustible_tanques (
   capacidad_litros numeric not null check (capacidad_litros > 0),
   litros           numeric not null default 0 check (litros >= 0),
   ubicacion        text,
+  sede             text,           -- sede duena del tanque (LOS PINOS, MATANZAS…)
   estado           text not null default 'activo' check (estado in ('activo','inactivo')),
   created_by       text,
   created_at       timestamptz not null default now(),
