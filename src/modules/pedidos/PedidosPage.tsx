@@ -43,7 +43,14 @@ import {
   indicarMetodoPago,
   METODOS_PAGO,
   labelMetodoPago,
+  listCatalogoPedido,
+  crearCatalogoPedido,
+  actualizarCatalogoPedido,
+  setEstadoCatalogoPedido,
+  ensureUnidadSolicitante,
   type PrecioHistorico,
+  type CatalogoPedido,
+  type ScopeCatalogoPedido,
 } from './pedidos.repository';
 import { listOfertasByOrden, labelCondicionPago } from './ofertas.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
@@ -51,8 +58,9 @@ import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
-import { createProducto } from '@/modules/inventario/inventario.repository';
+import { createProducto, getUnidades } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
@@ -164,6 +172,7 @@ type ModalKind =
   | { kind: 'abono'; orden: Orden }
   | { kind: 'finalizar'; orden: Orden }
   | { kind: 'price-history'; sku: string; nombre: string }
+  | { kind: 'catalogo' }
   | { kind: 'add-offer'; orden: Orden };
 
 export function PedidosPage() {
@@ -340,12 +349,21 @@ export function PedidosPage() {
             ⌕ Histórico
           </Link>
           {scope !== 'compra_directa' && scope !== 'oc_lote' && (
-            <button
-              className="btn btn-primary"
-              onClick={() => setModal({ kind: 'create' })}
-            >
-              + Nueva orden
-            </button>
+            <>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setModal({ kind: 'catalogo' })}
+                title="Gestionar clasificaciones y unidades solicitantes"
+              >
+                📒 Categorías
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => setModal({ kind: 'create' })}
+              >
+                + Nueva orden
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -532,6 +550,14 @@ export function PedidosPage() {
             setModal({ kind: 'none' });
             await refresh();
           }}
+        />
+      )}
+
+      {/* Modal: catálogos de pedidos (clasificación + unidad solicitante) */}
+      {modal.kind === 'catalogo' && (
+        <CatalogoPedidosModal
+          actor={user?.email ?? ''}
+          onClose={() => setModal({ kind: 'none' })}
         />
       )}
 
@@ -1782,9 +1808,13 @@ function OrdenDetailModal({
         </div>
       </div>
       <div className="detail-row">
+        <div className="k">Unidad solicitante</div>
+        <div className="v">{o.solicitante ?? '—'}</div>
+      </div>
+      <div className="detail-row">
         <div className="k">Solicitante</div>
         <div className="v">
-          {o.solicitante ?? persona(o.solicitante_email, personaMap)} <span className="muted">({o.solicitante_email})</span>
+          {o.ci_solicitante ?? persona(o.solicitante_email, personaMap)} <span className="muted">({o.solicitante_email})</span>
         </div>
       </div>
       <div className="detail-row">
@@ -2195,6 +2225,9 @@ function CrearOrdenModal({
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
   const [notaOp, setNotaOp] = useState('');
   const [clasificacion, setClasificacion] = useState<Set<string>>(new Set());
+  // Opciones de clasificación (del catálogo gestionable). Caen a las por defecto si la BD falla.
+  const [clasifOpciones, setClasifOpciones] = useState<string[]>([...CLASIFICACION_PEDIDO]);
+  const [clasifFiltro, setClasifFiltro] = useState('');
   function toggleClasif(c: string) {
     setClasificacion((prev) => {
       const next = new Set(prev);
@@ -2202,6 +2235,11 @@ function CrearOrdenModal({
       return next;
     });
   }
+  useEffect(() => {
+    listCatalogoPedido('clasificacion', true)
+      .then((rows) => { if (rows.length) setClasifOpciones(rows.map((r) => r.nombre)); })
+      .catch(() => { /* deja las por defecto */ });
+  }, []);
   // Productos del inventario + los nuevos creados al vuelo en este modal.
   const [extraProductos, setExtraProductos] = useState<Producto[]>([]);
   const allProductos = useMemo(() => [...productos, ...extraProductos], [productos, extraProductos]);
@@ -2215,7 +2253,14 @@ function CrearOrdenModal({
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
+  const [nuevoAlmacen, setNuevoAlmacen] = useState('');
+  const [medidas, setMedidas] = useState<string[]>([]);
   const [creandoNuevo, setCreandoNuevo] = useState(false);
+
+  // Lista de medidas (unidades) del inventario para el desplegable de "Producto nuevo".
+  useEffect(() => {
+    getUnidades(productos).then(setMedidas).catch(() => { /* usa defaults del repo */ });
+  }, [productos]);
 
   async function crearProductoNuevo() {
     const nombre = nuevoNombre.trim().toUpperCase();
@@ -2232,7 +2277,7 @@ function CrearOrdenModal({
         stock: 0,
         stock_min: 0,
         precio: 0,
-        almacen: 'General',
+        almacen: nuevoAlmacen.trim() || 'General',
         estado: 'activo',
       });
       setExtraProductos((prev) => [...prev, creado]);
@@ -2300,6 +2345,8 @@ function CrearOrdenModal({
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
+      // La unidad solicitante tipeada se guarda en el catálogo (botón Categorías).
+      await ensureUnidadSolicitante(solicitanteNombre, email);
       const saved = await crearOrden({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
         proveedor_id: null,
@@ -2307,7 +2354,7 @@ function CrearOrdenModal({
         notas: notaOp.trim() || null,
         motivo: null,
         finalidad: null,
-        clasificacion: CLASIFICACION_PEDIDO.filter((c) => clasificacion.has(c)),
+        clasificacion: clasifOpciones.filter((c) => clasificacion.has(c)),
         solicitante_email: email,
         solicitante: solicitanteNombre.trim() || null,
         ci_solicitante: solicitanteCi.trim() || null,
@@ -2339,12 +2386,12 @@ function CrearOrdenModal({
     >
       <div className="form-grid">
         <div className="form-row">
-          <label>Solicitante</label>
+          <label>Unidad solicitante</label>
           <input
             className="input"
             value={solicitanteNombre}
             onChange={(e) => setSolicitanteNombre(e.target.value)}
-            placeholder="Nombre de quien solicita"
+            placeholder="Departamento / unidad que solicita"
           />
         </div>
         <div className="form-row">
@@ -2354,12 +2401,12 @@ function CrearOrdenModal({
       </div>
 
       <div className="form-row">
-        <label>CI</label>
+        <label>Solicitante</label>
         <input
-          className="input mono"
+          className="input"
           value={solicitanteCi || ''}
           onChange={(e) => setSolicitanteCi(e.target.value)}
-          placeholder="CI del solicitante"
+          placeholder="Nombre del solicitante"
         />
       </div>
 
@@ -2468,7 +2515,7 @@ function CrearOrdenModal({
           {nuevoOpen && (
             <div className="card" style={{ padding: '.65rem', marginTop: '.4rem', display: 'grid', gap: '.5rem' }}>
               <div className="muted" style={{ fontSize: '.78rem' }}>
-                Datos mínimos. Se crea en inventario y lo completás luego (stock, precio, almacén…).
+                Datos mínimos. Se crea en inventario y lo completás luego (stock, precio…).
               </div>
               <input
                 className="input"
@@ -2478,8 +2525,17 @@ function CrearOrdenModal({
               />
               <div className="form-grid">
                 <input className="input" placeholder="Categoría" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value)} />
-                <input className="input" placeholder="Unidad" value={nuevoUnidad} onChange={(e) => setNuevoUnidad(e.target.value)} />
+                <select className="select" value={nuevoUnidad} onChange={(e) => setNuevoUnidad(e.target.value)}>
+                  {!medidas.includes(nuevoUnidad) && nuevoUnidad && <option value={nuevoUnidad}>{nuevoUnidad}</option>}
+                  {medidas.map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
               </div>
+              <AlmacenPicker
+                value={nuevoAlmacen}
+                onChange={setNuevoAlmacen}
+                sedeLabel="Sede"
+                label="Almacén destino"
+              />
               <div>
                 <button type="button" className="btn btn-sm btn-primary" onClick={crearProductoNuevo} disabled={creandoNuevo}>
                   {creandoNuevo ? 'Creando…' : 'Crear y añadir a la solicitud'}
@@ -2492,26 +2548,69 @@ function CrearOrdenModal({
 
       <div className="form-row">
         <label>Clasificación del pedido</label>
-        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-          {CLASIFICACION_PEDIDO.map((c) => {
-            const checked = clasificacion.has(c);
-            return (
-              <label
-                key={c}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '.45rem',
-                  padding: '.45rem .7rem', border: '1px solid var(--border)',
-                  borderRadius: 'var(--r-md)',
-                  background: checked ? 'rgba(255,138,0,0.08)' : 'transparent',
-                  cursor: 'pointer',
-                }}
-              >
-                <input type="checkbox" checked={checked} onChange={() => toggleClasif(c)} />
-                <span style={{ fontWeight: 600 }}>{c}</span>
-              </label>
-            );
-          })}
-        </div>
+        {clasifOpciones.length <= 5 ? (
+          // Hasta 5 opciones: checkboxes (rápido de marcar).
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            {clasifOpciones.map((c) => {
+              const checked = clasificacion.has(c);
+              return (
+                <label
+                  key={c}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '.45rem',
+                    padding: '.45rem .7rem', border: '1px solid var(--border)',
+                    borderRadius: 'var(--r-md)',
+                    background: checked ? 'rgba(255,138,0,0.08)' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input type="checkbox" checked={checked} onChange={() => toggleClasif(c)} />
+                  <span style={{ fontWeight: 600 }}>{c}</span>
+                </label>
+              );
+            })}
+          </div>
+        ) : (
+          // Más de 5: lista buscable (sin checks); se hace clic para marcar/desmarcar.
+          <>
+            <input
+              className="input"
+              placeholder="Buscar clasificación…"
+              value={clasifFiltro}
+              onChange={(e) => setClasifFiltro(e.target.value)}
+              style={{ marginBottom: '.4rem' }}
+            />
+            {clasificacion.size > 0 && (
+              <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginBottom: '.4rem' }}>
+                {Array.from(clasificacion).map((c) => (
+                  <span key={c} className="badge" style={{ cursor: 'pointer' }} onClick={() => toggleClasif(c)} title="Quitar">
+                    {c} ✕
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="table-wrap" style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
+              {clasifOpciones
+                .filter((c) => c.toLowerCase().includes(clasifFiltro.trim().toLowerCase()))
+                .map((c) => {
+                  const checked = clasificacion.has(c);
+                  return (
+                    <div
+                      key={c}
+                      onClick={() => toggleClasif(c)}
+                      style={{
+                        padding: '.5rem .7rem', cursor: 'pointer', fontWeight: 600,
+                        background: checked ? 'rgba(255,138,0,0.12)' : 'transparent',
+                        borderLeft: checked ? '3px solid var(--primary)' : '3px solid transparent',
+                      }}
+                    >
+                      {checked ? '✓ ' : ''}{c}
+                    </div>
+                  );
+                })}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="form-row">
@@ -2527,6 +2626,125 @@ function CrearOrdenModal({
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>
         El precio lo fijará el proveedor al cargar su oferta. La solicitud queda sin monto hasta entonces.
       </p>
+    </Modal>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Modal: Catálogos de pedidos (switch Clasificación / Unidad solicitante)
+   Agregar · filtrar · editar · habilitar/deshabilitar.
+   ───────────────────────────────────────────── */
+const CATALOGO_TABS: { key: ScopeCatalogoPedido; label: string; singular: string; placeholder: string }[] = [
+  { key: 'clasificacion', label: 'Clasificación', singular: 'clasificación', placeholder: 'Producción, Bienes, Servicios…' },
+  { key: 'unidad_solicitante', label: 'Unidad solicitante', singular: 'unidad solicitante', placeholder: 'Gerencia, Taller, Mina…' },
+];
+
+function CatalogoPedidosModal({ actor, onClose }: { actor: string; onClose: () => void }) {
+  const [tab, setTab] = useState<ScopeCatalogoPedido>('clasificacion');
+  const [items, setItems] = useState<CatalogoPedido[]>([]);
+  const [filtro, setFiltro] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [edit, setEdit] = useState<{ id: string; nombre: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const cargar = useCallback(async () => {
+    try { setItems(await listCatalogoPedido(tab)); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
+  }, [tab]);
+  useEffect(() => { void cargar(); }, [cargar]);
+  useEffect(() => { setNombre(''); setFiltro(''); setEdit(null); }, [tab]);
+
+  const meta = CATALOGO_TABS.find((t) => t.key === tab)!;
+  const filtrados = items.filter((i) => i.nombre.toLowerCase().includes(filtro.trim().toLowerCase()));
+
+  async function agregar() {
+    if (!nombre.trim()) { toast('Escribí el nombre', 'error'); return; }
+    setBusy(true);
+    try {
+      await crearCatalogoPedido(tab, nombre, actor);
+      setNombre('');
+      await cargar();
+      toast('Agregado', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
+    finally { setBusy(false); }
+  }
+  async function guardarEdit() {
+    if (!edit || !edit.nombre.trim()) { toast('Indicá el nombre', 'error'); return; }
+    setBusy(true);
+    try { await actualizarCatalogoPedido(edit.id, edit.nombre); setEdit(null); await cargar(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+    finally { setBusy(false); }
+  }
+  async function toggle(it: CatalogoPedido) {
+    try { await setEstadoCatalogoPedido(it.id, it.estado === 'activo' ? 'inactivo' : 'activo'); await cargar(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
+  }
+
+  return (
+    <Modal title="📒 Categorías de pedidos" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div className="view-toggle" role="tablist" style={{ marginBottom: '.8rem', marginLeft: 0 }}>
+        {CATALOGO_TABS.map((t) => (
+          <button key={t.key} type="button" className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>{t.label}</button>
+        ))}
+      </div>
+
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div className="card-title"><span>Agregar {meta.singular}</span></div>
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end' }}>
+          <input
+            className="input"
+            style={{ flex: 1 }}
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+            placeholder={meta.placeholder}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregar(); } }}
+          />
+          <button className="btn btn-primary" onClick={() => void agregar()} disabled={busy}>+ Agregar</button>
+        </div>
+      </div>
+
+      <input
+        className="input"
+        placeholder={`Buscar ${meta.singular}…`}
+        value={filtro}
+        onChange={(e) => setFiltro(e.target.value)}
+        style={{ marginBottom: '.5rem' }}
+      />
+
+      <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}>
+        <table className="table">
+          <thead><tr><th>{meta.label}</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            {!filtrados.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin resultados.</td></tr>}
+            {filtrados.map((it) => (
+              <tr key={it.id} style={{ opacity: it.estado === 'activo' ? 1 : 0.55 }}>
+                <td>{it.nombre}</td>
+                <td>{it.estado === 'activo' ? '🟢 Activo' : '⚪ Inactivo'}</td>
+                <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setEdit({ id: it.id, nombre: it.nombre })}>✎ Editar</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => void toggle(it)}>{it.estado === 'activo' ? 'Deshabilitar' : 'Habilitar'}</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {edit && (
+        <Modal title={`Editar ${meta.singular}`} size="md" onClose={() => setEdit(null)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setEdit(null)} disabled={busy}>Cancelar</button>
+            <button className="btn btn-primary" onClick={() => void guardarEdit()} disabled={busy}>Guardar</button>
+          </>
+        }>
+          <div className="form-row">
+            <label>Nombre</label>
+            <input className="input" autoFocus value={edit.nombre} onChange={(e) => setEdit({ ...edit, nombre: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdit(); }} />
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }
