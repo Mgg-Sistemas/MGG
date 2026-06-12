@@ -18,7 +18,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 32;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
@@ -52,7 +52,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
     theme: 'grid',
     styles: { fontSize: 10, cellPadding: 5 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 240 }, 1: { halign: 'right' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = doc.lastAutoTable.finalY + 18;
@@ -67,7 +67,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
     theme: 'striped',
     headStyles: { fillColor: [255, 138, 0], textColor: 20 },
     styles: { fontSize: 10, halign: 'center', cellPadding: 5 },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   // @ts-expect-error lastAutoTable
   y = doc.lastAutoTable.finalY + 18;
@@ -86,7 +86,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
       footStyles: { fillColor: [40, 40, 40], textColor: 255, fontStyle: 'bold' },
       columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
       styles: { fontSize: 9, cellPadding: 4 },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     });
     // @ts-expect-error lastAutoTable
     y = doc.lastAutoTable.finalY + 18;
@@ -106,7 +106,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
       footStyles: { fillColor: [40, 40, 40], textColor: 255, fontStyle: 'bold' },
       columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
       styles: { fontSize: 9, cellPadding: 4 },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     });
   }
 

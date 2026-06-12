@@ -20,7 +20,7 @@ async function construir(s: SolicitudCombustible) {
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 40;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 50, 50); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 64 : MARGIN;
@@ -52,7 +52,7 @@ async function construir(s: SolicitudCombustible) {
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 4 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 200 }, 1: { cellWidth: 'auto' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
   return { doc, filename: `solicitud-combustible-${s.codigo}.pdf` };

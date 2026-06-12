@@ -45,7 +45,7 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 40;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   const LOGO_SIZE = 56;
@@ -99,7 +99,7 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 200 }, 1: { cellWidth: 'auto' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
 
@@ -136,7 +136,7 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
         4: { halign: 'right' },
         5: { halign: 'right' },
       },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     });
   }
 

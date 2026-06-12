@@ -25,7 +25,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[]) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 40;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   const moneda = cuenta.moneda;
@@ -61,7 +61,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[]) {
     startY: y,
     head: [['Total', 'Abonado', 'Saldo pendiente']],
     body: [[montoStr(cuenta.monto, moneda), montoStr(cuenta.abonado, moneda), montoStr(saldo, moneda)]],
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     styles: { fontSize: 10, cellPadding: 6, halign: 'center', fontStyle: 'bold' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', halign: 'center' },
   });
@@ -92,7 +92,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[]) {
     startY: y + 4,
     head: [['Fecha', 'Abono', 'Saldo restante', 'Nota']],
     body: filas.length ? filas : [['—', 'Sin abonos registrados', '—', '—']],
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     styles: { fontSize: 8.5, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {

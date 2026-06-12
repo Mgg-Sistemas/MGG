@@ -37,7 +37,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 48;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
 
   renglones.forEach((r, idx) => {
     if (idx > 0) doc.addPage();
@@ -78,7 +78,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
         ['Estado', r.estado === 'pagada' ? `Pagado${r.pagada_en ? ' · ' + fmtDate(r.pagada_en) : ''}` : 'Por pagar', 'Días', String(r.dias_trabajados ?? '')],
       ],
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
       theme: 'grid',
       styles: { fontSize: 9, cellPadding: 5 },
       columnStyles: { 0: { fontStyle: 'bold', cellWidth: 90 }, 2: { fontStyle: 'bold', cellWidth: 90 } },
@@ -105,7 +105,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['NETO A PAGAR (USD)', usd(r.neto_usd)],
         ...(tasa > 0 ? [['Equivalente en Bs (BCV ' + tasa.toLocaleString('es-VE') + ')', bsStr(Number(r.neto_usd) * tasa)]] as Array<[string, string]> : []),
       ],
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
       styles: { fontSize: 9.5, cellPadding: 5 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },

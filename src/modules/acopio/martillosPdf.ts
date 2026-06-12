@@ -21,7 +21,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 28;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 58 : MARGIN;
@@ -44,7 +44,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
     startY: y + 4,
     head: [HEAD],
     body,
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     styles: { fontSize: 8, cellPadding: 3 },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {

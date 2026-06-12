@@ -83,7 +83,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 40;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   const LOGO_SIZE = 60;
@@ -168,7 +168,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180 }, 1: { cellWidth: 'auto' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
 
@@ -229,7 +229,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         theme: 'grid',
         styles: { fontSize: 8.5, cellPadding: 3 },
         columnStyles: { 0: { fontStyle: 'bold', cellWidth: 170, fillColor: [244, 244, 244] }, 1: { cellWidth: 'auto' } },
-        margin: { left: MARGIN, right: MARGIN },
+        margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
       });
       y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
     });
@@ -276,7 +276,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       styles: { fontSize: 9, cellPadding: 4 },
       columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
   });
@@ -288,7 +288,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       theme: 'plain',
       styles: { fontSize: 11, fontStyle: 'bold', cellPadding: 6 },
       columnStyles: { 0: { halign: 'right' }, 1: { halign: 'right', textColor: [255, 138, 0] } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
   }

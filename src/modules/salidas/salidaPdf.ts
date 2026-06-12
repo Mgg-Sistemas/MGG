@@ -14,7 +14,7 @@ async function nuevoDoc(titulo: string) {
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 36;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 60 : MARGIN;
@@ -49,7 +49,7 @@ export async function descargarSalidaMaterialPdf(mov: Movimiento, esTraslado: bo
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 150 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   doc.save(`${esTraslado ? 'traslado' : 'salida'}-${(prod?.sku ?? 'material')}-${mov.id.slice(0, 8)}.pdf`);
 }
@@ -81,7 +81,7 @@ export async function obtenerSalidaMaterialPdfBase64(
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 150 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   const dataUri = doc.output('datauristring');
   const base64 = dataUri.split(',')[1] ?? '';
@@ -113,7 +113,7 @@ export async function descargarSalidaDineroPdf(mov: MovimientoCaja): Promise<voi
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   doc.save(`salida-dinero-${mov.id.slice(0, 8)}.pdf`);
 }
@@ -134,7 +134,7 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   doc.save(`traslado-dinero-${mov.id.slice(0, 8)}.pdf`);
 }
@@ -163,7 +163,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 40;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   // ── Encabezado: logo + título + N° ──
@@ -217,7 +217,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3.5 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 170 }, 1: { cellWidth: 'auto' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
   // ── Firmas al pie ──

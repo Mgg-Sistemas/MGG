@@ -14,7 +14,7 @@ async function construir(rows: OcLoteRow[], codigo: string) {
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 32;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -49,7 +49,7 @@ async function construir(rows: OcLoteRow[], codigo: string) {
       5: { halign: 'right', cellWidth: 60 },
       8: { halign: 'center', cellWidth: 90 },
     },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index === 8) {
         const confirmada = data.cell.raw === 'CONFIRMADA';

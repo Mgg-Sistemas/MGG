@@ -36,7 +36,7 @@ async function construirDoc(movs: MovimientoCaja[], meta: ReporteMeta) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 40;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   const LOGO_SIZE = 60;
@@ -85,7 +85,7 @@ async function construirDoc(movs: MovimientoCaja[], meta: ReporteMeta) {
     startY: y + 6,
     head: [['Fecha', 'Caja', 'Movimiento', 'Concepto', 'Monto', 'Saldo']],
     body: filas,
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     styles: { fontSize: 7.5, cellPadding: 3, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {

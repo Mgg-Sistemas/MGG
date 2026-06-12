@@ -21,7 +21,7 @@ async function construir(r: RecepcionAcopio) {
   // Apaisado: la tabla tiene muchas columnas (igual que el Excel).
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 32;
+  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
@@ -47,7 +47,7 @@ async function construir(r: RecepcionAcopio) {
     ]],
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   // @ts-expect-error lastAutoTable lo añade el plugin.
   y = (doc.lastAutoTable?.finalY ?? y) + 6;
@@ -87,7 +87,7 @@ async function construir(r: RecepcionAcopio) {
       1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
       5: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 10: { halign: 'center' },
     },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   // @ts-expect-error lastAutoTable lo añade el plugin.
   y = (doc.lastAutoTable?.finalY ?? y) + 24;
