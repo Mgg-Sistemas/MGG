@@ -91,7 +91,26 @@ export interface CajaMovimientoInput {
   clasif_valor?: string | null;
   costo_clasificacion?: string | null;
   costo_subclasificacion?: string | null;
+  /** Vehículo/maquinaria imputado (catálogo de Combustible). Opcional. */
+  vehiculo?: string | null;
   caja_id?: string | null;
+}
+
+/**
+ * Clasificaciones de gasto (grupo «gastos_caja») que van ancladas a un VEHÍCULO /
+ * MAQUINARIA. Cuando el gasto cae en una de ellas, el formulario ofrece el
+ * buscador de equipos del módulo de Combustible y el Resumen permite ver el
+ * consumo en $ por vehículo. El anclaje es opcional («no a juro»).
+ */
+export const CLASIF_VEHICULO = [
+  'MAQUINARIA PESADA: REPUESTOS - REPARACIONES - SERVICIOS',
+  'VEHICULO: REPUESTOS - REPARACIONES - SERVICIOS',
+  'MAQUINARIA LIVIANA: REPUESTOS - REPARACIONES - SERVICIOS',
+];
+/** ¿La categoría de gasto va anclada a un vehículo? (comparación tolerante a mayúsculas/espacios). */
+export function esClasifVehiculo(valor?: string | null): boolean {
+  const v = (valor ?? '').trim().toUpperCase();
+  return CLASIF_VEHICULO.some((c) => c.toUpperCase() === v);
 }
 
 /**
@@ -224,6 +243,53 @@ export async function resumenCajaAcopio(
   };
 }
 
+/** Una fila de consumo por vehículo (gasto en $). */
+export interface ConsumoVehiculoItem {
+  id: string;
+  nombre: string;   // vehículo / maquinaria
+  compras: number;  // cantidad de movimientos imputados
+  valor: number;    // total gastado en $ (repuestos/reparaciones/servicios)
+}
+
+/**
+ * Consumo (gasto en $) POR VEHÍCULO en un rango de fechas: suma los movimientos de
+ * gasto del acopio imputados a un vehículo. Si `clasifValor` se indica, limita a esa
+ * categoría; si no, abarca todas las categorías ancladas a vehículo (CLASIF_VEHICULO).
+ */
+export async function consumoPorVehiculoAcopio(
+  desde: Date,
+  hasta: Date,
+  clasifValor?: string | null,
+): Promise<ConsumoVehiculoItem[]> {
+  const movs = await listCajaMovimientos();
+  const d = isoDay(desde);
+  const h = isoDay(hasta);
+  const objetivo = clasifValor ? [clasifValor.trim().toUpperCase()] : CLASIF_VEHICULO.map((c) => c.toUpperCase());
+  const acc = new Map<string, ConsumoVehiculoItem>();
+  for (const m of movs) {
+    const f = m.fecha ?? '';
+    if (f < d || f > h) continue;
+    const cat = (m.clasif_valor ?? '').trim().toUpperCase();
+    if (!objetivo.includes(cat)) continue;
+    const veh = (m.vehiculo ?? '').trim();
+    if (!veh) continue;
+    const monto = num(m.gastos);
+    if (monto <= 0) continue;
+    const cur = acc.get(veh) ?? { id: veh, nombre: veh, compras: 0, valor: 0 };
+    cur.compras += 1;
+    cur.valor += monto;
+    acc.set(veh, cur);
+  }
+  return Array.from(acc.values())
+    .map((x) => ({ ...x, valor: Math.round(x.valor * 100) / 100 }))
+    .sort((a, b) => b.valor - a.valor);
+}
+
+/** YYYY-MM-DD (zona Venezuela) de una fecha. */
+function isoDay(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(d);
+}
+
 /** Agregados de cabecera + tasa del material. */
 export function resumirCaja(movs: CajaMovimiento[]): CajaResumen {
   const r = movs.reduce(
@@ -261,6 +327,7 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
     clasif_valor: input.clasif_valor?.trim() || null,
     costo_clasificacion: input.costo_clasificacion?.trim() || null,
     costo_subclasificacion: input.costo_subclasificacion?.trim() || null,
+    vehiculo: input.vehiculo?.trim() || null,
     caja_id: input.caja_id ?? null,
     created_by: actor,
     actor_name: actorName ?? null,
@@ -287,6 +354,7 @@ export async function actualizarMovimientoCaja(id: string, input: CajaMovimiento
       clasif_valor: input.clasif_valor?.trim() || null,
       costo_clasificacion: input.costo_clasificacion?.trim() || null,
       costo_subclasificacion: input.costo_subclasificacion?.trim() || null,
+      vehiculo: input.vehiculo?.trim() || null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)

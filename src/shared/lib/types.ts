@@ -1071,6 +1071,9 @@ export interface CajaMovimiento {
   /** Clasificación de costo en 2 niveles (análisis de costos del cierre). */
   costo_clasificacion?: string | null;
   costo_subclasificacion?: string | null;
+  /** Vehículo/maquinaria (catálogo de Combustible) imputado, cuando la categoría
+   *  es de REPUESTOS - REPARACIONES - SERVICIOS. Opcional. */
+  vehiculo?: string | null;
   /** Caja/cierre al que pertenece el movimiento. */
   caja_id?: string | null;
   orden: number;

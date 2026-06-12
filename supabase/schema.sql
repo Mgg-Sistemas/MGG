@@ -1991,7 +1991,11 @@ create table if not exists public.acopio_cajas (
 alter table public.acopio_caja_movimientos add column if not exists caja_id uuid references public.acopio_cajas(id) on delete set null;
 alter table public.acopio_caja_movimientos add column if not exists costo_clasificacion text;
 alter table public.acopio_caja_movimientos add column if not exists costo_subclasificacion text;
+-- Vehículo/maquinaria (del catálogo de Combustible) al que se imputa el gasto cuando la
+-- categoría es de REPUESTOS - REPARACIONES - SERVICIOS. Opcional ("no a juro").
+alter table public.acopio_caja_movimientos add column if not exists vehiculo text;
 create index if not exists idx_acopio_caja_mov_caja on public.acopio_caja_movimientos(caja_id);
+create index if not exists idx_acopio_caja_mov_vehiculo on public.acopio_caja_movimientos(vehiculo);
 
 insert into public.acopio_costo_clases (clasificacion, subclasificacion, orden) values
   ('Costos de Extracción y acarreo','Gastos de Nomina',1),
@@ -2021,3 +2025,11 @@ begin
     alter publication supabase_realtime add table public.acopio_costo_clases;
   end if;
 end$$;
+
+-- Almacén destino del Centro de Acopio LA ESPERANZA: el mineral recibido entra
+-- DIRECTO al sub-almacén CASITERITA (anidado bajo el almacén LA ESPERANZA).
+insert into public.almacenes (nombre, sede, estado) values ('LA ESPERANZA','LA ESPERANZA','activo')
+  on conflict (nombre) do nothing;
+insert into public.almacenes (nombre, sede, parent_id, estado)
+  select 'CASITERITA','LA ESPERANZA',(select id from public.almacenes where nombre='LA ESPERANZA'),'activo'
+  on conflict (nombre) do nothing;

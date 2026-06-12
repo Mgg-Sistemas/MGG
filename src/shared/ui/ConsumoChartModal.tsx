@@ -64,6 +64,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, grupos, onClose }: 
   const [hastaStr, setHastaStr] = useState(hoy);
   const [metrica, setMetrica] = useState<'valor' | 'cantidad'>('valor');
   const [grupo, setGrupo] = useState<string>(grupos?.[0]?.key ?? '');
+  const [busca, setBusca] = useState('');
   const [rows, setRows] = useState<ConsumoRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,16 +88,23 @@ export function ConsumoChartModal({ title, subtitle, cargar, grupos, onClose }: 
   }, [preset, desdeStr, hastaStr, grupo]);
   useEffect(() => { void recargar(); }, [recargar]);
 
-  const totalCantidad = rows.reduce((a, r) => a + r.cantidad, 0);
-  const totalValor = rows.reduce((a, r) => a + r.valor, 0);
+  // Buscador: filtra las filas por nombre/sub-etiqueta (no recarga; filtra lo ya cargado).
+  const filtradas = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => r.label.toLowerCase().includes(q) || (r.sub ?? '').toLowerCase().includes(q));
+  }, [rows, busca]);
+
+  const totalCantidad = filtradas.reduce((a, r) => a + r.cantidad, 0);
+  const totalValor = filtradas.reduce((a, r) => a + r.valor, 0);
 
   const data: ChartPoint[] = useMemo(
-    () => rows.map((r) => ({
+    () => filtradas.map((r) => ({
       label: r.label.length > 14 ? r.label.slice(0, 13) + '…' : r.label,
       value: metrica === 'valor' ? Math.round(r.valor * 100) / 100 : r.cantidad,
       tooltip: `${r.label}: ${num(r.cantidad)} ${r.unidad} · ${money(r.valor)}`,
     })),
-    [rows, metrica],
+    [filtradas, metrica],
   );
 
   return (
@@ -133,11 +141,17 @@ export function ConsumoChartModal({ title, subtitle, cargar, grupos, onClose }: 
         </span>
       </div>
 
+      {/* Buscador: filtra la lista por nombre. */}
+      <div style={{ marginBottom: '.6rem' }}>
+        <input className="input no-upper" value={busca} onChange={(e) => setBusca(e.target.value)}
+          placeholder="🔎 Buscar por nombre…" style={{ maxWidth: 320 }} />
+      </div>
+
       {/* Totales */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.6rem', marginBottom: '.75rem' }}>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>PRODUCTOS CONSUMIDOS</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(rows.length)}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(filtradas.length)}</div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>CANTIDAD TOTAL</div>
@@ -155,7 +169,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, grupos, onClose }: 
       <div className="card" style={{ padding: '.8rem', marginBottom: '.75rem' }}>
         <div className="card-title" style={{ marginBottom: '.4rem' }}>
           <span>Consumo por producto {metrica === 'valor' ? '(en $)' : '(en cantidad)'}</span>
-          <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${rows.length} producto(s)`}</span>
+          <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${filtradas.length} producto(s)`}</span>
         </div>
         <RankedBarChart data={data}
           valueFormatter={(v) => (metrica === 'valor' ? money(v) : num(v))}
@@ -167,8 +181,8 @@ export function ConsumoChartModal({ title, subtitle, cargar, grupos, onClose }: 
         <table className="table" style={{ fontSize: '.84rem' }}>
           <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Valor ($)</th></tr></thead>
           <tbody>
-            {!rows.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>{loading ? 'Cargando…' : 'Sin consumo en el período.'}</td></tr>}
-            {rows.map((r) => (
+            {!filtradas.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>{loading ? 'Cargando…' : 'Sin consumo en el período.'}</td></tr>}
+            {filtradas.map((r) => (
               <tr key={r.id}>
                 <td>{r.label}{r.sub ? <span className="muted mono" style={{ fontSize: '.72rem' }}> · {r.sub}</span> : null}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{num(r.cantidad)} {r.unidad}</td>
@@ -176,7 +190,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, grupos, onClose }: 
               </tr>
             ))}
           </tbody>
-          {rows.length > 0 && (
+          {filtradas.length > 0 && (
             <tfoot>
               <tr>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL</td>
