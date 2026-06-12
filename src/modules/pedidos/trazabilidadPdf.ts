@@ -121,8 +121,8 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   const filasSolicitud: Array<[string, string]> = [
-    ['Solicitante', orden.solicitante ?? '—'],
-    ['CI', orden.ci_solicitante ?? '—'],
+    ['Unidad solicitante', orden.solicitante ?? '—'],
+    ['Solicitante', orden.ci_solicitante ?? '—'],
     ['Correo', orden.solicitante_email],
     ['Fecha de solicitud', dateTime(orden.created_at)],
     ['Estado actual', orden.estado],

@@ -556,6 +556,25 @@ alter table public.combustible_ubicaciones enable row level security;
 create policy "comb_ubicaciones read auth" on public.combustible_ubicaciones for select using (auth.role()='authenticated');
 create policy "comb_ubicaciones write op"  on public.combustible_ubicaciones for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Catálogos de Pedidos (gestionables desde el botón "📒 Categorías"):
+--   scope='clasificacion'        → clasificación del pedido (Producción, Bienes…)
+--   scope='unidad_solicitante'   → unidad/área que solicita (se alimenta sola al crear OP)
+create table if not exists public.catalogos_pedido (
+  id uuid primary key default gen_random_uuid(),
+  scope text not null check (scope in ('clasificacion','unidad_solicitante')),
+  nombre text not null,
+  estado text not null default 'activo' check (estado in ('activo','inactivo')),
+  created_by text, created_at timestamptz not null default now(), updated_at timestamptz
+);
+create unique index if not exists uq_catalogos_pedido_scope_nombre on public.catalogos_pedido(scope, lower(nombre));
+create index if not exists idx_catalogos_pedido_scope on public.catalogos_pedido(scope, estado);
+alter table public.catalogos_pedido enable row level security;
+create policy "cat_pedido read auth" on public.catalogos_pedido for select using (auth.role()='authenticated');
+create policy "cat_pedido write op"  on public.catalogos_pedido for all using (public.is_operativo()) with check (public.is_operativo());
+insert into public.catalogos_pedido (scope, nombre)
+select 'clasificacion', v from (values ('Producción'),('Bienes'),('Servicios'),('Papelería')) as t(v)
+where not exists (select 1 from public.catalogos_pedido c where c.scope='clasificacion' and lower(c.nombre)=lower(t.v));
+
 -- Movimientos de tanque (botón "Registrar Movimiento"). El tipo define el signo:
 --   ingreso / retorno → suman litros al tanque · consumo / merma → restan.
 -- Si el tanque tiene combustible asignado, se refleja también en el inventario.

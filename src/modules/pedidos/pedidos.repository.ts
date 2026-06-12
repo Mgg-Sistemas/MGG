@@ -1223,3 +1223,51 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
   }
   return out;
 }
+
+/* ─────────────────────────────────────────────
+   Catálogos de Pedidos (botón "📒 Categorías")
+   scope 'clasificacion' = clasificación del pedido
+   scope 'unidad_solicitante' = unidad/área que solicita
+   ───────────────────────────────────────────── */
+export type ScopeCatalogoPedido = 'clasificacion' | 'unidad_solicitante';
+export interface CatalogoPedido {
+  id: string;
+  scope: ScopeCatalogoPedido;
+  nombre: string;
+  estado: 'activo' | 'inactivo';
+}
+
+export async function listCatalogoPedido(scope: ScopeCatalogoPedido, soloActivos = false): Promise<CatalogoPedido[]> {
+  let q = supabase.from('catalogos_pedido').select('id, scope, nombre, estado').eq('scope', scope).order('nombre', { ascending: true });
+  if (soloActivos) q = q.eq('estado', 'activo');
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as CatalogoPedido[];
+}
+
+export async function crearCatalogoPedido(scope: ScopeCatalogoPedido, nombre: string, actorEmail?: string | null): Promise<void> {
+  const n = nombre.trim();
+  if (!n) throw new Error('El nombre es obligatorio.');
+  const { error } = await supabase.from('catalogos_pedido').insert({ scope, nombre: n, created_by: actorEmail ?? null });
+  // Duplicado (mismo scope+nombre, case-insensitive) → no es error para el usuario.
+  if (error && !String(error.message ?? '').includes('duplicate') && !String(error.code ?? '').includes('23505')) throw error;
+}
+
+export async function actualizarCatalogoPedido(id: string, nombre: string): Promise<void> {
+  const n = nombre.trim();
+  if (!n) throw new Error('El nombre no puede estar vacío.');
+  const { error } = await supabase.from('catalogos_pedido').update({ nombre: n, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function setEstadoCatalogoPedido(id: string, estado: 'activo' | 'inactivo'): Promise<void> {
+  const { error } = await supabase.from('catalogos_pedido').update({ estado, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+/** Guarda (si no existe) la unidad/área solicitante tipeada al crear una OP. Idempotente. */
+export async function ensureUnidadSolicitante(nombre: string | null | undefined, actorEmail?: string | null): Promise<void> {
+  const n = (nombre ?? '').trim();
+  if (!n) return;
+  try { await crearCatalogoPedido('unidad_solicitante', n, actorEmail); } catch { /* no bloquear la creación de la OP */ }
+}

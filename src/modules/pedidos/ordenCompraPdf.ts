@@ -250,7 +250,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       doc.setFontSize(8);
       doc.setTextColor(120);
       doc.text(
-        `Solicitante: ${o.solicitante ?? o.solicitante_email}`,
+        `Solicitante: ${o.ci_solicitante ?? o.solicitante ?? o.solicitante_email}`,
         PAGE_W - MARGIN,
         y + 12,
         { align: 'right' },
