@@ -15,6 +15,8 @@ interface TrazabilidadData {
   proveedoresPorId: Map<string, Proveedor>;
   ofertas: OfertaProveedor[];
   evaluacion: EvaluacionRecepcion | null;
+  /** email → nombre, para mostrar quién aprobó/confirmó (no el correo crudo). */
+  nombrePorEmail: Map<string, string>;
 }
 
 async function cargarTrazabilidad(ordenId: string): Promise<TrazabilidadData> {
@@ -39,12 +41,27 @@ async function cargarTrazabilidad(ordenId: string): Promise<TrazabilidadData> {
     (provs ?? []).forEach((p: Proveedor) => proveedoresPorId.set(p.id, p));
   }
 
+  // Resolvemos los correos de quienes intervinieron (aprobó / confirmó / creó OC)
+  // a su nombre, para no mostrar el correo crudo en el PDF.
+  const emails = Array.from(new Set(
+    [orden.aprobada_por, orden.oc_aprobada_por, orden.oc_creada_por, orden.solicitante_email]
+      .filter((e): e is string => !!e),
+  ));
+  const nombrePorEmail = new Map<string, string>();
+  if (emails.length) {
+    const { data: us } = await supabase.from('usuarios').select('email, nombre').in('email', emails);
+    (us ?? []).forEach((u: { email?: string; nombre?: string }) => {
+      if (u.email && u.nombre) nombrePorEmail.set(u.email, u.nombre);
+    });
+  }
+
   return {
     orden: orden as Orden,
     proveedorFinal: orden.proveedor_id ? proveedoresPorId.get(orden.proveedor_id) ?? null : null,
     proveedoresPorId,
     ofertas: (ofertas ?? []) as OfertaProveedor[],
     evaluacion: (evals ?? null) as EvaluacionRecepcion | null,
+    nombrePorEmail,
   };
 }
 
@@ -61,7 +78,9 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
-  const { orden, proveedorFinal, proveedoresPorId, ofertas, evaluacion } = data;
+  const { orden, proveedorFinal, proveedoresPorId, ofertas, evaluacion, nombrePorEmail } = data;
+  // email → nombre (o el propio correo si no está en usuarios).
+  const quien = (email?: string | null) => (email ? nombrePorEmail.get(email) ?? email : '—');
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -108,7 +127,9 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ['Fecha de solicitud', dateTime(orden.created_at)],
     ['Estado actual', orden.estado],
     ['Clasificación', orden.clasificacion?.length ? orden.clasificacion.join(' · ') : '—'],
-    ['Motivo / Justificación', orden.notas ?? '—'],
+    ['Aprobada por', orden.aprobada_en ? quien(orden.aprobada_por) : '— (pendiente)'],
+    ['Fecha de aprobación', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
+    ['Nota', orden.notas ?? '—'],
   ];
   autoTable(doc, {
     startY: y,
@@ -126,19 +147,21 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   y += 6;
   autoTable(doc, {
     startY: y,
-    head: [['SKU', 'Producto', 'Cantidad', 'Precio unit.', 'Subtotal']],
+    head: [['SKU', 'Producto', 'Finalidad', 'Área', 'Cantidad', 'Precio unit.', 'Subtotal']],
     body: orden.items.map((it) => [
       it.sku,
       it.nombre,
+      it.finalidad?.trim() || '—',
+      it.area?.trim() || '—',
       num(it.cantidad),
       money(it.precio),
       money(it.cantidad * it.precio),
     ]),
-    foot: [['', '', '', 'TOTAL', money(orden.total)]],
+    foot: [['', '', '', '', '', 'TOTAL', money(orden.total)]],
     theme: 'grid',
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
-    columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+    columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
     margin: { left: MARGIN, right: MARGIN },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
@@ -187,8 +210,8 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ['Contacto', proveedorFinal?.contacto ?? '—'],
     ['Total de la orden', money(orden.total)],
     ['Almacén destino', orden.almacen_destino ?? '—'],
-    ['Fecha de aprobación', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
-    ['Aprobada por', orden.aprobada_por ?? '—'],
+    ['OC confirmada por', orden.oc_aprobada_en ? quien(orden.oc_aprobada_por) : '—'],
+    ['Fecha de confirmación', orden.oc_aprobada_en ? dateTime(orden.oc_aprobada_en) : '—'],
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
     ['Documentos de la OC', documentosOc.length ? documentosOc.join(' · ') : '—'],

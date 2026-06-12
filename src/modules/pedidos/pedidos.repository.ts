@@ -244,10 +244,20 @@ export async function aprobarOrdenConOferta(
     .order('registrada_en', { ascending: false })
     .limit(1)
     .maybeSingle();
+  // La oferta manda en precio/cantidad, pero la FINALIDAD y el ÁREA (y el flag
+  // comprar) los puso el solicitante en la OP: los conservamos por SKU para que
+  // no se pierdan al crear la OC.
+  const origBySku = new Map(o.items.map((it) => [it.sku, it]));
+  const itemsConContexto = ofertaItems.map((of) => {
+    const orig = origBySku.get(of.sku);
+    return orig
+      ? { ...of, finalidad: of.finalidad ?? orig.finalidad, area: of.area ?? orig.area, comprar: of.comprar ?? orig.comprar }
+      : of;
+  });
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
-    items: ofertaItems,
+    items: itemsConContexto,
     total: ofertaPrecioTotal,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,

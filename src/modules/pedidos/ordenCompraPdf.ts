@@ -261,20 +261,21 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
     autoTable(doc, {
       startY: y,
-      head: [['SKU', 'Descripción', 'Cantidad', 'Precio unit.', 'Subtotal']],
+      head: [['SKU', 'Descripción', 'Área', 'Cantidad', 'Precio unit.', 'Subtotal']],
       body: o.items.map((it) => [
         it.sku,
         it.nombre,
+        it.area?.trim() || '—',
         num(it.cantidad),
         money(it.precio),
         money(it.cantidad * it.precio),
       ]),
-      foot: [['', '', '', esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL', money(o.total)]],
+      foot: [['', '', '', '', esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL', money(o.total)]],
       theme: 'grid',
       headStyles: { fillColor: [255, 138, 0], textColor: 255 },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       styles: { fontSize: 9, cellPadding: 4 },
-      columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
       margin: { left: MARGIN, right: MARGIN },
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
