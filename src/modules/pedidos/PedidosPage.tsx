@@ -2296,10 +2296,11 @@ function CrearOrdenModal({
     }
   }
 
-  // Solicitante y CI: por defecto la ficha del usuario logueado, pero EDITABLES
+  // Unidad solicitante (departamento) arranca VACÍA: la escribe quien crea la OP.
+  // El Solicitante (nombre) viene precargado con el usuario logueado pero es editable
   // (un analista puede crear la solicitud a nombre de otra persona).
-  const [solicitanteNombre, setSolicitanteNombre] = useState(usuario?.nombre ?? authEmail);
-  const [solicitanteCi, setSolicitanteCi] = useState(usuario?.ci ?? '');
+  const [solicitanteNombre, setSolicitanteNombre] = useState('');
+  const [solicitanteCi, setSolicitanteCi] = useState(usuario?.nombre ?? '');
 
   useEffect(() => {
     nextCodigo().then(setCodigo).catch(() => setCodigo('OP-?'));

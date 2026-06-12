@@ -250,6 +250,8 @@ export interface Retencion {
 export interface Combustible {
   id: string;
   nombre: string;
+  /** Sede dueña del combustible (LOS PINOS, MATANZAS…). */
+  sede?: string | null;
   litros: number;
   costo_litro: number;
   estado: EstadoGenerico;
@@ -274,6 +276,8 @@ export interface Tanque {
   /** Litros actuales en el tanque (suben con ingresos, bajan con salidas). */
   litros: number;
   ubicacion?: string | null;
+  /** Sede dueña del tanque (LOS PINOS, MATANZAS…). */
+  sede?: string | null;
   /** Tasa del tanque (p. ej. 0.50), editable. */
   tasa?: number | null;
   /** Nota de cubicación del tanque (editable). */
