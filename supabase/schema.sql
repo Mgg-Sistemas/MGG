@@ -1859,7 +1859,6 @@ insert into public.acopio_clasificaciones (grupo, valor, orden) values
   ('gastos_caja','MAQUINARIA LIVIANA: REPUESTOS - REPARACIONES - SERVICIOS',19),
   ('gastos_caja','VEHICULO: REPUESTOS - REPARACIONES - SERVICIOS',20),
   ('gastos_caja','CENTRO DE ACOPIO: REPARACIONES - DOCUMENTACIÓN',21),
-  ('gastos_caja','EFECTIVO',22),
   ('movimientos_caja','1. ENTRADA DE CAJA',1),
   ('movimientos_caja','2. CAJA MULTIMONEDAS MGG / CAJA PERAMANAL',2),
   ('movimientos_caja','4. SALIDA DE CAJA GT PERAMANAL',3),
