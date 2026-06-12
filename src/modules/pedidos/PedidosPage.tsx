@@ -2240,6 +2240,30 @@ function CrearOrdenModal({
       .then((rows) => { if (rows.length) setClasifOpciones(rows.map((r) => r.nombre)); })
       .catch(() => { /* deja las por defecto */ });
   }, []);
+  // Unidad solicitante: desplegable desde el catálogo + alta al vuelo (se guarda en el catálogo).
+  const [unidadesSol, setUnidadesSol] = useState<string[]>([]);
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [addingUnidad, setAddingUnidad] = useState(false);
+  useEffect(() => {
+    listCatalogoPedido('unidad_solicitante', true)
+      .then((rows) => setUnidadesSol(rows.map((r) => r.nombre)))
+      .catch(() => setUnidadesSol([]));
+  }, []);
+  async function handleAddUnidad() {
+    const n = nuevaUnidad.trim();
+    if (!n) { toast('Escribí el nombre de la unidad', 'error'); return; }
+    const existente = unidadesSol.find((u) => u.toLowerCase() === n.toLowerCase());
+    if (existente) { setSolicitanteNombre(existente); setNuevaUnidad(''); toast(`La unidad "${existente}" ya existe — se seleccionó`, 'warning'); return; }
+    setAddingUnidad(true);
+    try {
+      await crearCatalogoPedido('unidad_solicitante', n, usuario?.email ?? authEmail);
+      setUnidadesSol((prev) => [...prev, n].sort((a, b) => a.localeCompare(b, 'es')));
+      setSolicitanteNombre(n);
+      setNuevaUnidad('');
+      toast(`Unidad "${n}" agregada al catálogo`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar la unidad', 'error'); }
+    finally { setAddingUnidad(false); }
+  }
   // Productos del inventario + los nuevos creados al vuelo en este modal.
   const [extraProductos, setExtraProductos] = useState<Producto[]>([]);
   const allProductos = useMemo(() => [...productos, ...extraProductos], [productos, extraProductos]);
@@ -2388,12 +2412,28 @@ function CrearOrdenModal({
       <div className="form-grid">
         <div className="form-row">
           <label>Unidad solicitante</label>
-          <input
-            className="input"
+          <SearchSelect
             value={solicitanteNombre}
-            onChange={(e) => setSolicitanteNombre(e.target.value)}
+            onChange={setSolicitanteNombre}
+            options={unidadesSol.map((u) => ({ value: u, label: u }))}
             placeholder="Departamento / unidad que solicita"
+            emptyText="Sin unidades en el catálogo. Agregá una abajo."
           />
+          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+            <input
+              className="input"
+              style={{ flex: 1 }}
+              placeholder="¿No está? Escribí la unidad nueva…"
+              value={nuevaUnidad}
+              onChange={(e) => setNuevaUnidad(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddUnidad(); } }}
+              maxLength={60}
+            />
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => void handleAddUnidad()} disabled={addingUnidad}>
+              {addingUnidad ? 'Añadiendo…' : '+ Añadir'}
+            </button>
+          </div>
+          <small className="muted" style={{ fontSize: '.72rem' }}>La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
         </div>
         <div className="form-row">
           <label>Código</label>
