@@ -918,3 +918,279 @@ export const DEFAULT_PESOS_SCORE: PesosScore = {
   calidad: 0.25,
   cumplimiento: 0.10,
 };
+
+/* ============================================================
+   Centro de Acopio (LA ESPERANZA) — tipos portados de Golden Touch
+   Módulo standalone: integraciones con otros módulos desacopladas.
+   ============================================================ */
+
+export type EstadoRecepcionAcopio = 'abierta' | 'cerrada' | 'anulada';
+
+/** Un renglón de lote dentro de una recepción. Los campos `*_calc`/diferencias
+ *  son columnas GENERADAS en la base (no se envían al guardar). */
+export interface RecepcionAcopioLote {
+  id: string;
+  recepcion_id: string;
+  orden: number;
+  nro_lote?: string | null;
+  cantidad_bolsas: number;
+  peso_bolsa_kg: number;
+  /** 🧮 generado: cantidad_bolsas × peso_bolsa_kg */
+  peso_bruto_total: number;
+  peso_neto_kg: number;
+  /** 🧮 generado: peso_bruto_total − peso_neto_kg */
+  dif_bruto_neto: number;
+  precinto_inicio?: string | null;
+  peso_recepcionado_kg: number;
+  /** 🧮 generado: peso_neto_kg − peso_recepcionado_kg */
+  dif_neto_recepcionado: number;
+  precinto_final?: string | null;
+  verificado: boolean;
+  created_at?: string;
+}
+
+/** Recepción de mineral por centro de acopio (maestro). Al cerrar suma stock. */
+export interface RecepcionAcopio {
+  id: string;
+  numero: string;
+  fecha: string;
+  centro_acopio?: string | null;
+  aliado?: string | null;
+  /** Producto del inventario al que se suma el mineral recibido al cerrar. */
+  producto_id?: string | null;
+  /** Almacén destino del stock al cerrar. */
+  almacen?: string | null;
+  entregado_nombre?: string | null;
+  entregado_ci?: string | null;
+  recibido_nombre?: string | null;
+  recibido_ci?: string | null;
+  observaciones?: string | null;
+  estado: EstadoRecepcionAcopio;
+  /** Traza del movimiento de inventario generado al cerrar (para revertir al anular). */
+  mov_id?: string | null;
+  mov_producto_id?: string | null;
+  mov_almacen?: string | null;
+  mov_cantidad?: number | null;
+  cerrada_por?: string | null;
+  cerrada_en?: string | null;
+  anulada_por?: string | null;
+  anulada_en?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  /** Lotes embebidos (cuando se cargan juntos). */
+  lotes?: RecepcionAcopioLote[];
+}
+
+/* ───────────── Contratos de producción (Centro de Acopio) ───────────── */
+
+export type TipoCatalogoAcopio = 'lugar_extraccion' | 'supervisor';
+
+/** Catálogo editable del acopio (lugares de extracción, etc.). */
+export interface CatalogoAcopio {
+  id: string;
+  tipo: TipoCatalogoAcopio;
+  valor: string;
+  activo: boolean;
+  orden: number;
+  created_at: string;
+}
+
+export type EstadoContratoAcopio = 'activo' | 'cerrado';
+
+/** Contrato de producción correlativo ("Producción GT-01", -02, …). */
+export interface ContratoAcopio {
+  id: string;
+  numero: string;
+  seq: number;
+  fecha: string;
+  hora?: string | null;
+  supervisor?: string | null;
+  lugar_extraccion?: string | null;
+  molino?: string | null;
+  // Inputs principales (réplica del Excel).
+  ton_procesadas: number;
+  kg_humedo: number;
+  kg_secos: number;
+  /** Kg seco, limpio = Casiterita final obtenida (= Kg seco Limpio Finales). */
+  kg_seco_limpio: number;
+  // Fórmulas automáticas (columnas generadas en la BD).
+  tolva?: number | null;
+  pct_recuperado_impurezas?: number | null;
+  pct_humedad?: number | null;
+  pct_recuperacion_casiterita?: number | null;
+  kg_hierro?: number | null;
+  pct_hierro?: number | null;
+  // KG MESAS (merma por humedad): inputs manuales + fórmulas de la BD.
+  mesa_peso_mojado?: number | null;
+  mesa_peso_seco?: number | null;
+  mesa_merma_kg?: number | null;     // = mesa_peso_seco − mesa_peso_mojado (admite negativo)
+  mesa_pct_merma?: number | null;    // = merma / mesa_peso_mojado × 100
+  estado: EstadoContratoAcopio;
+  cerrado_at?: string | null;
+  cerrado_por?: string | null;
+  // Enlace con el inventario al cerrar (entrada de casiterita; para revertir al reabrir).
+  mov_id?: string | null;
+  mov_producto_id?: string | null;
+  mov_almacen?: string | null;
+  mov_cantidad?: number | null;
+  observaciones?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
+/* ───────────── Caja Peramanal (Centro de Acopio) ───────────── */
+
+/** Los 5 grupos de clasificación de la hoja CLASIFICACIONES del Excel. */
+export type GrupoClasificacion = 'contratos' | 'gastos_caja' | 'movimientos_caja' | 'nomina' | 'traslado';
+
+export interface ClasificacionAcopio {
+  id: string;
+  grupo: GrupoClasificacion;
+  valor: string;
+  orden: number;
+  activo: boolean;
+}
+
+/** Un movimiento del libro de caja (réplica de una fila de "CAJA PERAMANAL"). */
+export interface CajaMovimiento {
+  id: string;
+  fecha: string;
+  descripcion?: string | null;
+  usd_entregado: number;   // D · entrada de caja
+  kg_cerrados: number;     // E · Kg de casiterita cerrados
+  facturados: number;      // G · $Usd facturados
+  gastos: number;          // H · Gastos GT
+  nominas: number;         // I · Nóminas GT
+  traslado: number;        // J · Traslado de caja
+  kg_recibidos: number;    // L · Kg recibidos por MGG
+  clasif_grupo?: GrupoClasificacion | null;
+  clasif_valor?: string | null;
+  /** Clasificación de costo en 2 niveles (análisis de costos del cierre). */
+  costo_clasificacion?: string | null;
+  costo_subclasificacion?: string | null;
+  /** Caja/cierre al que pertenece el movimiento. */
+  caja_id?: string | null;
+  orden: number;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  /** Saldos corrientes calculados en el front (K y M del Excel). */
+  saldo_usd?: number;
+  saldo_kg?: number;
+}
+
+/** Taxonomía de costos en 2 niveles (Clasificación → Sub-clasificación). */
+export interface CostoClase {
+  id: string;
+  clasificacion: string;
+  subclasificacion: string;
+  orden: number;
+  activo: boolean;
+}
+
+/** Una caja / cierre de la Caja Peramanal (período con número y recepción). */
+export interface CajaCierre {
+  id: string;
+  numero: string;
+  nombre?: string | null;
+  recepcion?: string | null;
+  fecha_inicio: string;
+  fecha_fin?: string | null;
+  estado: 'abierta' | 'cerrada';
+  saldo_final?: number | null;
+  cerrada_por?: string | null;
+  cerrada_en?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+/** Agregados de la caja (cabecera del Excel: D3,E3,F3,G3,H3,I3,J3,K3,M3). */
+export interface CajaResumen {
+  usdEntregado: number;   // D3
+  kgCerrados: number;     // E3
+  facturados: number;     // G3
+  gastos: number;         // H3
+  nominas: number;        // I3
+  traslado: number;       // J3
+  saldoUsd: number;       // K3 = D - G - H - I - J
+  kgRecibidos: number;    // L3
+  saldoKg: number;        // M3 = E - L
+  /** Tasa del material = (facturados + gastos + nominas) / kgCerrados (F3). */
+  tasa: number;
+}
+
+/* ───────────── Cuadre de Caja (Efectivo) · Centro de Acopio ───────────── */
+
+export type TipoMovCuadre = 'entrada' | 'salida';
+export type CategoriaCuadre = 'nomina' | 'adelanto_vale' | 'compra_casiterita' | 'compra_comida' | 'refuerzo' | 'traslado' | 'otro';
+
+/** Conteo físico de billetes (denominación × cantidad). */
+export interface ConteoBillete {
+  denom: number;
+  cantidad: number;
+}
+
+export interface CuadreMovimiento {
+  id: string;
+  cuadre_id: string;
+  fecha?: string | null;
+  tipo: TipoMovCuadre;
+  categoria?: CategoriaCuadre | null;
+  descripcion?: string | null;
+  beneficiario?: string | null;
+  monto: number;
+  monto_bs: number;
+  es_vale: boolean;
+  pagado: boolean;
+  nota?: string | null;
+  orden: number;
+  created_at?: string;
+  /** Saldo corriente tras este movimiento (calculado en el front). */
+  saldo?: number;
+}
+
+export interface Cuadre {
+  id: string;
+  numero: string;
+  fecha: string;
+  fuente?: string | null;
+  responsable?: string | null;
+  monto_recibido: number;
+  billetes: ConteoBillete[];
+  verificado: boolean;
+  observaciones?: string | null;
+  estado: 'abierto' | 'cerrado';
+  cerrado_por?: string | null;
+  cerrado_en?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  movimientos?: CuadreMovimiento[];
+}
+
+/** Una celda de una hoja del Excel montada como grilla fiel. */
+export interface CeldaExcel {
+  v?: string;   // texto mostrado
+  c?: string;   // color de fondo (#hex)
+  t?: string;   // color de texto (#hex)
+  b?: 1;        // negrita
+  cs?: number;  // colspan
+  rs?: number;  // rowspan
+  x?: 1;        // cubierta por un merge (no se renderiza)
+}
+
+/** Una hoja del libro Excel, como snapshot de referencia. */
+export interface HojaExcel {
+  id: string;
+  nombre: string;
+  orden: number;
+  cols: number;
+  datos: CeldaExcel[][];
+  updated_at?: string | null;
+}
