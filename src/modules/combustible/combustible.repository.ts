@@ -26,6 +26,31 @@ const UNIDAD_COMBUSTIBLE = 'l';
 
 /* ───────────── Inventario de combustible ───────────── */
 
+/** Sede del módulo Combustible (tarjeta de la pantalla inicial). */
+export interface SedeCombustible {
+  id: string;
+  clave: string;   // valor estable guardado en combustibles.sede / tanques.sede
+  nombre: string;  // nombre visible en la tarjeta (editable)
+  titulo: string;  // título de la vista de esa sede (editable)
+  orden: number;
+}
+
+export async function listSedesCombustible(): Promise<SedeCombustible[]> {
+  const { data, error } = await supabase.from('combustible_sedes').select('id, clave, nombre, titulo, orden').order('orden', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as SedeCombustible[];
+}
+
+/** Renombra una sede: cambia el nombre de la tarjeta y el título de su vista (no toca los datos). */
+export async function renombrarSedeCombustible(id: string, nombre: string, titulo?: string): Promise<void> {
+  const n = nombre.trim();
+  if (!n) throw new Error('El nombre de la sede es obligatorio.');
+  const patch: Record<string, unknown> = { nombre: n, updated_at: new Date().toISOString() };
+  patch.titulo = (titulo?.trim()) || `COMBUSTIBLE ${n}`;
+  const { error } = await supabase.from('combustible_sedes').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
 export async function listCombustibles(): Promise<Combustible[]> {
   const { data, error } = await supabase
     .from('combustibles')
@@ -685,6 +710,8 @@ export async function crearTanqueMovimiento(input: {
   tanqueId: string;
   tipo: TipoMovimientoTanque;
   litros: number;
+  /** Tasa (costo por litro) de esta carga. Solo aplica en 'ingreso': pondera el PMP del combustible. */
+  costoLitro?: number | null;
   fecha?: string | null;
   horometroInicial?: number | null;
   horometroFinal?: number | null;
@@ -722,7 +749,12 @@ export async function crearTanqueMovimiento(input: {
   if (combustibleId) {
     if (suma) {
       const { data: comb } = await supabase.from('combustibles').select('costo_litro').eq('id', combustibleId).maybeSingle();
-      costoLitro = Number((comb as { costo_litro?: number } | null)?.costo_litro) || 0;
+      const costoActual = Number((comb as { costo_litro?: number } | null)?.costo_litro) || 0;
+      // En 'ingreso' se puede indicar la TASA (costo por litro) de esta carga; registrarIngreso
+      // la pondera contra el costo actual (PMP). En 'retorno' vuelve al costo actual (sin nueva tasa).
+      costoLitro = (input.tipo === 'ingreso' && input.costoLitro != null && Number(input.costoLitro) >= 0)
+        ? Math.max(0, Number(input.costoLitro) || 0)
+        : costoActual;
       const almacen = await almacenCasaCombustible(combustibleId);
       await registrarIngreso({ combustibleId, almacen, tanqueId: tq.id, litros, costoLitro, actor: input.actor, actorName: input.actorName, detalle: etiqueta });
     } else {
@@ -752,6 +784,9 @@ export async function crearTanqueMovimiento(input: {
     actor: input.actor, actor_name: input.actorName ?? null,
   });
   if (mErr) throw mErr;
+
+  // Re-encadena el contador del tanque y el horómetro del equipo (orden por fecha).
+  await reencadenarTrasCambio(tq.id, null, input.equipo?.trim() || null, null);
 }
 
 /**
@@ -821,17 +856,73 @@ export async function eliminarTanqueMovimiento(id: string, actor: string, actorN
   );
   const { error: dErr } = await supabase.from('combustible_tanque_movimientos').delete().eq('id', id);
   if (dErr) throw dErr;
+
+  // Al quitar un eslabón, re-encadenamos el resto (contador del tanque, horómetro del equipo).
+  await reencadenarTrasCambio((m.tanque_id as string) ?? null, null, (m.equipo as string) ?? null, null);
 }
 
 /**
- * Edita un movimiento de tanque. Si cambian litros o tipo, recalcula la diferencia
- * y la aplica al tanque/combustible/inventario para que todo siga cuadrado.
+ * Re-encadena un medidor acumulativo (horómetro por equipo o contador por tanque)
+ * en orden cronológico: cada movimiento CONSERVA su delta (final − inicial) y se
+ * re-apilan desde la lectura base (la más baja). Así, al cambiar la fecha de un
+ * movimiento, el inicial de cada uno vuelve a ser el final del anterior.
+ */
+async function reencadenarMedidor(
+  campo: 'horometro' | 'contador',
+  filtro: { columna: 'equipo' | 'tanque_id'; valor: string },
+): Promise<void> {
+  const colIni = campo === 'horometro' ? 'horometro_inicial' : 'contador_global_ini';
+  const colFin = campo === 'horometro' ? 'horometro_final' : 'contador_global_fin';
+  const { data } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select(`id, fecha, created_at, ${colIni}, ${colFin}`)
+    .eq(filtro.columna, filtro.valor);
+  const filas = (data ?? []) as Array<Record<string, unknown>>;
+  const movs = filas
+    .filter((m) => m[colIni] != null && m[colFin] != null)
+    .sort((a, b) => {
+      const fa = new Date(a.fecha as string).getTime();
+      const fb = new Date(b.fecha as string).getTime();
+      if (fa !== fb) return fa - fb;
+      return new Date((a.created_at as string) ?? 0).getTime() - new Date((b.created_at as string) ?? 0).getTime();
+    });
+  if (!movs.length) return;
+  const base = Math.min(...movs.map((m) => Number(m[colIni]) || 0));
+  let running = base;
+  for (const m of movs) {
+    const delta = Math.max(0, (Number(m[colFin]) || 0) - (Number(m[colIni]) || 0));
+    const ini = running;
+    const fin = running + delta;
+    if (ini !== Number(m[colIni]) || fin !== Number(m[colFin])) {
+      await supabase.from('combustible_tanque_movimientos').update({ [colIni]: ini, [colFin]: fin }).eq('id', m.id as string);
+    }
+    running = fin;
+  }
+}
+
+/** Re-encadena el contador del tanque y el horómetro del equipo afectados (y los previos, si cambiaron). */
+async function reencadenarTrasCambio(
+  tanqueNuevo: string | null, tanqueViejo: string | null,
+  equipoNuevo: string | null, equipoViejo: string | null,
+): Promise<void> {
+  const tanques = new Set([tanqueNuevo, tanqueViejo].filter((x): x is string => !!x));
+  for (const t of tanques) await reencadenarMedidor('contador', { columna: 'tanque_id', valor: t });
+  const equipos = new Set([equipoNuevo, equipoViejo].filter((x): x is string => !!x));
+  for (const e of equipos) await reencadenarMedidor('horometro', { columna: 'equipo', valor: e });
+}
+
+/**
+ * Edita TODOS los datos de un movimiento de tanque. Si cambian el tanque, el tipo
+ * o los litros, recalcula los balances (tanque + combustible + inventario) para
+ * que todo siga cuadrado: revierte el efecto viejo y aplica el nuevo.
  */
 export async function actualizarTanqueMovimiento(
   id: string,
   patch: {
-    litros?: number; tipo?: TipoMovimientoTanque; equipo?: string | null;
+    tanqueId?: string; litros?: number; tipo?: TipoMovimientoTanque; equipo?: string | null;
     autorizadoPor?: string | null; destino?: string | null; observacion?: string | null; fecha?: string | null;
+    horometroInicial?: number | null; horometroFinal?: number | null;
+    contadorIni?: number | null; contadorFin?: number | null;
   },
   actor: string,
   actorName?: string | null,
@@ -842,29 +933,53 @@ export async function actualizarTanqueMovimiento(
   const m = mov as Record<string, unknown>;
   const oldLitros = Math.abs(Number(m.litros) || 0);
   const oldTipo = m.tipo as TipoMovimientoTanque;
+  const oldTanque = (m.tanque_id as string) ?? null;
+  const oldComb = (m.combustible_id as string) ?? null;
   const newLitros = patch.litros != null ? Math.abs(Number(patch.litros) || 0) : oldLitros;
   const newTipo = patch.tipo ?? oldTipo;
+  const newTanque = patch.tanqueId ?? oldTanque;
   if (newLitros <= 0) throw new Error('Los litros deben ser mayores que 0.');
 
   const oldEff = TIPO_TANQUE_SUMA[oldTipo] ? oldLitros : -oldLitros;
   const newEff = TIPO_TANQUE_SUMA[newTipo] ? newLitros : -newLitros;
-  const diff = newEff - oldEff;
-  await ajustarBalancesTanqueMov(
-    (m.tanque_id as string) ?? null,
-    (m.combustible_id as string) ?? null,
-    diff,
-    `Ajuste por edición de movimiento de tanque (${TIPO_TANQUE_LABEL[oldTipo]} → ${TIPO_TANQUE_LABEL[newTipo]})`,
-    actor, actorName,
-  );
 
-  const upd: Record<string, unknown> = { litros: newLitros, tipo: newTipo };
+  // Datos del tanque nuevo (puede ser el mismo): combustible y nombre.
+  let newComb: string | null = oldComb;
+  let newTanqueNombre: string | null = (m.tanque_nombre as string) ?? null;
+  if (newTanque !== oldTanque && newTanque) {
+    const { data: tq } = await supabase.from('combustible_tanques').select('nombre, combustible_id').eq('id', newTanque).maybeSingle();
+    newComb = (tq as { combustible_id?: string | null } | null)?.combustible_id ?? null;
+    newTanqueNombre = (tq as { nombre?: string } | null)?.nombre ?? newTanqueNombre;
+  }
+
+  if (newTanque === oldTanque && newComb === oldComb) {
+    // Mismo tanque y combustible: aplicamos solo la diferencia.
+    await ajustarBalancesTanqueMov(oldTanque, oldComb, newEff - oldEff,
+      `Ajuste por edición de movimiento de tanque (${TIPO_TANQUE_LABEL[oldTipo]} → ${TIPO_TANQUE_LABEL[newTipo]})`, actor, actorName);
+  } else {
+    // Cambió el tanque: revertimos el efecto en el viejo y aplicamos el nuevo.
+    await ajustarBalancesTanqueMov(oldTanque, oldComb, -oldEff, 'Reverso por mover el movimiento a otro tanque', actor, actorName);
+    await ajustarBalancesTanqueMov(newTanque, newComb, newEff, 'Aplicación al nuevo tanque del movimiento editado', actor, actorName);
+  }
+
+  const upd: Record<string, unknown> = { litros: newLitros, tipo: newTipo, tanque_id: newTanque, tanque_nombre: newTanqueNombre, combustible_id: newComb };
   if (patch.equipo !== undefined) upd.equipo = patch.equipo?.trim() || null;
   if (patch.autorizadoPor !== undefined) upd.autorizado_por = patch.autorizadoPor?.trim() || null;
   if (patch.destino !== undefined) upd.destino = patch.destino?.trim() || null;
   if (patch.observacion !== undefined) upd.observacion = patch.observacion?.trim() || null;
   if (patch.fecha !== undefined && patch.fecha) upd.fecha = patch.fecha;
+  if (patch.horometroInicial !== undefined) upd.horometro_inicial = patch.horometroInicial ?? null;
+  if (patch.horometroFinal !== undefined) upd.horometro_final = patch.horometroFinal ?? null;
+  if (patch.contadorIni !== undefined) upd.contador_global_ini = patch.contadorIni ?? null;
+  if (patch.contadorFin !== undefined) upd.contador_global_fin = patch.contadorFin ?? null;
   const { error: uErr } = await supabase.from('combustible_tanque_movimientos').update(upd).eq('id', id);
   if (uErr) throw uErr;
+
+  // Re-encadena los medidores (contador del tanque, horómetro del equipo) en el
+  // nuevo orden cronológico, conservando el delta de cada movimiento.
+  const oldEquipo = (m.equipo as string) ?? null;
+  const newEquipo = patch.equipo !== undefined ? (patch.equipo?.trim() || null) : oldEquipo;
+  await reencadenarTrasCambio(newTanque, oldTanque, newEquipo, oldEquipo);
 }
 
 /** Edita el combustible registrado desde su tarjeta: nombre y/o costo por litro. */

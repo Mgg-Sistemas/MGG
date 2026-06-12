@@ -414,6 +414,26 @@ alter table public.compras_directas add column if not exists proveedor_nombre te
 --   El ingreso suma litros al instante; finalizar descuenta litros.
 --   RLS: lectura auth, escritura is_operativo(). (Ver migración aplicada.)
 -- ─────────────────────────────────────────────────────────────
+-- Sedes del módulo Combustible (tarjetas de la pantalla inicial). `clave` es el
+-- valor estable guardado en combustibles.sede/tanques.sede; nombre/titulo son
+-- editables (renombrar la tarjeta sin tocar los datos).
+create table if not exists public.combustible_sedes (
+  id uuid primary key default gen_random_uuid(),
+  clave text not null unique,
+  nombre text not null,
+  titulo text not null,
+  orden int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+alter table public.combustible_sedes enable row level security;
+create policy "comb_sedes read auth" on public.combustible_sedes for select using (auth.role()='authenticated');
+create policy "comb_sedes write op"  on public.combustible_sedes for all using (public.is_operativo()) with check (public.is_operativo());
+insert into public.combustible_sedes (clave, nombre, titulo, orden) values
+  ('LOS PINOS','LOS PINOS','COMBUSTIBLE LOS PINOS',1),
+  ('MATANZAS','MGG','COMBUSTIBLE MGG - MATANZAS',2)
+on conflict (clave) do nothing;
+
 create table if not exists public.combustibles (
   id          uuid primary key default gen_random_uuid(),
   nombre      text not null,

@@ -16,7 +16,6 @@ import {
   renombrarCombustible,
   setEstadoCombustible,
   actualizarCombustible,
-  ajustarLitrosCombustible,
   crearSolicitudCombustible,
   aprobarSolicitudCombustible,
   finalizarSolicitudCombustible,
@@ -40,6 +39,9 @@ import {
   crearTanqueMovimiento,
   actualizarTanqueMovimiento,
   eliminarTanqueMovimiento,
+  listSedesCombustible,
+  renombrarSedeCombustible,
+  type SedeCombustible,
   listTanqueMovimientos,
   ultimoHorometroEquipo,
   ultimoContadorTanque,
@@ -166,22 +168,29 @@ export function CombustiblePage() {
   const [combEdit, setCombEdit] = useState<Combustible | null>(null);
   // Histórico de movimientos: null = todos los tanques; id = filtra por ese tanque.
   const [movTanqueId, setMovTanqueId] = useState<string | null>(null);
-  // Sede seleccionada: null = pantalla con las dos tarjetas; valor = vista de esa sede.
+  // Sede seleccionada: null = pantalla con las dos tarjetas; valor = clave de esa sede.
   const [sedeActiva, setSedeActiva] = useState<string | null>(null);
+  // Sedes (tarjetas) editables; arrancan con los valores por defecto hasta cargar la BD.
+  const [sedes, setSedes] = useState<SedeCombustible[]>(
+    SEDES_COMBUSTIBLE.map((s, i) => ({ id: s.key, clave: s.key, nombre: s.tarjeta, titulo: s.titulo, orden: i })),
+  );
+  const [sedeEdit, setSedeEdit] = useState<SedeCombustible | null>(null);
 
   const reload = useCallback(async () => {
-    const [cs, ss, ts, vs, trs] = await Promise.all([
+    const [cs, ss, ts, vs, trs, sd] = await Promise.all([
       listCombustibles(),
       listSolicitudesCombustible(),
       listTanques(),
       listVehiculos(),
       listTransferenciasCombustible().catch(() => [] as TransferenciaCombustibleInter[]),
+      listSedesCombustible().catch(() => [] as SedeCombustible[]),
     ]);
     setCombustibles(cs);
     setSolicitudes(ss);
     setTanques(ts);
     setVehiculos(vs);
     setTransfers(trs);
+    if (sd.length) setSedes(sd);
   }, []);
 
   useEffect(() => {
@@ -195,21 +204,30 @@ export function CombustiblePage() {
   // Realtime multiusuario: combustibles, solicitudes y tanques se reflejan al instante.
   useRealtime(['combustibles', 'combustible_solicitudes', 'combustible_tanques', 'combustible_vehiculos', 'transferencias_combustible_inter', 'combustible_tanque_movimientos', 'combustible_autorizados', 'combustible_ubicaciones'], () => { void reload(); });
 
+  // Litros REALES de cada combustible = suma de los litros de sus tanques (los
+  // movimientos de tanque mandan; el total sube/baja con los tanques).
+  const litrosPorComb = useMemo(() => {
+    const m = new Map<string, number>();
+    tanques.forEach((t) => { if (t.combustible_id) m.set(t.combustible_id, (m.get(t.combustible_id) ?? 0) + (Number(t.litros) || 0)); });
+    return m;
+  }, [tanques]);
+  const litrosDe = useCallback((c: Combustible) => litrosPorComb.get(c.id) ?? 0, [litrosPorComb]);
+
   // Vista por sede: solo el combustible/tanques/solicitudes de la sede activa.
   const combSede = useMemo(() => (sedeActiva ? combustibles.filter((c) => sedeDe(c) === sedeActiva) : combustibles), [combustibles, sedeActiva]);
   const tanquesSede = useMemo(() => (sedeActiva ? tanques.filter((t) => sedeDe(t) === sedeActiva) : tanques), [tanques, sedeActiva]);
   const activos = useMemo(() => combSede.filter((c) => c.estado === 'activo'), [combSede]);
-  const valorTotal = useMemo(() => combSede.reduce((a, c) => a + (Number(c.litros) || 0) * (Number(c.costo_litro) || 0), 0), [combSede]);
-  const litrosTotal = useMemo(() => combSede.reduce((a, c) => a + (Number(c.litros) || 0), 0), [combSede]);
+  const valorTotal = useMemo(() => combSede.reduce((a, c) => a + litrosDe(c) * (Number(c.costo_litro) || 0), 0), [combSede, litrosDe]);
+  const litrosTotal = useMemo(() => combSede.reduce((a, c) => a + litrosDe(c), 0), [combSede, litrosDe]);
   const hoyStr = new Date().toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
   // Totales por sede para las dos tarjetas grandes de la pantalla inicial.
-  const totalesPorSede = useMemo(() => SEDES_COMBUSTIBLE.map((s) => {
-    const list = combustibles.filter((c) => sedeDe(c) === s.key);
-    const litros = list.reduce((a, c) => a + (Number(c.litros) || 0), 0);
-    const valor = list.reduce((a, c) => a + (Number(c.litros) || 0) * (Number(c.costo_litro) || 0), 0);
-    return { ...s, litros, valor, nTanques: tanques.filter((t) => sedeDe(t) === s.key).length };
-  }), [combustibles, tanques]);
+  const totalesPorSede = useMemo(() => sedes.map((s) => {
+    const list = combustibles.filter((c) => sedeDe(c) === s.clave);
+    const litros = list.reduce((a, c) => a + (litrosPorComb.get(c.id) ?? 0), 0);
+    const valor = list.reduce((a, c) => a + (litrosPorComb.get(c.id) ?? 0) * (Number(c.costo_litro) || 0), 0);
+    return { ...s, litros, valor, nTanques: tanques.filter((t) => sedeDe(t) === s.clave).length };
+  }), [sedes, combustibles, tanques, litrosPorComb]);
 
   const solicitudesSede = useMemo(() => {
     if (!sedeActiva) return solicitudes;
@@ -227,7 +245,7 @@ export function CombustiblePage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>⛽ {sedeActiva ? SEDES_COMBUSTIBLE.find((s) => s.key === sedeActiva)?.titulo ?? 'Combustible' : 'Combustible'}</h1>
+          <h1>⛽ {sedeActiva ? sedes.find((s) => s.clave === sedeActiva)?.titulo ?? 'Combustible' : 'Combustible'}</h1>
           <p className="muted">
             {sedeActiva
               ? <>← <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => { setSedeActiva(null); setModal('none'); }}>Volver a las sedes</span> · Por aprobar → Aprobada → Finalizada (descuenta litros).</>
@@ -258,13 +276,19 @@ export function CombustiblePage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem', marginTop: '1rem' }}>
           {totalesPorSede.map((s) => (
             <div
-              key={s.key}
+              key={s.clave}
               className="card"
               style={{ cursor: 'pointer', padding: '1.6rem', borderColor: 'var(--primary)', borderWidth: 1 }}
-              onClick={() => setSedeActiva(s.key)}
-              title={`Ver el combustible de ${s.tarjeta}`}
+              onClick={() => setSedeActiva(s.clave)}
+              title={`Ver el combustible de ${s.nombre}`}
             >
-              <div className="card-title" style={{ fontSize: '1.15rem' }}><span>⛽ {s.tarjeta}</span><span className="muted" style={{ fontSize: '.8rem' }}>entrar →</span></div>
+              <div className="card-title" style={{ fontSize: '1.15rem' }}>
+                <span>⛽ {s.nombre}</span>
+                <span style={{ display: 'inline-flex', gap: '.5rem', alignItems: 'center' }}>
+                  {canWrite && <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '.1rem .4rem' }} title="Renombrar sede" onClick={(e) => { e.stopPropagation(); setSedeEdit(s); }}>✎</button>}
+                  <span className="muted" style={{ fontSize: '.8rem' }}>entrar →</span>
+                </span>
+              </div>
               <div className="mono" style={{ fontSize: '2.4rem', fontWeight: 800, marginTop: '.4rem' }}>{num(s.litros)} <span style={{ fontSize: '1rem', fontWeight: 400 }} className="muted">L</span></div>
               <div style={{ marginTop: '.4rem', fontSize: '1.05rem' }}>Total: <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(s.valor)}</strong></div>
               <div className="muted" style={{ fontSize: '.82rem', marginTop: '.5rem' }}>{s.nTanques} tanque(s) · al {hoyStr}</div>
@@ -285,7 +309,7 @@ export function CombustiblePage() {
       {/* Tarjetas de inventario */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
         {combSede.map((c) => {
-          const litros = Number(c.litros) || 0;
+          const litros = litrosDe(c);
           const costo = Number(c.costo_litro) || 0;
           return (
             <div key={c.id} className="card" style={{ opacity: c.estado === 'activo' ? 1 : 0.55, cursor: canWrite ? 'pointer' : 'default' }}
@@ -424,7 +448,7 @@ export function CombustiblePage() {
           onClose={() => setModal('none')} onChanged={reload} />
       )}
       {modal === 'movimiento' && (
-        <RegistrarMovimientoModal tanques={tanquesSede} vehiculos={vehiculos} actor={actor} actorName={miNombre}
+        <RegistrarMovimientoModal tanques={tanquesSede} vehiculos={vehiculos} combustibles={combSede} actor={actor} actorName={miNombre}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'movimientos' && (
@@ -432,7 +456,7 @@ export function CombustiblePage() {
           onClose={() => { setModal('none'); setMovTanqueId(null); }} />
       )}
       {combEdit && (
-        <EditarCombustibleModal combustible={combEdit} actor={actor} actorName={miNombre}
+        <EditarCombustibleModal combustible={combEdit}
           onClose={() => setCombEdit(null)} onSaved={async () => { setCombEdit(null); await reload(); }} />
       )}
       {modal === 'gestionar' && (
@@ -464,7 +488,52 @@ export function CombustiblePage() {
         <DetalleModal solicitud={detalle} canWrite={canWrite} actor={actor}
           onClose={() => setDetalle(null)} onChanged={async () => { await reload(); setDetalle(null); }} />
       )}
+      {sedeEdit && (
+        <SedeRenombrarModal sede={sedeEdit}
+          onClose={() => setSedeEdit(null)}
+          onSaved={async () => { setSedeEdit(null); await reload(); }} />
+      )}
     </div>
+  );
+}
+
+/* ───────────── Renombrar una sede de combustible (tarjeta) ───────────── */
+function SedeRenombrarModal({ sede, onClose, onSaved }: {
+  sede: SedeCombustible; onClose: () => void; onSaved: () => void;
+}) {
+  const [nombre, setNombre] = useState(sede.nombre);
+  const [titulo, setTitulo] = useState(sede.titulo);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    if (!nombre.trim()) { setError('El nombre es obligatorio.'); return; }
+    setSaving(true); setError(null);
+    try {
+      await renombrarSedeCombustible(sede.id, nombre, titulo);
+      toast('Sede renombrada', 'success');
+      onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
+  }
+
+  return (
+    <Modal title="✎ Renombrar sede" size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      <div className="form-row">
+        <label>Nombre de la tarjeta</label>
+        <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus placeholder="LOS PINOS, MGG…" />
+      </div>
+      <div className="form-row">
+        <label>Título de la vista <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        <input className="input" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder={`COMBUSTIBLE ${nombre || '…'}`} />
+      </div>
+      <small className="muted">Solo cambia el nombre visible; los combustibles y tanques de esta sede no se tocan. Los litros y el total siguen saliendo de los tanques.</small>
+    </Modal>
   );
 }
 
@@ -569,8 +638,8 @@ function SolicitudModal({ combustibles, tanques, vehiculos, actor, defaultSolici
 }
 
 /* ───────────── Registrar Movimiento de tanque (reemplaza "Registrar ingreso") ───────────── */
-function RegistrarMovimientoModal({ tanques, vehiculos, actor, actorName, onClose, onSaved }: {
-  tanques: Tanque[]; vehiculos: VehiculoMaquina[]; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, actorName, onClose, onSaved }: {
+  tanques: Tanque[]; vehiculos: VehiculoMaquina[]; combustibles: Combustible[]; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const activosTq = useMemo(() => tanques.filter((t) => t.estado === 'activo'), [tanques]);
   const [tanqueId, setTanqueId] = useState(activosTq[0]?.id ?? '');
@@ -579,6 +648,7 @@ function RegistrarMovimientoModal({ tanques, vehiculos, actor, actorName, onClos
   const [fecha, setFecha] = useState(() => ahora.toLocaleDateString('en-CA')); // YYYY-MM-DD local
   const [hora, setHora] = useState(() => ahora.toTimeString().slice(0, 5)); // HH:MM
   const [litros, setLitros] = useState('');
+  const [tasa, setTasa] = useState(''); // tasa (costo por litro) de la carga · solo ingreso
   const [equipo, setEquipo] = useState('');
   const [hi, setHi] = useState('');
   const [hf, setHf] = useState('');
@@ -606,6 +676,19 @@ function RegistrarMovimientoModal({ tanques, vehiculos, actor, actorName, onClos
   const vehiculosAct = vehiculos.filter((v) => v.estado === 'activo');
   const tipoInfo = TIPOS_MOVIMIENTO.find((t) => t.value === tipo)!;
   const litrosNum = Number(litros) || 0;
+
+  // Combustible del tanque elegido: su costo actual sirve para previsualizar el PMP de la carga.
+  const combTanque = useMemo(() => (tq?.combustible_id ? combustibles.find((c) => c.id === tq.combustible_id) ?? null : null), [combustibles, tq]);
+  const tasaNum = tasa.trim() === '' ? null : Number(tasa);
+  // PMP previsto = (litros_actual·costo_actual + litros_carga·tasa) / (litros_actual + litros_carga).
+  const pmpPrevisto = useMemo(() => {
+    if (tipo !== 'ingreso' || !combTanque || tasaNum == null || !(tasaNum >= 0) || litrosNum <= 0) return null;
+    const lp = Number(combTanque.litros) || 0;
+    const cp = Number(combTanque.costo_litro) || 0;
+    const total = lp + litrosNum;
+    if (total <= 0) return tasaNum;
+    return Math.round(((lp * cp + litrosNum * tasaNum) / total) * 10000) / 10000;
+  }, [tipo, combTanque, tasaNum, litrosNum]);
 
   // Al elegir un equipo, el HI se precarga con el último HF registrado para ese equipo.
   async function cambiarEquipo(nombre: string) {
@@ -635,6 +718,7 @@ function RegistrarMovimientoModal({ tanques, vehiculos, actor, actorName, onClos
     try {
       await crearTanqueMovimiento({
         tanqueId, tipo, litros: litrosNum, fecha: fechaIso,
+        costoLitro: tipo === 'ingreso' && tasaNum != null && tasaNum >= 0 ? tasaNum : null,
         horometroInicial: hi !== '' ? hiNum : null, horometroFinal: hf !== '' ? hfNum : null,
         contadorIni: ci !== '' ? ciNum : null, contadorFin: cf !== '' ? cfNum : null,
         equipo: equipo.trim() || null, autorizadoPor: autorizado.trim() || null,
@@ -684,10 +768,29 @@ function RegistrarMovimientoModal({ tanques, vehiculos, actor, actorName, onClos
             <input className="input" type="time" value={hora} onChange={(e) => setHora(e.target.value)} />
           </div>
         </div>
-        <div className="form-row">
-          <label>Litros</label>
-          <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required autoFocus />
-        </div>
+        {tipo === 'ingreso' ? (
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Litros</label>
+              <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required autoFocus />
+            </div>
+            <div className="form-row">
+              <label>Tasa (costo por litro)</label>
+              <input className="input mono no-upper" type="number" min={0} step="any" value={tasa} onChange={(e) => setTasa(e.target.value)}
+                placeholder={combTanque ? num(Number(combTanque.costo_litro) || 0) : 'Costo de esta carga'} />
+              {combTanque ? (
+                pmpPrevisto != null
+                  ? <small className="muted">Costo actual <strong className="mono">{num(Number(combTanque.costo_litro) || 0)}</strong> → PMP previsto <strong className="mono">{num(pmpPrevisto)}</strong></small>
+                  : <small className="muted">Si la dejás vacía, se mantiene el costo actual ({num(Number(combTanque.costo_litro) || 0)}). El PMP la pondera con el stock existente.</small>
+              ) : <small className="muted">El tanque no tiene combustible asignado: la tasa no aplica.</small>}
+            </div>
+          </div>
+        ) : (
+          <div className="form-row">
+            <label>Litros</label>
+            <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required autoFocus />
+          </div>
+        )}
         <div className="form-grid">
           <div className="form-row">
             <label>Equipo</label>
@@ -747,38 +850,22 @@ function RegistrarMovimientoModal({ tanques, vehiculos, actor, actorName, onClos
 }
 
 /* ───────────── Editar combustible desde la tarjeta (nombre + costo por litro) ───────────── */
-function EditarCombustibleModal({ combustible, actor, actorName, onClose, onSaved }: {
-  combustible: Combustible; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function EditarCombustibleModal({ combustible, onClose, onSaved }: {
+  combustible: Combustible; onClose: () => void; onSaved: () => void;
 }) {
-  const litrosActuales = Number(combustible.litros) || 0;
   const [nombre, setNombre] = useState(combustible.nombre);
   const [costo, setCosto] = useState(String(combustible.costo_litro ?? 0));
-  const [litros, setLitros] = useState(String(litrosActuales));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const litrosNum = Number(litros);
-  const litrosValido = litros.trim() !== '' && !Number.isNaN(litrosNum) && litrosNum >= 0;
-  const delta = litrosValido ? Math.round((litrosNum - litrosActuales) * 10000) / 10000 : 0;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!nombre.trim()) { setError('El nombre es obligatorio.'); return; }
-    if (!litrosValido) { setError('Indicá unos litros válidos (0 o más).'); return; }
     setSaving(true);
     try {
       await actualizarCombustible(combustible.id, { nombre: nombre.trim(), costoLitro: Number(costo) || 0 });
-      // Si cambió la cantidad, se registra un ajuste que también mueve el inventario.
-      if (delta !== 0) {
-        await ajustarLitrosCombustible(combustible.id, litrosNum, { actor, actorName, motivo: 'Ajuste manual desde la tarjeta' });
-      }
-      notify(
-        delta !== 0
-          ? `Combustible "${nombre.trim()}" actualizado · ajuste de ${delta > 0 ? '+' : ''}${num(delta)} L (ahora ${num(litrosNum)} L)`
-          : `Combustible "${nombre.trim()}" actualizado`,
-        'success', { link: '#/app/combustible' },
-      );
+      notify(`Combustible "${nombre.trim()}" actualizado`, 'success', { link: '#/app/combustible' });
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo actualizar.');
@@ -802,19 +889,7 @@ function EditarCombustibleModal({ combustible, actor, actorName, onClose, onSave
           <label>Costo por litro (USD)</label>
           <input className="input mono" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
         </div>
-        <div className="form-row">
-          <label>Litros (cantidad actual)</label>
-          <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} />
-          {delta !== 0 && litrosValido ? (
-            <small className="muted">
-              Ajuste: de <strong className="mono">{num(litrosActuales)} L</strong> a <strong className="mono">{num(litrosNum)} L</strong>
-              {' '}(<strong className="mono" style={{ color: delta > 0 ? 'var(--success)' : 'var(--danger)' }}>{delta > 0 ? '+' : ''}{num(delta)} L</strong>).
-              Se registra un <strong>movimiento de ajuste</strong> y se refleja en el inventario.
-            </small>
-          ) : (
-            <small className="muted">Si cambiás la cantidad, se registra un <strong>ajuste</strong> (entra/sale del inventario) para no descuadrar el stock.</small>
-          )}
-        </div>
+        <small className="muted">Los litros disponibles se calculan solos a partir de los tanques (sus movimientos). No se editan acá.</small>
       </form>
     </Modal>
   );
@@ -927,7 +1002,7 @@ function MovimientosModal({ tanques, tanqueId, actor, actorName, canWrite, onCha
 
       {editMov && (
         <EditarTanqueMovModal
-          mov={editMov} actor={actor} actorName={actorName}
+          mov={editMov} tanques={tanques} actor={actor} actorName={actorName}
           onClose={() => setEditMov(null)}
           onSaved={async () => { setEditMov(null); recargar(); await onChanged?.(); }}
         />
@@ -946,13 +1021,33 @@ function MovimientosModal({ tanques, tanqueId, actor, actorName, canWrite, onCha
   );
 }
 
-/* ───────────── Editar un movimiento de tanque (recalcula balances) ───────────── */
-function EditarTanqueMovModal({ mov, actor, actorName, onClose, onSaved }: {
-  mov: TanqueMovimiento; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+/* ───────────── Editar un movimiento de tanque (todos los datos · recalcula balances) ───────────── */
+// ISO → "YYYY-MM-DDTHH:mm" (hora local) para el input datetime-local, y de vuelta.
+function isoADatetimeLocal(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off * 60000);
+  return local.toISOString().slice(0, 16);
+}
+function numOrNull(s: string): number | null {
+  const n = Number(s);
+  return s.trim() !== '' && Number.isFinite(n) ? n : null;
+}
+
+function EditarTanqueMovModal({ mov, tanques, actor, actorName, onClose, onSaved }: {
+  mov: TanqueMovimiento; tanques: Tanque[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
+  const [tanqueId, setTanqueId] = useState(mov.tanque_id ?? '');
+  const [fecha, setFecha] = useState(isoADatetimeLocal(mov.fecha));
   const [tipo, setTipo] = useState<TipoMovimientoTanque>(mov.tipo);
   const [litros, setLitros] = useState(String(mov.litros ?? ''));
   const [equipo, setEquipo] = useState(mov.equipo ?? '');
+  const [hi, setHi] = useState(mov.horometro_inicial != null ? String(mov.horometro_inicial) : '');
+  const [hf, setHf] = useState(mov.horometro_final != null ? String(mov.horometro_final) : '');
+  const [contIni, setContIni] = useState(mov.contador_global_ini != null ? String(mov.contador_global_ini) : '');
+  const [contFin, setContFin] = useState(mov.contador_global_fin != null ? String(mov.contador_global_fin) : '');
   const [autorizado, setAutorizado] = useState(mov.autorizado_por ?? '');
   const [destino, setDestino] = useState(mov.destino ?? '');
   const [observacion, setObservacion] = useState(mov.observacion ?? '');
@@ -965,7 +1060,10 @@ function EditarTanqueMovModal({ mov, actor, actorName, onClose, onSaved }: {
     setSaving(true); setError(null);
     try {
       await actualizarTanqueMovimiento(mov.id, {
-        litros: l, tipo, equipo, autorizadoPor: autorizado, destino, observacion,
+        tanqueId: tanqueId || undefined, litros: l, tipo, equipo, autorizadoPor: autorizado, destino, observacion,
+        fecha: fecha ? new Date(fecha).toISOString() : undefined,
+        horometroInicial: numOrNull(hi), horometroFinal: numOrNull(hf),
+        contadorIni: numOrNull(contIni), contadorFin: numOrNull(contFin),
       }, actor, actorName);
       toast('Movimiento actualizado · tarjetas ajustadas', 'success');
       onSaved();
@@ -973,13 +1071,26 @@ function EditarTanqueMovModal({ mov, actor, actorName, onClose, onSaved }: {
   }
 
   return (
-    <Modal title="✎ Editar movimiento de tanque" size="md" onClose={onClose} footer={
+    <Modal title="✎ Editar movimiento de tanque" size="lg" onClose={onClose} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
       </>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Fecha y hora</label>
+          <input className="input" type="datetime-local" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label>Tanque</label>
+          <select className="select" value={tanqueId} onChange={(e) => setTanqueId(e.target.value)}>
+            {!tanqueId && <option value="">— elegí el tanque —</option>}
+            {tanques.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+          </select>
+        </div>
+      </div>
       <div className="form-grid">
         <div className="form-row">
           <label>Tipo</label>
@@ -994,12 +1105,20 @@ function EditarTanqueMovModal({ mov, actor, actorName, onClose, onSaved }: {
       </div>
       <div className="form-row"><label>Equipo</label><input className="input" value={equipo} onChange={(e) => setEquipo(e.target.value)} /></div>
       <div className="form-grid">
+        <div className="form-row"><label>Horómetro inicial (HI)</label><input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} /></div>
+        <div className="form-row"><label>Horómetro final (HF)</label><input className="input mono" type="number" step="any" value={hf} onChange={(e) => setHf(e.target.value)} /></div>
+      </div>
+      <div className="form-grid">
+        <div className="form-row"><label>Contador inicial</label><input className="input mono" type="number" step="any" value={contIni} onChange={(e) => setContIni(e.target.value)} /></div>
+        <div className="form-row"><label>Contador final</label><input className="input mono" type="number" step="any" value={contFin} onChange={(e) => setContFin(e.target.value)} /></div>
+      </div>
+      <div className="form-grid">
         <div className="form-row"><label>Autorizado por</label><input className="input" value={autorizado} onChange={(e) => setAutorizado(e.target.value)} /></div>
         <div className="form-row"><label>Destino</label><input className="input" value={destino} onChange={(e) => setDestino(e.target.value)} /></div>
       </div>
       <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} /></div>
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
-        Si cambiás el tipo o los litros, la diferencia se ajusta automáticamente en el tanque, el combustible y el inventario.
+        Si cambiás el <strong>tanque</strong>, el <strong>tipo</strong> o los <strong>litros</strong>, el sistema ajusta solo los balances en el tanque, el combustible y el inventario para que todo quede cuadrado.
       </p>
     </Modal>
   );

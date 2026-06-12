@@ -99,6 +99,48 @@ export function LineChart({ data, height = 220, color = '#ff8a00', yFormatter = 
   );
 }
 
+/**
+ * Gráfica de barras HORIZONTALES tipo ranking: una fila por ítem con la etiqueta
+ * a la izquierda, una barra proporcional al valor y el valor a la derecha. El
+ * color va de verde (el mayor) a rojo (el menor) según la posición. Espera la
+ * data ya ordenada de mayor a menor.
+ */
+export function RankedBarChart({ data, valueFormatter = String, emptyMessage }: {
+  data: ChartPoint[];
+  valueFormatter?: (v: number) => string;
+  emptyMessage?: string;
+}) {
+  if (!data.length) {
+    return (
+      <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
+        {emptyMessage ?? 'Sin datos para el periodo seleccionado.'}
+      </div>
+    );
+  }
+  const ordenada = [...data].sort((a, b) => b.value - a.value);
+  const max = Math.max(1, ...ordenada.map((d) => d.value));
+  const n = ordenada.length;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.45rem', maxHeight: 420, overflowY: 'auto' }}>
+      {ordenada.map((d, i) => {
+        const frac = n <= 1 ? 0 : i / (n - 1);
+        const hue = 140 - 140 * frac; // 140 = verde · 0 = rojo
+        const color = `hsl(${hue}, 62%, 46%)`;
+        const pct = Math.max(2, (d.value / max) * 100);
+        return (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 230px) 1fr auto', alignItems: 'center', gap: '.6rem' }}>
+            <span title={d.label} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '.85rem' }}>{d.label}</span>
+            <div style={{ background: 'rgba(226,232,240,0.06)', borderRadius: 999, height: 18, overflow: 'hidden' }} title={d.tooltip ?? `${d.label}: ${valueFormatter(d.value)}`}>
+              <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 999, transition: 'width .3s' }} />
+            </div>
+            <span className="mono" style={{ fontSize: '.85rem', whiteSpace: 'nowrap', fontWeight: 600 }}>{valueFormatter(d.value)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function BarChart({ data, height = 220, color = '#10b981', yFormatter = String, emptyMessage }: BaseProps) {
   const width = 720;
   const innerW = width - PAD.left - PAD.right;
