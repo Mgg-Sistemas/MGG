@@ -1,8 +1,9 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num, relTime } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Producto, TipoMovimiento } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { ProductoDetail } from '@/modules/inventario/ProductoDetail';
@@ -56,30 +57,23 @@ export function DashboardPage() {
     }
   }
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    loadDashboardData()
-      .then((data) => {
-        if (cancelled) return;
-        setKpis(data.kpis);
-        setCriticos(data.criticos);
-        setMovimientos(data.movimientos);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Error al cargar el dashboard');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+  const reload = useCallback(async () => {
+    try {
+      const data = await loadDashboardData();
+      setKpis(data.kpis);
+      setCriticos(data.criticos);
+      setMovimientos(data.movimientos);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al cargar el dashboard');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { setLoading(true); void reload(); }, [reload]);
+  // Realtime: el tablero refleja en vivo movimientos, compras, producción y catálogo.
+  useRealtime(['movimientos', 'ordenes', 'produccion', 'productos', 'existencias'], reload);
 
   return (
     <div>

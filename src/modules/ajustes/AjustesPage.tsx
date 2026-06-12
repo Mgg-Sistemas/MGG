@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/shared/lib/supabase';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
@@ -42,26 +43,21 @@ export function AjustesPage() {
   const [notifSound, setNotifSound] = useState(() => getNotifPrefs().sound);
   const [notifDuration, setNotifDuration] = useState(() => getNotifPrefs().duration);
 
-  useEffect(() => {
-    let cancelled = false;
+  const cargarPerfil = useCallback(async () => {
     if (!user) { setLoading(false); return; }
-    supabase
-      .from('usuarios')
-      .select('*')
-      .eq('id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return;
-        const u = (data ?? null) as Usuario | null;
-        setUsuario(u);
-        setNombre(u?.nombre ?? '');
-        setApellido(u?.apellido ?? '');
-        setTelefono(u?.telefono ?? '');
-        setDepartamento(u?.departamento ?? '');
-        setLoading(false);
-      });
-    return () => { cancelled = true; };
+    const { data } = await supabase.from('usuarios').select('*').eq('id', user.id).maybeSingle();
+    const u = (data ?? null) as Usuario | null;
+    setUsuario(u);
+    setNombre(u?.nombre ?? '');
+    setApellido(u?.apellido ?? '');
+    setTelefono(u?.telefono ?? '');
+    setDepartamento(u?.departamento ?? '');
+    setLoading(false);
   }, [user]);
+
+  useEffect(() => { void cargarPerfil(); }, [cargarPerfil]);
+  // Realtime: si cambian mi perfil/rol desde Usuarios, se refleja acá en vivo.
+  useRealtime(['usuarios'], cargarPerfil);
 
   async function handleGuardarPerfil() {
     if (!user) return;

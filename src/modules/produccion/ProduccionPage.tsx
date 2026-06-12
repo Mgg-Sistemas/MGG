@@ -4,6 +4,7 @@ import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Almacen, Existencia, Producto, Produccion } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
@@ -65,6 +66,8 @@ export function ProduccionPage() {
   }, []);
 
   useEffect(() => { void reload(); }, [reload]);
+  // Realtime: fundición + sus insumos/almacenes/hornos (multiusuario en vivo).
+  useRealtime(['produccion', 'produccion_materiales', 'hornos', 'productos', 'existencias', 'almacenes'], reload);
 
   // Filtros (solo aplican a la vista Lista).
   const filtradas = useMemo(() => {

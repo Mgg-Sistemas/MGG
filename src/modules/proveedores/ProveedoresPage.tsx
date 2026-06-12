@@ -6,6 +6,7 @@ import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { EstadoGenerico, Orden, Proveedor } from '@/shared/lib/types';
@@ -94,6 +95,9 @@ export function ProveedoresPage() {
   useEffect(() => {
     void refresh();
   }, []);
+  // Realtime: proveedores + sus datos de pago, ofertas y evaluaciones de recepción
+  // (el score se recalcula con compras/recepciones nuevas).
+  useRealtime(['proveedores', 'proveedor_datos_pago', 'ofertas_proveedor', 'evaluaciones_recepcion', 'ordenes'], () => { void refresh(); });
 
   // Abrir el detalle de un proveedor desde el buscador global (?detalle=ID).
   const [searchParams, setSearchParams] = useSearchParams();

@@ -14,6 +14,7 @@ import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { prefetchRoute } from '@/shared/lib/routePrefetch';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
@@ -97,6 +98,8 @@ export function AppShell() {
 
   // Cuando cualquier `notify()` persista en BD, refresca el contador de la campana.
   useEffect(() => onNotifRefresh(() => { void refreshUnread(); }), []);
+  // Realtime: el contador se actualiza en vivo si OTRO usuario me genera una notificación.
+  useRealtime(['notificaciones'], () => { void refreshUnread(); });
 
   async function handleLogout() {
     await signOut();
