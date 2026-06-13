@@ -2,7 +2,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { obtenerReporteBase64, type ReporteMeta } from './reportePdf';
 import { obtenerMovimientoDetalleBase64 } from './movimientoDetallePdf';
 import { obtenerCuentaPorPagarBase64 } from './cuentaPorPagarPdf';
-import type { CuentaPorPagar, AbonoCxP } from './cuentasPorPagar.repository';
+import type { CuentaPorPagar, AbonoCxP, IngresoCxP } from './cuentasPorPagar.repository';
 import type { MovimientoCaja, Orden } from '@/shared/lib/types';
 
 const FUNCTION_SLUG = 'enviar-reporte';
@@ -44,8 +44,9 @@ export async function enviarCuentaPorPagarPorCorreo(
   cuenta: CuentaPorPagar,
   abonos: AbonoCxP[],
   destinos?: string[] | string,
+  ingresos: IngresoCxP[] = [],
 ): Promise<{ destinatarios: string[] }> {
-  const { base64, nombre } = await obtenerCuentaPorPagarBase64(cuenta, abonos);
+  const { base64, nombre } = await obtenerCuentaPorPagarBase64(cuenta, abonos, ingresos);
   const lista = Array.isArray(destinos) ? destinos : destinos ? [destinos] : [];
   const tipoLabel = cuenta.tipo === 'proveedor' ? 'Proveedor' : 'Cliente';
   const { data, error } = await supabase.functions.invoke<

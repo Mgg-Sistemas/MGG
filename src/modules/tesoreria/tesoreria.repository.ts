@@ -69,6 +69,49 @@ export async function registrarGasto(input: {
   return data as MovimientoCaja;
 }
 
+/**
+ * Crédito (ENTRADA) simple a una caja: suma al saldo de (cuenta+moneda) sin tocar la
+ * tasa promedio (no es compra de divisa). Lo usa el cobro de una cuenta por cobrar
+ * (el cliente devuelve dinero). Si no existe la fila de saldo, la crea.
+ */
+export async function registrarIngresoCaja(input: {
+  cajaId: string; monto: number; concepto: string; categoria?: string;
+  cuenta?: CuentaCaja | null; moneda?: string | null;
+  actor: string; actorName?: string | null;
+}): Promise<MovimientoCaja> {
+  const monto = round2(Number(input.monto) || 0);
+  if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+  if (!input.concepto.trim()) throw new Error('Indicá el concepto del ingreso.');
+  const caja = await getCaja(input.cajaId);
+  const monedaPago = (input.moneda ?? caja.moneda) as string;
+  const cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
+
+  const { data: saldoRow } = await supabase.from(SALDOS)
+    .select('id, saldo').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
+  const saldoAntes = saldoRow ? (Number(saldoRow.saldo) || 0) : 0;
+  const saldoDespues = round2(saldoAntes + monto);
+
+  const { data, error } = await supabase.from(LIBRO).insert({
+    caja_id: input.cajaId, tipo: 'entrada', monto, moneda: monedaPago,
+    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    motivo: input.concepto.trim(), categoria: input.categoria ?? 'ingreso',
+    cuenta: cuentaSel, actor: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+
+  if (saldoRow) {
+    const { error: uErr } = await supabase.from(SALDOS).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', saldoRow.id);
+    if (uErr) throw uErr;
+  } else {
+    const { error: iErr } = await supabase.from(SALDOS).insert({
+      caja_id: input.cajaId, cuenta: cuentaSel, moneda: monedaPago, saldo: saldoDespues,
+      tasa_prom: monedaPago === 'Bs' ? 1 : null, updated_at: new Date().toISOString(),
+    });
+    if (iErr) throw iErr;
+  }
+  return data as MovimientoCaja;
+}
+
 /* ───────────── Pago a personal (multipagos a usuarios del sistema) ───────────── */
 
 export async function pagarPersonal(input: {

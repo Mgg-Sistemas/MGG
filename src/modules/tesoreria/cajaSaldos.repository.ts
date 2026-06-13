@@ -224,6 +224,73 @@ export async function trasladoEntreCajasMulti(input: {
   }
 }
 
+export interface ConvertirDivisaInput {
+  /** Origen: de dónde sale el dinero (caja + cuenta + moneda DE). */
+  origenCajaId: string; origenCuenta: CuentaCaja; monedaDe: string;
+  /** Destino: dónde entra el convertido (caja + cuenta + moneda A). */
+  destinoCajaId: string; destinoCuenta: CuentaCaja; monedaA: string;
+  montoDe: number;            // cuánto se cambia, en la moneda DE
+  tasa: number;              // 1 DE = ? A (la tasa usada para convertir)
+  motivo?: string | null;
+  actor: string; actorName?: string | null;
+}
+
+/**
+ * Convierte un saldo existente de una moneda a otra: descuenta `montoDe` de la
+ * (caja origen, cuenta, monedaDe) y acredita el equivalente `montoDe × tasa` en la
+ * (caja destino, cuenta, monedaA). Ambas patas quedan en el libro de cada caja como
+ * conversión, con la tasa usada. Origen y destino pueden ser la misma caja (cambio
+ * interno de una multimoneda) o cajas distintas (p. ej. Multimoneda → Caja Bs).
+ * Devuelve los saldos actualizados de origen y destino.
+ */
+export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ origen: CajaSaldo | null; destino: CajaSaldo }> {
+  const montoDe = round2(input.montoDe);
+  const tasa = round4(input.tasa);
+  if (montoDe <= 0) throw new Error('El monto a convertir debe ser mayor que 0.');
+  if (tasa <= 0) throw new Error('La tasa de conversión debe ser mayor que 0.');
+  if (input.monedaDe === input.monedaA && input.origenCajaId === input.destinoCajaId && input.origenCuenta === input.destinoCuenta)
+    throw new Error('El origen y el destino son el mismo saldo: no hay nada que convertir.');
+  const montoA = round2(montoDe * tasa);
+  if (montoA <= 0) throw new Error('El monto convertido resulta en 0.');
+
+  // Tasa promedio (Bs/unidad) del saldo origen, para arrastrar la base de costo al destino.
+  const { data: orig } = await supabase.from(SALDOS).select('tasa_prom')
+    .eq('caja_id', input.origenCajaId).eq('cuenta', input.origenCuenta).eq('moneda', input.monedaDe).maybeSingle();
+  const tasaPromOrig = input.monedaDe === 'Bs' ? 1 : (Number(orig?.tasa_prom) || 0);
+
+  // Costo en Bs por unidad de la moneda DESTINO (para el promedio ponderado del destino).
+  // - Destino Bs: ingresarDivisa lo fija en 1 (lo ignora).
+  // - Origen Bs → Destino divisa: Bs/unidad = montoBs / montoDestino.
+  // - Divisa → Divisa: arrastra la base Bs del origen (montoDe × tasaPromOrig) / montoDestino.
+  let tasaBsDest: number | null = null;
+  if (input.monedaA !== 'Bs') {
+    if (input.monedaDe === 'Bs') tasaBsDest = round4(montoDe / montoA);
+    else if (tasaPromOrig > 0) tasaBsDest = round4((montoDe * tasaPromOrig) / montoA);
+    else tasaBsDest = null; // sin base conocida; el destino tomará su propio promedio/nulo
+  }
+
+  const motivo = input.motivo?.trim()
+    || `Conversión ${montoDe} ${input.monedaDe} → ${montoA} ${input.monedaA} (1 ${input.monedaDe} = ${tasa} ${input.monedaA})`;
+
+  // 1) Egreso del saldo origen (valida fondos).
+  await egresarDivisa({
+    cajaId: input.origenCajaId, cuenta: input.origenCuenta, moneda: input.monedaDe, monto: montoDe,
+    concepto: motivo, categoria: 'conversion', actor: input.actor, actorName: input.actorName,
+  });
+
+  // 2) Ingreso del convertido al saldo destino (recalcula su promedio).
+  const destino = await ingresarDivisa({
+    cajaId: input.destinoCajaId, cuenta: input.destinoCuenta, moneda: input.monedaA, monto: montoA,
+    tasaBs: tasaBsDest, origen: 'conversion', motivo, actor: input.actor, actorName: input.actorName,
+  });
+
+  // Saldo origen ya actualizado (puede haber quedado en 0 / sin fila visible).
+  const { data: origAfter } = await supabase.from(SALDOS).select('*')
+    .eq('caja_id', input.origenCajaId).eq('cuenta', input.origenCuenta).eq('moneda', input.monedaDe).maybeSingle();
+
+  return { origen: (origAfter as CajaSaldo) ?? null, destino };
+}
+
 /** Ajusta (fija) el saldo y/o la tasa promedio de una (caja, cuenta, moneda). */
 export async function ajustarSaldoDivisa(input: {
   cajaId: string; cuenta: CuentaCaja; moneda: string; saldo: number; tasaProm?: number | null;

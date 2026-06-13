@@ -7,7 +7,7 @@
    ============================================================ */
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
-import type { CuentaPorPagar, AbonoCxP } from './cuentasPorPagar.repository';
+import type { CuentaPorPagar, AbonoCxP, IngresoCxP } from './cuentasPorPagar.repository';
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -16,7 +16,7 @@ function montoStr(n: number | null | undefined, moneda: string): string {
   return moneda === 'USD' ? `$ ${v}` : `${moneda} ${v}`;
 }
 
-async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[]) {
+async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos: IngresoCxP[] = []) {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     loadLogoDataUrl().catch(() => null),
     import('jspdf'),
@@ -75,6 +75,37 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[]) {
     y += 14;
   }
 
+  // Detalle de ingresos (cada entrada de dinero del cliente/proveedor con su fecha + acumulado).
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('Detalle de ingresos (fechas)', MARGIN, y);
+  y += 6;
+  let acc = 0;
+  const filasIng = ingresos.map((ing, i) => {
+    acc = round2(acc + Number(ing.monto));
+    return [String(i + 1), dateTime(ing.at), montoStr(ing.monto, ing.moneda), montoStr(acc, ing.moneda), ing.nota || '—'];
+  });
+  autoTable(doc, {
+    startY: y + 4,
+    head: [['#', 'Fecha', 'Ingreso', 'Acumulado (se debe)', 'Nota']],
+    body: filasIng.length ? filasIng : [['—', '—', 'Sin ingresos registrados', '—', '—']],
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    styles: { fontSize: 8.5, cellPadding: 4, overflow: 'linebreak' },
+    headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+    footStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 26, halign: 'right' }, 1: { cellWidth: 120 },
+      2: { cellWidth: 90, halign: 'right' }, 3: { cellWidth: 110, halign: 'right', fontStyle: 'bold' }, 4: { cellWidth: 'auto' },
+    },
+    foot: [[
+      { content: 'Total prestado', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+      { content: montoStr(cuenta.monto, moneda), styles: { halign: 'right', fontStyle: 'bold' } },
+      { content: `Se debe ${montoStr(saldo, moneda)}`, colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+    ]],
+  });
+  // @ts-expect-error lastAutoTable lo añade el plugin autoTable en runtime.
+  y = (doc.lastAutoTable?.finalY ?? y) + 14;
+
   // Historial de abonos.
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
@@ -95,14 +126,14 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[]) {
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     styles: { fontSize: 8.5, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+    footStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {
       0: { cellWidth: 130 }, 1: { cellWidth: 90, halign: 'right' },
       2: { cellWidth: 100, halign: 'right' }, 3: { cellWidth: 'auto' },
     },
     foot: [[
-      { content: `${abonos.length} abono(s) · Total abonado`, styles: { halign: 'right', fontStyle: 'bold' } },
-      { content: montoStr(cuenta.abonado, moneda), styles: { halign: 'right', fontStyle: 'bold' } },
-      { content: '', styles: {} }, { content: '', styles: {} },
+      { content: `${abonos.length} abono(s) · Total abonado`, colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+      { content: montoStr(cuenta.abonado, moneda), colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
     ]],
   });
 
@@ -114,15 +145,15 @@ function nombreArchivo(cuenta: CuentaPorPagar): string {
   return `${base || 'cuenta-por-pagar'}.pdf`;
 }
 
-/** Descarga la cuenta por pagar (con su historial de abonos) como PDF. */
-export async function descargarCuentaPorPagarPdf(cuenta: CuentaPorPagar, abonos: AbonoCxP[]): Promise<void> {
-  const doc = await construirDoc(cuenta, abonos);
+/** Descarga la cuenta por pagar (con sus ingresos y su historial de abonos) como PDF. */
+export async function descargarCuentaPorPagarPdf(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos: IngresoCxP[] = []): Promise<void> {
+  const doc = await construirDoc(cuenta, abonos, ingresos);
   doc.save(nombreArchivo(cuenta));
 }
 
 /** Genera el PDF y devuelve el base64 (sin prefijo) + nombre, para el correo. */
-export async function obtenerCuentaPorPagarBase64(cuenta: CuentaPorPagar, abonos: AbonoCxP[]): Promise<{ base64: string; nombre: string }> {
-  const doc = await construirDoc(cuenta, abonos);
+export async function obtenerCuentaPorPagarBase64(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos: IngresoCxP[] = []): Promise<{ base64: string; nombre: string }> {
+  const doc = await construirDoc(cuenta, abonos, ingresos);
   const dataUri = doc.output('datauristring');
   const base64 = dataUri.split(',')[1] ?? '';
   return { base64, nombre: nombreArchivo(cuenta) };

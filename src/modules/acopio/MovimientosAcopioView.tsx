@@ -12,7 +12,7 @@ import type { ContratoAcopio, CajaMovimiento, GrupoClasificacion } from '@/share
 // Desacoplado: el módulo de producción/contratos aún no existe en este sistema.
 // Stub local que devuelve []. Reemplazar al construir contratos. (Centro de Acopio standalone)
 import { listContratos } from './contratos.stub';
-import { listCajaMovimientos, actualizarMovimientoCaja, GRUPOS } from './caja.repository';
+import { listCajaMovimientos, actualizarMovimientoCaja, eliminarMovimientoCaja, GRUPOS } from './caja.repository';
 import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorreo } from './movimientosAcopioReportes';
 
 /**
@@ -80,6 +80,12 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
     return () => { cancel = true; };
   }, [recargar]);
   useRealtime(['acopio_contratos', 'acopio_caja_movimientos'], () => { void recargar(); });
+
+  async function borrarMov(m: CajaMovimiento) {
+    if (!window.confirm(`¿Borrar el movimiento del ${date(m.fecha)}${m.descripcion ? ` · ${m.descripcion}` : ''}? Esta acción no se puede deshacer.`)) return;
+    try { await eliminarMovimientoCaja(m.id); toast('Movimiento borrado', 'success'); await recargar(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
+  }
 
   // El movimiento del Centro de Acopio es la mezcla de DOS fuentes, ordenada por fecha:
   //   1) Contratos de producción CERRADOS → aportan Kg de casiterita.
@@ -279,8 +285,14 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
                   <td className="mono" style={{ fontWeight: 800, color: f.saldoKgCasiterita < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(f.saldoKgCasiterita)}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                     {!f.contratoId && canWrite && (() => {
-                      const orig = cajaMovs.find((m) => m.id === f.id);
-                      return orig ? <button className="btn btn-sm btn-ghost" title="Editar movimiento" onClick={(e) => { e.stopPropagation(); setMovEdit(orig); }}>✎</button> : null;
+                      // f.id viene como `m-<id>`; recuperamos el movimiento original de la caja.
+                      const orig = f.id.startsWith('m-') ? cajaMovs.find((m) => m.id === f.id.slice(2)) : undefined;
+                      return orig ? (
+                        <span style={{ display: 'inline-flex', gap: '.25rem' }}>
+                          <button className="btn btn-sm btn-ghost" title="Editar movimiento" onClick={(e) => { e.stopPropagation(); setMovEdit(orig); }}>✎</button>
+                          <button className="btn btn-sm btn-ghost" title="Borrar movimiento" onClick={(e) => { e.stopPropagation(); void borrarMov(orig); }}>🗑</button>
+                        </span>
+                      ) : null;
                     })()}
                   </td>
                 </tr>
