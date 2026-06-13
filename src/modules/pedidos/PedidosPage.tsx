@@ -82,9 +82,6 @@ const SCOPE_KEY = 'mgg.scope.pedidos';
 type ViewMode = 'kanban' | 'lista';
 type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote';
 
-// Clasificación del pedido (checklist al crear la orden).
-const CLASIFICACION_PEDIDO = ['Producción', 'Bienes', 'Servicios', 'Papelería'] as const;
-
 // Área a la que pertenece la compra de cada ítem de la OP.
 const AREAS_OP = ['Administrativa', 'Fundición'] as const;
 
@@ -353,7 +350,7 @@ export function PedidosPage() {
               <button
                 className="btn btn-ghost"
                 onClick={() => setModal({ kind: 'catalogo' })}
-                title="Gestionar clasificaciones y unidades solicitantes"
+                title="Gestionar las unidades solicitantes"
               >
                 📒 Categorías
               </button>
@@ -2224,22 +2221,6 @@ function CrearOrdenModal({
   // Texto crudo de cada cantidad (permite escribir decimales como 0,5 sin perder el punto).
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
   const [notaOp, setNotaOp] = useState('');
-  const [clasificacion, setClasificacion] = useState<Set<string>>(new Set());
-  // Opciones de clasificación (del catálogo gestionable). Caen a las por defecto si la BD falla.
-  const [clasifOpciones, setClasifOpciones] = useState<string[]>([...CLASIFICACION_PEDIDO]);
-  const [clasifFiltro, setClasifFiltro] = useState('');
-  function toggleClasif(c: string) {
-    setClasificacion((prev) => {
-      const next = new Set(prev);
-      if (next.has(c)) next.delete(c); else next.add(c);
-      return next;
-    });
-  }
-  useEffect(() => {
-    listCatalogoPedido('clasificacion', true)
-      .then((rows) => { if (rows.length) setClasifOpciones(rows.map((r) => r.nombre)); })
-      .catch(() => { /* deja las por defecto */ });
-  }, []);
   // Unidad solicitante: desplegable desde el catálogo + alta al vuelo (se guarda en el catálogo).
   const [unidadesSol, setUnidadesSol] = useState<string[]>([]);
   const [nuevaUnidad, setNuevaUnidad] = useState('');
@@ -2379,7 +2360,7 @@ function CrearOrdenModal({
         notas: notaOp.trim() || null,
         motivo: null,
         finalidad: null,
-        clasificacion: clasifOpciones.filter((c) => clasificacion.has(c)),
+        clasificacion: [],
         solicitante_email: email,
         solicitante: solicitanteNombre.trim() || null,
         ci_solicitante: solicitanteCi.trim() || null,
@@ -2588,73 +2569,6 @@ function CrearOrdenModal({
       </div>
 
       <div className="form-row">
-        <label>Clasificación del pedido</label>
-        {clasifOpciones.length <= 5 ? (
-          // Hasta 5 opciones: checkboxes (rápido de marcar).
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            {clasifOpciones.map((c) => {
-              const checked = clasificacion.has(c);
-              return (
-                <label
-                  key={c}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '.45rem',
-                    padding: '.45rem .7rem', border: '1px solid var(--border)',
-                    borderRadius: 'var(--r-md)',
-                    background: checked ? 'rgba(255,138,0,0.08)' : 'transparent',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input type="checkbox" checked={checked} onChange={() => toggleClasif(c)} />
-                  <span style={{ fontWeight: 600 }}>{c}</span>
-                </label>
-              );
-            })}
-          </div>
-        ) : (
-          // Más de 5: lista buscable (sin checks); se hace clic para marcar/desmarcar.
-          <>
-            <input
-              className="input"
-              placeholder="Buscar clasificación…"
-              value={clasifFiltro}
-              onChange={(e) => setClasifFiltro(e.target.value)}
-              style={{ marginBottom: '.4rem' }}
-            />
-            {clasificacion.size > 0 && (
-              <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginBottom: '.4rem' }}>
-                {Array.from(clasificacion).map((c) => (
-                  <span key={c} className="badge" style={{ cursor: 'pointer' }} onClick={() => toggleClasif(c)} title="Quitar">
-                    {c} ✕
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="table-wrap" style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
-              {clasifOpciones
-                .filter((c) => c.toLowerCase().includes(clasifFiltro.trim().toLowerCase()))
-                .map((c) => {
-                  const checked = clasificacion.has(c);
-                  return (
-                    <div
-                      key={c}
-                      onClick={() => toggleClasif(c)}
-                      style={{
-                        padding: '.5rem .7rem', cursor: 'pointer', fontWeight: 600,
-                        background: checked ? 'rgba(255,138,0,0.12)' : 'transparent',
-                        borderLeft: checked ? '3px solid var(--primary)' : '3px solid transparent',
-                      }}
-                    >
-                      {checked ? '✓ ' : ''}{c}
-                    </div>
-                  );
-                })}
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="form-row">
         <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
         <textarea
           className="textarea"
@@ -2676,12 +2590,11 @@ function CrearOrdenModal({
    Agregar · filtrar · editar · habilitar/deshabilitar.
    ───────────────────────────────────────────── */
 const CATALOGO_TABS: { key: ScopeCatalogoPedido; label: string; singular: string; placeholder: string }[] = [
-  { key: 'clasificacion', label: 'Clasificación', singular: 'clasificación', placeholder: 'Producción, Bienes, Servicios…' },
   { key: 'unidad_solicitante', label: 'Unidad solicitante', singular: 'unidad solicitante', placeholder: 'Gerencia, Taller, Mina…' },
 ];
 
 function CatalogoPedidosModal({ actor, onClose }: { actor: string; onClose: () => void }) {
-  const [tab, setTab] = useState<ScopeCatalogoPedido>('clasificacion');
+  const [tab, setTab] = useState<ScopeCatalogoPedido>('unidad_solicitante');
   const [items, setItems] = useState<CatalogoPedido[]>([]);
   const [filtro, setFiltro] = useState('');
   const [nombre, setNombre] = useState('');
