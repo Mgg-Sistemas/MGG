@@ -7,6 +7,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { registrarGasto } from './tesoreria.repository';
+import { registrarSobrepagoCobrar } from './cuentasPorCobrar.repository';
 import type { CuentaCaja } from '@/shared/lib/types';
 
 export type TipoCxP = 'cliente' | 'proveedor';
@@ -48,9 +49,30 @@ export interface AbonoCxP {
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 const CXP = 'cuentas_por_pagar';
 const CXP_ABONOS = 'cuentas_por_pagar_abonos';
+const CXP_INGRESOS = 'cuentas_por_pagar_ingresos';
 
-/** Crea la cuenta por pagar que origina un ingreso manual (cliente/proveedor). */
-export async function crearCuentaPorPagar(input: {
+/** Un ingreso (lote) de dinero que entró a una cuenta por pagar, con su fecha. */
+export interface IngresoCxP {
+  id: string;
+  cuenta_id: string;
+  monto: number;
+  moneda: string;
+  caja_id?: string | null;
+  cuenta?: string | null;
+  caja_mov_id?: string | null;
+  nota?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  at: string;
+}
+
+/**
+ * Registra un INGRESO de dinero de un cliente/proveedor como cuenta por pagar.
+ * Si ya existe una cuenta ABIERTA del mismo (tipo + contraparte + moneda), SUMA el
+ * monto a esa cuenta (incremental) y guarda el ingreso con su fecha. Si no existe,
+ * la crea. Así un mismo cliente es UNA sola cuenta que acumula, no varias.
+ */
+export async function registrarIngresoCxP(input: {
   tipo: TipoCxP;
   contraparte: string;
   monto: number;
@@ -64,15 +86,50 @@ export async function crearCuentaPorPagar(input: {
 }): Promise<CuentaPorPagar> {
   const monto = round2(input.monto);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
-  if (!input.contraparte.trim()) throw new Error('Indicá el cliente o proveedor.');
-  const { data, error } = await supabase.from(CXP).insert({
-    tipo: input.tipo, contraparte: input.contraparte.trim(), monto, abonado: 0,
-    moneda: input.moneda, cuenta: input.cuenta ?? null, caja_id: input.cajaId ?? null,
-    caja_mov_id: input.cajaMovId ?? null, estado: 'abierta', nota: input.nota?.trim() || null,
-    actor: input.actor ?? null, actor_name: input.actorName ?? null,
-  }).select('*').single();
+  const contraparte = input.contraparte.trim();
+  if (!contraparte) throw new Error('Indicá el cliente o proveedor.');
+
+  // ¿Hay una cuenta ABIERTA del mismo tipo + contraparte (sin distinguir mayúsculas) + moneda?
+  const { data: abiertas } = await supabase.from(CXP).select('*')
+    .eq('tipo', input.tipo).eq('moneda', input.moneda).eq('estado', 'abierta');
+  const existente = (abiertas ?? []).find(
+    (c) => (c as CuentaPorPagar).contraparte.trim().toLowerCase() === contraparte.toLowerCase(),
+  ) as CuentaPorPagar | undefined;
+
+  let cuenta: CuentaPorPagar;
+  if (existente) {
+    const nuevoMonto = round2(Number(existente.monto) + monto);
+    const { data, error } = await supabase.from(CXP)
+      .update({ monto: nuevoMonto, updated_at: new Date().toISOString() })
+      .eq('id', existente.id).select('*').single();
+    if (error) throw error;
+    cuenta = data as CuentaPorPagar;
+  } else {
+    const { data, error } = await supabase.from(CXP).insert({
+      tipo: input.tipo, contraparte, monto, abonado: 0,
+      moneda: input.moneda, cuenta: input.cuenta ?? null, caja_id: input.cajaId ?? null,
+      caja_mov_id: input.cajaMovId ?? null, estado: 'abierta', nota: input.nota?.trim() || null,
+      actor: input.actor ?? null, actor_name: input.actorName ?? null,
+    }).select('*').single();
+    if (error) throw error;
+    cuenta = data as CuentaPorPagar;
+  }
+
+  // Traza del ingreso (fecha + monto) para el detalle y el PDF.
+  const { error: iErr } = await supabase.from(CXP_INGRESOS).insert({
+    cuenta_id: cuenta.id, monto, moneda: input.moneda, caja_id: input.cajaId ?? null,
+    cuenta: input.cuenta ?? null, caja_mov_id: input.cajaMovId ?? null,
+    nota: input.nota?.trim() || null, actor: input.actor ?? null, actor_name: input.actorName ?? null,
+  });
+  if (iErr) throw iErr;
+  return cuenta;
+}
+
+/** Lista los ingresos (lotes con su fecha) de una cuenta por pagar, del más viejo al más nuevo. */
+export async function listIngresosCxP(cuentaId: string): Promise<IngresoCxP[]> {
+  const { data, error } = await supabase.from(CXP_INGRESOS).select('*').eq('cuenta_id', cuentaId).order('at', { ascending: true });
   if (error) throw error;
-  return data as CuentaPorPagar;
+  return (data ?? []) as IngresoCxP[];
 }
 
 export async function listCuentasPorPagar(soloAbiertas = true): Promise<CuentaPorPagar[]> {
@@ -106,31 +163,44 @@ export async function registrarAbonoCuenta(input: {
   const monto = round2(input.monto);
   if (monto <= 0) throw new Error('El abono debe ser mayor que 0.');
   const saldoPrev = round2(c.monto - (Number(c.abonado) || 0));
-  if (monto > saldoPrev + 0.01) throw new Error(`El abono (${monto}) supera el saldo pendiente (${saldoPrev} ${c.moneda}).`);
+  // Si se paga DE MÁS, el excedente se vuelve cuenta por cobrar (el cliente nos debe).
+  const aplicado = round2(Math.min(monto, saldoPrev));
+  const excedente = round2(monto - saldoPrev);
 
-  // 1) Egreso real de la caja (misma moneda de la cuenta por pagar).
+  // 1) Egreso real de la caja por el monto pagado (misma moneda de la cuenta por pagar).
   const mov = await registrarGasto({
     cajaId: input.cajaId, monto, moneda: c.moneda, cuenta: input.cuentaCaja,
-    concepto: `Abono cuenta por pagar · ${c.tipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${c.contraparte}`,
+    concepto: `Abono cuenta por pagar · ${c.tipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${c.contraparte}`
+      + (excedente > 0 ? ` (sobrepago ${excedente} ${c.moneda} → cuenta por cobrar)` : ''),
     categoria: 'abono_cxp', actor: input.actor, actorName: input.actorName,
   });
 
-  // 2) Registro del abono + saldo restante.
-  const saldoRestante = round2(saldoPrev - monto);
+  // 2) Registro del abono que salda la deuda (lo aplicado, no el excedente).
+  const saldoRestante = round2(saldoPrev - aplicado);
   const { data: ab, error: abErr } = await supabase.from(CXP_ABONOS).insert({
-    cuenta_id: c.id, monto, moneda: c.moneda, caja_id: input.cajaId, cuenta: input.cuentaCaja,
-    caja_mov_id: mov.id, saldo_restante: saldoRestante, nota: input.nota?.trim() || null,
+    cuenta_id: c.id, monto: aplicado, moneda: c.moneda, caja_id: input.cajaId, cuenta: input.cuentaCaja,
+    caja_mov_id: mov.id, saldo_restante: saldoRestante,
+    nota: (input.nota?.trim() || '') + (excedente > 0 ? `${input.nota?.trim() ? ' · ' : ''}Sobrepago ${excedente} ${c.moneda} → cuenta por cobrar` : '') || null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (abErr) throw abErr;
 
   // 3) Actualiza la cuenta (abonado + estado).
-  const nuevoAbonado = round2((Number(c.abonado) || 0) + monto);
+  const nuevoAbonado = round2((Number(c.abonado) || 0) + aplicado);
   const estado: EstadoCxP = nuevoAbonado >= c.monto - 0.01 ? 'saldada' : 'abierta';
   const { data: cu, error: cuErr } = await supabase.from(CXP)
     .update({ abonado: nuevoAbonado, estado, updated_at: new Date().toISOString() })
     .eq('id', c.id).select('*').single();
   if (cuErr) throw cuErr;
+
+  // 4) Excedente → cuenta por cobrar del mismo cliente/proveedor (incremental).
+  if (excedente > 0) {
+    await registrarSobrepagoCobrar({
+      tipo: c.tipo, contraparte: c.contraparte, monto: excedente, moneda: c.moneda,
+      origen: 'sobrepago_cxp', nota: `Sobrepago al pagar a ${c.contraparte}`,
+      actor: input.actor, actorName: input.actorName,
+    });
+  }
 
   return { cuenta: cu as CuentaPorPagar, abono: ab as AbonoCxP };
 }
