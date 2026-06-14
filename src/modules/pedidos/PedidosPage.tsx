@@ -82,9 +82,6 @@ const SCOPE_KEY = 'mgg.scope.pedidos';
 type ViewMode = 'kanban' | 'lista';
 type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote';
 
-// Área a la que pertenece la compra de cada ítem de la OP.
-const AREAS_OP = ['Administrativa', 'Fundición'] as const;
-
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
 const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
   { key: 'pendiente', label: 'Pendiente' },
@@ -2302,14 +2299,22 @@ function CrearOrdenModal({
   }
 
   // Unidad solicitante (departamento) arranca VACÍA: la escribe quien crea la OP.
-  // El Solicitante (nombre) viene precargado con el usuario logueado pero es editable
-  // (un analista puede crear la solicitud a nombre de otra persona).
+  // El Solicitante (nombre) viene precargado con el NOMBRE COMPLETO (nombre + apellido)
+  // del usuario logueado pero es editable (un analista puede crear la solicitud a
+  // nombre de otra persona).
+  const nombreCompletoUsuario = `${usuario?.nombre ?? ''} ${usuario?.apellido ?? ''}`.trim();
   const [solicitanteNombre, setSolicitanteNombre] = useState('');
-  const [solicitanteCi, setSolicitanteCi] = useState(usuario?.nombre ?? '');
+  const [solicitanteCi, setSolicitanteCi] = useState(nombreCompletoUsuario);
 
   useEffect(() => {
     nextCodigo().then(setCodigo).catch(() => setCodigo('OP-?'));
   }, []);
+
+  // Si el usuario carga (o cambia) después de abrir el modal y el campo sigue vacío,
+  // precarga el nombre completo sin pisar lo que el usuario ya haya tecleado.
+  useEffect(() => {
+    if (nombreCompletoUsuario) setSolicitanteCi((prev) => prev || nombreCompletoUsuario);
+  }, [nombreCompletoUsuario]);
 
   function addItem() {
     const p = allProductos.find((x) => x.id === prodSelectId);
@@ -2493,26 +2498,15 @@ function CrearOrdenModal({
                 ✕
               </button>
             </div>
-            {/* Finalidad + área de la compra de este producto (solo si se va a comprar). */}
+            {/* Finalidad de la compra de este producto (solo si se va a comprar). */}
             {comprar && (
-              <>
-                <input
-                  className="input"
-                  style={{ marginLeft: 34, width: 'calc(100% - 34px)', fontSize: '.82rem' }}
-                  placeholder="Finalidad de este producto (¿para qué se compra?)"
-                  value={it.finalidad ?? ''}
-                  onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
-                />
-                <select
-                  className="select"
-                  style={{ marginLeft: 34, width: 'calc(100% - 34px)', fontSize: '.82rem', marginTop: '.3rem' }}
-                  value={it.area ?? ''}
-                  onChange={(e) => updateItem(idx, { area: e.target.value })}
-                >
-                  <option value="">Área… (¿a qué área pertenece?)</option>
-                  {AREAS_OP.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
-              </>
+              <input
+                className="input"
+                style={{ marginLeft: 34, width: 'calc(100% - 34px)', fontSize: '.82rem' }}
+                placeholder="Finalidad de este producto (¿para qué se compra?)"
+                value={it.finalidad ?? ''}
+                onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
+              />
             )}
             </div>
             );

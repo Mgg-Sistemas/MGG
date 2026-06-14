@@ -11,6 +11,7 @@ import type {
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { salidaDinero, trasladoDinero } from './cajas.repository';
+import { ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
 
 export interface SalidaMaterialInput {
   productoId: string;
@@ -228,7 +229,9 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       if (!input.almacenDestino) throw new Error('Indicá el almacén destino.');
       if (input.almacenOrigen === input.almacenDestino) throw new Error('El almacén origen y destino deben ser distintos.');
     } else if (!input.destino?.trim()) {
-      throw new Error('Indicá a quién va dirigida la salida.');
+      // En la salida de material el "destino" es la UNIDAD SOLICITANTE (gerencia/área),
+      // compartida con el catálogo de OP.
+      throw new Error('Indicá la unidad solicitante.');
     }
   } else {
     const monto = Number(input.monto) || 0;
@@ -274,6 +277,11 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
     .select('*')
     .single();
   if (error) throw error;
+  // La unidad solicitante de una salida de material se guarda en el catálogo
+  // compartido con OP (se sincroniza en ambos sentidos).
+  if (input.tipo === 'material' && input.scope === 'salida') {
+    void ensureUnidadSolicitante(input.destino, input.actor);
+  }
   return data as SolicitudSalida;
 }
 

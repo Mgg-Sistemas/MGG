@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
+import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
-import { DestinoSelect } from './DestinoSelect';
+import { listCatalogoPedido, crearCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 
 export function SalidaMaterialForm({
@@ -40,12 +41,38 @@ export function SalidaMaterialForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [almacen, productosEnAlmacen]);
   const [cantidad, setCantidad] = useState('1');
-  const [destino, setDestino] = useState('');
   const [motivo, setMotivo] = useState('');
   const [precio, setPrecio] = useState('0');
   const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Unidad solicitante: desplegable desde el catálogo compartido con OP + alta al
+  // vuelo (lo que se agregue acá aparece en OP y viceversa).
+  const [unidad, setUnidad] = useState('');
+  const [unidadesSol, setUnidadesSol] = useState<string[]>([]);
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [addingUnidad, setAddingUnidad] = useState(false);
+  useEffect(() => {
+    listCatalogoPedido('unidad_solicitante', true)
+      .then((rows) => setUnidadesSol(rows.map((r) => r.nombre)))
+      .catch(() => setUnidadesSol([]));
+  }, []);
+  async function handleAddUnidad() {
+    const n = nuevaUnidad.trim();
+    if (!n) { toast('Escribí el nombre de la unidad', 'error'); return; }
+    const existente = unidadesSol.find((u) => u.toLowerCase() === n.toLowerCase());
+    if (existente) { setUnidad(existente); setNuevaUnidad(''); toast(`La unidad "${existente}" ya existe — se seleccionó`, 'warning'); return; }
+    setAddingUnidad(true);
+    try {
+      await crearCatalogoPedido('unidad_solicitante', n, actor);
+      setUnidadesSol((prev) => [...prev, n].sort((a, b) => a.localeCompare(b, 'es')));
+      setUnidad(n);
+      setNuevaUnidad('');
+      toast(`Unidad "${n}" agregada al catálogo`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar la unidad', 'error'); }
+    finally { setAddingUnidad(false); }
+  }
 
   const producto = activos.find((p) => p.id === productoId) ?? null;
   const exSel = exMap.get(`${productoId}|${almacen}`);
@@ -78,17 +105,17 @@ export function SalidaMaterialForm({
     if (!productoId) { setError('Elegí el producto.'); return; }
     if (cantNum <= 0) { setError('La cantidad debe ser mayor que 0.'); return; }
     if (cantNum > stock) { setError(`No hay stock suficiente en ${almacen}. Disponible: ${num(stock)}.`); return; }
-    if (!destino.trim()) { setError('Indicá a quién va dirigido.'); return; }
+    if (!unidad.trim()) { setError('Indicá la unidad solicitante.'); return; }
     setSaving(true);
     try {
       await crearSolicitudSalida({
         scope: 'salida', tipo: 'material',
         productoId, productoNombre: producto?.nombre ?? null, almacenOrigen: almacen,
-        cantidad: cantNum, destino: destino.trim(), motivo: motivo.trim() || null,
+        cantidad: cantNum, destino: unidad.trim(), motivo: motivo.trim() || null,
         precioUnit: precioNum || null, fechaEntrega: fechaEntrega || null,
         solicitante: actorName || actor, actor, actorName,
       });
-      notify(`Solicitud de salida creada: ${num(cantNum)} ${producto?.unidad ?? ''} de ${producto?.nombre} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
+      notify(`Solicitud de salida creada: ${num(cantNum)} ${producto?.unidad ?? ''} de ${producto?.nombre} → ${unidad.trim()} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
     } catch (err) {
@@ -101,7 +128,7 @@ export function SalidaMaterialForm({
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="salida-mat-form" className="btn btn-primary" disabled={saving || excede || cantNum <= 0 || stock <= 0}>
+      <button type="submit" form="salida-mat-form" className="btn btn-primary" disabled={saving || excede || cantNum <= 0 || stock <= 0 || !unidad.trim()}>
         {saving ? 'Creando…' : 'Crear solicitud'}
       </button>
     </>
@@ -130,7 +157,24 @@ export function SalidaMaterialForm({
           </div>
         </div>
 
-        <DestinoSelect value={destino} onChange={setDestino} almacenes={almacenesObj} permitirAlmacen={false} />
+        {/* Unidad solicitante (gerencia/área) — catálogo compartido con OP. */}
+        <div className="form-row">
+          <label>Unidad solicitante</label>
+          <select className="select" value={unidad} onChange={(e) => setUnidad(e.target.value)}>
+            <option value="">— elegí la unidad solicitante —</option>
+            {unidadesSol.map((u) => <option key={u} value={u}>{u}</option>)}
+          </select>
+          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem' }}>
+            <input className="input" value={nuevaUnidad} onChange={(e) => setNuevaUnidad(e.target.value)}
+              placeholder="¿No está? Escribí una nueva (Gerencia, Taller, Mina…)"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddUnidad(); } }}
+              style={{ flex: 1, fontSize: '.82rem' }} />
+            <button type="button" className="btn btn-sm btn-ghost" onClick={handleAddUnidad} disabled={addingUnidad || !nuevaUnidad.trim()}>
+              {addingUnidad ? '…' : '+ Añadir'}
+            </button>
+          </div>
+          <small className="muted">Se comparte con el catálogo de OP: lo que agregues acá aparece allá y viceversa.</small>
+        </div>
 
         <div className="form-grid">
           <div className="form-row">
