@@ -1815,6 +1815,12 @@ function OrdenDetailModal({
         <div className="k">Creada</div>
         <div className="v">{dateTime(o.created_at)}</div>
       </div>
+      {o.notas?.trim() && (
+        <div className="detail-row">
+          <div className="k">Nota</div>
+          <div className="v">{o.notas}</div>
+        </div>
+      )}
       {o.aprobada_en && (
         <div className="detail-row">
           <div className="k">Aprobada</div>
@@ -1950,7 +1956,6 @@ function OrdenDetailModal({
             <th>SKU</th>
             <th>Producto</th>
             <th>Finalidad</th>
-            <th>Área</th>
             <th className="num">Cantidad</th>
             {conPrecio ? (
               <>
@@ -1969,7 +1974,6 @@ function OrdenDetailModal({
               <td className="mono">{it.sku}</td>
               <td>{it.nombre}</td>
               <td style={{ fontSize: '.84rem' }}>{it.finalidad?.trim() ? it.finalidad : <span className="muted">—</span>}</td>
-              <td style={{ fontSize: '.84rem' }}>{it.area?.trim() ? it.area : <span className="muted">—</span>}</td>
               <td className="num">{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
               {conPrecio ? (
                 <>
@@ -2007,7 +2011,7 @@ function OrdenDetailModal({
         {conPrecio && (
           <tfoot>
             <tr>
-              <td colSpan={6} className="num">TOTAL</td>
+              <td colSpan={5} className="num">TOTAL</td>
               <td className="num">{money(o.total)}</td>
               <td></td>
             </tr>
