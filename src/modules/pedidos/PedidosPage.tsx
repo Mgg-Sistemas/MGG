@@ -1477,7 +1477,9 @@ const KanbanCard = memo(function KanbanCard({
       <div className="code">{orden.codigo}</div>
       <div className="prov">
         {proveedor?.razon_social
-          ?? (orden.solicitante ? `Solicita: ${orden.solicitante}` : 'Sin proveedor asignado')}
+          ?? ((orden.ci_solicitante ?? orden.solicitante)
+            ? `Solicita: ${orden.ci_solicitante ?? orden.solicitante}`
+            : 'Sin proveedor asignado')}
       </div>
       <div className="meta">
         <span>{orden.items.length} ítem{orden.items.length !== 1 ? 's' : ''}</span>
@@ -1493,7 +1495,9 @@ const KanbanCard = memo(function KanbanCard({
         )}
       </div>
       <div className="meta" style={{ fontSize: '.72rem', marginTop: '.15rem' }} title="Solicitante y fecha de creación">
-        <span>👤 {orden.solicitante ?? orden.solicitante_email ?? '—'}</span>
+        <span>👤 {orden.ci_solicitante ?? orden.solicitante ?? orden.solicitante_email ?? '—'}
+          {orden.ci_solicitante && orden.solicitante ? <span className="muted"> · {orden.solicitante}</span> : null}
+        </span>
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
       <div className="foot">
