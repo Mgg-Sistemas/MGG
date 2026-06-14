@@ -27,10 +27,14 @@ import { TrasladoDineroForm } from './TrasladoDineroForm';
 import { ConciliarMineralModal } from './ConciliarMineralModal';
 import { GestionarCajasModal } from './GestionarCajasModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
+import {
+  descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
+  type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
+} from './resumenSalidasReporte';
 
 type Scope = 'salidas' | 'traslados';
 type Tipo = 'material' | 'dinero';
-type Vista = 'kanban' | 'lista';
+type Vista = 'kanban' | 'lista' | 'resumen';
 type Modal =
   | { kind: 'none' }
   | { kind: 'salida-material' }
@@ -139,17 +143,20 @@ export function SalidasPage() {
       {/* Switch principal: Salidas / Traslados (solo material; el dinero va por Tesorería) */}
       <div className="view-toggle" role="tablist" aria-label="Tipo de operación" style={{ marginBottom: '1rem' }}>
         <button className={scope === 'salidas' ? 'active' : ''} onClick={() => setScope('salidas')}>↘ Salidas</button>
-        <button className={scope === 'traslados' ? 'active' : ''} onClick={() => setScope('traslados')}>↔ Traslados</button>
+        <button className={scope === 'traslados' ? 'active' : ''} onClick={() => { setScope('traslados'); setVista((v) => v === 'resumen' ? 'kanban' : v); }}>↔ Traslados</button>
       </div>
 
       {/* Vista: Kanban (trámite) / Lista (historial de movimientos ejecutados) */}
       <div className="view-toggle" role="tablist" aria-label="Kanban o lista" style={{ marginBottom: '1rem' }}>
         <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
         <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>📜 Historial</button>
+        {esSalida && esMaterial && <button className={vista === 'resumen' ? 'active' : ''} onClick={() => setVista('resumen')}>📊 Resumen</button>}
       </div>
 
       {loading ? (
         <EmptyState message="Cargando…" icon="◔" />
+      ) : (vista === 'resumen' && esSalida && esMaterial) ? (
+        <ResumenSalidas solicitudes={solicitudes} actor={actor} />
       ) : vista === 'kanban' ? (
         <SolicitudesKanban sols={solsVista} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
       ) : (
@@ -391,7 +398,7 @@ function SolicitudDetalleModal({
   }
 
   const footer = (
-    <>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', justifyContent: 'flex-end', width: '100%' }}>
       {sol.tipo === 'material' && (
         <button className="btn btn-ghost" disabled={busy}
           onClick={() => { void descargarOrdenSalidaPdf(sol).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}>
@@ -414,7 +421,7 @@ function SolicitudDetalleModal({
         <button className="btn btn-danger" disabled={busy} onClick={() => setCancelOpen(true)}>Cancelar solicitud</button>
       )}
       <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cerrar</button>
-    </>
+    </div>
   );
 
   return (
@@ -464,6 +471,200 @@ function SolicitudDetalleModal({
           </div>
         </div>
       )}
+    </ModalUI>
+  );
+}
+
+/* ───────────── Resumen de salidas por unidad solicitante ───────────── */
+
+const COLORES_UNIDAD = ['#3aa0ff', '#16c784', '#ff8a00', '#a78bfa', '#f25f5c', '#ffd166', '#06d6a0', '#ef476f', '#118ab2', '#8d99ae'];
+
+function ResumenSalidas({ solicitudes, actor }: { solicitudes: SolicitudSalida[]; actor: string }) {
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [drill, setDrill] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [correoOpen, setCorreoOpen] = useState(false);
+
+  // Salidas de material EJECUTADAS, en el rango de fechas (por su ejecución).
+  const rows = useMemo<SalidaResumenRow[]>(() => {
+    return solicitudes
+      .filter((s) => s.scope === 'salida' && s.tipo === 'material' && s.estado === 'ejecutada')
+      .map((s) => {
+        const fecha = s.ejecutada_en || s.created_at;
+        const cantidad = Number(s.cantidad) || 0;
+        const precioUnit = Number(s.precio_unit) || 0;
+        return {
+          fecha,
+          unidad: (s.destino || '').trim() || 'Sin unidad',
+          solicitante: s.actor_name || s.solicitante || s.actor || '—',
+          producto: s.producto_nombre || '—',
+          cantidad,
+          precioUnit,
+          valor: Math.round(cantidad * precioUnit * 100) / 100,
+        } as SalidaResumenRow;
+      })
+      .filter((r) => {
+        const f = (r.fecha || '').slice(0, 10);
+        if (desde && f && f < desde) return false;
+        if (hasta && f && f > hasta) return false;
+        if ((desde || hasta) && !f) return false;
+        return true;
+      })
+      .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+  }, [solicitudes, desde, hasta]);
+
+  // Agrupado por unidad (gasto $).
+  const grupos = useMemo<SalidaResumenGrupo[]>(() => {
+    const m = new Map<string, SalidaResumenGrupo>();
+    for (const r of rows) {
+      const g = m.get(r.unidad) ?? { unidad: r.unidad, valor: 0, cantidad: 0, movs: 0 };
+      g.valor = Math.round((g.valor + r.valor) * 100) / 100;
+      g.cantidad += r.cantidad;
+      g.movs += 1;
+      m.set(r.unidad, g);
+    }
+    return [...m.values()].sort((a, b) => b.valor - a.valor);
+  }, [rows]);
+
+  const valorTotal = grupos.reduce((a, g) => a + g.valor, 0);
+  const maxValor = Math.max(1, ...grupos.map((g) => g.valor));
+  const meta: ResumenSalidasMeta = { desde: desde || undefined, hasta: hasta || undefined };
+  const drillRows = useMemo(() => (drill ? rows.filter((r) => r.unidad === drill) : []), [rows, drill]);
+
+  async function conReporte(fn: () => Promise<unknown>, okMsg?: string) {
+    setBusy(true);
+    try { await fn(); if (okMsg) toast(okMsg, 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card">
+      {/* Filtros + reportes */}
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.7rem' }}>
+        <strong style={{ fontSize: '.95rem' }}>Gasto de material por unidad solicitante</strong>
+        <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+          Desde <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
+        </label>
+        <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+          Hasta <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
+        </label>
+        {(desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }}>✕ Fechas</button>}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-sm btn-ghost" disabled={busy || !rows.length} onClick={() => conReporte(() => descargarResumenSalidasPdf(grupos, rows, meta))}>↓ PDF</button>
+          <button className="btn btn-sm btn-ghost" disabled={busy || !rows.length} onClick={() => conReporte(() => descargarResumenSalidasExcel(grupos, rows, meta))}>↓ Excel</button>
+          <button className="btn btn-sm btn-ghost" disabled={busy || !rows.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
+        </div>
+      </div>
+
+      {/* Tarjetas resumen */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.5rem', marginBottom: '.8rem' }}>
+        <div className="card" style={{ padding: '.55rem .7rem', margin: 0 }}>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Gasto total</div>
+          <strong className="mono" style={{ fontSize: '1.1rem', color: 'var(--text, #fff)' }}>{money(valorTotal)}</strong>
+        </div>
+        <div className="card" style={{ padding: '.55rem .7rem', margin: 0 }}>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Salidas</div>
+          <strong className="mono" style={{ fontSize: '1.1rem', color: 'var(--text, #fff)' }}>{rows.length}</strong>
+        </div>
+        <div className="card" style={{ padding: '.55rem .7rem', margin: 0 }}>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Unidades</div>
+          <strong className="mono" style={{ fontSize: '1.1rem', color: 'var(--text, #fff)' }}>{grupos.length}</strong>
+        </div>
+      </div>
+
+      {!rows.length ? (
+        <EmptyState icon="📊" message="Sin salidas de material ejecutadas para el periodo." />
+      ) : (
+        <>
+          {/* Gráfico de barras clickeable por unidad */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginBottom: '.8rem' }}>
+            {grupos.map((g, i) => {
+              const activo = drill === g.unidad;
+              const pct = Math.max(3, (g.valor / maxValor) * 100);
+              const color = COLORES_UNIDAD[i % COLORES_UNIDAD.length];
+              return (
+                <button key={g.unidad} type="button" onClick={() => setDrill(activo ? null : g.unidad)}
+                  title={`${g.unidad}: ${money(g.valor)} · ${g.movs} salida(s) · clic para ver el detalle`}
+                  style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 220px) 1fr auto', alignItems: 'center', gap: '.6rem', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', padding: '.1rem 0' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '.85rem', fontWeight: activo ? 700 : 500, color: 'var(--text, #fff)' }}>{g.unidad}</span>
+                  <span style={{ background: 'rgba(226,232,240,0.08)', borderRadius: 999, height: 20, overflow: 'hidden', outline: activo ? `2px solid ${color}` : 'none', outlineOffset: 1 }}>
+                    <span style={{ display: 'block', width: `${pct}%`, height: '100%', background: color, borderRadius: 999, opacity: activo || !drill ? 1 : 0.5, transition: 'width .3s, opacity .2s' }} />
+                  </span>
+                  <span className="mono" style={{ fontSize: '.85rem', fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--text, #fff)' }}>{money(g.valor)}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem', marginBottom: '.5rem' }}>Tocá una unidad para ver el detalle de sus salidas (fecha, hora, solicitante, cantidad y monto).</div>
+
+          {/* Drill-down: detalle de la unidad elegida */}
+          {drill && (
+            <div className="card" style={{ margin: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
+                <strong style={{ fontSize: '.88rem' }}>{drill} · {drillRows.length} salida(s) · {money(drillRows.reduce((a, r) => a + r.valor, 0))}</strong>
+                <button className="btn btn-sm btn-ghost" onClick={() => setDrill(null)}>✕ Cerrar</button>
+              </div>
+              <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
+                <table className="table" style={{ fontSize: '.82rem' }}>
+                  <thead><tr><th>Fecha / hora</th><th>Solicitante</th><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Valor ($)</th></tr></thead>
+                  <tbody>
+                    {drillRows.map((r, i) => (
+                      <tr key={i}>
+                        <td>{dateTime(r.fecha)}</td>
+                        <td>{r.solicitante}</td>
+                        <td>{r.producto}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{num(r.cantidad)}{r.unidadMedida ? ` ${r.unidadMedida}` : ''}</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.valor)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {correoOpen && (
+        <EnviarResumenSalidasModal
+          actor={actor}
+          onClose={() => setCorreoOpen(false)}
+          onSend={async (email) => { await enviarResumenSalidasPorCorreo(grupos, rows, meta, email ? [email] : undefined); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EnviarResumenSalidasModal({ actor, onClose, onSend }: {
+  actor: string; onClose: () => void; onSend: (email: string) => Promise<void>;
+}) {
+  const [email, setEmail] = useState(actor && actor.includes('@') ? actor : '');
+  const [sending, setSending] = useState(false);
+
+  async function enviar() {
+    setSending(true);
+    try {
+      await onSend(email.trim());
+      toast('Resumen enviado por correo.', 'success');
+      onClose();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar', 'error'); setSending(false); }
+  }
+
+  return (
+    <ModalUI title="Enviar resumen por correo" size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={sending}>Cancelar</button>
+        <button className="btn btn-primary" onClick={enviar} disabled={sending}>{sending ? 'Enviando…' : '✉ Enviar'}</button>
+      </>
+    }>
+      <div className="form-row">
+        <label>Correo destino</label>
+        <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@empresa.com" />
+        <small className="muted">Si lo dejás vacío, va a la administración / jefatura por defecto. Se adjunta el PDF del resumen.</small>
+      </div>
     </ModalUI>
   );
 }

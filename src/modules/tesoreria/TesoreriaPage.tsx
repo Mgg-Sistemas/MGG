@@ -51,7 +51,7 @@ import {
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
-import { comprobantesDeOrden, urlRetencion, labelRetencionModo } from '@/modules/retenciones/retenciones.repository';
+import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
 import { descargarReportePdf, type ReporteMeta } from './reportePdf';
 import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
 import { descargarCuentaPorPagarPdf } from './cuentaPorPagarPdf';
@@ -92,11 +92,12 @@ export function TesoreriaPage() {
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [libro, setLibro] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'resumen' | 'grafico' | 'contrapartes'>('none');
+  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'resumen' | 'retencion' | 'grafico' | 'contrapartes'>('none');
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
   const [cobrarCount, setCobrarCount] = useState(0);
+  const [retencionListas, setRetencionListas] = useState<RetencionItem[]>([]);
   const [nominaCount, setNominaCount] = useState(0);
   const [vista, setVista] = useState<'tesoreria' | 'tasas' | 'movimientos'>('tesoreria');
   const [correoMovOpen, setCorreoMovOpen] = useState(false);
@@ -114,7 +115,7 @@ export function TesoreriaPage() {
   const [transfers, setTransfers] = useState<TransferenciaInter[]>([]);
 
   const reload = useCallback(async () => {
-    const [d, cs, sal, mov, pp, cr, cxp, tr, nc, cxc] = await Promise.all([
+    const [d, cs, sal, mov, pp, cr, cxp, tr, nc, cxc, ret] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
@@ -125,10 +126,11 @@ export function TesoreriaPage() {
       listTransferenciasInter().catch(() => [] as TransferenciaInter[]),
       countRenglonesPorPagar().catch(() => 0),
       listCuentasPorCobrar(true).catch(() => [] as CuentaPorCobrar[]),
+      listRetencionesHechas().catch(() => [] as RetencionItem[]),
     ]);
     const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
-    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length);
+    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length); setRetencionListas(ret);
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
@@ -240,6 +242,16 @@ export function TesoreriaPage() {
                 <button className={nominaCount > 0 ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModal('pago')}>
                   {nominaCount > 0 ? `💸 PAGAR NÓMINA (${nominaCount})` : '👥 Pago a personal'}
                 </button>
+                <button className="btn btn-ghost" onClick={() => setModal('retencion')} title={`${retencionListas.length} retención(es) lista(s)`}>
+                  🧾 Retención
+                  {retencionListas.length > 0 && (
+                    <span className="mono" style={{
+                      marginLeft: '.5rem', padding: '.05rem .5rem', borderRadius: '999px',
+                      fontWeight: 800, fontSize: '.85rem', background: 'var(--success, #16c784)',
+                      color: '#fff', minWidth: '1.4rem', display: 'inline-block', textAlign: 'center',
+                    }}>{retencionListas.length}</span>
+                  )}
+                </button>
                 <button className="btn btn-ghost" onClick={() => setModal('gasto')}>− Gasto</button>
                 <button className="btn btn-ghost" onClick={() => setModal('traslado')}>↔ Traspaso de dinero</button>
                 <button className="btn btn-ghost" onClick={() => setModal('cajas')}>🏦 Cajas</button>
@@ -250,6 +262,7 @@ export function TesoreriaPage() {
             <button className="btn btn-ghost" onClick={() => setModal('calculadora')}>🧮 Calculadora</button>
             <button className="btn btn-ghost" onClick={() => setModal('grafico')}>📊 Tasas Binance</button>
             <button className="btn btn-ghost" onClick={() => setModal('tasas')}>📈 Historial Tasas</button>
+            <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen</button>
           </div>
 
           {/* Saldos por caja (multimoneda; clic = detalle, ingreso, trazabilidad) */}
@@ -324,7 +337,6 @@ export function TesoreriaPage() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.5rem', alignItems: 'center' }}>
-              <button className="btn btn-sm btn-primary" onClick={() => setModal('resumen')}>📊 Resumen</button>
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={async () => {
                 try { await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
@@ -376,6 +388,7 @@ export function TesoreriaPage() {
       {modal === 'conversor' && <ConversorModal cajas={cajas} saldos={saldos} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={reload} />}
       {modal === 'calculadora' && <CalculadoraModal actor={actor} onClose={() => setModal('none')} />}
       {modal === 'resumen' && <ResumenMovimientosModal monedas={monedasReg} defaultMoneda={fMoneda || 'USD'} defaultDesde={fDesde} defaultHasta={fHasta} onClose={() => setModal('none')} />}
+      {modal === 'retencion' && <RetencionesTesoreriaModal items={retencionListas} onClose={() => setModal('none')} />}
       {modal === 'grafico' && <GraficoTasasModal onClose={() => setModal('none')} />}
       {modal === 'porpagar' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
@@ -2319,7 +2332,7 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
                 style={{ flex: 1, maxWidth: 130, background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
                 <span className="mono" style={{ fontSize: '.78rem', fontWeight: 700, color: 'var(--text, #fff)', marginBottom: 4 }}>{monto(g.total, moneda)}</span>
                 <div style={{ width: '70%', height: h, background: g.color, borderRadius: '6px 6px 0 0', opacity: activo || !drill ? 1 : 0.45, transition: 'height .3s, opacity .2s', outline: activo ? `2px solid ${g.color}` : 'none', outlineOffset: 2 }} />
-                <span style={{ fontSize: '.8rem', marginTop: 6, fontWeight: activo ? 700 : 400 }}>{g.label}</span>
+                <span style={{ fontSize: '.8rem', marginTop: 6, fontWeight: activo ? 700 : 400, color: 'var(--text, #fff)' }}>{g.label}</span>
               </button>
             );
           })}
@@ -2360,6 +2373,114 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
             </table>
           </div>
         </div>
+      )}
+    </Modal>
+  );
+}
+
+/* ───────────── Retenciones listas (vista desde Tesorería) ───────────── */
+
+/**
+ * Vista de Tesorería de las retenciones YA LISTAS (finalizadas en el módulo de
+ * Retenciones): muestra el detalle, los comprobantes (descargables), a qué OC
+ * pertenece y si la retención ya fue pagada (la marca la pone Tesorería al pagar
+ * la OC). Es solo lectura: la carga de comprobantes vive en el módulo Retenciones.
+ */
+function RetencionesTesoreriaModal({ items, onClose }: { items: RetencionItem[]; onClose: () => void }) {
+  // Sin auto-selección: el detalle aparece al tocar "Ver" (toggle). Con un solo
+  // ítem se abre directo; con varios, cada "Ver" abre el suyo.
+  const [selId, setSelId] = useState<string>(items.length === 1 ? (items[0]?.orden.id ?? '') : '');
+  const toggle = (id: string) => setSelId((prev) => prev === id ? '' : id);
+  const sel = items.find((it) => it.orden.id === selId) ?? null;
+  const o = sel?.orden ?? null;
+  const comprobantes = useMemo(() => (o ? comprobantesDeOrden(o) : []), [o]);
+
+  async function descargar(path: string) {
+    try { window.open(await urlRetencion(path), '_blank', 'noopener'); }
+    catch { toast('No se pudo abrir el comprobante', 'error'); }
+  }
+
+  return (
+    <Modal title="Retenciones listas" size="lg" onClose={onClose} footer={
+      <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+    }>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+        Retenciones <strong>finalizadas</strong> (comprobantes cargados desde el módulo de Retenciones). Acá ves el
+        detalle, el comprobante y la OC a la que pertenecen, y si <strong>ya fueron pagadas</strong>.
+      </p>
+
+      {!items.length ? (
+        <EmptyState icon="🧾" message="No hay retenciones listas." />
+      ) : (
+        <>
+          {/* Lista de retenciones listas. */}
+          <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto', marginBottom: '.7rem' }}>
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr><th>N°OC</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>Total</th><th>Tesorería</th><th></th></tr></thead>
+              <tbody>
+                {items.map(({ orden, proveedorNombre }) => (
+                  <tr key={orden.id} style={{ background: orden.id === selId ? 'var(--bg-1)' : undefined, cursor: 'pointer' }} onClick={() => toggle(orden.id)}>
+                    <td className="mono">{orden.oc_codigo ?? orden.codigo}</td>
+                    <td>{proveedorNombre}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{monto(orden.total, 'USD')}</td>
+                    <td>{orden.retencion_pagada
+                      ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span>
+                      : <span className="muted">Por pagar</span>}</td>
+                    <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); toggle(orden.id); }}>{orden.id === selId ? 'Ocultar' : 'Ver'}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Detalle de la retención seleccionada. */}
+          {o && sel && (
+            <div className="card" style={{ margin: 0 }}>
+              <div className="card-title" style={{ marginBottom: '.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem' }}>
+                <span>OC {o.oc_codigo ?? o.codigo} · {sel.proveedorNombre}</span>
+                {o.retencion_pagada
+                  ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada{o.retencion_pagada_en ? ` · ${dateTime(o.retencion_pagada_en)}` : ''}</span>
+                  : <span className="badge" style={{ color: 'var(--warning)' }}>Por pagar</span>}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.85rem' }}>
+                <div><span className="muted">OP:</span> <strong className="mono">{o.codigo}</strong></div>
+                <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
+                <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
+                <div><span className="muted">Total:</span> <strong className="mono">{monto(o.total, 'USD')}</strong></div>
+                <div><span className="muted">Finalizada:</span> {o.retencion_finalizada_en ? dateTime(o.retencion_finalizada_en) : '—'}</div>
+              </div>
+
+              {/* Items de la OC. */}
+              <div className="table-wrap" style={{ marginTop: '.5rem' }}>
+                <table className="table" style={{ fontSize: '.8rem' }}>
+                  <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
+                  <tbody>
+                    {(o.items ?? []).map((it, i) => (
+                      <tr key={i}><td>{it.nombre}{it.sku ? <span className="muted"> · {it.sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{Number(it.cantidad).toLocaleString('es-VE')}</td><td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, 'USD')}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Comprobantes (descargables). */}
+              <div style={{ marginTop: '.6rem' }}>
+                <strong style={{ fontSize: '.82rem' }}>Comprobantes</strong>
+                {comprobantes.length === 0 ? (
+                  <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>Sin comprobantes cargados.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: '.35rem', marginTop: '.3rem' }}>
+                    {comprobantes.map((c) => (
+                      <div key={c.tipo} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', fontSize: '.84rem' }}>
+                        <span><span className="badge">{c.label}</span> <span className="muted">{c.nombre}</span></span>
+                        <button className="btn btn-sm btn-ghost" onClick={() => descargar(c.path)}>📎 Descargar</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </Modal>
   );
