@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { date, money } from '@/shared/lib/format';
 import { listOcPorLote, nextCodigoChecklist, type OcLoteRow } from './ocLote.repository';
 import { aprobarOcsEnLote, anularOrden, reabrirOcAOfertas } from './pedidos.repository';
@@ -44,6 +45,8 @@ export function OcPorLoteView() {
   }, [incluirPagadas]);
 
   useEffect(() => { void reload(); }, [reload]);
+  // Realtime: si otro usuario confirma/anula una OC, la relación se actualiza al instante.
+  useRealtime(['ordenes'], () => { void reload(); });
 
   // Genera (una vez) el código de checklist y lo reutiliza para PDF y correo.
   const ensureCodigo = useCallback(async () => {

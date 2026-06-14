@@ -2601,6 +2601,8 @@ function CatalogoPedidosModal({ actor, onClose }: { actor: string; onClose: () =
   }, [tab]);
   useEffect(() => { void cargar(); }, [cargar]);
   useEffect(() => { setNombre(''); setFiltro(''); setEdit(null); }, [tab]);
+  // Realtime: si otro usuario (o el form de OP / Salidas) agrega una unidad, se refleja al instante.
+  useRealtime(['catalogos_pedido'], () => { void cargar(); });
 
   const meta = CATALOGO_TABS.find((t) => t.key === tab)!;
   const filtrados = items.filter((i) => i.nombre.toLowerCase().includes(filtro.trim().toLowerCase()));
