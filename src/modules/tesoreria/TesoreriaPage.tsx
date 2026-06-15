@@ -40,6 +40,11 @@ import {
   type Disponibilidad,
 } from './tesoreria.repository';
 import {
+  computeReporteCierre, crearCierre, listCierres, reabrirCierre,
+  type ReporteCierre, type Cierre,
+} from './cierres.repository';
+import { descargarCierrePdf, descargarCierreExcel, periodoLargo } from './cierreReporte';
+import {
   listContrapartes, crearContraparte, actualizarContraparte, eliminarContraparte,
   type Contraparte, type TipoContraparte,
 } from './contrapartes.repository';
@@ -99,7 +104,7 @@ export function TesoreriaPage() {
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [libro, setLibro] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'resumen' | 'retencion' | 'grafico' | 'contrapartes' | 'categorias-gasto'>('none');
+  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'resumen' | 'retencion' | 'grafico' | 'contrapartes' | 'categorias-gasto' | 'cierre'>('none');
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
@@ -265,6 +270,7 @@ export function TesoreriaPage() {
                 <button className="btn btn-ghost" onClick={() => setModal('cajas')}>🏦 Cajas</button>
                 <button className="btn btn-ghost" onClick={() => setModal('contrapartes')}>👥 Clientes / Proveedores</button>
                 <button className="btn btn-ghost" onClick={() => setModal('categorias-gasto')}>🗂️ Categorías de gasto</button>
+                <button className="btn btn-ghost" onClick={() => setModal('cierre')}>📅 Cierre de mes</button>
               </>
             )}
             <button className="btn btn-ghost" onClick={() => setModal('conversor')}>💱 Conversor</button>
@@ -406,6 +412,7 @@ export function TesoreriaPage() {
       {modal === 'cobrar' && <CuentasPorCobrarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'contrapartes' && <ContrapartesModal onClose={() => setModal('none')} />}
       {modal === 'categorias-gasto' && <CategoriasGastoModal actor={actor} onClose={() => setModal('none')} />}
+      {modal === 'cierre' && <CierreMesModal actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {cajaSel && <CajaDetalleModal caja={cajaSel} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCajaSel(null)} onChanged={async () => { await reload(); }} />}
     </div>
   );
@@ -1593,6 +1600,202 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
           )}
         </div>
       </div>
+    </Modal>
+  );
+}
+
+/* ───────────── Cierre de mes (caja): reporte + archivado reversible ───────────── */
+function RecMonedas({ titulo, rec, color }: { titulo: string; rec: Record<string, number>; color?: string }) {
+  const ent = Object.entries(rec).filter(([, v]) => Math.abs(Number(v) || 0) > 0.0001).sort((a, b) => a[0].localeCompare(b[0]));
+  return (
+    <div className="card" style={{ padding: '.5rem .7rem' }}>
+      <div style={{ fontWeight: 700, fontSize: '.82rem', marginBottom: '.3rem' }}>{titulo}</div>
+      {!ent.length ? <span className="muted" style={{ fontSize: '.8rem' }}>—</span> : (
+        <div style={{ display: 'grid', gap: '.15rem' }}>
+          {ent.map(([mon, v]) => (
+            <div key={mon} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.85rem' }}>
+              <span className="muted">{mon}</span>
+              <span className="mono" style={{ fontWeight: 600, color: color ?? (v < 0 ? 'var(--danger,#c53030)' : undefined) }}>{monto(v, mon)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CierreReporteView({ rep }: { rep: ReporteCierre }) {
+  return (
+    <div style={{ display: 'grid', gap: '.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.5rem' }}>
+        <RecMonedas titulo="Ingresos (entradas)" rec={rep.ingresos} color="var(--success,#16c784)" />
+        <RecMonedas titulo="Gastos (egresos)" rec={rep.gastos} color="var(--danger,#c53030)" />
+        <RecMonedas titulo="Resultado del mes" rec={rep.resultado} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.5rem' }}>
+        <RecMonedas titulo="Cuentas por cobrar (abiertas)" rec={rep.cxc} />
+        <RecMonedas titulo="Cuentas por pagar (abiertas)" rec={rep.cxp} />
+      </div>
+      <div className="card" style={{ padding: '.5rem .7rem' }}>
+        <div style={{ fontWeight: 700, fontSize: '.82rem', marginBottom: '.3rem' }}>Saldos disponibles (por caja / moneda)</div>
+        {!rep.saldos.length ? <span className="muted" style={{ fontSize: '.8rem' }}>Sin saldos.</span> : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <tbody>
+                {rep.saldos.map((s, i) => (
+                  <tr key={i}>
+                    <td>{s.caja}{s.cuenta && s.cuenta !== 'general' ? <span className="muted"> · {s.cuenta}</span> : null}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 600, color: s.saldo < 0 ? 'var(--danger,#c53030)' : undefined }}>{monto(s.saldo, s.moneda)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CierreMesModal({ actor, actorName, onClose, onChanged }: {
+  actor: string; actorName: string | null; onClose: () => void; onChanged: () => void;
+}) {
+  const hoy = new Date();
+  const periodoDefault = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+  const [periodo, setPeriodo] = useState(periodoDefault);
+  const [rep, setRep] = useState<ReporteCierre | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const [cerrando, setCerrando] = useState(false);
+  const [confirmar, setConfirmar] = useState(false);
+  const [cierres, setCierres] = useState<Cierre[]>([]);
+  const [verHist, setVerHist] = useState<Cierre | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const cargarCierres = useCallback(() => { listCierres().then(setCierres).catch(() => setCierres([])); }, []);
+  useEffect(() => { cargarCierres(); }, [cargarCierres]);
+  useRealtime(['cierres_caja'], cargarCierres);
+
+  const yaCerrado = cierres.find((c) => c.periodo === periodo && c.estado === 'cerrado') ?? null;
+
+  const calcular = useCallback(() => {
+    setCargando(true); setError(null); setConfirmar(false);
+    computeReporteCierre(periodo)
+      .then(setRep)
+      .catch((e) => setError(e instanceof Error ? e.message : 'No se pudo calcular el reporte.'))
+      .finally(() => setCargando(false));
+  }, [periodo]);
+  useEffect(() => { calcular(); }, [calcular]);
+
+  async function cerrar() {
+    if (!rep) return;
+    setCerrando(true); setError(null);
+    try {
+      await crearCierre({ periodo, snapshot: rep, actor, actorName });
+      notify(`Mes ${periodoLargo(periodo)} cerrado · ${rep.movimientos} movimiento(s) archivados`, 'success', { link: '#/app/tesoreria' });
+      setConfirmar(false);
+      cargarCierres();
+      onChanged();
+      calcular();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cerrar el mes.'); }
+    finally { setCerrando(false); }
+  }
+
+  async function reabrir(c: Cierre) {
+    try {
+      await reabrirCierre(c.id, actor);
+      notify(`Mes ${periodoLargo(c.periodo)} reabierto · movimientos de vuelta a la vista actual`, 'success', { link: '#/app/tesoreria' });
+      cargarCierres(); onChanged(); calcular();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo reabrir.', 'error'); }
+  }
+
+  const repVer = verHist?.snapshot ?? rep;
+
+  return (
+    <Modal title="📅 Cierre de mes" size="lg" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={cerrando}>Cerrar</button>
+        {repVer && (
+          <>
+            <button className="btn btn-ghost" onClick={() => descargarCierrePdf(repVer).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo el PDF', 'error'))}>📄 PDF</button>
+            <button className="btn btn-ghost" onClick={() => descargarCierreExcel(repVer).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo el Excel', 'error'))}>📊 Excel</button>
+          </>
+        )}
+        {!verHist && !yaCerrado && rep && !confirmar && (
+          <button className="btn btn-primary" onClick={() => setConfirmar(true)} disabled={cargando || cerrando}>📅 Cerrar mes (archivar)</button>
+        )}
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+      {verHist ? (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
+            <strong>Cierre archivado · {periodoLargo(verHist.periodo)}</strong>
+            <button className="btn btn-sm btn-ghost" onClick={() => setVerHist(null)}>← Volver</button>
+          </div>
+          {repVer && <CierreReporteView rep={repVer} />}
+        </>
+      ) : (
+        <>
+          <div className="form-row" style={{ maxWidth: 240 }}>
+            <label>Mes a cerrar</label>
+            <input className="input no-upper" type="month" value={periodo} max={periodoDefault} onChange={(e) => setPeriodo(e.target.value)} />
+          </div>
+
+          {yaCerrado && (
+            <div className="card" style={{ borderColor: 'var(--success)', margin: '.6rem 0', padding: '.55rem .7rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span>✅ <strong>{periodoLargo(periodo)}</strong> ya está cerrado ({yaCerrado.movimientos} mov. archivados). Para modificarlo, reabrilo.</span>
+              <button className="btn btn-sm btn-ghost" onClick={() => reabrir(yaCerrado)}>↩ Reabrir mes</button>
+            </div>
+          )}
+
+          {cargando ? <p className="muted">Calculando…</p> : rep && (
+            <div style={{ marginTop: '.5rem' }}>
+              <p className="muted" style={{ margin: '0 0 .4rem', fontSize: '.8rem' }}>
+                Período {rep.desde} a {rep.hasta} · {rep.movimientos} movimiento(s) {yaCerrado ? '(archivados)' : 'abiertos'}.
+              </p>
+              <CierreReporteView rep={rep} />
+            </div>
+          )}
+
+          {confirmar && !yaCerrado && (
+            <div className="card" style={{ borderColor: 'var(--warning,#f5a623)', marginTop: '.6rem', padding: '.6rem .7rem' }}>
+              <strong>¿Cerrar {periodoLargo(periodo)}?</strong>
+              <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.83rem' }}>
+                Se guarda el reporte y los {rep?.movimientos ?? 0} movimiento(s) del mes se <strong>archivan</strong> (salen de la vista actual; el mes nuevo arranca limpio). No se borra nada, no toca inventario ni saldos, y es <strong>reversible</strong> (podés reabrirlo).
+              </p>
+              <div style={{ display: 'flex', gap: '.4rem' }}>
+                <button className="btn btn-sm btn-ghost" onClick={() => setConfirmar(false)} disabled={cerrando}>Cancelar</button>
+                <button className="btn btn-sm btn-primary" onClick={cerrar} disabled={cerrando}>{cerrando ? 'Cerrando…' : 'Sí, cerrar mes'}</button>
+              </div>
+            </div>
+          )}
+
+          {cierres.length > 0 && (
+            <div style={{ marginTop: '.8rem' }}>
+              <div style={{ fontWeight: 700, fontSize: '.85rem', marginBottom: '.3rem' }}>Cierres anteriores</div>
+              <div className="table-wrap">
+                <table className="table" style={{ fontSize: '.82rem' }}>
+                  <thead><tr><th>Mes</th><th>Estado</th><th style={{ textAlign: 'right' }}>Mov.</th><th></th></tr></thead>
+                  <tbody>
+                    {cierres.map((c) => (
+                      <tr key={c.id}>
+                        <td><strong>{periodoLargo(c.periodo)}</strong> <span className="muted">· {dateTime(c.created_at)}</span></td>
+                        <td>{c.estado === 'cerrado' ? '✅ Cerrado' : '↩ Reabierto'}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{c.movimientos}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button className="btn btn-sm btn-ghost" onClick={() => setVerHist(c)}>Ver</button>
+                          {c.estado === 'cerrado' && <button className="btn btn-sm btn-ghost" onClick={() => reabrir(c)}>Reabrir</button>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </Modal>
   );
 }
