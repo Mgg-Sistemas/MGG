@@ -1478,6 +1478,8 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
   const [error, setError] = useState<string | null>(null);
   const [pegarOpen, setPegarOpen] = useState(false);
   const [pegado, setPegado] = useState('');
+  const [buscarCat, setBuscarCat] = useState('');
+  const [buscarSub, setBuscarSub] = useState('');
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -1489,6 +1491,10 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
   const cats = soloCategorias(rows);
   const subs = selCat ? subcategoriasDe(rows, selCat) : [];
   const catSel = cats.find((c) => c.id === selCat) ?? null;
+  const qCat = normalizarBusqueda(buscarCat);
+  const qSub = normalizarBusqueda(buscarSub);
+  const catsFiltradas = qCat ? cats.filter((c) => normalizarBusqueda(c.nombre).includes(qCat)) : cats;
+  const subsFiltradas = qSub ? subs.filter((s) => normalizarBusqueda(s.nombre).includes(qSub)) : subs;
 
   async function addCat() {
     const n = nuevaCat.trim(); if (!n) return;
@@ -1560,9 +1566,12 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addCat(); } }} placeholder="Nueva categoría…" />
             <button className="btn btn-sm btn-ghost" onClick={addCat} disabled={busy}>+</button>
           </div>
+          <input className="input no-upper" type="search" value={buscarCat} onChange={(e) => setBuscarCat(e.target.value)}
+            placeholder="🔍 Buscar categoría…" style={{ marginBottom: '.3rem' }} />
           <div style={{ maxHeight: 280, overflowY: 'auto', display: 'grid', gap: '.2rem' }}>
             {loading && <span className="muted">Cargando…</span>}
-            {cats.map((c) => (
+            {!loading && !catsFiltradas.length && <span className="muted" style={{ fontSize: '.8rem' }}>Sin coincidencias.</span>}
+            {catsFiltradas.map((c) => (
               <div key={c.id} className="card" style={{ padding: '.3rem .5rem', display: 'flex', alignItems: 'center', gap: '.4rem',
                 borderColor: c.id === selCat ? 'var(--primary)' : 'var(--border)', opacity: c.activo ? 1 : 0.5, cursor: 'pointer' }}
                 onClick={() => setSelCat(c.id)}>
@@ -1585,8 +1594,11 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addSub(); } }} placeholder="Nueva subcategoría…" />
                 <button className="btn btn-sm btn-ghost" onClick={addSub} disabled={busy}>+</button>
               </div>
+              <input className="input no-upper" type="search" value={buscarSub} onChange={(e) => setBuscarSub(e.target.value)}
+                placeholder="🔍 Buscar subcategoría…" style={{ marginBottom: '.3rem' }} />
               <div style={{ maxHeight: 280, overflowY: 'auto', display: 'grid', gap: '.2rem' }}>
-                {subs.map((s) => (
+                {!!subs.length && !subsFiltradas.length && <span className="muted" style={{ fontSize: '.8rem' }}>Sin coincidencias.</span>}
+                {subsFiltradas.map((s) => (
                   <div key={s.id} className="card" style={{ padding: '.3rem .5rem', display: 'flex', alignItems: 'center', gap: '.4rem', opacity: s.activo ? 1 : 0.5 }}>
                     <span style={{ flex: 1, fontSize: '.82rem' }}>{s.nombre}</span>
                     <button className="btn btn-icon btn-ghost" title="Renombrar" onClick={() => void renombrar(s)}>✎</button>
