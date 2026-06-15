@@ -31,6 +31,7 @@ async function getCaja(id: string): Promise<Caja> {
 export async function registrarGasto(input: {
   cajaId: string; monto: number; concepto: string; categoria?: string;
   cuenta?: CuentaCaja | null; moneda?: string | null;
+  gastoCategoria?: string | null; gastoSubcategoria?: string | null;
   actor: string; actorName?: string | null;
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
@@ -54,6 +55,7 @@ export async function registrarGasto(input: {
     caja_id: input.cajaId, tipo: 'salida', monto, moneda: monedaPago,
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.concepto.trim(), categoria: input.categoria ?? 'gasto',
+    gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
     cuenta: usaSaldos ? cuentaSel : null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
