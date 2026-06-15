@@ -248,6 +248,7 @@
       <li><a href="#sret">Retenciones</a></li>
       <li><a href="#srrhh">RRHH / Nómina</a></li>
       <li><a href="#scomb">Combustible</a></li>
+      <li><a href="#smaquinaria">Control de Maquinaria</a></li>
       <li><a href="#sacopio">C. Acopio LA ESPERANZA</a></li>
       <li><a href="#s9">Usuarios</a></li>
       <li><a href="#s10">Ajustes</a></li>
@@ -486,6 +487,19 @@
       <li><strong>Alertas, PDF y correo:</strong> el sistema avisa en cada paso; cada solicitud se descarga en <strong>PDF</strong> y se envía por <strong>correo</strong>.</li>
       <li>Vista <strong>kanban y lista</strong> de las solicitudes.</li>
       <li><strong>📊 Consumo:</strong> el botón <strong>Consumo</strong> abre una gráfica del <strong>consumo por tipo de combustible</strong> filtrable por período (hoy, 7 días, 15 días, este mes o rango), mostrando los <strong>litros consumidos</strong> y su <strong>equivalente en $</strong>.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="smaquinaria">
+    <h2>🚜 Control de Maquinaria</h2>
+    <ul>
+      <li><strong>Registro de equipos:</strong> ficha técnica de cada equipo/maquinaria (tipo, propietario, status, ubicación, año, marca, modelo, serial, placa, motor, combustible, etc.). Se <strong>agrega, edita, activa/desactiva y elimina</strong>; con <strong>buscador</strong> y opción de <strong>ver inactivos</strong>.</li>
+      <li><strong>Vínculo con Combustible:</strong> al cargar el equipo se elige el <strong>equipo de Combustible</strong> vinculado; de ahí el sistema trae el <strong>horómetro vigente</strong> (último HF) y el <strong>gasoil consumido</strong>. El <strong>tipo</strong>, <strong>propietario</strong>, <strong>ubicaciones</strong> y <strong>equipos</strong> salen de los catálogos.</li>
+      <li><strong>Mantenimiento preventivo:</strong> en la ficha se define <strong>Mantenimiento cada (hrs)</strong>; la lista calcula las <strong>HRS restantes</strong> hasta el próximo servicio y <strong>avisa</strong> (⚠️) cuando faltan ≤ 250 HRS. Un banner arriba resume los equipos próximos a mantenimiento.</li>
+      <li><strong>🔧 Bitácora (horómetro/mantenimientos):</strong> registro cronológico por equipo (fecha, horómetro, aceite, refrigerante, gasoil, trabajo, consumibles, mecánico, ubicación). Calcula solo las <strong>HRS</strong> (lectura actual − anterior) y el <strong>consumo Lts/h</strong> (gasoil ÷ HRS).</li>
+      <li><strong>📊 Resumen:</strong> gráficas de <strong>gasoil consumido por equipo</strong> (click para ver detalle) y <strong>equipos por status</strong>.</li>
+      <li><strong>🏷 Catálogo:</strong> gestiona <strong>tipos de maquinaria</strong>, <strong>propietarios</strong> y <strong>status</strong> (agregar/editar/activar/eliminar).</li>
+      <li><strong>Reportes:</strong> el listado se descarga en <strong>PDF</strong> o <strong>Excel</strong> y se envía por <strong>correo</strong> (con el logo y nombre de MGG).</li>
     </ul>
   </section>
 
