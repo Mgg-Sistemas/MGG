@@ -2215,6 +2215,9 @@ interface CrearOrdenModalProps {
   onClose: () => void;
   onCreated: () => void;
 }
+// [DEBUG TEMPORAL] Contador a nivel de módulo: sobrevive a un remount del modal.
+// Si al abrir el modal una vez el número sube solo, es que se está remontando.
+let __opModalMounts = 0;
 function CrearOrdenModal({
   productos,
   usuario,
@@ -2319,10 +2322,11 @@ function CrearOrdenModal({
   }, []);
 
   // [DEBUG TEMPORAL] Detecta si el modal se remonta (lo que borraría lo tecleado).
+  const [mntNo] = useState(() => ++__opModalMounts);
   useEffect(() => {
-    console.log('%c[OP-DEBUG] 🟢 modal MONTADO', 'color:#22c55e;font-weight:bold');
-    return () => console.log('%c[OP-DEBUG] 🔴 modal DESMONTADO (se pierde lo tecleado)', 'color:#ef4444;font-weight:bold');
-  }, []);
+    console.log(`%c[OP-DEBUG] 🟢 modal MONTADO (montaje #${mntNo})`, 'color:#22c55e;font-weight:bold');
+    return () => console.log(`%c[OP-DEBUG] 🔴 modal DESMONTADO #${mntNo} (se pierde lo tecleado)`, 'color:#ef4444;font-weight:bold');
+  }, [mntNo]);
 
   // Si el usuario carga (o cambia) después de abrir el modal y el campo sigue vacío,
   // precarga el nombre completo sin pisar lo que el usuario ya haya tecleado.
@@ -2416,6 +2420,13 @@ function CrearOrdenModal({
         </>
       }
     >
+      {/* [DEBUG TEMPORAL] Caja visible: muestra montaje y valores en vivo. */}
+      <div style={{ border: '2px dashed #f59e0b', borderRadius: 8, padding: '.5rem .65rem', marginBottom: '.7rem', fontSize: '.72rem', lineHeight: 1.5, color: 'var(--text,#fff)', background: 'rgba(245,158,11,.08)' }}>
+        <strong style={{ color: '#f59e0b' }}>🐞 DEBUG (temporal)</strong> · montaje #{mntNo} <span style={{ opacity: .7 }}>(si este número sube solo mientras llenás, el modal se está remontando)</span>
+        <div>Solicitante (persona): <b>«{solicitanteCi}»</b></div>
+        <div>Unidad: <b>«{solicitanteNombre}»</b> · Nota: <b>«{notaOp}»</b></div>
+        <div>Finalidades ítems: <b>{items.length ? items.map((i) => `${i.sku}:«${i.finalidad ?? ''}»`).join('  ') : '(sin ítems)'}</b></div>
+      </div>
       <div className="form-grid">
         <div className="form-row">
           <label>Unidad solicitante</label>

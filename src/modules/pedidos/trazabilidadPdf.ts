@@ -147,21 +147,20 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   y += 6;
   autoTable(doc, {
     startY: y,
-    head: [['SKU', 'Producto', 'Finalidad', 'Área', 'Cantidad', 'Precio unit.', 'Subtotal']],
+    head: [['SKU', 'Producto', 'Finalidad', 'Cantidad', 'Precio unit.', 'Subtotal']],
     body: orden.items.map((it) => [
       it.sku,
       it.nombre,
       it.finalidad?.trim() || '—',
-      it.area?.trim() || '—',
       num(it.cantidad),
       money(it.precio),
       money(it.cantidad * it.precio),
     ]),
-    foot: [['', '', '', '', '', 'TOTAL', money(orden.total)]],
+    foot: [['', '', '', '', 'TOTAL', money(orden.total)]],
     theme: 'grid',
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
-    columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+    columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
