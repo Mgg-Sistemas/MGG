@@ -2339,11 +2339,11 @@ function CrearOrdenModal({
     return () => console.log(`%c[OP-DEBUG] 🔴 modal DESMONTADO #${mntNo} (se pierde lo tecleado)`, 'color:#ef4444;font-weight:bold');
   }, [mntNo]);
 
-  // Si el usuario carga (o cambia) después de abrir el modal y el campo sigue vacío,
-  // precarga el nombre completo sin pisar lo que el usuario ya haya tecleado.
-  useEffect(() => {
-    if (nombreCompletoUsuario) setSolicitanteCi((prev) => prev || nombreCompletoUsuario);
-  }, [nombreCompletoUsuario]);
+  // El prefill del solicitante se hace SOLO en el valor inicial (useState arriba).
+  // Antes había un useEffect que reprecargaba al cargar `usuario` async: ese
+  // setState caía a mitad del tipeo (el Solicitante se llena primero, apenas se
+  // abre el modal) y hacía perder las teclas del campo (quedaba solo el nombre,
+  // sin apellido). Sin ese efecto, el input se comporta como los demás.
 
   function addItem() {
     const p = allProductos.find((x) => x.id === prodSelectId);
