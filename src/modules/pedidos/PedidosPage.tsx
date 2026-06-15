@@ -2472,9 +2472,11 @@ function CrearOrdenModal({
 
       <div className="form-row">
         <label>Solicitante</label>
+        {/* No controlado (defaultValue): inmune a re-renders de fondo que, sobre
+            un input controlado, revertían el texto y "borraban" lo tecleado. */}
         <input
           className="input"
-          value={solicitanteCi || ''}
+          defaultValue={nombreCompletoUsuario}
           onChange={(e) => setSolicitanteCi(e.target.value)}
           placeholder="Nombre del solicitante"
         />
@@ -2547,7 +2549,7 @@ function CrearOrdenModal({
                 className="input"
                 style={{ marginLeft: 34, width: 'calc(100% - 34px)', fontSize: '.82rem' }}
                 placeholder="Finalidad de este producto (¿para qué se compra?)"
-                value={it.finalidad ?? ''}
+                defaultValue={it.finalidad ?? ''}
                 onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
               />
             )}
@@ -2610,7 +2612,7 @@ function CrearOrdenModal({
         <textarea
           className="textarea"
           placeholder="Cualquier observación o aclaratoria sobre la solicitud (opcional)…"
-          value={notaOp}
+          defaultValue=""
           onChange={(e) => setNotaOp(e.target.value)}
         />
       </div>
