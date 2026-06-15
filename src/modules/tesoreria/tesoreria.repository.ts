@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    MGG · Tesorería (Supabase)
    Maneja el flujo de dinero sobre las mismas cajas/movimientos_caja
    del módulo Salidas (una sola fuente). Agrega: gastos (etiquetados
@@ -32,6 +32,7 @@ export async function registrarGasto(input: {
   cajaId: string; monto: number; concepto: string; categoria?: string;
   cuenta?: CuentaCaja | null; moneda?: string | null;
   gastoCategoria?: string | null; gastoSubcategoria?: string | null;
+  gastoCorrelativo?: number | null;
   actor: string; actorName?: string | null;
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
@@ -56,6 +57,7 @@ export async function registrarGasto(input: {
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.concepto.trim(), categoria: input.categoria ?? 'gasto',
     gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
+    gasto_correlativo: input.gastoCorrelativo ?? null,
     cuenta: usaSaldos ? cuentaSel : null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
@@ -69,6 +71,37 @@ export async function registrarGasto(input: {
     if (uErr) throw uErr;
   }
   return data as MovimientoCaja;
+}
+
+/** Categorías de gasto con numeración correlativa (nombre normalizado, sin tildes). */
+export const CATEGORIAS_GASTO_NUMERADAS = ['RECEPCION', 'EXPORTACION'] as const;
+
+/** Normaliza un nombre de categoría para comparar (mayúsculas, sin tildes, trim). */
+export function normCategoriaGasto(nombre: string | null | undefined): string {
+  return (nombre ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+}
+
+/** ¿La categoría lleva correlativo numérico (RECEPCION / EXPORTACION)? */
+export function categoriaLlevaCorrelativo(nombre: string | null | undefined): boolean {
+  return (CATEGORIAS_GASTO_NUMERADAS as readonly string[]).includes(normCategoriaGasto(nombre));
+}
+
+/**
+ * Próximo correlativo para una categoría numerada: max(gasto_correlativo)+1 sobre los
+ * gastos de esa categoría. Devuelve null si todavía no hay ninguno (la primera vez el
+ * usuario ingresa el número inicial; de ahí en más se autoincrementa).
+ */
+export async function proximoCorrelativoGasto(gastoCategoria: string): Promise<number | null> {
+  const { data, error } = await supabase.from(LIBRO)
+    .select('gasto_correlativo')
+    .eq('gasto_categoria', gastoCategoria)
+    .not('gasto_correlativo', 'is', null)
+    .order('gasto_correlativo', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  const max = data?.gasto_correlativo;
+  return max == null ? null : Number(max) + 1;
 }
 
 /**
