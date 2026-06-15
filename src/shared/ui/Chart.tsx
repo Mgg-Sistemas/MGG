@@ -105,10 +105,12 @@ export function LineChart({ data, height = 220, color = '#ff8a00', yFormatter = 
  * color va de verde (el mayor) a rojo (el menor) según la posición. Espera la
  * data ya ordenada de mayor a menor.
  */
-export function RankedBarChart({ data, valueFormatter = String, emptyMessage }: {
+export function RankedBarChart({ data, valueFormatter = String, emptyMessage, onBarClick }: {
   data: ChartPoint[];
   valueFormatter?: (v: number) => string;
   emptyMessage?: string;
+  /** Si se pasa, cada barra es clickeable y devuelve su punto. */
+  onBarClick?: (p: ChartPoint) => void;
 }) {
   if (!data.length) {
     return (
@@ -128,7 +130,8 @@ export function RankedBarChart({ data, valueFormatter = String, emptyMessage }: 
         const color = `hsl(${hue}, 62%, 46%)`;
         const pct = Math.max(2, (d.value / max) * 100);
         return (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 230px) 1fr auto', alignItems: 'center', gap: '.6rem' }}>
+          <div key={i} onClick={onBarClick ? () => onBarClick(d) : undefined}
+            style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 230px) 1fr auto', alignItems: 'center', gap: '.6rem', cursor: onBarClick ? 'pointer' : undefined }}>
             <span title={d.label} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '.85rem' }}>{d.label}</span>
             <div style={{ background: 'rgba(226,232,240,0.06)', borderRadius: 999, height: 18, overflow: 'hidden' }} title={d.tooltip ?? `${d.label}: ${valueFormatter(d.value)}`}>
               <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 999, transition: 'width .3s' }} />
