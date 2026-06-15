@@ -36,6 +36,7 @@ import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import {
   listCajasActivas, listCentrosAcopio,
   registrarGasto, disponibilidadFinanciera, listLibroMayor,
+  categoriaLlevaCorrelativo, proximoCorrelativoGasto,
   type Disponibilidad,
 } from './tesoreria.repository';
 import {
@@ -1215,17 +1216,38 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
   const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
 
+  // Correlativo numérico (solo RECEPCION / EXPORTACION): la primera vez el usuario
+  // ingresa el número inicial; de ahí en más se sugiere automático (max+1).
+  const llevaCorrelativo = categoriaLlevaCorrelativo(catNombre);
+  const [correlativoStr, setCorrelativoStr] = useState('');
+  const [correlativoAuto, setCorrelativoAuto] = useState(false); // true = ya hay previos (autoincrementa)
+  useEffect(() => {
+    if (!llevaCorrelativo) { setCorrelativoStr(''); setCorrelativoAuto(false); return; }
+    let vivo = true;
+    proximoCorrelativoGasto(catNombre).then((next) => {
+      if (!vivo) return;
+      if (next == null) { setCorrelativoStr(''); setCorrelativoAuto(false); }      // primera vez
+      else { setCorrelativoStr(String(next)); setCorrelativoAuto(true); }          // autoincremento
+    }).catch(() => { if (vivo) { setCorrelativoStr(''); setCorrelativoAuto(false); } });
+    return () => { vivo = false; };
+  }, [llevaCorrelativo, catNombre]);
+
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja.'); return; }
     if (esMulti && !selSaldo) { setError('Elegí de qué saldo (moneda) se paga.'); return; }
     if (!catId) { setError('Elegí la categoría del gasto.'); return; }
     if (!subId) { setError('Elegí la subcategoría del gasto.'); return; }
+    let correlativo: number | null = null;
+    if (llevaCorrelativo) {
+      correlativo = Math.trunc(Number(correlativoStr));
+      if (!correlativo || correlativo <= 0) { setError(`Indicá el número de ${catNombre}.`); return; }
+    }
     const m = Number(montoStr) || 0;
     if (m > disponible + 0.01) { setError(`Saldo insuficiente. Disponible: ${monto(disponible, monedaPago)}.`); return; }
     setSaving(true);
     try {
-      await registrarGasto({ cajaId, monto: m, concepto, cuenta: cuentaPago, moneda: monedaPago, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
+      await registrarGasto({ cajaId, monto: m, concepto, cuenta: cuentaPago, moneda: monedaPago, gastoCategoria: catNombre, gastoSubcategoria: subNombre, gastoCorrelativo: correlativo, actor, actorName });
       notify(`Gasto registrado: ${monto(m, monedaPago)}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar.'); setSaving(false); }
@@ -1287,6 +1309,26 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
             />
           </div>
         </div>
+        {llevaCorrelativo && (
+          <div className="form-row">
+            <label>N° de {catNombre} <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <input
+              className="input mono"
+              type="number"
+              min={1}
+              step={1}
+              value={correlativoStr}
+              onChange={(e) => setCorrelativoStr(e.target.value)}
+              placeholder={correlativoAuto ? '' : 'Ingresá el número inicial'}
+              required
+            />
+            <small className="muted">
+              {correlativoAuto
+                ? <>Correlativo automático (siguiente disponible). Podés ajustarlo si hace falta.</>
+                : <>Primera vez para <strong>{catNombre}</strong>: ingresá el número inicial; de ahí en más se autoincrementa.</>}
+            </small>
+          </div>
+        )}
         <div className="form-row">
           <label>Concepto</label>
           <input className="input" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
@@ -1391,7 +1433,12 @@ function GastosView({ libro, onVerMov }: { libro: MovimientoCaja[]; onVerMov: (m
                                   {s.movs.slice().sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '')).map((m) => (
                                     <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => onVerMov(m)}>
                                       <td>{dateTime(m.at)}</td>
-                                      <td>{m.motivo || '—'}</td>
+                                      <td>
+                                        {m.gasto_correlativo != null && (
+                                          <span className="badge" style={{ marginRight: '.4rem' }}>N° {m.gasto_correlativo}</span>
+                                        )}
+                                        {m.motivo || '—'}
+                                      </td>
                                       <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(m.monto), m.moneda)}</td>
                                     </tr>
                                   ))}

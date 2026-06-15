@@ -979,6 +979,9 @@ exception when duplicate_object then null; end $$;
 -- Gasto: categoría y subcategoría elegidas (se guardan en el movimiento).
 alter table public.movimientos_caja add column if not exists gasto_categoria    text;
 alter table public.movimientos_caja add column if not exists gasto_subcategoria text;
+-- Correlativo numérico para categorías que lo requieren (RECEPCION / EXPORTACION):
+-- el usuario ingresa el inicial la primera vez y luego se autoincrementa por categoría.
+alter table public.movimientos_caja add column if not exists gasto_correlativo  integer;
 
 -- movimientos_caja: cuenta + tasa aplicada (multipago y trazabilidad).
 alter table public.movimientos_caja add column if not exists cuenta  text;

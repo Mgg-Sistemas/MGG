@@ -211,6 +211,8 @@ export interface MovimientoCaja {
   /** Gasto: categoría y subcategoría del catálogo de gastos (obligatorias al registrar). */
   gasto_categoria?: string | null;
   gasto_subcategoria?: string | null;
+  /** Correlativo numérico (solo categorías numeradas: RECEPCION / EXPORTACION). */
+  gasto_correlativo?: number | null;
   beneficiario?: string | null;
   beneficiario_id?: string | null;
   ref_orden_id?: string | null;
