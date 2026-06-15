@@ -654,6 +654,10 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
   const [hf, setHf] = useState('');
   const [ci, setCi] = useState('');
   const [cf, setCf] = useState('');
+  // HI/CI quedan BLOQUEADOS cuando se autocompletan con la lectura previa (encadenado).
+  // Solo editables la primera vez de ese equipo/tanque (cuando no hay lectura previa).
+  const [hiBloqueado, setHiBloqueado] = useState(false);
+  const [ciBloqueado, setCiBloqueado] = useState(false);
   const [autorizado, setAutorizado] = useState('');
   const [destino, setDestino] = useState('');
   const [observacion, setObservacion] = useState('');
@@ -668,8 +672,8 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
   }, []);
   // El contador inicial (CI) se precarga con el último contador final (CF) del tanque (totalizador del surtidor).
   useEffect(() => {
-    setCi(''); setCf('');
-    if (tanqueId) ultimoContadorTanque(tanqueId).then((c) => { if (c != null) setCi(String(c)); }).catch(() => {});
+    setCi(''); setCf(''); setCiBloqueado(false);
+    if (tanqueId) ultimoContadorTanque(tanqueId).then((c) => { if (c != null) { setCi(String(c)); setCiBloqueado(true); } }).catch(() => {});
   }, [tanqueId]);
 
   const tq = tanques.find((t) => t.id === tanqueId) ?? null;
@@ -693,10 +697,10 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
   // Al elegir un equipo, el HI se precarga con el último HF registrado para ese equipo.
   async function cambiarEquipo(nombre: string) {
     setEquipo(nombre);
-    setHi(''); setHf('');
+    setHi(''); setHf(''); setHiBloqueado(false);
     if (nombre) {
       const ultimoHf = await ultimoHorometroEquipo(nombre).catch(() => null);
-      if (ultimoHf != null) setHi(String(ultimoHf));
+      if (ultimoHf != null) { setHi(String(ultimoHf)); setHiBloqueado(true); }
     }
   }
   const hiNum = Number(hi);
@@ -808,10 +812,14 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
         {/* Horómetro por equipo: el HF queda como HI del próximo movimiento del mismo equipo. */}
         <div className="form-grid">
           <div className="form-row">
-            <label>Horómetro inicial (HI)</label>
+            <label>Horómetro inicial (HI){hiBloqueado && ' 🔒'}</label>
             <input className="input mono" type="number" min={0} step="any" value={hi} onChange={(e) => setHi(e.target.value)}
-              placeholder={equipo ? 'Último HF del equipo' : 'Elegí un equipo'} />
-            {equipo && <small className="muted">Se precarga con el último HF de {equipo}.</small>}
+              readOnly={hiBloqueado}
+              style={hiBloqueado ? { background: 'rgba(255,255,255,.05)', cursor: 'not-allowed', opacity: .85 } : undefined}
+              placeholder={equipo ? 'Primer HI del equipo' : 'Elegí un equipo'} />
+            {equipo && (hiBloqueado
+              ? <small className="muted">🔒 Encadenado: es el último HF de {equipo} (no se modifica).</small>
+              : <small className="muted">Primera carga de {equipo}: ingresá el HI inicial; de ahí en más se encadena solo.</small>)}
           </div>
           <div className="form-row">
             <label>Horómetro final (HF)</label>
@@ -822,10 +830,14 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
         {/* Contador global del surtidor (totalizador): el CI se precarga con el último CF del tanque. */}
         <div className="form-grid">
           <div className="form-row">
-            <label>Contador inicial (surtidor)</label>
+            <label>Contador inicial (surtidor){ciBloqueado && ' 🔒'}</label>
             <input className="input mono" type="number" min={0} step="any" value={ci} onChange={(e) => setCi(e.target.value)}
-              placeholder={tanqueId ? 'Último contador del tanque' : 'Elegí un tanque'} />
-            <small className="muted">Se precarga con el último contador final de este tanque.</small>
+              readOnly={ciBloqueado}
+              style={ciBloqueado ? { background: 'rgba(255,255,255,.05)', cursor: 'not-allowed', opacity: .85 } : undefined}
+              placeholder={tanqueId ? 'Primer contador del tanque' : 'Elegí un tanque'} />
+            {ciBloqueado
+              ? <small className="muted">🔒 Encadenado: es el último contador final de este tanque (no se modifica).</small>
+              : <small className="muted">Primer movimiento de este tanque: ingresá el contador inicial; de ahí se encadena solo.</small>}
           </div>
           <div className="form-row">
             <label>Contador final (surtidor)</label>
@@ -1044,9 +1056,9 @@ function EditarTanqueMovModal({ mov, tanques, actor, actorName, onClose, onSaved
   const [tipo, setTipo] = useState<TipoMovimientoTanque>(mov.tipo);
   const [litros, setLitros] = useState(String(mov.litros ?? ''));
   const [equipo, setEquipo] = useState(mov.equipo ?? '');
-  const [hi, setHi] = useState(mov.horometro_inicial != null ? String(mov.horometro_inicial) : '');
+  const [hi] = useState(mov.horometro_inicial != null ? String(mov.horometro_inicial) : ''); // 🔒 encadenado (solo lectura)
   const [hf, setHf] = useState(mov.horometro_final != null ? String(mov.horometro_final) : '');
-  const [contIni, setContIni] = useState(mov.contador_global_ini != null ? String(mov.contador_global_ini) : '');
+  const [contIni] = useState(mov.contador_global_ini != null ? String(mov.contador_global_ini) : ''); // 🔒 encadenado
   const [contFin, setContFin] = useState(mov.contador_global_fin != null ? String(mov.contador_global_fin) : '');
   const [autorizado, setAutorizado] = useState(mov.autorizado_por ?? '');
   const [destino, setDestino] = useState(mov.destino ?? '');
@@ -1105,13 +1117,24 @@ function EditarTanqueMovModal({ mov, tanques, actor, actorName, onClose, onSaved
       </div>
       <div className="form-row"><label>Equipo</label><input className="input" value={equipo} onChange={(e) => setEquipo(e.target.value)} /></div>
       <div className="form-grid">
-        <div className="form-row"><label>Horómetro inicial (HI)</label><input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} /></div>
+        <div className="form-row">
+          <label>Horómetro inicial (HI) 🔒</label>
+          <input className="input mono" type="number" step="any" value={hi} readOnly
+            style={{ background: 'rgba(255,255,255,.05)', cursor: 'not-allowed', opacity: .85 }} />
+        </div>
         <div className="form-row"><label>Horómetro final (HF)</label><input className="input mono" type="number" step="any" value={hf} onChange={(e) => setHf(e.target.value)} /></div>
       </div>
       <div className="form-grid">
-        <div className="form-row"><label>Contador inicial</label><input className="input mono" type="number" step="any" value={contIni} onChange={(e) => setContIni(e.target.value)} /></div>
+        <div className="form-row">
+          <label>Contador inicial 🔒</label>
+          <input className="input mono" type="number" step="any" value={contIni} readOnly
+            style={{ background: 'rgba(255,255,255,.05)', cursor: 'not-allowed', opacity: .85 }} />
+        </div>
         <div className="form-row"><label>Contador final</label><input className="input mono" type="number" step="any" value={contFin} onChange={(e) => setContFin(e.target.value)} /></div>
       </div>
+      <small className="muted" style={{ display: 'block', marginTop: '-.3rem' }}>
+        🔒 El <strong>HI</strong> y el <strong>contador inicial</strong> se <strong>encadenan automáticamente</strong> (son el final del movimiento anterior). Editá el <strong>HF</strong> / <strong>contador final</strong>; al guardar, el sistema re-sincroniza la cadena por fecha.
+      </small>
       <div className="form-grid">
         <div className="form-row"><label>Autorizado por</label><input className="input" value={autorizado} onChange={(e) => setAutorizado(e.target.value)} /></div>
         <div className="form-row"><label>Destino</label><input className="input" value={destino} onChange={(e) => setDestino(e.target.value)} /></div>
