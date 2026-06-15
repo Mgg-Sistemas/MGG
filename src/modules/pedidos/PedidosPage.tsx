@@ -2318,6 +2318,12 @@ function CrearOrdenModal({
     nextCodigo().then(setCodigo).catch(() => setCodigo('OP-?'));
   }, []);
 
+  // [DEBUG TEMPORAL] Detecta si el modal se remonta (lo que borraría lo tecleado).
+  useEffect(() => {
+    console.log('%c[OP-DEBUG] 🟢 modal MONTADO', 'color:#22c55e;font-weight:bold');
+    return () => console.log('%c[OP-DEBUG] 🔴 modal DESMONTADO (se pierde lo tecleado)', 'color:#ef4444;font-weight:bold');
+  }, []);
+
   // Si el usuario carga (o cambia) después de abrir el modal y el campo sigue vacío,
   // precarga el nombre completo sin pisar lo que el usuario ya haya tecleado.
   useEffect(() => {
@@ -2364,6 +2370,13 @@ function CrearOrdenModal({
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
+      // [DEBUG TEMPORAL] Qué valores llegan REALMENTE al guardar.
+      console.log('%c[OP-DEBUG] 📤 GUARDANDO con estos valores:', 'color:#f59e0b;font-weight:bold', {
+        unidad_solicitante: solicitanteNombre,
+        solicitante_persona: solicitanteCi,
+        nota: notaOp,
+        finalidades_items: items.map((i) => ({ sku: i.sku, finalidad: i.finalidad })),
+      });
       // La unidad solicitante tipeada se guarda en el catálogo (botón Categorías).
       await ensureUnidadSolicitante(solicitanteNombre, email);
       const saved = await crearOrden({
