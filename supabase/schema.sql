@@ -1024,6 +1024,73 @@ alter table public.movimientos_caja add column if not exists cierre_id uuid refe
 create index if not exists idx_mov_cierre on public.movimientos_caja(cierre_id);
 
 -- ─────────────────────────────────────────────────────────────
+-- Control de Maquinaria (traído de Golden Touch): catálogos, equipos, bitácora.
+-- Se vincula con Combustible por nombre de equipo (maquinaria_equipos.combustible_equipo):
+-- de ahí se traen el horómetro vigente y el gasoil consumido del equipo.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.maquinaria_catalogos (
+  id         uuid primary key default gen_random_uuid(),
+  tipo       text not null check (tipo in ('tipo_maquinaria','propietario','status')),
+  valor      text not null,
+  activo     boolean not null default true,
+  orden      int not null default 999,
+  created_at timestamptz not null default now(),
+  unique (tipo, valor)
+);
+alter table public.maquinaria_catalogos enable row level security;
+drop policy if exists "maquinaria_cat read auth" on public.maquinaria_catalogos;
+drop policy if exists "maquinaria_cat write op" on public.maquinaria_catalogos;
+create policy "maquinaria_cat read auth" on public.maquinaria_catalogos for select using (auth.role()='authenticated');
+create policy "maquinaria_cat write op" on public.maquinaria_catalogos for all using (public.is_operativo()) with check (public.is_operativo());
+
+create table if not exists public.maquinaria_equipos (
+  id            uuid primary key default gen_random_uuid(),
+  equipo        text not null,
+  tipo          text,
+  propietario   text,
+  status        text not null default 'ACTIVO',
+  ubicacion     text,
+  anio          int,
+  marca         text, modelo text, color text, serial text, placa text,
+  motor_modelo  text, motor_serial text,
+  combustible   text, litros_consume numeric,
+  ficha_tecnica text, ficha_mantenimiento text, documentacion text,
+  mantenimiento_cada_hrs numeric,
+  -- INTEGRACIÓN COMBUSTIBLE: nombre del equipo en el módulo de Combustible.
+  combustible_equipo text,
+  doc_fisico boolean not null default false, ficha_mantt boolean not null default false,
+  doc_drive boolean not null default false, esp_tecnicas boolean not null default false,
+  revision_mina boolean not null default false,
+  notas text, activo boolean not null default true,
+  created_by text, created_at timestamptz not null default now(), updated_at timestamptz
+);
+create index if not exists idx_maq_equipos_tipo on public.maquinaria_equipos(tipo);
+create index if not exists idx_maq_equipos_status on public.maquinaria_equipos(status);
+
+create table if not exists public.maquinaria_mantenimientos (
+  id            uuid primary key default gen_random_uuid(),
+  equipo_id     uuid not null references public.maquinaria_equipos(id) on delete cascade,
+  fecha         date not null default current_date,
+  horometro     numeric,
+  aceite_lts    numeric, refrigerante_lts numeric, gasoil_lts numeric,
+  trabajo       text, consumibles text, mecanico text, ubicacion text, observacion text,
+  created_by    text, actor_name text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists idx_maq_mant_equipo on public.maquinaria_mantenimientos(equipo_id, fecha desc, created_at desc);
+
+alter table public.maquinaria_equipos enable row level security;
+alter table public.maquinaria_mantenimientos enable row level security;
+drop policy if exists "maq_equipos read auth" on public.maquinaria_equipos;
+drop policy if exists "maq_equipos write op" on public.maquinaria_equipos;
+drop policy if exists "maq_mant read auth" on public.maquinaria_mantenimientos;
+drop policy if exists "maq_mant write op" on public.maquinaria_mantenimientos;
+create policy "maq_equipos read auth" on public.maquinaria_equipos for select using (auth.role()='authenticated');
+create policy "maq_equipos write op" on public.maquinaria_equipos for all using (public.is_operativo()) with check (public.is_operativo());
+create policy "maq_mant read auth" on public.maquinaria_mantenimientos for select using (auth.role()='authenticated');
+create policy "maq_mant write op" on public.maquinaria_mantenimientos for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- ─────────────────────────────────────────────────────────────
 -- 9.0 Ofertas de proveedores + evaluaciones de recepción (Sourcing)
 --     Permite cargar varias ofertas por orden y comparar/seleccionar.
 -- ─────────────────────────────────────────────────────────────
