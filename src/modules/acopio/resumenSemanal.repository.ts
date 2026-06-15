@@ -1,0 +1,281 @@
+/* ============================================================
+   Centro de Acopio · Resumen Semanal Casiterita
+   Réplica de la hoja «REPORTE PRELIMINAR DE CENTROS DE ACOPIOS».
+   Reporte semanal que se archiva a histórico (snapshot por semana).
+   Los datos los ingresa el usuario por SECTOR (grupo de centros).
+   ============================================================ */
+import { supabase } from '@/shared/lib/supabase';
+
+const TABLE = 'acopio_resumen_semanal';
+
+/** Origen externo (otro Supabase) de un dato vinculado. */
+export interface FuenteExterna {
+  sistema: string;  // p.ej. 'golden-touch'
+  metrica: string;  // p.ej. 'acopio_saldo_kg'
+  label?: string;   // etiqueta para mostrar
+}
+
+/**
+ * Catálogo de métricas vinculables. `mgg` = este mismo sistema (RPC local);
+ * cualquier otro `sistema` = otro Supabase resuelto por la Edge Function segura.
+ */
+export const METRICAS_EXTERNAS: FuenteExterna[] = [
+  { sistema: 'mgg', metrica: 'acopio_saldo_kg', label: 'Este sistema · Saldo en Kg (acopio LA ESPERANZA)' },
+  { sistema: 'golden-touch', metrica: 'acopio_saldo_kg', label: 'Golden Touch · Saldo en Kg (acopio)' },
+];
+
+/** RPC en BD por métrica (mismo nombre en cada sistema). */
+const RPC_DE_METRICA: Record<string, string> = {
+  acopio_saldo_kg: 'metrica_acopio_saldo_kg',
+};
+
+/**
+ * Lee una métrica vinculada. Si `sistema === 'mgg'` la resuelve con un RPC LOCAL
+ * (misma base); para cualquier otro sistema usa la Edge Function `metricas-externas`
+ * (lee el otro Supabase sin exponer credenciales al navegador).
+ */
+export async function leerMetricaExterna(sistema: string, metrica: string): Promise<number> {
+  if (sistema === 'mgg') {
+    const rpc = RPC_DE_METRICA[metrica];
+    if (!rpc) throw new Error(`Métrica local desconocida: ${metrica}`);
+    const { data, error } = await supabase.rpc(rpc);
+    if (error) throw new Error(error.message ?? 'No se pudo leer la métrica local');
+    const v = Number(data);
+    if (!Number.isFinite(v)) throw new Error('Respuesta no numérica de la métrica local');
+    return v;
+  }
+  const { data, error } = await supabase.functions.invoke('metricas-externas', { body: { sistema, metrica } });
+  if (error) throw new Error(error.message ?? 'No se pudo leer la métrica externa');
+  const d = data as { valor?: number; error?: string } | null;
+  if (!d || typeof d.valor !== 'number') throw new Error(d?.error || 'Respuesta inválida de la métrica externa');
+  return d.valor;
+}
+
+/** Un centro (fila numerada) dentro de un bloque: el usuario ingresa los dos Kg. */
+export interface CentroResumen {
+  centro: string;
+  kg_cobrar: number;     // Kg Casiterita por Cobrar
+  kg_disponible: number; // Kg Casiterita Disponibles Acopiados
+  fuente?: FuenteExterna | null; // si está, kg_disponible se trae en vivo y NO se edita
+}
+
+/**
+ * Un SECTOR = bloque de filas (celdas combinadas de la hoja). Las 4 columnas de
+ * la derecha llevan UN valor por bloque: Acopiados MGG (auto = Σ disponibles),
+ * y resguardos GT / precio promedio / saldo $USD (que el usuario carga por bloque).
+ */
+export interface SectorResumen {
+  nombre: string;
+  centros: CentroResumen[];
+  resguardos_gt: number; // Total Kg resguardos y Contratos GT (manual, solo si NO es bloque GT)
+  precio_prom: number;   // Precio Promedio de Compra por Sector ($) (por bloque)
+  saldo_usd: number;     // Saldo $USD por Sector (por bloque)
+  es_gt?: boolean;       // bloque GT/resguardo: sus Disponibles van a Resguardos GT (autosuma), no a Acopiados MGG
+  color?: string;        // color de banda del sector (visual)
+}
+
+/** Totales calculados (snapshot). El "acopiado MGG" total = suma de disponibles. */
+export interface TotalesResumen {
+  kg_cobrar: number;
+  kg_disponible: number;
+  kg_resguardos_gt: number;
+  kg_acopiado_mgg: number;
+  saldo_usd: number;
+}
+
+export interface ResumenSemanal {
+  id: string;
+  numero: string;
+  titulo: string;
+  periodo_desde: string | null;
+  periodo_hasta: string | null;
+  fecha: string;
+  filas: SectorResumen[];
+  totales: TotalesResumen;
+  nota: string | null;
+  created_by: string | null;
+  actor_name: string | null;
+  created_at: string;
+}
+
+export interface ResumenSemanalInput {
+  titulo?: string;
+  periodo_desde?: string | null;
+  periodo_hasta?: string | null;
+  fecha: string;
+  filas: SectorResumen[];
+  nota?: string | null;
+}
+
+/** Total acopiado MGG de un sector = suma de los Kg Disponibles de sus centros. */
+export function totalAcopiadoSector(s: SectorResumen): number {
+  return (s.centros ?? []).reduce((a, c) => a + (Number(c.kg_disponible) || 0), 0);
+}
+
+/** Total por cobrar de un sector = suma de los Kg por Cobrar de sus centros. */
+export function totalCobrarSector(s: SectorResumen): number {
+  return (s.centros ?? []).reduce((a, c) => a + (Number(c.kg_cobrar) || 0), 0);
+}
+
+/**
+ * Detecta AUTOMÁTICAMENTE si un bloque es GT (resguardo/contrato) por su nombre:
+ * GT/PERAMANAL, ESMERALDA o GLOBAL MINERAL TIN. Sus Disponibles autosuman a
+ * «Resguardos y Contratos GT» y no a «Acopiados MGG». (Respeta `es_gt` si viene
+ * marcado en un snapshot viejo.)
+ */
+export function esGt(s: SectorResumen): boolean {
+  if (s.es_gt != null) return s.es_gt;
+  return /\bGT\b|PERAMANAL|ESMERALDA|GLOBAL\s+MINERAL\s+TIN/i.test(s.nombre || '');
+}
+
+/** Acopiados por Sector MGG: 0 si el bloque es GT (sus Kg van a Resguardos). */
+export function acopiadoMggSector(s: SectorResumen): number {
+  return esGt(s) ? 0 : totalAcopiadoSector(s);
+}
+
+/** Resguardos y Contratos GT: si el bloque es GT, autosuma de sus Disponibles; si no, el valor cargado. */
+export function resguardoSector(s: SectorResumen): number {
+  return esGt(s) ? totalAcopiadoSector(s) : (Number(s.resguardos_gt) || 0);
+}
+
+/** Saldo $USD del bloque (valor único por sector). */
+export function saldoSector(s: SectorResumen): number {
+  return Number(s.saldo_usd) || 0;
+}
+
+/** Precio promedio de compra del bloque (valor único por sector). */
+export function precioPromSector(s: SectorResumen): number {
+  return Number(s.precio_prom) || 0;
+}
+
+/** Calcula los grandes totales del reporte a partir de los sectores. */
+export function computeTotales(sectores: SectorResumen[]): TotalesResumen {
+  return (sectores ?? []).reduce<TotalesResumen>(
+    (a, s) => {
+      a.kg_cobrar += totalCobrarSector(s);
+      a.kg_disponible += totalAcopiadoSector(s);     // todos los disponibles (MGG + GT)
+      a.kg_acopiado_mgg += acopiadoMggSector(s);     // solo bloques MGG
+      a.kg_resguardos_gt += resguardoSector(s);      // bloques GT (autosuma) + manuales
+      a.saldo_usd += Number(s.saldo_usd) || 0;
+      return a;
+    },
+    { kg_cobrar: 0, kg_disponible: 0, kg_resguardos_gt: 0, kg_acopiado_mgg: 0, saldo_usd: 0 },
+  );
+}
+
+const sector = (nombre: string, color: string, centros: string[]): SectorResumen => ({
+  nombre,
+  centros: centros.map((centro) => ({ centro, kg_cobrar: 0, kg_disponible: 0 })),
+  resguardos_gt: 0, precio_prom: 0, saldo_usd: 0, color,
+});
+
+
+/** Sectores por defecto al abrir un reporte nuevo (según la hoja de referencia). */
+export function sectoresPorDefecto(): SectorResumen[] {
+  return [
+    sector('SECTOR MGG · LOS PINOS', '#fde68a', [
+      'C.A. LOS PINOS MGG',
+      'MATERIAL DE FUNDICIÓN #1',
+      'MATERIAL DE FUNDICIÓN #3',
+      'MATERIAL DE FUNDICIÓN #4',
+      'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #52)',
+      'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #53)',
+      'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #54)',
+      'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #55)',
+      'C.A. LOS PINOS RESGUARDOS - GT',
+      'C.A. LOS PINOS RESGUARDOS - GMT',
+    ]),
+    sector('SECTOR LOS PIJIGUAOS', '#fbcfe8', [
+      'C.A. LOS PIJIGUAOS - P-MGG04 - A HECTOR',
+      'C.A. LOS PIJIGUAOS - P-MGG04 - B ALBERTO',
+      'C.A. LOS PIJIGUAOS - P-MGG04 - C MAGUIBER',
+    ]),
+    sector('RESGUARDO LOS PIJIGUAOS', '#5eead4', [
+      'C.A. LOS PIJIGUAOS - P-MGG01 - A CAMPOS YEPEZ (RESGUARDO LOS PIJIGUAOS)',
+    ]),
+    {
+      nombre: 'SECTOR LA ESPERANZA', color: '#bfdbfe', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
+      centros: [
+        // El disponible de COMERCIALIZACIÓN = Saldo en Kg del acopio de ESTE sistema (LA ESPERANZA).
+        { centro: 'C.A. LA ESPERANZA - P-MGG06 - A COMERCIALIZACIÓN', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg', metrica: 'acopio_saldo_kg', label: 'Este sistema · Saldo en Kg (acopio LA ESPERANZA)' } },
+        { centro: 'C.A. LA ESPERANZA - P-MGG06-B JUAN BODEGA', kg_cobrar: 0, kg_disponible: 0 },
+        { centro: 'C.A. LA ESPERANZA - P-MGG06-C ROBERT BODEGA', kg_cobrar: 0, kg_disponible: 0 },
+        { centro: 'C.A. LA ESPERANZA - P-MGG06-D ENDER MEJÍA', kg_cobrar: 0, kg_disponible: 0 },
+      ],
+    },
+    {
+      nombre: 'SECTOR GT PERAMANAL', color: '#fde68a', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
+      centros: [
+        { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.1 GT PERAMANAL (M)', kg_cobrar: 0, kg_disponible: 0 },
+        // El disponible de este centro vive en Golden Touch (Saldo en Kg del acopio).
+        { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.2 GT PERAMANAL (P)', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'golden-touch', metrica: 'acopio_saldo_kg', label: 'Golden Touch · Saldo en Kg (acopio)' } },
+      ],
+    },
+    sector('SECTOR LA ESMERALDA', '#fecaca', [
+      'C.A. LA ESMERALDA - P-MGG10 - A ENDER MEJIA',
+      'C.A. LA ESMERALDA - P-MGG10-B GUAIMA (MARTILLO ELECTRICO)',
+      'C.A. LA ESMERALDA - P-MGG10-C JOSE MATO (MARTILLO ELECTRICO)',
+      'C.A. LA ESMERALDA - P-MGG10-D GENESIS',
+      'C.A. LA ESMERALDA - P-MGG10-E OMI LOPEZ',
+      'C.A. LA ESMERALDA - P-MGG10-F ALEXIS NOGUERA',
+    ]),
+    sector('C.A. GLOBAL MINERAL TIN', '#bfdbfe', [
+      'C.A. GLOBAL MINERAL TIN - P-MGG08-A GUANERGE',
+    ]),
+    sector('C.A. EL BURRO', '#bbf7d0', [
+      'C.A. P-MGG11- A EL BURRO - PIJIGUAOS - PARGUAZA',
+    ]),
+  ];
+}
+
+/** Próximo correlativo RS-AAAA-NNNN (por año). */
+async function nextNumero(fecha: string): Promise<string> {
+  const year = (fecha || '').slice(0, 4) || String(new Date().getFullYear());
+  const { data, error } = await supabase.from(TABLE).select('numero').like('numero', `RS-${year}-%`);
+  if (error) throw error;
+  let max = 0;
+  (data ?? []).forEach((r) => {
+    const m = String((r as { numero: string }).numero).match(/-(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return `RS-${year}-${String(max + 1).padStart(4, '0')}`;
+}
+
+export async function listResumenes(): Promise<ResumenSemanal[]> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ResumenSemanal[];
+}
+
+/** Archiva un reporte a histórico (snapshot inmutable de la semana). */
+export async function crearResumen(input: ResumenSemanalInput, actor: string, actorName: string | null): Promise<ResumenSemanal> {
+  const numero = await nextNumero(input.fecha);
+  const totales = computeTotales(input.filas);
+  const { data, error } = await supabase
+    .from(TABLE)
+    .insert({
+      numero,
+      titulo: input.titulo?.trim() || 'REPORTE PRELIMINAR DE CENTROS DE ACOPIOS',
+      periodo_desde: input.periodo_desde || null,
+      periodo_hasta: input.periodo_hasta || null,
+      fecha: input.fecha,
+      filas: input.filas,
+      totales,
+      nota: input.nota?.trim() || null,
+      created_by: actor,
+      actor_name: actorName,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as ResumenSemanal;
+}
+
+export async function eliminarResumen(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE).delete().eq('id', id);
+  if (error) throw error;
+}
