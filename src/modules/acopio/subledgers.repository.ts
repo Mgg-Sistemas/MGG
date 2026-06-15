@@ -54,6 +54,23 @@ export async function setAliadoActivo(id: string, activo: boolean): Promise<void
   if (error) throw error;
 }
 
+/** Edita un aliado (nombre y/o activo). */
+export async function actualizarAliado(id: string, patch: { nombre?: string; activo?: boolean }): Promise<void> {
+  const upd: Record<string, unknown> = {};
+  if (patch.nombre != null) {
+    const n = patch.nombre.trim();
+    if (!n) throw new Error('El nombre no puede quedar vacío.');
+    upd.nombre = n;
+  }
+  if (patch.activo != null) upd.activo = patch.activo;
+  if (!Object.keys(upd).length) return;
+  const { error } = await supabase.from('acopio_aliados').update(upd).eq('id', id);
+  if (error) {
+    if ((error as { code?: string }).code === '23505') throw new Error('Ya existe un aliado con ese nombre.');
+    throw error;
+  }
+}
+
 /* ───────────── Movimientos por aliado (con saldos corridos) ───────────── */
 
 /** Una fila del ledger del aliado con los cálculos del Excel resueltos. */
@@ -119,12 +136,10 @@ export interface AliadoConResumen { aliado: AliadoAcopio; resumen: AliadoResumen
 /** Lista los aliados con su resumen (saldo $ y Kg, totales) para mostrarlos como tarjetas. */
 export async function listAliadosConResumen(centroNombre = CENTRO_ACOPIO_DEFECTO): Promise<AliadoConResumen[]> {
   const aliados = await listAliados(centroNombre);
-  const out: AliadoConResumen[] = [];
-  for (const a of aliados) {
-    const filas = await listAliadoMovimientos(a.id);
-    out.push({ aliado: a, resumen: resumirAliado(filas) });
-  }
-  return out;
+  // En paralelo: el resumen de cada aliado se calcula a la vez (no en cascada).
+  return Promise.all(
+    aliados.map(async (a) => ({ aliado: a, resumen: resumirAliado(await listAliadoMovimientos(a.id)) })),
+  );
 }
 
 /** Caja general ABIERTA del centro (para reflejar el traslado del cierre). null si no hay. */
@@ -213,6 +228,78 @@ export async function crearCierreAliado(input: CierreAliadoInput, actor: string,
     descripcion: input.descripcion?.trim() || `CENTRO DE ACOPIO ${input.aliadoNombre}`,
     usd_entregado: usd, kg_cerrados: kg, precio_usd_kg: precio, kg_recibidos: 0, gastos: r2(input.gastos ?? 0),
     caja_mov_id: cajaMovId, orden, created_by: actor, actor_name: actorName ?? null,
+  }).select('*').single();
+  if (error) {
+    if (cajaMovId) await eliminarMovimientoCaja(cajaMovId).catch(() => {});
+    throw error;
+  }
+  return data as AliadoMovimiento;
+}
+
+/* ───────────── Movimiento unificado (estructura de acopio, una sola fila) ───────────── */
+
+export interface MovimientoAliadoInput {
+  aliadoId: string;
+  aliadoNombre: string;
+  fecha: string;
+  corte?: number | null;
+  descripcion?: string | null;
+  usdEntregado?: number;      // E
+  kgCerrados?: number;        // F
+  precioUsdKg?: number;       // G  (facturado H = F·G)
+  kgRecibidos?: number;       // K  (Kg recibidos por MGG)
+  gastos?: number;
+  /** Refleja la entrega de $ como TRASLADO en la caja general (por defecto sí si hay $). */
+  reflejarCajaGeneral?: boolean;
+  /** Suma los Kg recibidos al stock real de CASITERITA. */
+  sumarCasiterita?: boolean;
+  centroNombre?: string;
+}
+
+/**
+ * Registra UN movimiento del aliado con la estructura completa de acopio (entregado,
+ * Kg cerrados, $/Kg, Kg recibidos, gastos) en una sola fila. Refleja el traslado en
+ * la caja general si hay $ entregado (opt-in) y suma a casiterita si se marca.
+ */
+export async function crearMovimientoAliado(input: MovimientoAliadoInput, actor: string, actorName?: string | null): Promise<AliadoMovimiento> {
+  if (!input.fecha) throw new Error('Indicá la fecha del movimiento.');
+  const usd = r2(input.usdEntregado ?? 0);
+  const kgC = r2(input.kgCerrados ?? 0);
+  const precio = r2(input.precioUsdKg ?? 0);
+  const kgR = r2(input.kgRecibidos ?? 0);
+  const gastos = r2(input.gastos ?? 0);
+  if (usd <= 0 && kgC <= 0 && kgR <= 0 && gastos <= 0) throw new Error('Cargá al menos un valor (entregado, Kg cerrados, Kg recibidos o gastos).');
+  const centro = input.centroNombre || CENTRO_ACOPIO_DEFECTO;
+  const reflejar = input.reflejarCajaGeneral !== false;
+
+  // 1) Traslado en la caja general (si hay $ entregado y se pidió reflejar).
+  let cajaMovId: string | null = null;
+  if (reflejar && usd > 0) {
+    const desc = `CIERRE${input.corte ? ` ${input.corte}` : ''} · ${input.aliadoNombre}`;
+    const cajaId = await cajaAbiertaDeCentro(centro);
+    const mov = await crearMovimientoCaja(
+      { fecha: input.fecha, descripcion: desc, traslado: usd, clasif_grupo: 'traslado', clasif_valor: desc, caja_id: cajaId },
+      actor, actorName,
+    );
+    cajaMovId = mov.id;
+  }
+
+  // 2) Kg recibidos a stock real de CASITERITA (si se marcó).
+  let recepcionMovId: string | null = null;
+  if (input.sumarCasiterita && kgR > 0) {
+    try { recepcionMovId = await sumarCasiterita(kgR, `Aliado ${input.aliadoNombre} · ${input.descripcion?.trim() || 'Kg recibidos'}`, actor, actorName); }
+    catch (e) { if (cajaMovId) await eliminarMovimientoCaja(cajaMovId).catch(() => {}); throw e; }
+  }
+
+  // 3) La fila del ledger.
+  const tipo: AliadoMovimiento['tipo'] = (usd > 0 || kgC > 0) ? 'cierre' : 'abono';
+  const orden = await nextOrdenAliado(input.aliadoId);
+  const { data, error } = await supabase.from('acopio_aliado_movimientos').insert({
+    aliado_id: input.aliadoId, fecha: input.fecha, corte: input.corte ?? null, tipo,
+    descripcion: input.descripcion?.trim() || `CENTRO DE ACOPIO ${input.aliadoNombre}`,
+    usd_entregado: usd, kg_cerrados: kgC, precio_usd_kg: precio, kg_recibidos: kgR, gastos,
+    caja_mov_id: cajaMovId, reflejo_casiterita: !!recepcionMovId, recepcion_mov_id: recepcionMovId,
+    orden, created_by: actor, actor_name: actorName ?? null,
   }).select('*').single();
   if (error) {
     if (cajaMovId) await eliminarMovimientoCaja(cajaMovId).catch(() => {});

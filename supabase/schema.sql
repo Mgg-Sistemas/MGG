@@ -2320,6 +2320,51 @@ do $$ begin
   alter publication supabase_realtime add table public.acopio_cobrar_abonos;
 exception when duplicate_object then null; end $$;
 
+-- ─────────────────────────────────────────────────────────────
+-- 19. Centro de Acopio · Resumen Semanal Casiterita (REPORTE PRELIMINAR)
+-- Réplica de la hoja Excel «REPORTE PRELIMINAR DE CENTROS DE ACOPIOS».
+-- Reporte semanal que se ARCHIVA a histórico (snapshot). Los datos los
+-- ingresa el usuario por SECTOR (grupo de centros); `filas` guarda los
+-- sectores con sus centros; `totales` el resumen calculado en el front.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.acopio_resumen_semanal (
+  id            uuid primary key default gen_random_uuid(),
+  numero        text not null,
+  titulo        text not null default 'REPORTE PRELIMINAR DE CENTROS DE ACOPIOS',
+  periodo_desde date,
+  periodo_hasta date,
+  fecha         date not null default current_date,
+  filas         jsonb not null default '[]'::jsonb,   -- [{ nombre, resguardos_gt, precio_prom, saldo_usd, centros:[{centro, kg_cobrar, kg_disponible}] }]
+  totales       jsonb not null default '{}'::jsonb,    -- { kg_cobrar, kg_disponible, kg_resguardos_gt, kg_acopiado_mgg, saldo_usd }
+  nota          text,
+  created_by    text, actor_name text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create index if not exists idx_acopio_resumen_semanal_fecha on public.acopio_resumen_semanal(fecha desc, created_at desc);
+
+-- Métrica vinculable: «Saldo en Kg» del acopio (misma fórmula que la tarjeta del
+-- módulo). El Resumen Semanal la consume para autocompletar Disponibles vinculados.
+-- El MISMO RPC existe en Golden Touch; la Edge Function `metricas-externas` lo lee
+-- allá con la service-key de GT (secretos GT_URL / GT_SERVICE_KEY).
+create or replace function public.metrica_acopio_saldo_kg()
+returns numeric language sql security definer set search_path = public as $fn$
+  select coalesce((select sum(kg_seco_limpio) from public.acopio_contratos),0)
+       + coalesce((select sum(kg_cerrados)   from public.acopio_caja_movimientos),0)
+       - coalesce((select sum(kg_recibidos)  from public.acopio_caja_movimientos),0);
+$fn$;
+revoke all on function public.metrica_acopio_saldo_kg() from public;
+grant execute on function public.metrica_acopio_saldo_kg() to authenticated, service_role;
+
+alter table public.acopio_resumen_semanal enable row level security;
+do $$ begin
+  create policy "acopio_resumen_semanal read auth"  on public.acopio_resumen_semanal for select using (auth.role()='authenticated');
+  create policy "acopio_resumen_semanal write auth" on public.acopio_resumen_semanal for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.acopio_resumen_semanal;
+exception when duplicate_object then null; end $$;
+
 -- ============================================================
 -- Realtime en TODOS los módulos: publica las tablas de datos del esquema
 -- public que aún no estén en supabase_realtime (multiusuario en vivo).

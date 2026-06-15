@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal } from '@/shared/ui/Modal';
@@ -31,6 +31,14 @@ import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import type { ClasificacionAcopio } from '@/shared/lib/types';
 import { descargarRecepcionPdf } from './acopioPdf';
 import type { CajaCierre } from '@/shared/lib/types';
+import {
+  listResumenes, crearResumen, eliminarResumen,
+  computeTotales, acopiadoMggSector, resguardoSector, esGt, sectoresPorDefecto,
+  leerMetricaExterna, METRICAS_EXTERNAS,
+  type ResumenSemanal, type SectorResumen, type FuenteExterna,
+} from './resumenSemanal.repository';
+import { descargarResumenSemanalPdf } from './resumenSemanalPdf';
+import { AliadosVista } from './AliadosVista';
 
 const ESTADO_LABEL: Record<string, string> = {
   abierta: '● Abierta', cerrada: '✔ Cerrada', anulada: '✖ Anulada',
@@ -55,6 +63,7 @@ export function AcopioPage() {
   const [categorias, setCategorias] = useState(false);
   const [resumenCaja, setResumenCaja] = useState(false);
   const [resumenSemanal, setResumenSemanal] = useState(false);
+  const [vistaAliados, setVistaAliados] = useState(false);
   // Switch «Listar movimientos»: oculto por defecto. Apagado = solo tarjetas + Resumen/Categorías;
   // encendido = se muestra la lista de movimientos y el botón de agregar movimiento.
   const [listarMovs, setListarMovs] = useState(false);
@@ -91,10 +100,15 @@ export function AcopioPage() {
     reload().catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'Error al cargar', 'error'); });
     return () => { cancel = true; };
   }, [reload]);
-  useRealtime(['acopio_recepciones', 'acopio_recepcion_lotes', 'acopio_caja_movimientos', 'acopio_clasificaciones', 'acopio_cajas', 'acopio_costo_clases', 'acopio_cuadres', 'acopio_cuadre_movimientos', 'cajas', 'productos', 'existencias'], reload);
+  useRealtime(['acopio_recepciones', 'acopio_recepcion_lotes', 'acopio_caja_movimientos', 'acopio_clasificaciones', 'acopio_cajas', 'acopio_costo_clases', 'acopio_cuadres', 'acopio_cuadre_movimientos', 'acopio_resumen_semanal', 'cajas', 'productos', 'existencias'], reload);
 
   // Caja a la que se asocian los movimientos nuevos (la ACTUALMENTE ABIERTA).
   const cajaActual = useMemo(() => cajas.find((c) => c.estado === 'abierta') ?? cajas[0] ?? null, [cajas]);
+
+  // Vista «Aliados»: pantalla propia dentro del módulo (con su botón Volver).
+  if (vistaAliados) {
+    return <AliadosVista canWrite={canWrite} actor={actor} actorName={actorName} onVolver={() => setVistaAliados(false)} />;
+  }
 
   return (
     <div>
@@ -111,6 +125,7 @@ export function AcopioPage() {
         <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
         <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
         <button className="btn btn-ghost" onClick={() => setResumenSemanal(true)}>📅 Resumen semanal casiterita</button>
+        <button className="btn btn-ghost" onClick={() => setVistaAliados(true)}>🤝 Aliados</button>
         <label className="switch-row" style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
           <span className="switch">
             <input type="checkbox" checked={listarMovs} onChange={(e) => setListarMovs(e.target.checked)} />
@@ -159,13 +174,7 @@ export function AcopioPage() {
       {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} onClose={() => setResumenCaja(false)} />}
 
       {resumenSemanal && (
-        <Modal title="📅 Resumen semanal casiterita" size="md" onClose={() => setResumenSemanal(false)}
-          footer={<button className="btn btn-ghost" onClick={() => setResumenSemanal(false)}>Cerrar</button>}>
-          <p className="muted" style={{ margin: 0 }}>
-            Pendiente de definir el contenido. Decime qué debe llevar este resumen semanal de casiterita
-            (qué columnas/totales, qué período toma, si se descarga en PDF/Excel) y lo armo.
-          </p>
-        </Modal>
+        <ResumenSemanalModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setResumenSemanal(false)} />
       )}
 
 
@@ -509,6 +518,365 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
         />
       )}
     </Modal>
+  );
+}
+
+/* ───────────── Resumen Semanal Casiterita (REPORTE PRELIMINAR DE CENTROS DE ACOPIOS) ───────────── */
+
+const fmtKg = (v: number) => Number(v || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; onClose: () => void;
+}) {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const [tab, setTab] = useState<'editor' | 'historico'>('editor');
+  const [titulo, setTitulo] = useState('REPORTE PRELIMINAR DE CENTROS DE ACOPIOS');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [fecha, setFecha] = useState(hoy);
+  const [sectores, setSectores] = useState<SectorResumen[]>(() => sectoresPorDefecto());
+  const [nota, setNota] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [historico, setHistorico] = useState<ResumenSemanal[]>([]);
+  const [vinculando, setVinculando] = useState<{ si: number; ci: number } | null>(null);
+  const [resolviendo, setResolviendo] = useState(false);
+
+  const cargarHist = useCallback(() => { listResumenes().then(setHistorico).catch(() => setHistorico([])); }, []);
+  useEffect(() => { cargarHist(); }, [cargarHist]);
+  useRealtime(['acopio_resumen_semanal'], cargarHist);
+
+  const totales = useMemo(() => computeTotales(sectores), [sectores]);
+
+  // Mutadores inmutables sobre el árbol de sectores.
+  const patchSector = (si: number, patch: Partial<SectorResumen>) =>
+    setSectores((prev) => prev.map((s, i) => (i === si ? { ...s, ...patch } : s)));
+  const patchCentro = (si: number, ci: number, patch: Partial<{ centro: string; kg_cobrar: number; kg_disponible: number; fuente: FuenteExterna | null }>) =>
+    setSectores((prev) => prev.map((s, i) => i !== si ? s : {
+      ...s, centros: s.centros.map((c, j) => (j === ci ? { ...c, ...patch } : c)),
+    }));
+
+  // Trae en vivo los valores de TODOS los centros vinculados a un sistema externo.
+  const resolverVinculos = useCallback(async (silencioso = false) => {
+    setResolviendo(true);
+    let n = 0, fallidos = 0;
+    const next = await Promise.all((sectores).map(async (s) => ({
+      ...s,
+      centros: await Promise.all(s.centros.map(async (c) => {
+        if (!c.fuente) return c;
+        try { const v = await leerMetricaExterna(c.fuente.sistema, c.fuente.metrica); n++; return { ...c, kg_disponible: v }; }
+        catch { fallidos++; return c; }
+      })),
+    })));
+    setSectores(next);
+    setResolviendo(false);
+    if (!silencioso) {
+      if (fallidos) toast(`Vínculos: ${n} actualizado(s), ${fallidos} con error`, fallidos ? 'error' : 'success');
+      else toast(`Vínculos actualizados (${n})`, 'success');
+    }
+    return { n, fallidos };
+  }, [sectores]);
+
+  // Al abrir el editor, resolvé los vínculos una vez (en silencio).
+  const yaResolvio = useMemo(() => ({ done: false }), []);
+  useEffect(() => {
+    if (yaResolvio.done) return;
+    const hay = sectores.some((s) => s.centros.some((c) => c.fuente));
+    if (hay) { yaResolvio.done = true; void resolverVinculos(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const addCentro = (si: number) =>
+    setSectores((prev) => prev.map((s, i) => i !== si ? s : { ...s, centros: [...s.centros, { centro: '', kg_cobrar: 0, kg_disponible: 0 }] }));
+  const delCentro = (si: number, ci: number) =>
+    setSectores((prev) => prev.map((s, i) => i !== si ? s : { ...s, centros: s.centros.filter((_, j) => j !== ci) }));
+  const addSector = () =>
+    setSectores((prev) => [...prev, { nombre: `SECTOR ${prev.length + 1}`, centros: [{ centro: '', kg_cobrar: 0, kg_disponible: 0 }], resguardos_gt: 0, precio_prom: 0, saldo_usd: 0, color: '#dbeafe' }]);
+  const delSector = (si: number) => setSectores((prev) => prev.filter((_, i) => i !== si));
+
+  // Input plano tipo "celda de planilla" (sin píldora) para que el grid se vea limpio.
+  const cellInputStyle: React.CSSProperties = {
+    width: '100%', minWidth: 76, background: 'var(--surface)', color: 'inherit',
+    border: '1px solid var(--border)', borderRadius: 6, padding: '.28rem .45rem',
+    fontVariantNumeric: 'tabular-nums',
+  };
+  const numInput = (val: number, on: (v: number) => void, ph = '0,00') => (
+    <input className="mono" type="number" min={0} step="any" inputMode="decimal"
+      value={val === 0 ? '' : val} placeholder={ph}
+      onChange={(e) => on(Number(e.target.value) || 0)} disabled={!canWrite}
+      style={{ ...cellInputStyle, textAlign: 'right' }} />
+  );
+
+  // Vincula un centro a una métrica y trae el valor al instante.
+  async function vincular(si: number, ci: number, m: FuenteExterna) {
+    setVinculando(null);
+    patchCentro(si, ci, { fuente: { sistema: m.sistema, metrica: m.metrica, label: m.label } });
+    try { const v = await leerMetricaExterna(m.sistema, m.metrica); patchCentro(si, ci, { kg_disponible: v }); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo leer el dato vinculado', 'error'); }
+  }
+
+  // Celda «Kg Disponibles»: si está vinculada, muestra el valor en vivo en solo-lectura (🔗); si no, input editable + botón vincular.
+  const disponibleCell = (si: number, c: SectorResumen['centros'][number], ci: number) => {
+    const eligiendo = vinculando?.si === si && vinculando?.ci === ci;
+    if (c.fuente) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem', justifyContent: 'flex-end' }} title={`Vinculado a ${c.fuente.label ?? `${c.fuente.sistema} · ${c.fuente.metrica}`} — no editable`}>
+          <span className="mono" style={{ ...cellInputStyle, width: 'auto', minWidth: 76, textAlign: 'right', background: 'var(--surface-2)', color: '#4ade80', fontWeight: 700, borderColor: 'rgba(74,222,128,.4)' }}>{fmtKg(c.kg_disponible)}</span>
+          <span title="Valor vinculado en vivo (no editable)">🔗</span>
+          {canWrite && <button className="btn btn-sm btn-ghost" title="Desvincular (volver a editar a mano)" onClick={() => patchCentro(si, ci, { fuente: null })}>✕</button>}
+        </div>
+      );
+    }
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
+        {numInput(c.kg_disponible, (v) => patchCentro(si, ci, { kg_disponible: v }))}
+        {canWrite && !eligiendo && <button className="btn btn-sm btn-ghost" title="Vincular este dato a otro sistema / al acopio" onClick={() => setVinculando({ si, ci })}>🔗</button>}
+        {canWrite && eligiendo && (
+          <select autoFocus className="select" style={{ fontSize: '.72rem', maxWidth: 200 }} defaultValue=""
+            onChange={(e) => { const m = METRICAS_EXTERNAS.find((x) => `${x.sistema}|${x.metrica}` === e.target.value); if (m) void vincular(si, ci, m); else setVinculando(null); }}
+            onBlur={() => setVinculando(null)}>
+            <option value="">— elegí la fuente —</option>
+            {METRICAS_EXTERNAS.map((m) => <option key={`${m.sistema}|${m.metrica}`} value={`${m.sistema}|${m.metrica}`}>{m.label}</option>)}
+          </select>
+        )}
+      </div>
+    );
+  };
+
+  async function archivar() {
+    setError(null);
+    const sinCentros = sectores.every((s) => s.centros.length === 0);
+    if (!sectores.length || sinCentros) { setError('Agregá al menos un sector con centros.'); return; }
+    setSaving(true);
+    try {
+      const r = await crearResumen({ titulo, periodo_desde: desde || null, periodo_hasta: hasta || null, fecha, filas: sectores, nota }, actor, actorName);
+      notify(`Resumen semanal ${r.numero} archivado a histórico`, 'success', { link: '#/app/acopio' });
+      cargarHist();
+      setTab('historico');
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo archivar.'); }
+    finally { setSaving(false); }
+  }
+
+  async function pdfActual() {
+    try {
+      await descargarResumenSemanalPdf({
+        id: 'preview', numero: '(borrador)', titulo, periodo_desde: desde || null, periodo_hasta: hasta || null,
+        fecha, filas: sectores, totales, nota: nota || null, created_by: actor, actor_name: actorName, created_at: new Date().toISOString(),
+      });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+  }
+
+  function cargarDesdeHist(r: ResumenSemanal) {
+    setTitulo(r.titulo); setDesde(r.periodo_desde ?? ''); setHasta(r.periodo_hasta ?? '');
+    setFecha(r.fecha); setSectores(structuredClone(r.filas)); setNota(r.nota ?? '');
+    setTab('editor');
+    toast(`Reporte ${r.numero} cargado al editor (podés ajustarlo y archivar uno nuevo)`, 'info');
+  }
+
+  async function borrarHist(r: ResumenSemanal) {
+    if (!window.confirm(`¿Eliminar del histórico el reporte ${r.numero} (${r.fecha})?`)) return;
+    try { await eliminarResumen(r.id); toast('Reporte eliminado', 'success'); cargarHist(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+      <button type="button" className="btn btn-ghost" onClick={() => void pdfActual()} disabled={saving}>↓ PDF</button>
+      {canWrite && tab === 'editor' && (
+        <button type="button" className="btn btn-primary" onClick={() => void archivar()} disabled={saving}>{saving ? 'Archivando…' : '🗄 Archivar a histórico'}</button>
+      )}
+    </>
+  );
+
+  const thKg: React.CSSProperties = { fontSize: '.66rem', textAlign: 'center', padding: '.4rem .35rem', whiteSpace: 'pre-line', verticalAlign: 'middle', background: 'var(--surface-3)', lineHeight: 1.2 };
+  const colCount = canWrite ? 9 : 8;
+
+  return (
+    <Modal title="📅 Resumen semanal casiterita" size="xl" onClose={onClose} footer={footer}>
+      {/* Pestañas Editor / Histórico */}
+      <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.9rem' }}>
+        <button className={`btn btn-sm ${tab === 'editor' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('editor')}>📝 Editor</button>
+        <button className={`btn btn-sm ${tab === 'historico' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('historico')}>🗄 Histórico ({historico.length})</button>
+      </div>
+
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+      {tab === 'editor' ? (
+        <>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+            Cargá por fila los <strong>Kg por Cobrar</strong> y <strong>Kg Disponibles Acopiados</strong>. Las 4 columnas de la derecha van
+            <strong> combinadas por bloque</strong>: <strong>Acopiados por Sector MGG</strong> se autosuma de los disponibles del bloque; <strong>Resguardos GT</strong>, <strong>Precio Promedio</strong> y <strong>Saldo $USD</strong> se cargan una vez por bloque. Al terminar, <strong>archivá a histórico</strong>.
+          </p>
+
+          {/* Encabezado del reporte */}
+          <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
+            <div className="form-row"><label>Título</label><input className="input" value={titulo} onChange={(e) => setTitulo(e.target.value)} disabled={!canWrite} /></div>
+            <div className="form-row"><label>Fecha del reporte</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite} /></div>
+            <div className="form-row"><label>Semana · desde</label><input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} disabled={!canWrite} /></div>
+            <div className="form-row"><label>Semana · hasta</label><input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} disabled={!canWrite} /></div>
+          </div>
+
+          {/* Hoja: una sola tabla con celdas combinadas por bloque (tema oscuro, limpio) */}
+          <div className="card" style={{ padding: '.5rem', marginTop: '.8rem' }}>
+            <div style={{ textAlign: 'center', background: 'var(--surface-2)', border: '1px solid var(--border-strong)', color: 'var(--primary-3)', fontWeight: 800, padding: '.5rem', borderRadius: 8, letterSpacing: '.03em' }}>
+              {titulo || 'REPORTE PRELIMINAR DE CENTROS DE ACOPIOS'}
+            </div>
+            <div className="table-wrap" style={{ marginTop: '.5rem' }}>
+              <table className="table" style={{ fontSize: '.78rem' }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thKg, width: 40 }}>ÍTEM</th>
+                    <th style={{ ...thKg, textAlign: 'left', minWidth: 220 }}>CENTROS DE ACOPIO</th>
+                    <th style={{ ...thKg, color: '#60a5fa' }}>{'Kg Casiterita\npor Cobrar'}</th>
+                    <th style={{ ...thKg, color: '#4ade80' }}>{'Kg Casiterita\nDisponibles Acopiados'}</th>
+                    <th style={{ ...thKg, color: '#4ade80' }}>{'Total Kg resguardos\ny Contratos GT'}</th>
+                    <th style={{ ...thKg, color: '#fb923c' }}>{'Total Kg Casiterita\nAcopiados por Sector MGG'}</th>
+                    <th style={{ ...thKg, color: '#fbbf24' }}>{'Precio Promedio\nde Compra por Sector'}</th>
+                    <th style={{ ...thKg, color: '#4ade80' }}>{'Saldo $USD\npor Sector'}</th>
+                    {canWrite && <th style={{ ...thKg, width: 30 }}></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sectores.map((s, si) => {
+                    const base = sectores.slice(0, si).reduce((a, x) => a + x.centros.length, 0);
+                    const acopiadoMgg = acopiadoMggSector(s);
+                    const resg = resguardoSector(s);
+                    const gt = esGt(s);
+                    const n = s.centros.length;
+                    const accent = s.color ?? 'var(--primary)';
+                    const mergeTd: React.CSSProperties = { verticalAlign: 'middle', textAlign: 'center', background: 'var(--surface-2)', borderLeft: '1px solid var(--border-strong)', padding: '.3rem .4rem' };
+                    return (
+                      <Fragment key={si}>
+                        {/* Cabecera del bloque: acento de color + nombre + GT + controles */}
+                        <tr>
+                          <td colSpan={colCount} style={{ background: 'var(--surface-3)', borderTop: '2px solid var(--border-strong)', padding: '.3rem .5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                              <span style={{ width: 12, height: 12, borderRadius: 3, background: accent, flex: '0 0 auto', boxShadow: '0 0 0 1px rgba(0,0,0,.25)' }} />
+                              <input value={s.nombre} onChange={(e) => patchSector(si, { nombre: e.target.value })} disabled={!canWrite}
+                                style={{ fontWeight: 800, letterSpacing: '.02em', flex: 1, background: 'transparent', border: 'none', color: 'inherit', fontSize: '.82rem', padding: '.2rem' }}
+                                placeholder="Nombre del bloque / sector" />
+                              {gt && <span className="badge" style={{ background: 'rgba(74,222,128,.16)', color: '#4ade80', fontSize: '.66rem', fontWeight: 700 }} title="Bloque GT (automático por el nombre): sus Disponibles autosuman a Resguardos GT, no a Acopiados MGG">GT (auto)</span>}
+                              {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => addCentro(si)} title="Agregar centro al bloque">+ centro</button>}
+                              {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => delSector(si)} title="Quitar bloque">🗑</button>}
+                            </div>
+                          </td>
+                        </tr>
+                        {n === 0 ? (
+                          <tr>
+                            <td colSpan={colCount} className="muted" style={{ fontStyle: 'italic', fontSize: '.74rem', padding: '.4rem .6rem' }}>Bloque sin centros — tocá «+ centro».</td>
+                          </tr>
+                        ) : s.centros.map((c, ci) => (
+                          <tr key={ci}>
+                            <td className="mono muted" style={{ textAlign: 'center', borderLeft: `3px solid ${accent}` }}>{base + ci + 1}</td>
+                            <td><input value={c.centro} onChange={(e) => patchCentro(si, ci, { centro: e.target.value })} disabled={!canWrite} placeholder="Nombre del centro" style={{ ...cellInputStyle, minWidth: 220, textAlign: 'left' }} /></td>
+                            <td>{numInput(c.kg_cobrar, (v) => patchCentro(si, ci, { kg_cobrar: v }))}</td>
+                            <td>{disponibleCell(si, c, ci)}</td>
+                            {ci === 0 && (
+                              <>
+                                <td rowSpan={n} style={mergeTd} title={gt ? 'Autosuma de los Disponibles del bloque GT (no editable).' : undefined}>
+                                  {gt
+                                    ? <span className="mono" style={{ color: '#4ade80', fontWeight: 800, fontSize: '.92rem' }}>{fmtKg(resg)}</span>
+                                    : numInput(s.resguardos_gt, (v) => patchSector(si, { resguardos_gt: v }))}
+                                </td>
+                                <td rowSpan={n} className="mono" style={{ ...mergeTd, color: '#fb923c', fontWeight: 800, fontSize: '.92rem' }} title={gt ? 'Bloque GT: no acopia para MGG (sus Kg van a Resguardos).' : 'Autosuma de los Kg Disponibles del bloque.'}>{fmtKg(acopiadoMgg)}</td>
+                                <td rowSpan={n} style={mergeTd}>{numInput(s.precio_prom, (v) => patchSector(si, { precio_prom: v }), '$ 0,00')}</td>
+                                <td rowSpan={n} style={mergeTd}>{numInput(s.saldo_usd, (v) => patchSector(si, { saldo_usd: v }), '$ 0,00')}</td>
+                              </>
+                            )}
+                            {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => delCentro(si, ci)} title="Quitar centro">✕</button></td>}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 800, background: 'var(--surface-2)', borderTop: '2px solid var(--primary)' }}>
+                    <td colSpan={2} style={{ textAlign: 'right' }}>TOTALES</td>
+                    <td className="mono" style={{ textAlign: 'right', color: '#60a5fa' }}>{`${fmtKg(totales.kg_cobrar)}`}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: '#4ade80' }}>{`${fmtKg(totales.kg_disponible)}`}</td>
+                    <td className="mono" style={{ textAlign: 'center', color: '#4ade80' }}>{`${fmtKg(totales.kg_resguardos_gt)}`}</td>
+                    <td className="mono" style={{ textAlign: 'center', color: '#fb923c' }}>{`${fmtKg(totales.kg_acopiado_mgg)}`}</td>
+                    <td></td>
+                    <td className="mono" style={{ textAlign: 'center', color: '#4ade80' }}>{money(totales.saldo_usd)}</td>
+                    {canWrite && <td></td>}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+              <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+                {canWrite && <button className="btn btn-sm btn-ghost" onClick={addSector}>+ Agregar bloque / sector</button>}
+                <button className="btn btn-sm btn-ghost" onClick={() => void resolverVinculos()} disabled={resolviendo} title="Vuelve a traer los valores 🔗 vinculados (GT / acopio)">{resolviendo ? '🔄 Actualizando…' : '🔄 Actualizar vínculos'}</button>
+              </div>
+              <span className="muted" style={{ fontSize: '.74rem' }}>Fecha de última actualización: <strong>{fecha}</strong></span>
+            </div>
+          </div>
+
+          {/* Totales generales */}
+          <div className="card" style={{ marginTop: '1rem', borderColor: 'var(--primary)' }}>
+            <div className="card-title"><span>TOTALES DEL REPORTE</span></div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.6rem' }}>
+              <Tot label="Kg por Cobrar" val={`${fmtKg(totales.kg_cobrar)} Kg`} color="#2563eb" />
+              <Tot label="Kg Disponibles Acopiados" val={`${fmtKg(totales.kg_disponible)} Kg`} color="#16a34a" />
+              <Tot label="Resguardos y Contratos GT" val={`${fmtKg(totales.kg_resguardos_gt)} Kg`} color="#16a34a" />
+              <Tot label="Acopiados por Sector MGG" val={`${fmtKg(totales.kg_acopiado_mgg)} Kg`} color="#ea580c" />
+              <Tot label="Saldo $USD" val={money(totales.saldo_usd)} color="#16a34a" />
+            </div>
+          </div>
+
+          <div className="form-row" style={{ marginTop: '.7rem' }}>
+            <label>Nota / observaciones</label>
+            <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} disabled={!canWrite} placeholder="Opcional" />
+          </div>
+        </>
+      ) : (
+        /* Histórico */
+        !historico.length ? (
+          <p className="muted" style={{ margin: 0 }}>Todavía no archivaste ningún resumen semanal. Armá uno en el editor y tocá «Archivar a histórico».</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead>
+                <tr>
+                  <th>N°</th><th>Fecha</th><th>Semana</th>
+                  <th style={{ textAlign: 'right' }}>Disponibles</th>
+                  <th style={{ textAlign: 'right' }}>Acopiado MGG</th>
+                  <th style={{ textAlign: 'right' }}>Saldo $USD</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {historico.map((r) => (
+                  <tr key={r.id}>
+                    <td className="mono">{r.numero}</td>
+                    <td>{r.fecha}</td>
+                    <td className="muted">{r.periodo_desde ? `${r.periodo_desde} → ${r.periodo_hasta ?? '—'}` : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{fmtKg(r.totales?.kg_disponible ?? 0)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3)' }}>{fmtKg(r.totales?.kg_acopiado_mgg ?? 0)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(r.totales?.saldo_usd ?? 0)}</td>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      <button className="btn btn-sm btn-ghost" title="Descargar PDF" onClick={() => void descargarResumenSemanalPdf(r).catch((e) => toast(e instanceof Error ? e.message : 'Error PDF', 'error'))}>↓ PDF</button>
+                      {canWrite && <button className="btn btn-sm btn-ghost" title="Cargar al editor" onClick={() => cargarDesdeHist(r)}>✎ Cargar</button>}
+                      {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => void borrarHist(r)}>🗑</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+    </Modal>
+  );
+}
+
+function Tot({ label, val, color }: { label: string; val: string; color?: string }) {
+  return (
+    <div className="card" style={{ background: 'var(--surface-2)', padding: '.6rem' }}>
+      <div className="muted" style={{ fontSize: '.72rem' }}>{label}</div>
+      <div className="mono" style={{ fontSize: '1.05rem', fontWeight: 800, color }}>{val}</div>
+    </div>
   );
 }
 
