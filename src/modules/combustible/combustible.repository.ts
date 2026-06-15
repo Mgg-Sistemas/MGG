@@ -690,6 +690,27 @@ export async function ultimoHorometroEquipo(equipo: string): Promise<number | nu
   return hf != null ? Number(hf) : null;
 }
 
+/**
+ * Horómetro VIGENTE de cada equipo (último HF registrado), en un solo viaje.
+ * Devuelve Map<nombreEquipo, horómetro>. Lo usa Control de Maquinaria para
+ * mostrar las HRS restantes hasta el próximo mantenimiento de cada equipo.
+ */
+export async function horometrosVigentesPorEquipo(): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('equipo, horometro_final, fecha')
+    .not('horometro_final', 'is', null)
+    .order('fecha', { ascending: false });
+  if (error) throw error;
+  const out = new Map<string, number>();
+  for (const r of (data ?? []) as Array<{ equipo: string | null; horometro_final: number | null }>) {
+    const eq = (r.equipo ?? '').trim();
+    if (!eq || r.horometro_final == null) continue;
+    if (!out.has(eq)) out.set(eq, Number(r.horometro_final)); // orden desc por fecha: el primero es el vigente
+  }
+  return out;
+}
+
 /** Último contador global (totalizador del surtidor) registrado para un tanque. */
 export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {
   if (!tanqueId) return null;

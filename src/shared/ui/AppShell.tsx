@@ -38,7 +38,7 @@ export function AppShell() {
   const { can, role } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('tesoreria');
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('maquinaria') || can('acopio') || can('tesoreria');
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -228,6 +228,7 @@ export function AppShell() {
           {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Fundición" />}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
+          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria" />}
           {can('acopio') && <NavItem to="/app/acopio" icon="🏭" label="C. Acopio LA ESPERANZA" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
