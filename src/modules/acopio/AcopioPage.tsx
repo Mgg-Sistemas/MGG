@@ -54,6 +54,7 @@ export function AcopioPage() {
   const [movAcopio, setMovAcopio] = useState(false);
   const [categorias, setCategorias] = useState(false);
   const [resumenCaja, setResumenCaja] = useState(false);
+  const [resumenSemanal, setResumenSemanal] = useState(false);
   // Switch «Listar movimientos»: oculto por defecto. Apagado = solo tarjetas + Resumen/Categorías;
   // encendido = se muestra la lista de movimientos y el botón de agregar movimiento.
   const [listarMovs, setListarMovs] = useState(false);
@@ -109,6 +110,7 @@ export function AcopioPage() {
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem', marginBottom: '1.25rem' }}>
         <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
         <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
+        <button className="btn btn-ghost" onClick={() => setResumenSemanal(true)}>📅 Resumen semanal casiterita</button>
         <label className="switch-row" style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
           <span className="switch">
             <input type="checkbox" checked={listarMovs} onChange={(e) => setListarMovs(e.target.checked)} />
@@ -155,6 +157,16 @@ export function AcopioPage() {
       {categorias && <CategoriasModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
 
       {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} onClose={() => setResumenCaja(false)} />}
+
+      {resumenSemanal && (
+        <Modal title="📅 Resumen semanal casiterita" size="md" onClose={() => setResumenSemanal(false)}
+          footer={<button className="btn btn-ghost" onClick={() => setResumenSemanal(false)}>Cerrar</button>}>
+          <p className="muted" style={{ margin: 0 }}>
+            Pendiente de definir el contenido. Decime qué debe llevar este resumen semanal de casiterita
+            (qué columnas/totales, qué período toma, si se descarga en PDF/Excel) y lo armo.
+          </p>
+        </Modal>
+      )}
 
 
       {movAcopio && (
