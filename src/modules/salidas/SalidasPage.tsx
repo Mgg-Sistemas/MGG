@@ -343,7 +343,7 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
                 <button key={s.id} className="card" onClick={() => onVer(s)}
                   style={{ margin: 0, padding: '.55rem .65rem', textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border)' }}>
                   <div className="mono" style={{ fontSize: '.72rem', color: 'var(--primary-3)' }}>{s.codigo}</div>
-                  <div style={{ fontSize: '.82rem', fontWeight: 600 }}>
+                  <div style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text, #fff)' }}>
                     {s.tipo === 'material' ? (s.producto_nombre ?? 'Material') : 'Dinero'}
                   </div>
                   <div className="muted" style={{ fontSize: '.74rem' }}>{resumenSolicitud(s)}</div>
