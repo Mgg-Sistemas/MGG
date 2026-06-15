@@ -89,6 +89,23 @@ export async function registrarSobrepagoCobrar(input: {
   return data as CuentaPorCobrar;
 }
 
+/**
+ * Alta MANUAL de una cuenta por cobrar (no por sobrepago). Mismo motor que
+ * `registrarSobrepagoCobrar`: si ya hay una ABIERTA del mismo (tipo + contraparte
+ * + moneda) suma; si no, la crea. La salda luego el cobro/abono (entra a caja).
+ */
+export async function crearCuentaPorCobrar(input: {
+  tipo: TipoCxC;
+  contraparte: string;
+  monto: number;
+  moneda: string;
+  nota?: string | null;
+  actor?: string | null;
+  actorName?: string | null;
+}): Promise<CuentaPorCobrar> {
+  return registrarSobrepagoCobrar({ ...input, origen: 'manual' });
+}
+
 export async function listCuentasPorCobrar(soloAbiertas = true): Promise<CuentaPorCobrar[]> {
   let q = supabase.from(CXC).select('*').order('created_at', { ascending: false });
   if (soloAbiertas) q = q.eq('estado', 'abierta');

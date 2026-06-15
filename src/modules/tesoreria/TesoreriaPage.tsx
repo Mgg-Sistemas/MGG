@@ -24,7 +24,7 @@ import {
   listTransferenciasInter,
 } from './transferenciasInter.repository';
 import type { TransferenciaInter, TransferLeg } from '@/shared/lib/types';
-import { listMonedas, addMoneda } from './monedas';
+import { listMonedas, addMoneda, MONEDAS_BASE } from './monedas';
 import type { MonedaCaja, CuentaCaja, CajaSaldo, CajaLote } from '@/shared/lib/types';
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import {
@@ -41,7 +41,7 @@ import {
   type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
 } from './cuentasPorPagar.repository';
 import {
-  listCuentasPorCobrar, listAbonosCobrar, registrarAbonoCobrar,
+  listCuentasPorCobrar, listAbonosCobrar, registrarAbonoCobrar, crearCuentaPorCobrar,
   type CuentaPorCobrar, type AbonoCxC,
 } from './cuentasPorCobrar.repository';
 import {
@@ -3164,6 +3164,17 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Alta manual de una cuenta por cobrar.
+  const [nuevaOpen, setNuevaOpen] = useState(false);
+  const [nuevoTipo, setNuevoTipo] = useState<TipoContraparte>('cliente');
+  const [nuevoContraparte, setNuevoContraparte] = useState('');
+  const [nuevoMonto, setNuevoMonto] = useState('');
+  const [nuevoMoneda, setNuevoMoneda] = useState('USD');
+  const [nuevoDetalle, setNuevoDetalle] = useState('');
+  const [creandoNueva, setCreandoNueva] = useState(false);
+  const [contrapartes, setContrapartes] = useState<Contraparte[]>([]);
+  const [monedas, setMonedas] = useState<string[]>([...MONEDAS_BASE]);
+
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
@@ -3174,9 +3185,40 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
   useEffect(() => {
+    listContrapartes().then(setContrapartes).catch(() => setContrapartes([]));
+    listMonedas().then(setMonedas).catch(() => { /* base */ });
+  }, []);
+  // Multiusuario: refleja altas/cobros de otros al instante.
+  useRealtime(['cuentas_por_cobrar', 'cuentas_por_cobrar_abonos', 'tesoreria_contrapartes'], () => { void cargar(); });
+  useEffect(() => {
     if (!selId) { setAbonos([]); return; }
     listAbonosCobrar(selId).then(setAbonos).catch(() => setAbonos([]));
   }, [selId]);
+
+  async function crearNueva() {
+    setError(null);
+    const nombre = nuevoContraparte.trim();
+    const m = Number(nuevoMonto) || 0;
+    if (!nombre) { setError('Indicá el cliente o proveedor.'); return; }
+    if (m <= 0) { setError('Indicá cuánto falta por cobrar.'); return; }
+    setCreandoNueva(true);
+    try {
+      // Si la contraparte no existe en el directorio, la damos de alta.
+      const existe = contrapartes.some((c) => c.tipo === nuevoTipo && c.nombre.trim().toLowerCase() === nombre.toLowerCase());
+      if (!existe) {
+        try { await crearContraparte({ tipo: nuevoTipo, nombre }); } catch { /* si choca por duplicado, seguimos */ }
+      }
+      await crearCuentaPorCobrar({
+        tipo: nuevoTipo, contraparte: nombre, monto: m, moneda: nuevoMoneda,
+        nota: nuevoDetalle.trim() || null, actor, actorName,
+      });
+      notify(`Cuenta por cobrar creada · ${nombre} debe ${monto(m, nuevoMoneda)}`, 'success', { link: '#/app/tesoreria' });
+      setNuevoContraparte(''); setNuevoMonto(''); setNuevoDetalle(''); setNuevaOpen(false);
+      await cargar(); await onChanged();
+      void listContrapartes().then(setContrapartes).catch(() => {});
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo crear la cuenta por cobrar'); }
+    finally { setCreandoNueva(false); }
+  }
 
   const sel = lista.find((c) => c.id === selId) ?? null;
   const saldo = sel ? round2(Number(sel.monto) - (Number(sel.abonado) || 0)) : 0;
@@ -3220,10 +3262,63 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
   return (
     <Modal title="📥 Cuentas por cobrar" size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
-        Deudas de clientes/proveedores hacia la empresa (p. ej. un <strong>sobrepago</strong> al pagarle de más). Se saldan con <strong>abonos</strong> que <strong>entran a la caja</strong>; el saldo es <strong>incremental</strong> por cliente.
+        Deudas de clientes/proveedores hacia la empresa. Se saldan con <strong>abonos</strong> que <strong>entran a la caja</strong> en la moneda elegida; el saldo es <strong>incremental</strong> por cliente.
       </p>
+
+      {/* Alta manual de una cuenta por cobrar */}
+      <div className="card" style={{ padding: '.6rem .7rem', marginBottom: '.7rem' }}>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevaOpen((v) => !v)}>
+          {nuevaOpen ? '× Cerrar' : '+ Nueva cuenta por cobrar'}
+        </button>
+        {nuevaOpen && (
+          <div style={{ display: 'grid', gap: '.5rem', marginTop: '.6rem' }}>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Tipo</label>
+                <select className="select" value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value as TipoContraparte)}>
+                  <option value="cliente">Cliente</option>
+                  <option value="proveedor">Proveedor</option>
+                </select>
+              </div>
+              <div className="form-row">
+                <label>{nuevoTipo === 'proveedor' ? 'Proveedor' : 'Cliente'}</label>
+                <input className="input" list="cxc-contrapartes" value={nuevoContraparte}
+                  onChange={(e) => setNuevoContraparte(e.target.value)}
+                  placeholder="Nombre… (si no existe, se agrega)" />
+                <datalist id="cxc-contrapartes">
+                  {contrapartes.filter((c) => c.tipo === nuevoTipo).map((c) => <option key={c.id} value={c.nombre} />)}
+                </datalist>
+                <small className="muted">Si no está en la lista, se da de alta automáticamente.</small>
+              </div>
+            </div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Monto por cobrar</label>
+                <input className="input mono" type="number" min={0} step="any" value={nuevoMonto} onChange={(e) => setNuevoMonto(e.target.value)} placeholder="0.00" />
+              </div>
+              <div className="form-row">
+                <label>Moneda</label>
+                <select className="select" value={nuevoMoneda} onChange={(e) => setNuevoMoneda(e.target.value)}>
+                  {monedas.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="form-row">
+              <label>Detalle</label>
+              <input className="input" value={nuevoDetalle} onChange={(e) => setNuevoDetalle(e.target.value)} placeholder="¿Por qué nos debe? (opcional)" />
+            </div>
+            <div>
+              <button className="btn btn-primary btn-sm" onClick={crearNueva} disabled={creandoNueva}>
+                {creandoNueva ? 'Creando…' : 'Crear cuenta por cobrar'}
+              </button>
+            </div>
+            {error && !lista.length && <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>}
+          </div>
+        )}
+      </div>
+
       {loading ? <EmptyState message="Cargando…" icon="◔" /> : !lista.length ? (
-        <EmptyState message="Sin cuentas por cobrar abiertas." icon="📥" />
+        <EmptyState message="Sin cuentas por cobrar abiertas. Creá una arriba." icon="📥" />
       ) : (
         <>
           <div className="form-row">
