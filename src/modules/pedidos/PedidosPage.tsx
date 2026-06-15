@@ -2271,6 +2271,12 @@ function CrearOrdenModal({
   const [codigo, setCodigo] = useState<string>('…');
   const [submitting, setSubmitting] = useState(false);
 
+  // Refs a los inputs (no controlados): en el submit leemos el DOM —la verdad—
+  // y no el estado, que puede ir atrasado si los re-renders del modal van lentos.
+  const solicitanteRef = useRef<HTMLInputElement>(null);
+  const notaRef = useRef<HTMLTextAreaElement>(null);
+  const finalidadRef = useRef<Record<string, string>>({});
+
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
   // el resto se completa luego desde el módulo de inventario).
   const [nuevoOpen, setNuevoOpen] = useState(false);
@@ -2385,26 +2391,26 @@ function CrearOrdenModal({
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
-      // [DEBUG TEMPORAL] Qué valores llegan REALMENTE al guardar.
-      console.log('%c[OP-DEBUG] 📤 GUARDANDO con estos valores:', 'color:#f59e0b;font-weight:bold', {
-        unidad_solicitante: solicitanteNombre,
-        solicitante_persona: solicitanteCi,
-        nota: notaOp,
-        finalidades_items: items.map((i) => ({ sku: i.sku, finalidad: i.finalidad })),
-      });
+      // Leemos el DOM (refs), no el estado, que puede ir atrasado por re-renders.
+      const ciValor = (solicitanteRef.current?.value ?? solicitanteCi).trim();
+      const notaValor = (notaRef.current?.value ?? notaOp).trim();
+      const itemsValor = items.map((i) => ({
+        ...i,
+        finalidad: (finalidadRef.current[i.sku] ?? i.finalidad ?? '').trim() || undefined,
+      }));
       // La unidad solicitante tipeada se guarda en el catálogo (botón Categorías).
       await ensureUnidadSolicitante(solicitanteNombre, email);
       const saved = await crearOrden({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
         proveedor_id: null,
-        items,
-        notas: notaOp.trim() || null,
+        items: itemsValor,
+        notas: notaValor || null,
         motivo: null,
         finalidad: null,
         clasificacion: [],
         solicitante_email: email,
         solicitante: solicitanteNombre.trim() || null,
-        ci_solicitante: solicitanteCi.trim() || null,
+        ci_solicitante: ciValor || null,
       });
       notify(`Nueva orden de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
@@ -2475,6 +2481,7 @@ function CrearOrdenModal({
         {/* No controlado (defaultValue): inmune a re-renders de fondo que, sobre
             un input controlado, revertían el texto y "borraban" lo tecleado. */}
         <input
+          ref={solicitanteRef}
           className="input"
           defaultValue={nombreCompletoUsuario}
           onChange={(e) => setSolicitanteCi(e.target.value)}
@@ -2550,7 +2557,7 @@ function CrearOrdenModal({
                 style={{ marginLeft: 34, width: 'calc(100% - 34px)', fontSize: '.82rem' }}
                 placeholder="Finalidad de este producto (¿para qué se compra?)"
                 defaultValue={it.finalidad ?? ''}
-                onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
+                onChange={(e) => { finalidadRef.current[it.sku] = e.target.value; updateItem(idx, { finalidad: e.target.value }); }}
               />
             )}
             </div>
@@ -2612,6 +2619,7 @@ function CrearOrdenModal({
         <textarea
           className="textarea"
           placeholder="Cualquier observación o aclaratoria sobre la solicitud (opcional)…"
+          ref={notaRef}
           defaultValue=""
           onChange={(e) => setNotaOp(e.target.value)}
         />
