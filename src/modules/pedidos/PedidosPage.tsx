@@ -213,7 +213,18 @@ export function PedidosPage() {
   }, []);
 
   // Realtime multiusuario: las órdenes/compras se reflejan al instante entre usuarios.
-  useRealtime(['ordenes', 'productos'], () => { void refresh(); });
+  // Realtime multiusuario. Se PAUSA mientras hay un modal abierto: un refresh
+  // re-renderiza el modal y, sobre un formulario, hace perder teclas de los
+  // inputs controlados (se borraba el apellido/nota/finalidad al tipear).
+  // Al cerrar el modal se reanuda y se pone al día con un refresh (efecto abajo).
+  useRealtime(['ordenes', 'productos'], () => { void refresh(); }, { enabled: modal.kind === 'none' });
+
+  // Al cerrar cualquier modal, traer lo que haya cambiado mientras estuvo pausado.
+  const modalKindPrev = useRef(modal.kind);
+  useEffect(() => {
+    if (modalKindPrev.current !== 'none' && modal.kind === 'none') void refresh();
+    modalKindPrev.current = modal.kind;
+  }, [modal.kind, refresh]);
 
   useEffect(() => {
     let cancelled = false;
