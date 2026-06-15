@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import {
+  listCategoriasGasto, soloCategorias, subcategoriasDe, ensureCategoriaGasto,
+  renombrarCategoriaGasto, setActivoCategoriaGasto, eliminarCategoriaGasto,
+  type CategoriaGasto,
+} from './categoriasGasto.repository';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, date as fmtDate, dosDecimales, redondearArriba5 } from '@/shared/lib/format';
@@ -92,14 +98,14 @@ export function TesoreriaPage() {
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [libro, setLibro] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'resumen' | 'retencion' | 'grafico' | 'contrapartes'>('none');
+  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'resumen' | 'retencion' | 'grafico' | 'contrapartes' | 'categorias-gasto'>('none');
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
   const [cobrarCount, setCobrarCount] = useState(0);
   const [retencionListas, setRetencionListas] = useState<RetencionItem[]>([]);
   const [nominaCount, setNominaCount] = useState(0);
-  const [vista, setVista] = useState<'tesoreria' | 'tasas' | 'movimientos'>('tesoreria');
+  const [vista, setVista] = useState<'tesoreria' | 'tasas' | 'movimientos' | 'gastos'>('tesoreria');
   const [correoMovOpen, setCorreoMovOpen] = useState(false);
   const [movSel, setMovSel] = useState<MovimientoCaja | null>(null);
 
@@ -191,6 +197,7 @@ export function TesoreriaPage() {
           <button className={vista === 'tesoreria' ? 'active' : ''} onClick={() => setVista('tesoreria')}>🏦 Tesorería</button>
           <button className={vista === 'tasas' ? 'active' : ''} onClick={() => setVista('tasas')}>📈 Tasas del Día</button>
           <button className={vista === 'movimientos' ? 'active' : ''} onClick={() => setVista('movimientos')}>📒 Registro de Movimientos</button>
+          <button className={vista === 'gastos' ? 'active' : ''} onClick={() => setVista('gastos')}>💸 Gastos / Movimientos</button>
         </div>
       </div>
 
@@ -256,6 +263,7 @@ export function TesoreriaPage() {
                 <button className="btn btn-ghost" onClick={() => setModal('traslado')}>↔ Traspaso de dinero</button>
                 <button className="btn btn-ghost" onClick={() => setModal('cajas')}>🏦 Cajas</button>
                 <button className="btn btn-ghost" onClick={() => setModal('contrapartes')}>👥 Clientes / Proveedores</button>
+                <button className="btn btn-ghost" onClick={() => setModal('categorias-gasto')}>🗂️ Categorías de gasto</button>
               </>
             )}
             <button className="btn btn-ghost" onClick={() => setModal('conversor')}>💱 Conversor</button>
@@ -378,6 +386,8 @@ export function TesoreriaPage() {
       </>
       )}
 
+      {vista === 'gastos' && <GastosView libro={libro} onVerMov={setMovSel} />}
+
       {movSel && <MovimientoDetalleModal mov={movSel} defaultEmail={actor} onClose={() => setMovSel(null)} />}
       {correoMovOpen && <EnviarReporteModal movs={libroView} meta={reporteMeta()} defaultEmail={actor} onClose={() => setCorreoMovOpen(false)} />}
       {modal === 'gasto' && <GastoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
@@ -394,6 +404,7 @@ export function TesoreriaPage() {
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'cobrar' && <CuentasPorCobrarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'contrapartes' && <ContrapartesModal onClose={() => setModal('none')} />}
+      {modal === 'categorias-gasto' && <CategoriasGastoModal actor={actor} onClose={() => setModal('none')} />}
       {cajaSel && <CajaDetalleModal caja={cajaSel} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCajaSel(null)} onChanged={async () => { await reload(); }} />}
     </div>
   );
@@ -1172,6 +1183,17 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
 
+  // Categorías → subcategorías de gasto (obligatorias, buscables).
+  const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
+  const [catId, setCatId] = useState('');
+  const [subId, setSubId] = useState('');
+  const cargarCats = useCallback(() => { listCategoriasGasto(true).then(setCatRows).catch(() => setCatRows([])); }, []);
+  useEffect(() => { cargarCats(); }, [cargarCats]);
+  useRealtime(['categorias_gasto'], cargarCats);
+  const categorias = soloCategorias(catRows);
+  const subcategorias = catId ? subcategoriasDe(catRows, catId) : [];
+  useEffect(() => { setSubId(''); }, [catId]); // al cambiar categoría, resetea subcategoría
+
   // Saldos reales de la caja (multimoneda: cada cuenta/moneda con su saldo).
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
   const [saldoSelId, setSaldoSelId] = useState('');
@@ -1190,15 +1212,20 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const cuentaPago = esMulti ? (selSaldo?.cuenta ?? 'general') : null;
   const disponible = esMulti ? (Number(selSaldo?.saldo) || 0) : (Number(caja?.saldo) || 0);
 
+  const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
+  const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
+
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja.'); return; }
     if (esMulti && !selSaldo) { setError('Elegí de qué saldo (moneda) se paga.'); return; }
+    if (!catId) { setError('Elegí la categoría del gasto.'); return; }
+    if (!subId) { setError('Elegí la subcategoría del gasto.'); return; }
     const m = Number(montoStr) || 0;
     if (m > disponible + 0.01) { setError(`Saldo insuficiente. Disponible: ${monto(disponible, monedaPago)}.`); return; }
     setSaving(true);
     try {
-      await registrarGasto({ cajaId, monto: m, concepto, cuenta: cuentaPago, moneda: monedaPago, actor, actorName });
+      await registrarGasto({ cajaId, monto: m, concepto, cuenta: cuentaPago, moneda: monedaPago, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
       notify(`Gasto registrado: ${monto(m, monedaPago)}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar.'); setSaving(false); }
@@ -1237,12 +1264,288 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
             <small className="muted">Disponible: <strong className="mono">{monto(disponible, monedaPago)}</strong></small>
           </div>
         </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Categoría de gasto <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <SearchSelect
+              value={catId}
+              onChange={setCatId}
+              options={categorias.map((c) => ({ value: c.id, label: c.nombre }))}
+              placeholder="Buscar categoría…"
+              emptyText="Sin categorías. Cargalas en 'Categorías de gasto'."
+            />
+          </div>
+          <div className="form-row">
+            <label>Subcategoría <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <SearchSelect
+              value={subId}
+              onChange={setSubId}
+              options={subcategorias.map((s) => ({ value: s.id, label: s.nombre }))}
+              placeholder={catId ? 'Buscar subcategoría…' : 'Elegí primero la categoría'}
+              emptyText={catId ? 'Esta categoría no tiene subcategorías.' : 'Elegí una categoría'}
+              disabled={!catId}
+            />
+          </div>
+        </div>
         <div className="form-row">
           <label>Concepto</label>
           <input className="input" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
-          <small className="muted">El gasto queda etiquetado por la moneda elegida y aparece en el registro de movimientos.</small>
+          <small className="muted">El gasto queda etiquetado por la <strong>categoría → subcategoría</strong> y la moneda elegida; aparece en el registro y en GASTOS / MOVIMIENTOS.</small>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/* ───────────── Vista GASTOS / MOVIMIENTOS (desglose por categoría → subcategoría) ───────────── */
+function GastosView({ libro, onVerMov }: { libro: MovimientoCaja[]; onVerMov: (m: MovimientoCaja) => void }) {
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [buscar, setBuscar] = useState('');
+  const [openCat, setOpenCat] = useState('');
+  const [openSub, setOpenSub] = useState('');
+
+  const gastos = useMemo(() => {
+    const q = buscar.trim().toLowerCase();
+    return libro.filter((m) => (m.categoria ?? '') === 'gasto').filter((m) => {
+      const f = (m.at ?? '').slice(0, 10);
+      if (desde && f < desde) return false;
+      if (hasta && f > hasta) return false;
+      if (q) {
+        const hay = [m.gasto_categoria, m.gasto_subcategoria, m.motivo, String(m.monto), m.moneda].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [libro, desde, hasta, buscar]);
+
+  const grupos = useMemo(() => {
+    type Sub = { nombre: string; totales: Record<string, number>; count: number; movs: MovimientoCaja[] };
+    type Cat = { nombre: string; totales: Record<string, number>; count: number; subs: Map<string, Sub> };
+    const map = new Map<string, Cat>();
+    for (const m of gastos) {
+      const cat = m.gasto_categoria || '(Sin categoría)';
+      const sub = m.gasto_subcategoria || '(Sin subcategoría)';
+      if (!map.has(cat)) map.set(cat, { nombre: cat, totales: {}, count: 0, subs: new Map() });
+      const g = map.get(cat)!;
+      g.totales[m.moneda] = round2((g.totales[m.moneda] || 0) + Number(m.monto));
+      g.count++;
+      if (!g.subs.has(sub)) g.subs.set(sub, { nombre: sub, totales: {}, count: 0, movs: [] });
+      const s = g.subs.get(sub)!;
+      s.totales[m.moneda] = round2((s.totales[m.moneda] || 0) + Number(m.monto));
+      s.count++;
+      s.movs.push(m);
+    }
+    return Array.from(map.values()).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }, [gastos]);
+
+  const fmt = (t: Record<string, number>) => Object.entries(t).map(([mon, val]) => monto(val, mon)).join(' · ') || '—';
+
+  return (
+    <div className="card">
+      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+        <span>Gastos por categoría · subcategoría</span>
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <input className="input" type="search" value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="🔍 Buscar categoría/subcategoría/concepto…" style={{ width: 260 }} />
+          <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+            Desde <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
+          </label>
+          <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+            Hasta <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
+          </label>
+          {(desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }}>✕ Fechas</button>}
+        </div>
+      </div>
+
+      {!grupos.length ? (
+        <EmptyState message="Sin gastos en el período. Registrá un gasto con su categoría/subcategoría." icon="💸" />
+      ) : (
+        <div style={{ display: 'grid', gap: '.3rem' }}>
+          {grupos.map((g) => {
+            const abierta = openCat === g.nombre;
+            return (
+              <div key={g.nombre} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <button type="button" onClick={() => { setOpenCat(abierta ? '' : g.nombre); setOpenSub(''); }}
+                  style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text,#fff)', cursor: 'pointer',
+                    padding: '.55rem .7rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
+                  <span style={{ fontWeight: 600 }}>{abierta ? '▾' : '▸'} {g.nombre} <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>· {g.count} mov.</span></span>
+                  <span className="mono" style={{ fontSize: '.84rem' }}>{fmt(g.totales)}</span>
+                </button>
+                {abierta && (
+                  <div style={{ padding: '0 .5rem .5rem 1rem', display: 'grid', gap: '.2rem' }}>
+                    {Array.from(g.subs.values()).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map((s) => {
+                      const subAbierta = openSub === g.nombre + '|' + s.nombre;
+                      return (
+                        <div key={s.nombre} className="card" style={{ padding: 0, borderColor: 'var(--border)' }}>
+                          <button type="button" onClick={() => setOpenSub(subAbierta ? '' : g.nombre + '|' + s.nombre)}
+                            style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text,#fff)', cursor: 'pointer',
+                              padding: '.4rem .6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', fontSize: '.84rem' }}>
+                            <span>{subAbierta ? '▾' : '▸'} {s.nombre} <span className="muted" style={{ fontSize: '.74rem' }}>· {s.count}</span></span>
+                            <span className="mono" style={{ fontSize: '.8rem' }}>{fmt(s.totales)}</span>
+                          </button>
+                          {subAbierta && (
+                            <div className="table-wrap" style={{ padding: '0 .4rem .4rem' }}>
+                              <table className="table" style={{ fontSize: '.8rem' }}>
+                                <thead><tr><th>Fecha</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+                                <tbody>
+                                  {s.movs.slice().sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '')).map((m) => (
+                                    <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => onVerMov(m)}>
+                                      <td>{dateTime(m.at)}</td>
+                                      <td>{m.motivo || '—'}</td>
+                                      <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(m.monto), m.moneda)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── Administrador de categorías → subcategorías de gasto ───────────── */
+function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () => void }) {
+  const [rows, setRows] = useState<CategoriaGasto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selCat, setSelCat] = useState('');
+  const [nuevaCat, setNuevaCat] = useState('');
+  const [nuevaSub, setNuevaSub] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pegarOpen, setPegarOpen] = useState(false);
+  const [pegado, setPegado] = useState('');
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try { setRows(await listCategoriasGasto(false)); } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void cargar(); }, [cargar]);
+  useRealtime(['categorias_gasto'], () => { void cargar(); });
+
+  const cats = soloCategorias(rows);
+  const subs = selCat ? subcategoriasDe(rows, selCat) : [];
+  const catSel = cats.find((c) => c.id === selCat) ?? null;
+
+  async function addCat() {
+    const n = nuevaCat.trim(); if (!n) return;
+    setBusy(true); setError(null);
+    try { const c = await ensureCategoriaGasto(n, null, actor); setNuevaCat(''); await cargar(); setSelCat(c.id); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo crear'); } finally { setBusy(false); }
+  }
+  async function addSub() {
+    const n = nuevaSub.trim(); if (!n || !selCat) return;
+    setBusy(true); setError(null);
+    try { await ensureCategoriaGasto(n, selCat, actor); setNuevaSub(''); await cargar(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo crear'); } finally { setBusy(false); }
+  }
+  async function importarPegado() {
+    const lineas = pegado.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lineas.length < 2) { setError('Pegá la categoría en la 1ª línea y sus subcategorías debajo.'); return; }
+    setBusy(true); setError(null);
+    try {
+      const cat = await ensureCategoriaGasto(lineas[0], null, actor);
+      for (const sub of lineas.slice(1)) { await ensureCategoriaGasto(sub, cat.id, actor); }
+      setPegado(''); setPegarOpen(false); await cargar(); setSelCat(cat.id);
+      notify(`Cargada categoría "${cat.nombre}" con ${lineas.length - 1} subcategorías`, 'success');
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo importar'); } finally { setBusy(false); }
+  }
+  async function renombrar(c: CategoriaGasto) {
+    const nuevo = window.prompt('Nuevo nombre:', c.nombre)?.trim();
+    if (!nuevo || nuevo === c.nombre) return;
+    setBusy(true);
+    try { await renombrarCategoriaGasto(c.id, nuevo); await cargar(); } finally { setBusy(false); }
+  }
+  async function toggleActivo(c: CategoriaGasto) {
+    setBusy(true);
+    try { await setActivoCategoriaGasto(c.id, !c.activo); await cargar(); } finally { setBusy(false); }
+  }
+  async function borrar(c: CategoriaGasto, esCat: boolean) {
+    if (!window.confirm(`¿Borrar "${c.nombre}"${esCat ? ' y todas sus subcategorías' : ''}? (los gastos ya registrados conservan su etiqueta)`)) return;
+    setBusy(true);
+    try { await eliminarCategoriaGasto(c.id); if (esCat && selCat === c.id) setSelCat(''); await cargar(); } finally { setBusy(false); }
+  }
+
+  return (
+    <Modal title="🗂️ Categorías de gasto" size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+        Categorías y subcategorías que el <strong>registro de gasto</strong> exige. Tip: usá <strong>📋 Pegado masivo</strong> para cargar una columna del sheet (categoría + sus subcategorías) de una vez.
+      </p>
+
+      <div style={{ marginBottom: '.6rem' }}>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPegarOpen((v) => !v)}>
+          {pegarOpen ? '× Cerrar pegado' : '📋 Pegado masivo'}
+        </button>
+        {pegarOpen && (
+          <div className="card" style={{ padding: '.6rem', marginTop: '.4rem', display: 'grid', gap: '.4rem' }}>
+            <small className="muted">1ª línea = <strong>categoría</strong>; cada línea siguiente = <strong>subcategoría</strong>. Pegá tal cual la columna del sheet.</small>
+            <textarea className="textarea" rows={6} value={pegado} onChange={(e) => setPegado(e.target.value)}
+              placeholder={'VEHICULOS\nVEHICULO (1) CAMION...\nVEHICULO (4) MACHITO...'} />
+            <div><button className="btn btn-sm btn-primary" onClick={importarPegado} disabled={busy}>{busy ? 'Cargando…' : 'Importar'}</button></div>
+          </div>
+        )}
+      </div>
+
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.8rem' }}>
+        {/* Categorías */}
+        <div>
+          <strong style={{ fontSize: '.84rem' }}>Categorías ({cats.length})</strong>
+          <div style={{ display: 'flex', gap: '.3rem', margin: '.4rem 0' }}>
+            <input className="input" style={{ flex: 1 }} value={nuevaCat} onChange={(e) => setNuevaCat(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addCat(); } }} placeholder="Nueva categoría…" />
+            <button className="btn btn-sm btn-ghost" onClick={addCat} disabled={busy}>+</button>
+          </div>
+          <div style={{ maxHeight: 280, overflowY: 'auto', display: 'grid', gap: '.2rem' }}>
+            {loading && <span className="muted">Cargando…</span>}
+            {cats.map((c) => (
+              <div key={c.id} className="card" style={{ padding: '.3rem .5rem', display: 'flex', alignItems: 'center', gap: '.4rem',
+                borderColor: c.id === selCat ? 'var(--primary)' : 'var(--border)', opacity: c.activo ? 1 : 0.5, cursor: 'pointer' }}
+                onClick={() => setSelCat(c.id)}>
+                <span style={{ flex: 1, fontSize: '.82rem', fontWeight: c.id === selCat ? 700 : 400 }}>{c.nombre}</span>
+                <span className="muted" style={{ fontSize: '.68rem' }}>{subcategoriasDe(rows, c.id).length}</span>
+                <button className="btn btn-icon btn-ghost" title="Renombrar" onClick={(e) => { e.stopPropagation(); void renombrar(c); }}>✎</button>
+                <button className="btn btn-icon btn-ghost" title={c.activo ? 'Desactivar' : 'Activar'} onClick={(e) => { e.stopPropagation(); void toggleActivo(c); }}>{c.activo ? '🚫' : '✔️'}</button>
+                <button className="btn btn-icon btn-ghost" title="Borrar" onClick={(e) => { e.stopPropagation(); void borrar(c, true); }}>🗑</button>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Subcategorías */}
+        <div>
+          <strong style={{ fontSize: '.84rem' }}>Subcategorías {catSel ? `de "${catSel.nombre}" (${subs.length})` : ''}</strong>
+          {!selCat ? <p className="muted" style={{ fontSize: '.8rem' }}>Elegí una categoría a la izquierda.</p> : (
+            <>
+              <div style={{ display: 'flex', gap: '.3rem', margin: '.4rem 0' }}>
+                <input className="input" style={{ flex: 1 }} value={nuevaSub} onChange={(e) => setNuevaSub(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addSub(); } }} placeholder="Nueva subcategoría…" />
+                <button className="btn btn-sm btn-ghost" onClick={addSub} disabled={busy}>+</button>
+              </div>
+              <div style={{ maxHeight: 280, overflowY: 'auto', display: 'grid', gap: '.2rem' }}>
+                {subs.map((s) => (
+                  <div key={s.id} className="card" style={{ padding: '.3rem .5rem', display: 'flex', alignItems: 'center', gap: '.4rem', opacity: s.activo ? 1 : 0.5 }}>
+                    <span style={{ flex: 1, fontSize: '.82rem' }}>{s.nombre}</span>
+                    <button className="btn btn-icon btn-ghost" title="Renombrar" onClick={() => void renombrar(s)}>✎</button>
+                    <button className="btn btn-icon btn-ghost" title={s.activo ? 'Desactivar' : 'Activar'} onClick={() => void toggleActivo(s)}>{s.activo ? '🚫' : '✔️'}</button>
+                    <button className="btn btn-icon btn-ghost" title="Borrar" onClick={() => void borrar(s, false)}>🗑</button>
+                  </div>
+                ))}
+                {!subs.length && <span className="muted" style={{ fontSize: '.8rem' }}>Sin subcategorías. Agregá arriba o usá pegado masivo.</span>}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </Modal>
   );
 }

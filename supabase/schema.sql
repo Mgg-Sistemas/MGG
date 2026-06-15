@@ -956,6 +956,30 @@ do $$ begin
   alter publication supabase_realtime add table public.cuentas_por_cobrar_abonos;
 exception when duplicate_object then null; end $$;
 
+-- Categorías y subcategorías de GASTO (jerárquico: padre_id null = categoría).
+-- El registro de gasto las exige (obligatorias). Catálogo dinámico/buscable.
+create table if not exists public.categorias_gasto (
+  id         uuid primary key default gen_random_uuid(),
+  nombre     text not null,
+  padre_id   uuid references public.categorias_gasto(id) on delete cascade,
+  activo     boolean not null default true,
+  actor      text,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists ux_catgasto_top on public.categorias_gasto (lower(nombre)) where padre_id is null;
+create unique index if not exists ux_catgasto_sub on public.categorias_gasto (padre_id, lower(nombre)) where padre_id is not null;
+alter table public.categorias_gasto enable row level security;
+do $$ begin
+  create policy "catgasto read auth"     on public.categorias_gasto for select using (auth.role()='authenticated');
+  create policy "catgasto write operativo" on public.categorias_gasto for all using (public.is_operativo()) with check (public.is_operativo());
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.categorias_gasto;
+exception when duplicate_object then null; end $$;
+-- Gasto: categoría y subcategoría elegidas (se guardan en el movimiento).
+alter table public.movimientos_caja add column if not exists gasto_categoria    text;
+alter table public.movimientos_caja add column if not exists gasto_subcategoria text;
+
 -- movimientos_caja: cuenta + tasa aplicada (multipago y trazabilidad).
 alter table public.movimientos_caja add column if not exists cuenta  text;
 alter table public.movimientos_caja add column if not exists tasa_bs numeric;
