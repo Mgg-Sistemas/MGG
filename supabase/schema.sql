@@ -988,6 +988,42 @@ alter table public.movimientos_caja add column if not exists cuenta  text;
 alter table public.movimientos_caja add column if not exists tasa_bs numeric;
 
 -- ─────────────────────────────────────────────────────────────
+-- Cierre de mes (caja): snapshot del período + archivado reversible.
+-- Al cerrar un mes se guarda el reporte (jsonb) y se "marcan" los
+-- movimientos del período con cierre_id, para que las vistas de
+-- Tesorería arranquen limpias. Reabrir el cierre quita la marca.
+-- NO borra nada ni toca inventario/saldos.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.cierres_caja (
+  id            uuid primary key default gen_random_uuid(),
+  periodo       text not null,                 -- 'YYYY-MM'
+  desde         date not null,
+  hasta         date not null,
+  snapshot      jsonb not null default '{}'::jsonb,  -- reporte calculado al cerrar
+  estado        text not null default 'cerrado' check (estado in ('cerrado','reabierto')),
+  movimientos   integer not null default 0,    -- cuántos movimientos quedaron archivados
+  actor         text,
+  actor_name    text,
+  reabierto_por text,
+  reabierto_en  timestamptz,
+  created_at    timestamptz not null default now()
+);
+-- Un solo cierre vigente por período (los reabiertos no cuentan).
+create unique index if not exists ux_cierre_periodo on public.cierres_caja(periodo) where estado = 'cerrado';
+alter table public.cierres_caja enable row level security;
+do $$ begin
+  create policy "cierres read auth" on public.cierres_caja for select using (auth.role() = 'authenticated');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create policy "cierres write staff" on public.cierres_caja for all using (public.is_staff()) with check (public.is_staff());
+exception when duplicate_object then null; end $$;
+alter publication supabase_realtime add table public.cierres_caja;
+
+-- Marca de archivado en los movimientos (null = período abierto/actual).
+alter table public.movimientos_caja add column if not exists cierre_id uuid references public.cierres_caja(id) on delete set null;
+create index if not exists idx_mov_cierre on public.movimientos_caja(cierre_id);
+
+-- ─────────────────────────────────────────────────────────────
 -- 9.0 Ofertas de proveedores + evaluaciones de recepción (Sourcing)
 --     Permite cargar varias ofertas por orden y comparar/seleccionar.
 -- ─────────────────────────────────────────────────────────────
