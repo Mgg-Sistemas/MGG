@@ -288,6 +288,21 @@ export function PedidosPage() {
     if (usuario.role === 'admin') setScope('oc');
   }, [usuario]);
 
+  // Deep-link (Dashboard / buscador): ?scope=oc_lote abre directo esa vista y manda
+  // a "aprobar por lote". Gana sobre el default del admin y se consume de la URL.
+  useEffect(() => {
+    const s = searchParams.get('scope');
+    if (!s) return;
+    const validos: Scope[] = ['pedidos', 'oc', 'oc_lote', 'compra_directa'];
+    if (validos.includes(s as Scope)) {
+      scopeDefaulted.current = true;
+      switchScope(s as Scope);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('scope');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const filteredOrdenes = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     return ordenes.filter((o) => {

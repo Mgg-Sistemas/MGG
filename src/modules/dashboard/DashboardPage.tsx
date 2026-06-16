@@ -146,7 +146,7 @@ function KpiGrid({ kpis }: { kpis: DashboardKpis | null }) {
         value={num(kpis.ordenesPendientes)}
         deltaClassName={pendCls}
         deltaText="esperando aprobación"
-        onClick={() => navigate('/app/pedidos')}
+        onClick={() => navigate('/app/pedidos?scope=oc_lote')}
       />
       <Kpi
         icon="$"
