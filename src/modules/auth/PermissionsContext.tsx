@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 import { getAppUser, useSession, type AppUser } from './authStore';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import {
   loadRolePermisos,
   defaultsFor,
@@ -36,7 +37,9 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [permisos, setPermisos] = useState<RolePermisos | null>(null);
 
-  useEffect(() => {
+  // Carga el rol del usuario y sus permisos. `mostrarCarga` evita el flash de
+  // "Cargando…" en los refrescos en vivo (realtime), que sí ocurre al iniciar sesión.
+  const cargar = useCallback(async (mostrarCarga: boolean) => {
     if (sessionLoading) return;
     if (!user) {
       setRole(null);
@@ -45,34 +48,32 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      const u = await getAppUser(user);
-      if (cancelled) return;
-      setAppUser(u);
-      const r = u?.role ?? null;
-      setRole(r);
-      if (!r) {
-        setPermisos(null);
-        setLoading(false);
-        return;
-      }
-      let stored: RolePermisos | null = null;
-      try {
-        stored = await loadRolePermisos(r);
-      } catch {
-        stored = null; // RLS/offline: caemos a los defaults del rol
-      }
-      if (cancelled) return;
-      // Si la matriz aún no tiene fila para el rol, usamos los defaults (mismos que el panel).
-      setPermisos(stored ? normalizeRolePermisos(stored) : defaultsFor(r));
+    if (mostrarCarga) setLoading(true);
+    const u = await getAppUser(user);
+    setAppUser(u);
+    const r = u?.role ?? null;
+    setRole(r);
+    if (!r) {
+      setPermisos(null);
       setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, sessionLoading]);
+      return;
+    }
+    let stored: RolePermisos | null = null;
+    try {
+      stored = await loadRolePermisos(r);
+    } catch {
+      stored = null; // RLS/offline: caemos a los defaults del rol
+    }
+    // Si la matriz aún no tiene fila para el rol, usamos los defaults (mismos que el panel).
+    setPermisos(stored ? normalizeRolePermisos(stored) : defaultsFor(r));
+    setLoading(false);
+  }, [user, sessionLoading]);
+
+  useEffect(() => { void cargar(true); }, [cargar]);
+
+  // Realtime: si el admin cambia los permisos del rol (roles_permisos) o reasigna
+  // el rol del usuario (usuarios), recargamos en vivo —sin volver a entrar—.
+  useRealtime(['roles_permisos', 'usuarios'], () => { void cargar(false); }, { enabled: !!user });
 
   const value = useMemo<PermissionsValue>(() => {
     const isAdmin = role === 'admin';

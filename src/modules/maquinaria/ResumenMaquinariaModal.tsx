@@ -14,6 +14,7 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
   const [horasMap, setHorasMap] = useState<Map<string, { horasUltimo: number | null; ultimoHorometro: number | null }>>(new Map());
   const [loading, setLoading] = useState(true);
   const [detalle, setDetalle] = useState<string | null>(null); // nombre (equipo de combustible) seleccionado
+  const [statusSel, setStatusSel] = useState<string | null>(null); // status elegido (click en su barra)
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -102,8 +103,8 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
           <RankedBarChart data={gasoilData} valueFormatter={(v) => `${fmtNum(v)} L`} onBarClick={(p) => setDetalle(p.label)} emptyMessage={loading ? 'Cargando…' : 'Sin consumo de gasoil en el período (equipos vinculados a Combustible).'} />
         </div>
         <div className="card" style={{ flex: '1 1 260px', padding: '.8rem' }}>
-          <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Equipos por status</span></div>
-          <RankedBarChart data={porStatus} valueFormatter={(v) => fmtNum(v)} emptyMessage="Sin equipos." />
+          <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Equipos por status</span><span className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>click para ver detalle</span></div>
+          <RankedBarChart data={porStatus} valueFormatter={(v) => fmtNum(v)} onBarClick={(p) => setStatusSel(p.label)} emptyMessage="Sin equipos." />
         </div>
       </div>
 
@@ -182,6 +183,42 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
           )}
         </Modal>
       )}
+
+      {statusSel && (() => {
+        const lista = equipos.filter((e) => (e.status || '—') === statusSel);
+        return (
+          <Modal title={`🚜 Status: ${statusSel} · ${lista.length} equipo(s)`} size="lg" onClose={() => setStatusSel(null)}
+            footer={<button className="btn btn-primary" onClick={() => setStatusSel(null)}>Cerrar</button>}>
+            {!lista.length ? (
+              <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin equipos en este status.</p>
+            ) : (
+              <div className="table-wrap" style={{ maxHeight: 420, overflow: 'auto' }}>
+                <table className="table" style={{ fontSize: '.82rem' }}>
+                  <thead><tr>
+                    <th>Equipo</th><th>Tipo</th><th>Propietario</th><th>Ubicación</th><th>Serial / Placa</th><th style={{ textAlign: 'center' }}>Habilitado</th>
+                  </tr></thead>
+                  <tbody>
+                    {lista.map((e) => (
+                      <tr key={e.id} style={{ opacity: e.activo ? 1 : 0.55 }}>
+                        <td><strong>{e.equipo}</strong>{[e.marca, e.modelo].filter(Boolean).length ? <div className="muted" style={{ fontSize: '.72rem' }}>{[e.marca, e.modelo].filter(Boolean).join(' ')}</div> : null}</td>
+                        <td>{e.tipo ?? '—'}</td>
+                        <td>{e.propietario ?? '—'}</td>
+                        <td>{e.ubicacion ?? '—'}</td>
+                        <td className="mono" style={{ fontSize: '.74rem' }}>{[e.serial, e.placa].filter(Boolean).join(' · ') || '—'}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          {e.activo
+                            ? <span className="badge" style={{ color: 'var(--success)' }}>Sí</span>
+                            : <span className="badge" style={{ color: 'var(--danger)' }}>🚫 Inactivo</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Modal>
+        );
+      })()}
     </Modal>
   );
 }
