@@ -321,10 +321,9 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
               <div className="form-grid">
                 <div className="form-row">
                   <label>Material #{idx + 1}</label>
-                  <select className="select" value={l.productoId} onChange={(e) => set(l.id, { productoId: e.target.value })}>
-                    {!activos.length && <option value="">— sin materiales —</option>}
-                    {activos.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {p.sku}</option>)}
-                  </select>
+                  <SearchSelect value={l.productoId} onChange={(id) => set(l.id, { productoId: id })}
+                    options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))}
+                    placeholder="🔎 Buscá el material…" emptyText="Sin materiales." />
                 </div>
                 <div className="form-row">
                   <label>Cantidad</label>
