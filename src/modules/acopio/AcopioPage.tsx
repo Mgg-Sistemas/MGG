@@ -147,7 +147,7 @@ function AcopioModulo({ centro }: { centro: string }) {
     <div>
       <div className="page-head">
         <div>
-          <h1>🏭 Centro de Acopio {centro}</h1>
+          <h1>🏭 Centro de Costo {centro}</h1>
           <p className="muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
         </div>
       </div>
@@ -705,7 +705,7 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.84rem' }}>
                 <tbody>
-                  <tr><td style={{ fontWeight: 600, width: 280 }}>Centro de Acopio</td><td>{centro}</td></tr>
+                  <tr><td style={{ fontWeight: 600, width: 280 }}>Centro de Costo</td><td>{centro}</td></tr>
                   {hayRango ? (
                     <tr><td style={{ fontWeight: 600 }}>Rango seleccionado</td><td className="mono">{desde || '—'} → {hasta || '—'}</td></tr>
                   ) : (
@@ -783,9 +783,8 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
             </>
           )}
 
-          <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" grupo="gastos_caja" onVerVehiculo={setConsumoCat} />
-          <p className="muted" style={{ fontSize: '.74rem', marginTop: '.3rem' }}>💡 Tocá una <strong>categoría</strong> para ver el <strong>detalle de sus movimientos</strong>. En las de <strong>repuestos · reparaciones · servicios</strong>, el botón <strong>📊</strong> muestra el consumo en $ por vehículo.</p>
-          <TablaCat titulo="Nómina por categoría" filas={r.nominaPorCategoria} totalLabel="Total nómina" totalMonto={r.totalNominas} totalPct={r.pctNomina} color="#a855f7" grupo="nomina" />
+          <TablaCat titulo="Gastos por categoría (incluye nómina)" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastado} totalPct={1} color="#ef4444" grupo="gastos_caja" onVerVehiculo={setConsumoCat} />
+          <p className="muted" style={{ fontSize: '.74rem', marginTop: '.3rem' }}>💡 Tocá una <strong>categoría</strong> para ver el <strong>detalle de sus movimientos</strong>. En las de <strong>repuestos · reparaciones · servicios</strong>, el botón <strong>📊</strong> muestra el consumo en $ por vehículo. La <strong>nómina</strong> va incluida como una categoría más.</p>
           {/* MOVIMIENTOS DE CAJA por categoría: dinero entregado que entra a la caja */}
           <TablaCat titulo="Movimientos de caja por categoría" filas={r.movimientosPorCategoria} totalLabel="Total entregado" totalMonto={r.totalEntregado} totalPct={1} color="#3b82f6" grupo="movimientos_caja" montoLabel="Dinero entregado $" pctLabel="% del total entregado" />
         </>

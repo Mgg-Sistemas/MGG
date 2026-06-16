@@ -60,7 +60,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
   }
 
   return (
-    <Modal title="Categorías del Centro de Acopio" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+    <Modal title="Categorías del Centro de Costo" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       <div className="view-toggle" role="tablist" style={{ marginBottom: '.75rem', flexWrap: 'wrap' }}>
         {TABS.map((t) => (
           <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => { setTab(t.key); setEditId(null); setValor(''); }}>{t.label}</button>

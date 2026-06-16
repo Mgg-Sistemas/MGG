@@ -207,7 +207,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro }: { o
   return (
     <div className="card" style={{ marginBottom: '1.25rem' }}>
       <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
-        <span>📋 Movimientos del Centro de Acopio</span>
+        <span>📋 Movimientos del Centro de Costo</span>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
             <input className="input" type="search" value={fTexto} onChange={(e) => setFTexto(e.target.value)}
@@ -319,7 +319,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro }: { o
 
       {correoOpen && (
         <CorreoReporteModal
-          titulo="Enviar movimientos del Centro de Acopio"
+          titulo="Enviar movimientos del Centro de Costo"
           descripcion={`Se enviará el PDF con ${mostradas.length} movimiento(s)${hayFiltro ? ', con el filtro aplicado' : ''}.`}
           defaultEmail={user?.email ?? ''}
           onEnviar={async (emails) => {

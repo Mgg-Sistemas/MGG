@@ -186,8 +186,7 @@ export interface ResumenCajaAcopio {
   saldoUsd: number;               // entregado − facturados − gastos − nóminas − traslado
   pctGastos: number;              // gastos / total gastado
   pctNomina: number;              // nóminas / total gastado
-  gastosPorCategoria: CategoriaResumen[];
-  nominaPorCategoria: CategoriaResumen[];
+  gastosPorCategoria: CategoriaResumen[];   // gastos + nómina (la nómina va metida en los gastos)
   casiteritaPorCategoria: CategoriaCasiterita[]; // contratos: cantidad + facturado + precio por categoría
   movimientosPorCategoria: CategoriaResumen[];   // movimientos de caja: dinero entregado por categoría
   kgProduccion: number;           // Σ kg_cerrados (casiterita que entra)
@@ -233,13 +232,18 @@ export async function resumenCajaAcopio(
   const kgProduccion = sum((m) => m.kg_cerrados);
   const kgEnviados = sum((m) => m.kg_recibidos);
 
-  // Distribución por categoría (base = total gastado, así gastos + nómina = 100%).
-  const porCategoria = (grupo: GrupoClasificacion, campo: (m: CajaMovimiento) => unknown): CategoriaResumen[] => {
+  // Gastos por categoría INCLUYENDO la nómina (la nómina se mete en los gastos).
+  // Cada renglón usa el monto de su grupo (gastos→m.gastos, nómina→m.nominas) y el
+  // % se calcula sobre el TOTAL GASTADO (gastos + nómina), por lo que suman 100%.
+  const gastosConNomina = (): CategoriaResumen[] => {
     const map = new Map<string, number>();
     for (const m of movs) {
-      if (m.clasif_grupo !== grupo) continue;
+      let monto = 0;
+      if (m.clasif_grupo === 'gastos_caja') monto = num(m.gastos);
+      else if (m.clasif_grupo === 'nomina') monto = num(m.nominas);
+      else continue;
       const k = (m.clasif_valor ?? '').trim() || 'Sin categoría';
-      map.set(k, (map.get(k) ?? 0) + num(campo(m)));
+      map.set(k, (map.get(k) ?? 0) + monto);
     }
     return Array.from(map.entries())
       .map(([valor, monto]) => ({ valor, monto, pct: totalGastado > 0 ? monto / totalGastado : 0 }))
@@ -285,8 +289,7 @@ export async function resumenCajaAcopio(
     totalEntregado, totalFacturado, totalGastos, totalNominas, totalTraslado, totalGastado, saldoUsd,
     pctGastos: totalGastado > 0 ? totalGastos / totalGastado : 0,
     pctNomina: totalGastado > 0 ? totalNominas / totalGastado : 0,
-    gastosPorCategoria: porCategoria('gastos_caja', (m) => m.gastos),
-    nominaPorCategoria: porCategoria('nomina', (m) => m.nominas),
+    gastosPorCategoria: gastosConNomina(),
     casiteritaPorCategoria, movimientosPorCategoria,
     kgProduccion, kgEnviados, diferenciaKg: kgEnviados - kgProduccion,
     tasaMaterial: kgProduccion > 0 ? (totalFacturado + totalGastos + totalNominas) / kgProduccion : 0,

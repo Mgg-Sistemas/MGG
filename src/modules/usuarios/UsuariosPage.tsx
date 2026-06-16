@@ -15,6 +15,7 @@ import {
   listUsuarios,
   loadRolesAndCache,
   resetearClave,
+  cambiarCorreoUsuario,
   setEstadoUsuario,
   getDepartamentos,
   addDepartamento,
@@ -37,6 +38,7 @@ type ModalKind =
   | { kind: 'edit'; usuario: Usuario }
   | { kind: 'detail'; usuario: Usuario }
   | { kind: 'reset-confirm'; usuario: Usuario }
+  | { kind: 'email-change'; usuario: Usuario }
   | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' };
 
 type RoleQuickModal = 'none' | 'crear' | 'gestionar';
@@ -371,6 +373,7 @@ export function UsuariosPage() {
           usuario={modal.usuario}
           onClose={() => setModal({ kind: 'none' })}
           onResetClave={() => setModal({ kind: 'reset-confirm', usuario: modal.usuario })}
+          onCambiarCorreo={() => setModal({ kind: 'email-change', usuario: modal.usuario })}
           onToggleEstado={() =>
             setModal({
               kind: 'toggle-confirm',
@@ -397,6 +400,18 @@ export function UsuariosPage() {
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error al resetear', 'error');
             }
+          }}
+        />
+      )}
+
+      {modal.kind === 'email-change' && (
+        <CambiarCorreoModal
+          usuario={modal.usuario}
+          onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
+          onSaved={async (nuevoEmail) => {
+            notify(`Correo actualizado · ${modal.usuario.email} → ${nuevoEmail}`, 'success', { link: '#/app/usuarios' });
+            setModal({ kind: 'none' });
+            await refresh();
           }}
         />
       )}
@@ -959,14 +974,68 @@ function NuevaTaxonomiaModal({ titulo, placeholder, onClose, onCrear }: NuevaTax
   );
 }
 
+function CambiarCorreoModal({ usuario, onCancel, onSaved }: { usuario: Usuario; onCancel: () => void; onSaved: (email: string) => void | Promise<void> }) {
+  const [email, setEmail] = useState(usuario.email ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const limpio = email.trim().toLowerCase();
+  const valido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(limpio);
+  const cambio = limpio !== (usuario.email ?? '').trim().toLowerCase();
+
+  async function guardar() {
+    setError(null);
+    if (!valido) { setError('Escribí un correo válido.'); return; }
+    if (!cambio) { setError('El correo es el mismo que ya tiene.'); return; }
+    setSaving(true);
+    try {
+      await cambiarCorreoUsuario(usuario.id, limpio);
+      await onSaved(limpio);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo cambiar el correo.');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`✉ Cambiar correo · ${[usuario.nombre, usuario.apellido].filter(Boolean).join(' ') || usuario.email}`}
+      size="md"
+      onClose={onCancel}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onCancel} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving || !valido || !cambio}>
+            {saving ? 'Guardando…' : 'Cambiar correo'}
+          </button>
+        </>
+      }
+    >
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <div className="form-row">
+        <label>Correo actual</label>
+        <input className="input" value={usuario.email ?? '—'} disabled />
+      </div>
+      <div className="form-row" style={{ marginTop: '.6rem' }}>
+        <label>Nuevo correo</label>
+        <input className="input" type="email" value={email} autoFocus
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void guardar(); } }}
+          placeholder="nuevo@correo.com" />
+        <small className="muted">Cambia el correo de inicio de sesión y el del sistema. La clave no se modifica.</small>
+      </div>
+    </Modal>
+  );
+}
+
 interface UsuarioDetailModalProps {
   usuario: Usuario;
   onClose: () => void;
   onResetClave: () => void;
+  onCambiarCorreo: () => void;
   onToggleEstado: () => void;
   onEdit: () => void;
 }
-function UsuarioDetailModal({ usuario, onClose, onResetClave, onToggleEstado, onEdit }: UsuarioDetailModalProps) {
+function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, onToggleEstado, onEdit }: UsuarioDetailModalProps) {
   const isActive = usuario.estado === 'activo';
   return (
     <Modal
@@ -977,6 +1046,9 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onToggleEstado, on
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
           <button className="btn btn-ghost" onClick={onEdit}>✎ Editar datos</button>
+          <button className="btn btn-ghost" onClick={onCambiarCorreo}>
+            ✉ Cambiar correo
+          </button>
           <button className="btn btn-ghost" onClick={onResetClave}>
             🔑 Resetear clave
           </button>

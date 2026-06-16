@@ -73,7 +73,7 @@ function AliadosLista({ canWrite, actor, centro, onVolverAcopio, onAbrir }: {
     <div>
       <div className="page-head">
         <div>
-          <h1>{centro === 'PERAMANAL ENDER MEJIAS' ? '🪙 Compra de ORO · Centro de Acopio' : '🤝 Aliados · Centro de Acopio'}</h1>
+          <h1>{centro === 'PERAMANAL ENDER MEJIAS' ? '🪙 Compra de ORO · Centro de Costo' : '🤝 Aliados · Centro de Costo'}</h1>
           <p className="muted">Cada aliado lleva su propio libro con la misma estructura del acopio (entregado, Kg cerrados, $/Kg, facturado, Kg recibidos y saldos corridos).</p>
         </div>
       </div>
