@@ -1144,6 +1144,24 @@ export interface AliadoAcopio {
   created_at: string;
 }
 
+/** Destino de un «Traslado de caja» del acopio (catálogo). 'aliado_interno' refleja
+ *  el monto como $Usd entregado en el ledger de un aliado de ESTE sistema; 'externo'
+ *  lo empuja por el puente inter-sistema a otra empresa/Supabase. */
+export type TipoDestinoTraslado = 'aliado_interno' | 'externo';
+export interface DestinoTraslado {
+  id: string;
+  centro_nombre: string;
+  nombre: string;
+  tipo: TipoDestinoTraslado;
+  aliado_id: string | null;        // si 'aliado_interno'
+  caja_externa_id: string | null;  // si 'externo' (caja espejo local del centro externo)
+  empresa_codigo: string | null;   // si 'externo'
+  activo: boolean;
+  orden: number;
+  created_by?: string | null;
+  created_at: string;
+}
+
 /** Una fila del libro por aliado. tipo 'cierre' = entrega $ + compromete Kg; 'abono' = entrega Kg. */
 export interface AliadoMovimiento {
   id: string;

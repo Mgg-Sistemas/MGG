@@ -38,7 +38,7 @@ export function AppShell() {
   const { can, role } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('maquinaria') || can('acopio') || can('tesoreria');
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('maquinaria') || can('acopio') || can('ventas') || can('tesoreria');
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -229,7 +229,17 @@ export function AppShell() {
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria" />}
-          {can('acopio') && <NavItem to="/app/acopio" icon="🏭" label="C. Acopio LA ESPERANZA" />}
+          {can('acopio') && (
+            <NavGroup icon="🏭" label="Cajas Centro de Acopio" defaultOpen={location.pathname.startsWith('/app/acopio')}>
+              <NavItem to="/app/acopio/reporte-preliminar" icon="📅" label="Reporte Preliminar" />
+              <NavItem to="/app/acopio" icon="🏭" label="La Esperanza" />
+              <NavItem to="/app/acopio/global-mineral-tin" icon="🏭" label="Global Mineral TIN" />
+              <NavItem to="#" icon="🏭" label="Los Pijiguaos" disabled soon />
+              <NavItem to="#" icon="🏭" label="La Esmeralda" disabled soon />
+              <NavItem to="#" icon="🏭" label="Peramanal (Ender Mejías)" disabled soon />
+            </NavGroup>
+          )}
+          {can('ventas') && <NavItem to="/app/ventas" icon="🧾" label="Ventas" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
@@ -279,13 +289,6 @@ export function AppShell() {
               <span>{descargandoManual ? 'Generando…' : 'Manual de Sistema'}</span>
             </a>
           )}
-        </nav>
-
-        <div className="sidebar-section">Próximamente</div>
-        <nav className="nav">
-          <NavItem to="#" icon="↗" label="Ventas" disabled />
-          <NavItem to="#" icon="🏭" label="C. Acopio LOS PIJIGUAOS" disabled />
-          <NavItem to="#" icon="🏭" label="C. Acopio LA ESMERALDA" disabled />
         </nav>
 
         <div className="sidebar-footer">
@@ -405,21 +408,58 @@ export function AppShell() {
   );
 }
 
+/** Grupo colapsable del menú: cabecera con chevron + sub-ítems indentados. */
+function NavGroup({
+  icon,
+  label,
+  defaultOpen,
+  children,
+}: {
+  icon: ReactNode;
+  label: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen ?? false);
+  return (
+    <div>
+      <a
+        href="#"
+        onClick={(e) => { e.preventDefault(); setOpen((o) => !o); }}
+        aria-expanded={open}
+        title={label}
+      >
+        <span className="icn">{icon}</span>
+        <span style={{ flex: 1 }}>{label}</span>
+        <span style={{ fontSize: '.7rem', opacity: .7, transition: 'transform .15s', transform: open ? 'rotate(90deg)' : 'none' }}>▸</span>
+      </a>
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: '.7rem', marginLeft: '.3rem', borderLeft: '1px solid var(--border)' }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NavItem({
   to,
   icon,
   label,
   disabled,
+  soon,
 }: {
   to: string;
   icon: ReactNode;
   label: string;
   disabled?: boolean;
+  soon?: boolean;
 }) {
   if (disabled) {
     return (
-      <a href="#" onClick={(e) => e.preventDefault()} style={{ opacity: 0.4, cursor: 'not-allowed' }}>
+      <a href="#" onClick={(e) => e.preventDefault()} style={{ opacity: 0.4, cursor: 'not-allowed' }} title={soon ? 'Próximamente' : undefined}>
         <span className="icn">{icon}</span> <span>{label}</span>
+        {soon && <span className="badge" style={{ marginLeft: 'auto', fontSize: '.58rem', opacity: .8 }}>próx.</span>}
       </a>
     );
   }

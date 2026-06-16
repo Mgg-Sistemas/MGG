@@ -249,6 +249,7 @@
       <li><a href="#srrhh">RRHH / Nómina</a></li>
       <li><a href="#scomb">Combustible</a></li>
       <li><a href="#smaquinaria">Control de Maquinaria</a></li>
+      <li><a href="#sventas">Ventas</a></li>
       <li><a href="#sacopio">C. Acopio LA ESPERANZA</a></li>
       <li><a href="#s9">Usuarios</a></li>
       <li><a href="#s10">Ajustes</a></li>
@@ -504,17 +505,36 @@
   </section>
 
   <section class="modulo" id="sacopio">
-    <h2>🏭 11. Centro de Acopio LA ESPERANZA</h2>
-    <p>Control del centro de acopio de mineral: recepción de casiterita, caja/movimientos y la tasa del material. <em>Módulo nuevo en construcción:</em> por ahora está la <strong>parte visual y su propio almacenamiento</strong>; algunas conexiones con otros módulos (p. ej. contratos de producción) se irán habilitando luego.</p>
+    <h2>🏭 11. Cajas Centro de Acopio</h2>
+    <p>Control de los centros de acopio de mineral: recepción de casiterita, caja/movimientos y la tasa del material. <em>Módulo nuevo en construcción:</em> por ahora está la <strong>parte visual y su propio almacenamiento</strong>; algunas conexiones con otros módulos (p. ej. contratos de producción) se irán habilitando luego.</p>
+    <p>En el menú lateral, <strong>Cajas Centro de Acopio</strong> es un grupo desplegable con: <strong>📅 Reporte Preliminar</strong> (el Resumen Semanal de Casiterita como vista propia), <strong>La Esperanza</strong> y <strong>Global Mineral TIN</strong> (centros en operación, cada uno con su propia caja y movimientos) y los próximos centros <em>Los Pijiguaos</em>, <em>La Esmeralda</em> y <em>Peramanal (Ender Mejías)</em> (marcados «próx.»). Todos los centros comparten un <strong>único catálogo de clasificaciones</strong> (Casiterita, Movimientos de Caja y Gastos); la <strong>nómina no es un grupo aparte</strong>: sus categorías (Nómina general, Pago obreros, Pago ayudante, Pago cocinera…) van dentro de <strong>Gastos</strong>.</p>
     <ul>
       <li><strong>Tarjetas de cabecera:</strong> al entrar se ven las tarjetas con la <strong>Tasa actual del material</strong> ($/Kg, con flecha ▲/▼ según suba o baje), <strong>USD entregados</strong>, <strong>$Usd Facturados</strong>, <strong>Saldo de caja</strong>, <strong>Saldo en Kg</strong>, <strong>Gastos</strong> y <strong>Nóminas</strong>. La tasa se calcula como <em>(Facturado + Gastos + Nóminas) ÷ Kg cerrados</em>. Un switch <strong>📋 Listar movimientos</strong> (junto a los botones, debajo del título) muestra/oculta la lista y el botón <strong>+ Agregar Movimiento</strong>.</li>
       <li><strong>Movimientos del acopio:</strong> tabla réplica de la «caja» del centro de acopio con sus saldos corridos en $ y en Kg, incluida la columna <strong>Traspaso de Caja</strong>. Se descarga en <strong>PDF/Excel</strong> y se puede enviar por <strong>correo</strong> con un botón (los reportes salen con el <strong>nombre del centro</strong> seleccionado). Cada fila tiene al final los botones <strong>✎ editar</strong> y <strong>🗑 borrar</strong> ese movimiento (fecha, descripción, montos y clasificación) directo desde la tabla.</li>
       <li><strong>Entrada de dinero desde Tesorería:</strong> cuando en <strong>Tesorería → Traspaso de dinero</strong> se envía dinero a este centro de acopio, en Tesorería se registra como <strong>salida</strong> y acá entra como una <strong>ENTRADA</strong> en la columna <strong>USD ENTREGADOS</strong>, con la descripción <em>«CAJA MULTIMONEDAS MGG / CAJA [centro]»</em> (el mismo texto va en el <strong>Motivo</strong> del traspaso y es editable desde Tesorería).</li>
       <li><strong>+ Agregar Movimiento:</strong> registra entradas/salidas de la caja del acopio (USD entregados, Kg cerrados, gastos, nóminas, traslado…), con su clasificación. Cuando la <strong>categoría del gasto</strong> es de <strong>REPUESTOS - REPARACIONES - SERVICIOS</strong> (Maquinaria pesada, Vehículo o Maquinaria liviana) aparece un <strong>buscador de vehículo/maquinaria</strong> con los equipos del módulo de <strong>Combustible</strong> para imputar el gasto a un equipo (es <strong>opcional</strong>).</li>
+      <li><strong>Traslado de caja → con destino:</strong> en el campo <strong>$ Traslado de Caja</strong> ahora se elige un <strong>Destino</strong> de una <strong>lista desplegable</strong> (catálogo editable con el botón <strong>⚙ Gestionar destinos</strong>). El traslado <strong>baja el saldo</strong> de la caja de La Esperanza y, según el destino, refleja el monto como <strong>$Usd entregado</strong> del otro lado:
+        <ul>
+          <li><strong>Aliado interno</strong> (ej. <em>JUAN BODEGA</em>, <em>ENDER MEJÍAS</em>): el dinero entra <strong>directo</strong> en la columna <strong>$Usd entregado</strong> del libro de ese aliado, sin confirmación.</li>
+          <li><strong>Otro sistema</strong> (ej. <em>GT PERAMANAL OTRO SISTEMA</em>): se envía por el <strong>puente inter-sistema</strong> con la <strong>misma metodología de Tesorería</strong> — el otro sistema lo recibe «por confirmar» y, al <strong>aceptar</strong>, acredita su caja.</li>
+        </ul>
+      </li>
       <li><strong>🏷 Categorías:</strong> gestiona las <strong>clasificaciones</strong> (los 5 grupos del acopio) y la taxonomía de <strong>costos en 2 niveles</strong>, con agregar/editar/deshabilitar.</li>
       <li><strong>📊 Resumen de caja:</strong> abre el resumen del período (agregados de la caja) y permite descargarlo o enviarlo por correo. En <strong>Gastos por categoría</strong>, las filas de <strong>repuestos · reparaciones · servicios</strong> (📊) se tocan para ver el <strong>consumo en $ por vehículo</strong> (gráfica de ranking, filtrable por período y <strong>buscable</strong>, como la de Combustible).</li>
       <li><strong>Recepción de mineral:</strong> formulario de recepción por lotes (peso bruto, neto y recepcionado con sus diferencias calculadas). Al <strong>cerrar</strong> una recepción suma el mineral al inventario; el stock entra <strong>directo al sub-almacén CASITERITA</strong> (sede <strong>LA ESPERANZA</strong>). Al <strong>anular</strong> lo revierte.</li>
       <li><strong>Responsive:</strong> la vista se adapta a móvil — cabecera apilada, tarjetas en una columna, tablas con desplazamiento horizontal y menú lateral como cajón deslizable.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="sventas">
+    <h2>🧾 Ventas</h2>
+    <p>Facturación de productos: a <strong>quién se le vende</strong> (clientes), a qué <strong>precio</strong>, con su <strong>tenor</strong> (ley del mineral), el <strong>costo</strong> y el <strong>porcentaje de ganancia</strong>. Al <strong>emitir</strong> una factura se <strong>descuenta el stock</strong> del inventario; al <strong>anular</strong> se revierte.</p>
+    <ul>
+      <li><strong>Tarjetas (KPIs):</strong> Total vendido, Ganancia, % Ganancia, N° de facturas, Por cobrar y Cobrado.</li>
+      <li><strong>👤 Clientes:</strong> alta/edición de clientes (nombre/razón social, RIF o C.I., teléfono, email, dirección, activo).</li>
+      <li><strong>+ Nueva venta:</strong> se elige el cliente (o uno ocasional), la fecha y la moneda. Cada <strong>línea</strong> lleva producto, almacén (con su stock), cantidad, <strong>tenor %</strong>, <strong>precio</strong> y <strong>costo</strong> (se precarga el PMP del producto). El sistema calcula <em>Subtotal = cantidad × precio</em>, <em>Ganancia = subtotal − costo</em>, y abajo el <strong>descuento</strong>, <strong>IVA %</strong>, <strong>Total</strong> y la <strong>ganancia total con su %</strong>.</li>
+      <li><strong>Estados:</strong> <em>Borrador</em> (no toca stock, editable/eliminable) → <em>Emitida</em> (descuenta inventario) → <em>Pagada</em> (se registra método y monto). <em>Anulada</em> revierte el stock.</li>
+      <li><strong>Factura PDF:</strong> con el logo y nombre del sistema, items y totales. <strong>📊 Reporte:</strong> ventas por cliente y por producto.</li>
     </ul>
   </section>
 

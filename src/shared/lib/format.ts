@@ -35,10 +35,23 @@ export function dosDecimales(valor: string): string {
 
 const TZ = 'America/Caracas';
 
+/** HOY en formato YYYY-MM-DD según la hora LOCAL (sin corrimiento por UTC). */
+export function hoyISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function date(iso: string | null | undefined): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('es-VE', {
-    timeZone: TZ,
+  const s = String(iso);
+  // Fecha PURA (YYYY-MM-DD, sin hora): se muestra tal cual, sin convertir zona horaria
+  // (si no, una fecha se corre un día al pasarla de UTC a Venezuela).
+  const soloFecha = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  const d = soloFecha
+    ? new Date(Number(soloFecha[1]), Number(soloFecha[2]) - 1, Number(soloFecha[3]))
+    : new Date(s);
+  return d.toLocaleDateString('es-VE', {
+    ...(soloFecha ? {} : { timeZone: TZ }),
     day: '2-digit',
     month: 'short',
     year: 'numeric',

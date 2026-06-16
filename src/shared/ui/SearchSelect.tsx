@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface SearchOption {
   value: string;
@@ -9,6 +10,9 @@ export interface SearchOption {
  * Combobox con buscador: input que filtra una lista desplegable y selecciona al
  * hacer clic / Enter. Reemplaza a un <select> cuando hay muchas opciones
  * (productos, proveedores…). El valor seleccionado se controla por `value`.
+ *
+ * El desplegable se renderiza en un portal (position: fixed) para que nunca lo
+ * recorte un contenedor con overflow (p. ej. una tabla dentro de .table-wrap).
  */
 export function SearchSelect({
   options,
@@ -33,6 +37,8 @@ export function SearchSelect({
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
 
   const selected = options.find((o) => o.value === value) ?? null;
 
@@ -42,13 +48,33 @@ export function SearchSelect({
     return options.filter((o) => o.label.toLowerCase().includes(q));
   }, [options, query]);
 
-  // Cerrar al hacer clic afuera (y limpiar el texto tecleado).
+  // Posiciona el desplegable bajo el input (coords de viewport, position: fixed).
+  const updateRect = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setRect({ left: r.left, top: r.bottom + 2, width: r.width });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateRect();
+    const onScroll = () => updateRect();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [open]);
+
+  // Cerrar al hacer clic afuera (input + menú del portal) y limpiar el texto tecleado.
   useEffect(() => {
     function onDoc(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery('');
-      }
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
+      setQuery('');
     }
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -88,15 +114,16 @@ export function SearchSelect({
         disabled={disabled}
         value={open ? query : (selected?.label ?? '')}
         placeholder={selected ? selected.label : placeholder}
-        onFocus={() => { if (disabled) return; setOpen(true); setQuery(''); setHi(0); }}
+        onFocus={() => { if (disabled) return; setOpen(true); setQuery(''); setHi(0); updateRect(); }}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setHi(0); }}
         onKeyDown={onKeyDown}
       />
-      {open && !disabled && (
+      {open && !disabled && rect && createPortal(
         <div
+          ref={menuRef}
           role="listbox"
           style={{
-            position: 'absolute', zIndex: 60, top: '100%', left: 0, right: 0, marginTop: 2,
+            position: 'fixed', zIndex: 1000, left: rect.left, top: rect.top, width: rect.width,
             maxHeight: 260, overflowY: 'auto',
             background: 'var(--bg-1, #11151c)', border: '1px solid var(--border, #2a3240)',
             borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.45)',
@@ -122,7 +149,8 @@ export function SearchSelect({
               {o.label}
             </div>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

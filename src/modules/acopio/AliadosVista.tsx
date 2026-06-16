@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
-import { date, money, num } from '@/shared/lib/format';
+import { date, money, num, hoyISO } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { AliadoAcopio } from '@/shared/lib/types';
 import {
@@ -22,21 +22,21 @@ const PREFIJO_ALIADO = 'CENTRO ACOPIO';
  *     ($Usd entregados, Kg cerrados, $/Kg, $Usd facturados, Saldo $, Kg recibidos MGG,
  *     Saldo Kg) + la tabla de movimientos con saldos corridos + «Agregar movimiento».
  */
-export function AliadosVista({ canWrite, actor, actorName, onVolver }: {
-  canWrite: boolean; actor: string; actorName: string | null; onVolver: () => void;
+export function AliadosVista({ canWrite, actor, actorName, centro = 'LA ESPERANZA', onVolver }: {
+  canWrite: boolean; actor: string; actorName: string | null; centro?: string; onVolver: () => void;
 }) {
   const [seleccion, setSeleccion] = useState<AliadoAcopio | null>(null);
 
   if (seleccion) {
-    return <AliadoDetalle aliado={seleccion} canWrite={canWrite} actor={actor} actorName={actorName} onVolver={() => setSeleccion(null)} />;
+    return <AliadoDetalle aliado={seleccion} canWrite={canWrite} actor={actor} actorName={actorName} centro={centro} onVolver={() => setSeleccion(null)} />;
   }
-  return <AliadosLista canWrite={canWrite} actor={actor} onVolverAcopio={onVolver} onAbrir={setSeleccion} />;
+  return <AliadosLista canWrite={canWrite} actor={actor} centro={centro} onVolverAcopio={onVolver} onAbrir={setSeleccion} />;
 }
 
 /* ───────────── Lista de aliados (tarjetas) ───────────── */
 
-function AliadosLista({ canWrite, actor, onVolverAcopio, onAbrir }: {
-  canWrite: boolean; actor: string; onVolverAcopio: () => void; onAbrir: (a: AliadoAcopio) => void;
+function AliadosLista({ canWrite, actor, centro, onVolverAcopio, onAbrir }: {
+  canWrite: boolean; actor: string; centro: string; onVolverAcopio: () => void; onAbrir: (a: AliadoAcopio) => void;
 }) {
   const [items, setItems] = useState<AliadoConResumen[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +49,7 @@ function AliadosLista({ canWrite, actor, onVolverAcopio, onAbrir }: {
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      const todos = await listAliados();
+      const todos = await listAliados(centro);
       const propios = todos.filter((a) => a.nombre.toUpperCase().startsWith(PREFIJO_ALIADO));
       const conResumen = await Promise.all(
         propios.map(async (a) => ({ aliado: a, resumen: resumirAliado(await listAliadoMovimientos(a.id)) })),
@@ -57,7 +57,7 @@ function AliadosLista({ canWrite, actor, onVolverAcopio, onAbrir }: {
       setItems(conResumen);
     }
     finally { setLoading(false); }
-  }, []);
+  }, [centro]);
   useEffect(() => { cargar().catch((e) => toast(e instanceof Error ? e.message : 'Error', 'error')); }, [cargar]);
   useRealtime(['acopio_aliados', 'acopio_aliado_movimientos'], cargar);
 
@@ -115,7 +115,7 @@ function AliadosLista({ canWrite, actor, onVolverAcopio, onAbrir }: {
         </div>
       )}
 
-      {nuevo && <NuevoAliadoModal actor={actor} onClose={() => setNuevo(false)} onSaved={async () => { setNuevo(false); await cargar(); }} />}
+      {nuevo && <NuevoAliadoModal actor={actor} centro={centro} onClose={() => setNuevo(false)} onSaved={async () => { setNuevo(false); await cargar(); }} />}
       {editar && <EditarAliadoModal aliado={editar} onClose={() => setEditar(null)} onSaved={async () => { setEditar(null); await cargar(); }} />}
     </div>
   );
@@ -123,8 +123,8 @@ function AliadosLista({ canWrite, actor, onVolverAcopio, onAbrir }: {
 
 /* ───────────── Detalle del aliado (vista con tarjetas + tabla) ───────────── */
 
-function AliadoDetalle({ aliado, canWrite, actor, actorName, onVolver }: {
-  aliado: AliadoAcopio; canWrite: boolean; actor: string; actorName: string | null; onVolver: () => void;
+function AliadoDetalle({ aliado, canWrite, actor, actorName, centro, onVolver }: {
+  aliado: AliadoAcopio; canWrite: boolean; actor: string; actorName: string | null; centro: string; onVolver: () => void;
 }) {
   const [filas, setFilas] = useState<AliadoFila[]>([]);
   const [loading, setLoading] = useState(true);
@@ -206,7 +206,8 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, onVolver }: {
                   <td className="mono" style={{ textAlign: 'right' }}>{f.usd_entregado ? money(f.usd_entregado) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-3)' }}>{f.kg_cerrados ? num(f.kg_cerrados) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{f.precio_usd_kg ? money(f.precio_usd_kg) : '—'}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{f.facturado ? money(f.facturado) : '—'}</td>
+                  {/* $Usd Facturados = Kg Cerrados × Precio $/Kg (computado, igual que acopio: siempre visible) */}
+                  <td className="mono" style={{ textAlign: 'right' }}>{money(f.facturado)}</td>
                   {hayGastos && <td className="mono" style={{ textAlign: 'right', color: f.gastos ? 'var(--danger)' : undefined }}>{f.gastos ? money(f.gastos) : '—'}</td>}
                   <td className="mono" style={{ textAlign: 'right' }}><strong>{money(f.saldoUsd)}</strong></td>
                   <td className="mono" style={{ textAlign: 'right', color: 'var(--success, #45c08a)' }}>{f.kg_recibidos ? num(f.kg_recibidos) : '—'}</td>
@@ -234,7 +235,7 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, onVolver }: {
       )}
 
       {agregar && (
-        <MovimientoAliadoModal aliado={aliado} sugCorte={sugCorte} actor={actor} actorName={actorName}
+        <MovimientoAliadoModal aliado={aliado} sugCorte={sugCorte} actor={actor} actorName={actorName} centro={centro}
           onClose={() => setAgregar(false)} onSaved={async () => { setAgregar(false); await cargar(); }} />
       )}
     </div>
@@ -252,13 +253,13 @@ function Kpi({ titulo, valor, color, destacar }: { titulo: string; valor: string
 
 /* ───────────── Modales (alta / edición / movimiento) ───────────── */
 
-function NuevoAliadoModal({ actor, onClose, onSaved }: { actor: string; onClose: () => void; onSaved: () => void }) {
-  const [nombre, setNombre] = useState('CENTRO ACOPIO LA ESPERANZA - ');
+function NuevoAliadoModal({ actor, centro, onClose, onSaved }: { actor: string; centro: string; onClose: () => void; onSaved: () => void }) {
+  const [nombre, setNombre] = useState(`CENTRO ACOPIO ${centro} - `);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null); setSaving(true);
-    try { const a = await crearAliado(nombre, actor); toast(`Aliado ${a.nombre} creado`, 'success'); onSaved(); }
+    try { const a = await crearAliado(nombre, actor, centro); toast(`Aliado ${a.nombre} creado`, 'success'); onSaved(); }
     catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear'); setSaving(false); }
   }
   return (
@@ -302,10 +303,10 @@ function EditarAliadoModal({ aliado, onClose, onSaved }: { aliado: AliadoAcopio;
   );
 }
 
-function MovimientoAliadoModal({ aliado, sugCorte, actor, actorName, onClose, onSaved }: {
-  aliado: AliadoAcopio; sugCorte: number; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function MovimientoAliadoModal({ aliado, sugCorte, actor, actorName, centro, onClose, onSaved }: {
+  aliado: AliadoAcopio; sugCorte: number; actor: string; actorName: string | null; centro: string; onClose: () => void; onSaved: () => void;
 }) {
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(hoyISO());
   const [corte, setCorte] = useState(String(sugCorte));
   const [descripcion, setDescripcion] = useState('');
   const [usd, setUsd] = useState('');
@@ -326,7 +327,7 @@ function MovimientoAliadoModal({ aliado, sugCorte, actor, actorName, onClose, on
         aliadoId: aliado.id, aliadoNombre: aliado.nombre, fecha, corte: Number(corte) || null, descripcion,
         usdEntregado: Number(usd) || 0, kgCerrados: Number(kgCerrados) || 0, precioUsdKg: Number(precio) || 0,
         kgRecibidos: Number(kgRecibidos) || 0, gastos: Number(gastos) || 0,
-        reflejarCajaGeneral: reflejar, sumarCasiterita: sumar,
+        reflejarCajaGeneral: reflejar, sumarCasiterita: sumar, centroNombre: centro,
       }, actor, actorName);
       toast('Movimiento registrado', 'success'); onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }

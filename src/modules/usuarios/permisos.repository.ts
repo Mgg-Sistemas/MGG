@@ -11,6 +11,7 @@ export type ModuleKey =
   | 'combustible'
   | 'acopio'
   | 'maquinaria'
+  | 'ventas'
   | 'tesoreria'
   | 'retenciones'
   | 'rrhh'
@@ -37,6 +38,7 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'combustible', label: 'Combustible' },
   { key: 'acopio',      label: 'C. Acopio LA ESPERANZA' },
   { key: 'maquinaria',  label: 'Control de Maquinaria' },
+  { key: 'ventas',      label: 'Ventas' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'retenciones', label: 'Retenciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
