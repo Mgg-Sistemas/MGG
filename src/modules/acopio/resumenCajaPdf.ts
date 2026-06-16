@@ -24,9 +24,9 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 58 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text('Resumen de Caja · Centro de Acopio', tx, y + 16);
+  doc.text('Resumen de Caja · Centro de Costo', tx, y + 16);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`Centro de Acopio: ${r.centro}`, tx, y + 32);
+  doc.text(`Centro de Costo: ${r.centro}`, tx, y + 32);
   doc.setFontSize(9);
   doc.text(`${r.centro} · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 16, { align: 'right' });
   y += 54;
@@ -72,15 +72,15 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
   // @ts-expect-error lastAutoTable
   y = doc.lastAutoTable.finalY + 18;
 
-  // Distribución de gastos por categoría
+  // Distribución de gastos por categoría (incluye la nómina como una categoría más)
   if (r.gastosPorCategoria.length) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Gastos por categoría', MARGIN, y); y += 6;
+    doc.text('Gastos por categoría (incluye nómina)', MARGIN, y); y += 6;
     autoTable(doc, {
       startY: y,
       head: [['Categoría', 'Monto', '% del total gastado']],
       body: r.gastosPorCategoria.map((c) => [c.valor, fmtUsd(c.monto), fmtPct(c.pct)]),
-      foot: [['Total gastos', fmtUsd(r.totalGastos), fmtPct(r.pctGastos)]],
+      foot: [['Total gastos', fmtUsd(r.totalGastado), fmtPct(1)]],
       theme: 'striped',
       headStyles: { fillColor: [239, 68, 68], textColor: 255 },
       footStyles: { fillColor: [40, 40, 40], textColor: 255, fontStyle: 'bold' },
@@ -90,24 +90,6 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
     });
     // @ts-expect-error lastAutoTable
     y = doc.lastAutoTable.finalY + 18;
-  }
-
-  // Distribución de nómina por categoría
-  if (r.nominaPorCategoria.length) {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Nómina por categoría', MARGIN, y); y += 6;
-    autoTable(doc, {
-      startY: y,
-      head: [['Categoría', 'Monto', '% del total gastado']],
-      body: r.nominaPorCategoria.map((c) => [c.valor, fmtUsd(c.monto), fmtPct(c.pct)]),
-      foot: [['Total nómina', fmtUsd(r.totalNominas), fmtPct(r.pctNomina)]],
-      theme: 'striped',
-      headStyles: { fillColor: [168, 85, 247], textColor: 255 },
-      footStyles: { fillColor: [40, 40, 40], textColor: 255, fontStyle: 'bold' },
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
-      styles: { fontSize: 9, cellPadding: 4 },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
-    });
   }
 
   return doc;
@@ -123,8 +105,8 @@ export async function enviarResumenCajaPorCorreo(r: ResumenCajaAcopio, destinos:
     body: {
       pdf_base64: base64,
       nombre_archivo: `${NOMBRE}-${r.fechaActualizacion}.pdf`,
-      asunto: `Resumen de Caja · Centro de Acopio ${r.centro}`,
-      mensaje: `Resumen de caja del Centro de Acopio ${r.centro} al ${r.fechaActualizacion} · Saldo ${fmtUsd(r.saldoUsd)} · Total gastado ${fmtUsd(r.totalGastado)}.`,
+      asunto: `Resumen de Caja · Centro de Costo ${r.centro}`,
+      mensaje: `Resumen de caja del Centro de Costo ${r.centro} al ${r.fechaActualizacion} · Saldo ${fmtUsd(r.saldoUsd)} · Total gastado ${fmtUsd(r.totalGastado)}.`,
       to_emails: destinos,
     },
   });

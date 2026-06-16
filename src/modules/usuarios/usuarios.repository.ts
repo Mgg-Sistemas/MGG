@@ -153,6 +153,16 @@ export async function actualizarUsuario(id: string, input: ActualizarUsuarioInpu
   if (error) throw error;
 }
 
+/** Llama a la Edge Function cambiar-correo (solo admin): cambia el correo en Auth
+ *  (identidad de login) y en la tabla `usuarios` en una sola operación. */
+export async function cambiarCorreoUsuario(userId: string, email: string): Promise<void> {
+  const { data, error } = await supabase.functions.invoke<
+    { ok: true; email: string } | { error: string }
+  >('cambiar-correo', { body: { user_id: userId, email } });
+  if (error) throw new Error(error.message ?? 'Error al cambiar el correo');
+  if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
+}
+
 /** Llama a la Edge Function resetear-clave. */
 export async function resetearClave(userId: string): Promise<void> {
   const { data, error } = await supabase.functions.invoke<

@@ -1926,7 +1926,7 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
             </select>
           </div>
           <div className="form-row">
-            <label>Hacia (Centro de Acopio)</label>
+            <label>Hacia (Centro de Costo)</label>
             <select className="select" value={destinoId} onChange={(e) => setDestinoId(e.target.value)} required>
               <option value="">— elegir —</option>
               {centros.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.externo ? ' · sistema externo' : ''}</option>)}

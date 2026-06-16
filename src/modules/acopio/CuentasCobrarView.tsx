@@ -49,7 +49,7 @@ export function CuentasCobrarView({ canWrite, actor, actorName, centro = 'LA ESP
       {onVolver && (
         <div className="page-head">
           <div>
-            <h1>📥 Cuentas por Cobrar · Centro de Acopio {centro}</h1>
+            <h1>📥 Cuentas por Cobrar · Centro de Costo {centro}</h1>
             <p className="muted">Deuda en $ que se cobra con mineral: cada abono (en Kg × $/Kg) baja la deuda y, opcional, suma los Kg al stock de casiterita.</p>
           </div>
           <button className="btn btn-ghost" onClick={onVolver}>← Volver a Acopio</button>

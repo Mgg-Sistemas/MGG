@@ -49,7 +49,7 @@ async function construirDoc(rows: MovAcopioRow[], meta: MovAcopioMeta = {}) {
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 58 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text('Movimientos del Centro de Acopio', tx, y + 18);
+  doc.text('Movimientos del Centro de Costo', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text('Saldo Kg casiterita = saldo anterior + Kg Cerrados − Kg Recibidos por MGG', tx, y + 33);
   doc.text(`LA ESPERANZA · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
@@ -100,7 +100,7 @@ export async function descargarMovAcopioExcel(rows: MovAcopioRow[]): Promise<voi
     r.fecha, r.descripcion, r.usdEntregado ?? '', r.kgCerrados, r.precioUsdKg ?? '', r.usdFacturados,
     r.gastosGt ?? '', r.nominasGt ?? '', r.trasladoCaja ?? '', r.saldoUsd, r.kgRecibidosMgg ?? '', r.saldoKgCasiterita,
   ]);
-  const aoa: unknown[][] = [['MOVIMIENTOS DEL CENTRO DE ACOPIO · LA ESPERANZA'], [`${rows.length} movimiento(s) · ${dateTime(new Date().toISOString())}`], [], HEAD, ...filas];
+  const aoa: unknown[][] = [['MOVIMIENTOS DEL CENTRO DE COSTO · LA ESPERANZA'], [`${rows.length} movimiento(s) · ${dateTime(new Date().toISOString())}`], [], HEAD, ...filas];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   (ws as Record<string, unknown>)['!cols'] = [
     { wch: 12 }, { wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 },
@@ -118,7 +118,7 @@ export async function descargarMovAcopioExcel(rows: MovAcopioRow[]): Promise<voi
 export async function enviarMovAcopioPorCorreo(rows: MovAcopioRow[], destinos: string[], meta: MovAcopioMeta = {}): Promise<{ destinatarios: string[] }> {
   const base64 = (await construirDoc(rows, meta)).output('datauristring').split(',')[1] ?? '';
   const { data, error } = await supabase.functions.invoke<{ ok: true; destinatarios: string[] } | { error: string }>('enviar-reporte', {
-    body: { pdf_base64: base64, nombre_archivo: `${NOMBRE}.pdf`, asunto: `Movimientos del Centro de Acopio${meta.filtro ? ` · ${meta.filtro}` : ''}`, mensaje: `Movimientos del centro de acopio (${rows.length} movimiento(s)).`, to_emails: destinos },
+    body: { pdf_base64: base64, nombre_archivo: `${NOMBRE}.pdf`, asunto: `Movimientos del Centro de Costo${meta.filtro ? ` · ${meta.filtro}` : ''}`, mensaje: `Movimientos del centro de costo (${rows.length} movimiento(s)).`, to_emails: destinos },
   });
   if (error) throw new Error(error.message ?? 'No se pudo enviar el correo');
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
