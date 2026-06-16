@@ -196,8 +196,8 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, centro, onVolver }:
                 <th style={{ textAlign: 'right' }}>$Usd Facturados</th>
                 {hayGastos && <th style={{ textAlign: 'right' }}>Gastos</th>}
                 <th style={{ textAlign: 'right' }}>Saldo $ Usd</th>
-                <th style={{ textAlign: 'right' }}>{U} Recibidos</th>
-                <th style={{ textAlign: 'right' }} title={`${U} que el aliado aún debe`}>Saldo en {U} ⓘ</th>
+                <th style={{ textAlign: 'right' }}>{U} Recibidos por MGG</th>
+                <th style={{ textAlign: 'right' }} title={`${U} de ${material} que el aliado aún debe`}>Saldo en {U} de {material} ⓘ</th>
                 {canWrite && <th style={{ width: 36 }}></th>}
               </tr>
             </thead>

@@ -14,6 +14,7 @@ export type ModuleKey =
   | 'acopio_gmt'
   | 'acopio_peramanal'
   | 'acopio_esmeralda'
+  | 'acopio_pijiguaos'
   | 'maquinaria'
   | 'ventas'
   | 'tesoreria'
@@ -46,6 +47,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'acopio_gmt',      label: 'C. Acopio · Global Mineral TIN', path: 'acopio/global-mineral-tin' },
   { key: 'acopio_peramanal',label: 'C. Acopio · Peramanal (Ender Mejías)', path: 'acopio/peramanal-ender' },
   { key: 'acopio_esmeralda',label: 'C. Acopio · La Esmeralda (Alí)', path: 'acopio/esmeralda-ali' },
+  { key: 'acopio_pijiguaos',label: 'C. Acopio · Los Pijiguaos', path: 'acopio/los-pijiguaos' },
   { key: 'maquinaria',  label: 'Control de Maquinaria' },
   { key: 'ventas',      label: 'Ventas' },
   { key: 'tesoreria',   label: 'Tesorería' },

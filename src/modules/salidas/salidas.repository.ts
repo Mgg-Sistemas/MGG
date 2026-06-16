@@ -6,7 +6,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type {
-  Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida,
+  Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, ItemSolicitudSalida,
 } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
@@ -207,6 +207,8 @@ export interface CrearSolicitudSalidaInput {
   precioUnit?: number | null;
   fechaEntrega?: string | null;
   notaEntrega?: string | null;
+  /** Detalle multi-producto (varias líneas). Si trae >0, manda sobre producto/cantidad. */
+  items?: ItemSolicitudSalida[] | null;
   // dinero
   cajaId?: string | null;
   cajaDestinoId?: string | null;
@@ -220,10 +222,24 @@ export interface CrearSolicitudSalidaInput {
 /** Crea la solicitud en estado 'por_aprobar'. NO ejecuta el movimiento. */
 export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Promise<SolicitudSalida> {
   if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
+  // Detalle multi-producto: limpia y valida cada línea (cantidad > 0, producto elegido).
+  const itemsLimpios = (input.items ?? [])
+    .map((it) => ({
+      producto_id: it.producto_id,
+      producto_nombre: it.producto_nombre ?? null,
+      cantidad: Number(it.cantidad) || 0,
+      precio_unit: it.precio_unit != null ? Number(it.precio_unit) : null,
+      unidad: it.unidad ?? null,
+    }))
+    .filter((it) => it.producto_id && it.cantidad > 0);
   if (input.tipo === 'material') {
-    const cantidad = Number(input.cantidad) || 0;
-    if (cantidad <= 0) throw new Error('La cantidad debe ser mayor que 0.');
-    if (!input.productoId) throw new Error('Elegí el producto.');
+    if (itemsLimpios.length) {
+      if (itemsLimpios.some((it) => it.cantidad <= 0)) throw new Error('Cada material debe tener cantidad mayor que 0.');
+    } else {
+      const cantidad = Number(input.cantidad) || 0;
+      if (cantidad <= 0) throw new Error('La cantidad debe ser mayor que 0.');
+      if (!input.productoId) throw new Error('Elegí el producto.');
+    }
     if (!input.almacenOrigen) throw new Error('Indicá el almacén de origen.');
     if (input.scope === 'traslado') {
       if (!input.almacenDestino) throw new Error('Indicá el almacén destino.');
@@ -247,6 +263,12 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
 
   const codigo = await nextCodigoSolicitudSalida(input.scope);
   const historial = appendHistorial({ historial: [] }, 'creada', input.actor);
+  // Cabecera: si hay detalle multi-producto, la primera línea actúa como resumen.
+  const cab = itemsLimpios[0] ?? null;
+  const productoId = cab ? cab.producto_id : (input.productoId ?? null);
+  const productoNombre = cab ? cab.producto_nombre : (input.productoNombre ?? null);
+  const cantidadCab = cab ? cab.cantidad : (input.cantidad != null ? Number(input.cantidad) : null);
+  const precioCab = cab ? cab.precio_unit : (input.precioUnit != null ? Number(input.precioUnit) : null);
   const { data, error } = await supabase
     .from(SOL)
     .insert({
@@ -254,12 +276,13 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       scope: input.scope,
       tipo: input.tipo,
       estado: 'por_aprobar',
-      producto_id: input.productoId ?? null,
-      producto_nombre: input.productoNombre ?? null,
+      producto_id: productoId,
+      producto_nombre: productoNombre,
       almacen_origen: input.almacenOrigen ?? null,
       almacen_destino: input.almacenDestino ?? null,
-      cantidad: input.cantidad != null ? Number(input.cantidad) : null,
-      precio_unit: input.precioUnit != null ? Number(input.precioUnit) : null,
+      cantidad: cantidadCab,
+      precio_unit: precioCab,
+      items: itemsLimpios.length ? itemsLimpios : null,
       fecha_entrega: input.fechaEntrega || null,
       nota_entrega: input.notaEntrega?.trim() || null,
       caja_id: input.cajaId ?? null,
@@ -309,20 +332,30 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
 
   let movId: string | null = null;
   let movRef = '';
+  // Líneas a ejecutar: el detalle multi-producto si existe, si no la cabecera (1 línea).
+  const lineas: ItemSolicitudSalida[] = (s.items && s.items.length)
+    ? s.items
+    : [{ producto_id: s.producto_id!, producto_nombre: s.producto_nombre, cantidad: Number(s.cantidad) || 0, precio_unit: s.precio_unit }];
   if (s.scope === 'salida' && s.tipo === 'material') {
-    const mov = await salidaMaterial({
-      productoId: s.producto_id!, almacen: s.almacen_origen!, cantidad: Number(s.cantidad) || 0,
-      destino: s.destino || '', motivo: s.motivo, precioUnit: s.precio_unit,
-      fechaEntrega: s.fecha_entrega, actor, actorName,
-    });
-    movId = mov.id; movRef = 'salida_modulo';
+    for (const it of lineas) {
+      const mov = await salidaMaterial({
+        productoId: it.producto_id, almacen: s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
+        destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
+        fechaEntrega: s.fecha_entrega, actor, actorName,
+      });
+      if (!movId) movId = mov.id;
+    }
+    movRef = 'salida_modulo';
   } else if (s.scope === 'traslado' && s.tipo === 'material') {
-    const mov = await trasladoMaterial({
-      productoId: s.producto_id!, almacenOrigen: s.almacen_origen!, almacenDestino: s.almacen_destino!,
-      cantidad: Number(s.cantidad) || 0, motivo: s.motivo, precioUnit: s.precio_unit,
-      notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, actor, actorName,
-    });
-    movId = mov.id; movRef = 'traslado_modulo';
+    for (const it of lineas) {
+      const mov = await trasladoMaterial({
+        productoId: it.producto_id, almacenOrigen: s.almacen_origen!, almacenDestino: s.almacen_destino!,
+        cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
+        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, actor, actorName,
+      });
+      if (!movId) movId = mov.id;
+    }
+    movRef = 'traslado_modulo';
   } else if (s.scope === 'salida' && s.tipo === 'dinero') {
     const mov = await salidaDinero({
       cajaId: s.caja_id!, destino: s.destino || '', motivo: s.motivo || '',

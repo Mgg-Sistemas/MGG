@@ -38,7 +38,7 @@ import {
   leerMetricaExterna, METRICAS_EXTERNAS, METRICAS_SECTOR,
   type ResumenSemanal, type SectorResumen, type FuenteExterna,
 } from './resumenSemanal.repository';
-import { descargarResumenSemanalPdf } from './resumenSemanalPdf';
+import { descargarResumenSemanalPdf, enviarResumenSemanalPorCorreo } from './resumenSemanalPdf';
 import { AliadosVista } from './AliadosVista';
 import { CuentasCobrarView } from './CuentasCobrarView';
 import { CuentaPerdidaAliView, CuadroResumenPerdidaView } from './EsmeraldaPerdidaView';
@@ -83,6 +83,9 @@ function AcopioModulo({ centro }: { centro: string }) {
   const [vistaPerdidaCuenta, setVistaPerdidaCuenta] = useState(false);
   const [vistaPerdidaCuadro, setVistaPerdidaCuadro] = useState(false);
   const esEsmeralda = centro === 'LA ESMERALDA ALI';
+  // La tarjeta de Nómina se muestra solo en los centros que manejan nómina como
+  // concepto propio (La Esperanza y Los Pijiguaos); el resto la pliega en Gastos.
+  const muestraNomina = centro === 'LA ESPERANZA' || centro === 'LOS PIJIGUAOS';
   // Switch «Listar movimientos»: oculto por defecto. Apagado = solo tarjetas + Resumen/Categorías;
   // encendido = se muestra la lista de movimientos y el botón de agregar movimiento.
   const [listarMovs, setListarMovs] = useState(false);
@@ -183,7 +186,7 @@ function AcopioModulo({ centro }: { centro: string }) {
               </span>
             )}
           </div>
-          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos) ÷ Kg cerrados</div>
+          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>{muestraNomina ? '(Facturado + Gastos + Nómina) ÷ Kg cerrados' : '(Facturado + Gastos) ÷ Kg cerrados'}</div>
         </div>
         <div className="card" style={{ borderColor: 'var(--success)' }}>
           <div className="card-title"><span>💵 USD entregados</span></div>
@@ -194,6 +197,7 @@ function AcopioModulo({ centro }: { centro: string }) {
         <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo en moneda $ Usd (corrido)</div></div>
         <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
         <div className="card"><div className="card-title"><span>Gastos</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div></div>
+        {muestraNomina && <div className="card"><div className="card-title"><span>Nómina</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#a855f7' }} className="mono">{money(resumen.nominas)}</div><div className="muted" style={{ fontSize: '.72rem' }}>sumatoria de la columna Nóminas</div></div>}
       </div>
 
       {/* La vista se mantiene montada (oculta cuando el switch está apagado) para que sus
@@ -245,6 +249,11 @@ export function EsmeraldaAliPage() {
   return <AcopioModulo centro="LA ESMERALDA ALI" />;
 }
 
+/** Sub-módulo «LOS PIJIGUAOS»: mismo módulo de acopio (como La Esperanza), por centro. */
+export function PijiguaosPage() {
+  return <AcopioModulo centro="LOS PIJIGUAOS" />;
+}
+
 /* ───────────── Agregar movimiento de caja (acopio) ───────────── */
 
 function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose, onSaved }: {
@@ -256,6 +265,10 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
   onSaved: () => void;
 }) {
   const [fecha, setFecha] = useState(hoyISO());
+  // Entrada de caja / $Usd entregado (grupo «movimientos de caja»).
+  const [usdEntregado, setUsdEntregado] = useState('');
+  const [usdCat, setUsdCat] = useState('');
+  const [descUsd, setDescUsd] = useState('');
   const [gastos, setGastos] = useState('');
   const [gastoCat, setGastoCat] = useState('');
   const [gastoVehiculo, setGastoVehiculo] = useState(''); // vehículo imputado (solo categorías de REPUESTOS-REPARACIONES-SERVICIOS)
@@ -283,6 +296,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
       .catch(() => setVehiculos([]));
   }, []);
   const gastosCats = useMemo(() => cats.filter((c) => c.grupo === 'gastos_caja' && c.activo), [cats]);
+  const movCajaCats = useMemo(() => cats.filter((c) => c.grupo === 'movimientos_caja' && c.activo), [cats]);
   const gastoEsVehiculo = esClasifVehiculo(gastoCat);
 
   // Redondeo a 2 decimales para los montos en $.
@@ -290,9 +304,10 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
 
   async function guardar() {
     setError(null);
-    const gas = r2(gastos), tras = r2(traslado);
+    const usd = r2(usdEntregado), gas = r2(gastos), tras = r2(traslado);
     const kg = Number(kgRecibidos) || 0;
-    if (gas <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (usd <= 0 && gas <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (usd > 0 && !usdCat) { setError('Elegí la categoría de la entrada (movimientos de caja).'); return; }
     if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto.'); return; }
     const destino = destinosActivos.find((d) => d.id === destinoId) ?? null;
     if (tras > 0 && !destino) { setError('Elegí el destino del traslado de caja.'); return; }
@@ -302,6 +317,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
       // Una fila por concepto: así cada monto conserva su categoría y la distribución
       // por grupo (Gastos/Nómina/Traslado) queda correcta.
       const filas: CajaMovimientoInput[] = [];
+      if (usd > 0) filas.push({ fecha, usd_entregado: usd, clasif_grupo: 'movimientos_caja', clasif_valor: usdCat, descripcion: descUsd.trim() || usdCat, caja_id: cajaId });
       if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, vehiculo: gastoEsVehiculo ? (gastoVehiculo.trim() || null) : null, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
       if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: descKg.trim() || 'Kg recibidos por MGG', caja_id: cajaId });
       for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
@@ -347,6 +363,19 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
       </p>
 
       <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
+
+      {/* Entrada de caja / $Usd entregado: monto + categoría (movimientos de caja) + descripción */}
+      <div className="form-grid">
+        {campoUsd('$ USD entregado', usdEntregado, setUsdEntregado)}
+        <div className="form-row">
+          <label>Categoría de la entrada {(Number(usdEntregado) || 0) > 0 && <span style={{ color: 'var(--danger)' }}>*</span>}</label>
+          <select className="select" value={usdCat} onChange={(e) => setUsdCat(e.target.value)}>
+            <option value="">— movimientos de caja —</option>
+            {movCajaCats.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
+          </select>
+        </div>
+      </div>
+      {campoDesc(descUsd, setDescUsd, 'Descripción de la entrada (ej.: ENTRADA DE CAJA…)')}
 
       {/* Gastos GT: monto + categoría + descripción */}
       <div className="form-grid">
@@ -880,6 +909,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
   const [vinculando, setVinculando] = useState<{ si: number; ci: number; campo: 'cobrar' | 'disponible' } | null>(null);
   const [vinculandoSector, setVinculandoSector] = useState<{ si: number; campo: 'saldo' | 'precio' } | null>(null);
   const [resolviendo, setResolviendo] = useState(false);
+  const [correoOpen, setCorreoOpen] = useState(false);
 
   const cargarHist = useCallback(() => { listResumenes().then(setHistorico).catch(() => setHistorico([])); }, []);
   useEffect(() => { cargarHist(); }, [cargarHist]);
@@ -1089,13 +1119,15 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
     finally { setSaving(false); }
   }
 
+  // Objeto ResumenSemanal con el estado actual del editor (para PDF/Excel/correo).
+  const resumenActual = (): ResumenSemanal => ({
+    id: 'preview', numero: '(borrador)', titulo, periodo_desde: desde || null, periodo_hasta: hasta || null,
+    fecha, filas: sectores, totales, nota: nota || null, created_by: actor, actor_name: actorName, created_at: new Date().toISOString(),
+  });
+
   async function pdfActual() {
-    try {
-      await descargarResumenSemanalPdf({
-        id: 'preview', numero: '(borrador)', titulo, periodo_desde: desde || null, periodo_hasta: hasta || null,
-        fecha, filas: sectores, totales, nota: nota || null, created_by: actor, actor_name: actorName, created_at: new Date().toISOString(),
-      });
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    try { await descargarResumenSemanalPdf(resumenActual()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
   function cargarDesdeHist(r: ResumenSemanal) {
@@ -1115,6 +1147,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
     <>
       {onClose && <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}
       <button type="button" className="btn btn-ghost" onClick={() => void pdfActual()} disabled={saving}>↓ PDF</button>
+      <button type="button" className="btn btn-ghost" onClick={() => setCorreoOpen(true)} disabled={saving}>✉ Correo</button>
       {canWrite && tab === 'editor' && (
         <button type="button" className="btn btn-primary" onClick={() => void archivar()} disabled={saving}>{saving ? 'Archivando…' : '🗄 Archivar a histórico'}</button>
       )}
@@ -1126,6 +1159,18 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
 
   const cuerpo = (
     <>
+      {correoOpen && (
+        <CorreoReporteModal
+          titulo="Enviar Reporte Preliminar"
+          descripcion={`Se enviará el PDF del ${titulo || 'Reporte Preliminar de Centros de Acopio'} (fecha ${fecha}).`}
+          defaultEmail={actor}
+          onEnviar={async (emails) => {
+            const { destinatarios } = await enviarResumenSemanalPorCorreo(resumenActual(), emails);
+            return destinatarios;
+          }}
+          onClose={() => setCorreoOpen(false)}
+        />
+      )}
       {/* Pestañas Editor / Histórico */}
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.9rem' }}>
         <button className={`btn btn-sm ${tab === 'editor' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('editor')}>📝 Editor</button>

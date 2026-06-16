@@ -258,10 +258,13 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
   function addFila() { setFilas((prev) => [...prev, { ...calcItem({}), _k: (prev.at(-1)?._k ?? 0) + 1 }]); }
   function delFila(k: number) { setFilas((prev) => prev.filter((f) => f._k !== k)); }
 
-  // Al elegir producto, precarga unidad + almacén con stock + costo (PMP).
+  // Al elegir producto, precarga unidad + costo (PMP) y AUTO-asigna el almacén con
+  // MÁS stock (el "correspondiente"): la venta descuenta de ahí, sin pedir almacén.
   function elegirProducto(k: number, productoId: string) {
     const p = productos.find((x) => x.id === productoId);
-    const exs = existencias.filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0);
+    const exs = existencias
+      .filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0)
+      .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
     const ex = exs[0];
     setFila(k, {
       producto_id: productoId, producto_nombre: p?.nombre ?? '', unidad: p?.unidad ?? null,
@@ -326,8 +329,7 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
         <table className="table" style={{ fontSize: '.78rem' }}>
           <thead>
             <tr>
-              <th style={{ minWidth: 200 }}>Producto</th>
-              <th>Almacén</th>
+              <th style={{ minWidth: 220 }}>Producto</th>
               <th style={{ textAlign: 'right' }}>Cantidad</th>
               <th style={{ textAlign: 'right' }} title="Ley / tenor del mineral">Tenor %</th>
               <th style={{ textAlign: 'right' }}>Precio</th>
@@ -339,21 +341,19 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
           </thead>
           <tbody>
             {filas.map((f) => {
-              const exs = existencias.filter((e) => e.producto_id === f.producto_id);
+              // Stock total del producto (sumando todos los almacenes) — solo informativo.
+              const stockTotal = existencias.filter((e) => e.producto_id === f.producto_id).reduce((a, e) => a + (Number(e.stock) || 0), 0);
               return (
                 <tr key={f._k}>
                   <td>
                     <SearchSelect value={f.producto_id ?? ''} onChange={(id) => elegirProducto(f._k, id)}
                       options={productos.map((p) => ({ value: p.id, label: `${p.nombre}${p.sku ? ` (${p.sku})` : ''}` }))}
                       placeholder="🔎 Producto…" />
-                  </td>
-                  <td>
-                    {exs.length ? (
-                      <select className="select" value={f.almacen} onChange={(e) => setFila(f._k, { almacen: e.target.value, costo_unit: Number(exs.find((x) => x.almacen === e.target.value)?.costo_promedio) || f.costo_unit })}>
-                        <option value="">— almacén —</option>
-                        {exs.map((e) => <option key={e.almacen} value={e.almacen}>{e.almacen} ({num(Number(e.stock) || 0)})</option>)}
-                      </select>
-                    ) : <input className="input" value={f.almacen} onChange={(e) => setFila(f._k, { almacen: e.target.value })} placeholder="Almacén" style={{ width: 120 }} />}
+                    {f.producto_id && (
+                      <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>
+                        {f.almacen ? <>📦 {f.almacen} · stock {num(stockTotal)}</> : <span style={{ color: 'var(--danger)' }}>Sin stock en ningún almacén</span>}
+                      </small>
+                    )}
                   </td>
                   <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.cantidad || ''} onChange={(e) => setFila(f._k, { cantidad: Number(e.target.value) || 0 })} placeholder="0" /></td>
                   <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.tenor_pct || ''} onChange={(e) => setFila(f._k, { tenor_pct: Number(e.target.value) || 0 })} placeholder="0" /></td>

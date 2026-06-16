@@ -229,14 +229,14 @@ export function AppShell() {
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria" />}
-          {(can('acopio') || can('acopio_reporte') || can('acopio_gmt') || can('acopio_peramanal') || can('acopio_esmeralda')) && (
+          {(can('acopio') || can('acopio_reporte') || can('acopio_gmt') || can('acopio_peramanal') || can('acopio_esmeralda') || can('acopio_pijiguaos')) && (
             <NavGroup icon="🏭" label="Cajas Centro de Acopio" defaultOpen={location.pathname.startsWith('/app/acopio')}>
               {can('acopio_reporte') && <NavItem to="/app/acopio/reporte-preliminar" icon="📅" label="Reporte Preliminar" />}
               {can('acopio') && <NavItem to="/app/acopio" icon="🏭" label="La Esperanza" />}
               {can('acopio_gmt') && <NavItem to="/app/acopio/global-mineral-tin" icon="🏭" label="Global Mineral TIN" />}
               {can('acopio_peramanal') && <NavItem to="/app/acopio/peramanal-ender" icon="🏭" label="Peramanal (Ender Mejías)" />}
               {can('acopio_esmeralda') && <NavItem to="/app/acopio/esmeralda-ali" icon="🏭" label="La Esmeralda (Alí)" />}
-              <NavItem to="#" icon="🏭" label="Los Pijiguaos" disabled soon />
+              {can('acopio_pijiguaos') && <NavItem to="/app/acopio/los-pijiguaos" icon="🏭" label="Los Pijiguaos" />}
             </NavGroup>
           )}
           {can('ventas') && <NavItem to="/app/ventas" icon="🧾" label="Ventas" />}

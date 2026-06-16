@@ -635,11 +635,14 @@ create table if not exists public.solicitudes_salida (
   scope           text not null check (scope in ('salida','traslado')),
   tipo            text not null check (tipo in ('material','dinero')),
   estado          text not null default 'por_aprobar' check (estado in ('por_aprobar','aprobada','ejecutada','cancelada')),
-  -- material
+  -- material (cabecera = primer ítem / resumen; el detalle multi-producto va en `items`)
   producto_id     uuid references public.productos(id) on delete set null,
   producto_nombre text, almacen_origen text, almacen_destino text,
   cantidad        numeric check (cantidad is null or cantidad > 0),
   precio_unit     numeric, fecha_entrega date, nota_entrega text,
+  -- Detalle multi-producto: [{producto_id, producto_nombre, cantidad, precio_unit, unidad}]
+  -- (como en una OC con varias líneas). Si es null/1 ítem, se usa la cabecera de arriba.
+  items           jsonb,
   -- dinero
   caja_id         uuid references public.cajas(id) on delete set null,
   caja_destino_id uuid references public.cajas(id) on delete set null,
@@ -2027,7 +2030,16 @@ insert into public.acopio_clasificaciones (grupo, valor, orden) values
   ('contratos','CASITERITA DEUDA - RUANO LÓPEZ',2),
   ('contratos','CASITERITA POR INSUMOS',3),
   ('contratos','CASITERITA DEUDA - ENDER MEJÍA',4),
+  ('contratos','1. COMPRA CONTADO CASITERITA',20),
+  ('contratos','2. COMPRA ALBERTO',21),
+  ('contratos','3. COMPRA MAGUIBER',22),
   ('movimientos_caja','1. ENTRADA DE CAJA',1),
+  ('movimientos_caja','2. C.MULTIMONEDAS MGG / CA LOS PIJIGUAOS',21),
+  ('traslado','COMPRA CASITERITA CREDITOS - MAGUIBER',1),
+  ('traslado','COMPRA CASITERITA CREDITOS - ALBERTO',2),
+  ('traslado','COMPRA CASITERITA CREDITOS - CAMPOS YEPEZ',3),
+  ('traslado','TRASPASO MULTIMONEDAS MGG',4),
+  ('traslado','TRASPASO MINA 40 ALBERTO',5),
   ('movimientos_caja','2. CAJA MULTIMONEDA MGG - CA GMT',2),
   ('movimientos_caja','3. SAL-ENT C.MULTIMONEDA - CA GMT',3),
   ('movimientos_caja','2. CAJA MULTIMONEDAS - CA PERAMANAL',4),
