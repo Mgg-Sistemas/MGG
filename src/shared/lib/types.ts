@@ -461,6 +461,8 @@ export interface ItemSolicitudSalida {
   cantidad: number;
   precio_unit?: number | null;
   unidad?: string | null;
+  /** Almacén de origen de ESTA línea (autoasignado: el que tiene el stock). */
+  almacen?: string | null;
 }
 
 export interface SolicitudSalida {

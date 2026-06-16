@@ -230,8 +230,12 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       cantidad: Number(it.cantidad) || 0,
       precio_unit: it.precio_unit != null ? Number(it.precio_unit) : null,
       unidad: it.unidad ?? null,
+      almacen: it.almacen ?? null,
     }))
     .filter((it) => it.producto_id && it.cantidad > 0);
+  // El almacén de origen viaja por ítem (autoasignado: el que tiene el stock).
+  // La cabecera toma el del primer ítem (para mostrarse y por compatibilidad).
+  const almacenOrigenCab = input.almacenOrigen ?? itemsLimpios.find((it) => it.almacen)?.almacen ?? null;
   if (input.tipo === 'material') {
     if (itemsLimpios.length) {
       if (itemsLimpios.some((it) => it.cantidad <= 0)) throw new Error('Cada material debe tener cantidad mayor que 0.');
@@ -240,10 +244,10 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       if (cantidad <= 0) throw new Error('La cantidad debe ser mayor que 0.');
       if (!input.productoId) throw new Error('Elegí el producto.');
     }
-    if (!input.almacenOrigen) throw new Error('Indicá el almacén de origen.');
+    if (!almacenOrigenCab) throw new Error('Algún material no tiene stock en ningún almacén.');
     if (input.scope === 'traslado') {
       if (!input.almacenDestino) throw new Error('Indicá el almacén destino.');
-      if (input.almacenOrigen === input.almacenDestino) throw new Error('El almacén origen y destino deben ser distintos.');
+      if (itemsLimpios.some((it) => it.almacen === input.almacenDestino)) throw new Error('El almacén origen y destino deben ser distintos.');
     } else if (!input.destino?.trim()) {
       // En la salida de material el "destino" es la UNIDAD SOLICITANTE (gerencia/área),
       // compartida con el catálogo de OP.
@@ -278,7 +282,7 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       estado: 'por_aprobar',
       producto_id: productoId,
       producto_nombre: productoNombre,
-      almacen_origen: input.almacenOrigen ?? null,
+      almacen_origen: almacenOrigenCab,
       almacen_destino: input.almacenDestino ?? null,
       cantidad: cantidadCab,
       precio_unit: precioCab,
@@ -335,11 +339,11 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   // Líneas a ejecutar: el detalle multi-producto si existe, si no la cabecera (1 línea).
   const lineas: ItemSolicitudSalida[] = (s.items && s.items.length)
     ? s.items
-    : [{ producto_id: s.producto_id!, producto_nombre: s.producto_nombre, cantidad: Number(s.cantidad) || 0, precio_unit: s.precio_unit }];
+    : [{ producto_id: s.producto_id!, producto_nombre: s.producto_nombre, cantidad: Number(s.cantidad) || 0, precio_unit: s.precio_unit, almacen: s.almacen_origen }];
   if (s.scope === 'salida' && s.tipo === 'material') {
     for (const it of lineas) {
       const mov = await salidaMaterial({
-        productoId: it.producto_id, almacen: s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
+        productoId: it.producto_id, almacen: it.almacen ?? s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
         destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
         fechaEntrega: s.fecha_entrega, actor, actorName,
       });
@@ -349,7 +353,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   } else if (s.scope === 'traslado' && s.tipo === 'material') {
     for (const it of lineas) {
       const mov = await trasladoMaterial({
-        productoId: it.producto_id, almacenOrigen: s.almacen_origen!, almacenDestino: s.almacen_destino!,
+        productoId: it.producto_id, almacenOrigen: it.almacen ?? s.almacen_origen!, almacenDestino: s.almacen_destino!,
         cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
         notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, actor, actorName,
       });
