@@ -184,7 +184,7 @@ export function SalidasPage() {
       )}
 
       {modal.kind === 'salida-material' && (
-        <SalidaMaterialForm productos={productos} existencias={existencias} almacenesObj={almacenes}
+        <SalidaMaterialForm productos={productos} existencias={existencias}
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'traslado-material' && (
