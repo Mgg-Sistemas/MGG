@@ -123,7 +123,7 @@ export function SearchSelect({
           ref={menuRef}
           role="listbox"
           style={{
-            position: 'fixed', zIndex: 1000, left: rect.left, top: rect.top, width: rect.width,
+            position: 'fixed', zIndex: 9500, left: rect.left, top: rect.top, width: rect.width,
             maxHeight: 260, overflowY: 'auto',
             background: 'var(--bg-1, #11151c)', border: '1px solid var(--border, #2a3240)',
             borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.45)',

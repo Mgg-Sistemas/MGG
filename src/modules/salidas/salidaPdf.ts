@@ -145,6 +145,13 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
    solicitante, el motivo, quién autorizó, y deja las líneas de
    firma de "Solicitado/Creado por" y "Autorizado por".
    ============================================================ */
+const SOL_ESTADO_TXT: Record<string, string> = {
+  por_aprobar: 'Por aprobar',
+  aprobada: 'Aprobada',
+  ejecutada: 'Ejecutada',
+  cancelada: 'Cancelada',
+};
+
 export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
@@ -155,10 +162,14 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const logo = await loadLogoDataUrl().catch(() => null);
 
   const esTraslado = sol.scope === 'traslado';
-  const cant = Number(sol.cantidad) || 0;
-  const precio = Number(sol.precio_unit) || 0;
   const autorizo = sol.ejecutada_por || sol.aprobada_por || null;
   const creo = sol.actor_name || sol.actor || sol.solicitante;
+
+  // Líneas de la "factura": el detalle multi-producto si existe, si no la cabecera.
+  const lineas = (sol.items && sol.items.length)
+    ? sol.items
+    : [{ producto_id: sol.producto_id ?? '', producto_nombre: sol.producto_nombre, cantidad: Number(sol.cantidad) || 0, precio_unit: sol.precio_unit, unidad: null, almacen: sol.almacen_origen }];
+  const totalGeneral = lineas.reduce((a, it) => a + (Number(it.precio_unit) || 0) * (Number(it.cantidad) || 0), 0);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -182,43 +193,81 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   y += 18;
   doc.setLineWidth(0.5); doc.setDrawColor(180);
 
-  // ── Emisor ──
+  // ── Emisor (izq.) + Datos de la orden (der.), estilo factura ──
+  const colDatosX = MARGIN + (PAGE_W - MARGIN * 2) * 0.52;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
   doc.text('EMISOR', MARGIN, y);
-  y += 14;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text('Mineral Group Guayana C.A.', MARGIN, y);
-  doc.text('Sistema de Gestión de Inventarios', MARGIN, y + 12);
-  y += 30;
+  doc.text('Mineral Group Guayana C.A.', MARGIN, y + 14);
+  doc.text('Sistema de Gestión de Inventarios', MARGIN, y + 26);
 
-  // ── Detalle de la salida ──
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text(esTraslado ? 'DETALLE DEL TRASLADO' : 'DETALLE DE LA SALIDA', MARGIN, y);
-  y += 8;
-  const ficha: Array<[string, string]> = [
-    [esTraslado ? 'Material a trasladar' : 'Material a salir', sol.producto_nombre || '—'],
-    ['Cantidad', fmt.num(cant)],
-    [esTraslado ? 'Almacén origen' : 'Almacén de salida', sol.almacen_origen || '—'],
+  // Datos a la derecha (label en negrita + valor)
+  const datos: Array<[string, string]> = [
+    ['Solicitado por', sol.solicitante || creo || '—'],
     [esTraslado ? 'Almacén destino' : 'Dirigido a', (esTraslado ? sol.almacen_destino : sol.destino) || '—'],
-    ...(precio ? ([
-      ['Precio unitario', `${fmt.money(precio)} USD`],
-      ['Precio total', `${fmt.money(precio * cant)} USD`],
-    ] as Array<[string, string]>) : []),
-    [esTraslado ? 'Motivo del traslado' : 'Motivo de la salida', sol.motivo || '—'],
-    ...(sol.nota_entrega ? [['Nota de entrega', sol.nota_entrega] as [string, string]] : []),
-    ['Solicitado por', sol.solicitante || '—'],
     ['Fecha de solicitud', fmt.dateTime(sol.created_at)],
     ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
+    ['Estado', SOL_ESTADO_TXT[sol.estado] ?? sol.estado],
     ['Autorizado por', autorizo || '— (pendiente de aprobación) —'],
-    ...(sol.aprobada_en ? [['Aprobada el', fmt.dateTime(sol.aprobada_en)] as [string, string]] : []),
-    ...(sol.ejecutada_en ? [['Ejecutada el', fmt.dateTime(sol.ejecutada_en)] as [string, string]] : []),
   ];
+  let dy = y;
+  doc.setFontSize(9);
+  datos.forEach(([k, v]) => {
+    doc.setFont('helvetica', 'bold'); doc.text(`${k}:`, colDatosX, dy);
+    doc.setFont('helvetica', 'normal'); doc.text(v, colDatosX + 108, dy);
+    dy += 13;
+  });
+  y = Math.max(y + 38, dy) + 6;
+
+  // ── Tabla de ítems (factura) ──
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text('DETALLE', MARGIN, y);
+  y += 6;
+  const head = [['#', 'Producto', esTraslado ? 'Sale de' : 'Almacén', 'Cant.', 'Precio USD', 'Total USD']];
+  const body = lineas.map((it, i) => {
+    const c = Number(it.cantidad) || 0;
+    const p = Number(it.precio_unit) || 0;
+    const u = it.unidad ? ` ${it.unidad}` : '';
+    return [
+      String(i + 1),
+      it.producto_nombre || '—',
+      it.almacen || sol.almacen_origen || '—',
+      `${fmt.num(c)}${u}`,
+      p ? fmt.money(p) : '—',
+      p ? fmt.money(p * c) : '—',
+    ];
+  });
   autoTable(doc, {
-    startY: y, body: ficha, theme: 'plain',
-    styles: { fontSize: 10, cellPadding: 3.5 },
-    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 170 }, 1: { cellWidth: 'auto' } },
+    startY: y, head, body, theme: 'striped',
+    headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', fontSize: 9.5 },
+    styles: { fontSize: 9.5, cellPadding: 4 },
+    columnStyles: {
+      0: { cellWidth: 24, halign: 'right' },
+      2: { cellWidth: 110 },
+      3: { halign: 'right', cellWidth: 64 },
+      4: { halign: 'right', cellWidth: 74 },
+      5: { halign: 'right', cellWidth: 80 },
+    },
+    foot: [['', '', '', '', 'TOTAL', `${fmt.money(totalGeneral)} USD`]],
+    footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold', halign: 'right', fontSize: 10 },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  y = (doc as any).lastAutoTable.finalY + 18;
+
+  // ── Observaciones / Notas ──
+  const obs: string[] = [];
+  if (sol.motivo) obs.push(`Motivo: ${sol.motivo}`);
+  if (sol.nota_entrega) obs.push(`Nota de entrega: ${sol.nota_entrega}`);
+  if (obs.length) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text('OBSERVACIONES / NOTAS', MARGIN, y);
+    y += 14;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    const wrapped = doc.splitTextToSize(obs.join('\n'), PAGE_W - MARGIN * 2);
+    doc.text(wrapped, MARGIN, y);
+    y += wrapped.length * 12;
+  }
 
   // ── Firmas al pie ──
   const fy = PAGE_H - MARGIN - 50;
