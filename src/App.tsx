@@ -22,6 +22,8 @@ const CombustiblePage = lazyReload(() => import('./modules/combustible/Combustib
 const AcopioPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.AcopioPage })));
 const ReportePreliminarPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.ReportePreliminarPage })));
 const GlobalMineralTinPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.GlobalMineralTinPage })));
+const PeramanalEnderPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.PeramanalEnderPage })));
+const EsmeraldaAliPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.EsmeraldaAliPage })));
 const MaquinariaPage = lazyReload(() => import('./modules/maquinaria/MaquinariaPage').then((m) => ({ default: m.MaquinariaPage })));
 const VentasPage = lazyReload(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const TesoreriaPage = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
@@ -85,8 +87,10 @@ export function App() {
           <Route path="salidas" element={<RequireModule module="salidas"><Suspense fallback={<PageLoader />}><SalidasPage /></Suspense></RequireModule>} />
           <Route path="combustible" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><CombustiblePage /></Suspense></RequireModule>} />
           <Route path="acopio" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><AcopioPage /></Suspense></RequireModule>} />
-          <Route path="acopio/reporte-preliminar" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><ReportePreliminarPage /></Suspense></RequireModule>} />
-          <Route path="acopio/global-mineral-tin" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><GlobalMineralTinPage /></Suspense></RequireModule>} />
+          <Route path="acopio/reporte-preliminar" element={<RequireModule module="acopio_reporte"><Suspense fallback={<PageLoader />}><ReportePreliminarPage /></Suspense></RequireModule>} />
+          <Route path="acopio/global-mineral-tin" element={<RequireModule module="acopio_gmt"><Suspense fallback={<PageLoader />}><GlobalMineralTinPage /></Suspense></RequireModule>} />
+          <Route path="acopio/peramanal-ender" element={<RequireModule module="acopio_peramanal"><Suspense fallback={<PageLoader />}><PeramanalEnderPage /></Suspense></RequireModule>} />
+          <Route path="acopio/esmeralda-ali" element={<RequireModule module="acopio_esmeralda"><Suspense fallback={<PageLoader />}><EsmeraldaAliPage /></Suspense></RequireModule>} />
           <Route path="maquinaria" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaPage /></Suspense></RequireModule>} />
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />

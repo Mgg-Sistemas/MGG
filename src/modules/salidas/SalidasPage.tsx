@@ -27,6 +27,7 @@ import { TrasladoDineroForm } from './TrasladoDineroForm';
 import { ConciliarMineralModal } from './ConciliarMineralModal';
 import { GestionarCajasModal } from './GestionarCajasModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
+import { SalidaDineroDetalle } from './SalidaDineroDetalle';
 import {
   descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
   type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
@@ -43,6 +44,7 @@ type Modal =
   | { kind: 'traslado-dinero' }
   | { kind: 'conciliar'; salida: MovimientoCaja }
   | { kind: 'detalle-material'; mov: Movimiento; esTraslado: boolean }
+  | { kind: 'detalle-dinero'; mov: MovimientoCaja; esTraslado: boolean }
   | { kind: 'detalle-solicitud'; sol: SolicitudSalida }
   | { kind: 'cajas' };
 
@@ -166,6 +168,7 @@ export function SalidasPage() {
           canWrite={canWrite}
           onConciliar={(s) => setModal({ kind: 'conciliar', salida: s })}
           onVerMaterial={(mov, esTraslado) => setModal({ kind: 'detalle-material', mov, esTraslado })}
+          onVerDinero={(mov, esTraslado) => setModal({ kind: 'detalle-dinero', mov, esTraslado })}
         />
       )}
 
@@ -211,18 +214,27 @@ export function SalidasPage() {
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
+      {modal.kind === 'detalle-dinero' && (
+        <SalidaDineroDetalle
+          mov={modal.mov}
+          esTraslado={modal.esTraslado}
+          producto={productos.find((p) => p.id === modal.mov.mineral_producto_id) ?? null}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
     </div>
   );
 }
 
 function Historial({
-  scope, tipo, salMat, trasMat, salDin, trasDin, canWrite, onConciliar, onVerMaterial,
+  scope, tipo, salMat, trasMat, salDin, trasDin, canWrite, onConciliar, onVerMaterial, onVerDinero,
 }: {
   scope: Scope; tipo: Tipo;
   salMat: Movimiento[]; trasMat: Movimiento[]; salDin: MovimientoCaja[]; trasDin: MovimientoCaja[];
   canWrite: boolean;
   onConciliar: (s: MovimientoCaja) => void;
   onVerMaterial: (mov: Movimiento, esTraslado: boolean) => void;
+  onVerDinero: (mov: MovimientoCaja, esTraslado: boolean) => void;
 }) {
   // Material
   if (tipo === 'material') {
@@ -286,7 +298,7 @@ function Historial({
           {!rows.length ? (
             <tr><td colSpan={esTraslado ? 6 : 7}><EmptyState message={esTraslado ? 'Sin traslados de dinero.' : 'Sin salidas de dinero.'} icon="💵" /></td></tr>
           ) : rows.map((m) => (
-            <tr key={m.id}>
+            <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => onVerDinero(m, esTraslado)} title="Ver detalle">
               <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(m.at)}</td>
               <td>{m.caja?.nombre ?? '—'} <span className="badge">{m.moneda}</span></td>
               <td>{m.destino || '—'}</td>
@@ -299,7 +311,7 @@ function Historial({
                   </span>
                 </td>
               )}
-              <td className="actions">
+              <td className="actions" onClick={(e) => e.stopPropagation()}>
                 <button className="btn btn-sm btn-ghost" onClick={() => esTraslado ? descargarTrasladoDineroPdf(m) : descargarSalidaDineroPdf(m)}>↓ PDF</button>
                 {!esTraslado && canWrite && m.estado_mineral === 'pendiente' && (
                   <button className="btn btn-sm btn-primary" onClick={() => onConciliar(m)}>⛏ Recibir mineral</button>

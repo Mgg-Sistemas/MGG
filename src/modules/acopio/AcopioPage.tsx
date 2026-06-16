@@ -40,6 +40,8 @@ import {
 } from './resumenSemanal.repository';
 import { descargarResumenSemanalPdf } from './resumenSemanalPdf';
 import { AliadosVista } from './AliadosVista';
+import { CuentasCobrarView } from './CuentasCobrarView';
+import { CuentaPerdidaAliView, CuadroResumenPerdidaView } from './EsmeraldaPerdidaView';
 import {
   listDestinosTraslado, ejecutarTrasladoAcopio,
   crearDestinoTraslado, actualizarDestinoTraslado, setDestinoTrasladoActivo, eliminarDestinoTraslado,
@@ -76,6 +78,11 @@ function AcopioModulo({ centro }: { centro: string }) {
   const [categorias, setCategorias] = useState(false);
   const [resumenCaja, setResumenCaja] = useState(false);
   const [vistaAliados, setVistaAliados] = useState(false);
+  const [vistaCuentas, setVistaCuentas] = useState(false);
+  // LA ESMERALDA ALI: dos vistas propias de pérdida (con botón Volver).
+  const [vistaPerdidaCuenta, setVistaPerdidaCuenta] = useState(false);
+  const [vistaPerdidaCuadro, setVistaPerdidaCuadro] = useState(false);
+  const esEsmeralda = centro === 'LA ESMERALDA ALI';
   // Switch «Listar movimientos»: oculto por defecto. Apagado = solo tarjetas + Resumen/Categorías;
   // encendido = se muestra la lista de movimientos y el botón de agregar movimiento.
   const [listarMovs, setListarMovs] = useState(false);
@@ -117,9 +124,20 @@ function AcopioModulo({ centro }: { centro: string }) {
   // Caja a la que se asocian los movimientos nuevos (la ACTUALMENTE ABIERTA).
   const cajaActual = useMemo(() => cajas.find((c) => c.estado === 'abierta') ?? cajas[0] ?? null, [cajas]);
 
-  // Vista «Aliados»: pantalla propia dentro del módulo (con su botón Volver).
+  // Vista «Aliados» (en PERAMANAL ENDER MEJIAS se titula «Compra de ORO»): pantalla propia.
   if (vistaAliados) {
     return <AliadosVista canWrite={canWrite} actor={actor} actorName={actorName} centro={centro} onVolver={() => setVistaAliados(false)} />;
+  }
+  // Vista «Cuentas por Cobrar»: pantalla propia dentro del módulo (con su botón Volver).
+  if (vistaCuentas) {
+    return <CuentasCobrarView canWrite={canWrite} actor={actor} actorName={actorName} centro={centro} onVolver={() => setVistaCuentas(false)} />;
+  }
+  // LA ESMERALDA ALI · vistas de pérdida (con botón Volver).
+  if (vistaPerdidaCuenta) {
+    return <CuentaPerdidaAliView centro={centro} canWrite={canWrite} onVolver={() => setVistaPerdidaCuenta(false)} />;
+  }
+  if (vistaPerdidaCuadro) {
+    return <CuadroResumenPerdidaView centro={centro} canWrite={canWrite} onVolver={() => setVistaPerdidaCuadro(false)} />;
   }
 
   return (
@@ -136,7 +154,10 @@ function AcopioModulo({ centro }: { centro: string }) {
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem', marginBottom: '1.25rem' }}>
         <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
         <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
-        {centro !== 'GLOBAL MINERAL TIN' && <button className="btn btn-ghost" onClick={() => setVistaAliados(true)}>🤝 Aliados</button>}
+        {centro !== 'GLOBAL MINERAL TIN' && !esEsmeralda && <button className="btn btn-ghost" onClick={() => setVistaAliados(true)}>{centro === 'PERAMANAL ENDER MEJIAS' ? '🪙 Compra de ORO' : '🤝 Aliados'}</button>}
+        {centro === 'PERAMANAL ENDER MEJIAS' && <button className="btn btn-ghost" onClick={() => setVistaCuentas(true)}>📥 Cuentas por Cobrar</button>}
+        {esEsmeralda && <button className="btn btn-ghost" onClick={() => setVistaPerdidaCuenta(true)}>📉 Cuenta de Pérdida con Alí</button>}
+        {esEsmeralda && <button className="btn btn-ghost" onClick={() => setVistaPerdidaCuadro(true)}>🧾 Cuadro Resumen Pérdida Total</button>}
         <label className="switch-row" style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
           <span className="switch">
             <input type="checkbox" checked={listarMovs} onChange={(e) => setListarMovs(e.target.checked)} />
@@ -162,7 +183,7 @@ function AcopioModulo({ centro }: { centro: string }) {
               </span>
             )}
           </div>
-          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos + Nóminas) ÷ Kg cerrados</div>
+          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos) ÷ Kg cerrados</div>
         </div>
         <div className="card" style={{ borderColor: 'var(--success)' }}>
           <div className="card-title"><span>💵 USD entregados</span></div>
@@ -173,7 +194,6 @@ function AcopioModulo({ centro }: { centro: string }) {
         <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo en moneda $ Usd (corrido)</div></div>
         <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
         <div className="card"><div className="card-title"><span>Gastos</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div></div>
-        {centro !== 'GLOBAL MINERAL TIN' && <div className="card"><div className="card-title"><span>Nóminas</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.nominas)}</div></div>}
       </div>
 
       {/* La vista se mantiene montada (oculta cuando el switch está apagado) para que sus
@@ -216,6 +236,15 @@ export function GlobalMineralTinPage() {
   return <AcopioModulo centro="GLOBAL MINERAL TIN" />;
 }
 
+export function PeramanalEnderPage() {
+  return <AcopioModulo centro="PERAMANAL ENDER MEJIAS" />;
+}
+
+/** Sub-módulo «LA ESMERALDA ALI»: mismo módulo de acopio, parametrizado por centro. */
+export function EsmeraldaAliPage() {
+  return <AcopioModulo centro="LA ESMERALDA ALI" />;
+}
+
 /* ───────────── Agregar movimiento de caja (acopio) ───────────── */
 
 function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose, onSaved }: {
@@ -232,9 +261,6 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
   const [gastoVehiculo, setGastoVehiculo] = useState(''); // vehículo imputado (solo categorías de REPUESTOS-REPARACIONES-SERVICIOS)
   const [vehiculos, setVehiculos] = useState<{ value: string; label: string }[]>([]);
   const [descGastos, setDescGastos] = useState('');
-  const [nominas, setNominas] = useState('');
-  const [nominaCat, setNominaCat] = useState('');
-  const [descNominas, setDescNominas] = useState('');
   const [traslado, setTraslado] = useState('');
   const [descTraslado, setDescTraslado] = useState('');
   const [destinoId, setDestinoId] = useState('');
@@ -257,7 +283,6 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
       .catch(() => setVehiculos([]));
   }, []);
   const gastosCats = useMemo(() => cats.filter((c) => c.grupo === 'gastos_caja' && c.activo), [cats]);
-  const nominaCats = useMemo(() => cats.filter((c) => c.grupo === 'nomina' && c.activo), [cats]);
   const gastoEsVehiculo = esClasifVehiculo(gastoCat);
 
   // Redondeo a 2 decimales para los montos en $.
@@ -265,11 +290,10 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
 
   async function guardar() {
     setError(null);
-    const gas = r2(gastos), nom = r2(nominas), tras = r2(traslado);
+    const gas = r2(gastos), tras = r2(traslado);
     const kg = Number(kgRecibidos) || 0;
-    if (gas <= 0 && nom <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (gas <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
     if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto.'); return; }
-    if (nom > 0 && !nominaCat) { setError('Elegí la categoría de la nómina.'); return; }
     const destino = destinosActivos.find((d) => d.id === destinoId) ?? null;
     if (tras > 0 && !destino) { setError('Elegí el destino del traslado de caja.'); return; }
     setSaving(true);
@@ -279,7 +303,6 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
       // por grupo (Gastos/Nómina/Traslado) queda correcta.
       const filas: CajaMovimientoInput[] = [];
       if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, vehiculo: gastoEsVehiculo ? (gastoVehiculo.trim() || null) : null, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
-      if (nom > 0) filas.push({ fecha, nominas: nom, clasif_grupo: 'nomina', clasif_valor: nominaCat, descripcion: descNominas.trim() || nominaCat, caja_id: cajaId });
       if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: descKg.trim() || 'Kg recibidos por MGG', caja_id: cajaId });
       for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
       // El traslado va por el orquestador: baja la caja general y refleja el monto
@@ -347,19 +370,6 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
         </div>
       )}
       {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto')}
-
-      {/* Nómina: monto + categoría + descripción */}
-      <div className="form-grid">
-        {campoUsd('$ Nómina', nominas, setNominas)}
-        <div className="form-row">
-          <label>Categoría de nómina</label>
-          <select className="select" value={nominaCat} onChange={(e) => setNominaCat(e.target.value)}>
-            <option value="">— elegí la nómina —</option>
-            {nominaCats.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-          </select>
-        </div>
-      </div>
-      {campoDesc(descNominas, setDescNominas, nominaCat || 'Descripción de la nómina')}
 
       {/* Traslado: monto + destino (catálogo) + descripción opcional */}
       <div className="form-grid">
@@ -595,17 +605,18 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
     </div>
   );
 
-  const TablaCat = ({ titulo, filas, totalLabel, totalMonto, totalPct, color, grupo, onVerVehiculo }: {
+  const TablaCat = ({ titulo, filas, totalLabel, totalMonto, totalPct, color, grupo, onVerVehiculo, montoLabel = 'Monto', pctLabel = '% del total gastado' }: {
     titulo: string; filas: { valor: string; monto: number; pct: number }[]; totalLabel: string; totalMonto: number; totalPct: number; color: string;
     grupo: GrupoClasificacion;
     onVerVehiculo?: (valor: string) => void;
+    montoLabel?: string; pctLabel?: string;
   }) => (
     <>
       <div className="card-title" style={{ marginTop: '1rem' }}><span style={{ color }}>{titulo}</span></div>
       {!filas.length ? <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin registros.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.8rem' }}>
-            <thead><tr><th>Categoría</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>% del total gastado</th></tr></thead>
+            <thead><tr><th>Categoría</th><th style={{ textAlign: 'right', width: 170, whiteSpace: 'nowrap' }}>{montoLabel}</th><th style={{ textAlign: 'right', width: 150, whiteSpace: 'nowrap' }}>{pctLabel}</th></tr></thead>
             <tbody>
               {filas.map((c) => {
                 const esVeh = !!onVerVehiculo && esClasifVehiculo(c.valor);
@@ -622,16 +633,16 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
                         onClick={(e) => { e.stopPropagation(); onVerVehiculo!(c.valor); }}>📊</button>
                     )}
                   </td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{money(c.monto)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{pct(c.pct)}</td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(c.monto)}</td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(c.pct)}</td>
                 </tr>
                 );
               })}
             </tbody>
             <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
               <td>{totalLabel}</td>
-              <td className="mono" style={{ textAlign: 'right' }}>{money(totalMonto)}</td>
-              <td className="mono" style={{ textAlign: 'right' }}>{pct(totalPct)}</td>
+              <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(totalMonto)}</td>
+              <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(totalPct)}</td>
             </tr></tfoot>
           </table>
         </div>
@@ -658,11 +669,32 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
             {hayRango && <button className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }}>✕ Limpiar rango</button>}
             {hayRango && <span className="badge" style={{ fontSize: '.72rem' }}>Mostrando solo el rango seleccionado</span>}
           </div>
-          <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-            {hayRango
-              ? <>Rango <strong>{desde || '—'}</strong> → <strong>{hasta || '—'}</strong> · {r.movimientos} movimiento(s) en el rango</>
-              : <>Inicio <strong>{r.fechaInicio ?? '—'}</strong> · Última actualización <strong>{r.fechaActualizacion}</strong> · <strong>{r.dias}</strong> días transcurridos · {r.movimientos} movimiento(s)</>}
-          </p>
+          {/* Bloque de cabecera «CERRADO · RESUMEN DE CAJA» — fiel a la hoja del Excel:
+              Centro · Fecha de inicio · Última actualización · Días transcurridos · Saldo actual. */}
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div className="card-title"><span>🗂 Cerrado · Resumen de Caja · {centro}</span></div>
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <tbody>
+                  <tr><td style={{ fontWeight: 600, width: 280 }}>Centro de Acopio</td><td>{centro}</td></tr>
+                  {hayRango ? (
+                    <tr><td style={{ fontWeight: 600 }}>Rango seleccionado</td><td className="mono">{desde || '—'} → {hasta || '—'}</td></tr>
+                  ) : (
+                    <>
+                      <tr><td style={{ fontWeight: 600 }}>Fecha de inicio</td><td className="mono">{r.fechaInicio ?? '—'}</td></tr>
+                      <tr><td style={{ fontWeight: 600 }}>Fecha última actualización</td><td className="mono">{r.fechaActualizacion}</td></tr>
+                      <tr><td style={{ fontWeight: 600 }}>Días transcurridos</td><td className="mono">{r.dias}</td></tr>
+                    </>
+                  )}
+                  <tr><td style={{ fontWeight: 600 }}>Movimientos</td><td className="mono">{r.movimientos}</td></tr>
+                  <tr style={{ borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
+                    <td style={{ fontWeight: 700 }}>Saldo actual de la caja {centro}</td>
+                    <td className="mono" style={{ fontWeight: 800, color: r.saldoUsd < 0 ? 'var(--danger)' : 'var(--primary-3)' }}>{money(r.saldoUsd)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {/* KPIs principales */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.75rem' }}>
@@ -692,9 +724,41 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
             <Kpi titulo="Diferencia" valor={`${num(r.diferenciaKg)} Kg`} color={r.diferenciaKg < 0 ? 'var(--danger)' : 'var(--success)'} />
           </div>
 
+          {/* CASITERITA por categoría (contratos): cantidad, facturado y precio promedio */}
+          {r.casiteritaPorCategoria.length > 0 && (
+            <>
+              <div className="card-title" style={{ marginTop: '1rem' }}><span style={{ color: '#22c55e' }}>Casiterita por categoría</span></div>
+              <div className="table-wrap">
+                <table className="table" style={{ fontSize: '.8rem' }}>
+                  <thead><tr><th>Categoría</th><th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>Precio $/Kg</th><th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>Cantidad cerrada (Kg)</th><th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>Facturado $</th><th style={{ textAlign: 'right', width: 130, whiteSpace: 'nowrap' }}>% individual</th></tr></thead>
+                  <tbody>
+                    {r.casiteritaPorCategoria.map((c) => (
+                      <tr key={c.valor} onClick={() => setDetalleCat({ grupo: 'contratos', valor: c.valor })} style={{ cursor: 'pointer' }} title="Ver el detalle de los movimientos de esta categoría">
+                        <td>{c.valor}</td>
+                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(c.precio)}</td>
+                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{num(c.cantidad)}</td>
+                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(c.facturado)}</td>
+                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(c.pct)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
+                    <td>Total casiterita</td>
+                    <td></td>
+                    <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{num(r.kgProduccion)}</td>
+                    <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(r.totalFacturado)}</td>
+                    <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(1)}</td>
+                  </tr></tfoot>
+                </table>
+              </div>
+            </>
+          )}
+
           <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" grupo="gastos_caja" onVerVehiculo={setConsumoCat} />
           <p className="muted" style={{ fontSize: '.74rem', marginTop: '.3rem' }}>💡 Tocá una <strong>categoría</strong> para ver el <strong>detalle de sus movimientos</strong>. En las de <strong>repuestos · reparaciones · servicios</strong>, el botón <strong>📊</strong> muestra el consumo en $ por vehículo.</p>
           <TablaCat titulo="Nómina por categoría" filas={r.nominaPorCategoria} totalLabel="Total nómina" totalMonto={r.totalNominas} totalPct={r.pctNomina} color="#a855f7" grupo="nomina" />
+          {/* MOVIMIENTOS DE CAJA por categoría: dinero entregado que entra a la caja */}
+          <TablaCat titulo="Movimientos de caja por categoría" filas={r.movimientosPorCategoria} totalLabel="Total entregado" totalMonto={r.totalEntregado} totalPct={1} color="#3b82f6" grupo="movimientos_caja" montoLabel="Dinero entregado $" pctLabel="% del total entregado" />
         </>
       )}
 
@@ -743,7 +807,11 @@ function DetalleCategoriaModal({ grupo, valor, desde, hasta, centro, onClose }: 
       .catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar el detalle'));
   }, [grupo, valor, desde, hasta, centro]);
   const total = (movs ?? []).reduce((a, m) => a + m.monto, 0);
-  const concepto = grupo === 'nomina' ? 'nómina' : 'gastos';
+  const concepto = grupo === 'nomina' ? 'nómina'
+    : grupo === 'movimientos_caja' ? 'dinero entregado'
+    : grupo === 'contratos' ? 'casiterita facturada'
+    : grupo === 'traslado' ? 'traslado'
+    : 'gastos';
   return (
     <Modal title={`🧾 Detalle · ${valor}`} size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>

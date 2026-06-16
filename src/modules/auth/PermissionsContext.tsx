@@ -6,6 +6,7 @@ import {
   defaultsFor,
   normalizeRolePermisos,
   MODULES,
+  modulePath,
   type ModuleKey,
   type ModulePermission,
   type RolePermisos,
@@ -101,7 +102,7 @@ export function RequireModule({ module, children }: { module: ModuleKey; childre
   if (loading) return <div className="p-8 muted">Cargando…</div>;
   if (can(module, 'lectura')) return <>{children}</>;
   const fallback = allowedModules[0];
-  return <Navigate to={fallback ? `/app/${fallback}` : '/app/sin-acceso'} replace />;
+  return <Navigate to={fallback ? `/app/${modulePath(fallback)}` : '/app/sin-acceso'} replace />;
 }
 
 /** Redirige al primer módulo al que el usuario tiene acceso (usado como índice de /app). */
@@ -109,5 +110,5 @@ export function HomeRedirect() {
   const { loading, allowedModules } = usePermissions();
   if (loading) return <div className="p-8 muted">Cargando…</div>;
   const first = allowedModules[0];
-  return <Navigate to={first ? `/app/${first}` : '/app/sin-acceso'} replace />;
+  return <Navigate to={first ? `/app/${modulePath(first)}` : '/app/sin-acceso'} replace />;
 }

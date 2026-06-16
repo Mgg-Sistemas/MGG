@@ -4,6 +4,10 @@
    ============================================================ */
 
 :root {
+  /* Tema oscuro para TODOS los controles nativos (calendario de los inputs date/time,
+     spinners, scrollbars): el icono del calendario sale claro/blanco en todo el sistema. */
+  color-scheme: dark;
+
   /* Paleta base */
   --bg-0: #07080b;
   --bg-1: #0d1014;
@@ -161,6 +165,27 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
   font-family: var(--font-sans);
   font-size: .9rem;
   transition: border-color .15s, box-shadow .15s;
+  /* Tema oscuro: los controles nativos (icono del calendario en inputs
+     date/time, spinners) se renderizan claros y quedan visibles. */
+  color-scheme: dark;
+}
+/* Icono del calendario BLANCO sobre el fondo oscuro, en CUALQUIER input date/time
+   del sistema (tenga o no la clase .input). Con color-scheme:dark el icono ya sale
+   claro; acá solo le damos cursor y un poco de opacidad (sin volver a invertirlo). */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: .8;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="month"]::-webkit-calendar-picker-indicator:hover,
+input[type="week"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
 }
 .input:focus, .select:focus, .textarea:focus {
   outline: none;

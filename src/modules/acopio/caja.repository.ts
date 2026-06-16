@@ -169,6 +169,8 @@ export async function tasaActualAcopio(): Promise<number> {
 /* ───────────── Resumen de caja (réplica de la hoja «RESUMEN CAJA PERAMANAL GT») ───────────── */
 
 export interface CategoriaResumen { valor: string; monto: number; pct: number }
+/** Fila del desglose de CASITERITA (contratos) por categoría: cantidad, facturado y precio. */
+export interface CategoriaCasiterita { valor: string; cantidad: number; facturado: number; precio: number; pct: number }
 export interface ResumenCajaAcopio {
   centro: string;
   fechaInicio: string | null;     // primera fecha de movimiento
@@ -186,6 +188,8 @@ export interface ResumenCajaAcopio {
   pctNomina: number;              // nóminas / total gastado
   gastosPorCategoria: CategoriaResumen[];
   nominaPorCategoria: CategoriaResumen[];
+  casiteritaPorCategoria: CategoriaCasiterita[]; // contratos: cantidad + facturado + precio por categoría
+  movimientosPorCategoria: CategoriaResumen[];   // movimientos de caja: dinero entregado por categoría
   kgProduccion: number;           // Σ kg_cerrados (casiterita que entra)
   kgEnviados: number;             // Σ kg_recibidos (enviado a MGG)
   diferenciaKg: number;           // enviados − producción
@@ -242,6 +246,34 @@ export async function resumenCajaAcopio(
       .sort((a, b) => b.monto - a.monto);
   };
 
+  // Desglose de CASITERITA (contratos) por categoría: cantidad (Kg), facturado ($) y precio = facturado/cantidad.
+  const casiteritaPorCategoria: CategoriaCasiterita[] = (() => {
+    const map = new Map<string, { cantidad: number; facturado: number }>();
+    for (const m of movs) {
+      if (m.clasif_grupo !== 'contratos') continue;
+      const k = (m.clasif_valor ?? '').trim() || 'Sin categoría';
+      const cur = map.get(k) ?? { cantidad: 0, facturado: 0 };
+      cur.cantidad += num(m.kg_cerrados);
+      cur.facturado += num(m.facturados);
+      map.set(k, cur);
+    }
+    return Array.from(map.entries())
+      .map(([valor, v]) => ({ valor, cantidad: v.cantidad, facturado: v.facturado, precio: v.cantidad > 0 ? v.facturado / v.cantidad : 0, pct: totalFacturado > 0 ? v.facturado / totalFacturado : 0 }))
+      .sort((a, b) => b.facturado - a.facturado);
+  })();
+  // Desglose de MOVIMIENTOS DE CAJA por categoría: dinero entregado ($) que entra a la caja.
+  const movimientosPorCategoria: CategoriaResumen[] = (() => {
+    const map = new Map<string, number>();
+    for (const m of movs) {
+      if (m.clasif_grupo !== 'movimientos_caja') continue;
+      const k = (m.clasif_valor ?? '').trim() || 'Sin categoría';
+      map.set(k, (map.get(k) ?? 0) + num(m.usd_entregado));
+    }
+    return Array.from(map.entries())
+      .map(([valor, monto]) => ({ valor, monto, pct: totalEntregado > 0 ? monto / totalEntregado : 0 }))
+      .sort((a, b) => b.monto - a.monto);
+  })();
+
   const fechas = movs.map((m) => m.fecha).filter(Boolean).sort();
   const fechaInicio = fechas[0] ?? null;
   const fechaActualizacion = hoyVE();
@@ -255,6 +287,7 @@ export async function resumenCajaAcopio(
     pctNomina: totalGastado > 0 ? totalNominas / totalGastado : 0,
     gastosPorCategoria: porCategoria('gastos_caja', (m) => m.gastos),
     nominaPorCategoria: porCategoria('nomina', (m) => m.nominas),
+    casiteritaPorCategoria, movimientosPorCategoria,
     kgProduccion, kgEnviados, diferenciaKg: kgEnviados - kgProduccion,
     tasaMaterial: kgProduccion > 0 ? (totalFacturado + totalGastos + totalNominas) / kgProduccion : 0,
   };
@@ -282,7 +315,12 @@ export async function listMovimientosCategoria(
   centroNombre: string | null = CENTRO_ACOPIO_DEFECTO,
 ): Promise<MovimientoCategoria[]> {
   const todos = await listCajaMovimientos(cajaId, centroNombre);
-  const campo = (m: CajaMovimiento) => (grupo === 'nomina' ? m.nominas : m.gastos);
+  const campo = (m: CajaMovimiento) =>
+    grupo === 'nomina' ? m.nominas
+    : grupo === 'movimientos_caja' ? m.usd_entregado
+    : grupo === 'contratos' ? m.facturados
+    : grupo === 'traslado' ? m.traslado
+    : m.gastos;
   return todos
     .filter((m) => {
       if (m.clasif_grupo !== grupo) return false;

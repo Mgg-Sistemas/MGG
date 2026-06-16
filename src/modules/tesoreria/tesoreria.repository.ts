@@ -254,6 +254,9 @@ export async function listLibroMayor(filtros: {
   cajaId?: string; moneda?: string; tipo?: string; desde?: string; hasta?: string;
   /** Incluir movimientos ya archivados por un cierre de mes (por defecto NO). */
   incluirCerrados?: boolean;
+  /** Tope de filas. El Libro Mayor (sumas Debe/Haber) usa un tope alto para no
+   *  quedar corto por el límite por defecto de 1000 filas de Supabase. */
+  limite?: number;
 } = {}): Promise<MovimientoCaja[]> {
   let q = supabase.from(LIBRO).select('*, caja:cajas!movimientos_caja_caja_id_fkey(nombre, moneda)').order('at', { ascending: false });
   if (filtros.cajaId) q = q.eq('caja_id', filtros.cajaId);
@@ -262,6 +265,7 @@ export async function listLibroMayor(filtros: {
   if (filtros.desde) q = q.gte('at', `${filtros.desde}T00:00:00`);
   if (filtros.hasta) q = q.lte('at', `${filtros.hasta}T23:59:59`);
   if (!filtros.incluirCerrados) q = q.is('cierre_id', null); // mes cerrado = fuera de la vista actual
+  if (filtros.limite) q = q.limit(filtros.limite);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as MovimientoCaja[];

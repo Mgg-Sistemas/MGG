@@ -66,11 +66,14 @@ function AliadosLista({ canWrite, actor, centro, onVolverAcopio, onAbrir }: {
     return q ? items.filter((i) => i.aliado.nombre.toLowerCase().includes(q)) : items;
   }, [items, busca]);
 
+  // Peramanal (Ender) = compra de ORO: las tarjetas muestran gramos (Gm) de oro (AU).
+  const esOroLista = centro === 'PERAMANAL ENDER MEJIAS';
+
   return (
     <div>
       <div className="page-head">
         <div>
-          <h1>🤝 Aliados · Centro de Acopio</h1>
+          <h1>{centro === 'PERAMANAL ENDER MEJIAS' ? '🪙 Compra de ORO · Centro de Acopio' : '🤝 Aliados · Centro de Acopio'}</h1>
           <p className="muted">Cada aliado lleva su propio libro con la misma estructura del acopio (entregado, Kg cerrados, $/Kg, facturado, Kg recibidos y saldos corridos).</p>
         </div>
       </div>
@@ -91,15 +94,15 @@ function AliadosLista({ canWrite, actor, centro, onVolverAcopio, onAbrir }: {
           {filtrados.map(({ aliado, resumen }) => (
             <div key={aliado.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', borderColor: resumen.saldoKg > 0 ? 'var(--primary)' : undefined }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
-                <strong style={{ fontSize: '.95rem', lineHeight: 1.25 }}>🤝 {aliado.nombre}</strong>
+                <strong style={{ fontSize: '.95rem', lineHeight: 1.25 }}>{esOroLista ? '🪙' : '🤝'} {aliado.nombre}</strong>
                 <div style={{ display: 'flex', gap: '.25rem', flex: '0 0 auto' }}>
                   {!aliado.activo && <span className="badge" style={{ fontSize: '.66rem' }}>inactivo</span>}
                   {canWrite && <button className="btn btn-sm btn-ghost" title="Editar aliado" onClick={() => setEditar(aliado)}>✎</button>}
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span className="muted" style={{ fontSize: '.74rem' }}>Saldo en Kg casiterita</span>
-                <span className="mono" style={{ fontSize: '1.25rem', fontWeight: 800, color: resumen.saldoKg < 0 ? 'var(--danger)' : 'var(--primary-3)' }}>{num(resumen.saldoKg)} Kg</span>
+                <span className="muted" style={{ fontSize: '.74rem' }}>Saldo en {esOroLista ? 'Gm oro (AU)' : 'Kg casiterita'}</span>
+                <span className="mono" style={{ fontSize: '1.25rem', fontWeight: 800, color: resumen.saldoKg < 0 ? 'var(--danger)' : 'var(--primary-3)' }}>{num(resumen.saldoKg)} {esOroLista ? 'Gm' : 'Kg'}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.8rem' }}>
                 <span className="muted">Saldo $ Usd</span>
@@ -147,13 +150,17 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, centro, onVolver }:
   }
 
   const sugCorte = (filas.reduce((m, f) => Math.max(m, f.corte ?? 0), 0)) + 1;
+  // Peramanal (Ender) compra ORO: el material es oro (AU) y la unidad son gramos (Gm).
+  const esOro = centro === 'PERAMANAL ENDER MEJIAS';
+  const U = esOro ? 'Gm' : 'Kg';
+  const material = esOro ? 'oro (AU)' : 'casiterita';
 
   return (
     <div>
       <div className="page-head">
         <div>
-          <h1>🤝 {aliado.nombre}</h1>
-          <p className="muted">Libro del aliado · misma estructura del acopio. El <strong>Saldo en Kg</strong> = saldo anterior + Kg Cerrados − Kg Recibidos.</p>
+          <h1>{esOro ? '🪙' : '🤝'} {aliado.nombre}</h1>
+          <p className="muted">Libro del aliado · misma estructura del acopio. El <strong>Saldo en {U}</strong> = saldo anterior + {U} Cerrados − {U} Recibidos.</p>
         </div>
       </div>
 
@@ -166,12 +173,12 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, centro, onVolver }:
       {/* Tarjetas (las mismas de acopio) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
         <Kpi titulo="💵 USD entregados" valor={money(resumen.totalEntregado)} color="var(--success)" />
-        <Kpi titulo="⚖ Kg cerrados" valor={`${num(resumen.totalKgCerrados)} Kg`} color="var(--primary-3)" />
-        <Kpi titulo="💲 Precio $Usd por Kg" valor={`${money(resumen.precioProm)} /Kg`} color="var(--primary-3)" />
+        <Kpi titulo={`⚖ ${U} cerrados`} valor={`${num(resumen.totalKgCerrados)} ${U}`} color="var(--primary-3)" />
+        <Kpi titulo={`💲 Precio $Usd por ${U}`} valor={`${money(resumen.precioProm)} /${U}`} color="var(--primary-3)" />
         <Kpi titulo="🧾 $Usd Facturados" valor={money(resumen.totalFacturado)} />
         <Kpi titulo="🏦 Saldo en $ Usd" valor={money(resumen.saldoUsd)} color={resumen.saldoUsd < 0 ? 'var(--danger)' : undefined} />
-        <Kpi titulo="📥 Kg Recibidos por MGG" valor={`${num(resumen.totalKgRecibidos)} Kg`} />
-        <Kpi titulo="📦 Saldo en Kg de casiterita" valor={`${num(resumen.saldoKg)} Kg`} color={resumen.saldoKg < 0 ? 'var(--danger)' : 'var(--primary)'} destacar />
+        <Kpi titulo={`📥 ${U} Recibidos por MGG`} valor={`${num(resumen.totalKgRecibidos)} ${U}`} />
+        <Kpi titulo={`📦 Saldo en ${U} de ${material}`} valor={`${num(resumen.saldoKg)} ${U}`} color={resumen.saldoKg < 0 ? 'var(--danger)' : 'var(--primary)'} destacar />
       </div>
 
       {/* Tabla de movimientos (réplica de acopio) */}
@@ -184,13 +191,13 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, centro, onVolver }:
               <tr>
                 <th>Fecha</th><th>Corte</th><th>Descripción</th>
                 <th style={{ textAlign: 'right' }}>$Usd entregado</th>
-                <th style={{ textAlign: 'right' }}>Kg Cerrados</th>
-                <th style={{ textAlign: 'right' }}>$/Kg</th>
+                <th style={{ textAlign: 'right' }}>{U} Cerrados</th>
+                <th style={{ textAlign: 'right' }}>$/{U}</th>
                 <th style={{ textAlign: 'right' }}>$Usd Facturados</th>
                 {hayGastos && <th style={{ textAlign: 'right' }}>Gastos</th>}
                 <th style={{ textAlign: 'right' }}>Saldo $ Usd</th>
-                <th style={{ textAlign: 'right' }}>Kg Recibidos</th>
-                <th style={{ textAlign: 'right' }} title="Kg que el aliado aún debe">Saldo en Kg ⓘ</th>
+                <th style={{ textAlign: 'right' }}>{U} Recibidos</th>
+                <th style={{ textAlign: 'right' }} title={`${U} que el aliado aún debe`}>Saldo en {U} ⓘ</th>
                 {canWrite && <th style={{ width: 36 }}></th>}
               </tr>
             </thead>

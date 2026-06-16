@@ -2024,9 +2024,15 @@ create trigger trg_martillo_gasto after insert or update on public.acopio_martil
 -- La nómina NO es un grupo aparte: sus categorías viven dentro de GASTOS.
 insert into public.acopio_clasificaciones (grupo, valor, orden) values
   ('contratos','COMPRA CASITERITA',1),
+  ('contratos','CASITERITA DEUDA - RUANO LÓPEZ',2),
+  ('contratos','CASITERITA POR INSUMOS',3),
+  ('contratos','CASITERITA DEUDA - ENDER MEJÍA',4),
   ('movimientos_caja','1. ENTRADA DE CAJA',1),
   ('movimientos_caja','2. CAJA MULTIMONEDA MGG - CA GMT',2),
   ('movimientos_caja','3. SAL-ENT C.MULTIMONEDA - CA GMT',3),
+  ('movimientos_caja','2. CAJA MULTIMONEDAS - CA PERAMANAL',4),
+  ('movimientos_caja','3. CAJA INVENTARIO MGG',5),
+  ('movimientos_caja','2. CAJA MULTIMONEDA - CAJA LA ESMERALDA',13),
   ('gastos_caja','GASOLINA',1),
   ('gastos_caja','GASOIL',2),
   ('gastos_caja','VALES',3),
@@ -2049,6 +2055,35 @@ insert into public.acopio_clasificaciones (grupo, valor, orden) values
   ('gastos_caja','VEHICULO: REPUESTOS - REPARACIONES - SERVICIOS',20),
   ('gastos_caja','REPARACIONES CENTRO DE ACOPIO',21)
 on conflict (grupo, valor) do nothing;
+
+-- ─────────────────────────────────────────────────────────────
+-- LA ESMERALDA ALI · Reportes de pérdida (snapshot fiel del Excel)
+--   seccion 'cuenta' → hoja «CUENTA DE PERDIDA CON ALI»
+--       v1=monto factura $ · v2=kg entregados · v3=$/kg · v4=abono (kg valorizados) · v5=total deuda
+--   seccion 'cuadro' → hoja «CUADRO RESUMEN DEL VALOR DE LA PERDIDA TOTAL»
+--       v1=cantidad/kg · v2=precio $/kg · v3=subtotal $ · v4=monto $ (columna F)
+--   estilo: normal | total | header | destacado
+-- Datos congelados (período de pérdida cerrado); se muestran en dos vistas con «Volver».
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.acopio_esmeralda_perdida (
+  id          uuid primary key default gen_random_uuid(),
+  seccion     text not null check (seccion in ('cuenta','cuadro')),
+  orden       int  not null default 0,
+  etiqueta    text not null,
+  descripcion text,
+  v1 numeric, v2 numeric, v3 numeric, v4 numeric, v5 numeric,
+  estilo      text not null default 'normal'
+);
+alter table public.acopio_esmeralda_perdida enable row level security;
+drop policy if exists "esme_perdida read auth" on public.acopio_esmeralda_perdida;
+create policy "esme_perdida read auth" on public.acopio_esmeralda_perdida for select using (auth.role() = 'authenticated');
+drop policy if exists "esme_perdida write auth" on public.acopio_esmeralda_perdida;
+create policy "esme_perdida write auth" on public.acopio_esmeralda_perdida for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_esmeralda_perdida') then
+    alter publication supabase_realtime add table public.acopio_esmeralda_perdida;
+  end if;
+end $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- 16. Centro de Acopio · Hojas del Excel (snapshot fiel de referencia)
