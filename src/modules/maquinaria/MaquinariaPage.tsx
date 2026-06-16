@@ -49,7 +49,9 @@ export function MaquinariaPage() {
   const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map()); // bitácora: equipo_id→…
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState('');
-  const [verInactivos, setVerInactivos] = useState(false);
+  // Por defecto mostramos también los inactivos: desactivar NO borra, solo marca
+  // inactivo, así que el equipo debe seguir visible (con su distintivo «Inactivo»).
+  const [verInactivos, setVerInactivos] = useState(true);
 
   const [catalogoOpen, setCatalogoOpen] = useState(false);
   const [resumenOpen, setResumenOpen] = useState(false);
@@ -158,7 +160,11 @@ export function MaquinariaPage() {
                 const info = infoEquipo.get(e.id);
                 return (
                 <tr key={e.id} style={{ opacity: e.activo ? 1 : 0.5, background: info?.alerta ? 'rgba(255,165,0,.10)' : undefined }}>
-                  <td><strong>{e.equipo}</strong>{e.serial ? <div className="muted mono" style={{ fontSize: '.72rem' }}>{e.serial}</div> : null}</td>
+                  <td>
+                    <strong>{e.equipo}</strong>
+                    {!e.activo && <span className="badge" style={{ marginLeft: '.4rem', color: 'var(--danger)', borderColor: 'var(--danger)', fontSize: '.7rem' }}>🚫 Inactivo</span>}
+                    {e.serial ? <div className="muted mono" style={{ fontSize: '.72rem' }}>{e.serial}</div> : null}
+                  </td>
                   <td>{e.tipo ?? '—'}</td>
                   <td>{e.propietario ?? '—'}</td>
                   <td><span className="badge" style={{ color: STATUS_COLOR[e.status] ?? undefined }}>{e.status}</span></td>
