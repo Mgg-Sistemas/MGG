@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import type { Almacen, MovimientoCaja, Producto } from '@/shared/lib/types';
@@ -90,10 +91,9 @@ export function ConciliarMineralModal({
             <button type="button" className={`btn btn-sm ${modo === 'nuevo' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setModo('nuevo')}>Nuevo</button>
           </div>
           {modo === 'existente' ? (
-            <select className="select" value={productoId} onChange={(e) => setProductoId(e.target.value)}>
-              {!activos.length && <option value="">— sin productos —</option>}
-              {activos.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {p.sku}</option>)}
-            </select>
+            <SearchSelect value={productoId} onChange={setProductoId}
+              options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))}
+              placeholder="🔎 Buscá el mineral…" emptyText="Sin productos." />
           ) : (
             <input className="input" value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value.toUpperCase())} placeholder="Nombre del mineral" />
           )}
