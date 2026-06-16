@@ -109,6 +109,12 @@ export function TesoreriaPage() {
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
   const [cobrarCount, setCobrarCount] = useState(0);
+  const [cxpList, setCxpList] = useState<CuentaPorPagar[]>([]);
+  const [cxcList, setCxcList] = useState<CuentaPorCobrar[]>([]);
+  // Dataset COMPLETO de movimientos activos para el Libro Mayor (independiente de
+  // los filtros del Registro): así sus sumas Debe/Haber no se descuadran cuando el
+  // usuario filtra el registro, y la vista por moneda muestra todos los movimientos.
+  const [lmMovs, setLmMovs] = useState<MovimientoCaja[]>([]);
   const [retencionListas, setRetencionListas] = useState<RetencionItem[]>([]);
   const [nominaCount, setNominaCount] = useState(0);
   const [vista, setVista] = useState<'tesoreria' | 'tasas' | 'movimientos' | 'gastos'>('tesoreria');
@@ -127,11 +133,13 @@ export function TesoreriaPage() {
   const [transfers, setTransfers] = useState<TransferenciaInter[]>([]);
 
   const reload = useCallback(async () => {
-    const [d, cs, sal, mov, pp, cr, cxp, tr, nc, cxc, ret] = await Promise.all([
+    const [d, cs, sal, mov, lm, pp, cr, cxp, tr, nc, cxc, ret] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
       listLibroMayor({ moneda: fMoneda || undefined, tipo: fTipo || undefined, desde: fDesde || undefined, hasta: fHasta || undefined }),
+      // Libro Mayor: TODOS los movimientos activos (sin los filtros del registro), tope alto.
+      listLibroMayor({ limite: 10000 }).catch(() => [] as MovimientoCaja[]),
       listOrdenesPorPagar().catch(() => [] as OrdenPorPagar[]),
       listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
       listCuentasPorPagar(true).catch(() => [] as CuentaPorPagar[]),
@@ -142,7 +150,8 @@ export function TesoreriaPage() {
     ]);
     const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
-    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length); setRetencionListas(ret);
+    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setLmMovs(lm); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length); setRetencionListas(ret);
+    setCxpList(cxp); setCxcList(cxc);
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
@@ -314,6 +323,10 @@ export function TesoreriaPage() {
 
           {/* Transferencias inter-sistema (centros de acopio externos / otra Supabase) */}
           <TransferenciasInterPanel transfers={transfers} cajas={cajas} canWrite={canWrite} actor={actor} actorName={actorName} onChanged={reload} />
+
+          {/* Libro mayor: Debe / Haber / Saldo en cajas + Cuentas por Pagar / por Cobrar, por moneda.
+              Filtros propios (fecha + moneda) y cada moneda es clickeable para ver sus movimientos. */}
+          <LibroMayorPanel movs={lmMovs} saldos={saldos} cxp={cxpList} cxc={cxcList} monedas={monedasReg} onVerMov={setMovSel} />
       </>
       )}
 
@@ -373,14 +386,14 @@ export function TesoreriaPage() {
                   || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
                     const concepto = [CAT_LABEL[m.categoria ?? ''] , m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
                     return (
-                      <tr key={m.id}>
+                      <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => setMovSel(m)} title="Ver todos los detalles">
                         <td>{dateTime(m.at)}</td>
                         <td>{m.caja?.nombre ?? '—'}</td>
                         <td>{TIPO_MOV_LABEL[m.tipo] ?? m.tipo}</td>
                         <td>{concepto}</td>
                         <td className="mono" style={{ textAlign: 'right', color: egreso ? 'var(--danger)' : 'var(--success)' }}>{egreso ? '−' : '+'}{monto(m.monto, m.moneda)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{monto(m.saldo_despues, m.moneda)}</td>
-                        <td style={{ textAlign: 'center' }}>
+                        <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                           <button className="btn btn-sm btn-ghost" onClick={() => setMovSel(m)}>🔍 Detalles</button>
                         </td>
                       </tr>
@@ -1961,6 +1974,178 @@ const ESTADO_TRANSFER: Record<string, { label: string; color: string }> = {
   error: { label: 'Pendiente de entrega ⟳', color: 'var(--danger)' },
 };
 
+/**
+ * Libro Mayor (resumen contable) debajo de las cajas: por cada MONEDA muestra el
+ * Debe (entradas), el Haber (salidas), el Saldo en cajas, y los totales de Cuentas
+ * por Pagar y por Cobrar pendientes. Cierra con una fila de Totales.
+ */
+/** ¿El movimiento resta de la caja? (salida, traslado enviado, o ajuste a la baja). */
+function esEgresoMov(m: MovimientoCaja): boolean {
+  return m.tipo === 'salida' || m.tipo === 'traslado_salida' || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
+}
+
+function LibroMayorPanel({ movs, saldos, cxp, cxc, monedas, onVerMov }: {
+  movs: MovimientoCaja[]; saldos: CajaSaldo[]; cxp: CuentaPorPagar[]; cxc: CuentaPorCobrar[];
+  monedas: string[]; onVerMov: (m: MovimientoCaja) => void;
+}) {
+  // Filtros PROPIOS del libro mayor (no afectan al registro). Debe/Haber filtran por
+  // rango de fechas; Saldo / Cuentas por pagar / por cobrar son saldos vigentes (a hoy).
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [fMon, setFMon] = useState('');
+  const [verMon, setVerMon] = useState<string | null>(null);
+
+  const dentroFecha = (m: MovimientoCaja) => {
+    const at = (m.at || '').slice(0, 10);
+    if (desde && at < desde) return false;
+    if (hasta && at > hasta) return false;
+    return true;
+  };
+  const movsFecha = useMemo(() => movs.filter(dentroFecha), [movs, desde, hasta]);
+
+  const filas = useMemo(() => {
+    const acc = new Map<string, { debe: number; haber: number; saldo: number; porPagar: number; porCobrar: number }>();
+    const get = (mon: string) => { let r = acc.get(mon); if (!r) { r = { debe: 0, haber: 0, saldo: 0, porPagar: 0, porCobrar: 0 }; acc.set(mon, r); } return r; };
+    for (const m of movsFecha) { const r = get(m.moneda); const v = Math.abs(Number(m.monto) || 0); if (esEgresoMov(m)) r.haber += v; else r.debe += v; }
+    for (const s of saldos) get(s.moneda).saldo += Number(s.saldo) || 0;
+    for (const c of cxp) get(c.moneda).porPagar += round2(Number(c.monto) - (Number(c.abonado) || 0));
+    for (const c of cxc) get(c.moneda).porCobrar += round2(Number(c.monto) - (Number(c.abonado) || 0));
+    return Array.from(acc.entries())
+      .map(([moneda, v]) => ({ moneda, ...v }))
+      .filter((f) => f.debe || f.haber || f.saldo || f.porPagar || f.porCobrar)
+      .filter((f) => !fMon || f.moneda === fMon)
+      .sort((a, b) => a.moneda.localeCompare(b.moneda));
+  }, [movsFecha, saldos, cxp, cxc, fMon]);
+
+  return (
+    <div className="card" style={{ marginTop: '1rem' }}>
+      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.5rem' }}>
+        <span>📒 Libro Mayor (por moneda)</span>
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+            Desde <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
+          </label>
+          <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+            Hasta <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
+          </label>
+          {(desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }}>✕ Fechas</button>}
+          <select className="select" value={fMon} onChange={(e) => setFMon(e.target.value)} style={{ width: 'auto' }}>
+            <option value="">Todas las monedas</option>
+            {monedas.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+      </div>
+      {!filas.length ? (
+        <EmptyState message="Sin movimientos en el rango seleccionado." />
+      ) : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.84rem' }}>
+            <thead>
+              <tr>
+                <th>Moneda</th>
+                <th style={{ textAlign: 'right' }}>Debe (entradas)</th>
+                <th style={{ textAlign: 'right' }}>Haber (salidas)</th>
+                <th style={{ textAlign: 'right' }}>Saldo en cajas</th>
+                <th style={{ textAlign: 'right' }}>Cuentas por pagar</th>
+                <th style={{ textAlign: 'right' }}>Cuentas por cobrar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f) => (
+                <tr key={f.moneda}>
+                  <td>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setVerMon(f.moneda)}
+                      title={`Ver los movimientos en ${f.moneda}`} style={{ fontWeight: 700, padding: '.1rem .35rem' }}>
+                      {f.moneda} 🔍
+                    </button>
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{monto(f.debe, f.moneda)}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>{monto(f.haber, f.moneda)}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(f.saldo, f.moneda)}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: f.porPagar > 0 ? 'var(--danger)' : undefined }}>{monto(f.porPagar, f.moneda)}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: f.porCobrar > 0 ? 'var(--primary-3)' : undefined }}>{monto(f.porCobrar, f.moneda)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted" style={{ fontSize: '.74rem', marginTop: '.4rem', marginBottom: 0 }}>
+        Debe = entradas · Haber = salidas (filtran por el rango de fechas) · Saldo, Cuentas por pagar y por cobrar son saldos vigentes (a hoy).
+        Tocá una moneda (🔍) para ver el detalle de sus movimientos.
+      </p>
+
+      {verMon && (
+        <LibroMayorMonedaModal
+          moneda={verMon}
+          movs={movsFecha.filter((m) => m.moneda === verMon)}
+          rango={desde || hasta ? `${desde || '…'} → ${hasta || '…'}` : 'Todo el período activo'}
+          onVerMov={(m) => { setVerMon(null); onVerMov(m); }}
+          onClose={() => setVerMon(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Detalle del Libro Mayor para UNA moneda: lista sus movimientos (Debe/Haber por
+ *  línea) con el pago de nómina/compra como renglón; cada fila abre el detalle completo. */
+function LibroMayorMonedaModal({ moneda, movs, rango, onVerMov, onClose }: {
+  moneda: string; movs: MovimientoCaja[]; rango: string;
+  onVerMov: (m: MovimientoCaja) => void; onClose: () => void;
+}) {
+  const ordenados = useMemo(() => [...movs].sort((a, b) => (b.at || '').localeCompare(a.at || '')), [movs]);
+  const debe = ordenados.filter((m) => !esEgresoMov(m)).reduce((a, m) => a + Math.abs(Number(m.monto) || 0), 0);
+  const haber = ordenados.filter((m) => esEgresoMov(m)).reduce((a, m) => a + Math.abs(Number(m.monto) || 0), 0);
+
+  return (
+    <Modal title={`📒 Libro Mayor · ${moneda}`} size="lg" onClose={onClose}>
+      <p className="muted" style={{ fontSize: '.78rem', marginTop: 0 }}>
+        {rango} · {ordenados.length} movimiento(s). Tocá una fila para ver todos los detalles (motivo, beneficiario, autorización, fecha y hora).
+      </p>
+      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+        <div className="mono" style={{ color: 'var(--success)' }}>Debe: {monto(debe, moneda)}</div>
+        <div className="mono" style={{ color: 'var(--danger)' }}>Haber: {monto(haber, moneda)}</div>
+        <div className="mono" style={{ fontWeight: 700 }}>Neto: {monto(debe - haber, moneda)}</div>
+      </div>
+      {!ordenados.length ? (
+        <EmptyState message="Sin movimientos para esta moneda en el rango." />
+      ) : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead>
+              <tr>
+                <th>Fecha</th><th>Caja</th><th>Concepto</th><th>Beneficiario / motivo</th>
+                <th style={{ textAlign: 'right' }}>Debe</th>
+                <th style={{ textAlign: 'right' }}>Haber</th>
+                <th style={{ textAlign: 'right' }}>Saldo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ordenados.map((m) => {
+                const egreso = esEgresoMov(m);
+                const v = Math.abs(Number(m.monto) || 0);
+                const concepto = CAT_LABEL[m.categoria ?? ''] ?? m.categoria ?? (TIPO_MOV_LABEL[m.tipo] ?? m.tipo);
+                return (
+                  <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => onVerMov(m)} title="Ver todos los detalles">
+                    <td style={{ whiteSpace: 'nowrap' }}>{dateTime(m.at)}</td>
+                    <td>{m.caja?.nombre ?? '—'}</td>
+                    <td>{concepto}</td>
+                    <td>{m.beneficiario || m.motivo || m.destino || '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{egreso ? '' : monto(v, moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>{egreso ? monto(v, moneda) : ''}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(m.saldo_despues) || 0, moneda)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName, onChanged }: {
   transfers: TransferenciaInter[]; cajas: Caja[]; canWrite: boolean; actor: string; actorName: string | null; onChanged: () => void | Promise<void>;
 }) {
@@ -3430,6 +3615,12 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [correoCuentaOpen, setCorreoCuentaOpen] = useState(false);
+  // Form de NUEVA cuenta por pagar (cliente/proveedor que aún no existe).
+  const [nvTipo, setNvTipo] = useState<'cliente' | 'proveedor'>('proveedor');
+  const [nvNombre, setNvNombre] = useState('');
+  const [nvMonto, setNvMonto] = useState('');
+  const [nvMoneda, setNvMoneda] = useState('USD');
+  const [creando, setCreando] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -3491,11 +3682,62 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
     finally { setSaving(false); }
   }
 
+  async function crearCuenta() {
+    setError(null);
+    const nombre = nvNombre.trim();
+    const m = Number(nvMonto) || 0;
+    if (!nombre) { setError('Indicá el cliente o proveedor.'); return; }
+    if (m <= 0) { setError('Indicá el monto de la cuenta por pagar.'); return; }
+    setCreando(true);
+    try {
+      const c = await registrarIngresoCxP({ tipo: nvTipo, contraparte: nombre, monto: m, moneda: nvMoneda, actor, actorName });
+      notify(`Cuenta por pagar creada · ${nombre}`, 'success', { link: '#/app/tesoreria' });
+      setNvNombre(''); setNvMonto('');
+      await cargar(); await onChanged();
+      setSelId(c.id);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo crear la cuenta'); }
+    finally { setCreando(false); }
+  }
+
   if (loading) return <p className="muted">Cargando…</p>;
-  if (!lista.length) return <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar de clientes/proveedores. 🎉</p>;
 
   return (
     <>
+      {/* Crear una cuenta por pagar nueva (cliente/proveedor que aún no existe). */}
+      <div className="card" style={{ marginBottom: '.75rem' }}>
+        <div className="card-title"><span>+ Nueva cuenta por pagar</span></div>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><strong>Error:</strong> {error}</div>}
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Tipo</label>
+            <select className="select" value={nvTipo} onChange={(e) => setNvTipo(e.target.value as 'cliente' | 'proveedor')}>
+              <option value="proveedor">🏭 Proveedor</option>
+              <option value="cliente">👤 Cliente</option>
+            </select>
+          </div>
+          <div className="form-row">
+            <label>Cliente / Proveedor</label>
+            <input className="input" value={nvNombre} onChange={(e) => setNvNombre(e.target.value)} placeholder="Nombre / razón social (nuevo o existente)" />
+          </div>
+          <div className="form-row">
+            <label>Monto</label>
+            <input className="input mono" type="number" min={0} step="0.01" value={nvMonto} onChange={(e) => setNvMonto(e.target.value)} placeholder="0.00" />
+          </div>
+          <div className="form-row">
+            <label>Moneda</label>
+            <select className="select" value={nvMoneda} onChange={(e) => setNvMoneda(e.target.value)}>
+              {['USD', 'USDT', 'Bs', 'COP'].map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+        </div>
+        <button className="btn btn-primary" style={{ marginTop: '.5rem' }} disabled={creando} onClick={crearCuenta}>
+          {creando ? 'Creando…' : '+ Crear cuenta por pagar'}
+        </button>
+      </div>
+
+      {!lista.length ? (
+        <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar abiertas. Creá una arriba. 🎉</p>
+      ) : (
       <div className="form-row" style={{ marginBottom: '.6rem' }}>
         <label>Cuenta por pagar ({lista.length})</label>
         <select className="select" value={selId} onChange={(e) => setSelId(e.target.value)}>
@@ -3506,6 +3748,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
           ))}
         </select>
       </div>
+      )}
 
       {sel && (
         <>

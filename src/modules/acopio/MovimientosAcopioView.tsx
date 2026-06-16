@@ -51,7 +51,7 @@ export interface ResumenAcopio {
   facturado: number;
 }
 
-export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen?: (r: ResumenAcopio) => void; visible?: boolean } = {}) {
+export function MovimientosAcopioView({ onResumen, visible = true, centro }: { onResumen?: (r: ResumenAcopio) => void; visible?: boolean; centro?: string } = {}) {
   const { user } = useSession();
   const { can } = usePermissions();
   const canWrite = can('acopio', 'escritura');
@@ -68,10 +68,10 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
   const [correoOpen, setCorreoOpen] = useState(false);
 
   const recargar = useCallback(async () => {
-    const [cs, cms] = await Promise.all([listContratos(), listCajaMovimientos()]);
+    const [cs, cms] = await Promise.all([listContratos(), listCajaMovimientos(undefined, centro)]);
     setContratos(cs);
     setCajaMovs(cms);
-  }, []);
+  }, [centro]);
   useEffect(() => {
     let cancel = false;
     setLoading(true);

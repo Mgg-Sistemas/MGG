@@ -16,8 +16,8 @@ import {
  * Deuda en $ que se paga con mineral: cada abono (en Kg) baja la deuda y, opcionalmente,
  * suma los Kg al stock de CASITERITA. Arriba, el resumen de saldos por cobrar.
  */
-export function CuentasCobrarView({ canWrite, actor, actorName }: {
-  canWrite: boolean; actor: string; actorName: string | null;
+export function CuentasCobrarView({ canWrite, actor, actorName, centro = 'LA ESPERANZA', onVolver }: {
+  canWrite: boolean; actor: string; actorName: string | null; centro?: string; onVolver?: () => void;
 }) {
   const [cuentas, setCuentas] = useState<CuentaCobrarAcopio[]>([]);
   const [resumen, setResumen] = useState<ResumenCobrar | null>(null);
@@ -28,10 +28,10 @@ export function CuentasCobrarView({ canWrite, actor, actorName }: {
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      const [cs, r] = await Promise.all([listCuentasCobrar(), resumenPorCobrar()]);
+      const [cs, r] = await Promise.all([listCuentasCobrar(centro), resumenPorCobrar(centro)]);
       setCuentas(cs); setResumen(r);
     } finally { setLoading(false); }
-  }, []);
+  }, [centro]);
   useEffect(() => { cargar().catch((e) => toast(e instanceof Error ? e.message : 'Error', 'error')); }, [cargar]);
   useRealtime(['acopio_cuentas_cobrar', 'acopio_cobrar_abonos'], cargar);
 
@@ -46,6 +46,15 @@ export function CuentasCobrarView({ canWrite, actor, actorName }: {
 
   return (
     <div>
+      {onVolver && (
+        <div className="page-head">
+          <div>
+            <h1>📥 Cuentas por Cobrar · Centro de Acopio {centro}</h1>
+            <p className="muted">Deuda en $ que se cobra con mineral: cada abono (en Kg × $/Kg) baja la deuda y, opcional, suma los Kg al stock de casiterita.</p>
+          </div>
+          <button className="btn btn-ghost" onClick={onVolver}>← Volver a Acopio</button>
+        </div>
+      )}
       {/* Resumen (réplica de la hoja RESUMEN) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="card" style={{ borderColor: 'var(--primary)' }}>
@@ -97,7 +106,7 @@ export function CuentasCobrarView({ canWrite, actor, actorName }: {
         )}
       </div>
 
-      {nueva && <NuevaCuentaModal actor={actor} actorName={actorName} onClose={() => setNueva(false)} onSaved={async () => { setNueva(false); await cargar(); }} />}
+      {nueva && <NuevaCuentaModal actor={actor} actorName={actorName} centro={centro} onClose={() => setNueva(false)} onSaved={async () => { setNueva(false); await cargar(); }} />}
       {verCuenta && <AbonosCuentaModal cuenta={verCuenta} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setVerCuenta(null)} onChanged={cargar} />}
     </div>
   );
@@ -105,7 +114,7 @@ export function CuentasCobrarView({ canWrite, actor, actorName }: {
 
 /* ───────────── Modales ───────────── */
 
-function NuevaCuentaModal({ actor, actorName, onClose, onSaved }: { actor: string; actorName: string | null; onClose: () => void; onSaved: () => void }) {
+function NuevaCuentaModal({ actor, actorName, centro, onClose, onSaved }: { actor: string; actorName: string | null; centro: string; onClose: () => void; onSaved: () => void }) {
   const [cliente, setCliente] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [monto, setMonto] = useState('');
@@ -115,7 +124,7 @@ function NuevaCuentaModal({ actor, actorName, onClose, onSaved }: { actor: strin
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null); setSaving(true);
     try {
-      await crearCuentaCobrar({ cliente, descripcion, montoFactura: Number(monto) || 0, precioUsdKg: Number(precio) || 0 }, actor, actorName);
+      await crearCuentaCobrar({ cliente, descripcion, montoFactura: Number(monto) || 0, precioUsdKg: Number(precio) || 0, centroNombre: centro }, actor, actorName);
       toast('Cuenta por cobrar creada', 'success'); onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear'); setSaving(false); }
   }

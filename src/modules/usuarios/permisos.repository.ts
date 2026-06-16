@@ -10,7 +10,13 @@ export type ModuleKey =
   | 'salidas'
   | 'combustible'
   | 'acopio'
+  | 'acopio_reporte'
+  | 'acopio_gmt'
+  | 'acopio_peramanal'
+  | 'acopio_esmeralda'
+  | 'acopio_pijiguaos'
   | 'maquinaria'
+  | 'ventas'
   | 'tesoreria'
   | 'retenciones'
   | 'rrhh'
@@ -26,8 +32,9 @@ export interface ModulePermission {
 export type RolePermisos = Record<ModuleKey, ModulePermission>;
 export type AllPermisos = Record<RoleKey, RolePermisos>;
 
-/** Lista canónica de módulos del sistema. Fuente única para la matriz, el menú y los guards. */
-export const MODULES: { key: ModuleKey; label: string }[] = [
+/** Lista canónica de módulos del sistema. Fuente única para la matriz, el menú y los guards.
+ *  `path` (opcional) = ruta bajo `/app/` cuando NO coincide con la key (submódulos anidados). */
+export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'dashboard',   label: 'Dashboard' },
   { key: 'pedidos',     label: 'Pedidos / Compras' },
   { key: 'proveedores', label: 'Proveedores' },
@@ -35,14 +42,25 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'produccion',  label: 'Fundición' },
   { key: 'salidas',     label: 'Salidas / Traslados' },
   { key: 'combustible', label: 'Combustible' },
-  { key: 'acopio',      label: 'C. Acopio LA ESPERANZA' },
+  { key: 'acopio',          label: 'C. Acopio · La Esperanza' },
+  { key: 'acopio_reporte',  label: 'C. Acopio · Reporte Preliminar', path: 'acopio/reporte-preliminar' },
+  { key: 'acopio_gmt',      label: 'C. Acopio · Global Mineral TIN', path: 'acopio/global-mineral-tin' },
+  { key: 'acopio_peramanal',label: 'C. Acopio · Peramanal (Ender Mejías)', path: 'acopio/peramanal-ender' },
+  { key: 'acopio_esmeralda',label: 'C. Acopio · La Esmeralda (Alí)', path: 'acopio/esmeralda-ali' },
+  { key: 'acopio_pijiguaos',label: 'C. Acopio · Los Pijiguaos', path: 'acopio/los-pijiguaos' },
   { key: 'maquinaria',  label: 'Control de Maquinaria' },
+  { key: 'ventas',      label: 'Ventas' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'retenciones', label: 'Retenciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
   { key: 'usuarios',    label: 'Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },
 ];
+
+/** Ruta bajo `/app/` de un módulo (usa `path` si está; si no, la propia key). */
+export function modulePath(key: ModuleKey): string {
+  return MODULES.find((m) => m.key === key)?.path ?? key;
+}
 
 export const emptyPermission: ModulePermission = { lectura: false, escritura: false, full: false };
 

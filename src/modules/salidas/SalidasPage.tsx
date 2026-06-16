@@ -27,6 +27,7 @@ import { TrasladoDineroForm } from './TrasladoDineroForm';
 import { ConciliarMineralModal } from './ConciliarMineralModal';
 import { GestionarCajasModal } from './GestionarCajasModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
+import { SalidaDineroDetalle } from './SalidaDineroDetalle';
 import {
   descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
   type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
@@ -43,6 +44,7 @@ type Modal =
   | { kind: 'traslado-dinero' }
   | { kind: 'conciliar'; salida: MovimientoCaja }
   | { kind: 'detalle-material'; mov: Movimiento; esTraslado: boolean }
+  | { kind: 'detalle-dinero'; mov: MovimientoCaja; esTraslado: boolean }
   | { kind: 'detalle-solicitud'; sol: SolicitudSalida }
   | { kind: 'cajas' };
 
@@ -166,6 +168,7 @@ export function SalidasPage() {
           canWrite={canWrite}
           onConciliar={(s) => setModal({ kind: 'conciliar', salida: s })}
           onVerMaterial={(mov, esTraslado) => setModal({ kind: 'detalle-material', mov, esTraslado })}
+          onVerDinero={(mov, esTraslado) => setModal({ kind: 'detalle-dinero', mov, esTraslado })}
         />
       )}
 
@@ -211,18 +214,27 @@ export function SalidasPage() {
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
+      {modal.kind === 'detalle-dinero' && (
+        <SalidaDineroDetalle
+          mov={modal.mov}
+          esTraslado={modal.esTraslado}
+          producto={productos.find((p) => p.id === modal.mov.mineral_producto_id) ?? null}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
     </div>
   );
 }
 
 function Historial({
-  scope, tipo, salMat, trasMat, salDin, trasDin, canWrite, onConciliar, onVerMaterial,
+  scope, tipo, salMat, trasMat, salDin, trasDin, canWrite, onConciliar, onVerMaterial, onVerDinero,
 }: {
   scope: Scope; tipo: Tipo;
   salMat: Movimiento[]; trasMat: Movimiento[]; salDin: MovimientoCaja[]; trasDin: MovimientoCaja[];
   canWrite: boolean;
   onConciliar: (s: MovimientoCaja) => void;
   onVerMaterial: (mov: Movimiento, esTraslado: boolean) => void;
+  onVerDinero: (mov: MovimientoCaja, esTraslado: boolean) => void;
 }) {
   // Material
   if (tipo === 'material') {
@@ -286,7 +298,7 @@ function Historial({
           {!rows.length ? (
             <tr><td colSpan={esTraslado ? 6 : 7}><EmptyState message={esTraslado ? 'Sin traslados de dinero.' : 'Sin salidas de dinero.'} icon="💵" /></td></tr>
           ) : rows.map((m) => (
-            <tr key={m.id}>
+            <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => onVerDinero(m, esTraslado)} title="Ver detalle">
               <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(m.at)}</td>
               <td>{m.caja?.nombre ?? '—'} <span className="badge">{m.moneda}</span></td>
               <td>{m.destino || '—'}</td>
@@ -299,7 +311,7 @@ function Historial({
                   </span>
                 </td>
               )}
-              <td className="actions">
+              <td className="actions" onClick={(e) => e.stopPropagation()}>
                 <button className="btn btn-sm btn-ghost" onClick={() => esTraslado ? descargarTrasladoDineroPdf(m) : descargarSalidaDineroPdf(m)}>↓ PDF</button>
                 {!esTraslado && canWrite && m.estado_mineral === 'pendiente' && (
                   <button className="btn btn-sm btn-primary" onClick={() => onConciliar(m)}>⛏ Recibir mineral</button>
@@ -317,7 +329,8 @@ function Historial({
 
 function resumenSolicitud(s: SolicitudSalida): string {
   if (s.tipo === 'material') {
-    const cant = num(Number(s.cantidad) || 0);
+    const multi = (s.items?.length ?? 0) > 1;
+    const cant = multi ? `${s.items!.length} materiales` : num(Number(s.cantidad) || 0);
     if (s.scope === 'traslado') return `${cant} · ${s.almacen_origen} → ${s.almacen_destino}`;
     return `${cant} · ${s.almacen_origen} → ${s.destino ?? '—'}`;
   }
@@ -344,7 +357,9 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
                   style={{ margin: 0, padding: '.55rem .65rem', textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border)' }}>
                   <div className="mono" style={{ fontSize: '.72rem', color: 'var(--primary-3)' }}>{s.codigo}</div>
                   <div style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text, #fff)' }}>
-                    {s.tipo === 'material' ? (s.producto_nombre ?? 'Material') : 'Dinero'}
+                    {s.tipo === 'material'
+                      ? ((s.items?.length ?? 0) > 1 ? `${s.producto_nombre ?? 'Material'} +${s.items!.length - 1} más` : (s.producto_nombre ?? 'Material'))
+                      : 'Dinero'}
                   </div>
                   <div className="muted" style={{ fontSize: '.74rem' }}>{resumenSolicitud(s)}</div>
                   <div style={{ fontSize: '.72rem', marginTop: '.2rem', color: 'var(--success)', fontWeight: 600 }}>
@@ -433,8 +448,23 @@ function SolicitudDetalleModal({
           <tr><td className="muted">Solicitante</td><td>{sol.solicitante}</td></tr>
           {sol.tipo === 'material' ? (
             <>
-              <tr><td className="muted">Producto</td><td>{sol.producto_nombre ?? '—'}</td></tr>
-              <tr><td className="muted">Cantidad</td><td className="mono">{num(Number(sol.cantidad) || 0)}</td></tr>
+              {(sol.items?.length ?? 0) > 1 ? (
+                <tr><td className="muted">Materiales</td><td>
+                  <table className="table" style={{ fontSize: '.8rem', margin: 0 }}>
+                    <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th></tr></thead>
+                    <tbody>
+                      {sol.items!.map((it, i) => (
+                        <tr key={i}><td>{it.producto_nombre ?? '—'}</td><td className="mono" style={{ textAlign: 'right' }}>{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </td></tr>
+              ) : (
+                <>
+                  <tr><td className="muted">Producto</td><td>{sol.producto_nombre ?? '—'}</td></tr>
+                  <tr><td className="muted">Cantidad</td><td className="mono">{num(Number(sol.cantidad) || 0)}</td></tr>
+                </>
+              )}
               <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino' : 'Almacén origen'}</td>
                 <td>{sol.scope === 'traslado' ? `${sol.almacen_origen} → ${sol.almacen_destino}` : sol.almacen_origen}</td></tr>
               {sol.scope === 'salida' && <tr><td className="muted">Dirigido a</td><td>{sol.destino ?? '—'}</td></tr>}

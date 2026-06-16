@@ -454,6 +454,15 @@ export type TipoSalida = 'material' | 'dinero';
  * aprobación: el obrero la crea (por_aprobar); admin/analista la aprueba y la
  * ejecuta (recién ahí se descuenta el stock / sale el dinero).
  */
+/** Una línea de material en una solicitud de salida/traslado multi-producto (como una OC). */
+export interface ItemSolicitudSalida {
+  producto_id: string;
+  producto_nombre?: string | null;
+  cantidad: number;
+  precio_unit?: number | null;
+  unidad?: string | null;
+}
+
 export interface SolicitudSalida {
   id: string;
   codigo: string;
@@ -469,6 +478,8 @@ export interface SolicitudSalida {
   precio_unit?: number | null;
   fecha_entrega?: string | null;
   nota_entrega?: string | null;
+  /** Detalle multi-producto (varias líneas). Vacío/1 ítem ⇒ se usa la cabecera. */
+  items?: ItemSolicitudSalida[] | null;
   // dinero
   caja_id?: string | null;
   caja_destino_id?: string | null;
@@ -1140,6 +1151,24 @@ export interface AliadoAcopio {
   nombre: string;
   centro_nombre: string;
   activo: boolean;
+  created_by?: string | null;
+  created_at: string;
+}
+
+/** Destino de un «Traslado de caja» del acopio (catálogo). 'aliado_interno' refleja
+ *  el monto como $Usd entregado en el ledger de un aliado de ESTE sistema; 'externo'
+ *  lo empuja por el puente inter-sistema a otra empresa/Supabase. */
+export type TipoDestinoTraslado = 'aliado_interno' | 'externo';
+export interface DestinoTraslado {
+  id: string;
+  centro_nombre: string;
+  nombre: string;
+  tipo: TipoDestinoTraslado;
+  aliado_id: string | null;        // si 'aliado_interno'
+  caja_externa_id: string | null;  // si 'externo' (caja espejo local del centro externo)
+  empresa_codigo: string | null;   // si 'externo'
+  activo: boolean;
+  orden: number;
   created_by?: string | null;
   created_at: string;
 }

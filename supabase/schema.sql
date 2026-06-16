@@ -635,11 +635,14 @@ create table if not exists public.solicitudes_salida (
   scope           text not null check (scope in ('salida','traslado')),
   tipo            text not null check (tipo in ('material','dinero')),
   estado          text not null default 'por_aprobar' check (estado in ('por_aprobar','aprobada','ejecutada','cancelada')),
-  -- material
+  -- material (cabecera = primer ítem / resumen; el detalle multi-producto va en `items`)
   producto_id     uuid references public.productos(id) on delete set null,
   producto_nombre text, almacen_origen text, almacen_destino text,
   cantidad        numeric check (cantidad is null or cantidad > 0),
   precio_unit     numeric, fecha_entrega date, nota_entrega text,
+  -- Detalle multi-producto: [{producto_id, producto_nombre, cantidad, precio_unit, unidad}]
+  -- (como en una OC con varias líneas). Si es null/1 ítem, se usa la cabecera de arriba.
+  items           jsonb,
   -- dinero
   caja_id         uuid references public.cajas(id) on delete set null,
   caja_destino_id uuid references public.cajas(id) on delete set null,
@@ -2020,16 +2023,28 @@ drop trigger if exists trg_martillo_gasto on public.acopio_martillos_movimientos
 create trigger trg_martillo_gasto after insert or update on public.acopio_martillos_movimientos for each row execute function public._trg_martillo_gasto();
 
 -- Seed de las 5 clasificaciones (hoja CLASIFICACIONES del Excel).
+-- Catálogo según la hoja "CLASIFICACION GASTOS" (CA LOS PIJIGUAOS / GMG): 3 grupos.
+-- La nómina NO es un grupo aparte: sus categorías viven dentro de GASTOS.
 insert into public.acopio_clasificaciones (grupo, valor, orden) values
-  ('contratos','1. CASITERITA - MINERO - MOTOR',1),
-  ('contratos','2. COMPRA CASITERITA - MINEROS',2),
-  ('contratos','3. PRODUCCION - GT',3),
-  ('contratos','3. PRODUCCION MINERO GT',4),
-  ('contratos','3. PRODUCCION MINERO 134 GT',5),
-  ('contratos','3. COMPRA CASITERITA',6),
-  ('contratos','4. CASITERITA POR INSUMOS',7),
-  ('contratos','5. COMPRAS EXTERNAS MINERAL',8),
-  ('contratos','6. MATERIAL ROCA BULLA',9),
+  ('contratos','COMPRA CASITERITA',1),
+  ('contratos','CASITERITA DEUDA - RUANO LÓPEZ',2),
+  ('contratos','CASITERITA POR INSUMOS',3),
+  ('contratos','CASITERITA DEUDA - ENDER MEJÍA',4),
+  ('contratos','1. COMPRA CONTADO CASITERITA',20),
+  ('contratos','2. COMPRA ALBERTO',21),
+  ('contratos','3. COMPRA MAGUIBER',22),
+  ('movimientos_caja','1. ENTRADA DE CAJA',1),
+  ('movimientos_caja','2. C.MULTIMONEDAS MGG / CA LOS PIJIGUAOS',21),
+  ('traslado','COMPRA CASITERITA CREDITOS - MAGUIBER',1),
+  ('traslado','COMPRA CASITERITA CREDITOS - ALBERTO',2),
+  ('traslado','COMPRA CASITERITA CREDITOS - CAMPOS YEPEZ',3),
+  ('traslado','TRASPASO MULTIMONEDAS MGG',4),
+  ('traslado','TRASPASO MINA 40 ALBERTO',5),
+  ('movimientos_caja','2. CAJA MULTIMONEDA MGG - CA GMT',2),
+  ('movimientos_caja','3. SAL-ENT C.MULTIMONEDA - CA GMT',3),
+  ('movimientos_caja','2. CAJA MULTIMONEDAS - CA PERAMANAL',4),
+  ('movimientos_caja','3. CAJA INVENTARIO MGG',5),
+  ('movimientos_caja','2. CAJA MULTIMONEDA - CAJA LA ESMERALDA',13),
   ('gastos_caja','GASOLINA',1),
   ('gastos_caja','GASOIL',2),
   ('gastos_caja','VALES',3),
@@ -2050,16 +2065,37 @@ insert into public.acopio_clasificaciones (grupo, valor, orden) values
   ('gastos_caja','MAQUINARIA PESADA: REPUESTOS - REPARACIONES - SERVICIOS',18),
   ('gastos_caja','MAQUINARIA LIVIANA: REPUESTOS - REPARACIONES - SERVICIOS',19),
   ('gastos_caja','VEHICULO: REPUESTOS - REPARACIONES - SERVICIOS',20),
-  ('gastos_caja','CENTRO DE ACOPIO: REPARACIONES - DOCUMENTACIÓN',21),
-  ('movimientos_caja','1. ENTRADA DE CAJA',1),
-  ('movimientos_caja','2. CAJA MULTIMONEDAS MGG / CAJA PERAMANAL',2),
-  ('movimientos_caja','4. SALIDA DE CAJA GT PERAMANAL',3),
-  ('nomina','PAGO TROPA RONDÓN',1),
-  ('nomina','NÓMINA GT',2),
-  ('traslado','CAJA JHENCHIN',1),
-  ('traslado','CAJA ENDER MEJIA',2),
-  ('traslado','CAJA JUAN BODEGA',3)
+  ('gastos_caja','REPARACIONES CENTRO DE ACOPIO',21)
 on conflict (grupo, valor) do nothing;
+
+-- ─────────────────────────────────────────────────────────────
+-- LA ESMERALDA ALI · Reportes de pérdida (snapshot fiel del Excel)
+--   seccion 'cuenta' → hoja «CUENTA DE PERDIDA CON ALI»
+--       v1=monto factura $ · v2=kg entregados · v3=$/kg · v4=abono (kg valorizados) · v5=total deuda
+--   seccion 'cuadro' → hoja «CUADRO RESUMEN DEL VALOR DE LA PERDIDA TOTAL»
+--       v1=cantidad/kg · v2=precio $/kg · v3=subtotal $ · v4=monto $ (columna F)
+--   estilo: normal | total | header | destacado
+-- Datos congelados (período de pérdida cerrado); se muestran en dos vistas con «Volver».
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.acopio_esmeralda_perdida (
+  id          uuid primary key default gen_random_uuid(),
+  seccion     text not null check (seccion in ('cuenta','cuadro')),
+  orden       int  not null default 0,
+  etiqueta    text not null,
+  descripcion text,
+  v1 numeric, v2 numeric, v3 numeric, v4 numeric, v5 numeric,
+  estilo      text not null default 'normal'
+);
+alter table public.acopio_esmeralda_perdida enable row level security;
+drop policy if exists "esme_perdida read auth" on public.acopio_esmeralda_perdida;
+create policy "esme_perdida read auth" on public.acopio_esmeralda_perdida for select using (auth.role() = 'authenticated');
+drop policy if exists "esme_perdida write auth" on public.acopio_esmeralda_perdida;
+create policy "esme_perdida write auth" on public.acopio_esmeralda_perdida for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_esmeralda_perdida') then
+    alter publication supabase_realtime add table public.acopio_esmeralda_perdida;
+  end if;
+end $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- 16. Centro de Acopio · Hojas del Excel (snapshot fiel de referencia)
@@ -2320,6 +2356,37 @@ do $$ begin
   alter publication supabase_realtime add table public.acopio_cobrar_abonos;
 exception when duplicate_object then null; end $$;
 
+-- Catálogo de DESTINOS de un «Traslado de caja» del acopio (La Esperanza).
+-- Al registrar un traslado se elige un destino y el monto se refleja como
+-- «$Usd entregado» en ese destino:
+--   · tipo 'aliado_interno' → inserta un movimiento en el ledger del aliado
+--     (acopio_aliado_movimientos) de este mismo sistema. Directo, sin confirmar.
+--   · tipo 'externo' → empuja una transferencia saliente por el puente
+--     inter-sistema (transferencias_inter) a `empresa_codigo`; el otro sistema
+--     la confirma (caja_externa_id = caja espejo local del centro externo).
+create table if not exists public.acopio_destinos_traslado (
+  id uuid primary key default gen_random_uuid(),
+  centro_nombre text not null default 'LA ESPERANZA',
+  nombre text not null,
+  tipo text not null check (tipo in ('aliado_interno','externo')),
+  aliado_id uuid references public.acopio_aliados(id) on delete set null,
+  caja_externa_id uuid references public.cajas(id) on delete set null,
+  empresa_codigo text,
+  activo boolean not null default true,
+  orden int not null default 0,
+  created_at timestamptz not null default now(),
+  created_by text
+);
+create index if not exists idx_acopio_destinos_centro on public.acopio_destinos_traslado(centro_nombre, activo);
+alter table public.acopio_destinos_traslado enable row level security;
+do $$ begin
+  create policy "destinos read auth"  on public.acopio_destinos_traslado for select using (auth.role()='authenticated');
+  create policy "destinos write auth" on public.acopio_destinos_traslado for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.acopio_destinos_traslado;
+exception when duplicate_object then null; end $$;
+
 -- ─────────────────────────────────────────────────────────────
 -- 19. Centro de Acopio · Resumen Semanal Casiterita (REPORTE PRELIMINAR)
 -- Réplica de la hoja Excel «REPORTE PRELIMINAR DE CENTROS DE ACOPIOS».
@@ -2363,6 +2430,68 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 do $$ begin
   alter publication supabase_realtime add table public.acopio_resumen_semanal;
+exception when duplicate_object then null; end $$;
+
+-- ─────────────────────────────────────────────────────────────
+-- 20. Ventas · Clientes + Facturas
+-- Factura con items (jsonb): producto, cantidad, tenor (ley del mineral),
+-- precio, costo y ganancia por línea. Al EMITIR descuenta stock; al ANULAR
+-- lo revierte. Totales (subtotal, descuento, IVA, total, costo, ganancia,
+-- % de ganancia) viven en la cabecera.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.clientes (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  rif text, telefono text, email text, direccion text,
+  activo boolean not null default true,
+  nota text,
+  created_by text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_clientes_nombre on public.clientes(nombre);
+
+create table if not exists public.ventas (
+  id uuid primary key default gen_random_uuid(),
+  numero text not null,
+  fecha date not null default current_date,
+  cliente_id uuid references public.clientes(id) on delete set null,
+  cliente_nombre text,
+  estado text not null default 'borrador' check (estado in ('borrador','emitida','pagada','anulada')),
+  moneda text not null default 'USD',
+  items jsonb not null default '[]'::jsonb,
+  subtotal numeric not null default 0,
+  descuento numeric not null default 0,
+  iva_pct numeric not null default 0,
+  iva_monto numeric not null default 0,
+  total numeric not null default 0,
+  costo_total numeric not null default 0,
+  ganancia numeric not null default 0,
+  ganancia_pct numeric not null default 0,
+  metodo_pago text,
+  pagado_monto numeric not null default 0,
+  vendedor text,
+  nota text,
+  emitida_en timestamptz, emitida_por text,
+  created_by text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_ventas_fecha   on public.ventas(fecha desc, created_at desc);
+create index if not exists idx_ventas_estado  on public.ventas(estado);
+create index if not exists idx_ventas_cliente on public.ventas(cliente_id);
+
+alter table public.clientes enable row level security;
+alter table public.ventas   enable row level security;
+do $$ begin
+  create policy "clientes read auth"  on public.clientes for select using (auth.role()='authenticated');
+  create policy "clientes write auth" on public.clientes for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
+  create policy "ventas read auth"    on public.ventas   for select using (auth.role()='authenticated');
+  create policy "ventas write auth"   on public.ventas   for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.clientes;
+  alter publication supabase_realtime add table public.ventas;
 exception when duplicate_object then null; end $$;
 
 -- ============================================================

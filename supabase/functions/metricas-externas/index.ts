@@ -28,7 +28,11 @@ const FUENTES: Record<string, { url: () => string | undefined; key: () => string
   'golden-touch': {
     url: () => Deno.env.get('GT_URL'),
     key: () => Deno.env.get('GT_SERVICE_KEY'),
-    metricas: { acopio_saldo_kg: 'metrica_acopio_saldo_kg' },
+    metricas: {
+      acopio_saldo_kg: 'metrica_acopio_saldo_kg',
+      acopio_saldo_usd: 'metrica_acopio_saldo_usd',
+      acopio_tasa_material: 'metrica_acopio_tasa_material',
+    },
   },
 };
 

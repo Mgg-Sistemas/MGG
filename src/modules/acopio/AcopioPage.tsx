@@ -4,7 +4,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { money, num } from '@/shared/lib/format';
+import { money, num, hoyISO, date } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { MovimientosAcopioView, type ResumenAcopio } from './MovimientosAcopioView';
@@ -23,7 +23,8 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
+import type { GrupoClasificacion } from '@/shared/lib/types';
 import { listVehiculos } from '@/modules/combustible/combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
@@ -34,11 +35,20 @@ import type { CajaCierre } from '@/shared/lib/types';
 import {
   listResumenes, crearResumen, eliminarResumen,
   computeTotales, acopiadoMggSector, resguardoSector, esGt, sectoresPorDefecto,
-  leerMetricaExterna, METRICAS_EXTERNAS,
+  leerMetricaExterna, METRICAS_EXTERNAS, METRICAS_SECTOR,
   type ResumenSemanal, type SectorResumen, type FuenteExterna,
 } from './resumenSemanal.repository';
-import { descargarResumenSemanalPdf } from './resumenSemanalPdf';
+import { descargarResumenSemanalPdf, enviarResumenSemanalPorCorreo } from './resumenSemanalPdf';
 import { AliadosVista } from './AliadosVista';
+import { CuentasCobrarView } from './CuentasCobrarView';
+import { CuentaPerdidaAliView, CuadroResumenPerdidaView } from './EsmeraldaPerdidaView';
+import {
+  listDestinosTraslado, ejecutarTrasladoAcopio,
+  crearDestinoTraslado, actualizarDestinoTraslado, setDestinoTrasladoActivo, eliminarDestinoTraslado,
+  listCajasExternas, type DestinoTrasladoInput, type CajaEspejo,
+} from './destinosTraslado.repository';
+import { listAliados } from './subledgers.repository';
+import type { AliadoAcopio, DestinoTraslado, TipoDestinoTraslado } from '@/shared/lib/types';
 
 const ESTADO_LABEL: Record<string, string> = {
   abierta: '● Abierta', cerrada: '✔ Cerrada', anulada: '✖ Anulada',
@@ -48,7 +58,12 @@ const FILAS_DEFAULT = 25;
 /** Sub-almacén destino fijo del mineral recibido (sede LA ESPERANZA). */
 const ALMACEN_ACOPIO = 'CASITERITA';
 
+/** Página del centro LA ESPERANZA (módulo base, sin props → compatible con el lazy router). */
 export function AcopioPage() {
+  return <AcopioModulo centro="LA ESPERANZA" />;
+}
+
+function AcopioModulo({ centro }: { centro: string }) {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
   const canWrite = can('acopio', 'escritura');
@@ -62,8 +77,15 @@ export function AcopioPage() {
   const [movAcopio, setMovAcopio] = useState(false);
   const [categorias, setCategorias] = useState(false);
   const [resumenCaja, setResumenCaja] = useState(false);
-  const [resumenSemanal, setResumenSemanal] = useState(false);
   const [vistaAliados, setVistaAliados] = useState(false);
+  const [vistaCuentas, setVistaCuentas] = useState(false);
+  // LA ESMERALDA ALI: dos vistas propias de pérdida (con botón Volver).
+  const [vistaPerdidaCuenta, setVistaPerdidaCuenta] = useState(false);
+  const [vistaPerdidaCuadro, setVistaPerdidaCuadro] = useState(false);
+  const esEsmeralda = centro === 'LA ESMERALDA ALI';
+  // La tarjeta de Nómina se muestra solo en los centros que manejan nómina como
+  // concepto propio (La Esperanza y Los Pijiguaos); el resto la pliega en Gastos.
+  const muestraNomina = centro === 'LA ESPERANZA' || centro === 'LOS PIJIGUAOS';
   // Switch «Listar movimientos»: oculto por defecto. Apagado = solo tarjetas + Resumen/Categorías;
   // encendido = se muestra la lista de movimientos y el botón de agregar movimiento.
   const [listarMovs, setListarMovs] = useState(false);
@@ -89,11 +111,11 @@ export function AcopioPage() {
 
   const reload = useCallback(async () => {
     const [ps, cjs] = await Promise.all([
-      listProductos(), listCajas(),
+      listProductos(), listCajas(centro),
     ]);
     setProductos(ps);
     setCajas(cjs);
-  }, []);
+  }, [centro]);
 
   useEffect(() => {
     let cancel = false;
@@ -105,16 +127,27 @@ export function AcopioPage() {
   // Caja a la que se asocian los movimientos nuevos (la ACTUALMENTE ABIERTA).
   const cajaActual = useMemo(() => cajas.find((c) => c.estado === 'abierta') ?? cajas[0] ?? null, [cajas]);
 
-  // Vista «Aliados»: pantalla propia dentro del módulo (con su botón Volver).
+  // Vista «Aliados» (en PERAMANAL ENDER MEJIAS se titula «Compra de ORO»): pantalla propia.
   if (vistaAliados) {
-    return <AliadosVista canWrite={canWrite} actor={actor} actorName={actorName} onVolver={() => setVistaAliados(false)} />;
+    return <AliadosVista canWrite={canWrite} actor={actor} actorName={actorName} centro={centro} onVolver={() => setVistaAliados(false)} />;
+  }
+  // Vista «Cuentas por Cobrar»: pantalla propia dentro del módulo (con su botón Volver).
+  if (vistaCuentas) {
+    return <CuentasCobrarView canWrite={canWrite} actor={actor} actorName={actorName} centro={centro} onVolver={() => setVistaCuentas(false)} />;
+  }
+  // LA ESMERALDA ALI · vistas de pérdida (con botón Volver).
+  if (vistaPerdidaCuenta) {
+    return <CuentaPerdidaAliView centro={centro} canWrite={canWrite} onVolver={() => setVistaPerdidaCuenta(false)} />;
+  }
+  if (vistaPerdidaCuadro) {
+    return <CuadroResumenPerdidaView centro={centro} canWrite={canWrite} onVolver={() => setVistaPerdidaCuadro(false)} />;
   }
 
   return (
     <div>
       <div className="page-head">
         <div>
-          <h1>🏭 Centro de Acopio LA ESPERANZA</h1>
+          <h1>🏭 Centro de Acopio {centro}</h1>
           <p className="muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
         </div>
       </div>
@@ -124,8 +157,10 @@ export function AcopioPage() {
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem', marginBottom: '1.25rem' }}>
         <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
         <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
-        <button className="btn btn-ghost" onClick={() => setResumenSemanal(true)}>📅 Resumen semanal casiterita</button>
-        <button className="btn btn-ghost" onClick={() => setVistaAliados(true)}>🤝 Aliados</button>
+        {centro !== 'GLOBAL MINERAL TIN' && !esEsmeralda && <button className="btn btn-ghost" onClick={() => setVistaAliados(true)}>{centro === 'PERAMANAL ENDER MEJIAS' ? '🪙 Compra de ORO' : '🤝 Aliados'}</button>}
+        {centro === 'PERAMANAL ENDER MEJIAS' && <button className="btn btn-ghost" onClick={() => setVistaCuentas(true)}>📥 Cuentas por Cobrar</button>}
+        {esEsmeralda && <button className="btn btn-ghost" onClick={() => setVistaPerdidaCuenta(true)}>📉 Cuenta de Pérdida con Alí</button>}
+        {esEsmeralda && <button className="btn btn-ghost" onClick={() => setVistaPerdidaCuadro(true)}>🧾 Cuadro Resumen Pérdida Total</button>}
         <label className="switch-row" style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
           <span className="switch">
             <input type="checkbox" checked={listarMovs} onChange={(e) => setListarMovs(e.target.checked)} />
@@ -151,7 +186,7 @@ export function AcopioPage() {
               </span>
             )}
           </div>
-          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos + Nóminas) ÷ Kg cerrados</div>
+          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>{muestraNomina ? '(Facturado + Gastos + Nómina) ÷ Kg cerrados' : '(Facturado + Gastos) ÷ Kg cerrados'}</div>
         </div>
         <div className="card" style={{ borderColor: 'var(--success)' }}>
           <div className="card-title"><span>💵 USD entregados</span></div>
@@ -162,27 +197,23 @@ export function AcopioPage() {
         <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo en moneda $ Usd (corrido)</div></div>
         <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
         <div className="card"><div className="card-title"><span>Gastos</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div></div>
-        <div className="card"><div className="card-title"><span>Nóminas</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.nominas)}</div></div>
+        {muestraNomina && <div className="card"><div className="card-title"><span>Nómina</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#a855f7' }} className="mono">{money(resumen.nominas)}</div><div className="muted" style={{ fontSize: '.72rem' }}>sumatoria de la columna Nóminas</div></div>}
       </div>
 
       {/* La vista se mantiene montada (oculta cuando el switch está apagado) para que sus
           cálculos sigan alimentando las tarjetas de arriba vía onResumen. */}
-      <MovimientosAcopioView onResumen={onResumenAcopio} visible={listarMovs} />
+      <MovimientosAcopioView onResumen={onResumenAcopio} visible={listarMovs} centro={centro} />
 
       {categorias && <CategoriasModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
 
-      {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} onClose={() => setResumenCaja(false)} />}
-
-      {resumenSemanal && (
-        <ResumenSemanalModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setResumenSemanal(false)} />
-      )}
-
+      {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} centro={centro} onClose={() => setResumenCaja(false)} />}
 
       {movAcopio && (
         <AgregarMovimientoModal
           cajaActual={cajaActual}
           actor={actor}
           actorName={actorName}
+          centro={centro}
           onClose={() => setMovAcopio(false)}
           onSaved={async () => { setMovAcopio(false); await reload(); }}
         />
@@ -195,6 +226,7 @@ export function AcopioPage() {
           canWrite={canWrite}
           actor={actor}
           actorName={actorName}
+          centro={centro}
           onClose={() => { setNuevo(false); setEditar(null); }}
           onSaved={async () => { setNuevo(false); setEditar(null); await reload(); }}
         />
@@ -203,26 +235,50 @@ export function AcopioPage() {
   );
 }
 
+/** Sub-módulo «GLOBAL MINERAL TIN»: el mismo módulo de acopio, parametrizado por centro. */
+export function GlobalMineralTinPage() {
+  return <AcopioModulo centro="GLOBAL MINERAL TIN" />;
+}
+
+export function PeramanalEnderPage() {
+  return <AcopioModulo centro="PERAMANAL ENDER MEJIAS" />;
+}
+
+/** Sub-módulo «LA ESMERALDA ALI»: mismo módulo de acopio, parametrizado por centro. */
+export function EsmeraldaAliPage() {
+  return <AcopioModulo centro="LA ESMERALDA ALI" />;
+}
+
+/** Sub-módulo «LOS PIJIGUAOS»: mismo módulo de acopio (como La Esperanza), por centro. */
+export function PijiguaosPage() {
+  return <AcopioModulo centro="LOS PIJIGUAOS" />;
+}
+
 /* ───────────── Agregar movimiento de caja (acopio) ───────────── */
 
-function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved }: {
+function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose, onSaved }: {
   cajaActual: CajaCierre | null;
   actor: string;
   actorName: string | null;
+  centro: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(hoyISO());
+  // Entrada de caja / $Usd entregado (grupo «movimientos de caja»).
+  const [usdEntregado, setUsdEntregado] = useState('');
+  const [usdCat, setUsdCat] = useState('');
+  const [descUsd, setDescUsd] = useState('');
   const [gastos, setGastos] = useState('');
   const [gastoCat, setGastoCat] = useState('');
   const [gastoVehiculo, setGastoVehiculo] = useState(''); // vehículo imputado (solo categorías de REPUESTOS-REPARACIONES-SERVICIOS)
   const [vehiculos, setVehiculos] = useState<{ value: string; label: string }[]>([]);
   const [descGastos, setDescGastos] = useState('');
-  const [nominas, setNominas] = useState('');
-  const [nominaCat, setNominaCat] = useState('');
-  const [descNominas, setDescNominas] = useState('');
   const [traslado, setTraslado] = useState('');
   const [descTraslado, setDescTraslado] = useState('');
+  const [destinoId, setDestinoId] = useState('');
+  const [destinos, setDestinos] = useState<DestinoTraslado[]>([]);
+  const [gestionarDestinos, setGestionarDestinos] = useState(false);
   const [kgRecibidos, setKgRecibidos] = useState('');
   const [descKg, setDescKg] = useState('');
   const [cats, setCats] = useState<ClasificacionAcopio[]>([]);
@@ -230,6 +286,9 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { listClasificacionesAll().then(setCats).catch(() => setCats([])); }, []);
+  const cargarDestinos = useCallback(() => { listDestinosTraslado(centro).then(setDestinos).catch(() => setDestinos([])); }, [centro]);
+  useEffect(() => { cargarDestinos(); }, [cargarDestinos]);
+  const destinosActivos = useMemo(() => destinos.filter((d) => d.activo), [destinos]);
   // Equipos/maquinaria del módulo de Combustible: alimentan el buscador cuando el gasto va anclado a un vehículo.
   useEffect(() => {
     listVehiculos()
@@ -237,7 +296,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       .catch(() => setVehiculos([]));
   }, []);
   const gastosCats = useMemo(() => cats.filter((c) => c.grupo === 'gastos_caja' && c.activo), [cats]);
-  const nominaCats = useMemo(() => cats.filter((c) => c.grupo === 'nomina' && c.activo), [cats]);
+  const movCajaCats = useMemo(() => cats.filter((c) => c.grupo === 'movimientos_caja' && c.activo), [cats]);
   const gastoEsVehiculo = esClasifVehiculo(gastoCat);
 
   // Redondeo a 2 decimales para los montos en $.
@@ -245,23 +304,30 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
 
   async function guardar() {
     setError(null);
-    const gas = r2(gastos), nom = r2(nominas), tras = r2(traslado);
+    const usd = r2(usdEntregado), gas = r2(gastos), tras = r2(traslado);
     const kg = Number(kgRecibidos) || 0;
-    if (gas <= 0 && nom <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (usd <= 0 && gas <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (usd > 0 && !usdCat) { setError('Elegí la categoría de la entrada (movimientos de caja).'); return; }
     if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto.'); return; }
-    if (nom > 0 && !nominaCat) { setError('Elegí la categoría de la nómina.'); return; }
+    const destino = destinosActivos.find((d) => d.id === destinoId) ?? null;
+    if (tras > 0 && !destino) { setError('Elegí el destino del traslado de caja.'); return; }
     setSaving(true);
     try {
       const cajaId = cajaActual?.id ?? null;
       // Una fila por concepto: así cada monto conserva su categoría y la distribución
       // por grupo (Gastos/Nómina/Traslado) queda correcta.
       const filas: CajaMovimientoInput[] = [];
+      if (usd > 0) filas.push({ fecha, usd_entregado: usd, clasif_grupo: 'movimientos_caja', clasif_valor: usdCat, descripcion: descUsd.trim() || usdCat, caja_id: cajaId });
       if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, vehiculo: gastoEsVehiculo ? (gastoVehiculo.trim() || null) : null, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
-      if (nom > 0) filas.push({ fecha, nominas: nom, clasif_grupo: 'nomina', clasif_valor: nominaCat, descripcion: descNominas.trim() || nominaCat, caja_id: cajaId });
-      if (tras > 0) filas.push({ fecha, traslado: tras, clasif_grupo: 'traslado', descripcion: descTraslado.trim() || 'Traslado de caja', caja_id: cajaId });
       if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: descKg.trim() || 'Kg recibidos por MGG', caja_id: cajaId });
       for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
-      toast(`${filas.length} movimiento(s) registrado(s)`, 'success');
+      // El traslado va por el orquestador: baja la caja general y refleja el monto
+      // en el destino (aliado interno = $Usd entregado · externo = puente inter-sistema).
+      if (tras > 0 && destino) {
+        await ejecutarTrasladoAcopio({ destino, fecha, monto: tras, descripcion: descTraslado.trim() || null, cajaId }, actor, actorName);
+      }
+      const total = filas.length + (tras > 0 ? 1 : 0);
+      toast(`${total} movimiento(s) registrado(s)`, 'success');
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar.'); setSaving(false); }
   }
@@ -298,6 +364,19 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
 
       <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
 
+      {/* Entrada de caja / $Usd entregado: monto + categoría (movimientos de caja) + descripción */}
+      <div className="form-grid">
+        {campoUsd('$ USD entregado', usdEntregado, setUsdEntregado)}
+        <div className="form-row">
+          <label>Categoría de la entrada {(Number(usdEntregado) || 0) > 0 && <span style={{ color: 'var(--danger)' }}>*</span>}</label>
+          <select className="select" value={usdCat} onChange={(e) => setUsdCat(e.target.value)}>
+            <option value="">— movimientos de caja —</option>
+            {movCajaCats.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
+          </select>
+        </div>
+      </div>
+      {campoDesc(descUsd, setDescUsd, 'Descripción de la entrada (ej.: ENTRADA DE CAJA…)')}
+
       {/* Gastos GT: monto + categoría + descripción */}
       <div className="form-grid">
         {campoUsd('$ Gastos', gastos, setGastos)}
@@ -321,24 +400,38 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       )}
       {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto')}
 
-      {/* Nómina: monto + categoría + descripción */}
-      <div className="form-grid">
-        {campoUsd('$ Nómina', nominas, setNominas)}
-        <div className="form-row">
-          <label>Categoría de nómina</label>
-          <select className="select" value={nominaCat} onChange={(e) => setNominaCat(e.target.value)}>
-            <option value="">— elegí la nómina —</option>
-            {nominaCats.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-          </select>
-        </div>
-      </div>
-      {campoDesc(descNominas, setDescNominas, nominaCat || 'Descripción de la nómina')}
-
-      {/* Traslado: monto + descripción */}
+      {/* Traslado: monto + destino (catálogo) + descripción opcional */}
       <div className="form-grid">
         {campoUsd('$ Traslado de Caja', traslado, setTraslado)}
-        {campoDesc(descTraslado, setDescTraslado, 'Traslado de caja')}
+        <div className="form-row">
+          <label>Destino {(Number(traslado) || 0) > 0 && <span style={{ color: 'var(--danger)' }}>*</span>}</label>
+          <select className="select" value={destinoId} onChange={(e) => {
+            const id = e.target.value;
+            setDestinoId(id);
+            // La descripción del traslado se autollena como «CENTRO DE ACOPIO - {destino}».
+            const d = destinosActivos.find((x) => x.id === id);
+            setDescTraslado(d ? `CENTRO DE ACOPIO - ${d.nombre}` : '');
+          }}>
+            <option value="">— elegí el destino —</option>
+            {destinosActivos.map((d) => (
+              <option key={d.id} value={d.id}>{d.nombre}{d.tipo === 'externo' ? ' · otro sistema' : ''}</option>
+            ))}
+          </select>
+          <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.35rem' }} onClick={() => setGestionarDestinos(true)}>⚙ Gestionar destinos</button>
+        </div>
       </div>
+      {(() => {
+        const d = destinosActivos.find((x) => x.id === destinoId);
+        if (!d) return null;
+        return (
+          <small className="muted" style={{ display: 'block', marginTop: '-.3rem', marginBottom: '.2rem' }}>
+            {d.tipo === 'externo'
+              ? `Sale por el puente inter-sistema a «${d.nombre}»; el otro sistema lo confirma. El traslado baja el saldo de esta caja.`
+              : `Entra como $Usd ENTREGADO en el aliado «${d.nombre}» (directo, sin confirmación). El traslado baja el saldo de esta caja.`}
+          </small>
+        );
+      })()}
+      {campoDesc(descTraslado, setDescTraslado, 'Descripción del traslado (opcional)')}
 
       {/* Kg recibidos por MGG: cantidad + descripción */}
       <div className="form-grid">
@@ -349,19 +442,161 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
         </div>
         {campoDesc(descKg, setDescKg, 'Kg recibidos por MGG')}
       </div>
+
+      {gestionarDestinos && (
+        <DestinosTrasladoModal actor={actor} centro={centro} onClose={() => setGestionarDestinos(false)} onChanged={cargarDestinos} />
+      )}
+    </Modal>
+  );
+}
+
+/* ───────────── Gestión del catálogo de destinos de traslado ───────────── */
+
+function DestinosTrasladoModal({ actor, centro, onClose, onChanged }: {
+  actor: string; centro: string; onClose: () => void; onChanged: () => void;
+}) {
+  const [destinos, setDestinos] = useState<DestinoTraslado[]>([]);
+  const [aliados, setAliados] = useState<AliadoAcopio[]>([]);
+  const [cajasExt, setCajasExt] = useState<CajaEspejo[]>([]);
+  const [edit, setEdit] = useState<DestinoTraslado | 'nuevo' | null>(null);
+
+  const cargar = useCallback(() => {
+    listDestinosTraslado(centro).then(setDestinos).catch(() => setDestinos([]));
+  }, [centro]);
+  useEffect(() => {
+    cargar();
+    listAliados(centro).then(setAliados).catch(() => setAliados([]));
+    listCajasExternas().then(setCajasExt).catch(() => setCajasExt([]));
+  }, [cargar, centro]);
+
+  async function toggle(d: DestinoTraslado) {
+    try { await setDestinoTrasladoActivo(d.id, !d.activo); cargar(); onChanged(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
+  }
+  async function borrar(d: DestinoTraslado) {
+    if (!window.confirm(`¿Eliminar el destino «${d.nombre}»? (no afecta traslados ya hechos)`)) return;
+    try { await eliminarDestinoTraslado(d.id); toast('Destino eliminado', 'success'); cargar(); onChanged(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  }
+
+  return (
+    <Modal title="⚙ Destinos de traslado" size="lg" onClose={onClose} footer={
+      <><button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      <button className="btn btn-primary" onClick={() => setEdit('nuevo')}>+ Nuevo destino</button></>
+    }>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+        A dónde puede ir el dinero de un «Traslado de caja». Interno = entra como $Usd entregado en un aliado de este sistema. Externo = se envía por el puente a otro sistema (lo confirman allá).
+      </p>
+      {!destinos.length ? <p className="muted">Sin destinos.</p> : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr><th>Nombre</th><th>Tipo</th><th>Vinculado a</th><th></th></tr></thead>
+            <tbody>
+              {destinos.map((d) => {
+                const al = aliados.find((a) => a.id === d.aliado_id);
+                const cx = cajasExt.find((c) => c.id === d.caja_externa_id);
+                return (
+                  <tr key={d.id} style={{ opacity: d.activo ? 1 : 0.5 }}>
+                    <td style={{ fontWeight: 600 }}>{d.nombre} {!d.activo && <span className="badge" style={{ fontSize: '.6rem' }}>inactivo</span>}</td>
+                    <td>{d.tipo === 'externo' ? '🌐 Otro sistema' : '🤝 Aliado interno'}</td>
+                    <td className="muted">{d.tipo === 'externo' ? (cx?.nombre ?? d.empresa_codigo ?? '—') : (al?.nombre ?? '—')}</td>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setEdit(d)}>✎</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => void toggle(d)}>{d.activo ? 'Desactivar' : 'Activar'}</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => void borrar(d)}>🗑</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {edit && (
+        <DestinoTrasladoForm destino={edit === 'nuevo' ? null : edit} aliados={aliados} cajasExt={cajasExt} actor={actor} centro={centro}
+          onClose={() => setEdit(null)} onSaved={() => { setEdit(null); cargar(); onChanged(); }} />
+      )}
+    </Modal>
+  );
+}
+
+function DestinoTrasladoForm({ destino, aliados, cajasExt, actor, centro, onClose, onSaved }: {
+  destino: DestinoTraslado | null; aliados: AliadoAcopio[]; cajasExt: CajaEspejo[];
+  actor: string; centro: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [nombre, setNombre] = useState(destino?.nombre ?? '');
+  const [tipo, setTipo] = useState<TipoDestinoTraslado>(destino?.tipo ?? 'aliado_interno');
+  const [aliadoId, setAliadoId] = useState(destino?.aliado_id ?? '');
+  const [cajaExtId, setCajaExtId] = useState(destino?.caja_externa_id ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    setError(null);
+    const cx = cajasExt.find((c) => c.id === cajaExtId);
+    const input: DestinoTrasladoInput = {
+      nombre, tipo,
+      aliadoId: tipo === 'aliado_interno' ? (aliadoId || null) : null,
+      cajaExternaId: tipo === 'externo' ? (cajaExtId || null) : null,
+      empresaCodigo: tipo === 'externo' ? (cx?.empresa_codigo ?? null) : null,
+      centroNombre: centro,
+    };
+    setSaving(true);
+    try {
+      if (destino) await actualizarDestinoTraslado(destino.id, input);
+      else await crearDestinoTraslado(input, actor);
+      toast('Destino guardado', 'success'); onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
+  }
+
+  return (
+    <Modal title={destino ? `Editar ${destino.nombre}` : 'Nuevo destino'} size="md" onClose={onClose} footer={
+      <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? '…' : 'Guardar'}</button></>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <div className="form-row"><label>Nombre</label><input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus placeholder="Ej. JUAN BODEGA" /></div>
+      <div className="form-row">
+        <label>Tipo</label>
+        <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoDestinoTraslado)}>
+          <option value="aliado_interno">🤝 Aliado interno (este sistema)</option>
+          <option value="externo">🌐 Otro sistema (puente)</option>
+        </select>
+      </div>
+      {tipo === 'aliado_interno' ? (
+        <div className="form-row">
+          <label>Aliado destino</label>
+          <select className="select" value={aliadoId} onChange={(e) => setAliadoId(e.target.value)}>
+            <option value="">— elegí el aliado —</option>
+            {aliados.filter((a) => a.activo).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+          </select>
+          <small className="muted">El monto entra como $Usd entregado en su libro de movimientos.</small>
+        </div>
+      ) : (
+        <div className="form-row">
+          <label>Caja espejo del otro sistema</label>
+          <select className="select" value={cajaExtId} onChange={(e) => setCajaExtId(e.target.value)}>
+            <option value="">— elegí la caja externa —</option>
+            {cajasExt.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.empresa_codigo ? ` · ${c.empresa_codigo}` : ''}</option>)}
+          </select>
+          <small className="muted">Se envía por el puente inter-sistema; el otro sistema lo confirma.</small>
+        </div>
+      )}
     </Modal>
   );
 }
 
 /* ───────────── Resumen de Caja (réplica de la hoja «RESUMEN CAJA PERAMANAL GT») ───────────── */
 
-function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onClose: () => void }) {
+function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: string; centro: string; onClose: () => void }) {
   const [r, setR] = useState<ResumenCajaAcopio | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bajando, setBajando] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
   // Categoría de vehículo seleccionada para ver su consumo en $ por vehículo (gráfica).
   const [consumoCat, setConsumoCat] = useState<string | null>(null);
+  // Categoría tocada para ver el DETALLE de sus movimientos (grupo + valor).
+  const [detalleCat, setDetalleCat] = useState<{ grupo: GrupoClasificacion; valor: string } | null>(null);
   // Filtro por rango de fechas: el resumen se recalcula solo con los movimientos del rango.
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -369,9 +604,9 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
 
   // Se recalcula desde los movimientos; en vivo cuando entra/cambia alguno (Realtime).
   const cargar = useCallback(() => {
-    resumenCajaAcopio(undefined, { desde: desde || null, hasta: hasta || null })
+    resumenCajaAcopio(undefined, { desde: desde || null, hasta: hasta || null }, centro)
       .then(setR).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar el resumen'));
-  }, [desde, hasta]);
+  }, [desde, hasta, centro]);
   useEffect(() => { cargar(); }, [cargar]);
   useRealtime(['acopio_caja_movimientos', 'acopio_contratos'], cargar);
 
@@ -399,34 +634,44 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
     </div>
   );
 
-  const TablaCat = ({ titulo, filas, totalLabel, totalMonto, totalPct, color, onVerVehiculo }: {
+  const TablaCat = ({ titulo, filas, totalLabel, totalMonto, totalPct, color, grupo, onVerVehiculo, montoLabel = 'Monto', pctLabel = '% del total gastado' }: {
     titulo: string; filas: { valor: string; monto: number; pct: number }[]; totalLabel: string; totalMonto: number; totalPct: number; color: string;
+    grupo: GrupoClasificacion;
     onVerVehiculo?: (valor: string) => void;
+    montoLabel?: string; pctLabel?: string;
   }) => (
     <>
       <div className="card-title" style={{ marginTop: '1rem' }}><span style={{ color }}>{titulo}</span></div>
       {!filas.length ? <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin registros.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.8rem' }}>
-            <thead><tr><th>Categoría</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>% del total gastado</th></tr></thead>
+            <thead><tr><th>Categoría</th><th style={{ textAlign: 'right', width: 170, whiteSpace: 'nowrap' }}>{montoLabel}</th><th style={{ textAlign: 'right', width: 150, whiteSpace: 'nowrap' }}>{pctLabel}</th></tr></thead>
             <tbody>
               {filas.map((c) => {
                 const esVeh = !!onVerVehiculo && esClasifVehiculo(c.valor);
                 return (
-                <tr key={c.valor} onClick={esVeh ? () => onVerVehiculo!(c.valor) : undefined}
-                  style={esVeh ? { cursor: 'pointer' } : undefined}
-                  title={esVeh ? 'Ver consumo en $ por vehículo' : undefined}>
-                  <td>{c.valor}{esVeh && <span className="muted" style={{ marginLeft: '.4rem' }} title="Ver consumo $ por vehículo">📊</span>}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{money(c.monto)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{pct(c.pct)}</td>
+                // Toda la fila se toca para ver el DETALLE de sus movimientos.
+                <tr key={c.valor} onClick={() => setDetalleCat({ grupo, valor: c.valor })}
+                  style={{ cursor: 'pointer' }}
+                  title="Ver el detalle de los movimientos de esta categoría">
+                  <td>
+                    {c.valor}
+                    {esVeh && (
+                      <button className="btn btn-sm btn-ghost" style={{ marginLeft: '.4rem', padding: '0 .3rem' }}
+                        title="Ver consumo $ por vehículo"
+                        onClick={(e) => { e.stopPropagation(); onVerVehiculo!(c.valor); }}>📊</button>
+                    )}
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(c.monto)}</td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(c.pct)}</td>
                 </tr>
                 );
               })}
             </tbody>
             <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
               <td>{totalLabel}</td>
-              <td className="mono" style={{ textAlign: 'right' }}>{money(totalMonto)}</td>
-              <td className="mono" style={{ textAlign: 'right' }}>{pct(totalPct)}</td>
+              <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(totalMonto)}</td>
+              <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(totalPct)}</td>
             </tr></tfoot>
           </table>
         </div>
@@ -435,7 +680,7 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
   );
 
   return (
-    <Modal title="📊 Resumen de Caja · LA ESPERANZA" size="lg" onClose={onClose} footer={footer}>
+    <Modal title={`📊 Resumen de Caja · ${centro}`} size="lg" onClose={onClose} footer={footer}>
       {error ? (
         <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>
       ) : !r ? (
@@ -453,11 +698,32 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
             {hayRango && <button className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }}>✕ Limpiar rango</button>}
             {hayRango && <span className="badge" style={{ fontSize: '.72rem' }}>Mostrando solo el rango seleccionado</span>}
           </div>
-          <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-            {hayRango
-              ? <>Rango <strong>{desde || '—'}</strong> → <strong>{hasta || '—'}</strong> · {r.movimientos} movimiento(s) en el rango</>
-              : <>Inicio <strong>{r.fechaInicio ?? '—'}</strong> · Última actualización <strong>{r.fechaActualizacion}</strong> · <strong>{r.dias}</strong> días transcurridos · {r.movimientos} movimiento(s)</>}
-          </p>
+          {/* Bloque de cabecera «CERRADO · RESUMEN DE CAJA» — fiel a la hoja del Excel:
+              Centro · Fecha de inicio · Última actualización · Días transcurridos · Saldo actual. */}
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div className="card-title"><span>🗂 Cerrado · Resumen de Caja · {centro}</span></div>
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <tbody>
+                  <tr><td style={{ fontWeight: 600, width: 280 }}>Centro de Acopio</td><td>{centro}</td></tr>
+                  {hayRango ? (
+                    <tr><td style={{ fontWeight: 600 }}>Rango seleccionado</td><td className="mono">{desde || '—'} → {hasta || '—'}</td></tr>
+                  ) : (
+                    <>
+                      <tr><td style={{ fontWeight: 600 }}>Fecha de inicio</td><td className="mono">{r.fechaInicio ?? '—'}</td></tr>
+                      <tr><td style={{ fontWeight: 600 }}>Fecha última actualización</td><td className="mono">{r.fechaActualizacion}</td></tr>
+                      <tr><td style={{ fontWeight: 600 }}>Días transcurridos</td><td className="mono">{r.dias}</td></tr>
+                    </>
+                  )}
+                  <tr><td style={{ fontWeight: 600 }}>Movimientos</td><td className="mono">{r.movimientos}</td></tr>
+                  <tr style={{ borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
+                    <td style={{ fontWeight: 700 }}>Saldo actual de la caja {centro}</td>
+                    <td className="mono" style={{ fontWeight: 800, color: r.saldoUsd < 0 ? 'var(--danger)' : 'var(--primary-3)' }}>{money(r.saldoUsd)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {/* KPIs principales */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.75rem' }}>
@@ -487,9 +753,41 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
             <Kpi titulo="Diferencia" valor={`${num(r.diferenciaKg)} Kg`} color={r.diferenciaKg < 0 ? 'var(--danger)' : 'var(--success)'} />
           </div>
 
-          <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" onVerVehiculo={setConsumoCat} />
-          <p className="muted" style={{ fontSize: '.74rem', marginTop: '.3rem' }}>💡 Las categorías de <strong>repuestos · reparaciones · servicios</strong> (📊) se pueden tocar para ver el <strong>consumo en $ por vehículo</strong>.</p>
-          <TablaCat titulo="Nómina por categoría" filas={r.nominaPorCategoria} totalLabel="Total nómina" totalMonto={r.totalNominas} totalPct={r.pctNomina} color="#a855f7" />
+          {/* CASITERITA por categoría (contratos): cantidad, facturado y precio promedio */}
+          {r.casiteritaPorCategoria.length > 0 && (
+            <>
+              <div className="card-title" style={{ marginTop: '1rem' }}><span style={{ color: '#22c55e' }}>Casiterita por categoría</span></div>
+              <div className="table-wrap">
+                <table className="table" style={{ fontSize: '.8rem' }}>
+                  <thead><tr><th>Categoría</th><th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>Precio $/Kg</th><th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>Cantidad cerrada (Kg)</th><th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>Facturado $</th><th style={{ textAlign: 'right', width: 130, whiteSpace: 'nowrap' }}>% individual</th></tr></thead>
+                  <tbody>
+                    {r.casiteritaPorCategoria.map((c) => (
+                      <tr key={c.valor} onClick={() => setDetalleCat({ grupo: 'contratos', valor: c.valor })} style={{ cursor: 'pointer' }} title="Ver el detalle de los movimientos de esta categoría">
+                        <td>{c.valor}</td>
+                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(c.precio)}</td>
+                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{num(c.cantidad)}</td>
+                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(c.facturado)}</td>
+                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(c.pct)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
+                    <td>Total casiterita</td>
+                    <td></td>
+                    <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{num(r.kgProduccion)}</td>
+                    <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(r.totalFacturado)}</td>
+                    <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(1)}</td>
+                  </tr></tfoot>
+                </table>
+              </div>
+            </>
+          )}
+
+          <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" grupo="gastos_caja" onVerVehiculo={setConsumoCat} />
+          <p className="muted" style={{ fontSize: '.74rem', marginTop: '.3rem' }}>💡 Tocá una <strong>categoría</strong> para ver el <strong>detalle de sus movimientos</strong>. En las de <strong>repuestos · reparaciones · servicios</strong>, el botón <strong>📊</strong> muestra el consumo en $ por vehículo.</p>
+          <TablaCat titulo="Nómina por categoría" filas={r.nominaPorCategoria} totalLabel="Total nómina" totalMonto={r.totalNominas} totalPct={r.pctNomina} color="#a855f7" grupo="nomina" />
+          {/* MOVIMIENTOS DE CAJA por categoría: dinero entregado que entra a la caja */}
+          <TablaCat titulo="Movimientos de caja por categoría" filas={r.movimientosPorCategoria} totalLabel="Total entregado" totalMonto={r.totalEntregado} totalPct={1} color="#3b82f6" grupo="movimientos_caja" montoLabel="Dinero entregado $" pctLabel="% del total entregado" />
         </>
       )}
 
@@ -498,11 +796,15 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
           title={`📊 Consumo $ por vehículo · ${consumoCat}`}
           subtitle="Total gastado por vehículo/maquinaria en esta categoría (repuestos · reparaciones · servicios). Buscá un equipo por nombre."
           cargar={async (d, h) => {
-            const filas = await consumoPorVehiculoAcopio(d, h, consumoCat);
+            const filas = await consumoPorVehiculoAcopio(d, h, consumoCat, centro);
             return filas.map((f) => ({ id: f.id, label: f.nombre, unidad: 'compra(s)', cantidad: f.compras, valor: f.valor }));
           }}
           onClose={() => setConsumoCat(null)}
         />
+      )}
+
+      {detalleCat && (
+        <DetalleCategoriaModal grupo={detalleCat.grupo} valor={detalleCat.valor} desde={desde || null} hasta={hasta || null} centro={centro} onClose={() => setDetalleCat(null)} />
       )}
 
       {correoOpen && r && (
@@ -521,14 +823,79 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
   );
 }
 
+/* ───────────── Detalle de movimientos de una categoría (al tocarla en el resumen) ───────────── */
+
+function DetalleCategoriaModal({ grupo, valor, desde, hasta, centro, onClose }: {
+  grupo: GrupoClasificacion; valor: string; desde: string | null; hasta: string | null; centro: string; onClose: () => void;
+}) {
+  const [movs, setMovs] = useState<MovimientoCategoria[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    listMovimientosCategoria(grupo, valor, { desde, hasta }, undefined, centro)
+      .then(setMovs)
+      .catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar el detalle'));
+  }, [grupo, valor, desde, hasta, centro]);
+  const total = (movs ?? []).reduce((a, m) => a + m.monto, 0);
+  const concepto = grupo === 'nomina' ? 'nómina'
+    : grupo === 'movimientos_caja' ? 'dinero entregado'
+    : grupo === 'contratos' ? 'casiterita facturada'
+    : grupo === 'traslado' ? 'traslado'
+    : 'gastos';
+  return (
+    <Modal title={`🧾 Detalle · ${valor}`} size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+        Movimientos de {concepto} en la categoría «{valor}»{(desde || hasta) ? ` · ${desde || '—'} → ${hasta || '—'}` : ''}.
+      </p>
+      {error ? (
+        <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>
+      ) : !movs ? (
+        <p className="muted">Cargando…</p>
+      ) : !movs.length ? (
+        <p className="muted" style={{ margin: 0 }}>Sin movimientos en esta categoría.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr><th>Fecha</th><th>Descripción</th><th>Vehículo</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+            <tbody>
+              {movs.map((m) => (
+                <tr key={m.id}>
+                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>{date(m.fecha)}</td>
+                  <td>{m.descripcion || '—'}</td>
+                  <td>{m.vehiculo || '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{money(m.monto)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
+              <td colSpan={3}>Total ({movs.length} mov.)</td>
+              <td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 /* ───────────── Resumen Semanal Casiterita (REPORTE PRELIMINAR DE CENTROS DE ACOPIOS) ───────────── */
 
 const fmtKg = (v: number) => Number(v || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; onClose: () => void;
+/** Página «Reporte Preliminar» (sub-menú de Cajas Centro de Acopio): el mismo
+ *  Resumen Semanal Casiterita, pero como vista en lugar de modal. */
+export function ReportePreliminarPage() {
+  const { user } = useSession();
+  const { can, appUser } = usePermissions();
+  const canWrite = can('acopio', 'escritura');
+  const actor = user?.email ?? 'sistema';
+  const actorName = appUser?.nombre?.trim() || user?.email || null;
+  return <ResumenSemanalModal asPage canWrite={canWrite} actor={actor} actorName={actorName} />;
+}
+
+function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
+  canWrite: boolean; actor: string; actorName: string | null; onClose?: () => void; asPage?: boolean;
 }) {
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyISO();
   const [tab, setTab] = useState<'editor' | 'historico'>('editor');
   const [titulo, setTitulo] = useState('REPORTE PRELIMINAR DE CENTROS DE ACOPIOS');
   const [desde, setDesde] = useState('');
@@ -539,8 +906,10 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [historico, setHistorico] = useState<ResumenSemanal[]>([]);
-  const [vinculando, setVinculando] = useState<{ si: number; ci: number } | null>(null);
+  const [vinculando, setVinculando] = useState<{ si: number; ci: number; campo: 'cobrar' | 'disponible' } | null>(null);
+  const [vinculandoSector, setVinculandoSector] = useState<{ si: number; campo: 'saldo' | 'precio' } | null>(null);
   const [resolviendo, setResolviendo] = useState(false);
+  const [correoOpen, setCorreoOpen] = useState(false);
 
   const cargarHist = useCallback(() => { listResumenes().then(setHistorico).catch(() => setHistorico([])); }, []);
   useEffect(() => { cargarHist(); }, [cargarHist]);
@@ -551,7 +920,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
   // Mutadores inmutables sobre el árbol de sectores.
   const patchSector = (si: number, patch: Partial<SectorResumen>) =>
     setSectores((prev) => prev.map((s, i) => (i === si ? { ...s, ...patch } : s)));
-  const patchCentro = (si: number, ci: number, patch: Partial<{ centro: string; kg_cobrar: number; kg_disponible: number; fuente: FuenteExterna | null }>) =>
+  const patchCentro = (si: number, ci: number, patch: Partial<{ centro: string; kg_cobrar: number; kg_disponible: number; fuente: FuenteExterna | null; fuente_cobrar: FuenteExterna | null }>) =>
     setSectores((prev) => prev.map((s, i) => i !== si ? s : {
       ...s, centros: s.centros.map((c, j) => (j === ci ? { ...c, ...patch } : c)),
     }));
@@ -560,14 +929,30 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
   const resolverVinculos = useCallback(async (silencioso = false) => {
     setResolviendo(true);
     let n = 0, fallidos = 0;
-    const next = await Promise.all((sectores).map(async (s) => ({
-      ...s,
-      centros: await Promise.all(s.centros.map(async (c) => {
-        if (!c.fuente) return c;
-        try { const v = await leerMetricaExterna(c.fuente.sistema, c.fuente.metrica); n++; return { ...c, kg_disponible: v }; }
-        catch { fallidos++; return c; }
-      })),
-    })));
+    const next = await Promise.all((sectores).map(async (s) => {
+      const centros = await Promise.all(s.centros.map(async (c) => {
+        let next = c;
+        if (next.fuente) {
+          try { const v = await leerMetricaExterna(next.fuente.sistema, next.fuente.metrica); n++; next = { ...next, kg_disponible: v }; }
+          catch { fallidos++; }
+        }
+        if (next.fuente_cobrar) {
+          try { const v = await leerMetricaExterna(next.fuente_cobrar.sistema, next.fuente_cobrar.metrica); n++; next = { ...next, kg_cobrar: v }; }
+          catch { fallidos++; }
+        }
+        return next;
+      }));
+      let s2: SectorResumen = { ...s, centros };
+      if (s.fuente_saldo) {
+        try { const v = await leerMetricaExterna(s.fuente_saldo.sistema, s.fuente_saldo.metrica); n++; s2 = { ...s2, saldo_usd: v }; }
+        catch { fallidos++; }
+      }
+      if (s.fuente_precio) {
+        try { const v = await leerMetricaExterna(s.fuente_precio.sistema, s.fuente_precio.metrica); n++; s2 = { ...s2, precio_prom: v }; }
+        catch { fallidos++; }
+      }
+      return s2;
+    }));
     setSectores(next);
     setResolviendo(false);
     if (!silencioso) {
@@ -581,7 +966,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
   const yaResolvio = useMemo(() => ({ done: false }), []);
   useEffect(() => {
     if (yaResolvio.done) return;
-    const hay = sectores.some((s) => s.centros.some((c) => c.fuente));
+    const hay = sectores.some((s) => s.fuente_saldo || s.fuente_precio || s.centros.some((c) => c.fuente || c.fuente_cobrar));
     if (hay) { yaResolvio.done = true; void resolverVinculos(true); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -606,36 +991,114 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
       style={{ ...cellInputStyle, textAlign: 'right' }} />
   );
 
-  // Vincula un centro a una métrica y trae el valor al instante.
-  async function vincular(si: number, ci: number, m: FuenteExterna) {
+  // Vincula la columna `campo` (cobrar/disponible) de un centro a una métrica y trae el valor al instante.
+  async function vincular(si: number, ci: number, campo: 'cobrar' | 'disponible', m: FuenteExterna) {
     setVinculando(null);
-    patchCentro(si, ci, { fuente: { sistema: m.sistema, metrica: m.metrica, label: m.label } });
-    try { const v = await leerMetricaExterna(m.sistema, m.metrica); patchCentro(si, ci, { kg_disponible: v }); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo leer el dato vinculado', 'error'); }
+    const fuente: FuenteExterna = { sistema: m.sistema, metrica: m.metrica, label: m.label };
+    patchCentro(si, ci, campo === 'cobrar' ? { fuente_cobrar: fuente } : { fuente });
+    try {
+      const v = await leerMetricaExterna(m.sistema, m.metrica);
+      patchCentro(si, ci, campo === 'cobrar' ? { kg_cobrar: v } : { kg_disponible: v });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo leer el dato vinculado', 'error'); }
   }
 
-  // Celda «Kg Disponibles»: si está vinculada, muestra el valor en vivo en solo-lectura (🔗); si no, input editable + botón vincular.
-  const disponibleCell = (si: number, c: SectorResumen['centros'][number], ci: number) => {
-    const eligiendo = vinculando?.si === si && vinculando?.ci === ci;
-    if (c.fuente) {
+  // Ruta interna del centro al que apunta una fuente 'mgg…': GMT lleva a su propia página,
+  // el resto (La Esperanza, aliados internos) al acopio principal.
+  const rutaCentroInterno = (fuente: FuenteExterna): string =>
+    (fuente.sistema.startsWith('mgg-centro') && /GLOBAL\s+MINERAL\s+TIN/i.test(fuente.metrica))
+      ? '#/app/acopio/global-mineral-tin'
+      : '#/app/acopio';
+
+  // Celda numérica vinculable (Kg por Cobrar / Kg Disponibles): si está vinculada muestra el
+  // valor en vivo en solo-lectura (🔗, clickeable si es interno); si no, input editable + botón vincular.
+  const vinculableCell = (si: number, c: SectorResumen['centros'][number], ci: number, campo: 'cobrar' | 'disponible') => {
+    const eligiendo = vinculando?.si === si && vinculando?.ci === ci && vinculando?.campo === campo;
+    const fuente = campo === 'cobrar' ? c.fuente_cobrar : c.fuente;
+    const valor = campo === 'cobrar' ? c.kg_cobrar : c.kg_disponible;
+    const color = campo === 'cobrar' ? '#60a5fa' : '#4ade80';
+    const borderCol = campo === 'cobrar' ? 'rgba(96,165,250,.4)' : 'rgba(74,222,128,.4)';
+    if (fuente) {
+      // Interno = vive en ESTE sistema (acopio 'mgg' o un aliado 'mgg-…') → valor clickeable
+      // que lleva al centro de acopio (La Esperanza). Externo (otro Supabase) queda sin enlace.
+      const interno = fuente.sistema.startsWith('mgg');
+      const rutaInterna = interno ? rutaCentroInterno(fuente) : null;
+      const valStyle: React.CSSProperties = { ...cellInputStyle, width: 'auto', minWidth: 76, textAlign: 'right', background: 'var(--surface-2)', color, fontWeight: 700, borderColor: borderCol };
+      const fuenteLabel = fuente.label ?? `${fuente.sistema} · ${fuente.metrica}`;
       return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem', justifyContent: 'flex-end' }} title={`Vinculado a ${c.fuente.label ?? `${c.fuente.sistema} · ${c.fuente.metrica}`} — no editable`}>
-          <span className="mono" style={{ ...cellInputStyle, width: 'auto', minWidth: 76, textAlign: 'right', background: 'var(--surface-2)', color: '#4ade80', fontWeight: 700, borderColor: 'rgba(74,222,128,.4)' }}>{fmtKg(c.kg_disponible)}</span>
-          <span title="Valor vinculado en vivo (no editable)">🔗</span>
-          {canWrite && <button className="btn btn-sm btn-ghost" title="Desvincular (volver a editar a mano)" onClick={() => patchCentro(si, ci, { fuente: null })}>✕</button>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem', justifyContent: 'flex-end' }} title={`Vinculado a ${fuenteLabel} — no editable`}>
+          {rutaInterna ? (
+            <a href={rutaInterna} className="mono" style={{ ...valStyle, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }}
+              title="Ir al centro de acopio (La Esperanza)">{fmtKg(valor)}</a>
+          ) : (
+            <span className="mono" style={valStyle}>{fmtKg(valor)}</span>
+          )}
+          <span title={interno ? 'Valor interno en vivo · clic para ir al centro de acopio' : 'Valor vinculado en vivo (otro sistema, no editable)'}>🔗</span>
+          {canWrite && <button className="btn btn-sm btn-ghost" title="Desvincular (volver a editar a mano)" onClick={() => patchCentro(si, ci, campo === 'cobrar' ? { fuente_cobrar: null } : { fuente: null })}>✕</button>}
         </div>
       );
     }
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
-        {numInput(c.kg_disponible, (v) => patchCentro(si, ci, { kg_disponible: v }))}
-        {canWrite && !eligiendo && <button className="btn btn-sm btn-ghost" title="Vincular este dato a otro sistema / al acopio" onClick={() => setVinculando({ si, ci })}>🔗</button>}
+        {numInput(valor, (v) => patchCentro(si, ci, campo === 'cobrar' ? { kg_cobrar: v } : { kg_disponible: v }))}
+        {canWrite && !eligiendo && <button className="btn btn-sm btn-ghost" title="Vincular este dato a otro sistema / al acopio" onClick={() => setVinculando({ si, ci, campo })}>🔗</button>}
         {canWrite && eligiendo && (
           <select autoFocus className="select" style={{ fontSize: '.72rem', maxWidth: 200 }} defaultValue=""
-            onChange={(e) => { const m = METRICAS_EXTERNAS.find((x) => `${x.sistema}|${x.metrica}` === e.target.value); if (m) void vincular(si, ci, m); else setVinculando(null); }}
+            onChange={(e) => { const m = METRICAS_EXTERNAS.find((x) => `${x.sistema}|${x.metrica}` === e.target.value); if (m) void vincular(si, ci, campo, m); else setVinculando(null); }}
             onBlur={() => setVinculando(null)}>
             <option value="">— elegí la fuente —</option>
             {METRICAS_EXTERNAS.map((m) => <option key={`${m.sistema}|${m.metrica}`} value={`${m.sistema}|${m.metrica}`}>{m.label}</option>)}
+          </select>
+        )}
+      </div>
+    );
+  };
+
+  // Vincula la columna de SECTOR (saldo $USD / precio promedio) a una métrica en $.
+  async function vincularSector(si: number, campo: 'saldo' | 'precio', m: FuenteExterna) {
+    setVinculandoSector(null);
+    const fuente: FuenteExterna = { sistema: m.sistema, metrica: m.metrica, label: m.label };
+    patchSector(si, campo === 'saldo' ? { fuente_saldo: fuente } : { fuente_precio: fuente });
+    try {
+      const v = await leerMetricaExterna(m.sistema, m.metrica);
+      patchSector(si, campo === 'saldo' ? { saldo_usd: v } : { precio_prom: v });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo leer el dato vinculado', 'error'); }
+  }
+
+  // Celda de SECTOR vinculable ($USD): saldo o precio promedio. Linkable a métricas en $
+  // (saldo de caja / tasa del material) de ESTE sistema o de Golden Touch.
+  const sectorCell = (si: number, s: SectorResumen, campo: 'saldo' | 'precio') => {
+    const eligiendo = vinculandoSector?.si === si && vinculandoSector?.campo === campo;
+    const fuente = campo === 'saldo' ? s.fuente_saldo : s.fuente_precio;
+    const valor = campo === 'saldo' ? s.saldo_usd : s.precio_prom;
+    const color = campo === 'saldo' ? '#4ade80' : '#fbbf24';
+    if (fuente) {
+      const interno = fuente.sistema.startsWith('mgg');
+      const ruta = interno ? rutaCentroInterno(fuente) : null;
+      const valStyle: React.CSSProperties = { ...cellInputStyle, width: 'auto', minWidth: 64, textAlign: 'right', background: 'var(--surface-3)', color, fontWeight: 800, borderColor: 'transparent' };
+      const fuenteLabel = fuente.label ?? `${fuente.sistema} · ${fuente.metrica}`;
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.2rem', justifyContent: 'center' }} title={`Vinculado a ${fuenteLabel} — no editable`}>
+          {ruta ? (
+            <a href={ruta} className="mono" style={{ ...valStyle, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }}
+              title="Ir al centro de acopio (La Esperanza)">{money(valor)}</a>
+          ) : (
+            <span className="mono" style={valStyle}>{money(valor)}</span>
+          )}
+          <span title={interno ? 'Valor interno en vivo · clic para ir al acopio' : 'Valor vinculado en vivo (Golden Touch, no editable)'}>🔗</span>
+          {canWrite && <button className="btn btn-sm btn-ghost" title="Desvincular (volver a editar a mano)" onClick={() => patchSector(si, campo === 'saldo' ? { fuente_saldo: null } : { fuente_precio: null })}>✕</button>}
+        </div>
+      );
+    }
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.2rem', justifyContent: 'center' }}>
+        {numInput(valor, (v) => patchSector(si, campo === 'saldo' ? { saldo_usd: v } : { precio_prom: v }), '$ 0,00')}
+        {canWrite && !eligiendo && <button className="btn btn-sm btn-ghost" title="Vincular a saldo de caja / tasa (este sistema o Golden Touch)" onClick={() => setVinculandoSector({ si, campo })}>🔗</button>}
+        {canWrite && eligiendo && (
+          <select autoFocus className="select" style={{ fontSize: '.72rem', maxWidth: 200 }} defaultValue=""
+            onChange={(e) => { const m = METRICAS_SECTOR.find((x) => `${x.sistema}|${x.metrica}` === e.target.value); if (m) void vincularSector(si, campo, m); else setVinculandoSector(null); }}
+            onBlur={() => setVinculandoSector(null)}>
+            <option value="">— elegí la fuente —</option>
+            {METRICAS_SECTOR.map((m) => <option key={`${m.sistema}|${m.metrica}`} value={`${m.sistema}|${m.metrica}`}>{m.label}</option>)}
           </select>
         )}
       </div>
@@ -656,13 +1119,15 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
     finally { setSaving(false); }
   }
 
+  // Objeto ResumenSemanal con el estado actual del editor (para PDF/Excel/correo).
+  const resumenActual = (): ResumenSemanal => ({
+    id: 'preview', numero: '(borrador)', titulo, periodo_desde: desde || null, periodo_hasta: hasta || null,
+    fecha, filas: sectores, totales, nota: nota || null, created_by: actor, actor_name: actorName, created_at: new Date().toISOString(),
+  });
+
   async function pdfActual() {
-    try {
-      await descargarResumenSemanalPdf({
-        id: 'preview', numero: '(borrador)', titulo, periodo_desde: desde || null, periodo_hasta: hasta || null,
-        fecha, filas: sectores, totales, nota: nota || null, created_by: actor, actor_name: actorName, created_at: new Date().toISOString(),
-      });
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    try { await descargarResumenSemanalPdf(resumenActual()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
   function cargarDesdeHist(r: ResumenSemanal) {
@@ -678,10 +1143,11 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
-  const footer = (
+  const acciones = (
     <>
-      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+      {onClose && <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}
       <button type="button" className="btn btn-ghost" onClick={() => void pdfActual()} disabled={saving}>↓ PDF</button>
+      <button type="button" className="btn btn-ghost" onClick={() => setCorreoOpen(true)} disabled={saving}>✉ Correo</button>
       {canWrite && tab === 'editor' && (
         <button type="button" className="btn btn-primary" onClick={() => void archivar()} disabled={saving}>{saving ? 'Archivando…' : '🗄 Archivar a histórico'}</button>
       )}
@@ -691,8 +1157,20 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
   const thKg: React.CSSProperties = { fontSize: '.66rem', textAlign: 'center', padding: '.4rem .35rem', whiteSpace: 'pre-line', verticalAlign: 'middle', background: 'var(--surface-3)', lineHeight: 1.2 };
   const colCount = canWrite ? 9 : 8;
 
-  return (
-    <Modal title="📅 Resumen semanal casiterita" size="xl" onClose={onClose} footer={footer}>
+  const cuerpo = (
+    <>
+      {correoOpen && (
+        <CorreoReporteModal
+          titulo="Enviar Reporte Preliminar"
+          descripcion={`Se enviará el PDF del ${titulo || 'Reporte Preliminar de Centros de Acopio'} (fecha ${fecha}).`}
+          defaultEmail={actor}
+          onEnviar={async (emails) => {
+            const { destinatarios } = await enviarResumenSemanalPorCorreo(resumenActual(), emails);
+            return destinatarios;
+          }}
+          onClose={() => setCorreoOpen(false)}
+        />
+      )}
       {/* Pestañas Editor / Histórico */}
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.9rem' }}>
         <button className={`btn btn-sm ${tab === 'editor' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('editor')}>📝 Editor</button>
@@ -768,9 +1246,9 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
                         ) : s.centros.map((c, ci) => (
                           <tr key={ci}>
                             <td className="mono muted" style={{ textAlign: 'center', borderLeft: `3px solid ${accent}` }}>{base + ci + 1}</td>
-                            <td><input value={c.centro} onChange={(e) => patchCentro(si, ci, { centro: e.target.value })} disabled={!canWrite} placeholder="Nombre del centro" style={{ ...cellInputStyle, minWidth: 220, textAlign: 'left' }} /></td>
-                            <td>{numInput(c.kg_cobrar, (v) => patchCentro(si, ci, { kg_cobrar: v }))}</td>
-                            <td>{disponibleCell(si, c, ci)}</td>
+                            <td><input value={c.centro} onChange={(e) => patchCentro(si, ci, { centro: e.target.value })} disabled={!canWrite} placeholder="Nombre del centro" style={{ ...cellInputStyle, minWidth: 220, textAlign: 'left', fontSize: '.7rem' }} /></td>
+                            <td>{vinculableCell(si, c, ci, 'cobrar')}</td>
+                            <td>{vinculableCell(si, c, ci, 'disponible')}</td>
                             {ci === 0 && (
                               <>
                                 <td rowSpan={n} style={mergeTd} title={gt ? 'Autosuma de los Disponibles del bloque GT (no editable).' : undefined}>
@@ -779,8 +1257,8 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
                                     : numInput(s.resguardos_gt, (v) => patchSector(si, { resguardos_gt: v }))}
                                 </td>
                                 <td rowSpan={n} className="mono" style={{ ...mergeTd, color: '#fb923c', fontWeight: 800, fontSize: '.92rem' }} title={gt ? 'Bloque GT: no acopia para MGG (sus Kg van a Resguardos).' : 'Autosuma de los Kg Disponibles del bloque.'}>{fmtKg(acopiadoMgg)}</td>
-                                <td rowSpan={n} style={mergeTd}>{numInput(s.precio_prom, (v) => patchSector(si, { precio_prom: v }), '$ 0,00')}</td>
-                                <td rowSpan={n} style={mergeTd}>{numInput(s.saldo_usd, (v) => patchSector(si, { saldo_usd: v }), '$ 0,00')}</td>
+                                <td rowSpan={n} style={mergeTd}>{sectorCell(si, s, 'precio')}</td>
+                                <td rowSpan={n} style={mergeTd}>{sectorCell(si, s, 'saldo')}</td>
                               </>
                             )}
                             {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => delCentro(si, ci)} title="Quitar centro">✕</button></td>}
@@ -867,6 +1345,27 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose }: {
           </div>
         )
       )}
+    </>
+  );
+
+  if (asPage) {
+    return (
+      <div>
+        <div className="page-head">
+          <div>
+            <h1>📅 Reporte Preliminar</h1>
+            <p className="muted">Resumen Semanal de Casiterita (REPORTE PRELIMINAR DE CENTROS DE ACOPIOS). Cargá los Kg por sector, vinculá datos en vivo y archivá el reporte a histórico.</p>
+          </div>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>{acciones}</div>
+        </div>
+        {cuerpo}
+      </div>
+    );
+  }
+
+  return (
+    <Modal title="📅 Resumen semanal casiterita" size="xl" onClose={onClose ?? (() => {})} footer={acciones}>
+      {cuerpo}
     </Modal>
   );
 }
@@ -901,20 +1400,21 @@ const n = (v: string) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 /** Verf. = IF(precinto_inicio = precinto_final, "V", "F") del Excel. */
 const verf = (f: FilaLote) => f.precinto_inicio.trim() === f.precinto_final.trim();
 
-function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onClose, onSaved }: {
+function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, centro: centroDefault, onClose, onSaved }: {
   recepcion: RecepcionAcopio | null;
   productos: Producto[];
   canWrite: boolean;
   actor: string;
   actorName: string | null;
+  centro: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const esNueva = !recepcion;
   const editable = canWrite && (esNueva || recepcion!.estado === 'abierta');
 
-  const [fecha, setFecha] = useState(recepcion?.fecha ?? new Date().toISOString().slice(0, 10));
-  const [centro, setCentro] = useState(recepcion?.centro_acopio ?? 'La Esperanza');
+  const [fecha, setFecha] = useState(recepcion?.fecha ?? hoyISO());
+  const [centro, setCentro] = useState(recepcion?.centro_acopio ?? centroDefault);
   const [aliado, setAliado] = useState(recepcion?.aliado ?? '');
   const [productoId, setProductoId] = useState(recepcion?.producto_id ?? '');
   // El stock de la recepción va DIRECTO al sub-almacén CASITERITA (sede LA ESPERANZA).

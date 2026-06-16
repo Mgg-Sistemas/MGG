@@ -15,12 +15,34 @@ export interface FuenteExterna {
   label?: string;   // etiqueta para mostrar
 }
 
+/** Aliados internos vinculables en el resumen (sus «Kg Recibidos por MGG»). */
+export const ALIADO_JUAN_BODEGA = 'e6bcc18f-ffba-4c09-a658-4cf4eb2935b2';
+export const ALIADO_ENDER_MEJIAS = '0efc7005-78b2-4b0c-badb-b564773b8c18';
+// Aliados del centro LOS PIJIGUAOS.
+export const ALIADO_PIJ_ALBERTO = 'b2bdf572-fe93-40dd-a830-cb17a70bce27';
+export const ALIADO_PIJ_ALBERTO_MINA40 = '8d86916d-cfa1-48a6-89cd-9318c9760579';
+export const ALIADO_PIJ_MAGUIBER = 'e58ec8b3-dc2d-4988-8b08-d0ae56e5c5da';
+
 /**
  * Catálogo de métricas vinculables. `mgg` = este mismo sistema (RPC local);
+ * `mgg-aliado` = un aliado de este sistema (la métrica es el id del aliado);
  * cualquier otro `sistema` = otro Supabase resuelto por la Edge Function segura.
  */
 export const METRICAS_EXTERNAS: FuenteExterna[] = [
   { sistema: 'mgg', metrica: 'acopio_saldo_kg', label: 'Este sistema · Saldo en Kg (acopio LA ESPERANZA)' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_JUAN_BODEGA, label: 'Aliado JUAN BODEGA · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_ENDER_MEJIAS, label: 'Aliado ENDER MEJÍAS · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_JUAN_BODEGA, label: 'Aliado JUAN BODEGA · Saldo en Kg casiterita' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ENDER_MEJIAS, label: 'Aliado ENDER MEJÍAS · Saldo en Kg casiterita' },
+  { sistema: 'mgg-centro-saldokg', metrica: 'GLOBAL MINERAL TIN', label: 'Este sistema · Saldo en Kg (acopio GLOBAL MINERAL TIN)' },
+  { sistema: 'mgg-centro-saldokg', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Saldo en Kg (acopio LA ESMERALDA ALÍ)' },
+  { sistema: 'mgg-centro-saldokg', metrica: 'LOS PIJIGUAOS', label: 'Este sistema · Saldo en Kg (acopio LOS PIJIGUAOS)' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_PIJ_ALBERTO, label: 'Aliado ALBERTO (Pijiguaos) · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_PIJ_ALBERTO_MINA40, label: 'Aliado ALBERTO MINA 40 (Pijiguaos) · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_PIJ_MAGUIBER, label: 'Aliado MAGUIBER (Pijiguaos) · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_PIJ_ALBERTO, label: 'Aliado ALBERTO (Pijiguaos) · Saldo en Kg casiterita' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_PIJ_ALBERTO_MINA40, label: 'Aliado ALBERTO MINA 40 (Pijiguaos) · Saldo en Kg casiterita' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_PIJ_MAGUIBER, label: 'Aliado MAGUIBER (Pijiguaos) · Saldo en Kg casiterita' },
   { sistema: 'golden-touch', metrica: 'acopio_saldo_kg', label: 'Golden Touch · Saldo en Kg (acopio)' },
 ];
 
@@ -36,6 +58,12 @@ const RPC_DE_METRICA: Record<string, string> = {
  */
 export async function leerMetricaExterna(sistema: string, metrica: string): Promise<number> {
   if (sistema === 'mgg') {
+    // Saldo de caja $USD y Tasa del material se calculan del resumen de la caja local.
+    if (metrica === 'acopio_saldo_usd' || metrica === 'acopio_tasa_material') {
+      const { resumenCajaAcopio } = await import('./caja.repository');
+      const r = await resumenCajaAcopio();
+      return metrica === 'acopio_saldo_usd' ? r.saldoUsd : r.tasaMaterial;
+    }
     const rpc = RPC_DE_METRICA[metrica];
     if (!rpc) throw new Error(`Métrica local desconocida: ${metrica}`);
     const { data, error } = await supabase.rpc(rpc);
@@ -43,6 +71,24 @@ export async function leerMetricaExterna(sistema: string, metrica: string): Prom
     const v = Number(data);
     if (!Number.isFinite(v)) throw new Error('Respuesta no numérica de la métrica local');
     return v;
+  }
+  // Centro de acopio INTERNO específico (multi-centro): la métrica es el NOMBRE del centro.
+  // 'mgg-centro-saldo' → Saldo de caja $USD; 'mgg-centro-tasa' → Tasa del material $/Kg;
+  // 'mgg-centro-saldokg' → Saldo en Kg de casiterita del centro (Σ kg_cerrados − Σ kg_recibidos).
+  // Se usa, p. ej., para GLOBAL MINERAL TIN (caja P-MGG08), que vive en ESTE sistema.
+  if (sistema === 'mgg-centro-saldo' || sistema === 'mgg-centro-tasa' || sistema === 'mgg-centro-saldokg') {
+    const { resumenCajaAcopio } = await import('./caja.repository');
+    const r = await resumenCajaAcopio(undefined, undefined, metrica);
+    if (sistema === 'mgg-centro-saldo') return r.saldoUsd;
+    if (sistema === 'mgg-centro-tasa') return r.tasaMaterial;
+    return r.kgProduccion - r.kgEnviados;
+  }
+  // Aliado interno: la métrica es el id del aliado. 'mgg-aliado' → «Kg Recibidos por MGG»;
+  // 'mgg-aliado-saldokg' → «Saldo en Kg casiterita».
+  if (sistema === 'mgg-aliado' || sistema === 'mgg-aliado-saldokg') {
+    const { listAliadoMovimientos, resumirAliado } = await import('./subledgers.repository');
+    const r = resumirAliado(await listAliadoMovimientos(metrica));
+    return sistema === 'mgg-aliado-saldokg' ? r.saldoKg : r.totalKgRecibidos;
   }
   const { data, error } = await supabase.functions.invoke('metricas-externas', { body: { sistema, metrica } });
   if (error) throw new Error(error.message ?? 'No se pudo leer la métrica externa');
@@ -56,7 +102,8 @@ export interface CentroResumen {
   centro: string;
   kg_cobrar: number;     // Kg Casiterita por Cobrar
   kg_disponible: number; // Kg Casiterita Disponibles Acopiados
-  fuente?: FuenteExterna | null; // si está, kg_disponible se trae en vivo y NO se edita
+  fuente?: FuenteExterna | null;        // si está, kg_disponible se trae en vivo y NO se edita
+  fuente_cobrar?: FuenteExterna | null; // si está, kg_cobrar se trae en vivo y NO se edita
 }
 
 /**
@@ -72,7 +119,24 @@ export interface SectorResumen {
   saldo_usd: number;     // Saldo $USD por Sector (por bloque)
   es_gt?: boolean;       // bloque GT/resguardo: sus Disponibles van a Resguardos GT (autosuma), no a Acopiados MGG
   color?: string;        // color de banda del sector (visual)
+  fuente_saldo?: FuenteExterna | null;  // si está, saldo_usd se trae en vivo y NO se edita
+  fuente_precio?: FuenteExterna | null; // si está, precio_prom se trae en vivo y NO se edita
 }
+
+/** Métricas vinculables a nivel SECTOR (valores en $: saldo de caja, tasa del material).
+ *  Disponibles para ESTE sistema (mgg) y para el externo (golden-touch). */
+export const METRICAS_SECTOR: FuenteExterna[] = [
+  { sistema: 'mgg', metrica: 'acopio_saldo_usd', label: 'Este sistema · Saldo de caja $USD (acopio LA ESPERANZA)' },
+  { sistema: 'mgg', metrica: 'acopio_tasa_material', label: 'Este sistema · Tasa actual del material $/Kg (LA ESPERANZA)' },
+  { sistema: 'mgg-centro-saldo', metrica: 'GLOBAL MINERAL TIN', label: 'Este sistema · Saldo de caja $USD (acopio GLOBAL MINERAL TIN)' },
+  { sistema: 'mgg-centro-tasa', metrica: 'GLOBAL MINERAL TIN', label: 'Este sistema · Tasa actual del material $/Kg (GLOBAL MINERAL TIN)' },
+  { sistema: 'mgg-centro-saldo', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Saldo de caja $USD (acopio LA ESMERALDA ALÍ)' },
+  { sistema: 'mgg-centro-tasa', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Tasa actual del material $/Kg (LA ESMERALDA ALÍ)' },
+  { sistema: 'mgg-centro-saldo', metrica: 'LOS PIJIGUAOS', label: 'Este sistema · Saldo de caja $USD (acopio LOS PIJIGUAOS)' },
+  { sistema: 'mgg-centro-tasa', metrica: 'LOS PIJIGUAOS', label: 'Este sistema · Tasa actual del material $/Kg (LOS PIJIGUAOS)' },
+  { sistema: 'golden-touch', metrica: 'acopio_saldo_usd', label: 'Golden Touch · Saldo de caja $USD (acopio)' },
+  { sistema: 'golden-touch', metrica: 'acopio_tasa_material', label: 'Golden Touch · Tasa del material $/Kg (acopio)' },
+];
 
 /** Totales calculados (snapshot). El "acopiado MGG" total = suma de disponibles. */
 export interface TotalesResumen {
@@ -195,16 +259,24 @@ export function sectoresPorDefecto(): SectorResumen[] {
     ]),
     {
       nombre: 'SECTOR LA ESPERANZA', color: '#bfdbfe', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
+      // Saldo $USD y Precio Promedio del sector = Saldo de caja y Tasa del material del acopio de ESTE sistema.
+      fuente_saldo: { sistema: 'mgg', metrica: 'acopio_saldo_usd', label: 'Este sistema · Saldo de caja $USD (acopio LA ESPERANZA)' },
+      fuente_precio: { sistema: 'mgg', metrica: 'acopio_tasa_material', label: 'Este sistema · Tasa actual del material $/Kg (LA ESPERANZA)' },
       centros: [
         // El disponible de COMERCIALIZACIÓN = Saldo en Kg del acopio de ESTE sistema (LA ESPERANZA).
         { centro: 'C.A. LA ESPERANZA - P-MGG06 - A COMERCIALIZACIÓN', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg', metrica: 'acopio_saldo_kg', label: 'Este sistema · Saldo en Kg (acopio LA ESPERANZA)' } },
-        { centro: 'C.A. LA ESPERANZA - P-MGG06-B JUAN BODEGA', kg_cobrar: 0, kg_disponible: 0 },
+        // JUAN BODEGA y ENDER MEJÍAS (aliados internos, en vivo): Disponibles = «Kg Recibidos por MGG»;
+        // por Cobrar = «Saldo en Kg casiterita».
+        { centro: 'C.A. LA ESPERANZA - P-MGG06-B JUAN BODEGA', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg-aliado', metrica: ALIADO_JUAN_BODEGA, label: 'Aliado JUAN BODEGA · Kg Recibidos por MGG' }, fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_JUAN_BODEGA, label: 'Aliado JUAN BODEGA · Saldo en Kg casiterita' } },
         { centro: 'C.A. LA ESPERANZA - P-MGG06-C ROBERT BODEGA', kg_cobrar: 0, kg_disponible: 0 },
-        { centro: 'C.A. LA ESPERANZA - P-MGG06-D ENDER MEJÍA', kg_cobrar: 0, kg_disponible: 0 },
+        { centro: 'C.A. LA ESPERANZA - P-MGG06-D ENDER MEJÍA', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg-aliado', metrica: ALIADO_ENDER_MEJIAS, label: 'Aliado ENDER MEJÍAS · Kg Recibidos por MGG' }, fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ENDER_MEJIAS, label: 'Aliado ENDER MEJÍAS · Saldo en Kg casiterita' } },
       ],
     },
     {
       nombre: 'SECTOR GT PERAMANAL', color: '#fde68a', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
+      // Saldo $USD y Precio Promedio del sector GT = Saldo de caja y Tasa del material del acopio EXTERNO (Golden Touch).
+      fuente_saldo: { sistema: 'golden-touch', metrica: 'acopio_saldo_usd', label: 'Golden Touch · Saldo de caja $USD (acopio)' },
+      fuente_precio: { sistema: 'golden-touch', metrica: 'acopio_tasa_material', label: 'Golden Touch · Tasa del material $/Kg (acopio)' },
       centros: [
         { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.1 GT PERAMANAL (M)', kg_cobrar: 0, kg_disponible: 0 },
         // El disponible de este centro vive en Golden Touch (Saldo en Kg del acopio).
@@ -219,9 +291,50 @@ export function sectoresPorDefecto(): SectorResumen[] {
       'C.A. LA ESMERALDA - P-MGG10-E OMI LOPEZ',
       'C.A. LA ESMERALDA - P-MGG10-F ALEXIS NOGUERA',
     ]),
-    sector('C.A. GLOBAL MINERAL TIN', '#bfdbfe', [
-      'C.A. GLOBAL MINERAL TIN - P-MGG08-A GUANERGE',
-    ]),
+    {
+      nombre: 'C.A. GLOBAL MINERAL TIN', color: '#bfdbfe', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
+      // GMT es un centro INTERNO con su propia caja (P-MGG08): Saldo $USD y Precio Promedio
+      // del sector = Saldo de caja y Tasa del material de su caja en ESTE sistema.
+      fuente_saldo: { sistema: 'mgg-centro-saldo', metrica: 'GLOBAL MINERAL TIN', label: 'Este sistema · Saldo de caja $USD (acopio GLOBAL MINERAL TIN)' },
+      fuente_precio: { sistema: 'mgg-centro-tasa', metrica: 'GLOBAL MINERAL TIN', label: 'Este sistema · Tasa actual del material $/Kg (GLOBAL MINERAL TIN)' },
+      centros: [
+        // El disponible de GUANERGE = Saldo en Kg de la caja GMT (en vivo).
+        { centro: 'C.A. GLOBAL MINERAL TIN - P-MGG08-A GUANERGE', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg-centro-saldokg', metrica: 'GLOBAL MINERAL TIN', label: 'Este sistema · Saldo en Kg (acopio GLOBAL MINERAL TIN)' } },
+      ],
+    },
+    {
+      nombre: 'C.A. LA ESMERALDA (ALÍ)', color: '#fecaca', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
+      // Centro INTERNO con caja propia en ESTE sistema: Saldo $USD y Precio Promedio
+      // del sector = Saldo de caja y Tasa del material de la caja LA ESMERALDA ALI.
+      fuente_saldo: { sistema: 'mgg-centro-saldo', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Saldo de caja $USD (acopio LA ESMERALDA ALÍ)' },
+      fuente_precio: { sistema: 'mgg-centro-tasa', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Tasa actual del material $/Kg (LA ESMERALDA ALÍ)' },
+      centros: [
+        // El disponible de ALÍ = Saldo en Kg de la caja LA ESMERALDA ALI (en vivo).
+        { centro: 'C.A. LA ESMERALDA ALÍ - P-MGG12 - A ALÍ TORREALBA', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg-centro-saldokg', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Saldo en Kg (acopio LA ESMERALDA ALÍ)' } },
+      ],
+    },
+    {
+      nombre: 'C.A. LOS PIJIGUAOS', color: '#bbf7d0', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
+      // Centro INTERNO con caja propia: Saldo $USD y Precio Promedio del sector =
+      // Saldo de caja y Tasa del material de la caja LOS PIJIGUAOS (en vivo).
+      fuente_saldo: { sistema: 'mgg-centro-saldo', metrica: 'LOS PIJIGUAOS', label: 'Este sistema · Saldo de caja $USD (acopio LOS PIJIGUAOS)' },
+      fuente_precio: { sistema: 'mgg-centro-tasa', metrica: 'LOS PIJIGUAOS', label: 'Este sistema · Tasa actual del material $/Kg (LOS PIJIGUAOS)' },
+      centros: [
+        // Disponibles Acopiados del centro = Saldo en Kg de la caja LOS PIJIGUAOS (en vivo).
+        { centro: 'C.A. LOS PIJIGUAOS - P-MGG04 ACOPIADO (CAJA)', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-centro-saldokg', metrica: 'LOS PIJIGUAOS', label: 'Este sistema · Saldo en Kg (acopio LOS PIJIGUAOS)' } },
+        // Disponible de cada aliado = «Kg Recibidos por MGG»; por Cobrar = «Saldo en Kg casiterita».
+        { centro: 'C.A. LOS PIJIGUAOS - P-MGG04-B ALBERTO', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-aliado', metrica: ALIADO_PIJ_ALBERTO, label: 'Aliado ALBERTO · Kg Recibidos por MGG' },
+          fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_PIJ_ALBERTO, label: 'Aliado ALBERTO · Saldo en Kg casiterita' } },
+        { centro: 'C.A. LOS PIJIGUAOS - P-MGG04-B ALBERTO MINA 40', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-aliado', metrica: ALIADO_PIJ_ALBERTO_MINA40, label: 'Aliado ALBERTO MINA 40 · Kg Recibidos por MGG' },
+          fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_PIJ_ALBERTO_MINA40, label: 'Aliado ALBERTO MINA 40 · Saldo en Kg casiterita' } },
+        { centro: 'C.A. LOS PIJIGUAOS - P-MGG04-C MAGUIBER', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-aliado', metrica: ALIADO_PIJ_MAGUIBER, label: 'Aliado MAGUIBER · Kg Recibidos por MGG' },
+          fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_PIJ_MAGUIBER, label: 'Aliado MAGUIBER · Saldo en Kg casiterita' } },
+      ],
+    },
     sector('C.A. EL BURRO', '#bbf7d0', [
       'C.A. P-MGG11- A EL BURRO - PIJIGUAOS - PARGUAZA',
     ]),

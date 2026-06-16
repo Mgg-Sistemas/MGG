@@ -45,8 +45,14 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
+    // Cada fuente con su propio catch: si una falla (RLS/red), las demás cargan igual
+    // (antes, un error en cualquiera dejaba sin proveedores el formulario).
     const [cs, pds, cats, unis, cjs, provs] = await Promise.all([
-      listComprasDirectas(), listProductos(), getCategorias(), getUnidades(), listCajasActivas(),
+      listComprasDirectas().catch(() => [] as CompraDirecta[]),
+      listProductos().catch(() => [] as Producto[]),
+      getCategorias().catch(() => [] as string[]),
+      getUnidades().catch(() => [] as string[]),
+      listCajasActivas().catch(() => [] as Caja[]),
       listProveedores().catch(() => [] as Proveedor[]),
     ]);
     setCompras(cs); setProductos(pds); setCategorias(cats); setUnidades(unis); setCajas(cjs);
@@ -189,7 +195,7 @@ function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
 
 /* ───────── Modal: nueva compra (varios materiales) ───────── */
 
-interface LineaUI { id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string }
+interface LineaUI { id: number; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string }
 
 function CrearCompraModal({ productos, categorias, unidades, proveedores, actor, actorName, onClose, onSaved }: {
   productos: Producto[]; categorias: string[]; unidades: string[]; proveedores: Proveedor[];
@@ -197,9 +203,11 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
 }) {
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
   const nuevaLinea = (id: number): LineaUI => ({
-    id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
+    id, productoId: activos[0]?.id ?? '',
     nombre: '', categoria: categorias[0] ?? '', unidad: unidades[0] ?? 'und', cantidad: '1',
   });
+  // Modo ÚNICO para todos los materiales: inventario (existente) o nuevo (alta).
+  const [modo, setModo] = useState<'existente' | 'nuevo'>(activos.length ? 'existente' : 'nuevo');
   const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
   const [almacen, setAlmacen] = useState('');
   // Proveedor: elegir uno existente (buscable) o dar de alta uno nuevo (razón social + RIF).
@@ -222,7 +230,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
     for (const l of lineas) {
       const cant = Number(l.cantidad) || 0;
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
-      if (l.modo === 'existente') {
+      if (modo === 'existente') {
         if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
         payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant });
       } else {
@@ -293,17 +301,23 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
           )}
         </div>
 
+        {/* Modo ÚNICO para todos los materiales (no se repite por renglón). */}
+        <div className="form-row">
+          <label>Materiales</label>
+          <div className="view-toggle" role="tablist" style={{ margin: '0 0 .4rem' }}>
+            <button type="button" className={modo === 'existente' ? 'active' : ''} onClick={() => setModo('existente')}>📦 Inventario</button>
+            <button type="button" className={modo === 'nuevo' ? 'active' : ''} onClick={() => setModo('nuevo')}>＋ Nuevo</button>
+          </div>
+          <small className="muted">{modo === 'existente' ? 'Elegí materiales del inventario.' : 'Se dan de alta en el inventario (stock 0, sin precio). SKU automático.'}</small>
+        </div>
+
         {lineas.map((l, idx) => (
           <div key={l.id} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
-              <div className="view-toggle" role="tablist" style={{ margin: 0 }}>
-                <button type="button" className={l.modo === 'existente' ? 'active' : ''} onClick={() => set(l.id, { modo: 'existente' })}>📦 Inventario</button>
-                <button type="button" className={l.modo === 'nuevo' ? 'active' : ''} onClick={() => set(l.id, { modo: 'nuevo' })}>＋ Nuevo</button>
-              </div>
-              {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => quitar(l.id)} title="Quitar material">✕</button>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '.5rem' }}>
+              {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => quitar(l.id)} title="Quitar material">✕ Quitar material #{idx + 1}</button>}
             </div>
 
-            {l.modo === 'existente' ? (
+            {modo === 'existente' ? (
               <div className="form-grid">
                 <div className="form-row">
                   <label>Material #{idx + 1}</label>
