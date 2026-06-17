@@ -196,8 +196,8 @@ function AcopioModulo({ centro }: { centro: string }) {
         <div className="card"><div className="card-title"><span>$Usd Facturados</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-3)' }} className="mono">{money(resumen.facturado)}</div><div className="muted" style={{ fontSize: '.72rem' }}>sumatoria de toda la columna $Usd Facturados</div></div>
         <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo en moneda $ Usd (corrido)</div></div>
         <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
-        <div className="card"><div className="card-title"><span>Gastos</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div></div>
-        {muestraNomina && <div className="card"><div className="card-title"><span>Nómina</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#a855f7' }} className="mono">{money(resumen.nominas)}</div><div className="muted" style={{ fontSize: '.72rem' }}>sumatoria de la columna Nóminas</div></div>}
+        {/* Gastos = gastos + nómina (tarjeta unificada). */}
+        <div className="card"><div className="card-title"><span>Gastos</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money((Number(resumen.gastos) || 0) + (Number(resumen.nominas) || 0))}</div><div className="muted" style={{ fontSize: '.72rem' }}>incluye la nómina</div></div>
       </div>
 
       {/* La vista se mantiene montada (oculta cuando el switch está apagado) para que sus
@@ -639,16 +639,20 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
     grupo: GrupoClasificacion;
     onVerVehiculo?: (valor: string) => void;
     montoLabel?: string; pctLabel?: string;
-  }) => (
+  }) => {
+    // La barra de cada categoría es proporcional al MAYOR monto del grupo (la más alta llena la barra).
+    const maxMonto = Math.max(1, ...filas.map((f) => f.monto));
+    return (
     <>
       <div className="card-title" style={{ marginTop: '1rem' }}><span style={{ color }}>{titulo}</span></div>
       {!filas.length ? <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin registros.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.8rem' }}>
-            <thead><tr><th>Categoría</th><th style={{ textAlign: 'right', width: 170, whiteSpace: 'nowrap' }}>{montoLabel}</th><th style={{ textAlign: 'right', width: 150, whiteSpace: 'nowrap' }}>{pctLabel}</th></tr></thead>
+            <thead><tr><th>Categoría</th><th style={{ width: '40%' }}></th><th style={{ textAlign: 'right', width: 150, whiteSpace: 'nowrap' }}>{montoLabel}</th><th style={{ textAlign: 'right', width: 120, whiteSpace: 'nowrap' }}>{pctLabel}</th></tr></thead>
             <tbody>
               {filas.map((c) => {
                 const esVeh = !!onVerVehiculo && esClasifVehiculo(c.valor);
+                const w = Math.max(2, (c.monto / maxMonto) * 100);
                 return (
                 // Toda la fila se toca para ver el DETALLE de sus movimientos.
                 <tr key={c.valor} onClick={() => setDetalleCat({ grupo, valor: c.valor })}
@@ -662,6 +666,11 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
                         onClick={(e) => { e.stopPropagation(); onVerVehiculo!(c.valor); }}>📊</button>
                     )}
                   </td>
+                  <td style={{ minWidth: 120 }}>
+                    <span style={{ display: 'block', height: 14, borderRadius: 7, background: 'var(--surface-2, rgba(255,255,255,.06))', overflow: 'hidden' }}>
+                      <span style={{ display: 'block', width: `${w}%`, height: '100%', background: color, borderRadius: 7 }} />
+                    </span>
+                  </td>
                   <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(c.monto)}</td>
                   <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(c.pct)}</td>
                 </tr>
@@ -670,6 +679,7 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
             </tbody>
             <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
               <td>{totalLabel}</td>
+              <td></td>
               <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(totalMonto)}</td>
               <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{pct(totalPct)}</td>
             </tr></tfoot>
@@ -677,7 +687,8 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
         </div>
       )}
     </>
-  );
+    );
+  };
 
   return (
     <Modal title={`📊 Resumen de Caja · ${centro}`} size="lg" onClose={onClose} footer={footer}>
@@ -731,19 +742,6 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
             <Kpi titulo="Total entregado" valor={money(r.totalEntregado)} color="var(--success)" />
             <Kpi titulo="Total gastado" valor={money(r.totalGastado)} color="var(--danger)" />
             <Kpi titulo="Tasa del material" valor={`${money(r.tasaMaterial)} /Kg`} color="var(--primary-3)" />
-          </div>
-
-          {/* % Gastos vs % Nómina */}
-          <div className="card" style={{ marginTop: '1rem' }}>
-            <div className="card-title"><span>Distribución de lo gastado</span></div>
-            <div style={{ display: 'flex', height: 16, borderRadius: 6, overflow: 'hidden', background: 'var(--surface-2)' }}>
-              <div title={`Gastos ${pct(r.pctGastos)}`} style={{ width: `${r.pctGastos * 100}%`, background: '#ef4444' }} />
-              <div title={`Nómina ${pct(r.pctNomina)}`} style={{ width: `${r.pctNomina * 100}%`, background: '#a855f7' }} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '.4rem', fontSize: '.82rem' }}>
-              <span><span style={{ color: '#ef4444' }}>■</span> Gastos <strong>{pct(r.pctGastos)}</strong> · {money(r.totalGastos)}</span>
-              <span><span style={{ color: '#a855f7' }}>■</span> Nómina <strong>{pct(r.pctNomina)}</strong> · {money(r.totalNominas)}</span>
-            </div>
           </div>
 
           {/* Kg de casiterita */}

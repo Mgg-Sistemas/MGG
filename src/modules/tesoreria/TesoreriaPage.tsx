@@ -1887,19 +1887,10 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
         origenId, destinoId, legs, motivo: motivo.trim(),
         origenNombre: origen?.nombre, destinoNombre: destino?.nombre, actor, actorName,
       });
-      // El traspaso a un centro de costo se vuelve una CUENTA POR COBRAR incremental:
-      // el centro debe rendir lo entregado (en dinero o en producto al cambio). Una por
-      // cada moneda trasladada; si ya existe abierta para ese centro+moneda, suma.
-      try {
-        for (const l of legs) {
-          await registrarCobrarPorTraspaso({
-            centro: destino?.nombre ?? destinoId, monto: l.monto, moneda: l.moneda,
-            nota: motivo.trim(), actor, actorName,
-          });
-        }
-      } catch { /* no bloquear el traslado si fallara la cuenta por cobrar */ }
-      // Centro de acopio EXTERNO (otro sistema/Supabase): además del traslado local,
-      // replicar la transferencia al otro sistema vía el puente inter-sistema.
+      // El traspaso a un centro de costo se vuelve una CUENTA POR COBRAR incremental
+      // (el centro debe rendir lo entregado, en dinero o en producto al cambio). Para los
+      // centros INTERNOS la crea la ENTRADA «USD ENTREGADOS» del acopio
+      // (entradaTesoreriaACentroAcopio); para los EXTERNOS la creamos acá (en USD).
       if (destino?.externo && destino.empresa_codigo) {
         const transferLegs: TransferLeg[] = saldos
           .map((s) => ({ cuenta: s.cuenta, moneda: s.moneda, monto: Number(montos[s.id]) || 0, tasa_bs: s.tasa_prom ?? null }))
@@ -1908,10 +1899,16 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
           empresaDestino: destino.empresa_codigo, cajaId: destinoId, cajaNombre: destino.nombre,
           legs: transferLegs, motivo: motivo.trim(), actor, actorName,
         });
+        // Cuenta por cobrar del centro externo (incremental, en USD equivalente).
+        let tasaUsdX = 0;
+        if (legs.some((l) => l.moneda === 'Bs')) { try { tasaUsdX = (await getTasaHoy()).usd ?? 0; } catch { /* sin tasa */ } }
+        const montoUsdX = legs.reduce((a, l) => a + (l.moneda === 'Bs' ? (tasaUsdX > 0 ? l.monto / tasaUsdX : 0) : l.monto), 0);
+        try { await registrarCobrarPorTraspaso({ centro: destino.nombre, monto: montoUsdX, moneda: 'USD', nota: motivo.trim(), actor, actorName }); } catch { /* no bloquea el traslado */ }
         notify(`Traslado a ${destino.nombre} registrado y enviado al otro sistema`, 'success', { link: '#/app/tesoreria' });
       } else {
         // Centro de acopio INTERNO: además de la salida en Tesorería, se refleja como
-        // ENTRADA (USD ENTREGADOS) en ese centro de acopio, con el motivo como descripción.
+        // ENTRADA (USD ENTREGADOS) en ese centro de acopio. Esa entrada genera la
+        // cuenta por cobrar incremental (la crea entradaTesoreriaACentroAcopio).
         let tasaUsd = 0;
         if (legs.some((l) => l.moneda === 'Bs')) { try { tasaUsd = (await getTasaHoy()).usd ?? 0; } catch { /* sin tasa */ } }
         const montoUsd = legs.reduce((a, l) => a + (l.moneda === 'Bs' ? (tasaUsd > 0 ? l.monto / tasaUsd : 0) : l.monto), 0);

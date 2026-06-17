@@ -39,6 +39,13 @@ export default defineConfig(({ command }) => ({
     port: 3000,
     open: true,
   },
+  // Pre-bundla jspdf/autotable al arrancar el dev server. Sin esto, Vite los
+  // re-optimiza al vuelo y crea OTRA instancia del módulo, perdiendo el parche
+  // de vista previa (instalarPreviewPdf) → el PDF se baja directo en vez de
+  // mostrarse en el visor. Fijarlos mantiene una sola instancia estable.
+  optimizeDeps: {
+    include: ['jspdf', 'jspdf-autotable', 'xlsx-js-style'],
+  },
   build: {
     chunkSizeWarningLimit: 900,
     rollupOptions: {

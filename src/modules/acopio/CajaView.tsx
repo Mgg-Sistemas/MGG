@@ -135,7 +135,7 @@ export function CajaView({ movimientos, clasificaciones, cajas, costoClases, can
               <tr>
                 <th>Fecha</th><th>Descripción</th><th>Clasificación</th>
                 <th style={{ textAlign: 'right' }}>$ Entregado</th><th style={{ textAlign: 'right' }}>Kg Cerr.</th>
-                <th style={{ textAlign: 'right' }}>Gastos</th><th style={{ textAlign: 'right' }}>Nóminas</th>
+                <th style={{ textAlign: 'right' }}>Gastos</th>
                 <th style={{ textAlign: 'right' }}>Saldo $</th>{canWrite && <th></th>}
               </tr>
             </thead>
@@ -147,8 +147,8 @@ export function CajaView({ movimientos, clasificaciones, cajas, costoClases, can
                   <td><Chip grupo={m.clasif_grupo} valor={m.clasif_valor} /></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{m.usd_entregado ? money(m.usd_entregado) : ''}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{m.kg_cerrados ? num(m.kg_cerrados) : ''}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: m.gastos ? 'var(--danger)' : undefined }}>{m.gastos ? money(m.gastos) : ''}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: m.nominas ? 'var(--danger)' : undefined }}>{m.nominas ? money(m.nominas) : ''}</td>
+                  {/* Gastos = gastos + nómina (unificados en una sola columna). */}
+                  <td className="mono" style={{ textAlign: 'right', color: (m.gastos || m.nominas) ? 'var(--danger)' : undefined }}>{((Number(m.gastos) || 0) + (Number(m.nominas) || 0)) ? money((Number(m.gastos) || 0) + (Number(m.nominas) || 0)) : ''}</td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{money(m.saldo_usd ?? 0)}</td>
                   {canWrite && <td style={{ textAlign: 'center' }}>✎</td>}
                 </tr>

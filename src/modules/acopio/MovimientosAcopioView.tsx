@@ -250,7 +250,6 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro }: { o
                 <th>Kg Cerrados</th>
                 <th>$Usd Facturados</th>
                 <th>Gastos</th>
-                <th>Nóminas</th>
                 <th>Traspaso de Caja</th>
                 <th>Saldo en moneda $ Usd</th>
                 <th title="Saldo corrido = saldo anterior + Kg Cerrados − Kg Recibidos por MGG">Saldo en Kg de casiterita ⓘ</th>
@@ -259,7 +258,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro }: { o
             </thead>
             <tbody>
               {!mostradas.length && (
-                <tr><td colSpan={11} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {mostradas.map((f) => (
                 <tr
@@ -277,8 +276,8 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro }: { o
                   {/* Kg que aporta el contrato al cerrarse → resaltado */}
                   <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(f.kgCerrados)}</td>
                   <td className="mono">{money(f.usdFacturados)}</td>
-                  <td className="mono">{f.gastosGt == null ? '—' : money(f.gastosGt)}</td>
-                  <td className="mono">{f.nominasGt == null ? '—' : money(f.nominasGt)}</td>
+                  {/* Gastos = gastos + nómina (columnas unificadas). */}
+                  <td className="mono">{(f.gastosGt == null && f.nominasGt == null) ? '—' : money((f.gastosGt ?? 0) + (f.nominasGt ?? 0))}</td>
                   <td className="mono">{f.trasladoCaja == null ? '—' : money(f.trasladoCaja)}</td>
                   <td className="mono"><strong>{money(f.saldoUsd)}</strong></td>
                   {/* Saldo corrido de casiterita → resaltado (permite negativo) */}
@@ -303,7 +302,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro }: { o
                 <td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>Totales</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--success, #45c08a)' }}>{totUsdEntregadoVista ? money(totUsdEntregadoVista) : '—'}</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
-                <td colSpan={3}></td>
+                <td colSpan={2}></td>
                 <td className="mono" style={{ fontWeight: 800 }}>{totTrasladoVista ? money(totTrasladoVista) : '—'}</td>
                 <td></td>
                 <td className="mono" style={{ fontWeight: 800, color: saldoVista < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(saldoVista)}</td>

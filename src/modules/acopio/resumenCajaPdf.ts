@@ -3,6 +3,7 @@
    Réplica de la hoja «RESUMEN CAJA PERAMANAL GT».
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { ResumenCajaAcopio } from './caja.repository';
 
 const NOMBRE = 'resumen-caja-acopio';
@@ -41,10 +42,9 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
   const kpis: [string, string][] = [
     ['Saldo actual de la caja', fmtUsd(r.saldoUsd)],
     ['Total entregado', fmtUsd(r.totalEntregado)],
-    ['Total gastado (gastos + nómina)', fmtUsd(r.totalGastado)],
+    // Gastos = gastos + nómina (unificados en uno solo).
+    ['Gastos (incluye nómina)', fmtUsd(r.totalGastado)],
     ['Tasa del material', `${fmtUsd(r.tasaMaterial)} /Kg`],
-    [`Gastos GT  (${fmtPct(r.pctGastos)})`, fmtUsd(r.totalGastos)],
-    [`Nómina GT  (${fmtPct(r.pctNomina)})`, fmtUsd(r.totalNominas)],
   ];
   autoTable(doc, {
     startY: y,
@@ -96,7 +96,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
 }
 
 export async function descargarResumenCajaPdf(r: ResumenCajaAcopio): Promise<void> {
-  (await construirResumenDoc(r)).save(`${NOMBRE}-${r.fechaActualizacion}.pdf`);
+  previewPdfDoc(await construirResumenDoc(r), `${NOMBRE}-${r.fechaActualizacion}.pdf`);
 }
 
 export async function enviarResumenCajaPorCorreo(r: ResumenCajaAcopio, destinos: string[]): Promise<{ destinatarios: string[] }> {
