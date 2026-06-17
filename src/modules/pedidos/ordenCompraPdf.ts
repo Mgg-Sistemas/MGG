@@ -1,6 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoDataUrl, loadFirmaGerenteDataUrl } from '@/shared/lib/pdfLogo';
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 
 interface OcData {
@@ -71,9 +71,10 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
 }
 
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
-  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap }, logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap }, logoDataUrl, firmaDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarDatosOc(ordenId),
     loadLogoDataUrl().catch(() => null),
+    loadFirmaGerenteDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -339,11 +340,22 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     y = MARGIN;
   }
 
+  // Firma del Gerente General: se inserta abajo a la izquierda cuando la OC ya fue
+  // aprobada por él (oc_aprobada en adelante). Sobre la línea "Firma autorizada · MGG".
+  const aprobadaPorGG = !!(orden.oc_aprobada_por || orden.oc_aprobada_en)
+    || ['oc_aprobada', 'pagada', 'oc_emitida', 'recibida', 'finalizada', 'por_recibir', 'cuenta_abierta'].includes(orden.estado);
+  if (firmaDataUrl && aprobadaPorGG) {
+    try {
+      const fw = 120, fh = 50;
+      doc.addImage(firmaDataUrl, 'PNG', MARGIN + 6, pageH - 80 - fh + 6, fw, fh, undefined, 'FAST');
+    } catch { /* firma opcional */ }
+  }
+
   doc.setDrawColor(180);
   doc.line(MARGIN, pageH - 80, MARGIN + 200, pageH - 80);
   doc.line(PAGE_W - MARGIN - 200, pageH - 80, PAGE_W - MARGIN, pageH - 80);
   doc.setFontSize(9);
-  doc.text('Firma autorizada · MGG', MARGIN, pageH - 66);
+  doc.text(aprobadaPorGG ? 'Firma autorizada · Gerente General' : 'Firma autorizada · MGG', MARGIN, pageH - 66);
   doc.text('Recibido por proveedor', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
   doc.setFontSize(8);
   doc.setTextColor(120);

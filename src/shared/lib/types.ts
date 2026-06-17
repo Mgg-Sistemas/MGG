@@ -857,6 +857,26 @@ export interface Notificacion {
 
 export type EstadoOferta = 'pendiente' | 'aceptada' | 'descartada';
 
+/** Modo de un costo logístico: incluido en el precio o por cuenta del comprador. */
+export type CostoLogistico = 'incluido' | 'por_cuenta' | null;
+
+/** Datos técnicos y logísticos opcionales que el proveedor declara en su oferta. */
+export interface OfertaDetalle {
+  marca?: string | null;
+  modelo?: string | null;
+  procedencia?: string | null;
+  materiales?: string | null;
+  dimensiones?: string | null;
+  peso?: string | null;
+  calidad?: string | null;
+  logistica?: {
+    flete?: CostoLogistico;
+    transporte?: CostoLogistico;
+    embalaje?: CostoLogistico;
+    seguros?: CostoLogistico;
+  } | null;
+}
+
 export interface OfertaProveedor {
   id: string;
   orden_id: string;
@@ -866,6 +886,8 @@ export interface OfertaProveedor {
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;
   notas?: string | null;
+  /** Datos técnicos/logísticos declarados por el proveedor (marca, modelo, fletes…). */
+  detalle?: OfertaDetalle | null;
   estado: EstadoOferta;
   score_calculado?: number | null;
   registrada_por_email: string;
