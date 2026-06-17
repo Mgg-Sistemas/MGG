@@ -5,6 +5,7 @@ import { App } from './App';
 import { instalarSelectOnFocusMonto } from './shared/lib/selectOnFocus';
 import { instalarRecuperacionChunks } from './shared/lib/lazyReload';
 import { instalarMayusculaAutomatica } from './shared/lib/autoUpper';
+import { instalarPreviewPdf } from './shared/lib/reportPreview';
 import './styles/index.css';
 
 // Al enfocar un campo numérico que muestra 0, selecciona el 0 para reemplazarlo.
@@ -13,6 +14,9 @@ instalarSelectOnFocusMonto();
 instalarRecuperacionChunks();
 // Todos los campos de texto del sistema se escriben en MAYÚSCULA automáticamente.
 instalarMayusculaAutomatica();
+// Reportes: en vez de descargar directo, muestran una vista previa (PDF embebido)
+// y solo descargan si el usuario lo pide.
+void instalarPreviewPdf();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

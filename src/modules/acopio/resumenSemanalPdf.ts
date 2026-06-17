@@ -2,6 +2,7 @@
    Centro de Acopio · Resumen Semanal Casiterita · PDF
    Réplica de la hoja «REPORTE PRELIMINAR DE CENTROS DE ACOPIOS».
    ============================================================ */
+import { previewWorkbook } from '@/shared/lib/reportPreview';
 import type { ResumenSemanal } from './resumenSemanal.repository';
 import { computeTotales, acopiadoMggSector, resguardoSector } from './resumenSemanal.repository';
 
@@ -180,5 +181,5 @@ export async function descargarResumenSemanalExcel(r: ResumenSemanal): Promise<v
   ws['!cols'] = [{ wch: 6 }, { wch: 40 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 18 }, { wch: 16 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Reporte Preliminar');
-  XLSX.writeFile(wb, `resumen-semanal-casiterita-${r.fecha}.xlsx`);
+  previewWorkbook(XLSX, wb, `resumen-semanal-casiterita-${r.fecha}.xlsx`);
 }
