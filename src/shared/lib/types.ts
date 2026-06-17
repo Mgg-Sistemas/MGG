@@ -1226,6 +1226,24 @@ export interface AliadoMovimiento {
   reflejo_casiterita: boolean;
   recepcion_mov_id?: string | null;   // entrada a stock de CASITERITA si aplicó
   orden: number;
+  periodo?: number;                    // periodo de caja del aliado (1 = primero)
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
+/** Un cierre de caja de un aliado (historial). */
+export interface AliadoCierre {
+  id: string;
+  aliado_id: string;
+  periodo: number;
+  fecha_inicio?: string | null;
+  fecha_fin: string;
+  saldo_usd?: number | null;
+  saldo_kg?: number | null;
+  tasa?: number | null;
+  almacen?: string | null;
+  inv_mov_id?: string | null;
   created_by?: string | null;
   actor_name?: string | null;
   created_at: string;

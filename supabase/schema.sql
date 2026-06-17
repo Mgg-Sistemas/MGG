@@ -2319,11 +2319,36 @@ create table if not exists public.acopio_aliado_movimientos (
   reflejo_casiterita boolean not null default false,
   recepcion_mov_id uuid,                       -- movimiento de inventario (entrada a CASITERITA) si aplicó
   orden integer not null default 0,
+  -- Periodo de "caja" del aliado: la vista viva se acota al periodo abierto;
+  -- los cerrados quedan en el historial (acopio_aliado_cierres).
+  periodo integer not null default 1,
   created_by text, actor_name text,
   created_at timestamptz not null default now(),
   updated_at timestamptz
 );
 create index if not exists idx_acopio_aliadomov_aliado on public.acopio_aliado_movimientos(aliado_id, fecha, orden);
+alter table public.acopio_aliado_movimientos add column if not exists periodo integer not null default 1;
+create index if not exists idx_aliado_mov_periodo on public.acopio_aliado_movimientos(aliado_id, periodo);
+
+-- Historial de cierres de caja por aliado (réplica del cierre de los centros:
+-- el saldo $ arranca el periodo nuevo como apertura y el saldo en Kg/gramos pasa
+-- al inventario —casiterita, u ORO en los aliados de oro— a la tasa del aliado).
+create table if not exists public.acopio_aliado_cierres (
+  id uuid primary key default gen_random_uuid(),
+  aliado_id uuid not null references public.acopio_aliados(id) on delete cascade,
+  periodo int not null,
+  fecha_inicio date,
+  fecha_fin date not null default current_date,
+  saldo_usd numeric,
+  saldo_kg numeric,
+  tasa numeric,
+  almacen text,
+  inv_mov_id uuid,
+  created_by text, actor_name text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_aliado_cierres_aliado on public.acopio_aliado_cierres(aliado_id);
+alter table public.acopio_aliado_cierres enable row level security;
 
 create table if not exists public.acopio_cuentas_cobrar (
   id uuid primary key default gen_random_uuid(),
@@ -2367,12 +2392,15 @@ do $$ begin
   create policy "acopio_cobrar write"  on public.acopio_cuentas_cobrar     for all using (public.is_operativo()) with check (public.is_operativo());
   create policy "acopio_cabono read"   on public.acopio_cobrar_abonos      for select using (auth.role()='authenticated');
   create policy "acopio_cabono write"  on public.acopio_cobrar_abonos      for all using (public.is_operativo()) with check (public.is_operativo());
+  create policy "acopio_aliado_cierres read"  on public.acopio_aliado_cierres for select using (auth.role()='authenticated');
+  create policy "acopio_aliado_cierres write" on public.acopio_aliado_cierres for all using (public.is_operativo()) with check (public.is_operativo());
 exception when duplicate_object then null; end $$;
 do $$ begin
   alter publication supabase_realtime add table public.acopio_aliados;
   alter publication supabase_realtime add table public.acopio_aliado_movimientos;
   alter publication supabase_realtime add table public.acopio_cuentas_cobrar;
   alter publication supabase_realtime add table public.acopio_cobrar_abonos;
+  alter publication supabase_realtime add table public.acopio_aliado_cierres;
 exception when duplicate_object then null; end $$;
 
 -- Catálogo de DESTINOS de un «Traslado de caja» del acopio (La Esperanza).
