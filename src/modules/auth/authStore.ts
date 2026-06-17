@@ -29,7 +29,12 @@ export function useSession() {
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
+      // Al volver el foco a la pestaña, Supabase refresca el token y emite
+      // TOKEN_REFRESHED con un `session` NUEVO. Si lo propagáramos, cambiaría la
+      // identidad de `user` → PermissionsContext recargaría con "Cargando…" y
+      // desmontaría la vista (cerrando cualquier modal abierto). Solo
+      // actualizamos cuando cambia el usuario (login/logout), no en refrescos.
+      setSession((prev) => (prev?.user?.id === s?.user?.id ? prev : s));
     });
 
     return () => sub.subscription.unsubscribe();

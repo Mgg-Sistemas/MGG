@@ -649,6 +649,120 @@ export async function reabrirCaja(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/* ───────────── Cerrar caja (checkpoint) + apertura automática ─────────────
+   Cada centro de costo trabaja una caja a la vez (como las hojas del Excel).
+   Al CERRAR la caja actual:
+     · el SALDO EN KG pasa al INVENTARIO como una entrada de CASITERITA en el
+       almacén de casiterita del centro, valorizada a la TASA del material;
+     · la caja queda cerrada (con su saldo final) y se ABRE una nueva;
+     · el SALDO EN $ se trae a la caja nueva como un movimiento de apertura en
+       «$ entregados» (NO genera cuenta por cobrar: ya estaba contabilizado).
+   El resto arranca en cero: la caja nueva es el «libro» en vivo del centro. */
+
+/** Nombre del almacén de casiterita ligado a un centro de costo (uno por centro,
+ *  con nombre único porque el stock se indexa por nombre de almacén). */
+export function almacenCasiteritaDeCentro(centro: string): string {
+  const c = (centro || CENTRO_ACOPIO_DEFECTO).trim();
+  return c === 'LA ESPERANZA' ? 'CASITERITA' : `CASITERITA · ${c}`;
+}
+
+/** Producto «CASITERITA» del inventario (por SKU SNO2, con respaldo por nombre). */
+async function productoCasiteritaId(): Promise<string | null> {
+  const { findBySku, listProductos } = await import('@/modules/inventario/inventario.repository');
+  const porSku = await findBySku('SNO2').catch(() => null);
+  if (porSku) return porSku.id;
+  const todos = await listProductos().catch(() => []);
+  const p = todos.find((x) => (x.nombre || '').trim().toUpperCase() === 'CASITERITA');
+  return p?.id ?? null;
+}
+
+/** Asegura que exista el almacén de casiterita del centro (lo crea si falta). */
+async function ensureAlmacenCasiterita(centro: string): Promise<string> {
+  const nombre = almacenCasiteritaDeCentro(centro);
+  const { listAlmacenes, crearAlmacen } = await import('@/modules/inventario/almacenes.repository');
+  const todos = await listAlmacenes().catch(() => []);
+  if (!todos.some((a) => a.nombre === nombre)) {
+    // 23505 si otra pestaña lo creó a la vez → se ignora (ya existe).
+    await crearAlmacen({ nombre, sede: centro }).catch(() => { /* ya existe */ });
+  }
+  return nombre;
+}
+
+/** Siguiente «Caja #N» del centro (correlativo por el mayor número ya usado). */
+async function nextNumeroCaja(centro: string): Promise<string> {
+  const cajas = await listCajas(centro);
+  let max = 0;
+  for (const c of cajas) {
+    const m = String(c.numero || '').match(/(\d+)/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `Caja #${max + 1}`;
+}
+
+export interface CierreCajaResultado {
+  cajaCerrada: CajaCierre;
+  cajaNueva: CajaCierre;
+  saldoUsd: number;
+  saldoKg: number;
+  tasa: number;
+  almacenCasiterita: string;
+  kgAInventario: boolean;
+}
+
+export async function cerrarYAbrirCaja(input: { centro: string; actor: string; actorName?: string | null }): Promise<CierreCajaResultado> {
+  const centro = (input.centro || CENTRO_ACOPIO_DEFECTO).trim();
+  const cajas = await listCajas(centro);
+  const abierta = cajas.find((c) => c.estado === 'abierta');
+  if (!abierta) throw new Error('No hay una caja abierta para cerrar en este centro.');
+
+  // Saldos de ESTA caja (no acumulados de cierres previos).
+  const movs = await listCajaMovimientos(abierta.id, centro);
+  const r = resumirCaja(movs);
+  const saldoUsd = Math.round(r.saldoUsd * 100) / 100;
+  const saldoKg = Math.round(r.saldoKg * 100) / 100;
+  const tasa = Math.round(r.tasa * 10000) / 10000;
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  // 1) SALDO EN KG → INVENTARIO (entrada de casiterita a la tasa). Se hace primero:
+  //    si fallara, no se cierra nada. Solo cuando hay Kg positivos para enviar.
+  let kgAInventario = false;
+  if (saldoKg > 0) {
+    const prodId = await productoCasiteritaId();
+    if (!prodId) throw new Error('No se encontró el producto CASITERITA en inventario. Creálo antes de cerrar la caja.');
+    const almacen = await ensureAlmacenCasiterita(centro);
+    const { registrarMovimiento } = await import('@/modules/inventario/movimientos.repository');
+    await registrarMovimiento({
+      producto_id: prodId, tipo: 'entrada', delta: saldoKg, almacen,
+      precio_unitario: tasa > 0 ? tasa : null,
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'acopio_cierre_caja', ref_id: abierta.id, ref_codigo: abierta.numero,
+      detalle: `Cierre ${abierta.numero} · ${centro} · ${num(saldoKg)} Kg${tasa > 0 ? ` a ${tasa}/Kg` : ''}`,
+    });
+    kgAInventario = true;
+  }
+
+  // 2) Cerrar la caja actual con su saldo final.
+  await cerrarCaja(abierta.id, saldoUsd, input.actor, hoy);
+
+  // 3) Abrir la caja nueva.
+  const numero = await nextNumeroCaja(centro);
+  const nueva = await crearCaja({ numero, nombre: `CAJA ${centro}`, fecha_inicio: hoy, centroNombre: centro }, input.actor);
+
+  // 4) Traer el SALDO EN $ como movimiento de apertura («$ entregados») en la
+  //    caja nueva. Inserción directa: NO debe generar cuenta por cobrar.
+  if (saldoUsd !== 0) {
+    const desc = `SALDO INICIAL · viene del cierre ${abierta.numero}`;
+    const { error } = await supabase.from('acopio_caja_movimientos').insert({
+      caja_id: nueva.id, fecha: hoy, descripcion: desc,
+      usd_entregado: saldoUsd, clasif_grupo: 'movimientos_caja', clasif_valor: 'SALDO INICIAL', orden: 1,
+      created_by: input.actor, actor_name: input.actorName ?? null,
+    });
+    if (error) throw error;
+  }
+
+  return { cajaCerrada: abierta, cajaNueva: nueva, saldoUsd, saldoKg, tasa, almacenCasiterita: almacenCasiteritaDeCentro(centro), kgAInventario };
+}
+
 export async function listCostoClases(): Promise<CostoClase[]> {
   const { data, error } = await supabase
     .from('acopio_costo_clases')

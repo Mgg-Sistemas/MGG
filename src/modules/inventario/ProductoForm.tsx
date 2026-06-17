@@ -101,12 +101,25 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
   const [nuevaUnid, setNuevaUnid] = useState('');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
 
-  // Producto nuevo: el SKU se genera automático e incremental según la categoría.
+  // El SKU se genera automático e incremental según la categoría.
+  //  · Producto nuevo: siempre sigue a la categoría elegida.
+  //  · Edición: si la categoría cambia respecto a la original, el SKU se
+  //    regenera con el prefijo de la nueva categoría; si se vuelve a la
+  //    categoría original, se restaura el SKU original del producto.
   useEffect(() => {
-    if (isEdit || !form.categoria) return;
+    if (!form.categoria) return;
+    if (isEdit) {
+      if (!producto) return;
+      if (form.categoria !== producto.categoria) {
+        setForm((prev) => ({ ...prev, sku: siguienteSku(prev.categoria, productos) }));
+      } else {
+        setForm((prev) => (prev.sku === producto.sku ? prev : { ...prev, sku: producto.sku }));
+      }
+      return;
+    }
     setForm((prev) => ({ ...prev, sku: siguienteSku(prev.categoria, productos) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, form.categoria, productos]);
+  }, [isEdit, form.categoria, productos, producto]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

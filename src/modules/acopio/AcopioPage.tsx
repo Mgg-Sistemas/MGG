@@ -23,8 +23,8 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
-import type { GrupoClasificacion } from '@/shared/lib/types';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, cerrarYAbrirCaja, almacenCasiteritaDeCentro, listCajaMovimientos, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
+import type { GrupoClasificacion, CajaMovimiento } from '@/shared/lib/types';
 import { listVehiculos } from '@/modules/combustible/combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
@@ -77,6 +77,8 @@ function AcopioModulo({ centro }: { centro: string }) {
   const [movAcopio, setMovAcopio] = useState(false);
   const [categorias, setCategorias] = useState(false);
   const [resumenCaja, setResumenCaja] = useState(false);
+  const [cerrarCajaOpen, setCerrarCajaOpen] = useState(false);
+  const [cierresOpen, setCierresOpen] = useState(false);
   const [vistaAliados, setVistaAliados] = useState(false);
   const [vistaCuentas, setVistaCuentas] = useState(false);
   // LA ESMERALDA ALI: dos vistas propias de pérdida (con botón Volver).
@@ -156,6 +158,8 @@ function AcopioModulo({ centro }: { centro: string }) {
           encendido = aparece la lista de movimientos y el botón para agregar uno nuevo. */}
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem', marginBottom: '1.25rem' }}>
         <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
+        <button className="btn btn-ghost" onClick={() => setCierresOpen(true)}>🗂 Cierres de caja</button>
+        {canWrite && <button className="btn btn-ghost" onClick={() => setCerrarCajaOpen(true)}>🔒 Cerrar caja</button>}
         <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
         {centro !== 'GLOBAL MINERAL TIN' && !esEsmeralda && <button className="btn btn-ghost" onClick={() => setVistaAliados(true)}>{centro === 'PERAMANAL ENDER MEJIAS' ? '🪙 Compra de ORO' : '🤝 Aliados'}</button>}
         {centro === 'PERAMANAL ENDER MEJIAS' && <button className="btn btn-ghost" onClick={() => setVistaCuentas(true)}>📥 Cuentas por Cobrar</button>}
@@ -202,11 +206,25 @@ function AcopioModulo({ centro }: { centro: string }) {
 
       {/* La vista se mantiene montada (oculta cuando el switch está apagado) para que sus
           cálculos sigan alimentando las tarjetas de arriba vía onResumen. */}
-      <MovimientosAcopioView onResumen={onResumenAcopio} visible={listarMovs} centro={centro} />
+      <MovimientosAcopioView onResumen={onResumenAcopio} visible={listarMovs} centro={centro} cajaId={cajaActual?.id ?? null} />
 
       {categorias && <CategoriasModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
 
-      {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} centro={centro} onClose={() => setResumenCaja(false)} />}
+      {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} centro={centro} cajaId={cajaActual?.id ?? null} onClose={() => setResumenCaja(false)} />}
+
+      {cierresOpen && <CierresCajaModal centro={centro} cajaActualId={cajaActual?.id ?? null} onClose={() => setCierresOpen(false)} />}
+
+      {cerrarCajaOpen && (
+        <CerrarCajaModal
+          centro={centro}
+          cajaActual={cajaActual}
+          resumen={resumen}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setCerrarCajaOpen(false)}
+          onDone={async () => { setCerrarCajaOpen(false); await reload(); }}
+        />
+      )}
 
       {movAcopio && (
         <AgregarMovimientoModal
@@ -586,9 +604,180 @@ function DestinoTrasladoForm({ destino, aliados, cajasExt, actor, centro, onClos
   );
 }
 
+/* ───────────── Cerrar caja (cierre + apertura automática) ───────────── */
+
+function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClose, onDone }: {
+  centro: string;
+  cajaActual: CajaCierre | null;
+  resumen: ResumenAcopio;
+  actor: string;
+  actorName: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const saldoUsd = Math.round((Number(resumen.saldoUsd) || 0) * 100) / 100;
+  const saldoKg = Math.round((Number(resumen.saldoKg) || 0) * 100) / 100;
+  const tasa = Number(resumen.tasa) || 0;
+  const valorKg = saldoKg > 0 ? saldoKg * tasa : 0;
+  const almacen = almacenCasiteritaDeCentro(centro);
+
+  async function confirmar() {
+    setSaving(true); setError(null);
+    try {
+      const res = await cerrarYAbrirCaja({ centro, actor, actorName });
+      notify(`Caja ${res.cajaCerrada.numero} cerrada · nueva ${res.cajaNueva.numero} abierta`, 'success', { link: '#/app/acopio' });
+      onDone();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cerrar la caja.'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving || !cajaActual}>{saving ? 'Cerrando…' : '🔒 Cerrar y abrir nueva'}</button>
+    </>
+  );
+
+  return (
+    <Modal title={`🔒 Cerrar caja · ${centro}`} size="sm" onClose={onClose} footer={footer}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      {!cajaActual ? (
+        <p className="muted" style={{ margin: 0 }}>No hay una caja abierta para cerrar.</p>
+      ) : (
+        <>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+            Se cerrará <strong>{cajaActual.numero}</strong> ({date(cajaActual.fecha_inicio)} → hoy) y se abrirá una nueva automáticamente.
+          </p>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <tbody>
+                <tr>
+                  <td style={{ fontWeight: 600 }}>Saldo en $ → apertura de la nueva caja</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: saldoUsd < 0 ? 'var(--danger)' : 'var(--primary-3)' }}>{money(saldoUsd)}</td>
+                </tr>
+                <tr>
+                  <td style={{ fontWeight: 600 }}>Saldo en Kg → inventario (casiterita)</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(saldoKg)} Kg</td>
+                </tr>
+                {saldoKg > 0 && (
+                  <>
+                    <tr><td className="muted">Almacén destino</td><td className="mono" style={{ textAlign: 'right' }}>{almacen}</td></tr>
+                    <tr><td className="muted">Tasa del material</td><td className="mono" style={{ textAlign: 'right' }}>{money(tasa)}/Kg</td></tr>
+                    <tr><td className="muted">Valor que entra al inventario</td><td className="mono" style={{ textAlign: 'right' }}>{money(valorKg)}</td></tr>
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted" style={{ fontSize: '.76rem', marginBottom: 0 }}>
+            {saldoKg > 0
+              ? `Los ${num(saldoKg)} Kg pasan a CASITERITA en «${almacen}» a la tasa del material. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.`
+              : 'No hay saldo de Kg para enviar al inventario. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.'}
+          </p>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/* ───────────── Historial de cierres de caja (buscable) ───────────── */
+
+function CierresCajaModal({ centro, cajaActualId, onClose }: { centro: string; cajaActualId: string | null; onClose: () => void }) {
+  const [cajas, setCajas] = useState<CajaCierre[]>([]);
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState<CajaCierre | null>(null);
+  const [movs, setMovs] = useState<CajaMovimiento[]>([]);
+  const [cargandoMovs, setCargandoMovs] = useState(false);
+
+  const cargar = useCallback(() => { listCajas(centro).then(setCajas).catch(() => setCajas([])); }, [centro]);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['acopio_cajas', 'acopio_caja_movimientos'], cargar);
+
+  // Etiqueta «Cierre de caja de <inicio> a <fin>» (o «en curso» si sigue abierta).
+  const etiqueta = (c: CajaCierre) => `${c.numero} · ${date(c.fecha_inicio)} → ${c.fecha_fin ? date(c.fecha_fin) : 'en curso'}`;
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const filtradas = useMemo(() => {
+    const t = norm(q.trim());
+    if (!t) return cajas;
+    return cajas.filter((c) => norm(`${etiqueta(c)} ${c.nombre ?? ''} ${c.recepcion ?? ''}`).includes(t));
+  }, [cajas, q]);
+
+  function abrir(c: CajaCierre) {
+    setSel(c); setCargandoMovs(true); setMovs([]);
+    listCajaMovimientos(c.id).then(setMovs).catch(() => setMovs([])).finally(() => setCargandoMovs(false));
+  }
+
+  return (
+    <Modal title={`🗂 Cierres de caja · ${centro}`} size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      {!sel ? (
+        <>
+          <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Buscar cierre (fecha, número, recepción…)" style={{ marginBottom: '.6rem' }} />
+          {!filtradas.length ? (
+            <p className="muted" style={{ margin: 0 }}>Sin cierres registrados.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <thead><tr><th>Caja / período</th><th>Estado</th><th style={{ textAlign: 'right' }}>Saldo final</th><th></th></tr></thead>
+                <tbody>
+                  {filtradas.map((c) => (
+                    <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => abrir(c)} title="Ver los movimientos de este período">
+                      <td style={{ fontWeight: 600 }}>{etiqueta(c)}{c.id === cajaActualId && <span className="badge" style={{ marginLeft: '.4rem', fontSize: '.62rem' }}>actual</span>}</td>
+                      <td>{c.estado === 'cerrada' ? '🔒 Cerrada' : '● Abierta'}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{c.saldo_final != null ? money(Number(c.saldo_final)) : '—'}</td>
+                      <td style={{ textAlign: 'right' }}>›</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+            <strong>{etiqueta(sel)}</strong>
+            <button className="btn btn-sm btn-ghost" onClick={() => { setSel(null); setMovs([]); }}>← Volver al listado</button>
+          </div>
+          {cargandoMovs ? (
+            <p className="muted" style={{ margin: 0 }}>Cargando movimientos…</p>
+          ) : !movs.length ? (
+            <p className="muted" style={{ margin: 0 }}>Sin movimientos en este período.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.8rem' }}>
+                <thead><tr>
+                  <th>Fecha</th><th>Descripción</th>
+                  <th style={{ textAlign: 'right' }}>$ Entregado</th><th style={{ textAlign: 'right' }}>Kg Cerr.</th>
+                  <th style={{ textAlign: 'right' }}>Gastos</th><th style={{ textAlign: 'right' }}>Kg MGG</th>
+                  <th style={{ textAlign: 'right' }}>Saldo $</th><th style={{ textAlign: 'right' }}>Saldo Kg</th>
+                </tr></thead>
+                <tbody>
+                  {movs.map((m) => (
+                    <tr key={m.id}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{date(m.fecha)}</td>
+                      <td style={{ maxWidth: 240, whiteSpace: 'pre-wrap' }}>{m.descripcion || '—'}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{m.usd_entregado ? money(m.usd_entregado) : ''}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{m.kg_cerrados ? num(m.kg_cerrados) : ''}</td>
+                      <td className="mono" style={{ textAlign: 'right', color: ((Number(m.gastos) || 0) + (Number(m.nominas) || 0)) ? 'var(--danger)' : undefined }}>{((Number(m.gastos) || 0) + (Number(m.nominas) || 0)) ? money((Number(m.gastos) || 0) + (Number(m.nominas) || 0)) : ''}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{m.kg_recibidos ? num(m.kg_recibidos) : ''}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{money(m.saldo_usd ?? 0)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{num(m.saldo_kg ?? 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
+  );
+}
+
 /* ───────────── Resumen de Caja (réplica de la hoja «RESUMEN CAJA PERAMANAL GT») ───────────── */
 
-function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: string; centro: string; onClose: () => void }) {
+function ResumenCajaModal({ defaultEmail, centro, cajaId, onClose }: { defaultEmail: string; centro: string; cajaId?: string | null; onClose: () => void }) {
   const [r, setR] = useState<ResumenCajaAcopio | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bajando, setBajando] = useState(false);
@@ -604,9 +793,9 @@ function ResumenCajaModal({ defaultEmail, centro, onClose }: { defaultEmail: str
 
   // Se recalcula desde los movimientos; en vivo cuando entra/cambia alguno (Realtime).
   const cargar = useCallback(() => {
-    resumenCajaAcopio(undefined, { desde: desde || null, hasta: hasta || null }, centro)
+    resumenCajaAcopio(cajaId ?? undefined, { desde: desde || null, hasta: hasta || null }, centro)
       .then(setR).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar el resumen'));
-  }, [desde, hasta, centro]);
+  }, [desde, hasta, centro, cajaId]);
   useEffect(() => { cargar(); }, [cargar]);
   useRealtime(['acopio_caja_movimientos', 'acopio_contratos'], cargar);
 
