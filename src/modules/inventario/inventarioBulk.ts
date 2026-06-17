@@ -1,3 +1,4 @@
+import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
@@ -452,7 +453,7 @@ export async function descargarPlantillaExcel(): Promise<void> {
   const wsProd = XLSXMod.utils.aoa_to_sheet([headers]);
   stylize(wsProd as WsSheet, XLSXMod, [14, 32, 18, 12, 10, 12, 12, 14, 16, 12, 12, 12, 14]);
   XLSXMod.utils.book_append_sheet(wb, wsProd, 'Productos');
-  XLSXMod.writeFile(wb, 'plantilla-productos.xlsx');
+  previewWorkbook(XLSXMod, wb, 'plantilla-productos.xlsx');
 }
 
 /* ──────────── Export filtrado ──────────── */
@@ -508,7 +509,7 @@ export async function exportarInventarioExcel(productos: Producto[]): Promise<vo
   const wb = XLSXMod.utils.book_new();
   XLSXMod.utils.book_append_sheet(wb, ws, 'Inventario');
   const stamp = new Date().toISOString().slice(0, 10);
-  XLSXMod.writeFile(wb, `inventario-${stamp}.xlsx`);
+  previewWorkbook(XLSXMod, wb, `inventario-${stamp}.xlsx`);
 }
 
 export async function exportarInventarioPdf(productos: Producto[]): Promise<void> {

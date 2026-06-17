@@ -4,6 +4,7 @@
    CxP y saldos disponibles) y arma un reporte descargable. Solo
    se descarga cuando el usuario aprieta el botón (nunca automático).
    ============================================================ */
+import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { CellHookData } from 'jspdf-autotable';
 import type { ReporteCierre } from './cierres.repository';
@@ -140,5 +141,5 @@ export async function descargarCierreExcel(r: ReporteCierre): Promise<void> {
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Cierre');
-  XLSX.writeFile(wb, `Cierre-${r.periodo}.xlsx`);
+  previewWorkbook(XLSX, wb, `Cierre-${r.periodo}.xlsx`);
 }

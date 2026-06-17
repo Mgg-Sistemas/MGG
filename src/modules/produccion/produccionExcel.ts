@@ -3,6 +3,7 @@
    Genera un .xlsx con los materiales usados y el resumen de
    costos de una fundición (= receta para X unidades).
    ============================================================ */
+import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { getProduccionConMateriales } from './produccion.repository';
 
 const BORDER = {
@@ -107,5 +108,5 @@ export async function descargarProduccionExcel(id: string): Promise<void> {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Receta');
-  XLSX.writeFile(wb, `receta-${prod.producto_nombre}-${prod.id.slice(0, 8)}.xlsx`);
+  previewWorkbook(XLSX, wb, `receta-${prod.producto_nombre}-${prod.id.slice(0, 8)}.xlsx`);
 }

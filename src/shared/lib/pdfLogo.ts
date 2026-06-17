@@ -9,7 +9,7 @@ let cachedFirma: string | null | undefined;
 export async function loadFirmaGerenteDataUrl(): Promise<string | null> {
   if (cachedFirma !== undefined) return cachedFirma;
   try {
-    const url = `${import.meta.env.BASE_URL}firma-gerente.png`;
+    const url = `${import.meta.env.BASE_URL}firma.png`;
     const resp = await fetch(url);
     if (!resp.ok) { cachedFirma = null; return null; }
     const blob = await resp.blob();

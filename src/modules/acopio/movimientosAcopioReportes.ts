@@ -6,6 +6,7 @@
    $Usd Facturados, Gastos GT, Nóminas GT, Traslado de caja,
    Saldo en moneda $ Usd, Kg Recibidos por MGG, Saldo en Kg de casiterita.
    ============================================================ */
+import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { supabase } from '@/shared/lib/supabase';
 
 export interface MovAcopioRow {
@@ -112,7 +113,7 @@ export async function descargarMovAcopioExcel(rows: MovAcopioRow[]): Promise<voi
   HEAD.forEach((_, c) => { const cell = cellAt(3, c); if (cell) cell.s = HEADER; });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
-  XLSX.writeFile(wb, `${NOMBRE}.xlsx`);
+  previewWorkbook(XLSX, wb, `${NOMBRE}.xlsx`);
 }
 
 export async function enviarMovAcopioPorCorreo(rows: MovAcopioRow[], destinos: string[], meta: MovAcopioMeta = {}): Promise<{ destinatarios: string[] }> {

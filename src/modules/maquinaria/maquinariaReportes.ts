@@ -3,6 +3,7 @@
    PDF, Excel y correo del registro de equipos. Mantiene el
    encabezado/estilos estándar (logo, naranja, margen 1.5 cm).
    ============================================================ */
+import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { supabase } from '@/shared/lib/supabase';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
@@ -104,5 +105,5 @@ export async function descargarEquiposExcel(rows: MaquinariaEquipo[]): Promise<v
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Equipos');
-  XLSX.writeFile(wb, `${NOMBRE}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  previewWorkbook(XLSX, wb, `${NOMBRE}-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }

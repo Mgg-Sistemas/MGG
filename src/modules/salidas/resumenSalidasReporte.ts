@@ -6,6 +6,7 @@
    PDF, Excel y por correo (Edge Function `enviar-reporte`), solo
    a pedido del usuario (nunca automático).
    ============================================================ */
+import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { supabase } from '@/shared/lib/supabase';
 
 export interface SalidaResumenRow {
@@ -184,7 +185,7 @@ export async function descargarResumenSalidasExcel(grupos: SalidaResumenGrupo[],
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsRes, 'Por unidad');
   XLSX.utils.book_append_sheet(wb, wsDet, 'Detalle');
-  XLSX.writeFile(wb, 'resumen-salidas-por-unidad.xlsx');
+  previewWorkbook(XLSX, wb, 'resumen-salidas-por-unidad.xlsx');
 }
 
 /* ───────────── Correo ───────────── */
