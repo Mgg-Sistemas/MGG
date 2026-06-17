@@ -53,7 +53,7 @@ import {
   type CatalogoPedido,
   type ScopeCatalogoPedido,
 } from './pedidos.repository';
-import { listOfertasByOrden, labelCondicionPago } from './ofertas.repository';
+import { listOfertasByOrden, labelCondicionPago, descuentoEfectivo } from './ofertas.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -1918,6 +1918,37 @@ function OrdenDetailModal({
           </div>
         </div>
       )}
+      {o.oc_codigo && (() => {
+        // Datos de la oferta elegida (snapshot): técnicos, logística y precio BCV/efectivo.
+        const d = o.oferta_detalle;
+        const ahorro = descuentoEfectivo(o.total, o.oferta_precio_efectivo);
+        const labLog = (v?: string | null) => v === 'incluido' ? 'incluido' : v === 'por_cuenta' ? 'por cuenta del comprador' : null;
+        const tecn = ([
+          ['Marca', d?.marca], ['Modelo', d?.modelo], ['Procedencia', d?.procedencia],
+          ['Materiales', d?.materiales], ['Dimensiones', d?.dimensiones], ['Peso', d?.peso], ['Calidad', d?.calidad],
+        ] as [string, string | null | undefined][]).filter(([, v]) => v && String(v).trim());
+        const log = ([
+          ['Flete', d?.logistica?.flete], ['Transporte', d?.logistica?.transporte],
+          ['Embalaje', d?.logistica?.embalaje], ['Seguros', d?.logistica?.seguros],
+        ] as [string, string | null | undefined][]).map(([k, v]) => [k, labLog(v)] as const).filter(([, v]) => v);
+        if (!tecn.length && !log.length && !ahorro) return null;
+        return (
+          <div className="detail-row">
+            <div className="k">Datos de la oferta</div>
+            <div className="v" style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem .6rem', fontSize: '.84rem' }}>
+              {tecn.map(([k, v]) => <span key={k} className="muted"><strong>{k}:</strong> {v}</span>)}
+              {log.map(([k, v]) => <span key={k} className="muted">🚚 <strong>{k}:</strong> {v}</span>)}
+              {ahorro && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
+                  💵 <strong>Efectivo:</strong> {money(o.oferta_precio_efectivo!)}
+                  <span className="badge success">−{ahorro.pct.toFixed(2)}%</span>
+                  <span className="muted">(BCV {money(o.total)})</span>
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       {o.metodo_pago && o.metodo_pago.length > 0 && (
         <div className="detail-row">
           <div className="k">Método de pago</div>

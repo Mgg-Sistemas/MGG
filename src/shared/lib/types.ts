@@ -654,6 +654,10 @@ export interface Orden {
   almacen_destino?: string | null;
   /** Condiciones de pago (copiadas de la oferta elegida). */
   condiciones_pago?: string | null;
+  /** Snapshot de los datos técnicos/logísticos de la oferta elegida (se ven en la OC y su PDF). */
+  oferta_detalle?: OfertaDetalle | null;
+  /** Precio total en divisa efectivo de la oferta elegida (el BCV es `total`). */
+  oferta_precio_efectivo?: number | null;
   /** Método(s) de pago indicados antes de enviar a pagar (multipago). */
   metodo_pago?: PagoMetodo[] | null;
   metodo_pago_por?: string | null;
@@ -882,7 +886,11 @@ export interface OfertaProveedor {
   orden_id: string;
   proveedor_id: string;
   items: ItemOrden[];
+  /** Precio total de la cotización a tasa BCV (precio nominal / facturado). */
   precio_total: number;
+  /** Precio total si se paga en divisa efectivo (descuento por pago en efectivo).
+   *  Si está cargado y es menor al BCV, la comparativa muestra la diferencia y el % de ahorro. */
+  precio_efectivo?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;
   notas?: string | null;

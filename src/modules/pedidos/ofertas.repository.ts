@@ -15,6 +15,8 @@ export interface CrearOfertaInput {
   proveedor_id: string;
   items: ItemOrden[];
   precio_total: number;
+  /** Precio total si se paga en divisa efectivo (opcional; descuento vs. BCV). */
+  precio_efectivo?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
   notas?: string | null;
@@ -53,6 +55,20 @@ export const CONDICIONES_PAGO: { value: string; label: string }[] = [
 ];
 export function labelCondicionPago(v?: string | null): string {
   return CONDICIONES_PAGO.find((c) => c.value === v)?.label ?? '—';
+}
+
+/**
+ * Descuento por pago en divisa efectivo respecto al precio BCV de una oferta.
+ * Ej.: BCV 15$, efectivo 10$ → diferencia 5$, pct 33.33% (= 5 / 15).
+ * Devuelve null si no hay precio efectivo válido o no representa un ahorro.
+ */
+export function descuentoEfectivo(precioBcv?: number | null, precioEfectivo?: number | null): { diferencia: number; pct: number } | null {
+  const bcv = Number(precioBcv) || 0;
+  const efe = Number(precioEfectivo) || 0;
+  if (bcv <= 0 || efe <= 0 || efe >= bcv) return null;
+  const diferencia = Math.round((bcv - efe) * 100) / 100;
+  const pct = Math.round((diferencia / bcv) * 10000) / 100; // % con 2 decimales
+  return { diferencia, pct };
 }
 
 /** Sube la cotización (PDF o imagen) al bucket `ofertas-pdf` y retorna su path. */
@@ -98,6 +114,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       proveedor_id: input.proveedor_id,
       items: input.items,
       precio_total: input.precio_total,
+      precio_efectivo: input.precio_efectivo ?? null,
       fecha_entrega_prometida: input.fecha_entrega_prometida ?? null,
       condiciones_pago: input.condiciones_pago ?? null,
       notas: input.notas ?? null,
@@ -114,7 +131,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
 
 export async function actualizarOferta(
   id: string,
-  patch: Partial<Pick<CrearOfertaInput, 'precio_total' | 'fecha_entrega_prometida' | 'condiciones_pago' | 'notas'>>
+  patch: Partial<Pick<CrearOfertaInput, 'precio_total' | 'precio_efectivo' | 'fecha_entrega_prometida' | 'condiciones_pago' | 'notas'>>
 ): Promise<OfertaProveedor> {
   const { data, error } = await supabase
     .from(TABLE)

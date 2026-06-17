@@ -6,7 +6,7 @@ import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico } from '@/shared/lib/types';
-import { crearOferta, subirPdfOferta, CONDICIONES_PAGO } from './ofertas.repository';
+import { crearOferta, subirPdfOferta, CONDICIONES_PAGO, descuentoEfectivo } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 
@@ -69,6 +69,8 @@ export function AgregarOfertaModal({
     orden.items.filter((i) => i.comprar !== false).map((i) => ({ ...i, precio: 0 })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>('');
+  // Precio total si se paga en divisa efectivo (descuento vs. el total BCV de la cotización).
+  const [precioEfectivo, setPrecioEfectivo] = useState<number>(0);
   const [condiciones, setCondiciones] = useState('');
   const [notas, setNotas] = useState('');
   // Datos técnicos/logísticos de la oferta (todos opcionales).
@@ -96,6 +98,8 @@ export function AgregarOfertaModal({
   }
 
   const precioTotal = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
+  // Diferencia y % de ahorro al pagar en divisa efectivo (BCV − efectivo) / BCV.
+  const ahorroEfectivo = descuentoEfectivo(precioTotal, precioEfectivo);
 
   function updateItemPrecio(idx: number, precio: number) {
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precio: Math.max(0, precio) } : it)));
@@ -108,6 +112,10 @@ export function AgregarOfertaModal({
     }
     if (!condiciones.trim()) {
       toast('Elegí la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
+      return;
+    }
+    if (precioEfectivo > 0 && precioEfectivo >= precioTotal) {
+      toast('El precio en divisa efectivo debe ser menor al total BCV (es un descuento por pago en efectivo).', 'error');
       return;
     }
     setSubmitting(true);
@@ -160,6 +168,7 @@ export function AgregarOfertaModal({
         proveedor_id: provId,
         items,
         precio_total: precioTotal,
+        precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
         notas: notas.trim() || null,
@@ -368,6 +377,42 @@ export function AgregarOfertaModal({
             </tfoot>
           </table>
         </div>
+      </div>
+
+      {/* Precio según forma de pago: BCV vs divisa efectivo (descuento por efectivo) */}
+      <div className="card" style={{ background: 'var(--bg-2)', padding: '.8rem', marginBottom: '.75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}>
+          <span>💵 Precio según forma de pago <span className="muted" style={{ fontWeight: 400 }}>(si el proveedor da descuento por divisa en efectivo)</span></span>
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Total a tasa BCV</label>
+            <input className="input mono" value={money(precioTotal)} readOnly disabled style={{ textAlign: 'right' }} />
+            <small className="muted">Es el total de la cotización de arriba.</small>
+          </div>
+          <div className="form-row">
+            <label>Total en divisa efectivo (opcional)</label>
+            <input
+              type="number" className="input mono" min={0} step={0.01}
+              value={precioEfectivo || ''}
+              onChange={(e) => setPrecioEfectivo(Math.max(0, Number(e.target.value) || 0))}
+              placeholder="Ej.: 10.00"
+              style={{ textAlign: 'right' }}
+            />
+            <small className="muted">Dejalo vacío si el proveedor no da descuento por pago en efectivo.</small>
+          </div>
+        </div>
+        {ahorroEfectivo && (
+          <div className="card" style={{ margin: '.4rem 0 0', padding: '.5rem .7rem', background: 'rgba(41,192,129,0.1)', border: '1px solid var(--success)' }}>
+            <span style={{ fontSize: '.86rem' }}>
+              Ahorro por pago en efectivo: <strong className="mono">{money(ahorroEfectivo.diferencia)}</strong>{' '}
+              <span className="badge success" style={{ marginLeft: '.3rem' }}>−{ahorroEfectivo.pct.toFixed(2)}%</span>
+            </span>
+            <div className="muted" style={{ fontSize: '.74rem', marginTop: '.2rem' }}>
+              {money(precioTotal)} (BCV) − {money(precioEfectivo)} (efectivo) = {money(ahorroEfectivo.diferencia)} · {ahorroEfectivo.diferencia} / {precioTotal} = {ahorroEfectivo.pct.toFixed(2)}%
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="form-grid">
