@@ -243,7 +243,7 @@ export async function aprobarOrdenConOferta(
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
-    .from('ofertas_proveedor').select('condiciones_pago')
+    .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -265,6 +265,9 @@ export async function aprobarOrdenConOferta(
     total: ofertaPrecioTotal,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
+    // Snapshot de la oferta elegida: datos técnicos/logísticos + precio efectivo (se ven en la OC y su PDF).
+    oferta_detalle: (ofRow?.detalle as Orden['oferta_detalle']) ?? null,
+    oferta_precio_efectivo: ofRow?.precio_efectivo != null ? Number(ofRow.precio_efectivo) : null,
     oc_creada_por: actorEmail,
     oc_creada_en: nowIso,
     historial: appendHistorial(o, 'oc_creada', actorEmail, {

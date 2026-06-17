@@ -9,7 +9,7 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
-import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl } from './ofertas.repository';
+import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, descuentoEfectivo } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
@@ -135,7 +135,7 @@ export function OfertasComparativa({
           <thead>
             <tr>
               <th>Proveedor</th>
-              <th className="num">Precio total</th>
+              <th className="num">Precio total<div className="muted" style={{ fontWeight: 400, fontSize: '.7rem' }}>BCV · efectivo</div></th>
               <th>Entrega prom.</th>
               <th className="num">Puntualidad</th>
               <th className="num">Calidad</th>
@@ -180,7 +180,19 @@ export function OfertasComparativa({
                         {s.mejorCalidad && <span className="badge info">Mejor calidad</span>}
                       </div>
                     </td>
-                    <td className="num mono">{money(s.oferta.precio_total)}</td>
+                    <td className="num mono">
+                      {money(s.oferta.precio_total)}
+                      {(() => {
+                        const ahorro = descuentoEfectivo(s.oferta.precio_total, s.oferta.precio_efectivo);
+                        if (!ahorro) return null;
+                        return (
+                          <div style={{ fontSize: '.75rem', marginTop: '.15rem', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: 'var(--success)' }}>{money(s.oferta.precio_efectivo!)}</span>{' '}
+                            <span className="badge success" title={`Ahorro ${money(ahorro.diferencia)} (${money(s.oferta.precio_total)} BCV − ${money(s.oferta.precio_efectivo!)} efectivo)`}>−{ahorro.pct.toFixed(2)}%</span>
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="muted" style={{ fontSize: '.85rem' }}>{date(s.oferta.fecha_entrega_prometida)}</td>
                     <td className="num mono">{(s.score.puntualidad * 100).toFixed(0)}%</td>
                     <td className="num mono">{(s.stats.calidad_avg).toFixed(1)} / 5</td>

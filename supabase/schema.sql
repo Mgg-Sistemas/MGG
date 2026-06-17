@@ -1110,7 +1110,8 @@ create table if not exists public.ofertas_proveedor (
   orden_id                   uuid not null references public.ordenes(id) on delete cascade,
   proveedor_id               uuid not null references public.proveedores(id) on delete restrict,
   items                      jsonb not null default '[]',  -- precios y cantidades cotizados
-  precio_total               numeric not null,
+  precio_total               numeric not null,              -- total a tasa BCV (precio nominal)
+  precio_efectivo            numeric,                       -- total si se paga en divisa efectivo (descuento vs BCV)
   fecha_entrega_prometida    date,
   condiciones_pago           text,
   notas                      text,
@@ -1131,7 +1132,9 @@ alter table public.ofertas_proveedor
   add column if not exists pdf_filename text,
   -- Datos técnicos/logísticos declarados por el proveedor (marca, modelo,
   -- procedencia, materiales, dimensiones, peso, calidad, fletes/seguros).
-  add column if not exists detalle jsonb;
+  add column if not exists detalle jsonb,
+  -- Precio total si se paga en divisa efectivo (descuento vs. BCV; informa la decisión).
+  add column if not exists precio_efectivo numeric;
 
 create index if not exists idx_ofertas_orden     on public.ofertas_proveedor(orden_id);
 create index if not exists idx_ofertas_proveedor on public.ofertas_proveedor(proveedor_id);
@@ -1290,6 +1293,9 @@ alter table public.ordenes add column if not exists recibida_en    timestamptz;
 alter table public.ordenes add column if not exists abonado_total  numeric default 0;  -- caché Σ abonos (crédito)
 -- Seriales de los billetes entregados cuando se paga una OC en USD físico (efectivo).
 alter table public.ordenes add column if not exists seriales_billetes text[];
+-- Snapshot de la oferta elegida: datos técnicos/logísticos + precio en divisa efectivo (se ven en la OC y su PDF).
+alter table public.ordenes add column if not exists oferta_detalle         jsonb;
+alter table public.ordenes add column if not exists oferta_precio_efectivo numeric;
 -- Marca de prioridad: ORDEN URGENTE (se refleja en el PDF y en toda la trazabilidad).
 alter table public.ordenes add column if not exists urgente boolean not null default false;
 -- Imagen de referencia adjunta a la OP (path en el bucket de adjuntos de OC).

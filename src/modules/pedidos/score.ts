@@ -21,6 +21,17 @@ export interface ScoredOferta {
 }
 
 /**
+ * Costo REAL que define la mejor oferta: si el proveedor da descuento por pago en
+ * divisa efectivo (precio_efectivo válido y menor al BCV), ese es el costo que cuenta;
+ * si no, el total a BCV. Así la oferta con mejor precio en efectivo puede ganar.
+ */
+export function costoEfectivo(o: Pick<OfertaProveedor, 'precio_total' | 'precio_efectivo'>): number {
+  const bcv = Number(o.precio_total) || 0;
+  const efe = Number(o.precio_efectivo) || 0;
+  return efe > 0 && efe < bcv ? efe : bcv;
+}
+
+/**
  * Calcula el score de un grupo de ofertas (mismo orden_id).
  *
  * Precio se normaliza POR GRUPO (inverso del rango): la oferta más barata = 1.0,
@@ -36,7 +47,8 @@ export function scoreOfertas(
 ): ScoredOferta[] {
   if (!ofertas.length) return [];
 
-  const precios = ofertas.map((o) => o.precio_total);
+  // El precio que decide es el COSTO REAL: efectivo (con descuento) cuando existe, si no BCV.
+  const precios = ofertas.map((o) => costoEfectivo(o));
   const minP = Math.min(...precios);
   const maxP = Math.max(...precios);
   const rangeP = maxP - minP;
@@ -54,7 +66,7 @@ export function scoreOfertas(
       total_ordenes: 0,
     };
 
-    const precio = rangeP === 0 ? 1 : 1 - (o.precio_total - minP) / rangeP;
+    const precio = rangeP === 0 ? 1 : 1 - (costoEfectivo(o) - minP) / rangeP;
     const puntualidad = clamp01(stats.puntualidad_pct);
     const calidad = clamp01(stats.calidad_avg / 5);
     const cumplimiento = clamp01(stats.cumplimiento_pct);
@@ -76,7 +88,7 @@ export function scoreOfertas(
   return enriched.map((e) => ({
     ...e,
     recomendada: e.score.total === maxTotal,
-    mejorPrecio: e.oferta.precio_total === minP,
+    mejorPrecio: costoEfectivo(e.oferta) === minP,
     masPuntual: e.stats.puntualidad_pct === bestPuntualidad && e.stats.total_evaluaciones > 0,
     mejorCalidad: e.stats.calidad_avg === bestCalidad && e.stats.total_evaluaciones > 0,
   }));

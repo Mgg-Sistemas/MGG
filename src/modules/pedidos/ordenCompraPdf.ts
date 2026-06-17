@@ -1,7 +1,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl, loadFirmaGerenteDataUrl } from '@/shared/lib/pdfLogo';
-import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
+import { descuentoEfectivo } from './ofertas.repository';
+import type { OfertaDetalle, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -186,6 +187,44 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
+
+  // ─── Datos de la oferta elegida: técnicos + logística + precio BCV/efectivo ───
+  // Snapshot guardado en la orden al elegir, con respaldo en la oferta aceptada.
+  const detalleOferta: OfertaDetalle | null = ofertaAceptada?.detalle ?? orden.oferta_detalle ?? null;
+  const precioBcv = ofertaAceptada?.precio_total ?? (orden.total != null ? Number(orden.total) : null);
+  const precioEfe = ofertaAceptada?.precio_efectivo ?? orden.oferta_precio_efectivo ?? null;
+  const ahorro = descuentoEfectivo(precioBcv, precioEfe);
+  const labLog = (v?: string | null) => v === 'incluido' ? 'Incluido en el precio' : v === 'por_cuenta' ? 'Por cuenta del comprador' : null;
+  const tecnFilas: Array<[string, string]> = ([
+    ['Marca', detalleOferta?.marca], ['Modelo', detalleOferta?.modelo], ['Procedencia', detalleOferta?.procedencia],
+    ['Materiales', detalleOferta?.materiales], ['Dimensiones', detalleOferta?.dimensiones],
+    ['Peso', detalleOferta?.peso], ['Nivel de calidad', detalleOferta?.calidad],
+    ['Flete', labLog(detalleOferta?.logistica?.flete)], ['Transporte', labLog(detalleOferta?.logistica?.transporte)],
+    ['Embalaje', labLog(detalleOferta?.logistica?.embalaje)], ['Seguros', labLog(detalleOferta?.logistica?.seguros)],
+  ] as Array<[string, string | null | undefined]>).filter(([, v]) => v && String(v).trim()).map(([k, v]) => [k, String(v)] as [string, string]);
+  // Precio según forma de pago (siempre que haya descuento por efectivo).
+  if (ahorro && precioBcv != null && precioEfe != null) {
+    tecnFilas.push(
+      ['Precio total (BCV)', money(precioBcv)],
+      ['Precio en divisa efectivo', money(precioEfe)],
+      ['Ahorro por pago en efectivo', `${money(ahorro.diferencia)}  (−${ahorro.pct.toFixed(2)}%)`],
+    );
+  }
+  if (tecnFilas.length) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('DATOS DE LA OFERTA ELEGIDA', MARGIN, y);
+    y += 6;
+    autoTable(doc, {
+      startY: y,
+      body: tecnFilas,
+      theme: 'grid',
+      styles: { fontSize: 8.5, cellPadding: 3 },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180, fillColor: [244, 244, 244] }, 1: { cellWidth: 'auto' } },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
+  }
 
   // ─── Desistimientos de proveedor (datos del proveedor + su oferta) ───
   const historial = orden.historial ?? [];
