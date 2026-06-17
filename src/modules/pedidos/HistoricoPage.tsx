@@ -260,7 +260,6 @@ export function HistoricoPage() {
                     </td>
                     <td>
                       <div>{o.solicitante ?? '—'}</div>
-                      <div className="muted" style={{ fontSize: '.72rem' }}>{o.solicitante_email}</div>
                     </td>
                     <td>{prov?.razon_social ?? '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>

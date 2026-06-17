@@ -51,7 +51,7 @@ export interface ResumenAcopio {
   facturado: number;
 }
 
-export function MovimientosAcopioView({ onResumen, visible = true, centro }: { onResumen?: (r: ResumenAcopio) => void; visible?: boolean; centro?: string } = {}) {
+export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaId }: { onResumen?: (r: ResumenAcopio) => void; visible?: boolean; centro?: string; cajaId?: string | null } = {}) {
   const { user } = useSession();
   const { can } = usePermissions();
   const canWrite = can('acopio', 'escritura');
@@ -67,11 +67,13 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro }: { o
   const [ordenDesc, setOrdenDesc] = useState(false); // false = más viejo→nuevo; true = más nuevo→viejo
   const [correoOpen, setCorreoOpen] = useState(false);
 
+  // La vista viva del centro se acota a la CAJA ABIERTA actual (`cajaId`): los
+  // cierres anteriores quedan en el historial. Si no hay caja, cae al centro.
   const recargar = useCallback(async () => {
-    const [cs, cms] = await Promise.all([listContratos(), listCajaMovimientos(undefined, centro)]);
+    const [cs, cms] = await Promise.all([listContratos(), listCajaMovimientos(cajaId ?? undefined, centro)]);
     setContratos(cs);
     setCajaMovs(cms);
-  }, [centro]);
+  }, [centro, cajaId]);
   useEffect(() => {
     let cancel = false;
     setLoading(true);
