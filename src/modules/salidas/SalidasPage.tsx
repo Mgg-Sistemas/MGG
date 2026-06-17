@@ -61,8 +61,12 @@ const SOL_ESTADO_CLASS: Record<EstadoSolicitudSalida, string> = {
 export function SalidasPage() {
   const { can, appUser, isAdmin, role } = usePermissions();
   const canWrite = can('salidas', 'escritura');
-  // Solo admin/analista aprueban y ejecutan; el obrero solo crea solicitudes.
-  const puedeAprobar = isAdmin || role === 'analista';
+  // Aprueban y ejecutan: el administrador, cualquier ANALISTA y cualquier JEFE/JEFA.
+  // (Se excluye el rol de solo lectura, que no debe ejecutar movimientos). El
+  // obrero solo crea solicitudes.
+  const r = role ?? '';
+  const puedeAprobar = isAdmin
+    || (r !== 'analista_de_lectura' && (/^analista/.test(r) || /^jef[ae]/.test(r)));
   const actor = appUser?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
@@ -135,7 +139,7 @@ export function SalidasPage() {
       <div className="page-head">
         <div>
           <h1>Salidas / Traslados</h1>
-          <p className="muted">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, el analista o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
+          <p className="muted">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, un analista, un jefe o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
         </div>
         <div className="actions">
           {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
@@ -484,7 +488,7 @@ function SolicitudDetalleModal({
 
       {!puedeAprobar && sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
-          Solo un analista o el administrador puede aprobar y ejecutar esta solicitud.
+          Solo un analista, un jefe o el administrador puede aprobar y ejecutar esta solicitud.
         </div>
       )}
 
