@@ -6,10 +6,18 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { registrarIngresoCaja } from './tesoreria.repository';
+import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
 import type { CuentaCaja } from '@/shared/lib/types';
 
-export type TipoCxC = 'cliente' | 'proveedor';
+// 'centro_acopio' = cuenta por cobrar generada por un traspaso de dinero a un centro de costo.
+export type TipoCxC = 'cliente' | 'proveedor' | 'centro_acopio';
 export type EstadoCxC = 'abierta' | 'saldada';
+
+/** Etiqueta legible del tipo de contraparte de una cuenta por cobrar. */
+export function labelTipoCxC(t: TipoCxC): string {
+  return t === 'proveedor' ? 'Proveedor' : t === 'centro_acopio' ? 'Centro de costo' : 'Cliente';
+}
 
 export interface CuentaPorCobrar {
   id: string;
@@ -36,6 +44,15 @@ export interface AbonoCxC {
   cuenta?: string | null;
   caja_mov_id?: string | null;
   saldo_restante?: number | null;
+  /** 'dinero' = entró a caja · 'producto' = entró al inventario (intercambio dinero↔producto). */
+  tipo_abono?: 'dinero' | 'producto';
+  producto_id?: string | null;
+  producto_nombre?: string | null;
+  cantidad?: number | null;
+  unidad?: string | null;
+  costo_unit?: number | null;
+  almacen?: string | null;
+  inv_mov_id?: string | null;
   nota?: string | null;
   actor?: string | null;
   actor_name?: string | null;
@@ -106,6 +123,25 @@ export async function crearCuentaPorCobrar(input: {
   return registrarSobrepagoCobrar({ ...input, origen: 'manual' });
 }
 
+/**
+ * Cuenta por cobrar generada por un TRASPASO de dinero a un centro de costo: el centro
+ * debe rendir lo entregado. Incremental por (centro_acopio + centro + moneda): cada
+ * traspaso SUMA al saldo. Se salda con dinero o con producto al cambio.
+ */
+export async function registrarCobrarPorTraspaso(input: {
+  centro: string;
+  monto: number;
+  moneda: string;
+  nota?: string | null;
+  actor?: string | null;
+  actorName?: string | null;
+}): Promise<CuentaPorCobrar> {
+  return registrarSobrepagoCobrar({
+    tipo: 'centro_acopio', contraparte: input.centro, monto: input.monto, moneda: input.moneda,
+    origen: 'traspaso', nota: input.nota ?? null, actor: input.actor ?? null, actorName: input.actorName ?? null,
+  });
+}
+
 export async function listCuentasPorCobrar(soloAbiertas = true): Promise<CuentaPorCobrar[]> {
   let q = supabase.from(CXC).select('*').order('created_at', { ascending: false });
   if (soloAbiertas) q = q.eq('estado', 'abierta');
@@ -143,7 +179,7 @@ export async function registrarAbonoCobrar(input: {
   // 1) Entra a la caja (ingreso real, misma moneda de la cuenta por cobrar).
   const mov = await registrarIngresoCaja({
     cajaId: input.cajaId, monto, moneda: c.moneda, cuenta: input.cuentaCaja,
-    concepto: `Cobro cuenta por cobrar · ${c.tipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${c.contraparte}`,
+    concepto: `Cobro cuenta por cobrar · ${labelTipoCxC(c.tipo)}: ${c.contraparte}`,
     categoria: 'cobro_cxc', actor: input.actor, actorName: input.actorName,
   });
 
@@ -158,6 +194,92 @@ export async function registrarAbonoCobrar(input: {
 
   // 3) Actualiza la cuenta (abonado + estado).
   const nuevoAbonado = round2((Number(c.abonado) || 0) + monto);
+  const estado: EstadoCxC = nuevoAbonado >= c.monto - 0.01 ? 'saldada' : 'abierta';
+  const { data: cu, error: cuErr } = await supabase.from(CXC)
+    .update({ abonado: nuevoAbonado, estado, updated_at: new Date().toISOString() })
+    .eq('id', c.id).select('*').single();
+  if (cuErr) throw cuErr;
+
+  return { cuenta: cu as CuentaPorCobrar, abono: ab as AbonoCxC };
+}
+
+/** SKU autogenerado para un producto recibido como abono (intercambio). */
+function nuevoSkuAbono(nombre: string): string {
+  const base = nombre.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 16);
+  const suf = Math.floor(performance.now() % 100000).toString(36).toUpperCase();
+  return `MIN-${base || 'PROD'}-${suf}`;
+}
+
+/**
+ * Abono EN PRODUCTO (intercambio dinero↔producto): la contraparte salda su deuda
+ * entregando producto. El producto ENTRA al inventario (suma stock + PMP) y su
+ * valor al cambio ($ en la moneda de la cuenta) abona la cuenta por cobrar. NO
+ * entra dinero a caja. Ej.: GT debe $1000 y entrega 500 TON de casiterita = $1000 → saldada.
+ */
+export async function registrarAbonoCobrarProducto(input: {
+  cuenta: CuentaPorCobrar;
+  /** Producto existente; si es null se crea uno nuevo con `productoNuevo`. */
+  productoId: string | null;
+  productoNuevo?: { nombre: string; unidad: string } | null;
+  almacen: string;
+  cantidad: number;
+  /** Valor total ($ en la moneda de la cuenta) que equivale el producto recibido — es lo que abona. */
+  valor: number;
+  nota?: string | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<{ cuenta: CuentaPorCobrar; abono: AbonoCxC }> {
+  const c = input.cuenta;
+  const cantidad = round2(input.cantidad);
+  const valor = round2(input.valor);
+  if (cantidad <= 0) throw new Error('La cantidad de producto debe ser mayor que 0.');
+  if (valor <= 0) throw new Error('El valor del producto (al cambio) debe ser mayor que 0.');
+  const saldoPrev = round2(c.monto - (Number(c.abonado) || 0));
+  if (valor > saldoPrev + 0.01) throw new Error(`El valor del producto (${valor}) supera el saldo por cobrar (${saldoPrev} ${c.moneda}).`);
+  const costoUnit = round2(valor / cantidad);
+
+  // 1) Resolver el producto (existente o nuevo).
+  let productoId = input.productoId;
+  let productoNombre = '';
+  let unidad = input.productoNuevo?.unidad ?? null;
+  if (!productoId) {
+    if (!input.productoNuevo?.nombre.trim()) throw new Error('Indicá el producto recibido.');
+    const nombre = input.productoNuevo.nombre.trim().toUpperCase();
+    const sku = nuevoSkuAbono(nombre);
+    if (await findBySku(sku)) throw new Error(`Ya existe un producto con el SKU ${sku}.`);
+    const prod = await createProducto({
+      sku, nombre, categoria: 'MINERALES', unidad: (input.productoNuevo.unidad || 'KG'),
+      stock: 0, stock_min: 0, precio: costoUnit, almacen: input.almacen, estado: 'activo',
+    });
+    productoId = prod.id; productoNombre = prod.nombre; unidad = prod.unidad ?? unidad;
+  } else {
+    const { data } = await supabase.from('productos').select('nombre, unidad').eq('id', productoId).maybeSingle();
+    productoNombre = (data?.nombre as string) ?? '';
+    unidad = (data?.unidad as string) ?? unidad;
+  }
+
+  // 2) Entrada al inventario (suma stock + recalcula PMP del almacén).
+  const mov = await registrarMovimiento({
+    producto_id: productoId, tipo: 'entrada', delta: cantidad, almacen: input.almacen,
+    actor: input.actor, actor_name: input.actorName ?? null,
+    ref_tipo: 'abono_cxc_producto', ref_id: c.id,
+    detalle: `Abono en producto (cuenta por cobrar) · ${labelTipoCxC(c.tipo)}: ${c.contraparte}`,
+    precio_unitario: costoUnit,
+  });
+
+  // 3) Registro del abono (producto) + saldo restante.
+  const saldoRestante = round2(saldoPrev - valor);
+  const { data: ab, error: abErr } = await supabase.from(CXC_ABONOS).insert({
+    cuenta_id: c.id, monto: valor, moneda: c.moneda, tipo_abono: 'producto',
+    producto_id: productoId, producto_nombre: productoNombre || null, cantidad, unidad,
+    costo_unit: costoUnit, almacen: input.almacen, inv_mov_id: mov.id,
+    saldo_restante: saldoRestante, nota: input.nota?.trim() || null,
+    actor: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (abErr) throw abErr;
+
+  // 4) Actualiza la cuenta (abonado + estado).
+  const nuevoAbonado = round2((Number(c.abonado) || 0) + valor);
   const estado: EstadoCxC = nuevoAbonado >= c.monto - 0.01 ? 'saldada' : 'abierta';
   const { data: cu, error: cuErr } = await supabase.from(CXC)
     .update({ abonado: nuevoAbonado, estado, updated_at: new Date().toISOString() })

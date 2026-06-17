@@ -23,6 +23,13 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 /** Categoría y unidad con que se da de alta cada combustible en el inventario. */
 const CATEGORIA_COMBUSTIBLE = 'Combustible';
 const UNIDAD_COMBUSTIBLE = 'l';
+/** Tasa (costo por litro) por defecto del combustible en inventario: 0,50 USD/L. */
+const DEFAULT_COSTO_LITRO = 0.5;
+/** Tasa a usar: la indicada si es > 0, si no la de por defecto (0,50). */
+function tasaOPorDefecto(v: number | null | undefined): number {
+  const n = Number(v);
+  return n > 0 ? n : DEFAULT_COSTO_LITRO;
+}
 
 /* ───────────── Inventario de combustible ───────────── */
 
@@ -79,7 +86,7 @@ async function ensureProductoCombustible(comb: Pick<Combustible, 'id' | 'nombre'
     unidad: UNIDAD_COMBUSTIBLE,
     stock: 0,
     stock_min: 0,
-    precio: Math.max(0, Number(comb.costo_litro) || 0),
+    precio: tasaOPorDefecto(comb.costo_litro),
     almacen,
     estado: 'activo',
   });
@@ -113,7 +120,8 @@ export async function crearCombustible(input: {
   const almacen = (input.almacen || '').trim();
   if (!almacen) throw new Error('Indicá el almacén donde se registra el combustible.');
   const litros = Math.max(0, Number(input.litrosIniciales) || 0);
-  const costo = Math.max(0, Number(input.costoLitro) || 0);
+  // Tasa por defecto 0,50 USD/L si no se indicó una mayor que 0.
+  const costo = tasaOPorDefecto(input.costoLitro);
 
   // 1) Se registra PRIMERO en el inventario: alta del producto en el almacén elegido.
   const productos = await listProductos();
@@ -158,11 +166,19 @@ export async function crearCombustible(input: {
 export async function renombrarCombustible(id: string, nombre: string): Promise<void> {
   const n = nombre.trim();
   if (!n) throw new Error('El nombre no puede estar vacío.');
-  const { error } = await supabase.from('combustibles').update({ nombre: n, updated_at: new Date().toISOString() }).eq('id', id);
+  const { data, error } = await supabase
+    .from('combustibles')
+    .update({ nombre: n, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('producto_id')
+    .single();
   if (error) {
     if ((error as { code?: string }).code === '23505') throw new Error('Ya existe un combustible con ese nombre.');
     throw error;
   }
+  // Anclaje al inventario: el producto vinculado se renombra igual.
+  const pid = (data as { producto_id?: string | null } | null)?.producto_id;
+  if (pid) await supabase.from('productos').update({ nombre: n }).eq('id', pid);
 }
 
 export async function setEstadoCombustible(id: string, estado: 'activo' | 'inactivo'): Promise<void> {
@@ -1003,17 +1019,26 @@ export async function actualizarTanqueMovimiento(
   await reencadenarTrasCambio(newTanque, oldTanque, newEquipo, oldEquipo);
 }
 
-/** Edita el combustible registrado desde su tarjeta: nombre y/o costo por litro. */
+/** Edita el combustible registrado desde su tarjeta: nombre y/o costo por litro.
+ *  Anclaje al inventario: el producto vinculado se actualiza con el mismo nombre y tasa. */
 export async function actualizarCombustible(id: string, input: { nombre?: string; costoLitro?: number }): Promise<void> {
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const prodPatch: Record<string, unknown> = {};
   if (input.nombre !== undefined) {
     const n = input.nombre.trim();
     if (!n) throw new Error('El nombre no puede estar vacío.');
     patch.nombre = n;
+    prodPatch.nombre = n;
   }
-  if (input.costoLitro !== undefined) patch.costo_litro = Math.max(0, Number(input.costoLitro) || 0);
-  const { error } = await supabase.from('combustibles').update(patch).eq('id', id);
+  if (input.costoLitro !== undefined) {
+    const costo = Math.max(0, Number(input.costoLitro) || 0);
+    patch.costo_litro = costo;
+    prodPatch.precio = costo;
+  }
+  const { data, error } = await supabase.from('combustibles').update(patch).eq('id', id).select('producto_id').single();
   if (error) throw error;
+  const pid = (data as { producto_id?: string | null } | null)?.producto_id;
+  if (pid && Object.keys(prodPatch).length) await supabase.from('productos').update(prodPatch).eq('id', pid);
 }
 
 /**

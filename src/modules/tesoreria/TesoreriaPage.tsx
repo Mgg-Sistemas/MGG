@@ -9,7 +9,7 @@ import {
 } from './categoriasGasto.repository';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { dateTime, date as fmtDate, dosDecimales, redondearArriba5 } from '@/shared/lib/format';
+import { dateTime, date as fmtDate, dosDecimales, redondearArriba5, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -18,7 +18,9 @@ import {
   listRenglonesPorPagar, countRenglonesPorPagar, pagarRenglon, getRenglonById, urlComprobanteNomina, labelMotivoNomina,
 } from '@/modules/rrhh/nomina.repository';
 import type { NominaRenglon } from '@/shared/lib/types';
-import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
+import type { Caja, MovimientoCaja, Orden, Producto, Almacen } from '@/shared/lib/types';
+import { listProductos } from '@/modules/inventario/inventario.repository';
+import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
@@ -54,6 +56,7 @@ import {
 } from './cuentasPorPagar.repository';
 import {
   listCuentasPorCobrar, listAbonosCobrar, registrarAbonoCobrar, crearCuentaPorCobrar,
+  registrarCobrarPorTraspaso, registrarAbonoCobrarProducto, labelTipoCxC,
   type CuentaPorCobrar, type AbonoCxC,
 } from './cuentasPorCobrar.repository';
 import {
@@ -1884,6 +1887,17 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
         origenId, destinoId, legs, motivo: motivo.trim(),
         origenNombre: origen?.nombre, destinoNombre: destino?.nombre, actor, actorName,
       });
+      // El traspaso a un centro de costo se vuelve una CUENTA POR COBRAR incremental:
+      // el centro debe rendir lo entregado (en dinero o en producto al cambio). Una por
+      // cada moneda trasladada; si ya existe abierta para ese centro+moneda, suma.
+      try {
+        for (const l of legs) {
+          await registrarCobrarPorTraspaso({
+            centro: destino?.nombre ?? destinoId, monto: l.monto, moneda: l.moneda,
+            nota: motivo.trim(), actor, actorName,
+          });
+        }
+      } catch { /* no bloquear el traslado si fallara la cuenta por cobrar */ }
       // Centro de acopio EXTERNO (otro sistema/Supabase): además del traslado local,
       // replicar la transferencia al otro sistema vía el puente inter-sistema.
       if (destino?.externo && destino.empresa_codigo) {
@@ -3972,6 +3986,22 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Forma de cobro: 💵 dinero (entra a caja) o 📦 producto al cambio (entra a inventario).
+  const [modoCobro, setModoCobro] = useState<'dinero' | 'producto'>('dinero');
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [prodNuevo, setProdNuevo] = useState(false);
+  const [prodId, setProdId] = useState('');
+  const [prodNombre, setProdNombre] = useState('');
+  const [prodUnidad, setProdUnidad] = useState('KG');
+  const [prodAlmacen, setProdAlmacen] = useState('');
+  const [prodCantidad, setProdCantidad] = useState('');
+  const [prodValor, setProdValor] = useState('');
+  useEffect(() => {
+    listProductos().then(setProductos).catch(() => setProductos([]));
+    listAlmacenes().then((a) => { setAlmacenes(a); setProdAlmacen((p) => p || a[0]?.nombre || ''); }).catch(() => setAlmacenes([]));
+  }, []);
+
   // Alta manual de una cuenta por cobrar.
   const [nuevaOpen, setNuevaOpen] = useState(false);
   const [nuevoTipo, setNuevoTipo] = useState<TipoContraparte>('cliente');
@@ -4067,10 +4097,40 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
     finally { setSaving(false); }
   }
 
+  // Cobro EN PRODUCTO (intercambio dinero↔producto): el producto entra al inventario y su valor salda la deuda.
+  async function cobrarProducto() {
+    setError(null);
+    if (!sel) return;
+    const cant = Number(prodCantidad) || 0;
+    const valor = Number(prodValor) || 0;
+    if (cant <= 0) { setError('Indicá la cantidad de producto recibida.'); return; }
+    if (valor <= 0) { setError('Indicá el valor del producto al cambio.'); return; }
+    if (!prodAlmacen) { setError('Elegí el almacén donde entra el producto.'); return; }
+    if (!prodNuevo && !prodId) { setError('Elegí el producto recibido.'); return; }
+    if (prodNuevo && !prodNombre.trim()) { setError('Indicá el nombre del producto nuevo.'); return; }
+    setSaving(true);
+    try {
+      const r = await registrarAbonoCobrarProducto({
+        cuenta: sel,
+        productoId: prodNuevo ? null : prodId,
+        productoNuevo: prodNuevo ? { nombre: prodNombre.trim(), unidad: prodUnidad } : null,
+        almacen: prodAlmacen, cantidad: cant, valor,
+        nota: nota.trim() || null, actor, actorName,
+      });
+      notify(r.cuenta.estado === 'saldada'
+        ? `Cuenta por cobrar saldada con producto · ${sel.contraparte}`
+        : `Abono en producto ${monto(valor, sel.moneda)} · ${sel.contraparte}`, 'success', { link: '#/app/tesoreria' });
+      setProdCantidad(''); setProdValor(''); setProdNombre(''); setNota('');
+      await cargar(); await onChanged();
+      if (r.cuenta.estado !== 'saldada') await listAbonosCobrar(sel.id).then(setAbonos);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el abono en producto'); }
+    finally { setSaving(false); }
+  }
+
   return (
     <Modal title="📥 Cuentas por cobrar" size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
-        Deudas de clientes/proveedores hacia la empresa. Se saldan con <strong>abonos</strong> que <strong>entran a la caja</strong> en la moneda elegida; el saldo es <strong>incremental</strong> por cliente.
+        Deudas hacia la empresa (clientes, proveedores y <strong>centros de costo</strong>; cada <strong>traspaso de dinero</strong> a un centro genera una cuenta por cobrar <strong>incremental</strong>). Se saldan con <strong>abonos en dinero</strong> (entran a la caja) o <strong>en producto al cambio</strong> (entra al inventario y su valor abona la deuda).
       </p>
 
       {/* Alta manual de una cuenta por cobrar */}
@@ -4134,7 +4194,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
             <select className="select" value={selId} onChange={(e) => setSelId(e.target.value)}>
               {lista.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.tipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: {c.contraparte} · debe {monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}
+                  {labelTipoCxC(c.tipo)}: {c.contraparte} · debe {monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}
                 </option>
               ))}
             </select>
@@ -4149,33 +4209,102 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
               </div>
               {sel.nota && <p className="muted" style={{ fontSize: '.78rem', marginTop: 0 }}>Nota: {sel.nota}</p>}
 
-              <div className="form-grid">
-                <div className="form-row">
-                  <label>Caja donde entra el dinero</label>
-                  <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
-                    {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                  </select>
-                  {cuentasMoneda.length > 1 && (
-                    <select className="select" style={{ marginTop: '.35rem' }} value={cuentaCaja} onChange={(e) => setCuentaCaja(e.target.value)}>
-                      {cuentasMoneda.map((r) => (
-                        <option key={r.cuenta} value={r.cuenta}>Entra en {r.cuenta === 'general' ? 'general' : r.cuenta === 'juridica' ? 'Jurídica' : 'Personal'} · {monto(Number(r.saldo), r.moneda)}</option>
-                      ))}
-                    </select>
+              {/* Forma de cobro: dinero (entra a caja) o producto al cambio (entra a inventario). */}
+              <div className="view-toggle" role="tablist" aria-label="Forma de cobro" style={{ marginBottom: '.6rem' }}>
+                <button type="button" className={modoCobro === 'dinero' ? 'active' : ''} onClick={() => { setModoCobro('dinero'); setError(null); }}>💵 En dinero</button>
+                <button type="button" className={modoCobro === 'producto' ? 'active' : ''} onClick={() => { setModoCobro('producto'); setError(null); }}>📦 En producto (al cambio)</button>
+              </div>
+
+              {modoCobro === 'dinero' ? (
+                <>
+                  <div className="form-grid">
+                    <div className="form-row">
+                      <label>Caja donde entra el dinero</label>
+                      <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
+                        {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                      </select>
+                      {cuentasMoneda.length > 1 && (
+                        <select className="select" style={{ marginTop: '.35rem' }} value={cuentaCaja} onChange={(e) => setCuentaCaja(e.target.value)}>
+                          {cuentasMoneda.map((r) => (
+                            <option key={r.cuenta} value={r.cuenta}>Entra en {r.cuenta === 'general' ? 'general' : r.cuenta === 'juridica' ? 'Jurídica' : 'Personal'} · {monto(Number(r.saldo), r.moneda)}</option>
+                          ))}
+                        </select>
+                      )}
+                      <small className="muted">Entra en <strong>{sel.moneda}</strong> a la caja elegida.</small>
+                    </div>
+                    <div className="form-row">
+                      <label>Monto cobrado ({sel.moneda})</label>
+                      <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} />
+                      <small className="muted">Saldo por cobrar: <strong className="mono">{monto(saldo, sel.moneda)}</strong></small>
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label>Nota (opcional)</label>
+                    <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del cobro…" />
+                  </div>
+                  {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><strong>Error:</strong> {error}</div>}
+                  <button className="btn btn-primary btn-sm" onClick={cobrar} disabled={saving || saldo <= 0}>{saving ? 'Registrando…' : 'Registrar cobro (entra a caja)'}</button>
+                </>
+              ) : (
+                <>
+                  <p className="muted" style={{ fontSize: '.78rem', marginTop: 0 }}>
+                    La contraparte salda entregando producto: <strong>entra al inventario</strong> y su <strong>valor al cambio</strong> ({sel.moneda}) abona la deuda. No entra dinero a caja.
+                  </p>
+                  <div className="form-row">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={prodNuevo} onChange={(e) => setProdNuevo(e.target.checked)} />
+                      <span>Producto no registrado (lo creo ahora)</span>
+                    </label>
+                  </div>
+                  {prodNuevo ? (
+                    <div className="form-grid">
+                      <div className="form-row">
+                        <label>Nombre del producto</label>
+                        <input className="input" value={prodNombre} onChange={(e) => setProdNombre(e.target.value.toUpperCase())} placeholder="Ej.: CASITERITA" />
+                      </div>
+                      <div className="form-row">
+                        <label>Unidad</label>
+                        <input className="input" value={prodUnidad} onChange={(e) => setProdUnidad(e.target.value.toUpperCase())} placeholder="KG / TON / G" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="form-row">
+                      <label>Producto recibido</label>
+                      <SearchSelect
+                        value={prodId} onChange={setProdId}
+                        options={productos.map((p) => ({ value: p.id, label: `${p.nombre} (${p.sku})` }))}
+                        placeholder="Buscar producto…" emptyText="Ningún producto coincide"
+                      />
+                    </div>
                   )}
-                  <small className="muted">Entra en <strong>{sel.moneda}</strong> a la caja elegida.</small>
-                </div>
-                <div className="form-row">
-                  <label>Monto cobrado ({sel.moneda})</label>
-                  <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} />
-                  <small className="muted">Saldo por cobrar: <strong className="mono">{monto(saldo, sel.moneda)}</strong></small>
-                </div>
-              </div>
-              <div className="form-row">
-                <label>Nota (opcional)</label>
-                <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del cobro…" />
-              </div>
-              {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><strong>Error:</strong> {error}</div>}
-              <button className="btn btn-primary btn-sm" onClick={cobrar} disabled={saving || saldo <= 0}>{saving ? 'Registrando…' : 'Registrar cobro (entra a caja)'}</button>
+                  <div className="form-grid">
+                    <div className="form-row">
+                      <label>Almacén destino</label>
+                      <select className="select" value={prodAlmacen} onChange={(e) => setProdAlmacen(e.target.value)}>
+                        {almacenes.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-row">
+                      <label>Cantidad recibida</label>
+                      <input className="input mono" type="number" min={0} step="any" value={prodCantidad} onChange={(e) => setProdCantidad(e.target.value)} placeholder="Ej.: 500" />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label>Valor del producto al cambio ({sel.moneda})</label>
+                    <input className="input mono" type="number" min={0} step="any" value={prodValor} onChange={(e) => setProdValor(e.target.value)} placeholder={`Ej.: ${round2(saldo)}`} />
+                    <small className="muted">
+                      Saldo por cobrar: <strong className="mono">{monto(saldo, sel.moneda)}</strong>
+                      {Number(prodCantidad) > 0 && Number(prodValor) > 0 && <> · costo unit.: <strong className="mono">{monto(round2(Number(prodValor) / Number(prodCantidad)), sel.moneda)}</strong></>}
+                    </small>
+                  </div>
+                  <div className="form-row">
+                    <label>Nota (opcional)</label>
+                    <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del intercambio…" />
+                  </div>
+                  {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><strong>Error:</strong> {error}</div>}
+                  <button className="btn btn-primary btn-sm" onClick={cobrarProducto} disabled={saving || saldo <= 0}>{saving ? 'Registrando…' : 'Registrar abono en producto (entra a inventario)'}</button>
+                </>
+              )}
 
               <strong style={{ fontSize: '.84rem', display: 'block', marginTop: '.8rem' }}>Historial de cobros</strong>
               <div className="table-wrap">
@@ -4185,10 +4314,14 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                     {!abonos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin cobros.</td></tr>}
                     {abonos.map((ab) => (
                       <tr key={ab.id}>
-                        <td>{dateTime(ab.at)}</td>
+                        <td>{dateTime(ab.at)}{ab.tipo_abono === 'producto' && <span className="badge" style={{ marginLeft: '.3rem' }}>📦 Producto</span>}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ab.monto), ab.moneda)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{ab.saldo_restante != null ? monto(Number(ab.saldo_restante), ab.moneda) : '—'}</td>
-                        <td className="muted">{ab.nota || '—'}</td>
+                        <td className="muted">
+                          {ab.tipo_abono === 'producto'
+                            ? `${num(Number(ab.cantidad) || 0)} ${ab.unidad ?? ''} ${ab.producto_nombre ?? ''}${ab.nota ? ` · ${ab.nota}` : ''}`.trim()
+                            : (ab.nota || '—')}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
