@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 interface ModalProps {
@@ -10,16 +10,11 @@ interface ModalProps {
 }
 
 export function Modal({ title, size = 'md', onClose, children, footer }: ModalProps) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
+  // A pedido: el modal SOLO se cierra con la ✕ (o los botones explícitos del footer).
+  // No se cierra al hacer clic afuera (backdrop) ni con la tecla Escape, para evitar
+  // perder lo cargado por un clic accidental.
   return createPortal(
-    <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-backdrop">
       <div className={`modal ${size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : ''}`}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{title ?? ''}</h3>

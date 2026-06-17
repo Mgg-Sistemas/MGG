@@ -962,7 +962,6 @@ function NuevaTaxonomiaModal({ titulo, placeholder, onClose, onCrear }: NuevaTax
           autoFocus
           onKeyDown={(e) => {
             if (e.key === 'Enter') void handleCrear();
-            if (e.key === 'Escape') onClose();
           }}
         />
       </div>
