@@ -235,7 +235,8 @@ export function AppShell() {
               {can('acopio') && <NavItem to="/app/acopio" icon="🏭" label="La Esperanza" />}
               {can('acopio_gmt') && <NavItem to="/app/acopio/global-mineral-tin" icon="🏭" label="Global Mineral TIN" />}
               {can('acopio_peramanal') && <NavItem to="/app/acopio/peramanal-ender" icon="🏭" label="Peramanal (Ender Mejías)" />}
-              {can('acopio_esmeralda') && <NavItem to="/app/acopio/esmeralda-ali" icon="🏭" label="La Esmeralda (Alí)" />}
+              {/* Oculto a pedido: La Esmeralda (Alí). La vista/ruta siguen existiendo; solo no aparece en el menú. */}
+              {/* {can('acopio_esmeralda') && <NavItem to="/app/acopio/esmeralda-ali" icon="🏭" label="La Esmeralda (Alí)" />} */}
               {can('acopio_pijiguaos') && <NavItem to="/app/acopio/los-pijiguaos" icon="🏭" label="Los Pijiguaos" />}
             </NavGroup>
           )}
