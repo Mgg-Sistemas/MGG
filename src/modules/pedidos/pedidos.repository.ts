@@ -126,16 +126,19 @@ export interface CrearOrdenInput {
   solicitante_email: string;
   solicitante: string | null;
   ci_solicitante: string | null;
+  urgente?: boolean;
 }
 
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
   const codigo = await nextCodigo();
   const total = input.items.reduce((a, i) => a + i.cantidad * i.precio, 0);
+  const urgente = !!input.urgente;
   const historial: EventoHistorial[] = [
     {
       at: new Date().toISOString(),
       evento: 'creada',
       actor: input.solicitante_email,
+      ...(urgente ? { detalle: 'ORDEN URGENTE' } : {}),
     },
   ];
   const row = {
@@ -151,6 +154,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     motivo: input.motivo?.trim() || null,
     finalidad: input.finalidad?.trim() || null,
     clasificacion: input.clasificacion?.length ? input.clasificacion : null,
+    urgente,
     historial,
   };
   const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
@@ -533,6 +537,20 @@ export async function urlAdjuntoOc(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET_OC).createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
+}
+
+/** Adjunta (o reemplaza) la imagen de referencia de una OP: la sube al bucket de
+ *  adjuntos y guarda su path en `ordenes.imagen_path`. Reusa el storage de la OC. */
+export async function adjuntarImagenOrden(ordenId: string, file: File): Promise<string> {
+  const safe = file.name.replace(/[^\w.\-]+/g, '_');
+  const path = `${ordenId}/op-imagen-${safe}`;
+  const { error } = await supabase.storage.from(BUCKET_OC).upload(path, file, {
+    upsert: true, contentType: file.type || 'image/jpeg',
+  });
+  if (error) throw error;
+  const { error: uErr } = await supabase.from(TABLE).update({ imagen_path: path }).eq('id', ordenId);
+  if (uErr) throw uErr;
+  return path;
 }
 
 export interface OrdenPorPagar {

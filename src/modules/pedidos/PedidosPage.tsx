@@ -26,6 +26,7 @@ import {
   anularOrden,
   cancelarOrden,
   crearOrden,
+  adjuntarImagenOrden,
   desistirProveedor,
   reabrirOcAOfertas,
   finalizarPedido,
@@ -1395,7 +1396,10 @@ function OrdenesTable({ ordenes, proveedorMap, isAdmin, onView, onApprove }: Ord
             const cambios = (o.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
             return (
               <tr key={o.id}>
-                <td className="mono">{o.codigo}</td>
+                <td className="mono">
+                  {o.codigo}
+                  {o.urgente && <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--danger)', color: '#fff', fontSize: '.6rem', padding: '.05rem .35rem' }}>🚨 URGENTE</span>}
+                </td>
                 <td>
                   <div>{prov?.razon_social ?? '—'}</div>
                   {cambios > 0 && (
@@ -1498,9 +1502,14 @@ const KanbanCard = memo(function KanbanCard({
       onKeyDown={(e) => {
         if (e.key === 'Enter') onOpen(orden.id);
       }}
-      style={creditoPagado ? { borderColor: 'var(--success)', boxShadow: '0 0 0 1px var(--success)' } : undefined}
+      style={orden.urgente
+        ? { borderColor: 'var(--danger)', boxShadow: '0 0 0 1px var(--danger)' }
+        : creditoPagado ? { borderColor: 'var(--success)', boxShadow: '0 0 0 1px var(--success)' } : undefined}
     >
-      <div className="code">{orden.codigo}</div>
+      <div className="code" style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+        {orden.codigo}
+        {orden.urgente && <span className="badge" style={{ background: 'var(--danger)', color: '#fff', fontSize: '.6rem', padding: '.05rem .35rem' }}>🚨 URGENTE</span>}
+      </div>
       <div className="prov">
         {proveedor?.razon_social
           ?? ((orden.ci_solicitante ?? orden.solicitante)
@@ -1810,7 +1819,23 @@ function OrdenDetailModal({
 
   return (
     <>
-    <Modal title={`Orden ${o.codigo}`} size="lg" onClose={onClose} footer={buttons}>
+    <Modal title={`Orden ${o.codigo}${o.urgente ? ' · 🚨 URGENTE' : ''}`} size="lg" onClose={onClose} footer={buttons}>
+      {o.urgente && (
+        <div className="card" style={{ borderColor: 'var(--danger)', background: 'rgba(239,68,68,.08)', margin: '0 0 .75rem', padding: '.5rem .8rem', fontWeight: 700, color: 'var(--danger)' }}>
+          🚨 ORDEN URGENTE — solicitud marcada como prioritaria.
+        </div>
+      )}
+      {o.imagen_path && (
+        <div className="detail-row">
+          <div className="k">Imagen de referencia</div>
+          <div className="v">
+            <button className="btn btn-sm btn-ghost" onClick={async () => {
+              try { const url = await urlAdjuntoOc(o.imagen_path!); window.open(url, '_blank', 'noopener'); }
+              catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir la imagen', 'error'); }
+            }}>📷 Ver imagen</button>
+          </div>
+        </div>
+      )}
       <div className="detail-row">
         <div className="k">Código</div>
         <div className="v mono">{o.codigo}</div>
@@ -2282,6 +2307,8 @@ function CrearOrdenModal({
   const solicitanteRef = useRef<HTMLInputElement>(null);
   const notaRef = useRef<HTMLTextAreaElement>(null);
   const finalidadRef = useRef<Record<string, string>>({});
+  const [urgente, setUrgente] = useState(false);
+  const [imagen, setImagen] = useState<File | null>(null);
 
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
   // el resto se completa luego desde el módulo de inventario).
@@ -2410,8 +2437,13 @@ function CrearOrdenModal({
         solicitante_email: email,
         solicitante: solicitanteNombre.trim() || null,
         ci_solicitante: ciValor || null,
+        urgente,
       });
-      notify(`Nueva orden de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
+      if (imagen) {
+        try { await adjuntarImagenOrden(saved.id, imagen); }
+        catch (e) { toast(`Orden creada, pero no se pudo subir la imagen: ${e instanceof Error ? e.message : ''}`, 'warning'); }
+      }
+      notify(`Nueva orden de pedido ${saved.codigo}${urgente ? ' · URGENTE' : ''} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al crear', 'error');
@@ -2606,6 +2638,12 @@ function CrearOrdenModal({
         </div>
       </div>
 
+      <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', margin: '0 0 .8rem', padding: '.6rem .8rem', cursor: 'pointer', borderColor: urgente ? 'var(--danger)' : 'var(--border)', background: urgente ? 'rgba(239,68,68,.08)' : undefined }}>
+        <input type="checkbox" checked={urgente} onChange={(e) => setUrgente(e.target.checked)} />
+        <span style={{ fontWeight: 700, color: urgente ? 'var(--danger)' : undefined }}>🚨 ORDEN: URGENTE</span>
+        <span className="muted" style={{ fontSize: '.78rem', fontWeight: 400 }}>Marca la orden como prioritaria (se refleja en el PDF y en toda la trazabilidad).</span>
+      </label>
+
       <div className="form-row">
         <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
         <textarea
@@ -2615,6 +2653,13 @@ function CrearOrdenModal({
           defaultValue=""
           onChange={(e) => setNotaOp(e.target.value)}
         />
+      </div>
+
+      <div className="form-row" style={{ marginTop: '.2rem' }}>
+        <label>Imagen de referencia <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        <input type="file" accept="image/*" className="input" onChange={(e) => setImagen(e.target.files?.[0] ?? null)} />
+        {imagen && <small className="muted">📎 {imagen.name} ({(imagen.size / 1024 / 1024).toFixed(2)} MB)</small>}
+        <small className="muted">Foto del repuesto/modelo a comprar. Se adjunta a la orden y queda en su trazabilidad.</small>
       </div>
 
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>
