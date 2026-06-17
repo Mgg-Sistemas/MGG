@@ -126,6 +126,7 @@ export function InventarioPage() {
   // Almacén padre cuyo nivel de subalmacenes estamos viendo (drill-down dentro de la sede).
   const [almacenNavId, setAlmacenNavId] = useState<string | null>(null);
   const [consumoAlmacen, setConsumoAlmacen] = useState<string | null>(null);
+  const [reporteAlmacen, setReporteAlmacen] = useState<string | null>(null);
   const [movStats, setMovStats] = useState<Map<string, { entradas: number; salidas: number }>>(new Map());
   const [consumo, setConsumo] = useState<Map<string, ConsumoProducto>>(new Map());
   const [detalleLayout, setDetalleLayout] = useState<'kanban' | 'lista'>('lista');
@@ -245,6 +246,20 @@ export function InventarioPage() {
       .filter((p): p is Producto => p !== null);
     return decorate(virtuales, DEFAULT_POLICY).filter((p) => coincideFiltros(p, ui));
   }, [almacenSel, existencias, productos, ui]);
+
+  // Filas (con stock/PMP propios del almacén) de CUALQUIER almacén por nombre, sin
+  // tener que entrar a su detalle. Lo usa el reporte por almacén desde la lista.
+  const rowsDeAlmacen = useCallback((nombre: string): ProductoDecorado[] => {
+    const prodMap = new Map(productos.map((p) => [p.id, p]));
+    const virtuales = existencias
+      .filter((e) => e.almacen === nombre)
+      .map((e) => {
+        const p = prodMap.get(e.producto_id);
+        return p ? ({ ...p, stock: e.stock, precio: e.costo_promedio, almacen: nombre } as Producto) : null;
+      })
+      .filter((p): p is Producto => p !== null);
+    return decorate(virtuales, DEFAULT_POLICY);
+  }, [existencias, productos]);
 
   // Al entrar al detalle de un almacén, cargamos entradas/salidas y consumo de ESE almacén.
   useEffect(() => {
@@ -658,6 +673,7 @@ export function InventarioPage() {
                 onSelect={setAlmacenSel}
                 onDrill={(a) => setAlmacenNavId(a.id)}
                 onConsumo={setConsumoAlmacen}
+                onReporte={setReporteAlmacen}
                 onEditar={(a) => setModal({ kind: 'almacenEditar', almacen: a })}
                 onEliminar={(a) => setModal({ kind: 'almacenEliminar', almacen: a })}
                 onAgregarSub={(a) => setModal({ kind: 'almacenCrear', parentId: a.id })}
@@ -750,6 +766,35 @@ export function InventarioPage() {
           onClose={() => setConsumoAlmacen(null)}
         />
       )}
+      {reporteAlmacen && (() => {
+        const rows = rowsDeAlmacen(reporteAlmacen);
+        const valor = rows.reduce((a, p) => a + ((p as ProductoDecorado)._valor ?? (Number(p.stock) || 0) * (Number(p.precio) || 0)), 0);
+        return (
+          <Modal
+            title={`📄 Reporte · ${reporteAlmacen}`}
+            size="sm"
+            onClose={() => setReporteAlmacen(null)}
+            footer={
+              <>
+                <button className="btn btn-ghost" onClick={() => setReporteAlmacen(null)}>Cerrar</button>
+                <button className="btn btn-ghost" disabled={!rows.length}
+                  onClick={() => descargarAlmacenExcel(reporteAlmacen, rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
+                <button className="btn btn-primary" disabled={!rows.length}
+                  onClick={() => descargarAlmacenPdf(reporteAlmacen, rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+              </>
+            }
+          >
+            {!rows.length ? (
+              <p className="muted" style={{ margin: 0 }}>Este almacén no tiene productos con existencia. Si tiene subalmacenes, generá el reporte de cada uno.</p>
+            ) : (
+              <p style={{ margin: 0 }}>
+                <strong>{num(rows.length)}</strong> producto(s) · valor total <strong className="mono">{money(valor)}</strong>.<br />
+                <span className="muted" style={{ fontSize: '.84rem' }}>Elegí el formato. El PDF se abre en vista previa con botón de descarga.</span>
+              </p>
+            )}
+          </Modal>
+        );
+      })()}
       {modal.kind === 'export' && (
         <ExportInventarioModal
           productos={productos}

@@ -203,6 +203,38 @@ function appendHistorial(
   return [...(o.historial ?? []), entry];
 }
 
+export interface EditarOrdenInput {
+  items: ItemOrden[];
+  notas?: string | null;
+  solicitante?: string | null;
+  ci_solicitante?: string | null;
+  urgente?: boolean;
+}
+
+/**
+ * Edita una OP mientras está PENDIENTE (antes de ser aprobada por el GG): permite
+ * cambiar los ítems (productos/cantidades/finalidad), la nota, el solicitante y el
+ * flag de urgente. Recalcula el total y deja registro en el historial. Una vez
+ * aprobada ya no se puede editar por esta vía.
+ */
+export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEmail: string): Promise<Orden> {
+  if (o.estado !== 'pendiente') throw new Error('Solo se pueden editar órdenes pendientes (aún no aprobadas).');
+  if (!input.items.length) throw new Error('La orden debe tener al menos un producto.');
+  const total = input.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+  const patch = {
+    items: input.items,
+    total,
+    notas: input.notas?.trim() || null,
+    solicitante: input.solicitante?.trim() || null,
+    ci_solicitante: input.ci_solicitante?.trim() || null,
+    urgente: !!input.urgente,
+    historial: appendHistorial(o, 'editada', actorEmail),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 export async function aprobarOrden(o: Orden, actorEmail: string): Promise<Orden> {
   if (o.estado !== 'pendiente') throw new Error('Solo se aprueban órdenes pendientes');
   const patch = {

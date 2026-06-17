@@ -91,8 +91,8 @@ export function OfertasComparativa({
 
   // Las ofertas se cargan/eligen sobre la OP ya APROBADA (etapa Orden de Compra).
   const enEtapaOc = orden.estado === 'aprobada' || orden.estado === 'desistida_proveedor';
-  // Cotizaciones: mínimo 2 para poder elegir, máximo 4 para cargar.
-  const MIN_OFERTAS = 2, MAX_OFERTAS = 4;
+  // Cotizaciones: mínimo 1 para poder elegir, máximo 6 para cargar.
+  const MIN_OFERTAS = 1, MAX_OFERTAS = 6;
   const minOk = ofertas.length >= MIN_OFERTAS;
   const puedeDecidir = canDecidir && enEtapaOc && minOk;
   const puedeAgregar = (canCrearOferta ?? canDecidir) && enEtapaOc && ofertas.length < MAX_OFERTAS;

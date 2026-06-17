@@ -685,12 +685,17 @@ create table if not exists public.ordenes (
   rechazada_por      text,
   rechazada_en       timestamptz,
   motivo_rechazo     text,
+  -- Sub-OC por proveedor: si la OP se reparte entre varios proveedores, cada OC
+  -- hija apunta a su OP padre por aquí (la padre queda en estado 'asignada').
+  parent_orden_id    uuid references public.ordenes(id) on delete set null,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz
 );
 
+alter table public.ordenes add column if not exists parent_orden_id uuid references public.ordenes(id) on delete set null;
 create index if not exists idx_ordenes_proveedor on public.ordenes(proveedor_id);
 create index if not exists idx_ordenes_estado    on public.ordenes(estado);
+create index if not exists idx_ordenes_parent    on public.ordenes(parent_orden_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- 7. facturas
@@ -1291,6 +1296,8 @@ alter table public.ordenes add column if not exists retencion_pagada_en timestam
 --  · anticipado/null → flujo actual (confirmada_metodo → oc_aprobada → pagada → recibida).
 alter type public.estado_orden add value if not exists 'por_recibir';
 alter type public.estado_orden add value if not exists 'cuenta_abierta';
+-- OP repartida entre varios proveedores (umbrella): sus OC hijas llevan parent_orden_id.
+alter type public.estado_orden add value if not exists 'asignada';
 -- Recepción parcial: items[].cantidad_recibida (jsonb) + nota y total recibido.
 alter table public.ordenes add column if not exists nota_recepcion text;
 alter table public.ordenes add column if not exists recibido_total numeric;  -- Σ cantidad_recibida×precio

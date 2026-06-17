@@ -4,7 +4,7 @@
    almacén en Excel y PDF. El `stock`/`precio` de cada fila ya
    vienen con los valores propios del almacén (PMP por almacén).
    ============================================================ */
-import { previewWorkbook } from '@/shared/lib/reportPreview';
+import { previewWorkbook, previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { Producto } from '@/shared/lib/types';
 
 interface FilaAlmacen extends Producto { _valor?: number }
@@ -107,5 +107,5 @@ export async function descargarAlmacenPdf(almacen: string, rows: Producto[]): Pr
     columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
-  doc.save(`almacen-${almacen}.pdf`);
+  previewPdfDoc(doc, `almacen-${almacen}.pdf`);
 }

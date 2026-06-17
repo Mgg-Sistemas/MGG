@@ -61,11 +61,12 @@ const SOL_ESTADO_CLASS: Record<EstadoSolicitudSalida, string> = {
 export function SalidasPage() {
   const { can, appUser, isAdmin, role } = usePermissions();
   const canWrite = can('salidas', 'escritura');
-  // Aprueban y ejecutan: el administrador, cualquier ANALISTA y cualquier JEFE/JEFA.
-  // (Se excluye el rol de solo lectura, que no debe ejecutar movimientos). El
-  // obrero solo crea solicitudes.
+  // Aprueban y ejecutan: el administrador, quien tenga FULL CONTROL del módulo,
+  // cualquier ANALISTA y cualquier JEFE/JEFA. (Se excluye el rol de solo lectura,
+  // que no debe ejecutar movimientos). El obrero solo crea solicitudes.
   const r = role ?? '';
   const puedeAprobar = isAdmin
+    || can('salidas', 'full')
     || (r !== 'analista_de_lectura' && (/^analista/.test(r) || /^jef[ae]/.test(r)));
   const actor = appUser?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
