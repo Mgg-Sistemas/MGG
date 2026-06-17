@@ -924,7 +924,8 @@ exception when duplicate_object then null; end $$;
 -- moneda); se salda con abonos (ingresos a caja).
 create table if not exists public.cuentas_por_cobrar (
   id          uuid primary key default gen_random_uuid(),
-  tipo        text not null check (tipo in ('cliente','proveedor')),
+  -- 'centro_acopio' = cuenta por cobrar generada por un traspaso de dinero a un centro de costo.
+  tipo        text not null check (tipo in ('cliente','proveedor','centro_acopio')),
   contraparte text not null,
   monto       numeric not null default 0,
   abonado     numeric not null default 0,
@@ -942,6 +943,11 @@ create table if not exists public.cuentas_por_cobrar_abonos (
   moneda         text not null,
   caja_id        uuid references public.cajas(id) on delete set null,
   cuenta         text, caja_mov_id uuid, saldo_restante numeric,
+  -- Abono en PRODUCTO (intercambio dinero↔producto): el producto entra al inventario y su
+  -- valor ($ al cambio) salda la cuenta. tipo_abono='dinero' (entra a caja) | 'producto' (entra a inventario).
+  tipo_abono     text not null default 'dinero' check (tipo_abono in ('dinero','producto')),
+  producto_id    uuid, producto_nombre text, cantidad numeric, unidad text, costo_unit numeric,
+  almacen        text, inv_mov_id uuid,
   nota           text, actor text, actor_name text,
   at             timestamptz not null default now()
 );

@@ -1153,7 +1153,7 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
   const [nombre, setNombre] = useState('');
   const [almacen, setAlmacen] = useState('');
   const [litros, setLitros] = useState('');
-  const [costo, setCosto] = useState('');
+  const [costo, setCosto] = useState('0.50'); // tasa por defecto: 0,50 USD/L
   const [busy, setBusy] = useState(false);
   // Feedback persistente del alta (no solo el toast efímero, que dura 3,2 s y se pierde).
   const [error, setError] = useState<string | null>(null);
