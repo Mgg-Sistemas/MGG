@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import type { ItemOrden, OfertaProveedor } from '@/shared/lib/types';
+import type { ItemOrden, OfertaProveedor, OfertaDetalle } from '@/shared/lib/types';
 
 const TABLE = 'ofertas_proveedor';
 const BUCKET = 'ofertas-pdf';
@@ -18,9 +18,30 @@ export interface CrearOfertaInput {
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
   notas?: string | null;
+  detalle?: OfertaDetalle | null;
   registrada_por_email: string;
   pdf_path?: string | null;
   pdf_filename?: string | null;
+}
+
+/** Quita campos vacíos del detalle; devuelve null si no quedó nada. */
+export function limpiarDetalleOferta(d?: OfertaDetalle | null): OfertaDetalle | null {
+  if (!d) return null;
+  const txt = (s?: string | null) => (s && s.trim() ? s.trim() : undefined);
+  const log = d.logistica ?? {};
+  const logistica = {
+    flete: log.flete ?? undefined,
+    transporte: log.transporte ?? undefined,
+    embalaje: log.embalaje ?? undefined,
+    seguros: log.seguros ?? undefined,
+  };
+  const hayLog = Object.values(logistica).some((v) => v);
+  const out: OfertaDetalle = {
+    marca: txt(d.marca), modelo: txt(d.modelo), procedencia: txt(d.procedencia),
+    materiales: txt(d.materiales), dimensiones: txt(d.dimensiones), peso: txt(d.peso),
+    calidad: txt(d.calidad), logistica: hayLog ? logistica : undefined,
+  };
+  return Object.values(out).some((v) => v) ? out : null;
 }
 
 /** Etiquetas legibles de las condiciones de pago. */
@@ -80,6 +101,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       fecha_entrega_prometida: input.fecha_entrega_prometida ?? null,
       condiciones_pago: input.condiciones_pago ?? null,
       notas: input.notas ?? null,
+      detalle: limpiarDetalleOferta(input.detalle),
       registrada_por_email: input.registrada_por_email,
       pdf_path: input.pdf_path ?? null,
       pdf_filename: input.pdf_filename ?? null,

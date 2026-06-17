@@ -1128,7 +1128,10 @@ create table if not exists public.ofertas_proveedor (
 -- Reconciliación: agrega columnas PDF si el schema ya estaba creado
 alter table public.ofertas_proveedor
   add column if not exists pdf_path text,
-  add column if not exists pdf_filename text;
+  add column if not exists pdf_filename text,
+  -- Datos técnicos/logísticos declarados por el proveedor (marca, modelo,
+  -- procedencia, materiales, dimensiones, peso, calidad, fletes/seguros).
+  add column if not exists detalle jsonb;
 
 create index if not exists idx_ofertas_orden     on public.ofertas_proveedor(orden_id);
 create index if not exists idx_ofertas_proveedor on public.ofertas_proveedor(proveedor_id);

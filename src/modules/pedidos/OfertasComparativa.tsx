@@ -205,6 +205,30 @@ export function OfertasComparativa({
                       {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
                     </td>
                   </tr>
+                  {(() => {
+                    const d = s.oferta.detalle;
+                    if (!d) return null;
+                    const tecn = ([
+                      ['Marca', d.marca], ['Modelo', d.modelo], ['Procedencia', d.procedencia],
+                      ['Materiales', d.materiales], ['Dimensiones', d.dimensiones], ['Peso', d.peso], ['Calidad', d.calidad],
+                    ] as [string, string | null | undefined][]).filter(([, v]) => v && String(v).trim());
+                    const labLog = (v?: string | null) => v === 'incluido' ? 'incluido' : v === 'por_cuenta' ? 'por cuenta del comprador' : null;
+                    const log = ([
+                      ['Flete', d.logistica?.flete], ['Transporte', d.logistica?.transporte],
+                      ['Embalaje', d.logistica?.embalaje], ['Seguros', d.logistica?.seguros],
+                    ] as [string, string | null | undefined][]).map(([k, v]) => [k, labLog(v)] as const).filter(([, v]) => v);
+                    if (!tecn.length && !log.length) return null;
+                    return (
+                      <tr>
+                        <td colSpan={9} style={{ paddingTop: 0, paddingBottom: '.5rem', fontSize: '.78rem' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem .6rem' }}>
+                            {tecn.map(([k, v]) => <span key={k} className="muted"><strong>{k}:</strong> {v}</span>)}
+                            {log.map(([k, v]) => <span key={k} className="muted">🚚 <strong>{k}:</strong> {v}</span>)}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })()}
                   {seleccionable && (
                     <tr
                       className="row-selectable"

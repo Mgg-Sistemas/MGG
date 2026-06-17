@@ -1,4 +1,32 @@
 let cachedDataUrl: string | null = null;
+let cachedFirma: string | null | undefined;
+
+/**
+ * Firma del Gerente General para los PDF de OC (se coloca al aprobar la orden).
+ * Lee `public/firma-gerente.png` (PNG con transparencia). Devuelve null si el
+ * archivo no existe todavía, así el PDF se genera igual sin romper.
+ */
+export async function loadFirmaGerenteDataUrl(): Promise<string | null> {
+  if (cachedFirma !== undefined) return cachedFirma;
+  try {
+    const url = `${import.meta.env.BASE_URL}firma-gerente.png`;
+    const resp = await fetch(url);
+    if (!resp.ok) { cachedFirma = null; return null; }
+    const blob = await resp.blob();
+    // En dev, un archivo inexistente devuelve el index.html (SPA fallback): filtramos por tipo.
+    if (!blob.type.startsWith('image/')) { cachedFirma = null; return null; }
+    cachedFirma = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => reject(new Error('No se pudo leer la firma'));
+      fr.readAsDataURL(blob);
+    });
+    return cachedFirma;
+  } catch {
+    cachedFirma = null;
+    return null;
+  }
+}
 
 /**
  * Devuelve el logo de MGG como data URL (JPEG con fondo blanco) para

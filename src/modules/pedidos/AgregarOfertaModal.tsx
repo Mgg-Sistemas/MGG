@@ -5,7 +5,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
-import type { ItemOrden, Orden, OrigenProveedor, Proveedor } from '@/shared/lib/types';
+import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico } from '@/shared/lib/types';
 import { crearOferta, subirPdfOferta, CONDICIONES_PAGO } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
@@ -71,6 +71,11 @@ export function AgregarOfertaModal({
   const [fechaEntrega, setFechaEntrega] = useState<string>('');
   const [condiciones, setCondiciones] = useState('');
   const [notas, setNotas] = useState('');
+  // Datos técnicos/logísticos de la oferta (todos opcionales).
+  const [detalle, setDetalle] = useState<OfertaDetalle>({});
+  const setD = (patch: Partial<OfertaDetalle>) => setDetalle((d) => ({ ...d, ...patch }));
+  const setLog = (k: 'flete' | 'transporte' | 'embalaje' | 'seguros', v: CostoLogistico) =>
+    setDetalle((d) => ({ ...d, logistica: { ...(d.logistica ?? {}), [k]: v } }));
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -158,6 +163,7 @@ export function AgregarOfertaModal({
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
         notas: notas.trim() || null,
+        detalle,
         registrada_por_email: registradoPorEmail,
         pdf_path,
         pdf_filename,
@@ -381,6 +387,42 @@ export function AgregarOfertaModal({
       <div className="form-row">
         <label>Notas</label>
         <textarea className="textarea" placeholder="Comentarios sobre la oferta, exclusiones, garantías…" value={notas} onChange={(e) => setNotas(e.target.value)} />
+      </div>
+
+      {/* Datos técnicos del producto ofertado (opcionales) */}
+      <div className="card" style={{ background: 'var(--bg-2)', padding: '.8rem', marginBottom: '.75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}><span>📋 Datos técnicos del producto <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></span></div>
+        <div className="form-grid">
+          <div className="form-row"><label>Marca</label><input className="input" value={detalle.marca ?? ''} onChange={(e) => setD({ marca: e.target.value })} /></div>
+          <div className="form-row"><label>Modelo</label><input className="input" value={detalle.modelo ?? ''} onChange={(e) => setD({ modelo: e.target.value })} /></div>
+          <div className="form-row"><label>Procedencia</label><input className="input" value={detalle.procedencia ?? ''} onChange={(e) => setD({ procedencia: e.target.value })} placeholder="País / origen" /></div>
+          <div className="form-row"><label>Materiales</label><input className="input" value={detalle.materiales ?? ''} onChange={(e) => setD({ materiales: e.target.value })} /></div>
+          <div className="form-row"><label>Dimensiones</label><input className="input" value={detalle.dimensiones ?? ''} onChange={(e) => setD({ dimensiones: e.target.value })} placeholder="Ej.: 120 × 80 × 40 cm" /></div>
+          <div className="form-row"><label>Peso</label><input className="input" value={detalle.peso ?? ''} onChange={(e) => setD({ peso: e.target.value })} placeholder="Ej.: 25 kg" /></div>
+          <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Nivel de calidad</label><input className="input" value={detalle.calidad ?? ''} onChange={(e) => setD({ calidad: e.target.value })} placeholder="Ej.: Industrial / Premium / Estándar" /></div>
+        </div>
+      </div>
+
+      {/* Costos logísticos: ¿incluidos o por cuenta del comprador? */}
+      <div className="card" style={{ background: 'var(--bg-2)', padding: '.8rem', marginBottom: '.75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}><span>🚚 Costos logísticos <span className="muted" style={{ fontWeight: 400 }}>(¿incluidos en el precio o por cuenta del comprador?)</span></span></div>
+        <div className="form-grid">
+          {([
+            { k: 'flete', label: 'Flete' },
+            { k: 'transporte', label: 'Transporte' },
+            { k: 'embalaje', label: 'Embalaje' },
+            { k: 'seguros', label: 'Seguros' },
+          ] as const).map((c) => (
+            <div className="form-row" key={c.k}>
+              <label>{c.label}</label>
+              <select className="select" value={detalle.logistica?.[c.k] ?? ''} onChange={(e) => setLog(c.k, (e.target.value || null) as CostoLogistico)}>
+                <option value="">— sin especificar —</option>
+                <option value="incluido">Incluido en el precio</option>
+                <option value="por_cuenta">Por cuenta del comprador</option>
+              </select>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="form-row">
