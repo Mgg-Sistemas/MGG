@@ -452,7 +452,7 @@ export function CombustiblePage() {
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'movimientos' && (
-        <MovimientosModal tanques={tanquesSede} tanqueId={movTanqueId} actor={actor} actorName={miNombre} canWrite={canWrite} onChanged={reload}
+        <MovimientosModal tanques={tanquesSede} vehiculos={vehiculos} tanqueId={movTanqueId} actor={actor} actorName={miNombre} canWrite={canWrite} onChanged={reload}
           onClose={() => { setModal('none'); setMovTanqueId(null); }} />
       )}
       {combEdit && (
@@ -908,8 +908,8 @@ function EditarCombustibleModal({ combustible, onClose, onSaved }: {
 }
 
 /* ───────────── Histórico de movimientos de tanque (botón "Movimientos" · por mes) ───────────── */
-function MovimientosModal({ tanques, tanqueId, actor, actorName, canWrite, onChanged, onClose }: {
-  tanques: Tanque[]; tanqueId: string | null; actor: string; actorName?: string | null; canWrite: boolean;
+function MovimientosModal({ tanques, vehiculos, tanqueId, actor, actorName, canWrite, onChanged, onClose }: {
+  tanques: Tanque[]; vehiculos: VehiculoMaquina[]; tanqueId: string | null; actor: string; actorName?: string | null; canWrite: boolean;
   onChanged?: () => void | Promise<void>; onClose: () => void;
 }) {
   const [movs, setMovs] = useState<TanqueMovimiento[]>([]);
@@ -1014,7 +1014,7 @@ function MovimientosModal({ tanques, tanqueId, actor, actorName, canWrite, onCha
 
       {editMov && (
         <EditarTanqueMovModal
-          mov={editMov} tanques={tanques} actor={actor} actorName={actorName}
+          mov={editMov} tanques={tanques} vehiculos={vehiculos} actor={actor} actorName={actorName}
           onClose={() => setEditMov(null)}
           onSaved={async () => { setEditMov(null); recargar(); await onChanged?.(); }}
         />
@@ -1048,9 +1048,10 @@ function numOrNull(s: string): number | null {
   return s.trim() !== '' && Number.isFinite(n) ? n : null;
 }
 
-function EditarTanqueMovModal({ mov, tanques, actor, actorName, onClose, onSaved }: {
-  mov: TanqueMovimiento; tanques: Tanque[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+function EditarTanqueMovModal({ mov, tanques, vehiculos, actor, actorName, onClose, onSaved }: {
+  mov: TanqueMovimiento; tanques: Tanque[]; vehiculos: VehiculoMaquina[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
+  const vehiculosAct = useMemo(() => vehiculos.filter((v) => v.estado === 'activo'), [vehiculos]);
   const [tanqueId, setTanqueId] = useState(mov.tanque_id ?? '');
   const [fecha, setFecha] = useState(isoADatetimeLocal(mov.fecha));
   const [tipo, setTipo] = useState<TipoMovimientoTanque>(mov.tipo);
@@ -1115,7 +1116,12 @@ function EditarTanqueMovModal({ mov, tanques, actor, actorName, onClose, onSaved
           <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} />
         </div>
       </div>
-      <div className="form-row"><label>Equipo</label><input className="input" value={equipo} onChange={(e) => setEquipo(e.target.value)} /></div>
+      <div className="form-row">
+        <label>Equipo</label>
+        <ComboBuscador value={equipo} onChange={setEquipo}
+          opciones={vehiculosAct.map((v) => ({ value: v.nombre, label: v.nombre }))}
+          placeholder="🔎 Buscá el equipo…" icono="🚜" />
+      </div>
       <div className="form-grid">
         <div className="form-row">
           <label>Horómetro inicial (HI) 🔒</label>
