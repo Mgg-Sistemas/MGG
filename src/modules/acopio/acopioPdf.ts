@@ -4,6 +4,7 @@
    Réplica del formato Excel original. Se descarga SOLO al hacer clic.
    ============================================================ */
 import type { RecepcionAcopio } from '@/shared/lib/types';
+import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { totalesRecepcion } from './acopio.repository';
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -116,5 +117,5 @@ async function construir(r: RecepcionAcopio) {
 
 export async function descargarRecepcionPdf(r: RecepcionAcopio): Promise<void> {
   const { doc, filename } = await construir(r);
-  doc.save(filename);
+  previewPdfDoc(doc, filename);
 }

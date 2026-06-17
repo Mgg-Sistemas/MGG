@@ -24,6 +24,30 @@ const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 /** Centro de acopio por defecto del módulo (hoy solo LA ESPERANZA tiene vista). */
 export const CENTRO_ACOPIO_DEFECTO = 'LA ESPERANZA';
 
+/** Nombre del centro al que pertenece una caja de acopio (para anclar la cuenta por cobrar). */
+async function centroDeCajaAcopio(cajaId: string | null): Promise<string | null> {
+  if (!cajaId) return null;
+  const { data } = await supabase.from('acopio_cajas').select('centro_nombre').eq('id', cajaId).maybeSingle();
+  return (data as { centro_nombre?: string } | null)?.centro_nombre ?? null;
+}
+
+/**
+ * Todo «USD ENTREGADOS» a un centro de costo se vuelve una CUENTA POR COBRAR
+ * incremental en Tesorería (el centro debe rendir lo entregado, en dinero o en
+ * producto al cambio). Best-effort: si fallara, NO bloquea el movimiento del acopio.
+ */
+async function anclarUsdEntregadoACuentaPorCobrar(
+  centro: string | null, montoUsd: number, descripcion: string | null, actor: string, actorName?: string | null,
+): Promise<void> {
+  try {
+    const c = (centro ?? '').trim();
+    const usd = num(montoUsd);
+    if (!c || usd <= 0) return;
+    const { registrarCobrarPorTraspaso } = await import('@/modules/tesoreria/cuentasPorCobrar.repository');
+    await registrarCobrarPorTraspaso({ centro: c, monto: usd, moneda: 'USD', nota: descripcion ?? null, actor, actorName });
+  } catch { /* la cuenta por cobrar es best-effort: no bloquea el movimiento */ }
+}
+
 /** "Centro de Acopio LA ESPERANZA" → "LA ESPERANZA" (nombre corto del centro). */
 export function centroAcopioShort(nombreTesoreria: string): string {
   return (nombreTesoreria || '').replace(/^centro de acopio\s*/i, '').trim() || nombreTesoreria;
@@ -429,7 +453,13 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
   };
   const { data, error } = await supabase.from('acopio_caja_movimientos').insert(payload).select('*').single();
   if (error) throw error;
-  return data as CajaMovimiento;
+  const mov = data as CajaMovimiento;
+  // USD ENTREGADOS → cuenta por cobrar incremental del centro (best-effort).
+  if (num(input.usd_entregado) > 0) {
+    const centro = await centroDeCajaAcopio(input.caja_id ?? mov.caja_id ?? null);
+    await anclarUsdEntregadoACuentaPorCobrar(centro, num(input.usd_entregado), input.descripcion ?? null, actor, actorName);
+  }
+  return mov;
 }
 
 export async function actualizarMovimientoCaja(id: string, input: CajaMovimientoInput): Promise<CajaMovimiento> {
@@ -502,6 +532,8 @@ export async function entradaTesoreriaACentroAcopio(input: {
     created_by: input.actor, actor_name: input.actorName ?? null,
   });
   if (error) throw error;
+  // USD ENTREGADOS → cuenta por cobrar incremental del centro (best-effort).
+  await anclarUsdEntregadoACuentaPorCobrar(centro, usd, desc, input.actor, input.actorName);
 }
 
 /* ───────────── Cierres (cajas) + taxonomía de costos + resumen ───────────── */

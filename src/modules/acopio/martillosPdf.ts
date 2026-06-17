@@ -3,6 +3,7 @@
    PDF / Correo de la hoja «CONSUMO MAZOS MARTILLOS GT».
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { MartilloMovimiento } from './martillos.repository';
 
 const NOMBRE = 'consumo-martillos-molino-h66';
@@ -56,7 +57,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
 }
 
 export async function descargarMartillosPdf(movs: MartilloMovimiento[]): Promise<void> {
-  (await construirDoc(movs)).save(`${NOMBRE}.pdf`);
+  previewPdfDoc(await construirDoc(movs), `${NOMBRE}.pdf`);
 }
 
 export async function enviarMartillosPorCorreo(movs: MartilloMovimiento[], destinos: string[]): Promise<{ destinatarios: string[] }> {
