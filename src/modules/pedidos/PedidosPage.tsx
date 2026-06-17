@@ -9,6 +9,7 @@ import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type {
   EstadoOrden,
   EventoHistorial,
@@ -26,6 +27,7 @@ import {
   anularOrden,
   cancelarOrden,
   crearOrden,
+  actualizarOrden,
   adjuntarImagenOrden,
   desistirProveedor,
   reabrirOcAOfertas,
@@ -157,6 +159,7 @@ type ModalKind =
   | { kind: 'none' }
   | { kind: 'detail'; ordenId: string }
   | { kind: 'create' }
+  | { kind: 'edit'; orden: Orden }
   | { kind: 'approve'; orden: Orden }
   | { kind: 'metodo-pago'; orden: Orden }
   | { kind: 'cancel'; orden: Orden }
@@ -172,6 +175,7 @@ type ModalKind =
 
 export function PedidosPage() {
   const { user } = useSession();
+  const { can } = usePermissions();
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -269,7 +273,8 @@ export function PedidosPage() {
     [usuarios]
   );
 
-  const isAdmin = usuario?.role === 'admin';
+  // Admin o quien tenga FULL CONTROL de Pedidos/Compras puede hacer todo en el módulo.
+  const isAdmin = usuario?.role === 'admin' || can('pedidos', 'full');
   // Analista y admin manejan compras (cargar ofertas, emitir OC, recibir mercancía).
   // El "aprobar" final (aceptar la oferta ganadora) sigue siendo solo del jefe/admin.
   const canManageProcurement = isAdmin || usuario?.role === 'analista';
@@ -527,6 +532,7 @@ export function PedidosPage() {
           }}
           onClose={() => setModal({ kind: 'none' })}
           onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
+          onEditar={() => setModal({ kind: 'edit', orden: currentDetail })}
           onConfirmOc={async () => {
             try {
               await aprobarOcsEnLote([currentDetail], usuario?.email ?? user?.email ?? 'sistema', null);
@@ -566,6 +572,21 @@ export function PedidosPage() {
           productos={productos}
           usuario={usuario}
           authEmail={user?.email ?? ''}
+          onClose={() => setModal({ kind: 'none' })}
+          onCreated={async () => {
+            setModal({ kind: 'none' });
+            await refresh();
+          }}
+        />
+      )}
+
+      {/* Modal: editar OP (solo pendiente, antes de aprobación del GG) */}
+      {modal.kind === 'edit' && (
+        <CrearOrdenModal
+          productos={productos}
+          usuario={usuario}
+          authEmail={user?.email ?? ''}
+          orden={modal.orden}
           onClose={() => setModal({ kind: 'none' })}
           onCreated={async () => {
             setModal({ kind: 'none' });
@@ -1557,6 +1578,7 @@ interface OrdenDetailModalProps {
   actorEmail: string;
   onClose: () => void;
   onApprove: () => void;
+  onEditar: () => void;
   onConfirmOc: () => void;
   onEnviarPagar: () => void;
   onCancel: () => void;
@@ -1584,6 +1606,7 @@ function OrdenDetailModal({
   actorEmail,
   onClose,
   onApprove,
+  onEditar,
   onConfirmOc,
   onEnviarPagar,
   onCancel,
@@ -1604,6 +1627,9 @@ function OrdenDetailModal({
   // La OP la aprueba quien gestiona compras (admin o analista); al aprobarla pasa a
   // Órdenes de Compra. La elección de la oferta ganadora sí queda solo para el jefe/admin.
   const canApprove = canManageProcurement && isPendiente;  // Aprobar Orden de Pedido
+  // Editar la OP ANTES de que el GG la apruebe: quien gestiona compras o el propio
+  // solicitante que la creó. Una vez aprobada, ya no se edita por esta vía.
+  const canEditar = isPendiente && (canManageProcurement || o.solicitante_email === actorEmail);
   const isOcCreada = o.estado === 'oc_creada';      // oferta elegida, sin confirmar
   const isConfirmadaMetodo = o.estado === 'confirmada_metodo'; // gerente confirmó → falta método de pago
   const isOcAprobada = o.estado === 'oc_aprobada';  // método indicado → Tesorería
@@ -1805,6 +1831,11 @@ function OrdenDetailModal({
       {canCerrarSolicitudObrero && (
         <button className="btn btn-primary" onClick={onFinalizar} title="Confirmar recepción y cerrar tu solicitud">
           ✓ Cerrar solicitud
+        </button>
+      )}
+      {canEditar && (
+        <button className="btn btn-ghost" onClick={onEditar} title="Editar la orden antes de su aprobación">
+          ✎ Editar orden
         </button>
       )}
       {canApprove && (
@@ -2287,6 +2318,8 @@ interface CrearOrdenModalProps {
   productos: Producto[];
   usuario: Usuario | null;
   authEmail: string;
+  /** Si viene, el modal edita esa OP (pendiente) en vez de crear una nueva. */
+  orden?: Orden | null;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -2294,13 +2327,15 @@ function CrearOrdenModal({
   productos,
   usuario,
   authEmail,
+  orden,
   onClose,
   onCreated,
 }: CrearOrdenModalProps) {
-  const [items, setItems] = useState<ItemOrden[]>([]);
+  const esEdicion = !!orden;
+  const [items, setItems] = useState<ItemOrden[]>(orden?.items ?? []);
   // Texto crudo de cada cantidad (permite escribir decimales como 0,5 sin perder el punto).
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
-  const [notaOp, setNotaOp] = useState('');
+  const [notaOp, setNotaOp] = useState(orden?.notas ?? '');
   // Unidad solicitante: desplegable desde el catálogo + alta al vuelo (se guarda en el catálogo).
   const [unidadesSol, setUnidadesSol] = useState<string[]>([]);
   const [nuevaUnidad, setNuevaUnidad] = useState('');
@@ -2337,7 +2372,7 @@ function CrearOrdenModal({
   const solicitanteRef = useRef<HTMLInputElement>(null);
   const notaRef = useRef<HTMLTextAreaElement>(null);
   const finalidadRef = useRef<Record<string, string>>({});
-  const [urgente, setUrgente] = useState(false);
+  const [urgente, setUrgente] = useState(orden?.urgente ?? false);
   const [imagen, setImagen] = useState<File | null>(null);
 
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
@@ -2394,12 +2429,14 @@ function CrearOrdenModal({
   // del usuario logueado pero es editable (un analista puede crear la solicitud a
   // nombre de otra persona).
   const nombreCompletoUsuario = `${usuario?.nombre ?? ''} ${usuario?.apellido ?? ''}`.trim();
-  const [solicitanteNombre, setSolicitanteNombre] = useState('');
-  const [solicitanteCi, setSolicitanteCi] = useState(nombreCompletoUsuario);
+  const [solicitanteNombre, setSolicitanteNombre] = useState(orden?.solicitante ?? '');
+  const [solicitanteCi, setSolicitanteCi] = useState(orden?.ci_solicitante ?? nombreCompletoUsuario);
 
   useEffect(() => {
+    // En edición el código ya existe; al crear se reserva el siguiente.
+    if (esEdicion) { setCodigo(orden!.codigo); return; }
     nextCodigo().then(setCodigo).catch(() => setCodigo('OP-?'));
-  }, []);
+  }, [esEdicion, orden]);
 
   // El prefill del solicitante se hace SOLO en el valor inicial (useState arriba).
   // Antes había un useEffect que reprecargaba al cargar `usuario` async: ese
@@ -2456,6 +2493,22 @@ function CrearOrdenModal({
       }));
       // La unidad solicitante tipeada se guarda en el catálogo (botón Categorías).
       await ensureUnidadSolicitante(solicitanteNombre, email);
+      if (esEdicion) {
+        const saved = await actualizarOrden(orden!, {
+          items: itemsValor,
+          notas: notaValor || null,
+          solicitante: solicitanteNombre.trim() || null,
+          ci_solicitante: ciValor || null,
+          urgente,
+        }, email);
+        if (imagen) {
+          try { await adjuntarImagenOrden(saved.id, imagen); }
+          catch (e) { toast(`Orden guardada, pero no se pudo subir la imagen: ${e instanceof Error ? e.message : ''}`, 'warning'); }
+        }
+        notify(`Orden ${saved.codigo} editada${urgente ? ' · URGENTE' : ''}`, 'success', { link: '#/app/pedidos' });
+        onCreated();
+        return;
+      }
       const saved = await crearOrden({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
         proveedor_id: null,
@@ -2484,7 +2537,7 @@ function CrearOrdenModal({
 
   return (
     <Modal
-      title="Nueva orden de pedido"
+      title={esEdicion ? `Editar orden de pedido ${orden!.codigo}` : 'Nueva orden de pedido'}
       size="lg"
       onClose={onClose}
       footer={
@@ -2493,7 +2546,7 @@ function CrearOrdenModal({
             Cancelar
           </button>
           <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
-            {submitting ? 'Guardando…' : 'Crear solicitud'}
+            {submitting ? 'Guardando…' : (esEdicion ? 'Guardar cambios' : 'Crear solicitud')}
           </button>
         </>
       }

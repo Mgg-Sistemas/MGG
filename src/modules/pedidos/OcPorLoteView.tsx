@@ -15,7 +15,9 @@ import { enviarChecklistAMultiples } from './enviarChecklist';
 /** Checklist "OC por lote": relación de OC por confirmar. Aprobar en lote + PDF/correo. */
 export function OcPorLoteView() {
   const { user } = useSession();
-  const { isAdmin } = usePermissions(); // Solo el administrador aprueba OC.
+  // Aprueba/modifica/anula OC: el administrador o quien tenga FULL CONTROL de Pedidos/Compras.
+  const { isAdmin: esAdmin, can } = usePermissions();
+  const isAdmin = esAdmin || can('pedidos', 'full');
   const [rows, setRows] = useState<OcLoteRow[]>([]);
   const [incluirPagadas, setIncluirPagadas] = useState(false);
   const [loading, setLoading] = useState(true);

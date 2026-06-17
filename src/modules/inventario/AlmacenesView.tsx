@@ -94,12 +94,14 @@ interface AlmacenesViewProps {
   /** Almacén con subalmacenes → entra a ver sus subalmacenes. */
   onDrill: (a: Almacen) => void;
   onConsumo: (nombre: string) => void;
+  /** Reporte (Excel/PDF) del almacén individual. */
+  onReporte: (nombre: string) => void;
   onEditar: (a: Almacen) => void;
   onEliminar: (a: Almacen) => void;
   onAgregarSub: (a: Almacen) => void;
 }
 
-export function AlmacenesView({ almacenes, valores, layout, canWrite = true, parentId, onSelect, onDrill, onConsumo, onEditar, onEliminar, onAgregarSub }: AlmacenesViewProps) {
+export function AlmacenesView({ almacenes, valores, layout, canWrite = true, parentId, onSelect, onDrill, onConsumo, onReporte, onEditar, onEliminar, onAgregarSub }: AlmacenesViewProps) {
   const actuales = parentId ? hijosDe(parentId, almacenes) : raices(almacenes);
   const numHijos = (a: Almacen) => hijosDe(a.id, almacenes).length;
   const abrir = (a: Almacen) => { if (numHijos(a) > 0) onDrill(a); else onSelect(a.nombre); };
@@ -138,6 +140,7 @@ export function AlmacenesView({ almacenes, valores, layout, canWrite = true, par
                   <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3)', fontWeight: 600 }}>{money(v.valor)}</td>
                   <td className="actions" onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => abrir(a)} title={hijos > 0 ? 'Ver subalmacenes' : 'Ver detalle'}>{hijos > 0 ? 'Abrir' : 'Ver'}</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => onReporte(a.nombre)} title="Reporte del almacén (Excel/PDF)">📄 Reporte</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => onConsumo(a.nombre)} title="Gráfica de consumo por producto">📊 Consumo</button>
                     {canWrite && (
                       <>
@@ -176,6 +179,7 @@ export function AlmacenesView({ almacenes, valores, layout, canWrite = true, par
                 <div className="muted" style={{ fontSize: '.75rem' }}>{a.ubicacion || 'Sin ubicación'}</div>
               </div>
               <div className="actions" onClick={(e) => e.stopPropagation()}>
+                <button className="btn btn-sm btn-ghost" onClick={() => onReporte(a.nombre)} title="Reporte del almacén (Excel/PDF)">📄</button>
                 <button className="btn btn-sm btn-ghost" onClick={() => onConsumo(a.nombre)} title="Gráfica de consumo por producto">📊</button>
                 {canWrite && (
                   <>

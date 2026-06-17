@@ -65,7 +65,8 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   onClose: () => void;
   onRefreshed?: (t: TasaHoy) => void;
 }) {
-  const { isAdmin } = usePermissions();
+  const { isAdmin: esAdmin, can } = usePermissions();
+  const isAdmin = esAdmin || can('tesoreria', 'full');
   const [filtros, setFiltros] = useState<{ desde: string; hasta: string; moneda: string }>({ desde: '', hasta: '', moneda: '' });
   const [filas, setFilas] = useState<TasaCambio[]>([]);
   const [loading, setLoading] = useState(true);

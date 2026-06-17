@@ -4,7 +4,7 @@
  */
 export type Role = string;
 export type EstadoGenerico = 'activo' | 'inactivo';
-export type EstadoOrden = 'pendiente' | 'aprobada' | 'oc_creada' | 'confirmada_metodo' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'anulada' | 'desistida_proveedor' | 'reasignada' | 'por_recibir' | 'cuenta_abierta';
+export type EstadoOrden = 'pendiente' | 'aprobada' | 'oc_creada' | 'confirmada_metodo' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'anulada' | 'desistida_proveedor' | 'reasignada' | 'por_recibir' | 'cuenta_abierta' | 'asignada';
 
 /** Condiciones de pago de una oferta. */
 export type CondicionPago = 'contra_entrega' | 'anticipado' | 'credito';
@@ -626,6 +626,8 @@ export interface Orden {
   id: string;
   codigo: string;
   oc_codigo?: string | null;
+  /** Si es una OC hija (sub-OC por proveedor), apunta a su OP padre. */
+  parent_orden_id?: string | null;
   proveedor_id: string | null;
   solicitante_email: string;
   solicitante?: string | null;
