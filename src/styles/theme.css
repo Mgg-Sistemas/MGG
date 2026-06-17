@@ -358,12 +358,19 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-lg);
-  width: min(560px, 92vw);
-  max-height: 90vh; overflow: auto;
+  /* Modales a pantalla completa: ocupan casi todo el viewport. El header y el
+     footer quedan fijos y solo el cuerpo (.modal-body) hace scroll. */
+  width: 96vw;
+  height: 94vh;
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: var(--shadow-lg);
 }
-.modal-lg { width: min(820px, 95vw); }
-.modal-xl { width: min(1120px, 96vw); }
+.modal-lg, .modal-xl { width: 96vw; }
+.modal > .modal-body { flex: 1 1 auto; overflow: auto; min-height: 0; }
+.modal > .modal-header, .modal > .modal-footer { flex: 0 0 auto; }
 .btn-warning {
   background: rgba(245, 158, 11, 0.18);
   border: 1px solid rgba(245, 158, 11, 0.4);

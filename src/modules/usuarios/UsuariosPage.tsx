@@ -722,6 +722,7 @@ function UsuarioEditModal({
   const [nombre, setNombre] = useState(usuario.nombre ?? '');
   const [apellido, setApellido] = useState(usuario.apellido ?? '');
   const [ci, setCi] = useState(usuario.ci ?? '');
+  const [email, setEmail] = useState(usuario.email ?? '');
   const [telefono, setTelefono] = useState(usuario.telefono ?? '');
   const [departamento, setDepartamento] = useState(usuario.departamento ?? '');
   const [role, setRole] = useState<string>(usuario.role);
@@ -739,6 +740,12 @@ function UsuarioEditModal({
       toast('Nombre, apellido y CI son obligatorios', 'error');
       return;
     }
+    const emailLimpio = email.trim().toLowerCase();
+    const cambioEmail = emailLimpio !== (usuario.email ?? '').trim().toLowerCase();
+    if (cambioEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpio)) {
+      toast('El correo no es válido', 'error');
+      return;
+    }
     setSubmitting(true);
     try {
       await actualizarUsuario(usuario.id, {
@@ -749,7 +756,10 @@ function UsuarioEditModal({
         departamento: departamento.trim(),
         role,
       });
-      notify(`Datos actualizados de ${usuario.email}`, 'success', { link: '#/app/usuarios' });
+      // El correo es la identidad de login: se cambia vía Edge Function (solo admin),
+      // que actualiza Auth + la tabla usuarios.
+      if (cambioEmail) await cambiarCorreoUsuario(usuario.id, emailLimpio);
+      notify(`Datos actualizados de ${cambioEmail ? emailLimpio : usuario.email}`, 'success', { link: '#/app/usuarios' });
       onSaved();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al actualizar', 'error');
@@ -790,6 +800,18 @@ function UsuarioEditModal({
             onChange={(e) => setApellido(onlyLetters(e.target.value))}
             disabled={submitting}
           />
+        </div>
+        <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+          <label>Correo <span className="muted" style={{ fontWeight: 400 }}>(correo de inicio de sesión)</span></label>
+          <input
+            className="input"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={submitting}
+            placeholder="correo@dominio.com"
+          />
+          <small className="muted">Cambiar el correo actualiza el inicio de sesión del usuario. La clave no se modifica.</small>
         </div>
       </div>
 

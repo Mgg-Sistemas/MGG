@@ -114,7 +114,21 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     y + 38,
     { align: 'right' },
   );
-  y += Math.max(LOGO_SIZE, 42) + 8;
+  // Sello ORDEN URGENTE (si la orden —o alguna de las consolidadas— está marcada).
+  const esUrgente = esConsolidada ? ordenes.some((o) => o.urgente) : !!orden.urgente;
+  if (esUrgente) {
+    const txt = 'ORDEN URGENTE';
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    const tw = doc.getTextWidth(txt);
+    const bx = PAGE_W - MARGIN - tw - 16; const by = y + 48; const bh = 16;
+    doc.setFillColor(239, 68, 68);
+    doc.roundedRect(bx, by, tw + 16, bh, 3, 3, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.text(txt, bx + 8, by + 11.5);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal');
+  }
+  y += Math.max(LOGO_SIZE, 42) + (esUrgente ? 22 : 8);
 
   doc.setDrawColor(255, 138, 0);
   doc.setLineWidth(1.5);

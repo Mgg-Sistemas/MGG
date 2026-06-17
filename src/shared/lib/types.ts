@@ -690,6 +690,10 @@ export interface Orden {
   abonado_total?: number | null;
   /** Seriales de los billetes entregados al pagar la OC en USD físico (efectivo). */
   seriales_billetes?: string[] | null;
+  /** Marca de prioridad: ORDEN URGENTE (se refleja en el PDF y la trazabilidad). */
+  urgente?: boolean | null;
+  /** Imagen de referencia adjunta a la OP (path en el bucket de adjuntos de OC). */
+  imagen_path?: string | null;
   finalizada_por?: string | null;
   finalizada_en?: string | null;
   rechazada_por?: string | null;

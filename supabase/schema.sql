@@ -1287,6 +1287,10 @@ alter table public.ordenes add column if not exists recibida_en    timestamptz;
 alter table public.ordenes add column if not exists abonado_total  numeric default 0;  -- caché Σ abonos (crédito)
 -- Seriales de los billetes entregados cuando se paga una OC en USD físico (efectivo).
 alter table public.ordenes add column if not exists seriales_billetes text[];
+-- Marca de prioridad: ORDEN URGENTE (se refleja en el PDF y en toda la trazabilidad).
+alter table public.ordenes add column if not exists urgente boolean not null default false;
+-- Imagen de referencia adjunta a la OP (path en el bucket de adjuntos de OC).
+alter table public.ordenes add column if not exists imagen_path text;
 
 -- Abonos de compras a crédito (cada abono es un egreso real de caja vía pagarOrden).
 create table if not exists public.abonos_credito (
