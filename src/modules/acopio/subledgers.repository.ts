@@ -15,14 +15,19 @@
      SOLO si se marca el opt-in (reflejo_casiterita).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { AliadoAcopio, AliadoMovimiento, CuentaCobrarAcopio, CobrarAbono } from '@/shared/lib/types';
+import type { AliadoAcopio, AliadoMovimiento, AliadoCierre, CuentaCobrarAcopio, CobrarAbono } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import { crearMovimientoCaja, eliminarMovimientoCaja, CENTRO_ACOPIO_DEFECTO } from './caja.repository';
+import { crearMovimientoCaja, eliminarMovimientoCaja, almacenCasiteritaDeCentro, CENTRO_ACOPIO_DEFECTO } from './caja.repository';
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 /** Sub-almacén destino del mineral que entra por un abono. */
 const ALMACEN_CASITERITA = 'CASITERITA';
+
+/** Centro cuyo material es ORO en gramos (no casiterita). */
+function esCentroOro(centro: string): boolean {
+  return (centro || '').trim().toUpperCase() === 'PERAMANAL ENDER MEJIAS';
+}
 
 /* ───────────── Aliados (catálogo) ───────────── */
 
@@ -92,14 +97,17 @@ export interface AliadoResumen {
   precioProm: number;   // facturado/kg
 }
 
-/** Lista los movimientos del aliado en orden cronológico con I y L corridos. */
-export async function listAliadoMovimientos(aliadoId: string): Promise<AliadoFila[]> {
-  const { data, error } = await supabase
+/** Lista los movimientos del aliado en orden cronológico con I y L corridos.
+ *  Si se pasa `periodo`, acota a ese periodo de caja (la vista viva usa el abierto). */
+export async function listAliadoMovimientos(aliadoId: string, periodo?: number): Promise<AliadoFila[]> {
+  let q = supabase
     .from('acopio_aliado_movimientos').select('*')
     .eq('aliado_id', aliadoId)
     .order('fecha', { ascending: true })
     .order('orden', { ascending: true })
     .order('created_at', { ascending: true });
+  if (periodo != null) q = q.eq('periodo', periodo);
+  const { data, error } = await q;
   if (error) throw error;
   let saldoUsd = 0, saldoKg = 0;
   return (data ?? []).map((row) => {
@@ -156,6 +164,14 @@ async function nextOrdenAliado(aliadoId: string): Promise<number> {
     .from('acopio_aliado_movimientos').select('orden').eq('aliado_id', aliadoId)
     .order('orden', { ascending: false }).limit(1).maybeSingle();
   return ((data as { orden?: number } | null)?.orden ?? 0) + 1;
+}
+
+/** Periodo de caja ABIERTO del aliado = último cierre + 1 (1 si nunca cerró). */
+export async function openPeriodoAliado(aliadoId: string): Promise<number> {
+  const { data } = await supabase
+    .from('acopio_aliado_cierres').select('periodo').eq('aliado_id', aliadoId)
+    .order('periodo', { ascending: false }).limit(1).maybeSingle();
+  return ((data as { periodo?: number } | null)?.periodo ?? 0) + 1;
 }
 
 /**
@@ -223,11 +239,12 @@ export async function crearCierreAliado(input: CierreAliadoInput, actor: string,
 
   // 2) Cierre en el ledger del aliado.
   const orden = await nextOrdenAliado(input.aliadoId);
+  const periodo = await openPeriodoAliado(input.aliadoId);
   const { data, error } = await supabase.from('acopio_aliado_movimientos').insert({
     aliado_id: input.aliadoId, fecha: input.fecha, corte: input.corte ?? null, tipo: 'cierre',
     descripcion: input.descripcion?.trim() || `CENTRO DE ACOPIO ${input.aliadoNombre}`,
     usd_entregado: usd, kg_cerrados: kg, precio_usd_kg: precio, kg_recibidos: 0, gastos: r2(input.gastos ?? 0),
-    caja_mov_id: cajaMovId, orden, created_by: actor, actor_name: actorName ?? null,
+    caja_mov_id: cajaMovId, orden, periodo, created_by: actor, actor_name: actorName ?? null,
   }).select('*').single();
   if (error) {
     if (cajaMovId) await eliminarMovimientoCaja(cajaMovId).catch(() => {});
@@ -294,12 +311,13 @@ export async function crearMovimientoAliado(input: MovimientoAliadoInput, actor:
   // 3) La fila del ledger.
   const tipo: AliadoMovimiento['tipo'] = (usd > 0 || kgC > 0) ? 'cierre' : 'abono';
   const orden = await nextOrdenAliado(input.aliadoId);
+  const periodo = await openPeriodoAliado(input.aliadoId);
   const { data, error } = await supabase.from('acopio_aliado_movimientos').insert({
     aliado_id: input.aliadoId, fecha: input.fecha, corte: input.corte ?? null, tipo,
     descripcion: input.descripcion?.trim() || `CENTRO DE ACOPIO ${input.aliadoNombre}`,
     usd_entregado: usd, kg_cerrados: kgC, precio_usd_kg: precio, kg_recibidos: kgR, gastos,
     caja_mov_id: cajaMovId, reflejo_casiterita: !!recepcionMovId, recepcion_mov_id: recepcionMovId,
-    orden, created_by: actor, actor_name: actorName ?? null,
+    orden, periodo, created_by: actor, actor_name: actorName ?? null,
   }).select('*').single();
   if (error) {
     if (cajaMovId) await eliminarMovimientoCaja(cajaMovId).catch(() => {});
@@ -330,12 +348,13 @@ export async function crearAbonoAliado(input: AbonoAliadoInput, actor: string, a
   }
 
   const orden = await nextOrdenAliado(input.aliadoId);
+  const periodo = await openPeriodoAliado(input.aliadoId);
   const { data, error } = await supabase.from('acopio_aliado_movimientos').insert({
     aliado_id: input.aliadoId, fecha: input.fecha, corte: input.corte ?? null, tipo: 'abono',
     descripcion: input.descripcion?.trim() || 'ABONO DE CIERRES',
     usd_entregado: 0, kg_cerrados: 0, precio_usd_kg: 0, kg_recibidos: kg,
     reflejo_casiterita: !!input.sumarCasiterita, recepcion_mov_id: recepcionMovId,
-    orden, created_by: actor, actor_name: actorName ?? null,
+    orden, periodo, created_by: actor, actor_name: actorName ?? null,
   }).select('*').single();
   if (error) throw error;
   return data as AliadoMovimiento;
@@ -362,6 +381,126 @@ async function casiteritaProductoId(): Promise<string> {
   const { data } = await supabase.from('productos').select('id').eq('sku', 'CASITERITA').maybeSingle();
   if (!data) throw new Error('No existe el producto «Casiterita» (SKU CASITERITA).');
   return (data as { id: string }).id;
+}
+
+/* ───────────── Cierre de caja del aliado (cierre + apertura automática) ─────────────
+   Réplica del cierre de los centros, por aliado:
+     · el SALDO EN KG/GRAMOS pasa al INVENTARIO (casiterita, u ORO en los aliados de
+       oro) a la TASA del aliado (precio promedio $/Kg);
+     · se guarda el cierre en el historial (acopio_aliado_cierres);
+     · el periodo se incrementa y el SALDO EN $ arranca el periodo nuevo como un
+       movimiento de apertura en «$ entregado» (sin reflejar traslado en la caja
+       general; solo continúa el saldo del aliado). El resto se reinicia. */
+
+/** Producto + almacén de inventario donde entra el saldo del aliado al cerrar:
+ *  ORO (AU) en los centros de oro, CASITERITA en el resto. Crea lo que falte. */
+async function destinoInventarioAliado(centro: string): Promise<{ productoId: string; almacen: string; material: string }> {
+  const { findBySku, createProducto, listProductos } = await import('@/modules/inventario/inventario.repository');
+  const { listAlmacenes, crearAlmacen } = await import('@/modules/inventario/almacenes.repository');
+  const ensureAlmacen = async (nombre: string) => {
+    const todos = await listAlmacenes().catch(() => []);
+    if (!todos.some((a) => a.nombre === nombre)) await crearAlmacen({ nombre, sede: centro }).catch(() => { /* ya existe */ });
+    return nombre;
+  };
+  if (esCentroOro(centro)) {
+    let oro = await findBySku('AU').catch(() => null);
+    if (!oro) {
+      const todos = await listProductos().catch(() => []);
+      oro = todos.find((p) => (p.nombre || '').trim().toUpperCase() === 'ORO') ?? null;
+    }
+    if (!oro) {
+      oro = await createProducto({
+        sku: 'AU', nombre: 'ORO', categoria: 'Mineral', unidad: 'g',
+        stock: 0, stock_min: 0, precio: 0, almacen: `ORO · ${centro}`, estado: 'activo',
+      });
+    }
+    return { productoId: oro.id, almacen: await ensureAlmacen(`ORO · ${centro}`), material: 'oro (AU)' };
+  }
+  let cas = await findBySku('SNO2').catch(() => null);
+  if (!cas) {
+    const todos = await listProductos().catch(() => []);
+    cas = todos.find((p) => (p.nombre || '').trim().toUpperCase() === 'CASITERITA') ?? null;
+  }
+  if (!cas) throw new Error('No se encontró el producto CASITERITA en inventario. Creálo antes de cerrar.');
+  return { productoId: cas.id, almacen: await ensureAlmacen(almacenCasiteritaDeCentro(centro)), material: 'casiterita' };
+}
+
+export interface CierreAliadoResultado {
+  saldoUsd: number;
+  saldoKg: number;
+  tasa: number;
+  almacen: string;
+  material: string;
+  unidad: string;
+  periodoCerrado: number;
+  periodoNuevo: number;
+  kgAInventario: boolean;
+}
+
+export async function cerrarYAbrirCajaAliado(input: {
+  aliadoId: string; centro: string; actor: string; actorName?: string | null;
+}): Promise<CierreAliadoResultado> {
+  const centro = (input.centro || CENTRO_ACOPIO_DEFECTO).trim();
+  const oro = esCentroOro(centro);
+  const unidad = oro ? 'g' : 'Kg';
+  const periodo = await openPeriodoAliado(input.aliadoId);
+  const movs = await listAliadoMovimientos(input.aliadoId, periodo);
+  if (!movs.length) throw new Error('No hay movimientos en el periodo actual para cerrar.');
+  const r = resumirAliado(movs);
+  const saldoUsd = r2(r.saldoUsd);
+  const saldoKg = r2(r.saldoKg);
+  const tasa = r2(r.precioProm);
+  const hoy = new Date().toISOString().slice(0, 10);
+  const fechaInicio = movs[0]?.fecha ?? hoy;
+
+  // 1) Saldo en Kg/gramos → inventario (casiterita u oro) a la tasa del aliado.
+  let invMovId: string | null = null;
+  let almacenDest = oro ? `ORO · ${centro}` : almacenCasiteritaDeCentro(centro);
+  let material = oro ? 'oro (AU)' : 'casiterita';
+  if (saldoKg > 0) {
+    const d = await destinoInventarioAliado(centro);
+    almacenDest = d.almacen; material = d.material;
+    const mov = await registrarMovimiento({
+      producto_id: d.productoId, tipo: 'entrada', delta: saldoKg, almacen: d.almacen,
+      precio_unitario: tasa > 0 ? tasa : null,
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'acopio_aliado_cierre', ref_codigo: `Cierre #${periodo}`,
+      detalle: `Cierre #${periodo} aliado · ${centro} · ${num(saldoKg)} ${unidad}${tasa > 0 ? ` a ${tasa}` : ''}`,
+    });
+    invMovId = mov.id;
+  }
+
+  // 2) Registrar el cierre (historial).
+  const { error: cErr } = await supabase.from('acopio_aliado_cierres').insert({
+    aliado_id: input.aliadoId, periodo, fecha_inicio: fechaInicio, fecha_fin: hoy,
+    saldo_usd: saldoUsd, saldo_kg: saldoKg, tasa, almacen: almacenDest, inv_mov_id: invMovId,
+    created_by: input.actor, actor_name: input.actorName ?? null,
+  });
+  if (cErr) throw cErr;
+
+  // 3) Apertura del periodo nuevo: el saldo $ entra como «$ entregado».
+  const periodoNuevo = periodo + 1;
+  if (saldoUsd !== 0) {
+    const orden = await nextOrdenAliado(input.aliadoId);
+    const { error } = await supabase.from('acopio_aliado_movimientos').insert({
+      aliado_id: input.aliadoId, fecha: hoy, corte: null, tipo: 'cierre',
+      descripcion: `SALDO INICIAL · viene del cierre #${periodo}`,
+      usd_entregado: saldoUsd, kg_cerrados: 0, precio_usd_kg: 0, kg_recibidos: 0, gastos: 0,
+      orden, periodo: periodoNuevo, created_by: input.actor, actor_name: input.actorName ?? null,
+    });
+    if (error) throw error;
+  }
+
+  return { saldoUsd, saldoKg, tasa, almacen: almacenDest, material, unidad, periodoCerrado: periodo, periodoNuevo, kgAInventario: invMovId != null };
+}
+
+/** Historial de cierres del aliado (más reciente primero). */
+export async function listAliadoCierres(aliadoId: string): Promise<AliadoCierre[]> {
+  const { data, error } = await supabase
+    .from('acopio_aliado_cierres').select('*').eq('aliado_id', aliadoId)
+    .order('periodo', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as AliadoCierre[];
 }
 
 /* ───────────── Cuentas por cobrar ───────────── */
