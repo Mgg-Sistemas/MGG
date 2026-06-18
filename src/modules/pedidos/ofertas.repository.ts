@@ -129,10 +129,33 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
   return data as OfertaProveedor;
 }
 
+/** Campos editables de una oferta ya cargada (solo mientras está `pendiente`). */
+export interface EditarOfertaInput {
+  items?: ItemOrden[];
+  precio_total?: number;
+  precio_efectivo?: number | null;
+  fecha_entrega_prometida?: string | null;
+  condiciones_pago?: string | null;
+  notas?: string | null;
+  detalle?: OfertaDetalle | null;
+  pdf_path?: string | null;
+  pdf_filename?: string | null;
+}
+
 export async function actualizarOferta(
   id: string,
-  patch: Partial<Pick<CrearOfertaInput, 'precio_total' | 'precio_efectivo' | 'fecha_entrega_prometida' | 'condiciones_pago' | 'notas'>>
+  input: EditarOfertaInput
 ): Promise<OfertaProveedor> {
+  const patch: Record<string, unknown> = {};
+  if (input.items !== undefined) patch.items = input.items;
+  if (input.precio_total !== undefined) patch.precio_total = input.precio_total;
+  if (input.precio_efectivo !== undefined) patch.precio_efectivo = input.precio_efectivo;
+  if (input.fecha_entrega_prometida !== undefined) patch.fecha_entrega_prometida = input.fecha_entrega_prometida;
+  if (input.condiciones_pago !== undefined) patch.condiciones_pago = input.condiciones_pago;
+  if (input.notas !== undefined) patch.notas = input.notas;
+  if (input.detalle !== undefined) patch.detalle = limpiarDetalleOferta(input.detalle);
+  if (input.pdf_path !== undefined) patch.pdf_path = input.pdf_path;
+  if (input.pdf_filename !== undefined) patch.pdf_filename = input.pdf_filename;
   const { data, error } = await supabase
     .from(TABLE)
     .update(patch)
