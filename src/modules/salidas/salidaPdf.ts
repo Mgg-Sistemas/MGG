@@ -40,6 +40,7 @@ export async function descargarSalidaMaterialPdf(mov: Movimiento, esTraslado: bo
     ['Precio unitario', precio ? fmt.money(precio) : '—'],
     ['Precio total', precio ? fmt.money(precio * cant) : '—'],
     ['Fecha de entrega', mov.fecha_entrega ? fmt.date(mov.fecha_entrega) : '—'],
+    ...(mov.consumo_interno ? [['Consumo interno', 'Sí'] as [string, string]] : []),
     ['Motivo / detalle', mov.detalle || '—'],
     ...(mov.nota_entrega ? [['Nota de entrega', mov.nota_entrega] as [string, string]] : []),
     ['Registrado por', mov.actor_name || mov.actor],
@@ -72,6 +73,7 @@ export async function obtenerSalidaMaterialPdfBase64(
     ['Precio unitario', precio ? fmt.money(precio) : '—'],
     ['Precio total', precio ? fmt.money(precio * cant) : '—'],
     ['Fecha de entrega', mov.fecha_entrega ? fmt.date(mov.fecha_entrega) : '—'],
+    ...(mov.consumo_interno ? [['Consumo interno', 'Sí'] as [string, string]] : []),
     ['Motivo / detalle', mov.detalle || '—'],
     ...(mov.nota_entrega ? [['Nota de entrega', mov.nota_entrega] as [string, string]] : []),
     ['Registrado por', mov.actor_name || mov.actor],
@@ -205,8 +207,11 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const datos: Array<[string, string]> = [
     ['Solicitado por', sol.solicitante || creo || '—'],
     [esTraslado ? 'Almacén destino' : 'Dirigido a', (esTraslado ? sol.almacen_destino : sol.destino) || '—'],
+    ...(sol.chofer ? [['Chofer / responsable', `${sol.chofer}${sol.chofer_cedula ? ` · C.I. ${sol.chofer_cedula}` : ''}`] as [string, string]] : []),
+    ...(sol.vehiculo ? [['Vehículo', `${sol.vehiculo}${sol.vehiculo_placa ? ` · ${sol.vehiculo_placa}` : ''}`] as [string, string]] : []),
     ['Fecha de solicitud', fmt.dateTime(sol.created_at)],
     ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
+    ...(sol.consumo_interno ? [['Consumo interno', 'Sí'] as [string, string]] : []),
     ['Estado', SOL_ESTADO_TXT[sol.estado] ?? sol.estado],
     ['Autorizado por', autorizo || '— (pendiente de aprobación) —'],
   ];
@@ -228,9 +233,10 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     const c = Number(it.cantidad) || 0;
     const p = Number(it.precio_unit) || 0;
     const u = it.unidad ? ` ${it.unidad}` : '';
+    const obs = (it as { observacion?: string | null }).observacion;
     return [
       String(i + 1),
-      it.producto_nombre || '—',
+      obs ? `${it.producto_nombre || '—'}\nObs: ${obs}` : (it.producto_nombre || '—'),
       it.almacen || sol.almacen_origen || '—',
       `${fmt.num(c)}${u}`,
       p ? fmt.money(p) : '—',
@@ -257,8 +263,11 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
 
   // ── Observaciones / Notas ──
   const obs: string[] = [];
+  if (sol.direccion_despacho) obs.push(`Origen (despacho): ${sol.direccion_despacho}`);
+  if (sol.direccion_destino) obs.push(`Destino (dirección): ${sol.direccion_destino}`);
   if (sol.motivo) obs.push(`Motivo: ${sol.motivo}`);
   if (sol.nota_entrega) obs.push(`Nota de entrega: ${sol.nota_entrega}`);
+  if (sol.consumo_interno) obs.push('Consumo interno: el material se queda dentro de la empresa.');
   if (obs.length) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text('OBSERVACIONES / NOTAS', MARGIN, y);

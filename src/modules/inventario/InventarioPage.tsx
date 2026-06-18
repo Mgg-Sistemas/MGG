@@ -96,7 +96,11 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   if (ui.filterStock === 'restock' && !(p._needsRestock && !p._critical)) return false;
   if (ui.filterStock === 'ok' && p._needsRestock) return false;
   if (ui.filterStock === 'sin_mov' && (p.stock ?? 0) > 0) return false;
-  if (q && !(p.sku.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q))) return false;
+  if (q) {
+    const campos = [p.sku, p.nombre, p.nombre_busqueda, p.marca, p.modelo, p.codigo, p.serial, p.numero]
+      .filter(Boolean).map((s) => String(s).toLowerCase());
+    if (!campos.some((c) => c.includes(q))) return false;
+  }
   return true;
 }
 

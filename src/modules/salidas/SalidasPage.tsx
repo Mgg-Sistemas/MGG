@@ -26,6 +26,7 @@ import { SalidaDineroForm } from './SalidaDineroForm';
 import { TrasladoDineroForm } from './TrasladoDineroForm';
 import { ConciliarMineralModal } from './ConciliarMineralModal';
 import { GestionarCajasModal } from './GestionarCajasModal';
+import { GestionarChoferesVehiculosModal } from './GestionarChoferesVehiculosModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
 import { SalidaDineroDetalle } from './SalidaDineroDetalle';
 import {
@@ -46,7 +47,8 @@ type Modal =
   | { kind: 'detalle-material'; mov: Movimiento; esTraslado: boolean }
   | { kind: 'detalle-dinero'; mov: MovimientoCaja; esTraslado: boolean }
   | { kind: 'detalle-solicitud'; sol: SolicitudSalida }
-  | { kind: 'cajas' };
+  | { kind: 'cajas' }
+  | { kind: 'choferes-vehiculos' };
 
 const SOL_COLS: { key: EstadoSolicitudSalida; label: string }[] = [
   { key: 'por_aprobar', label: 'Por aprobar' },
@@ -143,6 +145,7 @@ export function SalidasPage() {
           <p className="muted">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, un analista, un jefe o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
         </div>
         <div className="actions">
+          {canWrite && <button className="btn btn-ghost" onClick={() => setModal({ kind: 'choferes-vehiculos' })}>🚚 Choferes / Vehículos</button>}
           {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
         </div>
       </div>
@@ -210,6 +213,9 @@ export function SalidasPage() {
       )}
       {modal.kind === 'cajas' && (
         <GestionarCajasModal actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onCambioAplicado={reload} />
+      )}
+      {modal.kind === 'choferes-vehiculos' && (
+        <GestionarChoferesVehiculosModal actor={actor} onClose={() => setModal({ kind: 'none' })} onCambioAplicado={reload} />
       )}
       {modal.kind === 'detalle-material' && (
         <SalidaMaterialDetalle

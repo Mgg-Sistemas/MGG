@@ -595,6 +595,17 @@ export interface Producto {
   /** Es un producto terminado producible (catálogo de "qué producir"). */
   es_producible?: boolean;
   en_fundicion?: boolean;
+  /** Detalle del producto (todos opcionales): identificación física del artículo. */
+  nombre_busqueda?: string | null;  // alias corto para buscar (ej. CLORO)
+  marca?: string | null;
+  modelo?: string | null;
+  fabricante?: string | null;
+  color?: string | null;
+  serial?: string | null;            // número de serie
+  numero?: string | null;            // N° (parte / activo)
+  codigo?: string | null;            // código interno / de barras
+  ubicacion_fisica?: string | null;  // estante / ubicación física
+  descripcion?: string | null;       // descripción libre
   created_at: string;
   updated_at?: string | null;
 }
