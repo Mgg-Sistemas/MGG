@@ -1366,6 +1366,9 @@ alter table public.ordenes add column if not exists seriales_billetes text[];
 -- Snapshot de la oferta elegida: datos técnicos/logísticos + precio en divisa efectivo (se ven en la OC y su PDF).
 alter table public.ordenes add column if not exists oferta_detalle         jsonb;
 alter table public.ordenes add column if not exists oferta_precio_efectivo numeric;
+-- Total BCV/general original cuando se aplicó el descuento por efectivo (el `total` ya
+-- pasa a ser el efectivo; este se conserva para mostrar el ahorro en "Datos de la oferta").
+alter table public.ordenes add column if not exists oferta_precio_bcv      numeric;
 -- Marca de prioridad: ORDEN URGENTE (se refleja en el PDF y en toda la trazabilidad).
 alter table public.ordenes add column if not exists urgente boolean not null default false;
 -- Imagen de referencia adjunta a la OP (path en el bucket de adjuntos de OC).

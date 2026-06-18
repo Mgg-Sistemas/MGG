@@ -54,8 +54,12 @@ const TASAS_TTL_MS = 60_000;
 let _tasaHoyCache: { at: number; val: TasaHoy } | null = null;
 let _mercadoCache: { at: number; val: TasasMercado } | null = null;
 
-/** Invalida el cache en memoria de tasas (lo llaman las funciones de refresco). */
-export function bustTasasCache(): void { _tasaHoyCache = null; _mercadoCache = null; }
+/** Invalida el cache en memoria de tasas (lo llaman las funciones de refresco).
+ *  Emite un evento global para que el chip del navbar (y quien escuche) re-sincronice. */
+export function bustTasasCache(): void {
+  _tasaHoyCache = null; _mercadoCache = null;
+  if (typeof window !== 'undefined') { try { window.dispatchEvent(new Event('mgg:tasas')); } catch { /* SSR/no-DOM */ } }
+}
 
 export async function getTasaHoy(): Promise<TasaHoy> {
   if (_tasaHoyCache && Date.now() - _tasaHoyCache.at < TASAS_TTL_MS) return _tasaHoyCache.val;
@@ -232,12 +236,16 @@ export async function getTasasMercado(): Promise<TasasMercado> {
 }
 
 async function _resolverTasasMercado(): Promise<TasasMercado> {
-  const [bcv, usdt, cop] = await Promise.all([
+  // USDT/VES: el promedio Binance vive en `tasa_snapshot` (USDT_VES) y es la MISMA
+  // fuente que muestra el modal "Tasas Binance"; se prefiere por encima de la fila
+  // de `tasa_cambio` (que puede quedar vieja) para que el navbar y el modal coincidan.
+  const [bcv, usdtSnap, usdtCambio, cop] = await Promise.all([
     getTasaHoy().catch(() => ({ usd: null, eur: null, fecha: null } as TasaHoy)),
+    ultimoSnapshot('USDT_VES'),
     ultimaTasaMoneda('USDT'),
     ultimaTasaMoneda('COP'),
   ]);
-  let usdtVes = usdt?.tasa ?? null;
+  let usdtVes = usdtSnap?.tasa ?? usdtCambio?.tasa ?? null;
   if (usdtVes == null) {
     try { usdtVes = (await refrescarBinanceP2P()).promedio; } catch { /* sin función desplegada */ }
   }
@@ -249,7 +257,7 @@ async function _resolverTasasMercado(): Promise<TasasMercado> {
     bcvUsd: bcv.usd,
     usdtVes,
     copUsd,
-    fecha: bcv.fecha ?? usdt?.fecha ?? cop?.fecha ?? null,
+    fecha: bcv.fecha ?? usdtCambio?.fecha ?? cop?.fecha ?? null,
   };
 }
 

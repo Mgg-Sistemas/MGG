@@ -201,7 +201,9 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   // ─── Datos de la oferta elegida: técnicos + logística + precio BCV/efectivo ───
   // Snapshot guardado en la orden al elegir, con respaldo en la oferta aceptada.
   const detalleOferta: OfertaDetalle | null = ofertaAceptada?.detalle ?? orden.oferta_detalle ?? null;
-  const precioBcv = ofertaAceptada?.precio_total ?? (orden.total != null ? Number(orden.total) : null);
+  // El `total` de la orden ya viene con el descuento; el BCV original sale de la oferta
+  // aceptada o del snapshot `oferta_precio_bcv` (no de `total`, que ya es el efectivo).
+  const precioBcv = ofertaAceptada?.precio_total ?? orden.oferta_precio_bcv ?? (orden.total != null ? Number(orden.total) : null);
   const precioEfe = ofertaAceptada?.precio_efectivo ?? orden.oferta_precio_efectivo ?? null;
   const ahorro = descuentoEfectivo(precioBcv, precioEfe);
   const labLog = (v?: string | null) => v === 'incluido' ? 'Incluido en el precio' : v === 'por_cuenta' ? 'Por cuenta del comprador' : null;

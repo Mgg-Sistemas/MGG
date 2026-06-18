@@ -1694,9 +1694,10 @@ function OrdenDetailModal({
   // La OP la aprueba quien gestiona compras (admin o analista); al aprobarla pasa a
   // Órdenes de Compra. La elección de la oferta ganadora sí queda solo para el jefe/admin.
   const canApprove = canManageProcurement && isPendiente;  // Aprobar Orden de Pedido
-  // Editar la OP ANTES de que el GG la apruebe: quien gestiona compras o el propio
-  // solicitante que la creó. Una vez aprobada, ya no se edita por esta vía.
-  const canEditar = isPendiente && (canManageProcurement || o.solicitante_email === actorEmail);
+  // Editar la OP mientras NO tenga OC creada (pendiente o aprobada): quien gestiona
+  // compras o el propio solicitante que la creó. Con OC ya creada se usa «Editar OC».
+  const canEditar = (isPendiente || o.estado === 'aprobada') && !o.oc_codigo
+    && (canManageProcurement || o.solicitante_email === actorEmail);
   const isOcCreada = o.estado === 'oc_creada';      // oferta elegida, sin confirmar
   const isConfirmadaMetodo = o.estado === 'confirmada_metodo'; // gerente confirmó → falta método de pago
   const isOcAprobada = o.estado === 'oc_aprobada';  // método indicado → Tesorería
@@ -2033,7 +2034,9 @@ function OrdenDetailModal({
       {o.oc_codigo && (() => {
         // Datos de la oferta elegida (snapshot): técnicos, logística y precio BCV/efectivo.
         const d = o.oferta_detalle;
-        const ahorro = descuentoEfectivo(o.total, o.oferta_precio_efectivo);
+        // El descuento ya está aplicado en `total`; el BCV original se conserva para el ahorro.
+        const bcvRef = o.oferta_precio_bcv ?? o.total;
+        const ahorro = descuentoEfectivo(bcvRef, o.oferta_precio_efectivo);
         const labLog = (v?: string | null) => v === 'incluido' ? 'incluido' : v === 'por_cuenta' ? 'por cuenta del comprador' : null;
         const tecn = ([
           ['Marca', d?.marca], ['Modelo', d?.modelo], ['Procedencia', d?.procedencia],
@@ -2054,7 +2057,7 @@ function OrdenDetailModal({
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
                   💵 <strong>Efectivo:</strong> {money(o.oferta_precio_efectivo!)}
                   <span className="badge success">−{ahorro.pct.toFixed(2)}%</span>
-                  <span className="muted">(BCV {money(o.total)})</span>
+                  <span className="muted">(BCV {money(bcvRef)})</span>
                 </span>
               )}
             </div>

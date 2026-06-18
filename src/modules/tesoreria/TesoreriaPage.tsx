@@ -24,7 +24,7 @@ import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
-import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa } from './cajaSaldos.repository';
+import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, ajustarSaldoDivisa } from './cajaSaldos.repository';
 // Vínculo Tesorería → Centro de Acopio interno: el traspaso se refleja como entrada (USD ENTREGADOS) en el acopio.
 import { entradaTesoreriaACentroAcopio, centroAcopioShort } from '@/modules/acopio/caja.repository';
 import {
@@ -872,6 +872,21 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
     catch { setLotes([]); }
   }
 
+  // Crea una billetera/cuenta vacía (saldo 0) para que aparezca por separado en los
+  // saldos antes de ingresar dinero. No registra lote ni cuenta por cobrar.
+  async function crearBilleteraEn0() {
+    const c = ((cuenta as string).trim() || 'general') as CuentaCaja;
+    const ya = saldos.some((s) => s.moneda === moneda && s.cuenta === c);
+    if (ya) { toast(`La ${moneda === 'Bs' ? 'cuenta' : 'billetera'} "${labelCuentaCaja(c)}" en ${moneda} ya existe.`, 'warning'); return; }
+    setSaving(true); setError(null);
+    try {
+      await ajustarSaldoDivisa({ cajaId: caja.id, cuenta: c, moneda, saldo: 0, tasaProm: null });
+      notify(`${moneda === 'Bs' ? 'Cuenta' : 'Billetera'} ${moneda} · ${labelCuentaCaja(c)} creada en 0`, 'success', { link: '#/app/tesoreria' });
+      await reload(); await onChanged();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear la billetera.'); }
+    finally { setSaving(false); }
+  }
+
   async function ingresar(e: FormEvent) {
     e.preventDefault(); setError(null);
     if ((Number(montoStr) || 0) <= 0) { setError('El monto debe ser mayor que 0.'); return; }
@@ -1056,7 +1071,12 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                 <datalist id={`wallets-${moneda}`}>
                   {Array.from(new Set(saldos.filter((s) => s.moneda === moneda && s.cuenta !== 'general').map((s) => s.cuenta))).map((c) => <option key={c} value={c} />)}
                 </datalist>
-                <small className="muted">Vacío = "general". Nombrá billeteras separadas (usdt1, usdt2…) y se muestran por separado.</small>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', marginTop: '.3rem', flexWrap: 'wrap' }}>
+                  <small className="muted" style={{ flex: 1 }}>Vacío = "general". Nombrá billeteras separadas (usdt1, usdt2…) y se muestran por separado.</small>
+                  <button type="button" className="btn btn-sm btn-ghost" disabled={saving} onClick={() => void crearBilleteraEn0()} title="Crea la billetera/cuenta con saldo 0">
+                    ＋ Crear en 0
+                  </button>
+                </div>
               </div>
             )}
             <div className="form-row">
@@ -2005,6 +2025,23 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
 
   const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
 
+  // Moneda del saldo origen elegido (el traslado interno no cambia de moneda).
+  const monedaIntSel = saldos.find((x) => x.id === intSaldoId)?.moneda ?? '';
+  // Cuentas/billeteras VINCULADAS a la caja destino en esa moneda (las que ya existen),
+  // más "general" siempre y, para Bs, jurídica/personal. Así no se ofrecen cuentas inexistentes.
+  const cuentasDestino = useMemo(() => {
+    const set = new Set<string>(['general']);
+    if (monedaIntSel === 'Bs') { set.add('juridica'); set.add('personal'); }
+    todosSaldos
+      .filter((s) => s.caja_id === destinoId && s.moneda === monedaIntSel)
+      .forEach((s) => set.add(s.cuenta));
+    return Array.from(set);
+  }, [todosSaldos, destinoId, monedaIntSel]);
+  // Si la cuenta destino elegida ya no es válida para la moneda/caja, volver a "general".
+  useEffect(() => {
+    if (!cuentasDestino.includes(intDestCuenta)) setIntDestCuenta((cuentasDestino[0] ?? 'general') as CuentaCaja);
+  }, [cuentasDestino, intDestCuenta]);
+
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!origenId || !destinoId) { setError(tipoDestino === 'caja' ? 'Elegí la caja origen y la caja destino.' : 'Elegí la caja origen y el centro de acopio.'); return; }
@@ -2138,10 +2175,9 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
                   <div className="form-row">
                     <label>Cuenta destino</label>
                     <select className="select" value={intDestCuenta} onChange={(e) => setIntDestCuenta(e.target.value as CuentaCaja)}>
-                      <option value="general">General</option>
-                      <option value="juridica">Jurídica</option>
-                      <option value="personal">Personal</option>
+                      {cuentasDestino.map((c) => <option key={c} value={c}>{labelCuentaCaja(c)}</option>)}
                     </select>
+                    <small className="muted">Billeteras/cuentas {monedaIntSel || ''} vinculadas a {destino?.nombre ?? 'la caja destino'}.</small>
                   </div>
                   <div className="form-row">
                     <label>Monto</label>
@@ -2807,8 +2843,13 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Con quién se hace el intercambio (cliente o proveedor), igual que en CxC/CxP.
+  const [cpTipo, setCpTipo] = useState<'cliente' | 'proveedor' | ''>('');
+  const [cpNombre, setCpNombre] = useState('');
+  const [contrapartes, setContrapartes] = useState<Contraparte[]>([]);
 
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
+  useEffect(() => { listContrapartes().then(setContrapartes).catch(() => setContrapartes([])); }, []);
 
   // Saldos disponibles en la moneda DE (de cualquier caja/cuenta, con saldo > 0).
   const saldosOrigen = useMemo(
@@ -2851,13 +2892,25 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
     if (excede) { setErr(`No hay saldo suficiente. Disponible: ${monto(disponible, de)}.`); return; }
     setErr(null); setSaving(true);
     try {
+      // Con quién se hizo el intercambio (cliente/proveedor): queda en el motivo y se
+      // guarda en el directorio para reutilizarlo (igual que en CxC/CxP).
+      const quien = cpTipo && cpNombre.trim()
+        ? `${cpTipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${cpNombre.trim()}`
+        : null;
+      const motivo = quien
+        ? `Conversión ${monto(montoNum, de)} → ${monto(resultado, a)} · ${quien}`
+        : undefined;
       await convertirDivisa({
         origenCajaId: origenSaldo.caja_id, origenCuenta: origenSaldo.cuenta, monedaDe: de,
         destinoCajaId, destinoCuenta, monedaA: a,
-        montoDe: montoNum, tasa: tasaNum,
+        montoDe: montoNum, tasa: tasaNum, motivo,
         actor, actorName,
       });
-      toast(`Convertido: ${monto(montoNum, de)} → ${monto(resultado, a)}`, 'success');
+      if (cpTipo && cpNombre.trim()) {
+        const ya = contrapartes.some((c) => c.tipo === cpTipo && c.nombre.trim().toUpperCase() === cpNombre.trim().toUpperCase());
+        if (!ya) { try { await crearContraparte({ tipo: cpTipo, nombre: cpNombre.trim() }); } catch { /* duplicado u otro: no bloquea */ } }
+      }
+      toast(`Convertido: ${monto(montoNum, de)} → ${monto(resultado, a)}${quien ? ` · ${quien}` : ''}`, 'success');
       onSaved();
       onClose();
     } catch (e) {
@@ -2934,6 +2987,47 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
             {CUENTAS_CAJA.map((c) => <option key={c} value={c}>{labelCuenta(c)}</option>)}
           </select>
         </div>
+      </div>
+
+      {/* Con quién se hace el intercambio: cliente o proveedor (como en CxC/CxP). */}
+      <div className="form-row">
+        <label>¿Con quién? (cliente o proveedor)</label>
+        <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.4rem' }}>
+          {(['cliente', 'proveedor'] as const).map((t) => {
+            const sel = cpTipo === t;
+            return (
+              <label key={t} style={{
+                display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer',
+                padding: '.4rem .7rem', borderRadius: 'var(--r-md)',
+                border: `1px solid ${sel ? 'var(--primary)' : 'var(--border)'}`,
+                background: sel ? 'rgba(255,138,0,0.10)' : 'transparent', flex: 1, justifyContent: 'center',
+              }}>
+                <input type="radio" name="conv-cp-tipo" checked={sel} onChange={() => { setCpTipo(t); setCpNombre(''); }} />
+                <span style={{ fontWeight: 600 }}>{t === 'cliente' ? '👤 Cliente' : '🏭 Proveedor'}</span>
+              </label>
+            );
+          })}
+          {cpTipo && <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setCpTipo(''); setCpNombre(''); }} title="Quitar">✕</button>}
+        </div>
+        {cpTipo && (() => {
+          const guardados = contrapartes.filter((c) => c.tipo === cpTipo);
+          const existe = guardados.some((c) => c.nombre.trim().toUpperCase() === cpNombre.trim().toUpperCase());
+          return (
+            <>
+              <input className="input" list="conv-contrapartes" value={cpNombre} onChange={(e) => setCpNombre(e.target.value)}
+                placeholder={cpTipo === 'proveedor' ? 'Buscar o agregar razón social del proveedor…' : 'Buscar o agregar nombre del cliente…'} autoFocus />
+              <datalist id="conv-contrapartes">
+                {guardados.map((c) => <option key={c.id} value={c.nombre} />)}
+              </datalist>
+              <small className="muted">
+                Buscá en los {guardados.length} {cpTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardados o escribí uno nuevo.{' '}
+                {cpNombre.trim() && !existe
+                  ? <strong style={{ color: 'var(--primary-3, #ff8a00)' }}>Nuevo → se guardará para próximas operaciones.</strong>
+                  : 'Queda registrado en el motivo del movimiento.'}
+              </small>
+            </>
+          );
+        })()}
       </div>
 
       <div className="form-grid">
