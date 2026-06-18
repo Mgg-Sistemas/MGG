@@ -142,8 +142,14 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
                   )}
                   {m.destino && (
                     <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: '.15rem' }}>
-                      Entregado a: <strong style={{ color: 'var(--text)' }}>{m.destino}</strong>
+                      {m.almacen && <>Origen: <strong style={{ color: 'var(--text)' }}>{m.almacen}</strong> → </>}
+                      Destino: <strong style={{ color: 'var(--text)' }}>{m.destino}</strong>
                       {m.fecha_entrega && <> · {date(m.fecha_entrega)}</>}
+                    </div>
+                  )}
+                  {m.consumo_interno && (
+                    <div style={{ marginTop: '.2rem' }}>
+                      <span className="badge info" style={{ fontSize: '.66rem' }}>🏭 Consumo interno</span>
                     </div>
                   )}
                   {m.ref_codigo && (

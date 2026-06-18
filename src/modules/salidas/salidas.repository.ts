@@ -22,6 +22,8 @@ export interface SalidaMaterialInput {
   precioUnit?: number | null;
   /** Fecha en que se entregó la salida al destino (YYYY-MM-DD). */
   fechaEntrega?: string | null;
+  /** Marca que la salida es para consumo interno de la empresa. */
+  consumoInterno?: boolean | null;
   actor: string;
   actorName?: string | null;
 }
@@ -46,6 +48,7 @@ export async function salidaMaterial(input: SalidaMaterialInput): Promise<Movimi
     fecha_entrega: input.fechaEntrega || null,
     detalle: input.motivo || null,
     precio_unitario: input.precioUnit != null ? Number(input.precioUnit) : null,
+    consumo_interno: input.consumoInterno ?? false,
   });
 }
 
@@ -60,6 +63,8 @@ export interface TrasladoMaterialInput {
   notaEntrega?: string | null;
   /** Fecha en que se entregó el traslado al almacén destino (YYYY-MM-DD). */
   fechaEntrega?: string | null;
+  /** Marca que el traslado es para consumo interno de la empresa. */
+  consumoInterno?: boolean | null;
   actor: string;
   actorName?: string | null;
 }
@@ -94,6 +99,7 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     fecha_entrega: input.fechaEntrega || null,
     detalle: motivo ? `Traslado a ${input.almacenDestino} · ${motivo}` : `Traslado a ${input.almacenDestino}`,
     precio_unitario: precio,
+    consumo_interno: input.consumoInterno ?? false,
   });
   // Entrada al destino al costo (PMP) del origen.
   await registrarMovimiento({
@@ -109,6 +115,7 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     fecha_entrega: input.fechaEntrega || null,
     detalle: motivo ? `Traslado desde ${input.almacenOrigen} · ${motivo}` : `Traslado desde ${input.almacenOrigen}`,
     precio_unitario: costoOrigen,
+    consumo_interno: input.consumoInterno ?? false,
   });
   return movSalida;
 }
@@ -198,6 +205,15 @@ export interface CrearSolicitudSalidaInput {
   solicitante: string;
   destino?: string | null;
   motivo?: string | null;
+  // datos de la nota de salida en tránsito
+  chofer?: string | null;
+  choferCedula?: string | null;
+  vehiculo?: string | null;
+  vehiculoPlaca?: string | null;
+  direccionDespacho?: string | null;
+  direccionDestino?: string | null;
+  /** Marca que la salida/traslado es para consumo interno de la empresa. */
+  consumoInterno?: boolean | null;
   // material
   productoId?: string | null;
   productoNombre?: string | null;
@@ -231,6 +247,7 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       precio_unit: it.precio_unit != null ? Number(it.precio_unit) : null,
       unidad: it.unidad ?? null,
       almacen: it.almacen ?? null,
+      observacion: it.observacion?.trim() || null,
     }))
     .filter((it) => it.producto_id && it.cantidad > 0);
   // El almacén de origen viaja por ítem (autoasignado: el que tiene el stock).
@@ -297,6 +314,13 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       solicitante: input.solicitante.trim(),
       destino: input.destino?.trim() || null,
       motivo: input.motivo?.trim() || null,
+      chofer: input.chofer?.trim() || null,
+      chofer_cedula: input.choferCedula?.trim() || null,
+      vehiculo: input.vehiculo?.trim() || null,
+      vehiculo_placa: input.vehiculoPlaca?.trim() || null,
+      direccion_despacho: input.direccionDespacho?.trim() || null,
+      direccion_destino: input.direccionDestino?.trim() || null,
+      consumo_interno: input.consumoInterno ?? false,
       historial,
       actor: input.actor,
       actor_name: input.actorName ?? null,
@@ -345,7 +369,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       const mov = await salidaMaterial({
         productoId: it.producto_id, almacen: it.almacen ?? s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
         destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
-        fechaEntrega: s.fecha_entrega, actor, actorName,
+        fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, actor, actorName,
       });
       if (!movId) movId = mov.id;
     }
@@ -355,7 +379,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       const mov = await trasladoMaterial({
         productoId: it.producto_id, almacenOrigen: it.almacen ?? s.almacen_origen!, almacenDestino: s.almacen_destino!,
         cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
-        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, actor, actorName,
+        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, actor, actorName,
       });
       if (!movId) movId = mov.id;
     }

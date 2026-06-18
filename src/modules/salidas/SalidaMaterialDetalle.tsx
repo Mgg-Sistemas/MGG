@@ -53,6 +53,7 @@ export function SalidaMaterialDetalle({
     ['Precio unitario', precio ? money(precio) : '—'],
     ['Precio total', precio ? money(precio * cant) : '—'],
     ['Fecha de entrega', mov.fecha_entrega ? date(mov.fecha_entrega) : '—'],
+    ['Consumo interno', mov.consumo_interno ? 'Sí 🏭' : 'No'],
     ['Motivo / detalle', mov.detalle || '—'],
     ['Registrado por', mov.actor_name || mov.actor],
     ['Fecha de registro', dateTime(mov.at)],

@@ -456,10 +456,14 @@ function SolicitudDetalleModal({
               {(sol.items?.length ?? 0) > 1 ? (
                 <tr><td className="muted">Materiales</td><td>
                   <table className="table" style={{ fontSize: '.8rem', margin: 0 }}>
-                    <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th></tr></thead>
+                    <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th><th>Observación</th></tr></thead>
                     <tbody>
                       {sol.items!.map((it, i) => (
-                        <tr key={i}><td>{it.producto_nombre ?? '—'}</td><td className="mono" style={{ textAlign: 'right' }}>{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td></tr>
+                        <tr key={i}>
+                          <td>{it.producto_nombre ?? '—'}</td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>
+                          <td className="muted" style={{ fontSize: '.78rem' }}>{it.observacion || '—'}</td>
+                        </tr>
                       ))}
                     </tbody>
                   </table>
@@ -468,11 +472,17 @@ function SolicitudDetalleModal({
                 <>
                   <tr><td className="muted">Producto</td><td>{sol.producto_nombre ?? '—'}</td></tr>
                   <tr><td className="muted">Cantidad</td><td className="mono">{num(Number(sol.cantidad) || 0)}</td></tr>
+                  {sol.items?.[0]?.observacion && <tr><td className="muted">Observación</td><td>{sol.items[0].observacion}</td></tr>}
                 </>
               )}
-              <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino' : 'Almacén origen'}</td>
+              <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino (almacén)' : 'Almacén origen'}</td>
                 <td>{sol.scope === 'traslado' ? `${sol.almacen_origen} → ${sol.almacen_destino}` : sol.almacen_origen}</td></tr>
               {sol.scope === 'salida' && <tr><td className="muted">Dirigido a</td><td>{sol.destino ?? '—'}</td></tr>}
+              {sol.direccion_despacho && <tr><td className="muted">Origen (despacho)</td><td>{sol.direccion_despacho}</td></tr>}
+              {sol.direccion_destino && <tr><td className="muted">Destino (dirección)</td><td>{sol.direccion_destino}</td></tr>}
+              {sol.chofer && <tr><td className="muted">Chofer / responsable</td><td>{sol.chofer}{sol.chofer_cedula ? ` · C.I. ${sol.chofer_cedula}` : ''}</td></tr>}
+              {sol.vehiculo && <tr><td className="muted">Vehículo</td><td>{sol.vehiculo}{sol.vehiculo_placa ? ` · ${sol.vehiculo_placa}` : ''}</td></tr>}
+              {sol.consumo_interno && <tr><td className="muted">Consumo interno</td><td><span className="badge info">🏭 Sí</span></td></tr>}
             </>
           ) : (
             <>

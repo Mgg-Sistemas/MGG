@@ -376,6 +376,10 @@ end $$;
 alter table public.movimientos add column if not exists destino text;
 -- Fecha en que se entregó la salida/traslado de material al destino.
 alter table public.movimientos add column if not exists fecha_entrega date;
+-- Texto de la nota de entrega (se imprime en el PDF del traslado).
+alter table public.movimientos add column if not exists nota_entrega text;
+-- Marca que la salida/traslado se queda dentro de la empresa (se ve en la trazabilidad).
+alter table public.movimientos add column if not exists consumo_interno boolean not null default false;
 
 -- ─────────────────────────────────────────────────────────────
 -- 5b. compras_directas — compras sin proveedor (EN PROCESO → FINALIZADA).
@@ -640,7 +644,7 @@ create table if not exists public.solicitudes_salida (
   producto_nombre text, almacen_origen text, almacen_destino text,
   cantidad        numeric check (cantidad is null or cantidad > 0),
   precio_unit     numeric, fecha_entrega date, nota_entrega text,
-  -- Detalle multi-producto: [{producto_id, producto_nombre, cantidad, precio_unit, unidad}]
+  -- Detalle multi-producto: [{producto_id, producto_nombre, cantidad, precio_unit, unidad, almacen, observacion}]
   -- (como en una OC con varias líneas). Si es null/1 ítem, se usa la cabecera de arriba.
   items           jsonb,
   -- dinero
@@ -662,6 +666,46 @@ create index if not exists idx_sol_salida_scope_tipo on public.solicitudes_salid
 alter table public.solicitudes_salida enable row level security;
 create policy "sol_salida read auth"      on public.solicitudes_salida for select using (auth.role() = 'authenticated');
 create policy "sol_salida write operativo" on public.solicitudes_salida for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Datos de la nota de salida en tránsito (chofer/responsable + cédula, vehículo + placa,
+-- direcciones origen→destino) y marca de consumo interno. Se ven en el detalle y la trazabilidad.
+alter table public.solicitudes_salida add column if not exists chofer             text;
+alter table public.solicitudes_salida add column if not exists chofer_cedula      text;
+alter table public.solicitudes_salida add column if not exists vehiculo           text;
+alter table public.solicitudes_salida add column if not exists vehiculo_placa     text;
+alter table public.solicitudes_salida add column if not exists direccion_despacho text;
+alter table public.solicitudes_salida add column if not exists direccion_destino  text;
+alter table public.solicitudes_salida add column if not exists consumo_interno    boolean not null default false;
+
+-- ─────────────────────────────────────────────────────────────
+-- 5c. Catálogos de Salidas/Traslados: choferes y vehículos (modificables, deshabilitables).
+--   Chofer = responsable + cédula; Vehículo = nombre + placa. Buscables en el formulario.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.salidas_choferes (
+  id         uuid primary key default gen_random_uuid(),
+  nombre     text not null,
+  cedula     text,
+  activo     boolean not null default true,
+  actor      text,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists idx_salidas_choferes_nombre on public.salidas_choferes(lower(nombre));
+alter table public.salidas_choferes enable row level security;
+create policy "choferes read auth"      on public.salidas_choferes for select using (auth.role() = 'authenticated');
+create policy "choferes write operativo" on public.salidas_choferes for all using (public.is_operativo()) with check (public.is_operativo());
+
+create table if not exists public.salidas_vehiculos (
+  id         uuid primary key default gen_random_uuid(),
+  nombre     text not null,
+  placa      text,
+  activo     boolean not null default true,
+  actor      text,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists idx_salidas_vehiculos_nombre on public.salidas_vehiculos(lower(nombre));
+alter table public.salidas_vehiculos enable row level security;
+create policy "vehiculos read auth"      on public.salidas_vehiculos for select using (auth.role() = 'authenticated');
+create policy "vehiculos write operativo" on public.salidas_vehiculos for all using (public.is_operativo()) with check (public.is_operativo());
 
 -- ─────────────────────────────────────────────────────────────
 -- 6. ordenes (de compra / pedido)

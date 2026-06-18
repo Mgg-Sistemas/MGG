@@ -466,6 +466,28 @@ export interface ItemSolicitudSalida {
   unidad?: string | null;
   /** Almacén de origen de ESTA línea (autoasignado: el que tiene el stock). */
   almacen?: string | null;
+  /** Observación de la línea (ej. seriales, "será trasladado para reparación"). */
+  observacion?: string | null;
+}
+
+/** Chofer responsable del despacho (catálogo modificable). */
+export interface Chofer {
+  id: string;
+  nombre: string;
+  cedula?: string | null;
+  activo: boolean;
+  actor?: string | null;
+  created_at: string;
+}
+
+/** Vehículo del despacho (catálogo modificable, con placa). */
+export interface Vehiculo {
+  id: string;
+  nombre: string;
+  placa?: string | null;
+  activo: boolean;
+  actor?: string | null;
+  created_at: string;
 }
 
 export interface SolicitudSalida {
@@ -495,6 +517,17 @@ export interface SolicitudSalida {
   solicitante: string;
   destino?: string | null;
   motivo?: string | null;
+  /** Chofer/responsable del despacho + su cédula (de la nota de salida). */
+  chofer?: string | null;
+  chofer_cedula?: string | null;
+  /** Vehículo + placa del despacho. */
+  vehiculo?: string | null;
+  vehiculo_placa?: string | null;
+  /** Direcciones de la nota de salida en tránsito (origen → destino). */
+  direccion_despacho?: string | null;
+  direccion_destino?: string | null;
+  /** Marca que la salida/traslado es para consumo interno de la empresa. */
+  consumo_interno?: boolean | null;
   historial: EventoHistorial[];
   aprobada_por?: string | null;
   aprobada_en?: string | null;
@@ -594,6 +627,8 @@ export interface Movimiento {
   precio_unitario?: number | null;
   /** Costo base resultante (PMP) del producto tras aplicar este movimiento. */
   costo_promedio?: number | null;
+  /** Marca que la salida/traslado es para consumo interno de la empresa. */
+  consumo_interno?: boolean | null;
   at: string;
   created_at: string;
 }
