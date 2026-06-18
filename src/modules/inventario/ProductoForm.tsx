@@ -43,6 +43,17 @@ interface FormState {
   unidades_empaque: string;
   esReceta: boolean;
   receta_fundicion: RecetaFundicion | '';
+  // Detalle del producto (todos opcionales)
+  nombre_busqueda: string;
+  marca: string;
+  modelo: string;
+  fabricante: string;
+  color: string;
+  serial: string;
+  numero: string;
+  codigo: string;
+  ubicacion_fisica: string;
+  descripcion: string;
 }
 
 function initialState(p: Producto | null, cats: string[], unids: string[], fixedAlmacen?: string | null): FormState {
@@ -63,6 +74,16 @@ function initialState(p: Producto | null, cats: string[], unids: string[], fixed
     unidades_empaque: p?.unidades_empaque != null ? String(p.unidades_empaque) : '',
     esReceta: !!p?.receta_fundicion,
     receta_fundicion: (p?.receta_fundicion ?? '') as RecetaFundicion | '',
+    nombre_busqueda: p?.nombre_busqueda ?? '',
+    marca: p?.marca ?? '',
+    modelo: p?.modelo ?? '',
+    fabricante: p?.fabricante ?? '',
+    color: p?.color ?? '',
+    serial: p?.serial ?? '',
+    numero: p?.numero ?? '',
+    codigo: p?.codigo ?? '',
+    ubicacion_fisica: p?.ubicacion_fisica ?? '',
+    descripcion: p?.descripcion ?? '',
   };
 }
 
@@ -226,6 +247,17 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
       // Marcar receta no se des-marca al editar (lo añade el toggle o el alta desde fundición).
       es_receta: form.esReceta || (producto?.es_receta ?? false),
       es_producible: producto?.es_producible ?? false,
+      // Detalle del producto: se guarda lo que se cargó (trim → null si vacío).
+      nombre_busqueda: form.nombre_busqueda.trim() || null,
+      marca: form.marca.trim() || null,
+      modelo: form.modelo.trim() || null,
+      fabricante: form.fabricante.trim() || null,
+      color: form.color.trim() || null,
+      serial: form.serial.trim() || null,
+      numero: form.numero.trim() || null,
+      codigo: form.codigo.trim() || null,
+      ubicacion_fisica: form.ubicacion_fisica.trim() || null,
+      descripcion: form.descripcion.trim() || null,
     };
 
     setSaving(true);
@@ -532,6 +564,62 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
             </div>
           </div>
         )}
+
+        {/* ── Detalle del producto (identificación física, todo opcional) ── */}
+        <details style={{ marginTop: '.6rem', border: '1px solid var(--border)', borderRadius: 8, padding: '.6rem .8rem' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '.9rem' }}>🔎 Detalle del producto (marca, serial, código…)</summary>
+          <small className="muted" style={{ display: 'block', margin: '.35rem 0 .6rem', fontSize: '.74rem' }}>
+            Datos opcionales para identificar mejor el artículo. Se ven al abrir el detalle del producto.
+          </small>
+          <div className="form-row">
+            <label>Nombre de búsqueda / alias</label>
+            <input className="input" value={form.nombre_busqueda} onChange={(e) => update('nombre_busqueda', e.target.value)}
+              placeholder="Ej. CLORO (nombre corto para encontrarlo rápido)" />
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Marca</label>
+              <input className="input" value={form.marca} onChange={(e) => update('marca', e.target.value)} placeholder="Ej. Bosch" />
+            </div>
+            <div className="form-row">
+              <label>Modelo</label>
+              <input className="input" value={form.modelo} onChange={(e) => update('modelo', e.target.value)} placeholder="Ej. GSB 550" />
+            </div>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Fabricante</label>
+              <input className="input" value={form.fabricante} onChange={(e) => update('fabricante', e.target.value)} />
+            </div>
+            <div className="form-row">
+              <label>Color</label>
+              <input className="input" value={form.color} onChange={(e) => update('color', e.target.value)} />
+            </div>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>N°</label>
+              <input className="input mono" value={form.numero} onChange={(e) => update('numero', e.target.value)} placeholder="N° de parte / activo" />
+            </div>
+            <div className="form-row">
+              <label>Serial</label>
+              <input className="input mono" value={form.serial} onChange={(e) => update('serial', e.target.value)} placeholder="Número de serie" />
+            </div>
+            <div className="form-row">
+              <label>Código</label>
+              <input className="input mono" value={form.codigo} onChange={(e) => update('codigo', e.target.value)} placeholder="Código interno / de barras" />
+            </div>
+          </div>
+          <div className="form-row">
+            <label>Ubicación física</label>
+            <input className="input" value={form.ubicacion_fisica} onChange={(e) => update('ubicacion_fisica', e.target.value)} placeholder="Estante / pasillo / gaveta" />
+          </div>
+          <div className="form-row">
+            <label>Descripción</label>
+            <textarea className="input" rows={2} value={form.descripcion} onChange={(e) => update('descripcion', e.target.value)}
+              placeholder="Descripción libre / características adicionales" />
+          </div>
+        </details>
       </form>
     </Modal>
   );

@@ -23,6 +23,17 @@ export interface ProductoInput {
   precio_venta?: number | null;
   es_receta?: boolean;
   es_producible?: boolean;
+  // Detalle del producto (todos opcionales)
+  nombre_busqueda?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  fabricante?: string | null;
+  color?: string | null;
+  serial?: string | null;
+  numero?: string | null;
+  codigo?: string | null;
+  ubicacion_fisica?: string | null;
+  descripcion?: string | null;
 }
 
 export const CATEGORIAS_DEFAULT = [

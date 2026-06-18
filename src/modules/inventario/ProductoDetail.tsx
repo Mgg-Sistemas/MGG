@@ -99,6 +99,37 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
         </div>
       </div>
 
+      {(() => {
+        const detalle = ([
+          ['Nombre de búsqueda', producto.nombre_busqueda],
+          ['Marca', producto.marca],
+          ['Modelo', producto.modelo],
+          ['Fabricante', producto.fabricante],
+          ['Color', producto.color],
+          ['N°', producto.numero],
+          ['Serial', producto.serial],
+          ['Código', producto.codigo],
+          ['Ubicación física', producto.ubicacion_fisica],
+          ['Descripción', producto.descripcion],
+        ] as Array<[string, string | null | undefined]>).filter(([, v]) => v && String(v).trim());
+        if (!detalle.length) return null;
+        return (
+          <div className="card" style={{ margin: '0 0 .75rem', padding: '.65rem .85rem' }}>
+            <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '.4rem' }}>
+              Detalle del producto
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.35rem .9rem' }}>
+              {detalle.map(([k, v]) => (
+                <div key={k} style={{ fontSize: '.82rem' }}>
+                  <span className="muted">{k}: </span>
+                  <strong style={{ color: 'var(--text)' }}>{v}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {error && (
         <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}>
           <strong>Error:</strong> {error}

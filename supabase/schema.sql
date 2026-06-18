@@ -182,6 +182,17 @@ alter table public.movimientos add column if not exists almacen text;
 alter table public.productos add column if not exists precio_venta   numeric;
 alter table public.productos add column if not exists es_receta      boolean not null default false;
 alter table public.productos add column if not exists es_producible  boolean not null default false;
+-- Detalle del producto (identificación física, todo opcional): se ve al abrir el detalle.
+alter table public.productos add column if not exists nombre_busqueda  text;  -- alias/nombre corto para buscar (ej. CLORO)
+alter table public.productos add column if not exists marca            text;
+alter table public.productos add column if not exists modelo           text;
+alter table public.productos add column if not exists fabricante       text;
+alter table public.productos add column if not exists color            text;
+alter table public.productos add column if not exists serial           text;  -- número de serie
+alter table public.productos add column if not exists numero           text;  -- N° (parte/activo)
+alter table public.productos add column if not exists codigo           text;  -- código interno / de barras
+alter table public.productos add column if not exists ubicacion_fisica text;  -- estante / ubicación física
+alter table public.productos add column if not exists descripcion      text;  -- descripción libre
 -- Los productos con receta de fundición ya son insumos de producción.
 update public.productos set es_receta = true where receta_fundicion is not null and es_receta = false;
 
