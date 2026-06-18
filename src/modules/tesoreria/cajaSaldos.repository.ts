@@ -231,6 +231,8 @@ export interface ConvertirDivisaInput {
   destinoCajaId: string; destinoCuenta: CuentaCaja; monedaA: string;
   montoDe: number;            // cuánto se cambia, en la moneda DE
   tasa: number;              // 1 DE = ? A (la tasa usada para convertir)
+  /** Comisión/descuento (%) que se le descuenta al convertido: el destino recibe el neto. */
+  comisionPct?: number | null;
   motivo?: string | null;
   actor: string; actorName?: string | null;
 }
@@ -250,8 +252,12 @@ export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ or
   if (tasa <= 0) throw new Error('La tasa de conversión debe ser mayor que 0.');
   if (input.monedaDe === input.monedaA && input.origenCajaId === input.destinoCajaId && input.origenCuenta === input.destinoCuenta)
     throw new Error('El origen y el destino son el mismo saldo: no hay nada que convertir.');
-  const montoA = round2(montoDe * tasa);
-  if (montoA <= 0) throw new Error('El monto convertido resulta en 0.');
+  // Comisión/descuento (%): el bruto se reduce y el destino recibe el neto.
+  const pct = Math.max(0, Math.min(100, Number(input.comisionPct) || 0));
+  const montoBruto = round2(montoDe * tasa);
+  const comision = round2(montoBruto * pct / 100);
+  const montoA = round2(montoBruto - comision);
+  if (montoA <= 0) throw new Error('El monto convertido (neto) resulta en 0.');
 
   // Tasa promedio (Bs/unidad) del saldo origen, para arrastrar la base de costo al destino.
   const { data: orig } = await supabase.from(SALDOS).select('tasa_prom')
@@ -270,7 +276,7 @@ export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ or
   }
 
   const motivo = input.motivo?.trim()
-    || `Conversión ${montoDe} ${input.monedaDe} → ${montoA} ${input.monedaA} (1 ${input.monedaDe} = ${tasa} ${input.monedaA})`;
+    || `Conversión ${montoDe} ${input.monedaDe} → ${montoA} ${input.monedaA} (1 ${input.monedaDe} = ${tasa} ${input.monedaA}${pct > 0 ? ` · comisión ${pct}% = ${comision} ${input.monedaA}` : ''})`;
 
   // 1) Egreso del saldo origen (valida fondos).
   await egresarDivisa({
