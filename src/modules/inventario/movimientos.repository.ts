@@ -48,6 +48,8 @@ export interface MovimientoInput {
   precio_unitario?: number | null;
   /** Marca que la salida/traslado es para consumo interno de la empresa. */
   consumo_interno?: boolean | null;
+  /** Quién solicitó la salida/traslado (se muestra en el historial). */
+  solicitante?: string | null;
 }
 
 /**
@@ -164,6 +166,7 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
     precio_unitario: precioUnit,
     costo_promedio: costoPromedio,
     consumo_interno: input.consumo_interno ?? false,
+    solicitante: input.solicitante ?? null,
     at: new Date().toISOString(),
   };
 

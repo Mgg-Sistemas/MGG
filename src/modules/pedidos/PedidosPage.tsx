@@ -64,7 +64,7 @@ import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.reposi
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, getUnidades } from '@/modules/inventario/inventario.repository';
-import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
@@ -1239,6 +1239,33 @@ function RecepcionParcialModal({
     setRecs((r) => ({ ...r, [sku]: v }));
   }
 
+  // Opciones del almacén destino agrupadas por SEDE, con cada subalmacén anidado
+  // bajo su almacén padre (sangría con ↳). Así se ve el almacén y, unidos, sus subalmacenes.
+  const gruposAlmacen = useMemo(() => {
+    const activos = almacenes.filter((a) => a.estado === 'activo');
+    const hijosDe = (pid: string | null) => activos
+      .filter((a) => (a.parent_id ?? null) === pid)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    const ids = new Set(activos.map((a) => a.id));
+    // Recorre en profundidad desde las raíces para que cada sub salga debajo de su padre.
+    const ordenar = (pid: string | null, nivel: number, acc: { a: Almacen; nivel: number }[]) => {
+      for (const a of hijosDe(pid)) { acc.push({ a, nivel }); ordenar(a.id, nivel + 1, acc); }
+    };
+    const porSede = new Map<string, { a: Almacen; nivel: number }[]>();
+    for (const sede of [...new Set(activos.map((a) => a.sede?.trim() || 'Sin sede'))].sort((x, y) => x.localeCompare(y, 'es'))) {
+      const delaSede = activos.filter((a) => (a.sede?.trim() || 'Sin sede') === sede);
+      const setSede = new Set(delaSede.map((a) => a.id));
+      // raíces de la sede: sin padre, o cuyo padre no está en la sede.
+      const acc: { a: Almacen; nivel: number }[] = [];
+      for (const r of delaSede.filter((a) => !a.parent_id || !setSede.has(a.parent_id) || !ids.has(a.parent_id)).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))) {
+        acc.push({ a: r, nivel: 0 });
+        ordenar(r.id, 1, acc);
+      }
+      porSede.set(sede, acc);
+    }
+    return [...porSede.entries()];
+  }, [almacenes]);
+
   const recibidoTotal = orden.items.reduce((a, it) => a + (Number(recs[it.sku]) || 0) * Number(it.precio), 0);
   const hayDiferencia = orden.items.some((it) => (Number(recs[it.sku]) || 0) < Number(it.cantidad));
 
@@ -1305,9 +1332,17 @@ function RecepcionParcialModal({
         <label>Almacén destino *</label>
         <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
           <option value="">— elegí el almacén —</option>
-          {almacenes.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+          {gruposAlmacen.map(([sede, items]) => (
+            <optgroup key={sede} label={sede}>
+              {items.map(({ a, nivel }) => (
+                <option key={a.id} value={a.nombre}>
+                  {nivel > 0 ? `${'  '.repeat(nivel)}↳ ` : ''}{nombreCortoAlmacen(a, almacenes)}
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </select>
-        <small className="muted">La mercancía entra a este almacén y queda en la trazabilidad final.</small>
+        <small className="muted">La mercancía entra a este almacén (o subalmacén) y queda en la trazabilidad final.</small>
       </div>
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
