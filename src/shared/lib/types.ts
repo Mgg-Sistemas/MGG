@@ -711,6 +711,9 @@ export interface Orden {
   oferta_detalle?: OfertaDetalle | null;
   /** Precio total en divisa efectivo de la oferta elegida (el BCV es `total`). */
   oferta_precio_efectivo?: number | null;
+  /** Total BCV/general original de la OC cuando se aplicó el descuento por efectivo
+   *  (el `total` ya pasa a ser el efectivo). Solo para mostrar el ahorro. */
+  oferta_precio_bcv?: number | null;
   /** Método(s) de pago indicados antes de enviar a pagar (multipago). */
   metodo_pago?: PagoMetodo[] | null;
   metodo_pago_por?: string | null;

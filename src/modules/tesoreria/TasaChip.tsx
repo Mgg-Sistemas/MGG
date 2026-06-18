@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { TasaHoy } from '@/shared/lib/types';
-import { getTasaHoy, getTasasMercado, type TasasMercado } from './tasas.repository';
+import { getTasaHoy, getTasasMercado, refrescarTasasSiVencido, type TasasMercado } from './tasas.repository';
 import { HistorialTasasModal } from './HistorialTasasModal';
 
 /** Tasa (Bs por unidad) con 2 decimales, es-VE. */
@@ -23,12 +23,27 @@ export function TasaChip() {
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    getTasaHoy().then((t) => { if (!cancelled) setTasa(t); }).catch(() => { /* offline / sin desplegar */ });
-    getTasasMercado().then((m) => { if (!cancelled) setMercado(m); }).catch(() => { /* sin función desplegada */ });
-    return () => { cancelled = true; };
+  const cargar = useCallback(() => {
+    getTasaHoy().then(setTasa).catch(() => { /* offline / sin desplegar */ });
+    getTasasMercado().then(setMercado).catch(() => { /* sin función desplegada */ });
   }, []);
+
+  useEffect(() => {
+    cargar();
+    // Si las tasas están vencidas (>11 h), dispara el refresco perezoso y re-lee.
+    refrescarTasasSiVencido().then(cargar).catch(() => { /* sin red / función */ });
+    // Re-sincroniza cuando algo refresca las tasas (modal "Actualizar ahora"),
+    // al volver a la pestaña y cada 5 min, para que el navbar no quede desfasado.
+    const onTasas = () => cargar();
+    window.addEventListener('mgg:tasas', onTasas);
+    window.addEventListener('focus', onTasas);
+    const id = window.setInterval(cargar, 5 * 60_000);
+    return () => {
+      window.removeEventListener('mgg:tasas', onTasas);
+      window.removeEventListener('focus', onTasas);
+      window.clearInterval(id);
+    };
+  }, [cargar]);
 
   if (!tasa || tasa.usd == null) return null;
 

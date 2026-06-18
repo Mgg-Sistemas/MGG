@@ -212,13 +212,16 @@ export interface EditarOrdenInput {
 }
 
 /**
- * Edita una OP mientras está PENDIENTE (antes de ser aprobada por el GG): permite
- * cambiar los ítems (productos/cantidades/finalidad), la nota, el solicitante y el
- * flag de urgente. Recalcula el total y deja registro en el historial. Una vez
- * aprobada ya no se puede editar por esta vía.
+ * Edita una OP mientras está PENDIENTE o APROBADA (antes de que se le elija una
+ * oferta y se cree la OC): permite cambiar los ítems (productos/cantidades/finalidad),
+ * la nota, el solicitante y el flag de urgente. Recalcula el total y deja registro en
+ * el historial. Una vez que hay una OC (oc_creada en adelante) ya no se edita por esta
+ * vía (se usa «Editar OC»).
  */
 export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEmail: string): Promise<Orden> {
-  if (o.estado !== 'pendiente') throw new Error('Solo se pueden editar órdenes pendientes (aún no aprobadas).');
+  if (!['pendiente', 'aprobada'].includes(o.estado))
+    throw new Error('Solo se edita la OP antes de crear su OC (pendiente o aprobada).');
+  if (o.oc_codigo) throw new Error('Esta OP ya tiene una OC: editá la OC, no la OP.');
   if (!input.items.length) throw new Error('La orden debe tener al menos un producto.');
   const total = input.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
   const patch = {
@@ -281,6 +284,36 @@ export async function aprobarOrden(o: Orden, actorEmail: string): Promise<Orden>
 }
 
 /**
+ * Aplica el descuento por pago en efectivo a los ítems de una OC: si la oferta trae
+ * un `precio_efectivo` (total) menor al total BCV, reprecia cada ítem en proporción
+ * para que la suma cuadre con el efectivo, y devuelve el detalle para guardar el
+ * total efectivo + el BCV original (para mostrar el ahorro). Así el precio con
+ * descuento queda "vinculado en toda la OC" y es el que usa el inventario al recibir.
+ * Devuelve null si no hay descuento aplicable.
+ */
+export function reprecioPorEfectivo(
+  items: ItemOrden[],
+  precioEfectivo: number | null | undefined,
+): { items: ItemOrden[]; total: number; bcv: number } | null {
+  const general = items.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+  const ef = Number(precioEfectivo) || 0;
+  const generalR = Math.round(general * 100) / 100;
+  if (ef <= 0 || generalR <= 0 || ef >= generalR) return null;
+  const factor = ef / generalR;
+  const reps = items.map((it) => ({ ...it, precio: Math.round((Number(it.precio) || 0) * factor * 10000) / 10000 }));
+  // Ajuste de redondeo: forzar que la suma cuadre EXACTO con el efectivo.
+  const suma = Math.round(reps.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0) * 100) / 100;
+  const diff = Math.round((ef - suma) * 100) / 100;
+  if (diff !== 0) {
+    for (let k = reps.length - 1; k >= 0; k--) {
+      const q = Number(reps[k].cantidad) || 0;
+      if (q > 0) { reps[k] = { ...reps[k], precio: Math.round((Number(reps[k].precio) + diff / q) * 10000) / 10000 }; break; }
+    }
+  }
+  return { items: reps, total: ef, bcv: generalR };
+}
+
+/**
  * Elige la oferta ganadora sobre una OP ya APROBADA → crea la Orden de Compra
  * (estado `oc_creada`, "sin confirmar"). Casa el proveedor, hereda items/total
  * de la oferta, genera el código OC y deja registro en el historial.
@@ -317,16 +350,22 @@ export async function aprobarOrdenConOferta(
       ? { ...of, finalidad: of.finalidad ?? orig.finalidad, area: of.area ?? orig.area, comprar: of.comprar ?? orig.comprar }
       : of;
   });
+  // Si la oferta trae precio efectivo (descuento), se aplica AUTOMÁTICO a toda la OC:
+  // los ítems se reprecian al efectivo y el total pasa a ser el efectivo (el BCV original
+  // queda en oferta_precio_bcv para mostrar el ahorro). Así el inventario recibe el costo real.
+  const efectivoOf = ofRow?.precio_efectivo != null ? Number(ofRow.precio_efectivo) : null;
+  const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
-    items: itemsConContexto,
-    total: ofertaPrecioTotal,
+    items: repEf ? repEf.items : itemsConContexto,
+    total: repEf ? repEf.total : ofertaPrecioTotal,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     // Snapshot de la oferta elegida: datos técnicos/logísticos + precio efectivo (se ven en la OC y su PDF).
     oferta_detalle: (ofRow?.detalle as Orden['oferta_detalle']) ?? null,
-    oferta_precio_efectivo: ofRow?.precio_efectivo != null ? Number(ofRow.precio_efectivo) : null,
+    oferta_precio_efectivo: efectivoOf,
+    oferta_precio_bcv: repEf ? repEf.bcv : null,
     oc_creada_por: actorEmail,
     oc_creada_en: nowIso,
     historial: appendHistorial(o, 'oc_creada', actorEmail, {
@@ -386,11 +425,15 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
 
   for (const a of validas) {
     n += 1;
-    const items = a.items.map((of) => {
+    const itemsBase = a.items.map((of) => {
       const orig = origBySku.get(of.sku);
       return orig ? { ...of, finalidad: of.finalidad ?? orig.finalidad, area: of.area ?? orig.area, comprar: true } : { ...of, comprar: true };
     });
-    const total = items.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+    const totalBase = itemsBase.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+    // Descuento por efectivo: reprecia la sub-OC al precio efectivo (si lo hay).
+    const repEf = reprecioPorEfectivo(itemsBase, a.oferta_precio_efectivo);
+    const items = repEf ? repEf.items : itemsBase;
+    const total = repEf ? repEf.total : totalBase;
     const ocCodigo = await nextOcCodigo();
     const row = {
       codigo: `${op.codigo}-P${n}`,
@@ -409,6 +452,7 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       condiciones_pago: a.condiciones_pago ?? null,
       oferta_detalle: a.oferta_detalle ?? null,
       oferta_precio_efectivo: a.oferta_precio_efectivo ?? null,
+      oferta_precio_bcv: repEf ? repEf.bcv : null,
       oc_creada_por: actorEmail,
       oc_creada_en: nowIso,
       historial: [{ at: nowIso, evento: 'oc_creada', actor: actorEmail, oc_codigo: ocCodigo, proveedorId: a.proveedorId, precio: total, parent: op.codigo }],
@@ -1007,6 +1051,10 @@ export async function recibirOrdenParcial(
       ref_id: o.id,
       ref_codigo: o.codigo,
       proveedor_id: o.proveedor_id,
+      // Costo con el que entra (ya viene con el descuento por efectivo aplicado en la OC)
+      // y el PMP resultante: se ven en la trazabilidad/kardex del producto.
+      precio_unitario: precioCompra,
+      costo_promedio: precioPromedio,
       detalle: `Recepción de ${rec}/${it.cantidad} ${it.sku} @ $${precioCompra.toFixed(2)} (promedio: $${precioPromedio.toFixed(2)}) → ${almacenProd}`,
     });
     if (mErr) throw mErr;
