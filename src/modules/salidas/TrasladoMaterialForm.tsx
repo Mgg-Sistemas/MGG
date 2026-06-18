@@ -3,11 +3,12 @@ import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { num } from '@/shared/lib/format';
-import type { Almacen, Existencia, Producto, ItemSolicitudSalida } from '@/shared/lib/types';
+import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
+import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string }
+interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string; observacion: string }
 
 export function TrasladoMaterialForm({
   productos, existencias, almacenesObj, actor, actorName, onClose, onSaved,
@@ -38,10 +39,10 @@ export function TrasladoMaterialForm({
     return ex ? { almacen: ex.almacen, stock: Number(ex.stock) || 0 } : null;
   };
 
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '' }]);
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '', observacion: '' }]);
   const [seq, setSeq] = useState(2);
   const setLinea = (id: number, patch: Partial<LineaUI>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '', observacion: '' }]); setSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
 
   function elegirProducto(id: number, productoId: string) {
@@ -59,6 +60,12 @@ export function TrasladoMaterialForm({
   const [notaOn, setNotaOn] = useState(false);
   const [notaTexto, setNotaTexto] = useState('');
   const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().slice(0, 10));
+  // Datos de la nota de salida en tránsito.
+  const [chofer, setChofer] = useState<Chofer | null>(null);
+  const [vehiculo, setVehiculo] = useState<Vehiculo | null>(null);
+  const [dirDespacho, setDirDespacho] = useState('');
+  const [dirDestino, setDirDestino] = useState('');
+  const [consumoInterno, setConsumoInterno] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,7 +100,7 @@ export function TrasladoMaterialForm({
       if (l.almacen === destino) { setError(`${p?.nombre ?? 'El material'}: el origen no puede ser igual al destino.`); return; }
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
       if (cant > stockDe(l)) { setError(`No hay stock suficiente de ${p?.nombre} en ${l.almacen}. Disponible: ${num(stockDe(l))}.`); return; }
-      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: cant, precio_unit: precioDe(l) || null, unidad: p?.unidad ?? null, almacen: l.almacen });
+      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: cant, precio_unit: precioDe(l) || null, unidad: p?.unidad ?? null, almacen: l.almacen, observacion: l.observacion.trim() || null });
     }
     setSaving(true);
     try {
@@ -102,6 +109,10 @@ export function TrasladoMaterialForm({
         almacenDestino: destino, items,
         motivo: motivo.trim() || null,
         notaEntrega: notaOn ? (notaTexto.trim() || null) : null, fechaEntrega: fechaEntrega || null,
+        chofer: chofer?.nombre ?? null, choferCedula: chofer?.cedula ?? null,
+        vehiculo: vehiculo?.nombre ?? null, vehiculoPlaca: vehiculo?.placa ?? null,
+        direccionDespacho: dirDespacho.trim() || null, direccionDestino: dirDestino.trim() || null,
+        consumoInterno,
         solicitante: actorName || actor, actor, actorName,
       });
       const detalle = items.length === 1 ? `${num(items[0].cantidad)} ${items[0].unidad ?? ''} de ${items[0].producto_nombre}` : `${items.length} materiales`;
@@ -167,10 +178,36 @@ export function TrasladoMaterialForm({
                   <small className="muted">Lleva el costo (PMP) del origen.</small>
                 </div>
               </div>
+              <div className="form-row" style={{ marginTop: '.4rem' }}>
+                <label>Observación</label>
+                <input className="input" value={l.observacion} onChange={(e) => setLinea(l.id, { observacion: e.target.value })}
+                  placeholder="Ej.: serial / Nº, «será trasladado para reparación»…" />
+              </div>
             </div>
           );
         })}
         <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea}>＋ Agregar material</button>
+
+        {/* Datos del despacho (nota de salida): chofer/responsable + vehículo + direcciones */}
+        <div className="form-row" style={{ marginTop: '.8rem', marginBottom: '.3rem' }}><label>Datos del despacho</label></div>
+        <ChoferVehiculoPicker chofer={chofer} vehiculo={vehiculo} onChofer={setChofer} onVehiculo={setVehiculo} actor={actor} />
+        <div className="form-grid" style={{ marginTop: '.4rem' }}>
+          <div className="form-row">
+            <label>Origen — dirección de despacho</label>
+            <input className="input" value={dirDespacho} onChange={(e) => setDirDespacho(e.target.value)} placeholder="Desde dónde sale (zona, galpón…)" />
+          </div>
+          <div className="form-row">
+            <label>Destino — dirección</label>
+            <input className="input" value={dirDestino} onChange={(e) => setDirDestino(e.target.value)} placeholder="A dónde va (sede, galpón, dirección)" />
+          </div>
+        </div>
+        <div className="form-row" style={{ marginTop: '.45rem' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={consumoInterno} onChange={(e) => setConsumoInterno(e.target.checked)} />
+            Consumo interno
+          </label>
+          <small className="muted">Marcalo si el material se queda dentro de la empresa. Se ve en la trazabilidad y en el detalle.</small>
+        </div>
 
         {/* Motivo, fecha y nota */}
         <div className="form-grid" style={{ marginTop: '.8rem' }}>

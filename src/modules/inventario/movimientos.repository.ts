@@ -46,6 +46,8 @@ export interface MovimientoInput {
   fecha_entrega?: string | null;
   /** Costo unitario del proveedor en una entrada/compra. Dispara el recálculo del PMP. */
   precio_unitario?: number | null;
+  /** Marca que la salida/traslado es para consumo interno de la empresa. */
+  consumo_interno?: boolean | null;
 }
 
 /**
@@ -161,6 +163,7 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
     fecha_entrega: input.fecha_entrega ?? null,
     precio_unitario: precioUnit,
     costo_promedio: costoPromedio,
+    consumo_interno: input.consumo_interno ?? false,
     at: new Date().toISOString(),
   };
 
