@@ -2842,6 +2842,7 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   const [destinoCuenta, setDestinoCuenta] = useState<CuentaCaja>('general');
   const [montoStr, setMontoStr] = useState('');
   const [tasaStr, setTasaStr] = useState('');
+  const [comisionStr, setComisionStr] = useState('');   // % de comisión/descuento sobre el convertido
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -2876,7 +2877,10 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   const disponible = Number(origenSaldo?.saldo) || 0;
   const montoNum = Number(montoStr) || 0;
   const tasaNum = Number(tasaStr) || 0;
-  const resultado = round2(montoNum * tasaNum);
+  const comisionPct = Math.max(0, Math.min(100, Number(comisionStr) || 0));
+  const bruto = round2(montoNum * tasaNum);
+  const comisionMonto = round2(bruto * comisionPct / 100);
+  const resultado = round2(bruto - comisionMonto);   // neto que recibe el destino
   const excede = montoNum > disponible + 0.001;
   const puede = !!origenSaldo && !!destinoCajaId && de !== a && montoNum > 0 && tasaNum > 0 && !excede && !saving;
 
@@ -2899,13 +2903,16 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
       const quien = cpTipo && cpNombre.trim()
         ? `${cpTipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${cpNombre.trim()}`
         : null;
-      const motivo = quien
-        ? `Conversión ${monto(montoNum, de)} → ${monto(resultado, a)} · ${quien}`
-        : undefined;
+      const partes = [
+        `Conversión ${monto(montoNum, de)} → ${monto(resultado, a)}`,
+        comisionPct > 0 ? `comisión ${comisionPct}% = ${monto(comisionMonto, a)} (bruto ${monto(bruto, a)})` : null,
+        quien,
+      ].filter(Boolean);
+      const motivo = (comisionPct > 0 || quien) ? partes.join(' · ') : undefined;
       await convertirDivisa({
         origenCajaId: origenSaldo.caja_id, origenCuenta: origenSaldo.cuenta, monedaDe: de,
         destinoCajaId, destinoCuenta, monedaA: a,
-        montoDe: montoNum, tasa: tasaNum, motivo,
+        montoDe: montoNum, tasa: tasaNum, comisionPct, motivo,
         actor, actorName,
       });
       if (cpTipo && cpNombre.trim()) {
@@ -3049,14 +3056,21 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
             onChange={(e) => setTasaStr(e.target.value)} placeholder={mercado ? '0,00' : 'cargando…'} />
           <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.3rem' }} onClick={usarMercado}>↺ Tasa de mercado</button>
         </div>
+        <div className="form-row">
+          <label>Comisión / descuento (%)</label>
+          <input className="input mono" type="number" min={0} max={100} step="any" value={comisionStr}
+            onChange={(e) => setComisionStr(e.target.value)} placeholder="0" />
+          <small className="muted">Se le descuenta al convertido; el destino recibe el neto. Vacío = sin comisión.</small>
+        </div>
       </div>
 
       <div className="card" style={{ marginTop: '.5rem', textAlign: 'center', borderColor: 'var(--brand, #ff8a00)' }}>
-        <div className="muted" style={{ fontSize: '.74rem' }}>Equivalente en {a}</div>
+        <div className="muted" style={{ fontSize: '.74rem' }}>{comisionPct > 0 ? 'Recibe (neto) en ' : 'Equivalente en '}{a}</div>
         <strong className="mono" style={{ fontSize: '1.6rem', color: 'var(--text, #fff)' }}>{monto(resultado, a)}</strong>
         {tasaNum > 0 && montoNum > 0 && (
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-            {monto(montoNum, de)} × {tasaNum.toLocaleString('es-VE')} = {monto(resultado, a)}
+            {monto(montoNum, de)} × {tasaNum.toLocaleString('es-VE')} = {monto(bruto, a)}
+            {comisionPct > 0 && <> · − comisión {comisionPct}% ({monto(comisionMonto, a)}) = <strong>{monto(resultado, a)}</strong></>}
           </div>
         )}
       </div>
