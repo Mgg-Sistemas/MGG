@@ -1,5 +1,6 @@
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { previewPdfDoc } from '@/shared/lib/reportPreview';
 
 export interface DemandaRow {
   sku: string;
@@ -70,7 +71,7 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(11);
     doc.text('No hay datos de demanda para el período seleccionado.', MARGIN, y + 6);
-    doc.save('materiales-demanda.pdf');
+    previewPdfDoc(doc, 'materiales-demanda.pdf');
     return;
   }
 
@@ -123,5 +124,5 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
   doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${dateTime(new Date().toISOString())}`, MARGIN, pageH - 24);
 
-  doc.save(`materiales-demanda-${new Date().toISOString().slice(0, 10)}.pdf`);
+  previewPdfDoc(doc, `materiales-demanda-${new Date().toISOString().slice(0, 10)}.pdf`);
 }

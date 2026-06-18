@@ -2,6 +2,7 @@ import type { jsPDF as jsPDFType } from 'jspdf';
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import type {
   EvaluacionRecepcion,
   OfertaProveedor,
@@ -272,7 +273,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 /** Descarga el PDF al disco del usuario. */
 export async function descargarTrazabilidadPdf(ordenId: string): Promise<void> {
   const { doc, filename } = await buildTrazabilidadPdf(ordenId);
-  doc.save(filename);
+  previewPdfDoc(doc, filename);
 }
 
 /** Devuelve el PDF como base64 (sin el prefijo data URI). Útil para enviarlo

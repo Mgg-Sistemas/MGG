@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl, loadFirmaGerenteDataUrl } from '@/shared/lib/pdfLogo';
+import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { descuentoEfectivo } from './ofertas.repository';
 import type { OfertaDetalle, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 
@@ -158,9 +159,18 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     proveedor?.telefono ?? '',
     proveedor?.direccion ?? '',
   ].filter(Boolean);
-  emisorLines.forEach((t, i) => doc.text(t, MARGIN, y + i * 12));
-  provLines.forEach((t, i) => doc.text(t, PAGE_W / 2, y + i * 12));
-  y += Math.max(emisorLines.length, provLines.length) * 12 + 16;
+  // Cada columna respeta su ancho: el emisor a la izquierda y el proveedor en la
+  // mitad derecha. Sin esto, una dirección larga se sale del margen derecho.
+  const COL_R_X = PAGE_W / 2;
+  const anchoColIzq = COL_R_X - MARGIN - 14;          // izquierda: del margen al centro (con holgura)
+  const anchoColDer = (PAGE_W - MARGIN) - COL_R_X;    // derecha: del centro al margen derecho
+  const envolver = (lineas: string[], ancho: number): string[] =>
+    lineas.flatMap((t) => doc.splitTextToSize(String(t), ancho) as string[]);
+  const emisorWrap = envolver(emisorLines, anchoColIzq);
+  const provWrap = envolver(provLines, anchoColDer);
+  emisorWrap.forEach((t, i) => doc.text(t, MARGIN, y + i * 12));
+  provWrap.forEach((t, i) => doc.text(t, COL_R_X, y + i * 12));
+  y += Math.max(emisorWrap.length, provWrap.length) * 12 + 16;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
@@ -404,5 +414,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     pageH - 24,
   );
 
-  doc.save(`${ocLabel}.pdf`);
+  // Vista previa directa (no depende del parche global de jsPDF.save): muestra el
+  // visor con botón Descargar, evitando que el navegador baje el archivo de una.
+  previewPdfDoc(doc, `${ocLabel}.pdf`);
 }
