@@ -2025,19 +2025,17 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
 
   const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
 
-  // Moneda del saldo origen elegido (el traslado interno no cambia de moneda).
-  const monedaIntSel = saldos.find((x) => x.id === intSaldoId)?.moneda ?? '';
-  // Cuentas/billeteras VINCULADAS a la caja destino en esa moneda (las que ya existen),
-  // más "general" siempre y, para Bs, jurídica/personal. Así no se ofrecen cuentas inexistentes.
+  // Billeteras/cuentas VINCULADAS a la caja destino (las que ya existen) + "general".
+  // Se muestran al elegir la caja destino, así se ve a qué billetera entra el dinero
+  // (ej. "entra a Multimoneda · billetera usdt2"). La moneda la hereda del saldo origen.
   const cuentasDestino = useMemo(() => {
     const set = new Set<string>(['general']);
-    if (monedaIntSel === 'Bs') { set.add('juridica'); set.add('personal'); }
     todosSaldos
-      .filter((s) => s.caja_id === destinoId && s.moneda === monedaIntSel)
+      .filter((s) => s.caja_id === destinoId)
       .forEach((s) => set.add(s.cuenta));
     return Array.from(set);
-  }, [todosSaldos, destinoId, monedaIntSel]);
-  // Si la cuenta destino elegida ya no es válida para la moneda/caja, volver a "general".
+  }, [todosSaldos, destinoId]);
+  // Si la cuenta destino elegida ya no es válida para la caja, volver a "general".
   useEffect(() => {
     if (!cuentasDestino.includes(intDestCuenta)) setIntDestCuenta((cuentasDestino[0] ?? 'general') as CuentaCaja);
   }, [cuentasDestino, intDestCuenta]);
@@ -2147,6 +2145,15 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
                 {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {monto(saldoHomeDe(c), c.moneda)}{c.id === origenId ? ' (misma · cambia la cuenta)' : ''}</option>)}
               </select>
             )}
+            {tipoDestino === 'caja' && destinoId && (
+              <div style={{ marginTop: '.4rem' }}>
+                <label style={{ fontSize: '.72rem' }}>Billetera / cuenta destino</label>
+                <select className="select" value={intDestCuenta} onChange={(e) => setIntDestCuenta(e.target.value as CuentaCaja)}>
+                  {cuentasDestino.map((c) => <option key={c} value={c}>{labelCuentaCaja(c)}</option>)}
+                </select>
+                <small className="muted">Entra a <strong>{destino?.nombre ?? 'la caja'}</strong> · billetera/cuenta <strong>{labelCuentaCaja(intDestCuenta)}</strong>.</small>
+              </div>
+            )}
             {tipoDestino === 'centro' && destino?.externo && (
               <small className="muted">🔗 Centro de acopio en otro sistema: el traslado se replica automáticamente y queda “por confirmar” del otro lado.</small>
             )}
@@ -2163,7 +2170,9 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
             : tipoDestino === 'caja' ? (
               /* Movimiento único: un saldo (moneda + cuenta) → caja/cuenta destino (misma moneda) */
               <>
-                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.35rem' }}>Movés un saldo (moneda + cuenta) a otra caja o cuenta. La moneda no cambia.</div>
+                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.35rem' }}>
+                  Movés un saldo (moneda + cuenta) → entra a <strong>{destino?.nombre ?? 'la caja'}</strong> · billetera/cuenta <strong>{labelCuentaCaja(intDestCuenta)}</strong>. La moneda no cambia.
+                </div>
                 <div className="form-grid">
                   <div className="form-row">
                     <label>Saldo a trasladar</label>
@@ -2171,13 +2180,6 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
                       <option value="">— elegir —</option>
                       {saldos.map((s) => <option key={s.id} value={s.id}>{s.moneda}{cuentaLabel(s.cuenta)} · disp. {monto(s.saldo, s.moneda)}</option>)}
                     </select>
-                  </div>
-                  <div className="form-row">
-                    <label>Cuenta destino</label>
-                    <select className="select" value={intDestCuenta} onChange={(e) => setIntDestCuenta(e.target.value as CuentaCaja)}>
-                      {cuentasDestino.map((c) => <option key={c} value={c}>{labelCuentaCaja(c)}</option>)}
-                    </select>
-                    <small className="muted">Billeteras/cuentas {monedaIntSel || ''} vinculadas a {destino?.nombre ?? 'la caja destino'}.</small>
                   </div>
                   <div className="form-row">
                     <label>Monto</label>
