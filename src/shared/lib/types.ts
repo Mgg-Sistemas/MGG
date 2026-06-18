@@ -640,6 +640,8 @@ export interface Movimiento {
   costo_promedio?: number | null;
   /** Marca que la salida/traslado es para consumo interno de la empresa. */
   consumo_interno?: boolean | null;
+  /** Quién solicitó la salida/traslado (se muestra en el historial). */
+  solicitante?: string | null;
   at: string;
   created_at: string;
 }

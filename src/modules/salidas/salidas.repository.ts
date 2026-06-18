@@ -24,6 +24,8 @@ export interface SalidaMaterialInput {
   fechaEntrega?: string | null;
   /** Marca que la salida es para consumo interno de la empresa. */
   consumoInterno?: boolean | null;
+  /** Quién solicitó la salida (se muestra en el historial). */
+  solicitante?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -49,6 +51,7 @@ export async function salidaMaterial(input: SalidaMaterialInput): Promise<Movimi
     detalle: input.motivo || null,
     precio_unitario: input.precioUnit != null ? Number(input.precioUnit) : null,
     consumo_interno: input.consumoInterno ?? false,
+    solicitante: input.solicitante ?? null,
   });
 }
 
@@ -65,6 +68,8 @@ export interface TrasladoMaterialInput {
   fechaEntrega?: string | null;
   /** Marca que el traslado es para consumo interno de la empresa. */
   consumoInterno?: boolean | null;
+  /** Quién solicitó el traslado (se muestra en el historial). */
+  solicitante?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -100,6 +105,7 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     detalle: motivo ? `Traslado a ${input.almacenDestino} · ${motivo}` : `Traslado a ${input.almacenDestino}`,
     precio_unitario: precio,
     consumo_interno: input.consumoInterno ?? false,
+    solicitante: input.solicitante ?? null,
   });
   // Entrada al destino al costo (PMP) del origen.
   await registrarMovimiento({
@@ -116,6 +122,7 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     detalle: motivo ? `Traslado desde ${input.almacenOrigen} · ${motivo}` : `Traslado desde ${input.almacenOrigen}`,
     precio_unitario: costoOrigen,
     consumo_interno: input.consumoInterno ?? false,
+    solicitante: input.solicitante ?? null,
   });
   return movSalida;
 }
@@ -369,7 +376,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       const mov = await salidaMaterial({
         productoId: it.producto_id, almacen: it.almacen ?? s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
         destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
-        fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, actor, actorName,
+        fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
       });
       if (!movId) movId = mov.id;
     }
@@ -379,7 +386,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       const mov = await trasladoMaterial({
         productoId: it.producto_id, almacenOrigen: it.almacen ?? s.almacen_origen!, almacenDestino: s.almacen_destino!,
         cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
-        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, actor, actorName,
+        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
       });
       if (!movId) movId = mov.id;
     }

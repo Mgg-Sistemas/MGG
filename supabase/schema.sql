@@ -391,6 +391,8 @@ alter table public.movimientos add column if not exists fecha_entrega date;
 alter table public.movimientos add column if not exists nota_entrega text;
 -- Marca que la salida/traslado se queda dentro de la empresa (se ve en la trazabilidad).
 alter table public.movimientos add column if not exists consumo_interno boolean not null default false;
+-- Quién solicitó la salida/traslado (se muestra en el historial como "Realizado por").
+alter table public.movimientos add column if not exists solicitante text;
 
 -- ─────────────────────────────────────────────────────────────
 -- 5b. compras_directas — compras sin proveedor (EN PROCESO → FINALIZADA).
