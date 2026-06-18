@@ -29,6 +29,23 @@ function esCentroOro(centro: string): boolean {
   return (centro || '').trim().toUpperCase() === 'PERAMANAL ENDER MEJIAS';
 }
 
+/**
+ * Todo «$ ENTREGADO» a un ALIADO se vuelve una CUENTA POR COBRAR incremental en
+ * Tesorería (el aliado debe rendir lo entregado, en dinero o producto al cambio),
+ * con el aliado como contraparte. Best-effort: si falla, no bloquea el movimiento.
+ */
+async function anclarUsdAliadoACuentaPorCobrar(
+  aliadoNombre: string, montoUsd: number, nota: string | null, actor: string, actorName?: string | null,
+): Promise<void> {
+  try {
+    const nombre = (aliadoNombre ?? '').trim();
+    const usd = r2(montoUsd);
+    if (!nombre || usd <= 0) return;
+    const { registrarCobrarPorTraspaso } = await import('@/modules/tesoreria/cuentasPorCobrar.repository');
+    await registrarCobrarPorTraspaso({ centro: nombre, monto: usd, moneda: 'USD', nota, actor, actorName });
+  } catch { /* la cuenta por cobrar es best-effort: no bloquea el movimiento */ }
+}
+
 /* ───────────── Aliados (catálogo) ───────────── */
 
 export async function listAliados(centroNombre = CENTRO_ACOPIO_DEFECTO): Promise<AliadoAcopio[]> {
@@ -250,6 +267,8 @@ export async function crearCierreAliado(input: CierreAliadoInput, actor: string,
     if (cajaMovId) await eliminarMovimientoCaja(cajaMovId).catch(() => {});
     throw error;
   }
+  // $ entregado al aliado → cuenta por cobrar incremental del aliado (best-effort).
+  if (usd > 0) await anclarUsdAliadoACuentaPorCobrar(input.aliadoNombre, usd, input.descripcion ?? null, actor, actorName);
   return data as AliadoMovimiento;
 }
 
@@ -323,6 +342,8 @@ export async function crearMovimientoAliado(input: MovimientoAliadoInput, actor:
     if (cajaMovId) await eliminarMovimientoCaja(cajaMovId).catch(() => {});
     throw error;
   }
+  // $ entregado al aliado → cuenta por cobrar incremental del aliado (best-effort).
+  if (usd > 0) await anclarUsdAliadoACuentaPorCobrar(input.aliadoNombre, usd, input.descripcion ?? null, actor, actorName);
   return data as AliadoMovimiento;
 }
 

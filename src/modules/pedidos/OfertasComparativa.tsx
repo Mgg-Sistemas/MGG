@@ -9,7 +9,7 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
-import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, descuentoEfectivo } from './ofertas.repository';
+import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
@@ -39,6 +39,7 @@ export function OfertasComparativa({
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [confirmando, setConfirmando] = useState<ScoredOferta | null>(null);
+  const [eliminando, setEliminando] = useState<OfertaProveedor | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +60,18 @@ export function OfertasComparativa({
   }, [orden.id, reloadKey]);
 
   const scored = scoreOfertas(ofertas, stats);
+
+  async function confirmarEliminar(of: OfertaProveedor) {
+    try {
+      await eliminarOferta(of.id);
+      setOfertas((prev) => prev.filter((o) => o.id !== of.id));
+      toast('Oferta eliminada', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo eliminar la oferta', 'error');
+    } finally {
+      setEliminando(null);
+    }
+  }
 
   async function abrirPdf(path: string) {
     try {
@@ -212,9 +225,19 @@ export function OfertasComparativa({
                       )}
                     </td>
                     <td>
-                      {s.oferta.estado === 'pendiente' && <span className="badge warning">Pendiente</span>}
-                      {s.oferta.estado === 'aceptada' && <span className="badge success">Aceptada</span>}
-                      {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
+                        {s.oferta.estado === 'pendiente' && <span className="badge warning">Pendiente</span>}
+                        {s.oferta.estado === 'aceptada' && <span className="badge success">Aceptada</span>}
+                        {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
+                        {canCrearOferta && s.oferta.estado === 'pendiente' && (
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            title="Eliminar esta oferta"
+                            style={{ padding: '0 .35rem', color: 'var(--danger)' }}
+                            onClick={(e) => { e.stopPropagation(); setEliminando(s.oferta); }}
+                          >🗑</button>
+                        )}
+                      </span>
                     </td>
                   </tr>
                   {(() => {
@@ -275,6 +298,16 @@ export function OfertasComparativa({
         </p>
       )}
 
+      {eliminando && (
+        <ConfirmDialog
+          title="Eliminar oferta"
+          message={`¿Eliminar la oferta de ${proveedorMap.get(eliminando.proveedor_id)?.razon_social ?? 'este proveedor'} (${money(eliminando.precio_total)})? Se quita de la comparativa.`}
+          confirmText="Eliminar"
+          danger
+          onConfirm={() => confirmarEliminar(eliminando)}
+          onCancel={() => setEliminando(null)}
+        />
+      )}
       {confirmando && (
         <ConfirmDialog
           title="Confirmar oferta ganadora"

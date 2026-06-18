@@ -91,6 +91,7 @@ const STATUS_MAP: Record<string, { className: string; label: string }> = {
   confirmada_metodo:   { className: 'warning', label: 'Confirmada (indicar método de pago)' },
   oc_aprobada:         { className: 'info', label: 'Confirmada pagar' },
   cuenta_abierta:      { className: 'warning', label: 'Crédito · cuenta abierta' },
+  asignada:            { className: 'info',    label: 'Repartida entre proveedores' },
   por_recibir:         { className: 'primary', label: 'Pendiente por recepción' },
   oc_emitida:          { className: 'primary', label: 'OC emitida' },
   rechazada:           { className: 'danger',  label: 'Rechazada' },

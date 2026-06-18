@@ -28,6 +28,8 @@ import {
   cancelarOrden,
   crearOrden,
   actualizarOrden,
+  actualizarOc,
+  listSubOcs,
   adjuntarImagenOrden,
   desistirProveedor,
   reabrirOcAOfertas,
@@ -55,7 +57,7 @@ import {
   type CatalogoPedido,
   type ScopeCatalogoPedido,
 } from './pedidos.repository';
-import { listOfertasByOrden, labelCondicionPago, descuentoEfectivo } from './ofertas.repository';
+import { listOfertasByOrden, labelCondicionPago, descuentoEfectivo, CONDICIONES_PAGO } from './ofertas.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -67,6 +69,7 @@ import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
+import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { descargarTrazabilidadPdf } from './trazabilidadPdf';
 import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
@@ -160,6 +163,8 @@ type ModalKind =
   | { kind: 'detail'; ordenId: string }
   | { kind: 'create' }
   | { kind: 'edit'; orden: Orden }
+  | { kind: 'edit-oc'; orden: Orden }
+  | { kind: 'asignar'; orden: Orden }
   | { kind: 'approve'; orden: Orden }
   | { kind: 'metodo-pago'; orden: Orden }
   | { kind: 'cancel'; orden: Orden }
@@ -533,6 +538,8 @@ export function PedidosPage() {
           onClose={() => setModal({ kind: 'none' })}
           onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
           onEditar={() => setModal({ kind: 'edit', orden: currentDetail })}
+          onEditarOc={() => setModal({ kind: 'edit-oc', orden: currentDetail })}
+          onAsignar={() => setModal({ kind: 'asignar', orden: currentDetail })}
           onConfirmOc={async () => {
             try {
               await aprobarOcsEnLote([currentDetail], usuario?.email ?? user?.email ?? 'sistema', null);
@@ -592,6 +599,27 @@ export function PedidosPage() {
             setModal({ kind: 'none' });
             await refresh();
           }}
+        />
+      )}
+
+      {/* Modal: editar OC (solo oc_creada, antes de aprobarla) */}
+      {modal.kind === 'edit-oc' && (
+        <EditarOcModal
+          orden={modal.orden}
+          actorEmail={usuario?.email ?? user?.email ?? 'sistema'}
+          onClose={() => setModal({ kind: 'none' })}
+          onSaved={async () => { setModal({ kind: 'none' }); await refresh(); }}
+        />
+      )}
+
+      {/* Modal: asignar proveedores por producto (OC multi-proveedor) */}
+      {modal.kind === 'asignar' && (
+        <AsignarProveedoresModal
+          orden={modal.orden}
+          proveedorMap={proveedorMap}
+          actorEmail={usuario?.email ?? user?.email ?? 'sistema'}
+          onClose={() => setModal({ kind: 'none' })}
+          onDone={async () => { setModal({ kind: 'none' }); await refresh(); }}
         />
       )}
 
@@ -1579,6 +1607,8 @@ interface OrdenDetailModalProps {
   onClose: () => void;
   onApprove: () => void;
   onEditar: () => void;
+  onEditarOc: () => void;
+  onAsignar: () => void;
   onConfirmOc: () => void;
   onEnviarPagar: () => void;
   onCancel: () => void;
@@ -1607,6 +1637,8 @@ function OrdenDetailModal({
   onClose,
   onApprove,
   onEditar,
+  onEditarOc,
+  onAsignar,
   onConfirmOc,
   onEnviarPagar,
   onCancel,
@@ -1662,6 +1694,15 @@ function OrdenDetailModal({
   const canCerrarSolicitudObrero = finalizableRecibida && usuarioRole === 'obrero';
 
   const [enviarOpen, setEnviarOpen] = useState(false);
+
+  // Sub-OC por proveedor (si la OP se repartió entre varios proveedores).
+  const [subOcs, setSubOcs] = useState<Orden[]>([]);
+  useEffect(() => {
+    if (o.parent_orden_id) { setSubOcs([]); return; }
+    let cancel = false;
+    listSubOcs(o.id).then((r) => { if (!cancel) setSubOcs(r); }).catch(() => { if (!cancel) setSubOcs([]); });
+    return () => { cancel = true; };
+  }, [o.id, o.parent_orden_id, offersReloadKey]);
 
   // Marca/desmarca un ítem como "a comprar" en la etapa OP (antes de tener precio).
   // Así una OP con 4 productos puede quedar con solo 2 aprobados para comprar.
@@ -1723,11 +1764,17 @@ function OrdenDetailModal({
       {canCancel && (
         <button className="btn btn-danger" onClick={onCancel}>Cancelar orden</button>
       )}
+      {(o.estado === 'aprobada' || o.estado === 'asignada') && canManageProcurement && (
+        <button className="btn btn-primary" onClick={onAsignar} title="Repartir los productos entre varios proveedores (una OC por proveedor)">
+          🧩 Asignar por producto (multi-proveedor)
+        </button>
+      )}
       {/* Etapa OC: oferta ya elegida (sin confirmar). Se confirma individual o en lote (checklist). */}
       {isOcCreada && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={onDesistir} title="Proveedor no cumplió">⚠ Proveedor desistió</button>
-          <button className="btn btn-ghost" onClick={onModificar} title="Volver a la etapa de ofertas para re-elegir la oferta ganadora">✎ Modificar OC</button>
+          <button className="btn btn-ghost" onClick={onEditarOc} title="Editar cantidades, precios y condiciones de la OC antes de aprobarla">✎ Editar OC</button>
+          <button className="btn btn-ghost" onClick={onModificar} title="Volver a la etapa de ofertas para re-elegir la oferta ganadora">↩ Re-elegir oferta</button>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
           <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (queda en estado Anulada)">⊘ Anular OC</button>
         </>
@@ -2038,6 +2085,29 @@ function OrdenDetailModal({
         </div>
       )}
 
+      {subOcs.length > 0 && (
+        <div className="card" style={{ marginTop: '1rem' }}>
+          <div className="card-title"><span>🧩 Sub-órdenes por proveedor ({subOcs.length})</span></div>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr><th>OC</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>Productos</th><th style={{ textAlign: 'right' }}>Total</th><th>Estado</th></tr></thead>
+              <tbody>
+                {subOcs.map((h) => (
+                  <tr key={h.id}>
+                    <td className="mono">{h.oc_codigo ?? h.codigo}</td>
+                    <td>{h.proveedor_id ? (proveedorMap.get(h.proveedor_id)?.razon_social ?? '—') : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{(h.items ?? []).length}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(h.total)}</td>
+                    <td><StatusBadge estado={h.estado} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted" style={{ fontSize: '.76rem', margin: '.4rem 0 0' }}>Cada sub-OC se confirma, paga y recibe por separado (método de pago por proveedor).</p>
+        </div>
+      )}
+
       {mostrarOfertas && (
         <OfertasComparativa
           orden={o}
@@ -2314,6 +2384,64 @@ function Timeline({
 /* ─────────────────────────────────────────────
    Modal: Crear orden
    ───────────────────────────────────────────── */
+/* ───────────── Editar OC (oc_creada, antes de aprobarla) ───────────── */
+function EditarOcModal({ orden, actorEmail, onClose, onSaved }: {
+  orden: Orden; actorEmail: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [items, setItems] = useState<ItemOrden[]>(orden.items.map((i) => ({ ...i })));
+  const [cond, setCond] = useState(orden.condiciones_pago ?? '');
+  const [notas, setNotas] = useState(orden.notas ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const total = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+  const upd = (idx: number, patch: Partial<ItemOrden>) =>
+    setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
+
+  async function guardar() {
+    setError(null); setSaving(true);
+    try {
+      await actualizarOc(orden, { items, condiciones_pago: cond || null, notas }, actorEmail);
+      toast('OC actualizada', 'success');
+      onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
+  }
+
+  return (
+    <Modal title={`Editar OC ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={
+      <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>Ajustá cantidades y precios de cada producto y la condición de pago. El total se recalcula solo. Se puede editar solo mientras la OC no esté aprobada.</p>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr><th>Producto</th><th style={{ textAlign: 'right', width: 110 }}>Cantidad</th><th style={{ textAlign: 'right', width: 130 }}>Precio unit.</th><th style={{ textAlign: 'right', width: 130 }}>Subtotal</th></tr></thead>
+          <tbody>
+            {items.map((it, idx) => (
+              <tr key={it.sku ?? idx}>
+                <td>{it.nombre}<span className="muted"> · {it.sku}</span></td>
+                <td><input className="input mono" type="number" min={0} step="any" value={it.cantidad} onChange={(e) => upd(idx, { cantidad: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} /></td>
+                <td><input className="input mono" type="number" min={0} step="any" value={it.precio} onChange={(e) => upd(idx, { precio: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} /></td>
+                <td className="mono" style={{ textAlign: 'right' }}>{money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={3} style={{ textAlign: 'right' }}>Total</td><td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td></tr></tfoot>
+        </table>
+      </div>
+      <div className="form-row" style={{ marginTop: '.6rem' }}>
+        <label>Condición de pago</label>
+        <select className="select" value={cond} onChange={(e) => setCond(e.target.value)}>
+          <option value="">— sin especificar —</option>
+          {CONDICIONES_PAGO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </select>
+      </div>
+      <div className="form-row"><label>Nota</label><textarea className="input" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)} /></div>
+    </Modal>
+  );
+}
+
 interface CrearOrdenModalProps {
   productos: Producto[];
   usuario: Usuario | null;
