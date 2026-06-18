@@ -472,16 +472,31 @@ function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClos
   const [editando, setEditando] = useState(false);
   const [eMonto, setEMonto] = useState(String(Number(mov.monto) || 0));
   const [eMotivo, setEMotivo] = useState(mov.motivo ?? '');
+  // Fecha/hora editable (formato input datetime-local en hora local del navegador).
+  const isoAInputLocal = (iso: string | null | undefined): string => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const [eFecha, setEFecha] = useState(isoAInputLocal(mov.at));
   const [confirmDel, setConfirmDel] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
   async function guardarEdicion() {
     const m = round2(Number(eMonto) || 0);
     if (m <= 0) { toast('El monto debe ser mayor que 0.', 'error'); return; }
+    let atISO: string | undefined;
+    if (eFecha) {
+      const d = new Date(eFecha);
+      if (isNaN(d.getTime())) { toast('Fecha inválida.', 'error'); return; }
+      atISO = d.toISOString();
+    }
     setGuardando(true);
     try {
-      await editarMovimientoCaja(mov, { monto: m, motivo: eMotivo });
-      toast('Movimiento actualizado · saldo recalculado', 'success');
+      await editarMovimientoCaja(mov, { monto: m, motivo: eMotivo, at: atISO });
+      toast('Movimiento actualizado · orden y saldo recalculados', 'success');
       setEditando(false);
       await onChanged?.();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo editar', 'error'); }
@@ -550,7 +565,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClos
     <Modal title="Detalle del movimiento" size="lg" onClose={onClose} footer={
       editando ? (
         <>
-          <button className="btn btn-ghost" onClick={() => { setEditando(false); setEMonto(String(Number(mov.monto) || 0)); setEMotivo(mov.motivo ?? ''); }} disabled={guardando}>Cancelar</button>
+          <button className="btn btn-ghost" onClick={() => { setEditando(false); setEMonto(String(Number(mov.monto) || 0)); setEMotivo(mov.motivo ?? ''); setEFecha(isoAInputLocal(mov.at)); }} disabled={guardando}>Cancelar</button>
           <button className="btn btn-primary" onClick={guardarEdicion} disabled={guardando}>{guardando ? 'Guardando…' : '✓ Guardar cambios'}</button>
         </>
       ) : (
@@ -575,6 +590,11 @@ function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClos
             </p>
           )}
           <div className="form-grid">
+            <div className="form-row">
+              <label>Fecha y hora</label>
+              <input className="input" type="datetime-local" value={eFecha} onChange={(e) => setEFecha(e.target.value)} />
+              <small className="muted">Cambiarla reordena el movimiento en el Libro Mayor y recalcula los saldos.</small>
+            </div>
             <div className="form-row">
               <label>Monto ({mov.moneda})</label>
               <input className="input mono" type="number" min={0} step={0.01} value={eMonto}
