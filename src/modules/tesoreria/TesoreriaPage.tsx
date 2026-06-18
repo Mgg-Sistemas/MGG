@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import {
   listCategoriasGasto, soloCategorias, subcategoriasDe, ensureCategoriaGasto,
@@ -39,6 +39,7 @@ import {
   listCajasActivas, listCentrosAcopio,
   registrarGasto, disponibilidadFinanciera, listLibroMayor,
   categoriaLlevaCorrelativo, proximoCorrelativoGasto,
+  editarMovimientoCaja, eliminarMovimientoCaja, movEstaVinculado,
   type Disponibilidad,
 } from './tesoreria.repository';
 import {
@@ -50,6 +51,7 @@ import {
   listContrapartes, crearContraparte, actualizarContraparte, eliminarContraparte,
   type Contraparte, type TipoContraparte,
 } from './contrapartes.repository';
+import { list as listProveedoresCatalogo } from '@/modules/proveedores/proveedores.repository';
 import {
   registrarIngresoCxP, listCuentasPorPagar, listAbonosCuenta, registrarAbonoCuenta, listIngresosCxP,
   type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
@@ -88,6 +90,13 @@ const CAT_LABEL: Record<string, string> = {
 function monto(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return moneda === 'USD' ? `$ ${v}` : `${moneda} ${v}`;
+}
+
+/** Etiqueta de una cuenta/billetera: '—' para general, nombres fijos para Bs y el
+ *  nombre tal cual para billeteras nombradas (usdt1, usdt2…). */
+function labelCuentaCaja(c: string | null | undefined): string {
+  const v = c ?? 'general';
+  return v === 'general' ? '—' : v === 'juridica' ? 'Jurídica' : v === 'personal' ? 'Personal' : v;
 }
 
 /** Normaliza texto para buscar: minúsculas y sin acentos (búsqueda tolerante). */
@@ -411,7 +420,15 @@ export function TesoreriaPage() {
 
       {vista === 'gastos' && <GastosView libro={libro} onVerMov={setMovSel} />}
 
-      {movSel && <MovimientoDetalleModal mov={movSel} defaultEmail={actor} onClose={() => setMovSel(null)} />}
+      {movSel && (
+        <MovimientoDetalleModal
+          mov={movSel}
+          defaultEmail={actor}
+          canWrite={canWrite}
+          onChanged={async () => { setMovSel(null); await reload(); }}
+          onClose={() => setMovSel(null)}
+        />
+      )}
       {correoMovOpen && <EnviarReporteModal movs={libroView} meta={reporteMeta()} defaultEmail={actor} onClose={() => setCorreoMovOpen(false)} />}
       {modal === 'gasto' && <GastoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
       {modal === 'traslado' && <TrasladoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
@@ -436,7 +453,9 @@ export function TesoreriaPage() {
 
 /* ───────────── Detalle de un movimiento del registro ───────────── */
 
-function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: MovimientoCaja; defaultEmail: string; onClose: () => void }) {
+function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClose }: {
+  mov: MovimientoCaja; defaultEmail: string; canWrite?: boolean; onChanged?: () => void | Promise<void>; onClose: () => void;
+}) {
   const egreso = mov.tipo === 'salida' || mov.tipo === 'traslado_salida'
     || (mov.tipo === 'ajuste' && Number(mov.saldo_despues) < Number(mov.saldo_antes));
   const [orden, setOrden] = useState<Orden | null>(null);
@@ -446,6 +465,38 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: Movimient
   const [abriendo, setAbriendo] = useState(false);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
+
+  // Edición / eliminación del movimiento (con reversión y recálculo del saldo).
+  const puedeEditar = !!canWrite && mov.tipo !== 'ajuste';
+  const vinculado = movEstaVinculado(mov);
+  const [editando, setEditando] = useState(false);
+  const [eMonto, setEMonto] = useState(String(Number(mov.monto) || 0));
+  const [eMotivo, setEMotivo] = useState(mov.motivo ?? '');
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+
+  async function guardarEdicion() {
+    const m = round2(Number(eMonto) || 0);
+    if (m <= 0) { toast('El monto debe ser mayor que 0.', 'error'); return; }
+    setGuardando(true);
+    try {
+      await editarMovimientoCaja(mov, { monto: m, motivo: eMotivo });
+      toast('Movimiento actualizado · saldo recalculado', 'success');
+      setEditando(false);
+      await onChanged?.();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo editar', 'error'); }
+    finally { setGuardando(false); }
+  }
+
+  async function eliminar() {
+    setGuardando(true);
+    try {
+      await eliminarMovimientoCaja(mov);
+      toast('Movimiento eliminado · saldo revertido', 'success');
+      setConfirmDel(false);
+      await onChanged?.();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setGuardando(false); }
+  }
 
   // Si el movimiento es un pago de compra (pago_oc), traemos la OC para mostrar
   // seriales de billetes, comprobante y datos de la orden pagada.
@@ -497,14 +548,46 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: Movimient
 
   return (
     <Modal title="Detalle del movimiento" size="lg" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={descargarPdf} disabled={generandoPdf || cargandoOrden}>
-          {generandoPdf ? 'Generando…' : '↓ PDF'}
-        </button>
-        <button className="btn btn-ghost" onClick={() => setCorreoOpen(true)} disabled={cargandoOrden}>✉ Enviar por correo</button>
-        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
-      </>
+      editando ? (
+        <>
+          <button className="btn btn-ghost" onClick={() => { setEditando(false); setEMonto(String(Number(mov.monto) || 0)); setEMotivo(mov.motivo ?? ''); }} disabled={guardando}>Cancelar</button>
+          <button className="btn btn-primary" onClick={guardarEdicion} disabled={guardando}>{guardando ? 'Guardando…' : '✓ Guardar cambios'}</button>
+        </>
+      ) : (
+        <>
+          {puedeEditar && <button className="btn btn-ghost" onClick={() => setEditando(true)} title="Editar monto y concepto (recalcula el saldo)" style={{ marginRight: 'auto' }}>✎ Editar</button>}
+          {canWrite && <button className="btn btn-danger" onClick={() => setConfirmDel(true)} title="Eliminar y revertir el saldo">🗑 Eliminar</button>}
+          <button className="btn btn-ghost" onClick={descargarPdf} disabled={generandoPdf || cargandoOrden}>
+            {generandoPdf ? 'Generando…' : '↓ PDF'}
+          </button>
+          <button className="btn btn-ghost" onClick={() => setCorreoOpen(true)} disabled={cargandoOrden}>✉ Enviar por correo</button>
+          <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+        </>
+      )
     }>
+      {/* Edición inline: monto + concepto (sincroniza el saldo al guardar) */}
+      {editando && (
+        <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--primary-3, #ff8a00)' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>✎ Editar movimiento</div>
+          {vinculado && (
+            <p className="muted" style={{ fontSize: '.78rem', marginTop: 0, color: 'var(--warning)' }}>
+              ⚠ Este movimiento está vinculado a otro módulo (compra, nómina o traslado). Al editarlo se recalcula el saldo de la caja, pero el módulo vinculado NO se entera del cambio.
+            </p>
+          )}
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Monto ({mov.moneda})</label>
+              <input className="input mono" type="number" min={0} step={0.01} value={eMonto}
+                onChange={(e) => setEMonto(dosDecimales(e.target.value))} style={{ textAlign: 'right' }} />
+            </div>
+            <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+              <label>Concepto / motivo</label>
+              <input className="input" value={eMotivo} onChange={(e) => setEMotivo(e.target.value)} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Datos generales del movimiento */}
       <div className="card" style={{ marginBottom: '.75rem' }}>
         <div className="card-title" style={{ marginBottom: '.4rem' }}>Movimiento</div>
@@ -625,6 +708,16 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: Movimient
 
       {correoOpen && (
         <DetalleCorreoModal mov={mov} orden={orden} defaultEmail={defaultEmail} onClose={() => setCorreoOpen(false)} />
+      )}
+      {confirmDel && (
+        <ConfirmDialog
+          title="Eliminar movimiento"
+          message={`¿Eliminar este ${egreso ? 'egreso' : 'ingreso'} de ${monto(mov.monto, mov.moneda)}? Se revierte el saldo de la caja y se recalcula el Libro Mayor.${vinculado ? ' OJO: está vinculado a otro módulo (compra/nómina/traslado), que NO se revertirá automáticamente.' : ''}`}
+          confirmText={guardando ? 'Eliminando…' : 'Eliminar'}
+          danger
+          onConfirm={eliminar}
+          onCancel={() => setConfirmDel(false)}
+        />
       )}
     </Modal>
   );
@@ -818,7 +911,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
               {!loading && !saldos.length && <tr><td colSpan={4}><EmptyState message="Sin saldos · ingresá dinero abajo" /></td></tr>}
               {!loading && saldos.map((s) => (
                 <tr key={s.id}>
-                  <td>{s.cuenta === 'general' ? '—' : s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}</td>
+                  <td>{labelCuentaCaja(s.cuenta)}</td>
                   <td><span className="badge">{s.moneda}</span></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{monto(s.saldo, s.moneda)}</td>
                   <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => verLotes(s)}>Trazabilidad</button></td>
@@ -926,13 +1019,24 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                 </select>
               )}
             </div>
-            {moneda === 'Bs' && (
+            {moneda === 'Bs' ? (
               <div className="form-row">
                 <label>Cuenta</label>
                 <select className="select" value={cuenta} onChange={(e) => setCuenta(e.target.value as CuentaCaja)}>
                   <option value="juridica">Jurídica</option>
                   <option value="personal">Personal</option>
                 </select>
+              </div>
+            ) : (
+              <div className="form-row">
+                <label>Billetera / cuenta</label>
+                <input className="input" list={`wallets-${moneda}`} value={cuenta === 'general' ? '' : cuenta}
+                  onChange={(e) => setCuenta((e.target.value.trim() || 'general') as CuentaCaja)}
+                  placeholder="general (o nombrala: usdt1, usdt2…)" />
+                <datalist id={`wallets-${moneda}`}>
+                  {Array.from(new Set(saldos.filter((s) => s.moneda === moneda && s.cuenta !== 'general').map((s) => s.cuenta))).map((c) => <option key={c} value={c} />)}
+                </datalist>
+                <small className="muted">Vacío = "general". Nombrá billeteras separadas (usdt1, usdt2…) y se muestran por separado.</small>
               </div>
             )}
             <div className="form-row">
@@ -1297,7 +1401,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
               <select className="select" value={saldoSelId} onChange={(e) => setSaldoSelId(e.target.value)}>
                 {saldosCaja.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.moneda}{s.cuenta !== 'general' ? ` · ${s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}` : ''} · {monto(Number(s.saldo), s.moneda)}
+                    {s.moneda}{s.cuenta !== 'general' ? ` · ${labelCuentaCaja(s.cuenta)}` : ''} · {monto(Number(s.saldo), s.moneda)}
                   </option>
                 ))}
               </select>
@@ -1833,6 +1937,9 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
 }) {
   const [origenId, setOrigenId] = useState(cajas[0]?.id ?? '');
   const [destinoId, setDestinoId] = useState('');
+  // Destino: un Centro de costo (con cuenta por cobrar) o, en modo interno, OTRA
+  // caja de Tesorería (ej. Bs jurídica → Bs personal): solo mueve dinero, sin CxC.
+  const [tipoDestino, setTipoDestino] = useState<'centro' | 'caja'>('centro');
   const [centros, setCentros] = useState<Caja[]>([]);
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   // Saldos de TODAS las cajas (para mostrar el saldo real en el desplegable "Desde";
@@ -1845,9 +1952,13 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const [loadingSaldos, setLoadingSaldos] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Traslado interno (caja↔caja / cuenta↔cuenta, misma moneda): un solo movimiento.
+  const [intSaldoId, setIntSaldoId] = useState('');                 // saldo origen (cuenta+moneda)
+  const [intMonto, setIntMonto] = useState('');
+  const [intDestCuenta, setIntDestCuenta] = useState<CuentaCaja>('general');
 
   const origen = cajas.find((c) => c.id === origenId) ?? null;
-  const destino = centros.find((c) => c.id === destinoId) ?? null;
+  const destino = (tipoDestino === 'centro' ? centros : cajas).find((c) => c.id === destinoId) ?? null;
 
   useEffect(() => { listCentrosAcopio().then(setCentros).catch(() => setCentros([])); }, []);
   useEffect(() => { listSaldos().then(setTodosSaldos).catch(() => setTodosSaldos([])); }, []);
@@ -1857,10 +1968,11 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
   //    muestra como descripción de la entrada en ese centro de acopio.
   useEffect(() => {
     if (!destino) return;
-    if (destino.externo) { if (origen) setMotivo(`${origen.nombre} / ${destino.nombre}`); }
+    if (tipoDestino === 'caja') setMotivo(`Traslado interno · ${origen?.nombre ?? ''} → ${destino.nombre}`);
+    else if (destino.externo) { if (origen) setMotivo(`${origen.nombre} / ${destino.nombre}`); }
     else setMotivo(`CAJA MULTIMONEDAS MGG / CAJA ${centroAcopioShort(destino.nombre)}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [origenId, destinoId]);
+  }, [origenId, destinoId, tipoDestino]);
   useEffect(() => {
     if (!origenId) { setSaldos([]); return; }
     setLoadingSaldos(true);
@@ -1871,12 +1983,35 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
     setMontos({});
   }, [origenId]);
 
-  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
+  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!origenId || !destinoId) { setError('Elegí la caja origen y el centro de acopio.'); return; }
+    if (!origenId || !destinoId) { setError(tipoDestino === 'caja' ? 'Elegí la caja origen y la caja destino.' : 'Elegí la caja origen y el centro de acopio.'); return; }
     if (!motivo.trim()) { setError('El motivo es obligatorio.'); return; }
+
+    // ── Traslado INTERNO (entre tus cajas/cuentas, misma moneda): un solo movimiento,
+    //    en vivo, sin cuenta por cobrar ni reflejo en acopio. Ej.: Bs jurídica → Bs personal.
+    if (tipoDestino === 'caja') {
+      const s = saldos.find((x) => x.id === intSaldoId);
+      if (!s) { setError('Elegí qué saldo (moneda y cuenta) trasladar.'); return; }
+      const m = round2(Number(intMonto) || 0);
+      if (m <= 0) { setError('Indicá el monto a trasladar.'); return; }
+      if (m > (Number(s.saldo) || 0)) { setError(`Saldo insuficiente: disponible ${monto(s.saldo, s.moneda)}.`); return; }
+      if (origenId === destinoId && s.cuenta === intDestCuenta) { setError('El origen y el destino son el mismo saldo: elegí otra caja o cuenta.'); return; }
+      setSaving(true);
+      try {
+        await convertirDivisa({
+          origenCajaId: origenId, origenCuenta: s.cuenta, monedaDe: s.moneda,
+          destinoCajaId: destinoId, destinoCuenta: intDestCuenta, monedaA: s.moneda,
+          montoDe: m, tasa: 1, motivo: motivo.trim(), actor, actorName,
+        });
+        notify(`Traslado interno · ${monto(m, s.moneda)} → ${destino?.nombre ?? 'caja'}`, 'success', { link: '#/app/tesoreria' });
+        onSaved();
+      } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo trasladar.'); setSaving(false); }
+      return;
+    }
+
     const legs = saldos
       .map((s) => ({ cuenta: s.cuenta, moneda: s.moneda, monto: Number(montos[s.id]) || 0 }))
       .filter((l) => l.monto > 0);
@@ -1937,35 +2072,80 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
             </select>
           </div>
           <div className="form-row">
-            <label>Hacia (Centro de Costo)</label>
-            <select className="select" value={destinoId} onChange={(e) => setDestinoId(e.target.value)} required>
-              <option value="">— elegir —</option>
-              {centros.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.externo ? ' · sistema externo' : ''}</option>)}
-            </select>
-            {destino?.externo && (
+            <label>Hacia</label>
+            <div style={{ display: 'flex', gap: '.3rem', marginBottom: '.35rem' }}>
+              <button type="button" className={tipoDestino === 'centro' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                onClick={() => { setTipoDestino('centro'); setDestinoId(''); }}>🏗 Centro de costo</button>
+              <button type="button" className={tipoDestino === 'caja' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                onClick={() => { setTipoDestino('caja'); setDestinoId(''); }}>🏦 Otra caja (interno)</button>
+            </div>
+            {tipoDestino === 'centro' ? (
+              <select className="select" value={destinoId} onChange={(e) => setDestinoId(e.target.value)} required>
+                <option value="">— elegir centro —</option>
+                {centros.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.externo ? ' · sistema externo' : ''}</option>)}
+              </select>
+            ) : (
+              <select className="select" value={destinoId} onChange={(e) => setDestinoId(e.target.value)} required>
+                <option value="">— elegir caja —</option>
+                {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {monto(saldoHomeDe(c), c.moneda)}{c.id === origenId ? ' (misma · cambia la cuenta)' : ''}</option>)}
+              </select>
+            )}
+            {tipoDestino === 'centro' && destino?.externo && (
               <small className="muted">🔗 Centro de acopio en otro sistema: el traslado se replica automáticamente y queda “por confirmar” del otro lado.</small>
+            )}
+            {tipoDestino === 'caja' && (
+              <small className="muted">↔ Solo mueve dinero entre tus cajas (ej. Bs jurídica → Bs personal). No genera cuenta por cobrar.</small>
             )}
           </div>
         </div>
 
-        {/* Montos a sacar de cada moneda registrada en la caja origen */}
+        {/* Montos a trasladar de la caja origen */}
         <div className="card" style={{ margin: '.4rem 0', padding: '.5rem .7rem' }}>
-          <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.35rem' }}>¿Cuánto trasladar de cada moneda registrada en la caja?</div>
           {loadingSaldos ? <div className="muted" style={{ fontSize: '.85rem' }}>Cargando saldos…</div>
             : !saldos.length ? <div className="muted" style={{ fontSize: '.85rem' }}>Esta caja no tiene saldos.</div>
-            : (
-              <div style={{ display: 'grid', gap: '.4rem' }}>
-                {saldos.map((s) => (
-                  <div key={s.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-                    <span style={{ flex: '1 1 auto', fontSize: '.85rem' }}>
-                      <span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)} <span className="muted">· disp. {monto(s.saldo, s.moneda)}</span>
-                    </span>
-                    <input className="input mono" type="number" min={0} max={Number(s.saldo) || 0} step="any" placeholder="0,00"
-                      value={montos[s.id] ?? ''} onChange={(e) => setMontos((m) => ({ ...m, [s.id]: dosDecimales(e.target.value) }))}
-                      style={{ width: 140 }} />
+            : tipoDestino === 'caja' ? (
+              /* Movimiento único: un saldo (moneda + cuenta) → caja/cuenta destino (misma moneda) */
+              <>
+                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.35rem' }}>Movés un saldo (moneda + cuenta) a otra caja o cuenta. La moneda no cambia.</div>
+                <div className="form-grid">
+                  <div className="form-row">
+                    <label>Saldo a trasladar</label>
+                    <select className="select" value={intSaldoId} onChange={(e) => setIntSaldoId(e.target.value)}>
+                      <option value="">— elegir —</option>
+                      {saldos.map((s) => <option key={s.id} value={s.id}>{s.moneda}{cuentaLabel(s.cuenta)} · disp. {monto(s.saldo, s.moneda)}</option>)}
+                    </select>
                   </div>
-                ))}
-              </div>
+                  <div className="form-row">
+                    <label>Cuenta destino</label>
+                    <select className="select" value={intDestCuenta} onChange={(e) => setIntDestCuenta(e.target.value as CuentaCaja)}>
+                      <option value="general">General</option>
+                      <option value="juridica">Jurídica</option>
+                      <option value="personal">Personal</option>
+                    </select>
+                  </div>
+                  <div className="form-row">
+                    <label>Monto</label>
+                    <input className="input mono" type="number" min={0} step="any" placeholder="0,00" value={intMonto} onChange={(e) => setIntMonto(dosDecimales(e.target.value))} />
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* Centro de costo: cuánto sacar de cada moneda (multi-leg) */
+              <>
+                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.35rem' }}>¿Cuánto trasladar de cada moneda registrada en la caja?</div>
+                <div style={{ display: 'grid', gap: '.4rem' }}>
+                  {saldos.map((s) => (
+                    <div key={s.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+                      <span style={{ flex: '1 1 auto', fontSize: '.85rem' }}>
+                        <span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)} <span className="muted">· disp. {monto(s.saldo, s.moneda)}</span>
+                      </span>
+                      <input className="input mono" type="number" min={0} max={Number(s.saldo) || 0} step="any" placeholder="0,00"
+                        value={montos[s.id] ?? ''} onChange={(e) => setMontos((m) => ({ ...m, [s.id]: dosDecimales(e.target.value) }))}
+                        style={{ width: 140 }} />
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
         </div>
 
@@ -2504,7 +2684,7 @@ function PagarRenglonModal({ renglon, cajas, actor, actorName, onClose, onPaid }
               <select className="select" value={saldoSelId} onChange={(e) => setSaldoSelId(e.target.value)} required>
                 {saldosCaja.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.moneda}{s.cuenta !== 'general' ? ` · ${s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}` : ''} · {monto(Number(s.saldo), s.moneda)}
+                    {s.moneda}{s.cuenta !== 'general' ? ` · ${labelCuentaCaja(s.cuenta)}` : ''} · {monto(Number(s.saldo), s.moneda)}
                   </option>
                 ))}
               </select>
@@ -2592,7 +2772,7 @@ function tasaCruzada(de: MonedaCaja, a: MonedaCaja, t: TasasMercado): number | n
 }
 
 const CUENTAS_CAJA: CuentaCaja[] = ['general', 'juridica', 'personal'];
-const labelCuenta = (c: CuentaCaja) => c === 'general' ? 'General' : c === 'juridica' ? 'Jurídica' : 'Personal';
+const labelCuenta = (c: CuentaCaja) => c === 'general' ? 'General' : c === 'juridica' ? 'Jurídica' : c === 'personal' ? 'Personal' : String(c);
 
 function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   cajas: Caja[]; saldos: CajaSaldo[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
@@ -3002,23 +3182,46 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
   const [moneda, setMoneda] = useState(defaultMoneda || 'USD');
   const [desde, setDesde] = useState(defaultDesde);
   const [hasta, setHasta] = useState(defaultHasta);
-  const [rows, setRows] = useState<MovimientoCaja[]>([]);
+  const [allRows, setAllRows] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
   const [drill, setDrill] = useState<CatResumen | null>(null);
+  // Subnivel del drill de Gastos: categoría elegida (para ver sus movimientos).
+  const [gastoCat, setGastoCat] = useState<string | null>(null);
+  const autoMonedaRef = useRef(false);
 
+  // Carga TODAS las monedas (sin filtrar) para no quedar en 0 si la actividad está en
+  // otra moneda y para detectar el mejor default. El filtro por moneda es en cliente.
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await listLibroMayor({ moneda: moneda || undefined, desde: desde || undefined, hasta: hasta || undefined });
-      setRows(data);
-    } catch { setRows([]); } finally { setLoading(false); }
-  }, [moneda, desde, hasta]);
+      const data = await listLibroMayor({ desde: desde || undefined, hasta: hasta || undefined, limite: 10000 });
+      setAllRows(data);
+    } catch { setAllRows([]); } finally { setLoading(false); }
+  }, [desde, hasta]);
 
   useEffect(() => { void load(); }, [load]);
   // Anclado a los movimientos: si entra/cambia un movimiento, el resumen se actualiza solo.
   useRealtime(['movimientos_caja'], () => { void load(); });
 
-  const esIngreso = (m: MovimientoCaja) => m.tipo === 'ingreso' || m.tipo === 'traslado_entrada';
+  // Monedas presentes (con cantidad de movimientos) para elegir un buen default.
+  const monedasConDatos = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of allRows) m.set(r.moneda, (m.get(r.moneda) || 0) + 1);
+    return m;
+  }, [allRows]);
+  // Si la moneda elegida no tiene movimientos pero otra sí, saltamos a la de mayor actividad (una vez).
+  useEffect(() => {
+    if (autoMonedaRef.current || !allRows.length) return;
+    autoMonedaRef.current = true;
+    if (!monedasConDatos.get(moneda)) {
+      const top = Array.from(monedasConDatos.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (top) setMoneda(top);
+    }
+  }, [allRows, monedasConDatos, moneda]);
+
+  const rows = useMemo(() => allRows.filter((m) => m.moneda === moneda), [allRows, moneda]);
+
+  const esIngreso = (m: MovimientoCaja) => m.tipo === 'ingreso' || m.tipo === 'entrada' || m.tipo === 'traslado_entrada';
   const esEgreso = (m: MovimientoCaja) => m.tipo === 'salida' || m.tipo === 'traslado_salida';
   const esGasto = (m: MovimientoCaja) => esEgreso(m) && (m.categoria ?? '') === 'gasto';
 
@@ -3034,10 +3237,23 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
     } as Record<CatResumen, { label: string; movs: MovimientoCaja[]; total: number; color: string }>;
   }, [rows]);
 
+  // Desglose de GASTOS por categoría (gasto_categoria), de mayor a menor.
+  const gruposGasto = useMemo(() => {
+    const m = new Map<string, { cat: string; movs: MovimientoCaja[]; total: number }>();
+    for (const g of grupos.gasto.movs) {
+      const cat = (g.gasto_categoria && g.gasto_categoria.trim()) || 'Sin categoría';
+      let r = m.get(cat); if (!r) { r = { cat, movs: [], total: 0 }; m.set(cat, r); }
+      r.movs.push(g); r.total = round2(r.total + (Number(g.monto) || 0));
+    }
+    return Array.from(m.values()).sort((a, b) => b.total - a.total);
+  }, [grupos]);
+
   const neto = round2(grupos.ingreso.total - grupos.egreso.total);
   const orden: CatResumen[] = ['ingreso', 'egreso', 'gasto'];
   const maxTotal = Math.max(1, grupos.ingreso.total, grupos.egreso.total, grupos.gasto.total);
+  const elegirDrill = (k: CatResumen) => { setGastoCat(null); setDrill(drill === k ? null : k); };
   const drillMovs = drill ? grupos[drill].movs : [];
+  const catMovs = gastoCat ? (gruposGasto.find((x) => x.cat === gastoCat)?.movs ?? []) : [];
 
   return (
     <Modal title="Resumen de movimientos" size="lg" onClose={onClose} footer={
@@ -3061,7 +3277,7 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
       {/* Tarjetas resumen. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '.5rem', marginBottom: '.8rem' }}>
         {orden.map((k) => (
-          <button key={k} className="card" onClick={() => setDrill(drill === k ? null : k)}
+          <button key={k} className="card" onClick={() => elegirDrill(k)}
             style={{ padding: '.55rem .7rem', textAlign: 'left', cursor: 'pointer', border: `1px solid ${drill === k ? grupos[k].color : 'var(--border)'}` }}
             title={`Ver movimientos de ${grupos[k].label.toLowerCase()}`}>
             <div className="muted" style={{ fontSize: '.72rem', display: 'flex', alignItems: 'center', gap: '.3rem' }}>
@@ -3088,7 +3304,7 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
             const h = Math.max(4, (g.total / maxTotal) * 160);
             const activo = drill === k;
             return (
-              <button key={k} type="button" onClick={() => setDrill(activo ? null : k)}
+              <button key={k} type="button" onClick={() => elegirDrill(k)}
                 title={`${g.label}: ${monto(g.total, moneda)} · clic para ver movimientos`}
                 style={{ flex: 1, maxWidth: 130, background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
                 <span className="mono" style={{ fontSize: '.78rem', fontWeight: 700, color: 'var(--text, #fff)', marginBottom: 4 }}>{monto(g.total, moneda)}</span>
@@ -3103,36 +3319,89 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
         Tocá una barra o tarjeta para ver el detalle de esos movimientos.
       </div>
 
-      {/* Drill-down: movimientos de la categoría elegida. */}
+      {/* Drill-down: categoría elegida (Gastos por categoría → movimientos). */}
       {drill && (
         <div className="card" style={{ marginTop: '.3rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
             <strong style={{ fontSize: '.88rem' }}>
               <span style={{ width: 9, height: 9, borderRadius: 2, background: grupos[drill].color, display: 'inline-block', marginRight: '.35rem' }} />
-              Movimientos de {grupos[drill].label.toLowerCase()} · {drillMovs.length} · {monto(grupos[drill].total, moneda)}
+              {drill === 'gasto'
+                ? `Gastos por categoría · ${gruposGasto.length} categoría(s) · ${monto(grupos.gasto.total, moneda)}`
+                : `Movimientos de ${grupos[drill].label.toLowerCase()} · ${drillMovs.length} · ${monto(grupos[drill].total, moneda)}`}
             </strong>
-            <button className="btn btn-sm btn-ghost" onClick={() => setDrill(null)}>✕ Cerrar detalle</button>
+            <button className="btn btn-sm btn-ghost" onClick={() => { setDrill(null); setGastoCat(null); }}>✕ Cerrar detalle</button>
           </div>
-          <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}>
-            <table className="table" style={{ fontSize: '.82rem' }}>
-              <thead><tr><th>Fecha</th><th>Caja</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
-              <tbody>
-                {!drillMovs.length && <tr><td colSpan={4}><EmptyState message="Sin movimientos en esta categoría para el periodo." /></td></tr>}
-                {drillMovs.map((m) => {
-                  const egreso = esEgreso(m);
-                  const concepto = [CAT_LABEL[m.categoria ?? ''], m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
-                  return (
-                    <tr key={m.id}>
-                      <td>{dateTime(m.at)}</td>
-                      <td>{m.caja?.nombre ?? '—'}</td>
-                      <td>{concepto}</td>
-                      <td className="mono" style={{ textAlign: 'right', color: egreso ? 'var(--danger)' : 'var(--success)' }}>{egreso ? '−' : '+'}{monto(m.monto, m.moneda)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+
+          {drill === 'gasto' ? (
+            gastoCat ? (
+              /* Movimientos de la categoría de gasto elegida */
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                  <span style={{ fontSize: '.84rem' }}><strong>{gastoCat}</strong> · {catMovs.length} mov · {monto(gruposGasto.find((x) => x.cat === gastoCat)?.total ?? 0, moneda)}</span>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setGastoCat(null)}>← Volver a categorías</button>
+                </div>
+                <div className="table-wrap" style={{ maxHeight: 240, overflowY: 'auto' }}>
+                  <table className="table" style={{ fontSize: '.82rem' }}>
+                    <thead><tr><th>Fecha</th><th>Caja</th><th>Subcategoría / motivo</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+                    <tbody>
+                      {catMovs.map((m) => {
+                        const concepto = [m.gasto_subcategoria, m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
+                        return (
+                          <tr key={m.id}>
+                            <td>{dateTime(m.at)}</td>
+                            <td>{m.caja?.nombre ?? '—'}</td>
+                            <td>{concepto}</td>
+                            <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>−{monto(m.monto, m.moneda)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              /* Lista de categorías de gasto (clic → sus movimientos) */
+              !gruposGasto.length ? <EmptyState message="Sin gastos en el periodo." /> : (
+                <div className="table-wrap" style={{ maxHeight: 300, overflowY: 'auto' }}>
+                  <table className="table" style={{ fontSize: '.84rem' }}>
+                    <thead><tr><th>Categoría</th><th style={{ textAlign: 'right' }}>Movs</th><th style={{ textAlign: 'right' }}>Total</th><th></th></tr></thead>
+                    <tbody>
+                      {gruposGasto.map((g) => (
+                        <tr key={g.cat} style={{ cursor: 'pointer' }} onClick={() => setGastoCat(g.cat)} title="Ver los movimientos de esta categoría">
+                          <td><strong>{g.cat}</strong></td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{g.movs.length}</td>
+                          <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>{monto(g.total, moneda)}</td>
+                          <td style={{ textAlign: 'right' }}>🔍</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )
+          ) : (
+            /* Lista plana para Ingresos / Egresos */
+            <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}>
+              <table className="table" style={{ fontSize: '.82rem' }}>
+                <thead><tr><th>Fecha</th><th>Caja</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+                <tbody>
+                  {!drillMovs.length && <tr><td colSpan={4}><EmptyState message="Sin movimientos en esta categoría para el periodo." /></td></tr>}
+                  {drillMovs.map((m) => {
+                    const egreso = esEgreso(m);
+                    const concepto = [CAT_LABEL[m.categoria ?? ''], m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
+                    return (
+                      <tr key={m.id}>
+                        <td>{dateTime(m.at)}</td>
+                        <td>{m.caja?.nombre ?? '—'}</td>
+                        <td>{concepto}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: egreso ? 'var(--danger)' : 'var(--success)' }}>{egreso ? '−' : '+'}{monto(m.monto, m.moneda)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </Modal>
@@ -3632,6 +3901,20 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   const [nvMonto, setNvMonto] = useState('');
   const [nvMoneda, setNvMoneda] = useState('USD');
   const [creando, setCreando] = useState(false);
+  // Directorio para autocompletar: contrapartes (Tesorería) + proveedores (Compras).
+  const [contrapartes, setContrapartes] = useState<Contraparte[]>([]);
+  const [provCatalogo, setProvCatalogo] = useState<string[]>([]);
+  useEffect(() => {
+    listContrapartes().then(setContrapartes).catch(() => setContrapartes([]));
+    listProveedoresCatalogo().then((ps) => setProvCatalogo(ps.map((p) => p.razon_social))).catch(() => setProvCatalogo([]));
+  }, []);
+  // Sugerencias según el tipo elegido (clientes o proveedores), sin duplicar.
+  const sugerencias = useMemo(() => {
+    const set = new Set<string>();
+    contrapartes.filter((c) => c.tipo === nvTipo).forEach((c) => set.add(c.nombre));
+    if (nvTipo === 'proveedor') provCatalogo.forEach((n) => n && set.add(n));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [contrapartes, provCatalogo, nvTipo]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -3728,7 +4011,15 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
           </div>
           <div className="form-row">
             <label>Cliente / Proveedor</label>
-            <input className="input" value={nvNombre} onChange={(e) => setNvNombre(e.target.value)} placeholder="Nombre / razón social (nuevo o existente)" />
+            <input className="input" list="cxp-contrapartes-list" value={nvNombre}
+              onChange={(e) => setNvNombre(e.target.value)}
+              placeholder={`${nvTipo === 'proveedor' ? 'Proveedor' : 'Cliente'} guardado o nuevo`} />
+            <datalist id="cxp-contrapartes-list">
+              {sugerencias.map((n) => <option key={n} value={n} />)}
+            </datalist>
+            {sugerencias.length > 0 && (
+              <small className="muted">{sugerencias.length} {nvTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardado(s) · escribí para buscar o cargá uno nuevo</small>
+            )}
           </div>
           <div className="form-row">
             <label>Monto</label>
@@ -3794,12 +4085,12 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                   <select className="select" style={{ marginTop: '.35rem' }} value={cuentaCaja} onChange={(e) => setCuentaCaja(e.target.value)}>
                     {cuentasMoneda.map((r) => (
                       <option key={r.cuenta} value={r.cuenta}>
-                        Sale de {r.cuenta === 'general' ? 'general' : r.cuenta === 'juridica' ? 'Jurídica' : 'Personal'} · {monto(Number(r.saldo), r.moneda)} disp.
+                        Sale de {r.cuenta === 'general' ? 'general' : r.cuenta === 'juridica' ? 'Jurídica' : r.cuenta === 'personal' ? 'Personal' : r.cuenta} · {monto(Number(r.saldo), r.moneda)} disp.
                       </option>
                     ))}
                   </select>
                 ) : saldoCuentaSel ? (
-                  <small className="muted">Sale en <strong>{sel.moneda}</strong> de la cuenta <strong>{cuentaCaja === 'general' ? 'general' : cuentaCaja === 'juridica' ? 'Jurídica' : 'Personal'}</strong> · disponible <strong className="mono">{monto(Number(saldoCuentaSel.saldo), sel.moneda)}</strong></small>
+                  <small className="muted">Sale en <strong>{sel.moneda}</strong> de la cuenta <strong>{cuentaCaja === 'general' ? 'general' : cuentaCaja === 'juridica' ? 'Jurídica' : cuentaCaja === 'personal' ? 'Personal' : cuentaCaja}</strong> · disponible <strong className="mono">{monto(Number(saldoCuentaSel.saldo), sel.moneda)}</strong></small>
                 ) : (
                   <small style={{ color: 'var(--danger)' }}>⚠ Esta caja no tiene saldo en {sel.moneda}. Elegí otra caja.</small>
                 )}
@@ -4223,7 +4514,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                       {cuentasMoneda.length > 1 && (
                         <select className="select" style={{ marginTop: '.35rem' }} value={cuentaCaja} onChange={(e) => setCuentaCaja(e.target.value)}>
                           {cuentasMoneda.map((r) => (
-                            <option key={r.cuenta} value={r.cuenta}>Entra en {r.cuenta === 'general' ? 'general' : r.cuenta === 'juridica' ? 'Jurídica' : 'Personal'} · {monto(Number(r.saldo), r.moneda)}</option>
+                            <option key={r.cuenta} value={r.cuenta}>Entra en {r.cuenta === 'general' ? 'general' : r.cuenta === 'juridica' ? 'Jurídica' : r.cuenta === 'personal' ? 'Personal' : r.cuenta} · {monto(Number(r.saldo), r.moneda)}</option>
                           ))}
                         </select>
                       )}

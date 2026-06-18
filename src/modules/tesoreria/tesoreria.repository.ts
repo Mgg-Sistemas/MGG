@@ -271,6 +271,133 @@ export async function listLibroMayor(filtros: {
   return (data ?? []) as MovimientoCaja[];
 }
 
+/* ───────────── Editar / eliminar movimientos (reversión + recálculo) ─────────────
+   Un movimiento afecta el saldo de su "partición": (caja, cuenta, moneda) en
+   `caja_saldos` si tiene `cuenta`, o el saldo legado de `cajas` si no la tiene.
+   La columna SALDO del Libro Mayor se lee de `saldo_despues` (snapshot por fila),
+   así que al editar/eliminar hay que (1) revertir/ajustar el saldo vigente y
+   (2) recalcular saldo_antes/saldo_despues de toda la cadena visible de esa
+   partición, anclando en el saldo vigente corregido (hacia atrás en el tiempo).
+   ─────────────────────────────────────────────────────────────────────────── */
+
+type MovChainRow = { id: string; tipo: string; monto: number; saldo_antes: number; saldo_despues: number };
+
+/** Signo del efecto de un movimiento sobre su saldo: +entra · −sale · 0 ajuste. */
+function signoMov(tipo: string): number {
+  if (tipo === 'entrada' || tipo === 'ingreso' || tipo === 'traslado_entrada') return 1;
+  if (tipo === 'salida' || tipo === 'traslado_salida') return -1;
+  return 0; // 'ajuste': el efecto es (saldo_despues − saldo_antes), no el monto
+}
+
+/** Efecto (con signo) de un movimiento sobre el saldo de su partición. */
+function efectoMov(m: { tipo: string; monto: number; saldo_antes?: number | null; saldo_despues?: number | null }): number {
+  if (m.tipo === 'ajuste') return round2((Number(m.saldo_despues) || 0) - (Number(m.saldo_antes) || 0));
+  return round2(signoMov(m.tipo) * (Number(m.monto) || 0));
+}
+
+/** Lee el saldo vigente de la partición (caja_saldos si hay cuenta, si no cajas.saldo). */
+async function saldoVigente(cajaId: string, cuenta: string | null, moneda: string): Promise<number> {
+  if (cuenta != null) {
+    const { data } = await supabase.from(SALDOS).select('saldo').eq('caja_id', cajaId).eq('cuenta', cuenta).eq('moneda', moneda).maybeSingle();
+    return Number(data?.saldo) || 0;
+  }
+  const { data } = await supabase.from(TABLE).select('saldo').eq('id', cajaId).maybeSingle();
+  return Number(data?.saldo) || 0;
+}
+
+/** Aplica un delta al saldo vigente de la partición. */
+async function ajustarSaldoVigente(cajaId: string, cuenta: string | null, moneda: string, delta: number): Promise<void> {
+  const now = new Date().toISOString();
+  if (cuenta != null) {
+    const { data } = await supabase.from(SALDOS).select('id, saldo').eq('caja_id', cajaId).eq('cuenta', cuenta).eq('moneda', moneda).maybeSingle();
+    if (data) {
+      await supabase.from(SALDOS).update({ saldo: round2((Number(data.saldo) || 0) + delta), updated_at: now }).eq('id', data.id);
+    } else {
+      await supabase.from(SALDOS).insert({ caja_id: cajaId, cuenta, moneda, saldo: round2(delta), tasa_prom: moneda === 'Bs' ? 1 : null, updated_at: now });
+    }
+    return;
+  }
+  const { data } = await supabase.from(TABLE).select('saldo').eq('id', cajaId).maybeSingle();
+  await supabase.from(TABLE).update({ saldo: round2((Number(data?.saldo) || 0) + delta), updated_at: now }).eq('id', cajaId);
+}
+
+/**
+ * Recalcula saldo_antes/saldo_despues de TODA la cadena visible (cierre_id null) de
+ * una partición, anclando en el saldo vigente (corregido) y caminando del más nuevo
+ * al más viejo. Así la columna SALDO del Libro Mayor queda consistente con el saldo real.
+ */
+async function recomputarCadena(cajaId: string, cuenta: string | null, moneda: string): Promise<void> {
+  const saldoActual = await saldoVigente(cajaId, cuenta, moneda);
+  let q = supabase.from(LIBRO).select('id, tipo, monto, saldo_antes, saldo_despues')
+    .eq('caja_id', cajaId).eq('moneda', moneda).is('cierre_id', null)
+    .order('at', { ascending: false }).order('id', { ascending: false });
+  q = cuenta == null ? q.is('cuenta', null) : q.eq('cuenta', cuenta);
+  const { data, error } = await q;
+  if (error) throw error;
+  let running = round2(saldoActual);
+  for (const r of (data ?? []) as MovChainRow[]) {
+    const after = round2(running);
+    const before = round2(running - efectoMov(r));
+    if (round2(Number(r.saldo_despues)) !== after || round2(Number(r.saldo_antes)) !== before) {
+      await supabase.from(LIBRO).update({ saldo_antes: before, saldo_despues: after }).eq('id', r.id);
+    }
+    running = before;
+  }
+}
+
+/** ¿El movimiento está vinculado a otro módulo (OC, nómina, traslado)? Solo informativo. */
+export function movEstaVinculado(m: MovimientoCaja): boolean {
+  return !!(m.ref_orden_id || m.ref_nomina_renglon_id) || m.tipo === 'traslado_salida' || m.tipo === 'traslado_entrada' || m.categoria === 'abono_cxp' || m.categoria === 'pago_oc' || m.categoria === 'pago_nomina';
+}
+
+export interface EditarMovimientoInput {
+  monto?: number;
+  motivo?: string;
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
+}
+
+/**
+ * Edita un movimiento (monto y/o concepto) y sincroniza el saldo: aplica la
+ * diferencia de efecto al saldo vigente y recalcula la cadena. No cambia
+ * moneda/caja/cuenta/tipo (eso movería de partición: para eso, eliminá y recreá).
+ */
+export async function editarMovimientoCaja(mov: MovimientoCaja, input: EditarMovimientoInput): Promise<void> {
+  if (mov.tipo === 'ajuste') throw new Error('Un ajuste no se edita por monto; eliminá y recreá si hace falta.');
+  const cuenta = mov.cuenta ?? null;
+  const moneda = mov.moneda;
+  const nuevoMonto = input.monto != null ? round2(input.monto) : round2(Number(mov.monto) || 0);
+  if (nuevoMonto <= 0) throw new Error('El monto debe ser mayor que 0.');
+
+  const signo = signoMov(mov.tipo);
+  const delta = round2(signo * (nuevoMonto - (Number(mov.monto) || 0)));
+
+  const patch: Record<string, unknown> = { monto: nuevoMonto };
+  if (input.motivo != null) patch.motivo = input.motivo.trim() || mov.motivo;
+  if (input.gastoCategoria !== undefined) patch.gasto_categoria = input.gastoCategoria;
+  if (input.gastoSubcategoria !== undefined) patch.gasto_subcategoria = input.gastoSubcategoria;
+
+  const { error } = await supabase.from(LIBRO).update(patch).eq('id', mov.id);
+  if (error) throw error;
+  if (delta !== 0) await ajustarSaldoVigente(mov.caja_id, cuenta, moneda, delta);
+  await recomputarCadena(mov.caja_id, cuenta, moneda);
+}
+
+/**
+ * Elimina un movimiento revirtiendo su efecto en el saldo vigente y recalculando
+ * la cadena. ATENCIÓN: no revierte los módulos vinculados (Compras/Nómina/la otra
+ * pata de un traslado); eso queda a cargo del usuario (reversión total elegida).
+ */
+export async function eliminarMovimientoCaja(mov: MovimientoCaja): Promise<void> {
+  const cuenta = mov.cuenta ?? null;
+  const moneda = mov.moneda;
+  const ef = efectoMov(mov);
+  const { error } = await supabase.from(LIBRO).delete().eq('id', mov.id);
+  if (error) throw error;
+  if (ef !== 0) await ajustarSaldoVigente(mov.caja_id, cuenta, moneda, -ef);
+  await recomputarCadena(mov.caja_id, cuenta, moneda);
+}
+
 /* ───────────── Retenciones e impuestos ───────────── */
 
 export async function crearRetencion(input: {

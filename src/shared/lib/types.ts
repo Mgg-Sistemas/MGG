@@ -69,8 +69,11 @@ export type Moneda = 'USD' | 'Bs';
 /** Monedas de la caja multimoneda. */
 export type MonedaCaja = 'Bs' | 'USD' | 'USDT' | 'COP';
 
-/** Cuentas dentro de una caja (Bs se divide en jurídica/personal). */
-export type CuentaCaja = 'general' | 'juridica' | 'personal';
+/** Cuentas/billeteras dentro de una caja. Bs se divide en jurídica/personal; las
+ *  divisas usan 'general' o billeteras NOMBRADAS por el usuario (ej. usdt1, usdt2),
+ *  que se guardan tal cual en `cuenta` y se muestran por separado. Por eso admite
+ *  cualquier texto además de los valores base. */
+export type CuentaCaja = 'general' | 'juridica' | 'personal' | (string & {});
 
 /** Moneda con tasa de cambio referenciada (BCV/Binance/TRM). */
 export type MonedaTasa = 'USD' | 'EUR' | 'USDT' | 'COP';
@@ -179,7 +182,7 @@ export interface TransferenciaInter {
   confirmada_at?: string | null;
 }
 
-export type TipoMovimientoCaja = 'ingreso' | 'salida' | 'traslado_salida' | 'traslado_entrada' | 'ajuste';
+export type TipoMovimientoCaja = 'ingreso' | 'entrada' | 'salida' | 'traslado_salida' | 'traslado_entrada' | 'ajuste';
 export type EstadoMineral = 'pendiente' | 'conciliada';
 
 /** Movimiento del libro de una caja. Para `tipo='salida'` puede llevar la
