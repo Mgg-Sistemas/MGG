@@ -5,8 +5,8 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
-import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico } from '@/shared/lib/types';
-import { crearOferta, subirPdfOferta, CONDICIONES_PAGO, descuentoEfectivo } from './ofertas.repository';
+import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico, OfertaProveedor } from '@/shared/lib/types';
+import { crearOferta, actualizarOferta, subirPdfOferta, CONDICIONES_PAGO, descuentoEfectivo } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 
@@ -21,6 +21,8 @@ interface Props {
   proveedores: Proveedor[];
   proveedoresYaOfertados: Set<string>;
   registradoPorEmail: string;
+  /** Si se pasa, el modal edita esa oferta (proveedor fijo) en vez de crear una nueva. */
+  ofertaEdit?: OfertaProveedor | null;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -34,9 +36,12 @@ export function AgregarOfertaModal({
   proveedores,
   proveedoresYaOfertados,
   registradoPorEmail,
+  ofertaEdit,
   onClose,
   onCreated,
 }: Props) {
+  const isEdit = !!ofertaEdit;
+  const provEdit = ofertaEdit ? proveedores.find((p) => p.id === ofertaEdit.proveedor_id) : undefined;
   const opcionesProveedor = useMemo(
     () => proveedores.filter((p) => p.estado === 'activo' && !proveedoresYaOfertados.has(p.id)),
     [proveedores, proveedoresYaOfertados]
@@ -44,7 +49,7 @@ export function AgregarOfertaModal({
 
   // Modo proveedor: si el checkbox está activo, se crea uno nuevo en línea.
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
-  const [proveedorId, setProveedorId] = useState<string>(opcionesProveedor[0]?.id ?? '');
+  const [proveedorId, setProveedorId] = useState<string>(ofertaEdit?.proveedor_id ?? opcionesProveedor[0]?.id ?? '');
 
   // Campos del proveedor nuevo (cuando nuevoProveedor=true)
   const [provRazon, setProvRazon] = useState('');
@@ -65,16 +70,19 @@ export function AgregarOfertaModal({
   const statSel = !nuevoProveedor ? stats.get(proveedorId) : undefined;
 
   // Solo se cotizan los ítems marcados "comprar" en la OP (los desmarcados no se compran).
+  // En edición, se traen los ítems con el precio que ya tenía la oferta.
   const [items, setItems] = useState<FormItem[]>(
-    orden.items.filter((i) => i.comprar !== false).map((i) => ({ ...i, precio: 0 })),
+    ofertaEdit
+      ? ofertaEdit.items.map((i) => ({ ...i, precio: Number(i.precio) || 0 }))
+      : orden.items.filter((i) => i.comprar !== false).map((i) => ({ ...i, precio: 0 })),
   );
-  const [fechaEntrega, setFechaEntrega] = useState<string>('');
+  const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEdit?.fecha_entrega_prometida ?? '');
   // Precio total si se paga en divisa efectivo (descuento vs. el total BCV de la cotización).
-  const [precioEfectivo, setPrecioEfectivo] = useState<number>(0);
-  const [condiciones, setCondiciones] = useState('');
-  const [notas, setNotas] = useState('');
+  const [precioEfectivo, setPrecioEfectivo] = useState<number>(Number(ofertaEdit?.precio_efectivo) || 0);
+  const [condiciones, setCondiciones] = useState(ofertaEdit?.condiciones_pago ?? '');
+  const [notas, setNotas] = useState(ofertaEdit?.notas ?? '');
   // Datos técnicos/logísticos de la oferta (todos opcionales).
-  const [detalle, setDetalle] = useState<OfertaDetalle>({});
+  const [detalle, setDetalle] = useState<OfertaDetalle>(ofertaEdit?.detalle ?? {});
   const setD = (patch: Partial<OfertaDetalle>) => setDetalle((d) => ({ ...d, ...patch }));
   const setLog = (k: 'flete' | 'transporte' | 'embalaje' | 'seguros', v: CostoLogistico) =>
     setDetalle((d) => ({ ...d, logistica: { ...(d.logistica ?? {}), [k]: v } }));
@@ -120,6 +128,28 @@ export function AgregarOfertaModal({
     }
     setSubmitting(true);
     try {
+      // ── Modo edición: proveedor fijo, se actualiza la oferta existente ──
+      if (isEdit && ofertaEdit) {
+        let pdfPatch: { pdf_path: string; pdf_filename: string } | undefined;
+        if (pdfFile) {
+          const uploaded = await subirPdfOferta(orden.id, ofertaEdit.proveedor_id, pdfFile);
+          pdfPatch = { pdf_path: uploaded.path, pdf_filename: uploaded.filename };
+        }
+        await actualizarOferta(ofertaEdit.id, {
+          items,
+          precio_total: precioTotal,
+          precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
+          fecha_entrega_prometida: fechaEntrega || null,
+          condiciones_pago: condiciones.trim() || null,
+          notas: notas.trim() || null,
+          detalle,
+          ...(pdfPatch ?? {}),
+        });
+        notify(`Oferta actualizada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
+        onCreated();
+        return;
+      }
+
       // 1) Resolver proveedor (existente o crear uno nuevo)
       let provId = proveedorId;
       if (nuevoProveedor) {
@@ -188,18 +218,25 @@ export function AgregarOfertaModal({
 
   return (
     <Modal
-      title={`Agregar oferta · ${orden.codigo}`}
+      title={`${isEdit ? 'Editar' : 'Agregar'} oferta · ${orden.codigo}`}
       size="lg"
       onClose={onClose}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={submitting}>Cancelar</button>
           <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
-            {submitting ? 'Guardando…' : 'Registrar oferta'}
+            {submitting ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Registrar oferta'}
           </button>
         </>
       }
     >
+      {isEdit ? (
+        <div className="form-row">
+          <label>Proveedor</label>
+          <input className="input" value={provEdit?.razon_social ?? '—'} readOnly disabled />
+          <small className="muted">El proveedor de una oferta no se cambia: si te equivocaste de proveedor, eliminá la oferta y cargá una nueva.</small>
+        </div>
+      ) : (
       <div className="form-row">
         <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
           <input
@@ -210,8 +247,9 @@ export function AgregarOfertaModal({
           <span>Proveedor no registrado (lo creo ahora junto con la oferta)</span>
         </label>
       </div>
+      )}
 
-      {nuevoProveedor ? (
+      {isEdit ? null : nuevoProveedor ? (
         <div className="card" style={{ background: 'var(--bg-2)', padding: '1rem', marginBottom: '.75rem' }}>
           <div className="card-title" style={{ marginBottom: '.5rem' }}>
             <span>Datos del nuevo proveedor</span>
@@ -476,6 +514,11 @@ export function AgregarOfertaModal({
         {pdfFile && (
           <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
             ✓ {pdfFile.name} ({(pdfFile.size / 1024).toFixed(0)} KB)
+          </div>
+        )}
+        {isEdit && !pdfFile && ofertaEdit?.pdf_filename && (
+          <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
+            📎 Adjunto actual: {ofertaEdit.pdf_filename} <span style={{ opacity: .7 }}>· subí uno nuevo para reemplazarlo</span>
           </div>
         )}
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>

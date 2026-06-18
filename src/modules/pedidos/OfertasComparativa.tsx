@@ -13,6 +13,7 @@ import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSig
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
+import { AgregarOfertaModal } from './AgregarOfertaModal';
 
 interface Props {
   orden: Orden;
@@ -40,6 +41,11 @@ export function OfertasComparativa({
   const [loading, setLoading] = useState(true);
   const [confirmando, setConfirmando] = useState<ScoredOferta | null>(null);
   const [eliminando, setEliminando] = useState<OfertaProveedor | null>(null);
+  const [editando, setEditando] = useState<OfertaProveedor | null>(null);
+  const [bump, setBump] = useState(0);
+
+  // Lista de proveedores (para mostrar el nombre fijo al editar una oferta).
+  const proveedores = Array.from(proveedorMap.values());
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +63,7 @@ export function OfertasComparativa({
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [orden.id, reloadKey]);
+  }, [orden.id, reloadKey, bump]);
 
   const scored = scoreOfertas(ofertas, stats);
 
@@ -230,12 +236,20 @@ export function OfertasComparativa({
                         {s.oferta.estado === 'aceptada' && <span className="badge success">Aceptada</span>}
                         {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
                         {canCrearOferta && s.oferta.estado === 'pendiente' && (
-                          <button
-                            className="btn btn-sm btn-ghost"
-                            title="Eliminar esta oferta"
-                            style={{ padding: '0 .35rem', color: 'var(--danger)' }}
-                            onClick={(e) => { e.stopPropagation(); setEliminando(s.oferta); }}
-                          >🗑</button>
+                          <>
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              title="Editar esta oferta (precios, condición, datos…)"
+                              style={{ padding: '0 .35rem' }}
+                              onClick={(e) => { e.stopPropagation(); setEditando(s.oferta); }}
+                            >✎</button>
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              title="Eliminar esta oferta"
+                              style={{ padding: '0 .35rem', color: 'var(--danger)' }}
+                              onClick={(e) => { e.stopPropagation(); setEliminando(s.oferta); }}
+                            >🗑</button>
+                          </>
                         )}
                       </span>
                     </td>
@@ -306,6 +320,17 @@ export function OfertasComparativa({
           danger
           onConfirm={() => confirmarEliminar(eliminando)}
           onCancel={() => setEliminando(null)}
+        />
+      )}
+      {editando && (
+        <AgregarOfertaModal
+          orden={orden}
+          proveedores={proveedores}
+          proveedoresYaOfertados={new Set()}
+          registradoPorEmail={actorEmail}
+          ofertaEdit={editando}
+          onClose={() => setEditando(null)}
+          onCreated={() => { setEditando(null); setBump((b) => b + 1); }}
         />
       )}
       {confirmando && (
