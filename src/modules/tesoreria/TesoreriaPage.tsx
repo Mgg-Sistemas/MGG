@@ -73,7 +73,7 @@ import { descargarCuentaPorPagarPdf } from './cuentaPorPagarPdf';
 import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo } from './enviarReporte';
 import type { AbonoCredito } from '@/shared/lib/types';
 import { descargarOrdenCompraPdf } from '@/modules/pedidos/ordenCompraPdf';
-import { listOfertasByOrden, getPdfOfertaSignedUrl } from '@/modules/pedidos/ofertas.repository';
+import { listOfertasByOrden, getPdfOfertaSignedUrl, descuentoEfectivo } from '@/modules/pedidos/ofertas.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
 
 const TIPO_MOV_LABEL: Record<string, string> = {
@@ -4337,10 +4337,22 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
 }) {
   const o = row.orden;
   // Contra entrega: se paga SOLO lo recibido (montoAPagar = recibido_total).
-  const baseUsd = Number(row.montoAPagar ?? o.total) || 0;
+  const baseGeneral = Number(row.montoAPagar ?? o.total) || 0;
   const pagoParcial = row.esContraEntrega && o.recibido_total != null && Number(o.recibido_total) < Number(o.total);
+  // Precio en DIVISA EFECTIVO (con su descuento %): se puede pagar ESE monto en
+  // lugar del BCV general. `efectivoSnap` viene de la oferta elegida; el % es
+  // editable acá (por si el proveedor da otro descuento al pagar en efectivo).
+  const efectivoSnap = Number(o.oferta_precio_efectivo) || 0;
+  const ahorroSnap = !pagoParcial ? descuentoEfectivo(baseGeneral, efectivoSnap) : null;
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
-  const [montoStr, setMontoStr] = useState(String(baseUsd));
+  const [usarEfectivo, setUsarEfectivo] = useState(false);
+  const [pctEfStr, setPctEfStr] = useState(ahorroSnap ? String(ahorroSnap.pct) : '');
+  const pctEf = Number(pctEfStr) || 0;
+  const efectivoCalc = round2(pctEf > 0 ? baseGeneral * (1 - pctEf / 100) : (efectivoSnap > 0 ? efectivoSnap : baseGeneral));
+  const puedeEfectivo = !pagoParcial && baseGeneral > 0;
+  // Monto base a pagar: el efectivo (si está activado y es menor) o el general.
+  const baseUsd = (usarEfectivo && efectivoCalc > 0 && efectivoCalc < baseGeneral) ? efectivoCalc : baseGeneral;
+  const [montoStr, setMontoStr] = useState(String(baseGeneral));
   const [factura, setFactura] = useState<File | null>(null);
   const [motivoPago, setMotivoPago] = useState('');
   // Seriales de billetes entregados (solo cuando se paga con USD físico).
@@ -4547,6 +4559,35 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
               se recibieron {monto(Number(o.recibido_total), 'USD')}; se paga solo lo recibido.
               {o.nota_recepcion && <div className="muted" style={{ marginTop: '.2rem' }}>Nota: {o.nota_recepcion}</div>}
             </div>
+          </div>
+        )}
+
+        {/* Precio en divisa efectivo: pagar el monto con descuento en vez del BCV general. */}
+        {puedeEfectivo && (
+          <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--success)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.88rem', fontWeight: 600 }}>
+              <input type="checkbox" checked={usarEfectivo} onChange={(e) => setUsarEfectivo(e.target.checked)} />
+              💵 Pagar al precio en divisa efectivo (con descuento)
+            </label>
+            <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
+              Precio general (BCV): <strong className="mono">{monto(baseGeneral, 'USD')}</strong>
+              {ahorroSnap && <> · el proveedor ofreció <strong className="mono" style={{ color: 'var(--success)' }}>{monto(efectivoSnap, 'USD')}</strong> en efectivo (−{ahorroSnap.pct.toFixed(2)}%)</>}
+            </div>
+            {usarEfectivo && (
+              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginTop: '.4rem' }}>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '.78rem' }}>Descuento %</label>
+                  <input className="input mono" type="number" min={0} max={99} step="any" value={pctEfStr} onChange={(e) => setPctEfStr(e.target.value)} style={{ width: 120 }} placeholder="0" />
+                </div>
+                <div style={{ fontSize: '.85rem', paddingBottom: '.4rem' }}>
+                  Precio efectivo a pagar: <strong className="mono" style={{ color: 'var(--success)' }}>{monto(efectivoCalc, 'USD')}</strong>
+                  {efectivoCalc < baseGeneral && <span className="muted"> · ahorro {monto(round2(baseGeneral - efectivoCalc), 'USD')}</span>}
+                </div>
+              </div>
+            )}
+            {usarEfectivo && efectivoCalc >= baseGeneral && (
+              <div style={{ fontSize: '.76rem', marginTop: '.3rem', color: 'var(--warning)' }}>Ingresá un % de descuento mayor a 0 (el precio efectivo debe ser menor al general).</div>
+            )}
           </div>
         )}
 

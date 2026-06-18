@@ -235,6 +235,33 @@ export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEm
   return data as Orden;
 }
 
+export interface EditarOcInput {
+  items: ItemOrden[];
+  condiciones_pago?: string | null;
+  notas?: string | null;
+}
+
+/**
+ * Edita una OC mientras está en `oc_creada` (antes de ser aprobada/confirmada por
+ * el GG): ajusta cantidades y precios de cada ítem, las condiciones de pago y la
+ * nota. Recalcula el total. Una vez aprobada/confirmada ya no se edita por aquí.
+ */
+export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: string): Promise<Orden> {
+  if (o.estado !== 'oc_creada') throw new Error('Solo se puede editar la OC antes de aprobarla (estado «OC creada»).');
+  if (!input.items.length) throw new Error('La OC debe tener al menos un producto.');
+  const total = input.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+  const patch = {
+    items: input.items,
+    total,
+    condiciones_pago: input.condiciones_pago ?? o.condiciones_pago ?? null,
+    notas: input.notas?.trim() || null,
+    historial: appendHistorial(o, 'oc_editada', actorEmail),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 export async function aprobarOrden(o: Orden, actorEmail: string): Promise<Orden> {
   if (o.estado !== 'pendiente') throw new Error('Solo se aprueban órdenes pendientes');
   const patch = {
@@ -317,6 +344,96 @@ export async function aprobarOrdenConOferta(
     .single();
   if (error) throw error;
   return data as Orden;
+}
+
+/* ───────────── OC multi-proveedor (sub-OC por proveedor) ───────────── */
+
+export interface AsignacionProveedor {
+  proveedorId: string;
+  items: ItemOrden[];                       // subconjunto de la OP, con el precio del proveedor
+  condiciones_pago?: string | null;
+  oferta_detalle?: Orden['oferta_detalle'];
+  oferta_precio_efectivo?: number | null;
+}
+
+/** OC hijas (sub-OC por proveedor) ya creadas para una OP. */
+export async function listSubOcs(parentId: string): Promise<Orden[]> {
+  const { data, error } = await supabase.from(TABLE).select('*').eq('parent_orden_id', parentId).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as Orden[];
+}
+
+/**
+ * Reparte una OP aprobada entre varios proveedores: por cada asignación crea una
+ * OC HIJA (estado oc_creada, parent_orden_id = OP) con su subconjunto de ítems,
+ * su total, condiciones y snapshot de la oferta. Cada hija corre el pipeline
+ * normal (confirmar → método de pago → Tesorería → recepción) de forma
+ * independiente, así el método de pago queda POR PROVEEDOR. Si todos los ítems a
+ * comprar quedan cubiertos, la OP pasa a 'asignada' (umbrella); si queda algo sin
+ * asignar, la OP sigue 'aprobada' para asignarlo después (asignación parcial).
+ */
+export async function asignarProveedoresAOrden(op: Orden, asignaciones: AsignacionProveedor[], actorEmail: string): Promise<Orden[]> {
+  if (!['aprobada', 'asignada', 'desistida_proveedor'].includes(op.estado))
+    throw new Error('Solo se asignan proveedores sobre una OP aprobada.');
+  const validas = asignaciones.filter((a) => a.proveedorId && a.items.length);
+  if (!validas.length) throw new Error('Asigná al menos un producto a un proveedor.');
+
+  const nowIso = new Date().toISOString();
+  const origBySku = new Map(op.items.map((it) => [it.sku, it]));
+  const previas = await listSubOcs(op.id);
+  let n = previas.length;
+  const creadas: Orden[] = [];
+
+  for (const a of validas) {
+    n += 1;
+    const items = a.items.map((of) => {
+      const orig = origBySku.get(of.sku);
+      return orig ? { ...of, finalidad: of.finalidad ?? orig.finalidad, area: of.area ?? orig.area, comprar: true } : { ...of, comprar: true };
+    });
+    const total = items.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+    const ocCodigo = await nextOcCodigo();
+    const row = {
+      codigo: `${op.codigo}-P${n}`,
+      parent_orden_id: op.id,
+      oc_codigo: ocCodigo,
+      proveedor_id: a.proveedorId,
+      solicitante_email: op.solicitante_email,
+      solicitante: op.solicitante ?? null,
+      ci_solicitante: op.ci_solicitante ?? null,
+      items,
+      total,
+      estado: 'oc_creada' as EstadoOrden,
+      motivo: op.motivo ?? null,
+      finalidad: op.finalidad ?? null,
+      clasificacion: op.clasificacion ?? null,
+      condiciones_pago: a.condiciones_pago ?? null,
+      oferta_detalle: a.oferta_detalle ?? null,
+      oferta_precio_efectivo: a.oferta_precio_efectivo ?? null,
+      oc_creada_por: actorEmail,
+      oc_creada_en: nowIso,
+      historial: [{ at: nowIso, evento: 'oc_creada', actor: actorEmail, oc_codigo: ocCodigo, proveedorId: a.proveedorId, precio: total, parent: op.codigo }],
+    };
+    const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
+    if (error) throw error;
+    creadas.push(data as Orden);
+    // Marca la oferta del proveedor como aceptada (sin descartar las demás: pueden cubrir lo que falta).
+    await supabase.from('ofertas_proveedor')
+      .update({ estado: 'aceptada', decidida_por_email: actorEmail, decidida_en: nowIso })
+      .eq('orden_id', op.id).eq('proveedor_id', a.proveedorId).eq('estado', 'pendiente');
+  }
+
+  // ¿Quedó cubierto todo lo "a comprar"? → OP 'asignada'; si no, sigue 'aprobada'.
+  const cubiertos = new Set<string>();
+  for (const h of [...previas, ...creadas]) for (const it of (h.items ?? [])) cubiertos.add(it.sku);
+  const aComprar = op.items.filter((it) => it.comprar !== false).map((it) => it.sku);
+  const completo = aComprar.length > 0 && aComprar.every((sku) => cubiertos.has(sku));
+
+  const { error: upErr } = await supabase.from(TABLE)
+    .update({ estado: (completo ? 'asignada' : 'aprobada') as EstadoOrden, historial: appendHistorial(op, 'proveedores_asignados', actorEmail, { proveedores: validas.length, completo }) })
+    .eq('id', op.id);
+  if (upErr) throw upErr;
+
+  return creadas;
 }
 
 /**
