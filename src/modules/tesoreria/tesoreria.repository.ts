@@ -353,6 +353,8 @@ export function movEstaVinculado(m: MovimientoCaja): boolean {
 export interface EditarMovimientoInput {
   monto?: number;
   motivo?: string;
+  /** Nueva fecha/hora (ISO). Al cambiarla, la cadena se reordena por `at` y los saldos se recalculan. */
+  at?: string;
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
 }
@@ -374,6 +376,7 @@ export async function editarMovimientoCaja(mov: MovimientoCaja, input: EditarMov
 
   const patch: Record<string, unknown> = { monto: nuevoMonto };
   if (input.motivo != null) patch.motivo = input.motivo.trim() || mov.motivo;
+  if (input.at) patch.at = input.at; // reordena la cadena (recomputarCadena ordena por `at`)
   if (input.gastoCategoria !== undefined) patch.gasto_categoria = input.gastoCategoria;
   if (input.gastoSubcategoria !== undefined) patch.gasto_subcategoria = input.gastoSubcategoria;
 
