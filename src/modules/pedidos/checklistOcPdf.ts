@@ -2,6 +2,7 @@
    MGG · Compras · PDF de la checklist "OC por lote"
    Relación de compras pendientes por pagar. Solo por botón.
    ============================================================ */
+import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { OcLoteRow } from './ocLote.repository';
 
 async function construir(rows: OcLoteRow[], codigo: string) {
@@ -68,7 +69,7 @@ async function construir(rows: OcLoteRow[], codigo: string) {
 
 export async function descargarChecklistOcPdf(rows: OcLoteRow[], codigo: string): Promise<void> {
   const { doc, filename } = await construir(rows, codigo);
-  doc.save(filename);
+  previewPdfDoc(doc, filename);
 }
 
 export async function obtenerChecklistOcPdfBase64(rows: OcLoteRow[], codigo: string): Promise<string> {

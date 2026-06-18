@@ -2,6 +2,7 @@
    MGG · Compra Directa · Comprobante PDF
    Se descarga SOLO al hacer clic (regla del sistema).
    ============================================================ */
+import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { CompraDirecta } from './compras.repository';
 
 export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<void> {
@@ -45,5 +46,5 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
-  doc.save(`compra-directa-${(compra.producto_sku ?? 'material')}-${compra.id.slice(0, 8)}.pdf`);
+  previewPdfDoc(doc, `compra-directa-${(compra.producto_sku ?? 'material')}-${compra.id.slice(0, 8)}.pdf`);
 }

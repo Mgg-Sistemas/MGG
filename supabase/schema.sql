@@ -1463,7 +1463,14 @@ create policy "nomina write staff"  on storage.objects for insert to authenticat
 create policy "nomina update staff" on storage.objects for update to authenticated using (bucket_id = 'nomina-comprobantes' and public.is_staff());
 create policy "nomina delete staff" on storage.objects for delete to authenticated using (bucket_id = 'nomina-comprobantes' and public.is_staff());
 
--- Storage: bucket privado `ofertas-pdf` para las cotizaciones (PDF) de los proveedores.
+-- Storage: bucket privado `ofertas-pdf` para las cotizaciones de los proveedores.
+-- Acepta PDF o IMAGEN (foto de la cotización): allowed_mime_types incluye image/* para
+-- no rechazar PNG/JPG/WEBP en el servidor. Límite 10 MB.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('ofertas-pdf','ofertas-pdf', false, 10485760, array['application/pdf','image/*'])
+on conflict (id) do update
+  set file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
 -- El analista carga las ofertas, así que la escritura es para STAFF (admin + analista),
 -- en línea con la tabla `ofertas_proveedor`. (Antes exigía is_admin() y el analista
 -- recibía "new row violates row-level security policy" al subir el PDF.)
