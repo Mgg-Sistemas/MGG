@@ -129,6 +129,27 @@ export interface CrearOrdenInput {
   urgente?: boolean;
 }
 
+/**
+ * Sincroniza el nombre de productos del inventario con el que se editó en la
+ * orden (OP/OC). Por cada ítem cambiado actualiza `productos.nombre` (por
+ * productoId, o por SKU como respaldo). Así renombrar en la orden renombra en
+ * el inventario y queda consistente en todo el sistema.
+ */
+export async function sincronizarNombreProductos(
+  cambios: Array<{ productoId?: string | null; sku?: string | null; nombre: string }>,
+): Promise<void> {
+  for (const c of cambios) {
+    const nombre = (c.nombre ?? '').trim();
+    if (!nombre) continue;
+    let id = c.productoId ?? null;
+    if (!id && c.sku) {
+      const { data } = await supabase.from('productos').select('id').eq('sku', c.sku).maybeSingle();
+      id = (data?.id as string) ?? null;
+    }
+    if (id) await supabase.from('productos').update({ nombre }).eq('id', id);
+  }
+}
+
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
   const codigo = await nextCodigo();
   const total = input.items.reduce((a, i) => a + i.cantidad * i.precio, 0);

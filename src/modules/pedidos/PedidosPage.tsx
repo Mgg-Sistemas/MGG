@@ -36,6 +36,7 @@ import {
   crearOrden,
   actualizarOrden,
   actualizarOc,
+  sincronizarNombreProductos,
   listSubOcs,
   adjuntarImagenOrden,
   desistirProveedor,
@@ -2627,7 +2628,13 @@ function EditarOcModal({ orden, actorEmail, onClose, onSaved }: {
     setError(null); setSaving(true);
     try {
       await actualizarOc(orden, { items, condiciones_pago: cond || null, notas }, actorEmail);
-      toast('OC actualizada', 'success');
+      // Sincroniza con inventario los nombres que cambiaron respecto al original.
+      const orig = new Map(orden.items.map((i) => [i.sku, i.nombre]));
+      const cambios = items
+        .filter((i) => (i.nombre ?? '').trim() && i.nombre !== orig.get(i.sku))
+        .map((i) => ({ productoId: i.productoId, sku: i.sku, nombre: i.nombre }));
+      if (cambios.length) await sincronizarNombreProductos(cambios).catch(() => { /* no bloquear el guardado */ });
+      toast(`OC actualizada${cambios.length ? ` · ${cambios.length} nombre(s) sincronizado(s) con inventario` : ''}`, 'success');
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
   }
@@ -2645,7 +2652,11 @@ function EditarOcModal({ orden, actorEmail, onClose, onSaved }: {
           <tbody>
             {items.map((it, idx) => (
               <tr key={it.sku ?? idx}>
-                <td>{it.nombre}<span className="muted"> · {it.sku}</span></td>
+                <td>
+                  <input className="input" value={it.nombre} onChange={(e) => upd(idx, { nombre: e.target.value.toUpperCase() })}
+                    title="Editar nombre (se sincroniza con el inventario al guardar)" />
+                  <span className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</span>
+                </td>
                 <td><input className="input mono" type="number" min={0} step="any" value={it.cantidad} onChange={(e) => upd(idx, { cantidad: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} /></td>
                 <td><input className="input mono" type="number" min={0} step="any" value={it.precio} onChange={(e) => upd(idx, { precio: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} /></td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}</td>
@@ -2854,6 +2865,12 @@ function CrearOrdenModal({
           ci_solicitante: ciValor || null,
           urgente,
         }, email);
+        // Sincroniza con inventario los nombres editados.
+        const orig = new Map((orden!.items ?? []).map((i) => [i.sku, i.nombre]));
+        const cambios = itemsValor
+          .filter((i) => (i.nombre ?? '').trim() && i.nombre !== orig.get(i.sku))
+          .map((i) => ({ productoId: i.productoId, sku: i.sku, nombre: i.nombre }));
+        if (cambios.length) await sincronizarNombreProductos(cambios).catch(() => { /* no bloquear */ });
         if (imagen) {
           try { await adjuntarImagenOrden(saved.id, imagen); }
           catch (e) { toast(`Orden guardada, pero no se pudo subir la imagen: ${e instanceof Error ? e.message : ''}`, 'warning'); }
@@ -2986,7 +3003,9 @@ function CrearOrdenModal({
                 style={{ alignSelf: 'center' }}
               />
               <div>
-                <div>{it.nombre}</div>
+                <input className="input" style={{ fontSize: '.9rem' }} value={it.nombre}
+                  onChange={(e) => updateItem(idx, { nombre: e.target.value.toUpperCase() })}
+                  title="Editar nombre (se sincroniza con el inventario al guardar)" />
                 <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
               </div>
               {/* Cantidad + unidad de medida del producto (KG, L, und…). */}
