@@ -374,15 +374,20 @@ export function InventarioPage() {
       // Se ajusta vía "Movimiento" (entrada/salida/ajuste) en cada almacén.
       const rest: Partial<ProductoInput> = { ...data };
       delete (rest as Partial<ProductoInput>).stock;
-      await updateProducto(previo.id, rest);
       // Un producto = una ubicación: si cambió el almacén "hogar", relocaliza TODO
       // el stock disperso a ese almacén (queda una sola existencia con el total).
+      // IMPORTANTE: la consolidación va PRIMERO porque dispara recomputeProductoAgg
+      // (recalcula `precio` desde las existencias); guardamos el producto DESPUÉS para
+      // que el precio/datos que escribió el usuario prevalezcan (si no, se perdían y
+      // había que guardar dos veces).
       const almacenPrevio = (previo.almacen || 'General').trim();
       const almacenNuevo = (data.almacen || 'General').trim();
+      let movidos = 0;
       if (almacenNuevo && almacenNuevo !== almacenPrevio) {
-        const movidos = await consolidarProductoEnAlmacen(previo.id, almacenNuevo, productoActor, actorName);
-        if (movidos > 0) notify(`Stock consolidado en ${almacenNuevo} (1 sola ubicación)`, 'success', { link: '#/app/inventario' });
+        movidos = await consolidarProductoEnAlmacen(previo.id, almacenNuevo, productoActor, actorName);
       }
+      await updateProducto(previo.id, rest);
+      if (movidos > 0) notify(`Stock consolidado en ${almacenNuevo} (1 sola ubicación)`, 'success', { link: '#/app/inventario' });
       notify(`Producto actualizado: ${data.sku} · ${data.nombre}`, 'success', { link: '#/app/inventario' });
       await reload();
     }

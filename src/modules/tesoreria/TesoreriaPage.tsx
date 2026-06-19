@@ -20,7 +20,7 @@ import {
 import type { NominaRenglon } from '@/shared/lib/types';
 import type { Caja, MovimientoCaja, Orden, Producto, Almacen } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
-import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
@@ -102,6 +102,31 @@ function labelCuentaCaja(c: string | null | undefined): string {
 /** Normaliza texto para buscar: minúsculas y sin acentos (búsqueda tolerante). */
 function normalizarBusqueda(s: string | null | undefined): string {
   return (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+}
+
+/** Agrupa los almacenes activos por SEDE, con cada subalmacén anidado bajo su
+ *  almacén padre (nivel = sangría). Mismo criterio que la recepción de compras. */
+function agruparAlmacenesPorSede(almacenes: Almacen[]): [string, { a: Almacen; nivel: number }[]][] {
+  const activos = almacenes.filter((a) => a.estado === 'activo');
+  const hijosDe = (pid: string | null) => activos
+    .filter((a) => (a.parent_id ?? null) === pid)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const ids = new Set(activos.map((a) => a.id));
+  const ordenar = (pid: string | null, nivel: number, acc: { a: Almacen; nivel: number }[]) => {
+    for (const a of hijosDe(pid)) { acc.push({ a, nivel }); ordenar(a.id, nivel + 1, acc); }
+  };
+  const porSede = new Map<string, { a: Almacen; nivel: number }[]>();
+  for (const sede of [...new Set(activos.map((a) => a.sede?.trim() || 'Sin sede'))].sort((x, y) => x.localeCompare(y, 'es'))) {
+    const delaSede = activos.filter((a) => (a.sede?.trim() || 'Sin sede') === sede);
+    const setSede = new Set(delaSede.map((a) => a.id));
+    const acc: { a: Almacen; nivel: number }[] = [];
+    for (const r of delaSede.filter((a) => !a.parent_id || !setSede.has(a.parent_id) || !ids.has(a.parent_id)).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))) {
+      acc.push({ a: r, nivel: 0 });
+      ordenar(r.id, 1, acc);
+    }
+    porSede.set(sede, acc);
+  }
+  return [...porSede.entries()];
 }
 
 export function TesoreriaPage() {
@@ -891,34 +916,45 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
     e.preventDefault(); setError(null);
     if ((Number(montoStr) || 0) <= 0) { setError('El monto debe ser mayor que 0.'); return; }
     if (moneda !== 'Bs' && (Number(tasaStr) || 0) <= 0) { setError('Indicá la tasa de compra (Bs por unidad).'); return; }
-    if (!origenTipo) { setError('Indicá si el origen es Cliente o Proveedor.'); return; }
-    if (!origen.trim()) { setError(origenTipo === 'proveedor' ? 'Indicá la razón social del proveedor.' : 'Indicá el nombre del cliente.'); return; }
+    // La contraparte es OPCIONAL: si elegís un tipo (cliente/proveedor) hay que poner el nombre.
+    if (origenTipo && !origen.trim()) {
+      setError(origenTipo === 'proveedor' ? 'Indicá la razón social del proveedor o elegí "Directo a caja".' : 'Indicá el nombre del cliente o elegí "Directo a caja".');
+      return;
+    }
     setSaving(true);
     try {
-      const origenStr = `${origenTipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${origen.trim()}`;
+      // Con contraparte → se vuelve cuenta por pagar; sin contraparte → solo movimiento de caja.
+      const tieneContraparte = !!origenTipo && !!origen.trim();
+      const origenStr = tieneContraparte
+        ? `${origenTipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${origen.trim()}`
+        : 'Ingreso directo a caja';
       const montoNum = Number(montoStr) || 0;
       await ingresarDivisa({
         cajaId: caja.id, cuenta, moneda, monto: montoNum,
         tasaBs: moneda === 'Bs' ? 1 : Number(tasaStr) || 0,
         origen: origenStr, actor, actorName,
       });
-      // El ingreso manual entra a la cuenta por pagar del cliente/proveedor: si ya
+      // Solo si se indicó cliente/proveedor el ingreso se vuelve cuenta por pagar: si ya
       // existe una abierta del mismo (contraparte + moneda), SUMA (incremental); si no, la crea.
-      await registrarIngresoCxP({
-        tipo: origenTipo, contraparte: origen.trim(), monto: montoNum, moneda, cuenta,
-        cajaId: caja.id, nota: `Ingreso ${moneda} en ${caja.nombre}`, actor, actorName,
-      });
-      // Si el cliente/proveedor es nuevo, se guarda en el directorio para próximos
-      // pagos (queda disponible en la búsqueda y en "Clientes / Proveedores").
-      const yaGuardado = contrapartes.some(
-        (c) => c.tipo === origenTipo && c.nombre.trim().toUpperCase() === origen.trim().toUpperCase(),
-      );
-      if (!yaGuardado) {
-        try { await crearContraparte({ tipo: origenTipo, nombre: origen.trim() }); reloadContrapartes(); }
-        catch { /* duplicado u otra causa: no bloquea el ingreso */ }
+      if (tieneContraparte) {
+        await registrarIngresoCxP({
+          tipo: origenTipo as 'cliente' | 'proveedor', contraparte: origen.trim(), monto: montoNum, moneda, cuenta,
+          cajaId: caja.id, nota: `Ingreso ${moneda} en ${caja.nombre}`, actor, actorName,
+        });
+        // Si el cliente/proveedor es nuevo, se guarda en el directorio para próximos pagos.
+        const yaGuardado = contrapartes.some(
+          (c) => c.tipo === origenTipo && c.nombre.trim().toUpperCase() === origen.trim().toUpperCase(),
+        );
+        if (!yaGuardado) {
+          try { await crearContraparte({ tipo: origenTipo as 'cliente' | 'proveedor', nombre: origen.trim() }); reloadContrapartes(); }
+          catch { /* duplicado u otra causa: no bloquea el ingreso */ }
+        }
       }
       const etiqueta = moneda === 'Bs' ? `Bs · ${cuenta}` : moneda;
-      notify(`Ingreso ${etiqueta} · ${monto(montoNum, moneda)} · ${origenStr} · suma a la cuenta por pagar`, 'success', { link: '#/app/tesoreria' });
+      notify(
+        `Ingreso ${etiqueta} · ${monto(montoNum, moneda)} · ${tieneContraparte ? `${origenStr} · suma a la cuenta por pagar` : 'movimiento de caja'}`,
+        'success', { link: '#/app/tesoreria' },
+      );
       setMontoStr(''); setTasaStr(''); setOrigen(''); setOrigenTipo('');
       await reload(); await onChanged();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo ingresar.'); }
@@ -1097,23 +1133,30 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
               </div>
             )}
             <div className="form-row">
-              <label>Origen del dinero</label>
-              <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.4rem' }}>
-                {(['cliente', 'proveedor'] as const).map((t) => {
-                  const sel = origenTipo === t;
+              <label>Origen del dinero <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+              <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.4rem', flexWrap: 'wrap' }}>
+                {([
+                  { val: '' as const, icon: '💵', txt: 'Directo a caja' },
+                  { val: 'cliente' as const, icon: '👤', txt: 'Cliente' },
+                  { val: 'proveedor' as const, icon: '🏭', txt: 'Proveedor' },
+                ]).map((o) => {
+                  const sel = origenTipo === o.val;
                   return (
-                    <label key={t} style={{
+                    <label key={o.val || 'directo'} style={{
                       display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer',
                       padding: '.4rem .7rem', borderRadius: 'var(--r-md)',
                       border: `1px solid ${sel ? 'var(--primary)' : 'var(--border)'}`,
                       background: sel ? 'rgba(255,138,0,0.10)' : 'transparent', flex: 1, justifyContent: 'center',
                     }}>
-                      <input type="radio" name="origen-tipo" checked={sel} onChange={() => { setOrigenTipo(t); setOrigen(''); }} />
-                      <span style={{ fontWeight: 600 }}>{t === 'cliente' ? '👤 Cliente' : '🏭 Proveedor'}</span>
+                      <input type="radio" name="origen-tipo" checked={sel} onChange={() => { setOrigenTipo(o.val); setOrigen(''); }} />
+                      <span style={{ fontWeight: 600 }}>{o.icon} {o.txt}</span>
                     </label>
                   );
                 })}
               </div>
+              {!origenTipo && (
+                <small className="muted">Sin cliente/proveedor: el dinero solo <strong>suma a la caja</strong> (no genera cuenta por pagar).</small>
+              )}
               {origenTipo && (() => {
                 const guardados = contrapartes.filter((c) => c.tipo === origenTipo);
                 const existe = guardados.some((c) => c.nombre.trim().toUpperCase() === origen.trim().toUpperCase());
@@ -4533,6 +4576,8 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
     listProductos().then(setProductos).catch(() => setProductos([]));
     listAlmacenes().then((a) => { setAlmacenes(a); setProdAlmacen((p) => p || a[0]?.nombre || ''); }).catch(() => setAlmacenes([]));
   }, []);
+  // Almacén destino agrupado por sede con subalmacenes anidados (como en recepción de compras).
+  const gruposAlmacen = useMemo(() => agruparAlmacenesPorSede(almacenes), [almacenes]);
 
   // Alta manual de una cuenta por cobrar.
   const [nuevaOpen, setNuevaOpen] = useState(false);
@@ -4592,6 +4637,17 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
 
   const sel = lista.find((c) => c.id === selId) ?? null;
   const saldo = sel ? round2(Number(sel.monto) - (Number(sel.abonado) || 0)) : 0;
+
+  // Por defecto mostramos solo los centros de costo / aliados (convención «CENTRO ACOPIO …»,
+  // igual que la vista de Aliados); los nombres sueltos/legados quedan ocultos salvo que se pida "ver todas".
+  const [soloCentros, setSoloCentros] = useState(true);
+  const esCentroOAliado = (c: CuentaPorCobrar) => c.contraparte.trim().toUpperCase().startsWith('CENTRO ACOPIO');
+  const listaVisible = useMemo(() => (soloCentros ? lista.filter(esCentroOAliado) : lista), [lista, soloCentros]);
+  const ocultas = lista.length - listaVisible.length;
+  // Mantener la selección dentro de lo visible.
+  useEffect(() => {
+    if (listaVisible.length && !listaVisible.some((c) => c.id === selId)) setSelId(listaVisible[0].id);
+  }, [listaVisible, selId]);
 
   // Cuentas de la caja elegida con saldo en la moneda (para saber dónde entra el dinero).
   const [cajaSaldosSel, setCajaSaldosSel] = useState<CajaSaldo[]>([]);
@@ -4721,13 +4777,21 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
         <EmptyState message="Sin cuentas por cobrar abiertas. Creá una arriba." icon="📥" />
       ) : (
         <>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontSize: '.82rem', marginBottom: '.4rem' }}>
+            <input type="checkbox" checked={soloCentros} onChange={(e) => setSoloCentros(e.target.checked)} />
+            Solo centros de costo / aliados{soloCentros && ocultas > 0 ? ` · ${ocultas} otra(s) oculta(s)` : ''}
+          </label>
+          {!listaVisible.length ? (
+            <EmptyState message="No hay centros de costo / aliados. Desmarcá la casilla para ver todas las cuentas." icon="🤝" />
+          ) : (
           <SelectorBuscable
             label="Cuenta por cobrar"
-            items={lista}
+            items={listaVisible}
             value={selId}
             onChange={setSelId}
             optionLabel={(c) => `${labelTipoCxC(c.tipo)}: ${c.contraparte} · debe ${monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}`}
           />
+          )}
 
           {sel && (
             <>
@@ -4810,7 +4874,15 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                     <div className="form-row">
                       <label>Almacén destino</label>
                       <select className="select" value={prodAlmacen} onChange={(e) => setProdAlmacen(e.target.value)}>
-                        {almacenes.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+                        {gruposAlmacen.map(([sede, items]) => (
+                          <optgroup key={sede} label={sede}>
+                            {items.map(({ a, nivel }) => (
+                              <option key={a.id} value={a.nombre}>
+                                {nivel > 0 ? `${'  '.repeat(nivel)}↳ ` : ''}{nombreCortoAlmacen(a, almacenes)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
                       </select>
                     </div>
                     <div className="form-row">
