@@ -50,9 +50,10 @@ async function cargarTrazabilidad(ordenId: string): Promise<TrazabilidadData> {
   ));
   const nombrePorEmail = new Map<string, string>();
   if (emails.length) {
-    const { data: us } = await supabase.from('usuarios').select('email, nombre').in('email', emails);
-    (us ?? []).forEach((u: { email?: string; nombre?: string }) => {
-      if (u.email && u.nombre) nombrePorEmail.set(u.email, u.nombre);
+    const { data: us } = await supabase.from('usuarios').select('email, nombre, apellido').in('email', emails);
+    (us ?? []).forEach((u: { email?: string; nombre?: string; apellido?: string }) => {
+      const nom = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
+      if (u.email && nom) nombrePorEmail.set(u.email, nom);
     });
   }
 

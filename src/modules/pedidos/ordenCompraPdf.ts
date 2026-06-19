@@ -14,6 +14,8 @@ interface OcData {
   ofertas: OfertaProveedor[];
   /** Proveedores referenciados por id (oferentes / desistidos). */
   proveedoresMap: Map<string, Proveedor>;
+  /** email (minúscula) → "Nombre Apellido" del usuario, para mostrar personas en vez del correo. */
+  personaMap: Map<string, string>;
 }
 
 async function cargarDatosOc(ordenId: string): Promise<OcData> {
@@ -62,6 +64,16 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
     (provs ?? []).forEach((p) => proveedoresMap.set((p as Proveedor).id, p as Proveedor));
   }
 
+  // Usuarios → mostrar "Nombre Apellido" en vez del correo en quien aprueba/confirma.
+  const personaMap = new Map<string, string>();
+  const { data: usuarios } = await supabase.from('usuarios').select('email, nombre, apellido');
+  (usuarios ?? []).forEach((u) => {
+    const email = (u.email as string | null)?.toLowerCase();
+    if (!email) return;
+    const nom = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
+    personaMap.set(email, nom || email);
+  });
+
   return {
     ordenes,
     orden: orden as Orden,
@@ -69,11 +81,12 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
     ofertaAceptada,
     ofertas,
     proveedoresMap,
+    personaMap,
   };
 }
 
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
-  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap }, logoDataUrl, firmaDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personaMap }, logoDataUrl, firmaDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarDatosOc(ordenId),
     loadLogoDataUrl().catch(() => null),
     loadFirmaGerenteDataUrl().catch(() => null),
@@ -182,6 +195,12 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   // Unidad solicitante = depto/unidad que pide (orden.solicitante); Solicitante = la persona.
   const unidadSolicitante = orden.solicitante?.trim() || '—';
   const solicitante = orden.ci_solicitante?.trim() || orden.solicitante_email || '—';
+  // Correo → "Nombre Apellido" (analistas y gerente). Si no hay usuario, queda el correo.
+  const persona = (email?: string | null) => {
+    const e = email?.trim();
+    if (!e) return '—';
+    return personaMap.get(e.toLowerCase()) || e;
+  };
   // Finalidad = la de los ítems (cada producto dice para qué se pide), unificada.
   const finalidadOrden = Array.from(new Set((orden.items ?? []).map((it) => it.finalidad?.trim()).filter(Boolean) as string[])).join(' · ')
     || orden.finalidad?.trim() || '—';
@@ -195,8 +214,9 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
     ['Documentos', documentosOc.length ? documentosOc.join(' · ') : '—'],
-    ['Aprobada por', orden.aprobada_por ?? '—'],
+    ['Aprobada por (analista)', persona(orden.aprobada_por)],
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
+    ['OC confirmada por (gerente)', persona(orden.oc_aprobada_por)],
     ['OC confirmada el', orden.oc_aprobada_en ? dateTime(orden.oc_aprobada_en) : '—'],
   ];
   autoTable(doc, {
