@@ -2954,13 +2954,25 @@ function CrearOrdenModal({
         <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.3rem' }}>
           Marcá los artículos a comprar e indicá la finalidad de cada uno. Los desmarcados quedan en la solicitud pero no se cotizan.
         </div>
+        {/* Buscador SIEMPRE arriba: se pueden agregar todos los productos que haga falta (sin tope). */}
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginBottom: '.5rem' }}>
+          <SearchSelect
+            style={{ flex: 1 }}
+            value={prodSelectId}
+            onChange={setProdSelectId}
+            options={allProductos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` }))}
+            placeholder="Buscar producto por nombre o SKU…"
+            emptyText="Ningún producto coincide"
+          />
+          <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
+        </div>
         <div className="line-picker head" style={{ gridTemplateColumns: '34px 2fr 130px 40px' }}>
           <div title="Comprar">✓</div>
           <div>Producto</div>
           <div>Cantidad</div>
           <div></div>
         </div>
-        <div>
+        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
           {items.map((it, idx) => {
             const comprar = it.comprar !== false;
             return (
@@ -3023,17 +3035,6 @@ function CrearOrdenModal({
             </div>
             );
           })}
-        </div>
-        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.5rem' }}>
-          <SearchSelect
-            style={{ flex: 1 }}
-            value={prodSelectId}
-            onChange={setProdSelectId}
-            options={allProductos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` }))}
-            placeholder="Buscar producto por nombre o SKU…"
-            emptyText="Ningún producto coincide"
-          />
-          <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
         </div>
 
         <div style={{ marginTop: '.5rem' }}>

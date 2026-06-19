@@ -5,7 +5,7 @@
    vienen con los valores propios del almacén (PMP por almacén).
    ============================================================ */
 import { previewWorkbook, previewPdfDoc } from '@/shared/lib/reportPreview';
-import type { Producto } from '@/shared/lib/types';
+import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 
 interface FilaAlmacen extends Producto { _valor?: number }
 
@@ -108,4 +108,132 @@ export async function descargarAlmacenPdf(almacen: string, rows: Producto[]): Pr
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   previewPdfDoc(doc, `almacen-${almacen}.pdf`);
+}
+
+/* ============================================================
+   Reporte GENERAL de inventario por almacenes y subalmacenes.
+   Recorre la jerarquía sede → almacén → subalmacén y, por cada
+   uno, lista sus productos (stock/costo/valor) con su subtotal.
+   ============================================================ */
+export async function descargarReporteAlmacenesPdf(): Promise<void> {
+  const [
+    { jsPDF }, { default: autoTable }, { money, num, dateTime },
+    { loadLogoDataUrl }, almacenesRepo, inventarioRepo,
+  ] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+    import('@/shared/lib/format'),
+    import('@/shared/lib/pdfLogo'),
+    import('./almacenes.repository'),
+    import('./inventario.repository'),
+  ]);
+  const [almacenes, existencias, productos, logo] = await Promise.all([
+    almacenesRepo.listAlmacenes(),
+    almacenesRepo.listExistencias(),
+    inventarioRepo.listProductos(),
+    loadLogoDataUrl().catch(() => null),
+  ]);
+
+  const prodById = new Map(productos.map((p) => [p.id, p]));
+  // Existencias agrupadas por NOMBRE de almacén (la existencia se llavea por nombre).
+  const exPorAlmacen = new Map<string, Existencia[]>();
+  for (const e of existencias) {
+    const arr = exPorAlmacen.get(e.almacen) ?? [];
+    arr.push(e);
+    exPorAlmacen.set(e.almacen, arr);
+  }
+
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  const MARGIN = 42.52;
+  const PAGE_H = doc.internal.pageSize.getHeight();
+  let y = MARGIN;
+
+  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
+  const tx = logo ? MARGIN + 60 : MARGIN;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+  doc.text('Inventario · Reporte por almacenes y subalmacenes', tx, y + 18);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  doc.text(`MGG · ${dateTime(new Date().toISOString())}`, tx, y + 33);
+  y += 60;
+
+  const ensureSpace = (need: number) => {
+    if (y + need > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+  };
+
+  let valorGeneral = 0;
+
+  // Render de un almacén (o subalmacén) con sus productos. `nivel` indenta los subs.
+  const renderAlmacen = (a: Almacen, nivel: number) => {
+    const rows = (exPorAlmacen.get(a.nombre) ?? [])
+      .filter((e) => (Number(e.stock) || 0) !== 0)
+      .map((e) => {
+        const p = prodById.get(e.producto_id);
+        const stock = Number(e.stock) || 0;
+        const costo = Number(e.costo_promedio) || 0;
+        const valor = Math.round(stock * costo * 100) / 100;
+        return {
+          sku: p?.sku ?? '—', nombre: p?.nombre ?? '(producto eliminado)',
+          categoria: p?.categoria ?? '—', unidad: p?.unidad ?? '', stock, costo, valor,
+        };
+      })
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    const subtotal = rows.reduce((s, r) => s + r.valor, 0);
+    valorGeneral += subtotal;
+
+    ensureSpace(48);
+    const indent = MARGIN + nivel * 14;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(nivel === 0 ? 12 : 10.5);
+    doc.setTextColor(nivel === 0 ? 20 : 90);
+    const etiqueta = nivel === 0
+      ? `${a.sede ? `${a.sede} · ` : ''}${a.nombre}`
+      : `↳ ${a.nombre}`;
+    doc.text(etiqueta, indent, y + 12);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(120);
+    doc.text(`${rows.length} producto(s) · valor ${money(subtotal)}`, doc.internal.pageSize.getWidth() - MARGIN, y + 12, { align: 'right' });
+    doc.setTextColor(0);
+    y += 20;
+
+    if (!rows.length) {
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(140);
+      doc.text('Sin existencias.', indent + 6, y + 6); doc.setTextColor(0);
+      doc.setFont('helvetica', 'normal');
+      y += 18;
+      return;
+    }
+
+    autoTable(doc, {
+      startY: y,
+      head: [['SKU', 'Producto', 'Categoría', 'Unidad', 'Stock', 'Costo unit.', 'Valor']],
+      body: rows.map((r) => [r.sku, r.nombre, r.categoria, r.unidad, num(r.stock), money(r.costo), money(r.valor)]),
+      foot: [['', '', '', '', '', 'Subtotal', money(subtotal)]],
+      theme: 'grid',
+      headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 8 },
+      footStyles: { fillColor: [245, 245, 245], textColor: 20, fontStyle: 'bold' },
+      styles: { fontSize: 8, cellPadding: 3 },
+      columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      margin: { top: MARGIN, bottom: MARGIN, left: indent, right: MARGIN },
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
+  };
+
+  // Jerarquía: almacenes raíz (sin padre) ordenados por sede + nombre; debajo sus subalmacenes.
+  const raices = almacenes.filter((a) => !a.parent_id)
+    .sort((a, b) => (`${a.sede ?? '~'}·${a.nombre}`).localeCompare(`${b.sede ?? '~'}·${b.nombre}`));
+  const hijosDe = (id: string) => almacenes.filter((a) => a.parent_id === id)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  for (const raiz of raices) {
+    renderAlmacen(raiz, 0);
+    for (const sub of hijosDe(raiz.id)) renderAlmacen(sub, 1);
+  }
+
+  ensureSpace(30);
+  doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.2);
+  doc.line(MARGIN, y, doc.internal.pageSize.getWidth() - MARGIN, y);
+  y += 16;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+  doc.text('VALOR TOTAL DEL INVENTARIO', MARGIN, y);
+  doc.text(money(valorGeneral), doc.internal.pageSize.getWidth() - MARGIN, y, { align: 'right' });
+
+  previewPdfDoc(doc, `inventario-por-almacenes-${new Date().toISOString().slice(0, 10)}.pdf`);
 }

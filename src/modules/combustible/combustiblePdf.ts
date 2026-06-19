@@ -60,7 +60,8 @@ async function construir(s: SolicitudCombustible) {
 
 export async function descargarSolicitudCombustiblePdf(s: SolicitudCombustible): Promise<void> {
   const { doc, filename } = await construir(s);
-  doc.save(filename);
+  const { previewPdfDoc } = await import('@/shared/lib/reportPreview');
+  previewPdfDoc(doc, filename);
 }
 
 export async function obtenerSolicitudCombustiblePdfBase64(s: SolicitudCombustible): Promise<{ base64: string; filename: string }> {

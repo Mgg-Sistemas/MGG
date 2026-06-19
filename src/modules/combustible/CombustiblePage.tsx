@@ -21,6 +21,7 @@ import {
   finalizarSolicitudCombustible,
   cancelarSolicitudCombustible,
   consumoCombustiblePorEquipo,
+  movimientosDeEquipo,
   listTanques,
   crearTanque,
   actualizarTanque,
@@ -49,6 +50,7 @@ import {
   type TablaCatalogo,
 } from './combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
+import { enviarReportePdf } from '@/shared/lib/enviarReporte';
 import { descargarSolicitudCombustiblePdf } from './combustiblePdf';
 import { enviarCombustibleAMultiples } from './enviarCombustible';
 import {
@@ -480,6 +482,19 @@ export function CombustiblePage() {
           cargar={async (desde, hasta) => {
             const items = await consumoCombustiblePorEquipo(desde, hasta);
             return items.map((x) => ({ id: x.id, label: x.nombre, unidad: 'Lt', cantidad: x.cantidad, valor: x.valor }));
+          }}
+          reporte={{ asunto: 'Consumo de combustible · MGG', archivo: 'consumo-combustible' }}
+          enviarReporte={(base64, filename, emails) => enviarReportePdf(base64, filename, 'Consumo de combustible · MGG', emails)}
+          cargarDetalle={async (row, desde, hasta) => {
+            const movs = await movimientosDeEquipo(row.id, desde, hasta);
+            return movs.map((m) => ({
+              fecha: m.fecha,
+              tipo: m.tipo,
+              cantidad: m.litros,
+              unidad: 'Lt',
+              valor: m.valor,
+              detalle: [m.tanque_nombre && `🛢 ${m.tanque_nombre}`, m.destino && `→ ${m.destino}`, m.autorizado_por && `Autoriza: ${m.autorizado_por}`, m.observacion].filter(Boolean).join(' · '),
+            }));
           }}
           onClose={() => setModal('none')}
         />
@@ -1668,6 +1683,9 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
   const [enviando, setEnviando] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancel, setMotivoCancel] = useState('');
+  // Modal de surtido: al finalizar, el usuario confirma cuántos litros echó realmente.
+  const [finalizarOpen, setFinalizarOpen] = useState(false);
+  const [litrosSurtidos, setLitrosSurtidos] = useState(String(s.litros));
 
   async function aprobar() {
     setBusy(true);
@@ -1675,8 +1693,15 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo aprobar', 'error'); setBusy(false); }
   }
   async function finalizar() {
+    const reales = Number(litrosSurtidos.replace(',', '.'));
+    if (!Number.isFinite(reales) || reales <= 0) { toast('Indicá los litros realmente surtidos.', 'error'); return; }
     setBusy(true);
-    try { await finalizarSolicitudCombustible(s, actor); notify(`Solicitud ${s.codigo} finalizada · -${num(s.litros)} L`, 'success', { link: '#/app/combustible' }); await onChanged(); }
+    try {
+      await finalizarSolicitudCombustible(s, actor, null, reales);
+      notify(`Solicitud ${s.codigo} finalizada · -${num(reales)} L`, 'success', { link: '#/app/combustible' });
+      setFinalizarOpen(false);
+      await onChanged();
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo finalizar', 'error'); setBusy(false); }
   }
   async function cancelar() {
@@ -1715,7 +1740,10 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
     ['Tanque de origen', s.tanque_nombre || '—'],
     ['Almacén (inventario)', s.almacen || '—'],
     ['A dónde va', s.destino],
-    ['Total de litros', `${num(s.litros)} L`],
+    ['Litros solicitados', `${num(s.litros)} L`],
+    ...(s.estado === 'finalizada' && s.litros_reales != null
+      ? [['Litros surtidos', `${num(Number(s.litros_reales))} L${Number(s.litros_reales) !== Number(s.litros) ? ` (${Number(s.litros_reales) > Number(s.litros) ? '+' : ''}${num(Number(s.litros_reales) - Number(s.litros))} L vs solicitado)` : ''}`]] as Array<[string, string]>
+      : []),
     ['Estado', ESTADO_LABEL[s.estado] ?? s.estado],
     ['Motivo', s.motivo || '—'],
     ['Creada', dateTime(s.created_at)],
@@ -1729,7 +1757,7 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
         <button className="btn btn-ghost" onClick={pdf}>↓ PDF</button>
         <button className="btn btn-ghost" onClick={() => setCorreoOpen(true)}>✉ Correo</button>
         {canWrite && s.estado === 'por_aprobar' && <button className="btn btn-primary" onClick={aprobar} disabled={busy}>Aprobar</button>}
-        {canWrite && s.estado === 'aprobada' && <button className="btn btn-primary" onClick={finalizar} disabled={busy}>Finalizar (descuenta litros)</button>}
+        {canWrite && s.estado === 'aprobada' && <button className="btn btn-primary" onClick={() => { setLitrosSurtidos(String(s.litros)); setFinalizarOpen(true); }} disabled={busy}>Finalizar (descuenta litros)</button>}
         {canWrite && s.estado !== 'finalizada' && s.estado !== 'cancelada' && <button className="btn btn-danger" onClick={() => setCancelOpen(true)} disabled={busy}>Cancelar</button>}
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
@@ -1739,6 +1767,34 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
           <tbody>{filas.map(([k, v]) => <tr key={k}><td style={{ fontWeight: 600, width: 170 }}>{k}</td><td>{v}</td></tr>)}</tbody>
         </table>
       </div>
+
+      {finalizarOpen && (() => {
+        const reales = Number(litrosSurtidos.replace(',', '.')) || 0;
+        const dif = reales - Number(s.litros);
+        return (
+        <Modal title="Confirmar surtido" size="sm" onClose={() => !busy && setFinalizarOpen(false)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setFinalizarOpen(false)} disabled={busy}>Cancelar</button>
+            <button className="btn btn-primary" onClick={finalizar} disabled={busy}>{busy ? 'Surtiendo…' : `Surtir ${num(reales)} L`}</button>
+          </>
+        }>
+          <p style={{ marginTop: 0 }}>
+            Se solicitó <strong className="mono">{num(s.litros)} L</strong> de <strong>{s.combustible_nombre}</strong> para <strong>{s.destino}</strong>.
+          </p>
+          <div className="form-row">
+            <label>Litros realmente surtidos</label>
+            <input className="input mono" type="number" min={0} step="any" autoFocus
+              value={litrosSurtidos} onChange={(e) => setLitrosSurtidos(e.target.value)} />
+            <small className="muted">Indicá cuánto echaste realmente (puede ser más o menos). Se descuentan estos litros del tanque y del inventario.</small>
+          </div>
+          {reales > 0 && dif !== 0 && (
+            <p className="mono" style={{ color: dif > 0 ? 'var(--warning)' : 'var(--primary-3)', fontSize: '.85rem' }}>
+              {dif > 0 ? '▲' : '▼'} {dif > 0 ? '+' : ''}{num(dif)} L respecto a lo solicitado.
+            </p>
+          )}
+        </Modal>
+        );
+      })()}
 
       {correoOpen && (
         <Modal title="Enviar solicitud por correo" size="md" onClose={() => !enviando && setCorreoOpen(false)} footer={
