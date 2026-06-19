@@ -62,7 +62,7 @@ export function calcularPMP(stockPrev: number, costoPrev: number, cantidad: numb
   const totalQty = stockPrev + cantidad;
   if (totalQty <= 0) return precioCompra;
   const base = stockPrev * costoPrev + cantidad * precioCompra;
-  return Math.round((base / totalQty) * 10000) / 10000; // 4 decimales para minimizar drift
+  return Math.round((base / totalQty) * 100) / 100; // 2 decimales (precio/costo del inventario)
 }
 
 export async function listMovimientosPorProducto(productoId: string): Promise<Movimiento[]> {
@@ -100,10 +100,14 @@ export async function recomputeProductoAgg(productoId: string): Promise<void> {
   if (error) throw error;
   const rows = (data ?? []) as Array<{ stock: number | null; costo_promedio: number | null }>;
   const totalStock = rows.reduce((a, r) => a + (Number(r.stock) || 0), 0);
-  const valor = rows.reduce((a, r) => a + (Number(r.stock) || 0) * (Number(r.costo_promedio) || 0), 0);
+  // El costo global se pondera SOLO con las existencias que tienen costo (>0). Las de
+  // costo 0 (p. ej. un ajuste de cantidad sin costo) NO deben arrastrar el precio a 0:
+  // si ninguna existencia trae costo, se conserva el último precio del producto.
+  const costadas = rows.filter((r) => (Number(r.costo_promedio) || 0) > 0);
+  const stockCostado = costadas.reduce((a, r) => a + (Number(r.stock) || 0), 0);
+  const valor = costadas.reduce((a, r) => a + (Number(r.stock) || 0) * (Number(r.costo_promedio) || 0), 0);
   const patch: Record<string, number> = { stock: totalStock };
-  // Solo recalculamos el costo global si hay stock; si todo es 0 conservamos el último precio.
-  if (totalStock > 0) patch.precio = Math.round((valor / totalStock) * 10000) / 10000;
+  if (stockCostado > 0) patch.precio = Math.round((valor / stockCostado) * 100) / 100;
   const { error: pErr } = await supabase.from('productos').update(patch).eq('id', productoId);
   if (pErr) throw pErr;
 }

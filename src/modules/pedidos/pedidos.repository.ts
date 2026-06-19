@@ -313,14 +313,14 @@ export function reprecioPorEfectivo(
     if (suma > 0 && suma < generalR) return { items: reps, total: suma, bcv: generalR };
   }
   const factor = ef / generalR;
-  const reps = items.map((it) => ({ ...it, precio: Math.round((Number(it.precio) || 0) * factor * 10000) / 10000 }));
-  // Ajuste de redondeo: forzar que la suma cuadre EXACTO con el efectivo.
+  const reps = items.map((it) => ({ ...it, precio: Math.round((Number(it.precio) || 0) * factor * 100) / 100 }));
+  // Ajuste de redondeo: forzar que la suma cuadre EXACTO con el efectivo (a 2 decimales).
   const suma = Math.round(reps.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0) * 100) / 100;
   const diff = Math.round((ef - suma) * 100) / 100;
   if (diff !== 0) {
     for (let k = reps.length - 1; k >= 0; k--) {
       const q = Number(reps[k].cantidad) || 0;
-      if (q > 0) { reps[k] = { ...reps[k], precio: Math.round((Number(reps[k].precio) + diff / q) * 10000) / 10000 }; break; }
+      if (q > 0) { reps[k] = { ...reps[k], precio: Math.round((Number(reps[k].precio) + diff / q) * 100) / 100 }; break; }
     }
   }
   return { items: reps, total: ef, bcv: generalR };
