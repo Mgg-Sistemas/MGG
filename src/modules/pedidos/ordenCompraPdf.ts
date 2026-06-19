@@ -179,13 +179,18 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.setFontSize(9);
   const documentosOc = orden.historial?.find((h) => h.evento === 'oc_emitida')?.documentos ?? [];
   const clasificacion = orden.clasificacion ?? [];
-  // Unidad/área solicitante = áreas distintas de los ítems (Administrativa / Fundición…).
-  const unidadSolicitante = Array.from(new Set((orden.items ?? []).map((it) => it.area).filter(Boolean) as string[])).join(' · ') || '—';
-  const solicitadoPor = [orden.solicitante || orden.solicitante_email || '—', orden.ci_solicitante ? `C.I. ${orden.ci_solicitante}` : ''].filter(Boolean).join(' · ');
+  // Unidad solicitante = depto/unidad que pide (orden.solicitante); Solicitante = la persona.
+  const unidadSolicitante = orden.solicitante?.trim() || '—';
+  const solicitante = orden.ci_solicitante?.trim() || orden.solicitante_email || '—';
+  // Finalidad = la de los ítems (cada producto dice para qué se pide), unificada.
+  const finalidadOrden = Array.from(new Set((orden.items ?? []).map((it) => it.finalidad?.trim()).filter(Boolean) as string[])).join(' · ')
+    || orden.finalidad?.trim() || '—';
   const cond: Array<[string, string]> = [
-    ['Unidad / área solicitante', unidadSolicitante],
-    ['Solicitado por', solicitadoPor],
+    ['Unidad solicitante', unidadSolicitante],
+    ['Solicitante', solicitante],
     ['Fecha de solicitud', orden.created_at ? dateTime(orden.created_at) : '—'],
+    ['Finalidad', finalidadOrden],
+    ['Notas', orden.notas?.trim() || '—'],
     ['Clasificación', clasificacion.length ? clasificacion.join(' · ') : '—'],
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
@@ -333,13 +338,13 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
     autoTable(doc, {
       startY: y,
-      head: [['SKU', 'Descripción', 'Área', 'Cantidad', 'Precio unit.', 'Subtotal']],
+      head: [['SKU', 'Descripción', 'Finalidad', 'Cantidad', 'Precio unit.', 'Subtotal']],
       body: o.items.map((it) => [
         it.sku,
         [it.marca, it.modelo].filter(Boolean).length
           ? `${it.nombre}\n(${[it.marca, it.modelo].filter(Boolean).join(' · ')})`
           : it.nombre,
-        it.area?.trim() || '—',
+        it.finalidad?.trim() || '—',
         num(it.cantidad),
         money(it.precio),
         money(it.cantidad * it.precio),
