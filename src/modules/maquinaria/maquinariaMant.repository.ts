@@ -13,6 +13,8 @@ export interface MantenimientoMaquinaria {
   equipo_id: string;
   fecha: string;
   horometro: number | null;
+  tipo: string | null;
+  pieza: string | null;
   aceite_lts: number | null;
   refrigerante_lts: number | null;
   gasoil_lts: number | null;
@@ -71,6 +73,7 @@ function sanitize(input: MantenimientoInput): Record<string, unknown> {
     equipo_id: input.equipo_id,
     fecha: input.fecha || new Date().toISOString().slice(0, 10),
     horometro: num(input.horometro),
+    tipo: v(input.tipo), pieza: v(input.pieza),
     aceite_lts: num(input.aceite_lts),
     refrigerante_lts: num(input.refrigerante_lts),
     gasoil_lts: num(input.gasoil_lts),

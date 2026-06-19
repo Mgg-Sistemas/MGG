@@ -1144,6 +1144,8 @@ create table if not exists public.maquinaria_mantenimientos (
   equipo_id     uuid not null references public.maquinaria_equipos(id) on delete cascade,
   fecha         date not null default current_date,
   horometro     numeric,
+  tipo          text,   -- tipo de mantenimiento (cambio de aceite, cambio de pieza, preventivo…)
+  pieza         text,   -- pieza cambiada (cuando tipo = cambio de pieza, ej. motor)
   aceite_lts    numeric, refrigerante_lts numeric, gasoil_lts numeric,
   trabajo       text, consumibles text, mecanico text, ubicacion text, observacion text,
   created_by    text, actor_name text,

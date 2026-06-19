@@ -10,6 +10,17 @@ import {
 import { datosCombustibleDeEquipo, type DatosCombustibleEquipo } from './maquinariaEquipos.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
+/** Tipos de mantenimiento (trazabilidad estructurada). */
+const TIPOS_MANT = [
+  'Cambio de aceite',
+  'Cambio de pieza',
+  'Mantenimiento preventivo',
+  'Mantenimiento correctivo',
+  'Reparación',
+  'Inspección',
+  'Otro',
+];
+
 export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   equipo: MaquinariaEquipo;
   canWrite: boolean;
@@ -24,6 +35,8 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const [borrarId, setBorrarId] = useState<string | null>(null);
   // alta
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tipo, setTipo] = useState('');
+  const [pieza, setPieza] = useState('');
   const [horometro, setHorometro] = useState('');
   const [aceite, setAceite] = useState('');
   const [refrigerante, setRefrigerante] = useState('');
@@ -56,10 +69,13 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
+    if (tipo === 'Cambio de pieza' && !pieza.trim()) { toast('Indicá qué pieza se cambió (ej: MOTOR).', 'error'); return; }
     setSaving(true);
     try {
       await addMantenimiento({
         equipo_id: equipo.id, fecha,
+        tipo: tipo || null,
+        pieza: tipo === 'Cambio de pieza' ? (pieza || null) : (pieza || null),
         horometro: horometro === '' ? null : Number(horometro),
         aceite_lts: aceite === '' ? null : Number(aceite),
         refrigerante_lts: refrigerante === '' ? null : Number(refrigerante),
@@ -68,7 +84,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         mecanico: mecanico || null, ubicacion: ubicacion || null,
       }, actor, actorName);
       toast('Registro agregado', 'success');
-      setHorometro(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
+      setTipo(''); setPieza(''); setHorometro(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
       setShowForm(false);
       await cargar();
     } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo agregar', 'error'); }
@@ -123,6 +139,20 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
             <div className="form-row"><label>Horómetro (lectura)</label><input className="input mono" name="bit-horometro" type="number" step="any" defaultValue={horometro} onChange={(e) => setHorometro(e.target.value)} /></div>
           </div>
           <div className="form-grid">
+            <div className="form-row">
+              <label>Tipo de mantenimiento</label>
+              <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+                <option value="">— elegir —</option>
+                {TIPOS_MANT.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="form-row">
+              <label>{tipo === 'Cambio de pieza' ? 'Pieza cambiada *' : 'Pieza / repuesto'}</label>
+              <input className="input" name="bit-pieza" placeholder={tipo === 'Cambio de pieza' ? 'Ej: MOTOR, BOMBA, ALTERNADOR…' : 'Opcional'}
+                value={pieza} onChange={(e) => setPieza(e.target.value.toUpperCase())} />
+            </div>
+          </div>
+          <div className="form-grid">
             <div className="form-row"><label>Aceite (Lts)</label><input className="input mono" name="bit-aceite" type="number" step="any" defaultValue={aceite} onChange={(e) => setAceite(e.target.value)} /></div>
             <div className="form-row"><label>Refrigerante (Lts)</label><input className="input mono" name="bit-refrigerante" type="number" step="any" defaultValue={refrigerante} onChange={(e) => setRefrigerante(e.target.value)} /></div>
           </div>
@@ -144,16 +174,20 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
       <div className="table-wrap" style={{ maxHeight: 360, overflow: 'auto' }}>
         <table className="table" style={{ fontSize: '.8rem' }}>
           <thead><tr>
-            <th>Fecha</th><th style={{ textAlign: 'right' }}>Horómetro</th><th style={{ textAlign: 'right' }}>HRS.</th>
+            <th>Fecha</th><th>Tipo</th><th style={{ textAlign: 'right' }}>Horómetro</th><th style={{ textAlign: 'right' }}>HRS.</th>
             <th style={{ textAlign: 'right' }}>Aceite</th><th style={{ textAlign: 'right' }}>Gasoil</th><th style={{ textAlign: 'right' }}>Lts/h</th>
             <th>Trabajo</th><th>Mecánico</th><th>Ubicación</th>{canWrite && <th></th>}
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={canWrite ? 10 : 9} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={canWrite ? 10 : 9} className="muted" style={{ textAlign: 'center' }}>Sin registros.</td></tr>}
+            {loading && <tr><td colSpan={canWrite ? 11 : 10} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={canWrite ? 11 : 10} className="muted" style={{ textAlign: 'center' }}>Sin registros.</td></tr>}
             {rows.map((r) => (
               <tr key={r.id}>
                 <td>{fmtDate(r.fecha)}</td>
+                <td style={{ fontSize: '.76rem' }}>
+                  {r.tipo ? <span className="badge">{r.tipo}</span> : '—'}
+                  {r.pieza ? <div className="muted mono" style={{ fontSize: '.7rem' }}>🔩 {r.pieza}</div> : null}
+                </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.horometro != null ? fmtNum(r.horometro) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.horas != null ? fmtNum(r.horas) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.aceite_lts != null ? fmtNum(r.aceite_lts) : '—'}</td>
