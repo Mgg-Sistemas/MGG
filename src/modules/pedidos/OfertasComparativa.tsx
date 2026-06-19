@@ -303,10 +303,8 @@ export function OfertasComparativa({
                   })()}
                   {expandido.has(s.oferta.id) && (() => {
                     const filas = comparativaPorProducto(s.oferta.items);
-                    const totBcvBruto = filas.reduce((a, f) => a + f.totalBcv, 0);
+                    const totBcv = filas.reduce((a, f) => a + f.totalBcv, 0);
                     const totUsd = filas.reduce((a, f) => a + f.totalUsd, 0);
-                    const desc = Number(s.oferta.descuento) || 0;
-                    const totBcv = totBcvBruto - desc;
                     const hayUsd = filas.some((f) => f.precioUsd > 0);
                     return (
                       <tr>
@@ -316,6 +314,7 @@ export function OfertasComparativa({
                               <thead>
                                 <tr>
                                   <th>Producto</th>
+                                  <th>Marca / modelo</th>
                                   <th className="num">Cant.</th>
                                   <th className="num" style={{ background: 'rgba(80,140,255,.10)' }}>Precio BCV</th>
                                   <th className="num" style={{ background: 'rgba(80,140,255,.10)' }}>Total BCV</th>
@@ -326,9 +325,10 @@ export function OfertasComparativa({
                                 </tr>
                               </thead>
                               <tbody>
-                                {filas.map((f) => (
-                                  <tr key={f.sku}>
+                                {filas.map((f, fi) => (
+                                  <tr key={`${f.sku}-${fi}`}>
                                     <td>{f.nombre}</td>
+                                    <td>{[f.marca, f.modelo].filter(Boolean).join(' · ') || <span className="muted">—</span>}</td>
                                     <td className="num mono">{f.cantidad}</td>
                                     <td className="num mono">{money(f.precioBcv)}</td>
                                     <td className="num mono">{money(f.totalBcv)}</td>
@@ -340,17 +340,8 @@ export function OfertasComparativa({
                                 ))}
                               </tbody>
                               <tfoot>
-                                {desc > 0 && (
-                                  <tr>
-                                    <td colSpan={3} className="num" style={{ color: 'var(--danger)' }}>Descuento</td>
-                                    <td className="num mono" style={{ color: 'var(--danger)' }}>−{money(desc)}</td>
-                                    <td colSpan={2}></td>
-                                    <td className="num mono" style={{ color: 'var(--danger)' }}>−{money(desc)}</td>
-                                    <td></td>
-                                  </tr>
-                                )}
                                 <tr style={{ fontWeight: 700 }}>
-                                  <td colSpan={3} className="num">TOTAL</td>
+                                  <td colSpan={4} className="num">TOTAL</td>
                                   <td className="num mono">{money(totBcv)}</td>
                                   <td></td>
                                   <td className="num mono">{hayUsd ? money(totUsd) : '—'}</td>

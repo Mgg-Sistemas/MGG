@@ -197,11 +197,9 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
 
   // ── Emisor (izq.) + Datos de la orden (der.), estilo factura ──
   const colDatosX = MARGIN + (PAGE_W - MARGIN * 2) * 0.52;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text('EMISOR', MARGIN, y);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text('Mineral Group Guayana C.A.', MARGIN, y + 14);
-  doc.text('Sistema de Gestión de Inventarios', MARGIN, y + 26);
+  doc.text('Mineral Group Guayana C.A.', MARGIN, y);
+  doc.text('Sistema de Gestión de Inventarios', MARGIN, y + 12);
 
   // Datos a la derecha (label en negrita + valor)
   const datos: Array<[string, string]> = [

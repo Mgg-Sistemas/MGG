@@ -1395,6 +1395,24 @@ alter table public.abonos_credito enable row level security;
 create policy "abonos read auth"  on public.abonos_credito for select using (auth.role() = 'authenticated');
 create policy "abonos write staff" on public.abonos_credito for all using (public.is_staff()) with check (public.is_staff());
 
+-- Chat interno por Orden de Compra: hilo de seguimiento (gerente ↔ analista, etc.).
+-- Realtime + contador de no leídos por usuario (jsonb leido_por).
+create table if not exists public.oc_mensajes (
+  id          uuid primary key default gen_random_uuid(),
+  orden_id    uuid not null references public.ordenes(id) on delete cascade,
+  texto       text not null check (length(btrim(texto)) > 0),
+  autor       uuid,                                    -- auth.uid() del que escribe
+  autor_email text,
+  autor_nombre text,
+  leido_por   jsonb not null default '[]'::jsonb,      -- ids de usuarios que ya lo leyeron
+  created_at  timestamptz not null default now()
+);
+create index if not exists idx_oc_mensajes_orden on public.oc_mensajes(orden_id, created_at);
+alter table public.oc_mensajes enable row level security;
+create policy "oc_mensajes read auth" on public.oc_mensajes for select using (auth.role() = 'authenticated');
+create policy "oc_mensajes write op"  on public.oc_mensajes for all using (public.is_operativo()) with check (public.is_operativo());
+-- realtime: alter publication supabase_realtime add table public.oc_mensajes; (aplicado)
+
 -- Personal (nómina): TODO el personal a pagar, tengan o no usuario del sistema.
 -- "Usuarios" = los del login; "Personal" engloba a todos para la nómina. Se
 -- administra y se paga desde Tesorería → Pago a personal.
@@ -1535,18 +1553,21 @@ values ('ofertas-pdf','ofertas-pdf', false, 10485760, array['application/pdf','i
 on conflict (id) do update
   set file_size_limit = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
--- El analista carga las ofertas, así que la escritura es para STAFF (admin + analista),
--- en línea con la tabla `ofertas_proveedor`. (Antes exigía is_admin() y el analista
--- recibía "new row violates row-level security policy" al subir el PDF.)
+-- Escritura/lectura para cualquier usuario AUTENTICADO (el bucket es privado). Se quitó
+-- el is_staff() del INSERT/UPDATE/DELETE: era redundante (is_staff = cualquier registrado)
+-- y al subir varias imágenes daba "invalid policy". Basta con que esté logueado.
 drop policy if exists "ofertas-pdf write admin"  on storage.objects;
 drop policy if exists "ofertas-pdf update admin"  on storage.objects;
 drop policy if exists "ofertas-pdf delete admin"  on storage.objects;
-create policy "ofertas-pdf write staff"  on storage.objects for insert to authenticated
-  with check (bucket_id = 'ofertas-pdf' and public.is_staff());
-create policy "ofertas-pdf update staff" on storage.objects for update to authenticated
-  using (bucket_id = 'ofertas-pdf' and public.is_staff());
-create policy "ofertas-pdf delete staff" on storage.objects for delete to authenticated
-  using (bucket_id = 'ofertas-pdf' and public.is_staff());
+drop policy if exists "ofertas-pdf write staff"  on storage.objects;
+drop policy if exists "ofertas-pdf update staff" on storage.objects;
+drop policy if exists "ofertas-pdf delete staff" on storage.objects;
+create policy "ofertas-pdf write auth"  on storage.objects for insert to authenticated
+  with check (bucket_id = 'ofertas-pdf');
+create policy "ofertas-pdf update auth" on storage.objects for update to authenticated
+  using (bucket_id = 'ofertas-pdf') with check (bucket_id = 'ofertas-pdf');
+create policy "ofertas-pdf delete auth" on storage.objects for delete to authenticated
+  using (bucket_id = 'ofertas-pdf');
 
 -- ─────────────────────────────────────────────────────────────
 -- 10. updated_at automático

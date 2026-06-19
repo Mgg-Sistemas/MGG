@@ -769,6 +769,9 @@ export interface OrdenPorPagar {
   esContraEntrega: boolean;
   /** Monto sugerido a pagar (lo recibido en contra entrega, el total en el resto). */
   montoAPagar: number;
+  /** Aprobada por el Gerente pero aún SIN método de pago (la indica el analista de
+   *  compras). Tesorería ya ve el monto, pero todavía no puede pagar. */
+  esperandoMetodo: boolean;
 }
 
 function mapPorPagar(orden: Orden, pm: Map<string, string>): OrdenPorPagar {
@@ -779,15 +782,18 @@ function mapPorPagar(orden: Orden, pm: Map<string, string>): OrdenPorPagar {
     proveedorNombre: (orden.proveedor_id && pm.get(orden.proveedor_id)) || '—',
     esContraEntrega,
     montoAPagar,
+    esperandoMetodo: orden.estado === 'confirmada_metodo',
   };
 }
 
-/** Lista las OC confirmadas (oc_aprobada) pendientes de pago en Tesorería.
- *  Captura anticipado (oc_aprobada) y contra_entrega (oc_aprobada tras recibir e
- *  indicar método). Las de crédito NO aparecen: se saldan por abonos. */
+/** Lista las OC pendientes de pago en Tesorería. Incluye:
+ *   · `confirmada_metodo`: aprobada por el Gerente, AÚN sin método de pago (Tesorería ya
+ *     ve el monto a pagar; el analista de compras debe indicar el método para poder pagar).
+ *   · `oc_aprobada`: con método indicado → lista para pagar (anticipado, o contra entrega
+ *     tras recibir). Las de crédito NO aparecen: se saldan por abonos. */
 export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
   const [{ data: os, error }, { data: provs }] = await Promise.all([
-    supabase.from(TABLE).select('*').eq('estado', 'oc_aprobada').order('oc_aprobada_en', { ascending: true }),
+    supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada']).order('oc_aprobada_en', { ascending: true }),
     supabase.from('proveedores').select('id, razon_social'),
   ]);
   if (error) throw error;
