@@ -2829,7 +2829,6 @@ function tasaCruzada(de: MonedaCaja, a: MonedaCaja, t: TasasMercado): number | n
   return round2(vd / va);
 }
 
-const CUENTAS_CAJA: CuentaCaja[] = ['general', 'juridica', 'personal'];
 const labelCuenta = (c: CuentaCaja) => c === 'general' ? 'General' : c === 'juridica' ? 'Jurídica' : c === 'personal' ? 'Personal' : String(c);
 
 function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
@@ -2843,6 +2842,8 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   const [montoStr, setMontoStr] = useState('');
   const [tasaStr, setTasaStr] = useState('');
   const [comisionStr, setComisionStr] = useState('');   // % de comisión/descuento sobre el convertido
+  const [netoOverride, setNetoOverride] = useState<number | null>(null); // neto redondeado escrito a mano
+  const [redondearOpen, setRedondearOpen] = useState(false);            // modal «Ingrese monto redondeado»
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -2866,6 +2867,18 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
     setOrigenSaldoId((prev) => saldosOrigen.some((s) => s.id === prev) ? prev : (saldosOrigen[0]?.id ?? ''));
   }, [saldosOrigen]);
 
+  // Cuentas/billeteras existentes en la caja destino (las que ya tienen saldo) + «General».
+  // Si la caja no tiene billeteras, queda solo «General» (y entra directo ahí).
+  const cuentasDestino = useMemo(() => {
+    const set = new Set<string>(['general']);
+    saldos.filter((s) => s.caja_id === destinoCajaId).forEach((s) => set.add(s.cuenta));
+    return Array.from(set);
+  }, [saldos, destinoCajaId]);
+  // Si la cuenta elegida ya no es válida para la caja, volver a «General».
+  useEffect(() => {
+    if (!cuentasDestino.includes(destinoCuenta)) setDestinoCuenta((cuentasDestino[0] ?? 'general') as CuentaCaja);
+  }, [cuentasDestino, destinoCuenta]);
+
   // Sugerencia de tasa al cambiar las monedas o cargar el mercado (editable).
   useEffect(() => {
     if (!mercado || de === a) { if (de === a) setTasaStr('1'); return; }
@@ -2877,10 +2890,13 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   const disponible = Number(origenSaldo?.saldo) || 0;
   const montoNum = Number(montoStr) || 0;
   const tasaNum = Number(tasaStr) || 0;
-  const comisionPct = Math.max(0, Math.min(100, Number(comisionStr) || 0));
+  const comisionPctInput = Math.max(0, Math.min(100, Number(comisionStr) || 0));
   const bruto = round2(montoNum * tasaNum);
-  const comisionMonto = round2(bruto * comisionPct / 100);
-  const resultado = round2(bruto - comisionMonto);   // neto que recibe el destino
+  // Neto redondeado a mano: tiene prioridad mientras sea válido (≤ bruto). Si no, manda el %.
+  const netoManual = netoOverride != null && netoOverride > 0 && netoOverride <= bruto ? round2(netoOverride) : null;
+  const resultado = netoManual != null ? netoManual : round2(bruto - round2(bruto * comisionPctInput / 100)); // neto que recibe el destino
+  const comisionMonto = round2(bruto - resultado);
+  const comisionPct = bruto > 0 ? round2(comisionMonto / bruto * 100) : 0;
   const excede = montoNum > disponible + 0.001;
   const puede = !!origenSaldo && !!destinoCajaId && de !== a && montoNum > 0 && tasaNum > 0 && !excede && !saving;
 
@@ -2890,6 +2906,14 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
     const sug = de === a ? 1 : tasaCruzada(de, a, mercado);
     if (sug != null) setTasaStr(String(sug));
   }
+  // «Redondear»: el usuario escribe a mano el neto redondeado que debe recibir el destino.
+  // Ese monto queda fijo (la comisión se calcula sola como bruto − neto). Limpia el % manual.
+  function aplicarRedondeo(montoRedondeado: number) {
+    setNetoOverride(montoRedondeado > 0 ? round2(montoRedondeado) : null);
+    setComisionStr('');
+    setRedondearOpen(false);
+  }
+  function limpiarComision() { setNetoOverride(null); setComisionStr(''); }
 
   async function convertir() {
     if (!origenSaldo) { setErr('Elegí de qué saldo sale el dinero.'); return; }
@@ -2912,7 +2936,7 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
       await convertirDivisa({
         origenCajaId: origenSaldo.caja_id, origenCuenta: origenSaldo.cuenta, monedaDe: de,
         destinoCajaId, destinoCuenta, monedaA: a,
-        montoDe: montoNum, tasa: tasaNum, comisionPct, motivo,
+        montoDe: montoNum, tasa: tasaNum, comisionPct, montoANeto: netoManual, motivo,
         actor, actorName,
       });
       if (cpTipo && cpNombre.trim()) {
@@ -2991,10 +3015,17 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
           </select>
         </div>
         <div className="form-row">
-          <label>Cuenta destino</label>
-          <select className="select" value={destinoCuenta} onChange={(e) => setDestinoCuenta(e.target.value as CuentaCaja)}>
-            {CUENTAS_CAJA.map((c) => <option key={c} value={c}>{labelCuenta(c)}</option>)}
+          <label>Cuenta / billetera destino</label>
+          <select className="select" value={destinoCuenta} onChange={(e) => setDestinoCuenta(e.target.value as CuentaCaja)} disabled={!destinoCajaId}>
+            {cuentasDestino.map((c) => <option key={c} value={c}>{labelCuentaCaja(c)}</option>)}
           </select>
+          {destinoCajaId && (
+            <small className="muted">
+              {cuentasDestino.length > 1
+                ? <>Entra a <strong>{nombreCaja(destinoCajaId)}</strong> · billetera <strong>{labelCuentaCaja(destinoCuenta)}</strong>.</>
+                : <>Esta caja no tiene billeteras: entra directo a <strong>General</strong>.</>}
+            </small>
+          )}
         </div>
       </div>
 
@@ -3058,25 +3089,77 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
         </div>
         <div className="form-row">
           <label>Comisión / descuento (%)</label>
-          <input className="input mono" type="number" min={0} max={100} step="any" value={comisionStr}
-            onChange={(e) => setComisionStr(e.target.value)} placeholder="0" />
-          <small className="muted">Se le descuenta al convertido; el destino recibe el neto. Vacío = sin comisión.</small>
+          <input className="input mono" type="number" min={0} max={100} step="any"
+            value={netoManual != null ? '' : comisionStr}
+            onChange={(e) => { setNetoOverride(null); setComisionStr(e.target.value); }}
+            placeholder={netoManual != null ? `≈ ${comisionPct}% (redondeado)` : '0'} />
+          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.3rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRedondearOpen(true)} disabled={bruto <= 0}
+              title="Escribí a mano el monto redondeado que debe recibir el destino (ej. 60)">⊕ Redondear</button>
+            {(comisionStr || netoManual != null) && <button type="button" className="btn btn-sm btn-ghost" onClick={limpiarComision}>✕ Sin comisión</button>}
+          </div>
+          <small className="muted">
+            {netoManual != null
+              ? <>El destino recibe el monto redondeado <strong>{monto(netoManual, a)}</strong> (comisión {monto(comisionMonto, a)}).</>
+              : <>Opcional. Se le descuenta al convertido; el destino recibe el neto. «Redondear» te deja escribir el monto redondeado a recibir.</>}
+          </small>
         </div>
       </div>
 
       <div className="card" style={{ marginTop: '.5rem', textAlign: 'center', borderColor: 'var(--brand, #ff8a00)' }}>
-        <div className="muted" style={{ fontSize: '.74rem' }}>{comisionPct > 0 ? 'Recibe (neto) en ' : 'Equivalente en '}{a}</div>
+        <div className="muted" style={{ fontSize: '.74rem' }}>{comisionMonto > 0 ? (netoManual != null ? 'Recibe (redondeado) en ' : 'Recibe (neto) en ') : 'Equivalente en '}{a}</div>
         <strong className="mono" style={{ fontSize: '1.6rem', color: 'var(--text, #fff)' }}>{monto(resultado, a)}</strong>
         {tasaNum > 0 && montoNum > 0 && (
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
             {monto(montoNum, de)} × {tasaNum.toLocaleString('es-VE')} = {monto(bruto, a)}
-            {comisionPct > 0 && <> · − comisión {comisionPct}% ({monto(comisionMonto, a)}) = <strong>{monto(resultado, a)}</strong></>}
+            {comisionMonto > 0 && <> · − comisión {comisionPct}% ({monto(comisionMonto, a)}) = <strong>{monto(resultado, a)}</strong></>}
           </div>
         )}
       </div>
 
+      {redondearOpen && (
+        <RedondearNetoModal
+          moneda={a}
+          bruto={bruto}
+          sugerido={Math.round(resultado / 10) * 10}
+          onAceptar={aplicarRedondeo}
+          onClose={() => setRedondearOpen(false)}
+        />
+      )}
+
       {excede && <div className="muted" style={{ color: 'var(--danger)', fontSize: '.8rem', marginTop: '.4rem' }}>El monto supera el saldo disponible.</div>}
       {err && <div className="muted" style={{ color: 'var(--danger)', fontSize: '.82rem', marginTop: '.4rem' }}>{err}</div>}
+    </Modal>
+  );
+}
+
+/** Modal chico: el usuario escribe el monto redondeado que debe recibir el destino. */
+function RedondearNetoModal({ moneda, bruto, sugerido, onAceptar, onClose }: {
+  moneda: string; bruto: number; sugerido: number; onAceptar: (m: number) => void; onClose: () => void;
+}) {
+  const [valStr, setValStr] = useState(sugerido > 0 && sugerido <= bruto ? String(sugerido) : '');
+  const val = Number(valStr) || 0;
+  const excede = val > bruto + 0.001;
+  const puede = val > 0 && !excede;
+  return (
+    <Modal title="Monto redondeado" size="sm" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" disabled={!puede} onClick={() => onAceptar(val)}>Aplicar</button>
+      </>
+    }>
+      <div className="form-row">
+        <label>Ingrese el monto redondeado que recibe el destino ({moneda})</label>
+        <input className="input mono" type="number" min={0} step="any" autoFocus value={valStr}
+          onChange={(e) => setValStr(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && puede) onAceptar(val); }}
+          placeholder={sugerido > 0 ? String(sugerido) : '0'} />
+        <small className="muted">
+          Convertido (bruto): <strong>{monto(bruto, moneda)}</strong>.
+          {val > 0 && !excede && <> La comisión será <strong>{monto(round2(bruto - val), moneda)}</strong>.</>}
+        </small>
+        {excede && <small className="muted" style={{ color: 'var(--danger)' }}>No puede superar el convertido ({monto(bruto, moneda)}).</small>}
+      </div>
     </Modal>
   );
 }
@@ -4170,16 +4253,13 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
       {!lista.length ? (
         <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar abiertas. Creá una arriba. 🎉</p>
       ) : (
-      <div className="form-row" style={{ marginBottom: '.6rem' }}>
-        <label>Cuenta por pagar ({lista.length})</label>
-        <select className="select" value={selId} onChange={(e) => setSelId(e.target.value)}>
-          {lista.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.tipo === 'proveedor' ? '🏭' : '👤'} {c.contraparte} · saldo {monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}
-            </option>
-          ))}
-        </select>
-      </div>
+      <SelectorBuscable
+        label="Cuenta por pagar"
+        items={lista}
+        value={selId}
+        onChange={setSelId}
+        optionLabel={(c) => `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}`}
+      />
       )}
 
       {sel && (
@@ -4390,6 +4470,40 @@ function EnviarCuentaPorPagarModal({ cuenta, abonos, ingresos, defaultEmail, onC
 }
 
 /* ───────────── Cuentas por cobrar (cliente/proveedor nos debe) ───────────── */
+/** Selector con buscador: filtra la lista por texto (nombre, tipo o monto) y deja
+ *  elegir del desplegable. La selección actual se conserva aunque no coincida con el
+ *  filtro (no cambia sola al teclear). Usado en CxC y CxP. */
+function SelectorBuscable<T extends { id: string }>({ label, items, value, onChange, optionLabel }: {
+  label: string; items: T[]; value: string; onChange: (id: string) => void; optionLabel: (it: T) => string;
+}) {
+  const [q, setQ] = useState('');
+  const filtrados = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return items;
+    const palabras = t.split(/\s+/).filter(Boolean);
+    return items.filter((it) => { const s = optionLabel(it).toLowerCase(); return palabras.every((p) => s.includes(p)); });
+  }, [items, q, optionLabel]);
+  // La opción seleccionada siempre presente, aunque el filtro no la incluya.
+  const opciones = useMemo(() => {
+    const arr = [...filtrados];
+    if (value && !arr.some((it) => it.id === value)) {
+      const cur = items.find((it) => it.id === value);
+      if (cur) arr.unshift(cur);
+    }
+    return arr;
+  }, [filtrados, items, value]);
+  return (
+    <div className="form-row" style={{ marginBottom: '.6rem' }}>
+      <label>{label} ({items.length})</label>
+      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 Buscar por nombre, tipo o monto…" />
+      <select className="select" style={{ marginTop: '.35rem' }} value={value} onChange={(e) => onChange(e.target.value)}>
+        {opciones.map((it) => <option key={it.id} value={it.id}>{optionLabel(it)}</option>)}
+      </select>
+      {q.trim() && <small className="muted">{filtrados.length} de {items.length} coinciden</small>}
+    </div>
+  );
+}
+
 function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: {
   cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onChanged: () => void | Promise<void>;
 }) {
@@ -4607,16 +4721,13 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
         <EmptyState message="Sin cuentas por cobrar abiertas. Creá una arriba." icon="📥" />
       ) : (
         <>
-          <div className="form-row">
-            <label>Cuenta por cobrar ({lista.length})</label>
-            <select className="select" value={selId} onChange={(e) => setSelId(e.target.value)}>
-              {lista.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {labelTipoCxC(c.tipo)}: {c.contraparte} · debe {monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SelectorBuscable
+            label="Cuenta por cobrar"
+            items={lista}
+            value={selId}
+            onChange={setSelId}
+            optionLabel={(c) => `${labelTipoCxC(c.tipo)}: ${c.contraparte} · debe ${monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}`}
+          />
 
           {sel && (
             <>

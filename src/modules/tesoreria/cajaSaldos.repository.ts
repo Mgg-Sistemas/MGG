@@ -233,6 +233,9 @@ export interface ConvertirDivisaInput {
   tasa: number;              // 1 DE = ? A (la tasa usada para convertir)
   /** Comisión/descuento (%) que se le descuenta al convertido: el destino recibe el neto. */
   comisionPct?: number | null;
+  /** Neto redondeado (absoluto) que debe recibir el destino. Tiene prioridad sobre `comisionPct`:
+   *  la comisión se calcula como (bruto − este monto). Lo usa el botón «Redondear». */
+  montoANeto?: number | null;
   motivo?: string | null;
   actor: string; actorName?: string | null;
 }
@@ -252,11 +255,21 @@ export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ or
   if (tasa <= 0) throw new Error('La tasa de conversión debe ser mayor que 0.');
   if (input.monedaDe === input.monedaA && input.origenCajaId === input.destinoCajaId && input.origenCuenta === input.destinoCuenta)
     throw new Error('El origen y el destino son el mismo saldo: no hay nada que convertir.');
-  // Comisión/descuento (%): el bruto se reduce y el destino recibe el neto.
-  const pct = Math.max(0, Math.min(100, Number(input.comisionPct) || 0));
+  // Comisión/descuento: el bruto se reduce y el destino recibe el neto.
+  // Prioridad: si viene `montoANeto` (neto redondeado absoluto) se usa ese; si no, el %.
   const montoBruto = round2(montoDe * tasa);
-  const comision = round2(montoBruto * pct / 100);
-  const montoA = round2(montoBruto - comision);
+  const netoManual = input.montoANeto != null ? round2(Number(input.montoANeto)) : null;
+  let comision: number, montoA: number;
+  if (netoManual != null && netoManual > 0 && netoManual <= montoBruto) {
+    montoA = netoManual;
+    comision = round2(montoBruto - montoA);
+  } else {
+    const pctIn = Math.max(0, Math.min(100, Number(input.comisionPct) || 0));
+    comision = round2(montoBruto * pctIn / 100);
+    montoA = round2(montoBruto - comision);
+  }
+  // % efectivo (para el motivo), derivado de la comisión real aplicada.
+  const pct = montoBruto > 0 ? round2(comision / montoBruto * 100) : 0;
   if (montoA <= 0) throw new Error('El monto convertido (neto) resulta en 0.');
 
   // Tasa promedio (Bs/unidad) del saldo origen, para arrastrar la base de costo al destino.
