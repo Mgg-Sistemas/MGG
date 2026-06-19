@@ -255,3 +255,39 @@ export async function transferir(input: TransferirInput): Promise<void> {
     detalle: `Transferencia desde ${input.almacenOrigen}${extra}`,
   });
 }
+
+/**
+ * Consolida TODO el stock de un producto en un único almacén: transfiere lo que
+ * haya en cualquier otro almacén hacia `almacenDestino`, dejando una sola existencia
+ * con el total (un producto = una ubicación). Se usa cuando se cambia el almacén
+ * "hogar" del producto. Cada movida queda en el kardex como transferencia.
+ * Devuelve cuántos almacenes se consolidaron (0 si ya estaba todo en el destino).
+ */
+export async function consolidarProductoEnAlmacen(
+  productoId: string,
+  almacenDestino: string,
+  actor: string,
+  actorName?: string | null,
+): Promise<number> {
+  const destino = (almacenDestino || 'General').trim() || 'General';
+  const { data, error } = await supabase
+    .from('existencias')
+    .select('almacen, stock')
+    .eq('producto_id', productoId);
+  if (error) throw error;
+  const otros = (data ?? [])
+    .map((r) => ({ almacen: String((r as { almacen: string }).almacen), stock: Number((r as { stock: number }).stock) || 0 }))
+    .filter((r) => r.almacen.trim() !== destino && r.stock > 0);
+  for (const o of otros) {
+    await transferir({
+      producto_id: productoId,
+      almacenOrigen: o.almacen,
+      almacenDestino: destino,
+      cantidad: o.stock,
+      actor,
+      actor_name: actorName ?? null,
+      detalle: 'Consolidación por cambio de almacén del producto',
+    });
+  }
+  return otros.length;
+}
