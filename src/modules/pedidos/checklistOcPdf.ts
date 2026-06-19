@@ -25,10 +25,13 @@ async function construir(rows: OcLoteRow[], codigo: string) {
   doc.setTextColor(0, 0, 0);
   y += 50;
 
+  const unidadDe = (r: OcLoteRow) =>
+    Array.from(new Set((r.orden.items ?? []).map((it) => it.area).filter(Boolean) as string[])).join(' · ') || '—';
   const body = rows.map((r, i) => [
     String(i + 1),
     r.orden.oc_codigo ?? r.orden.codigo,
     r.orden.solicitante || r.orden.solicitante_email || '—',
+    unidadDe(r),
     r.proveedorNombre,
     r.descripcion,
     fmt.money(r.orden.total),
@@ -39,20 +42,20 @@ async function construir(rows: OcLoteRow[], codigo: string) {
 
   autoTable(doc, {
     startY: y,
-    head: [['ITEM', 'N°ODC', 'SOLICITADO POR', 'PROVEEDOR', 'DESCRIPCIÓN', 'MONTO $', 'FECHA DE COMPRA', 'FECHA DE FIRMA', 'ESTATUS']],
+    head: [['ITEM', 'N°ODC', 'SOLICITADO POR', 'UNIDAD / ÁREA', 'PROVEEDOR', 'DESCRIPCIÓN', 'MONTO $', 'FECHA DE COMPRA', 'FECHA DE FIRMA', 'ESTATUS']],
     body,
     styles: { fontSize: 8, cellPadding: 4, valign: 'middle' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
     columnStyles: {
       0: { halign: 'center', cellWidth: 32 },
       1: { halign: 'center', cellWidth: 60 },
-      4: { cellWidth: 200 },
-      5: { halign: 'right', cellWidth: 60 },
-      8: { halign: 'center', cellWidth: 90 },
+      5: { cellWidth: 180 },
+      6: { halign: 'right', cellWidth: 56 },
+      9: { halign: 'center', cellWidth: 86 },
     },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     didParseCell: (data) => {
-      if (data.section === 'body' && data.column.index === 8) {
+      if (data.section === 'body' && data.column.index === 9) {
         const confirmada = data.cell.raw === 'CONFIRMADA';
         data.cell.styles.fillColor = confirmada ? [22, 160, 90] : [200, 30, 30];
         data.cell.styles.textColor = [255, 255, 255];

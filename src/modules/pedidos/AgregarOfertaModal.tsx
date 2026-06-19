@@ -30,7 +30,12 @@ interface Props {
 interface FormItem extends ItemOrden {
   precio: number;       // precio unitario a tasa BCV
   precio_usd: number;   // precio unitario en divisa efectivo (USD)
+  _rid: string;         // id local estable (las variantes comparten SKU)
+  _variante?: boolean;  // true = renglón agregado como marca/variante extra
 }
+
+let _ridSeq = 0;
+const nextRid = () => `r${++_ridSeq}`;
 
 export function AgregarOfertaModal({
   orden,
@@ -74,12 +79,10 @@ export function AgregarOfertaModal({
   // En edición, se traen los ítems con el precio que ya tenía la oferta.
   const [items, setItems] = useState<FormItem[]>(
     ofertaEdit
-      ? ofertaEdit.items.map((i) => ({ ...i, precio: Number(i.precio) || 0, precio_usd: Number(i.precio_usd) || 0 }))
-      : orden.items.filter((i) => i.comprar !== false).map((i) => ({ ...i, precio: 0, precio_usd: 0 })),
+      ? ofertaEdit.items.map((i) => ({ ...i, precio: Number(i.precio) || 0, precio_usd: Number(i.precio_usd) || 0, _rid: nextRid() }))
+      : orden.items.filter((i) => i.comprar !== false).map((i) => ({ ...i, precio: 0, precio_usd: 0, _rid: nextRid() })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEdit?.fecha_entrega_prometida ?? '');
-  // Descuento aplicado al total BCV (BCV total = subtotal − descuento).
-  const [descuentoStr, setDescuentoStr] = useState<string>(ofertaEdit?.descuento ? String(ofertaEdit.descuento) : '');
   const [condiciones, setCondiciones] = useState(ofertaEdit?.condiciones_pago ?? '');
   const [notas, setNotas] = useState(ofertaEdit?.notas ?? '');
   // Datos técnicos/logísticos de la oferta (todos opcionales).
@@ -117,9 +120,7 @@ export function AgregarOfertaModal({
 
   const bcvSubtotal = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
   const usdTotal = items.reduce((a, i) => a + i.cantidad * (i.precio_usd || 0), 0);
-  const descuento = Math.max(0, Number(descuentoStr) || 0);
-  // Total BCV neto = subtotal − descuento. Es el `precio_total` de la oferta.
-  const precioTotal = Math.max(0, Math.round((bcvSubtotal - descuento) * 100) / 100);
+  const precioTotal = Math.round(bcvSubtotal * 100) / 100;
   const precioEfectivo = usdTotal > 0 ? Math.round(usdTotal * 100) / 100 : 0;
   // Diferencia y % de ahorro al pagar en divisa efectivo (BCV − efectivo) / BCV.
   const ahorroEfectivo = descuentoEfectivo(precioTotal, precioEfectivo);
@@ -129,6 +130,25 @@ export function AgregarOfertaModal({
   }
   function updateItemPrecioUsd(idx: number, precioUsd: number) {
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precio_usd: Math.max(0, precioUsd) } : it)));
+  }
+  function updateItemCampo(idx: number, patch: Partial<FormItem>) {
+    setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
+  }
+  // Agrega otra marca/variante del MISMO producto justo debajo (mismo SKU, su propio precio).
+  function agregarVariante(idx: number) {
+    setItems((prev) => {
+      const base = prev[idx];
+      const nueva: FormItem = {
+        ...base, _rid: nextRid(), _variante: true,
+        marca: '', modelo: '', precio: 0, precio_usd: 0,
+      };
+      const out = [...prev];
+      out.splice(idx + 1, 0, nueva);
+      return out;
+    });
+  }
+  function quitarItem(idx: number) {
+    setItems((prev) => prev.filter((_, k) => k !== idx));
   }
 
   async function handleSubmit() {
@@ -145,6 +165,15 @@ export function AgregarOfertaModal({
       return;
     }
     setSubmitting(true);
+    // Se quitan los campos locales (_rid/_variante) y se normaliza marca/modelo.
+    const itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, ...rest }) => {
+      void _rid; void _variante;
+      return {
+        ...rest,
+        marca: (rest.marca ?? '').toString().trim() || null,
+        modelo: (rest.modelo ?? '').toString().trim() || null,
+      };
+    });
     try {
       // ── Modo edición: proveedor fijo, se actualiza la oferta existente ──
       if (isEdit && ofertaEdit) {
@@ -158,10 +187,10 @@ export function AgregarOfertaModal({
           adjuntosPatch.pdf_filename = todos[0]?.filename ?? null;
         }
         await actualizarOferta(ofertaEdit.id, {
-          items,
+          items: itemsLimpios,
           precio_total: precioTotal,
           precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
-          descuento: descuento > 0 ? descuento : null,
+          descuento: null,
           fecha_entrega_prometida: fechaEntrega || null,
           condiciones_pago: condiciones.trim() || null,
           notas: notas.trim() || null,
@@ -213,10 +242,9 @@ export function AgregarOfertaModal({
       await crearOferta({
         orden_id: orden.id,
         proveedor_id: provId,
-        items,
+        items: itemsLimpios,
         precio_total: precioTotal,
         precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
-        descuento: descuento > 0 ? descuento : null,
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
         notas: notas.trim() || null,
@@ -394,17 +422,22 @@ export function AgregarOfertaModal({
 
       <div className="form-row">
         <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y, si aplica, en USD efectivo)</span></label>
+        <p className="muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.4rem' }}>
+          💡 Si el proveedor ofrece el mismo producto en <strong>varias marcas/modelos</strong>, usá <strong>＋ marca</strong> para agregar otra variante con su propio precio.
+        </p>
         <div className="table-wrap">
           <table className="items-table">
             <thead>
               <tr>
                 <th rowSpan={2}>SKU</th>
                 <th rowSpan={2}>Producto</th>
+                <th rowSpan={2}>Marca / modelo</th>
                 <th className="num" rowSpan={2}>Cant.</th>
                 <th className="num" colSpan={2} style={{ textAlign: 'center', background: 'rgba(80,140,255,.10)' }}>Pago en Bs a BCV</th>
                 <th className="num" colSpan={2} style={{ textAlign: 'center', background: 'rgba(255,120,120,.10)' }}>Pago en USD</th>
                 <th className="num" rowSpan={2}>Diferencia</th>
                 <th className="num" rowSpan={2}>Var. %</th>
+                <th rowSpan={2}></th>
               </tr>
               <tr>
                 <th className="num" style={{ background: 'rgba(80,140,255,.06)' }}>Precio</th>
@@ -420,10 +453,21 @@ export function AgregarOfertaModal({
                 const dif = totBcv - totUsd;
                 const pct = it.precio > 0 ? ((it.precio - (it.precio_usd || 0)) / it.precio) * 100 : 0;
                 return (
-                  <tr key={`${it.sku}-${idx}`}>
-                    <td className="mono">{it.sku}</td>
-                    <td>{it.nombre}</td>
-                    <td className="num">{it.cantidad}</td>
+                  <tr key={it._rid}>
+                    <td className="mono">{it._variante ? <span className="muted" title="Variante del mismo producto">↳</span> : it.sku}</td>
+                    <td>{it._variante ? <span className="muted">{it.nombre}</span> : it.nombre}</td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                        <input className="input" style={{ minWidth: 110 }} placeholder="Marca"
+                          value={it.marca ?? ''} onChange={(e) => updateItemCampo(idx, { marca: e.target.value })} />
+                        <input className="input" style={{ minWidth: 110, fontSize: '.78rem' }} placeholder="Modelo (opcional)"
+                          value={it.modelo ?? ''} onChange={(e) => updateItemCampo(idx, { modelo: e.target.value })} />
+                      </div>
+                    </td>
+                    <td className="num">
+                      <input type="number" className="input mono" style={{ width: 64, textAlign: 'right' }} min={0} step="any"
+                        value={it.cantidad} onChange={(e) => updateItemCampo(idx, { cantidad: Math.max(0, Number(e.target.value) || 0) })} />
+                    </td>
                     <td className="num">
                       <input type="number" className="input mono" style={{ width: 95, textAlign: 'right' }} min={0} step={0.01}
                         value={it.precio} onChange={(e) => updateItemPrecio(idx, Number(e.target.value) || 0)} />
@@ -436,18 +480,26 @@ export function AgregarOfertaModal({
                     <td className="num mono">{totUsd > 0 ? money(totUsd) : '—'}</td>
                     <td className="num mono" style={{ color: dif > 0 ? 'var(--success)' : undefined }}>{totUsd > 0 ? money(dif) : '—'}</td>
                     <td className="num mono">{it.precio_usd ? `${pct.toFixed(2)}%` : '—'}</td>
+                    <td className="num" style={{ whiteSpace: 'nowrap' }}>
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem' }}
+                        onClick={() => agregarVariante(idx)} title="Agregar otra marca/modelo de este producto">＋ marca</button>
+                      {it._variante && (
+                        <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', color: 'var(--danger)' }}
+                          onClick={() => quitarItem(idx)} title="Quitar esta variante">✕</button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={3} className="num" style={{ fontWeight: 700 }}>SUBTOTAL</td>
-                <td></td>
+                <td colSpan={5} className="num" style={{ fontWeight: 700 }}>SUBTOTAL</td>
                 <td className="num mono" style={{ fontWeight: 700 }}>{money(bcvSubtotal)}</td>
                 <td></td>
                 <td className="num mono" style={{ fontWeight: 700 }}>{usdTotal > 0 ? money(usdTotal) : '—'}</td>
                 <td className="num mono" style={{ fontWeight: 700 }}>{usdTotal > 0 ? money(bcvSubtotal - usdTotal) : '—'}</td>
+                <td></td>
                 <td></td>
               </tr>
             </tfoot>
@@ -455,29 +507,15 @@ export function AgregarOfertaModal({
         </div>
       </div>
 
-      {/* Descuento (sobre BCV) + totales BCV/USD/diferencia */}
+      {/* Totales BCV/USD/diferencia */}
       <div className="card" style={{ background: 'var(--bg-2)', padding: '.8rem', marginBottom: '.75rem' }}>
-        <div className="card-title" style={{ marginBottom: '.5rem' }}>
-          <span>💵 Descuento y totales <span className="muted" style={{ fontWeight: 400 }}>(el descuento se resta del total en Bs/BCV)</span></span>
-        </div>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Descuento sobre el total BCV (opcional)</label>
-            <input type="number" className="input mono" min={0} step={0.01}
-              value={descuentoStr} onChange={(e) => setDescuentoStr(e.target.value)}
-              placeholder="Ej.: 5.00" style={{ textAlign: 'right' }} />
-            <small className="muted">Subtotal BCV {money(bcvSubtotal)} − descuento = <strong>{money(precioTotal)}</strong>.</small>
-          </div>
-          <div className="form-row">
-            <label>Totales</label>
-            <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
-              <div>Total BCV: <strong>{money(precioTotal)}</strong></div>
-              <div>Total USD: <strong style={{ color: 'var(--success)' }}>{precioEfectivo > 0 ? money(precioEfectivo) : '—'}</strong></div>
-              {ahorroEfectivo && (
-                <div>Diferencia: <strong>{money(ahorroEfectivo.diferencia)}</strong> <span className="badge success" style={{ marginLeft: '.3rem' }}>−{ahorroEfectivo.pct.toFixed(2)}%</span></div>
-              )}
-            </div>
-          </div>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}><span>💵 Totales</span></div>
+        <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
+          <div>Total BCV: <strong>{money(precioTotal)}</strong></div>
+          <div>Total USD: <strong style={{ color: 'var(--success)' }}>{precioEfectivo > 0 ? money(precioEfectivo) : '—'}</strong></div>
+          {ahorroEfectivo && (
+            <div>Diferencia: <strong>{money(ahorroEfectivo.diferencia)}</strong> <span className="badge success" style={{ marginLeft: '.3rem' }}>−{ahorroEfectivo.pct.toFixed(2)}%</span></div>
+          )}
         </div>
       </div>
 

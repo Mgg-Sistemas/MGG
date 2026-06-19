@@ -79,6 +79,7 @@ export function descuentoEfectivo(precioBcv?: number | null, precioEfectivo?: nu
  *  diferencia ($) y la variación (%) por línea. */
 export interface FilaComparativaProducto {
   sku: string; nombre: string; cantidad: number;
+  marca: string; modelo: string;
   precioBcv: number; totalBcv: number;
   precioUsd: number; totalUsd: number;
   diferencia: number; pct: number;
@@ -94,7 +95,11 @@ export function comparativaPorProducto(items: ItemOrden[]): FilaComparativaProdu
     const totalUsd = Math.round(cantidad * precioUsd * 100) / 100;
     const diferencia = Math.round((totalBcv - totalUsd) * 100) / 100;
     const pct = precioBcv > 0 ? Math.round(((precioBcv - precioUsd) / precioBcv) * 10000) / 100 : 0;
-    return { sku: it.sku, nombre: it.nombre, cantidad, precioBcv, totalBcv, precioUsd, totalUsd, diferencia, pct };
+    return {
+      sku: it.sku, nombre: it.nombre, cantidad,
+      marca: (it.marca ?? '').toString(), modelo: (it.modelo ?? '').toString(),
+      precioBcv, totalBcv, precioUsd, totalUsd, diferencia, pct,
+    };
   });
 }
 
@@ -108,7 +113,10 @@ export async function subirPdfOferta(
   if (file.size > MAX_PDF_BYTES) throw new Error('El archivo no puede superar 10 MB');
 
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-80);
-  const path = `${ordenId}/${proveedorId}-${Date.now()}-${safeName}`;
+  // Sufijo aleatorio además del timestamp: al subir VARIOS archivos en el mismo
+  // milisegundo (multi-imagen), el path debe ser único o el segundo choca (upsert:false).
+  const nonce = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`;
+  const path = `${ordenId}/${proveedorId}-${nonce}-${safeName}`;
   const { error } = await supabase.storage
     .from(BUCKET)
     .upload(path, file, { contentType: file.type || 'application/pdf', upsert: false });

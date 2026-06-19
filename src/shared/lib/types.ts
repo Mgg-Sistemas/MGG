@@ -665,6 +665,10 @@ export interface ItemOrden {
   area?: string;
   /** Cantidad realmente recibida (recepción parcial). Si falta = aún no recibido. */
   cantidad_recibida?: number;
+  /** Marca/modelo ofertados para ESTE renglón. Un proveedor puede cotizar el mismo
+   *  producto en varias marcas: cada variante es un renglón propio con su precio. */
+  marca?: string | null;
+  modelo?: string | null;
 }
 
 export interface EventoHistorial {
@@ -781,6 +785,18 @@ export interface AbonoCredito {
   comprobante_path?: string | null;
   comprobante_nombre?: string | null;
   at: string;
+}
+
+/** Mensaje del chat interno de una Orden de Compra (seguimiento gerente ↔ analista). */
+export interface OcMensaje {
+  id: string;
+  orden_id: string;
+  texto: string;
+  autor?: string | null;          // auth.uid() del autor
+  autor_email?: string | null;
+  autor_nombre?: string | null;
+  leido_por: string[];            // ids de usuarios que ya lo leyeron
+  created_at: string;
 }
 
 /** Personal de nómina (no necesariamente usuario del sistema). */

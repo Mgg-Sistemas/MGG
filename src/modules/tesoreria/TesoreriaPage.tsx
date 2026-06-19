@@ -3916,7 +3916,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Órdenes de compra confirmadas (aprobadas en lote). Hacé clic en una para ver el detalle completo y registrar el pago.
+        Órdenes de compra aprobadas por el Gerente. Las marcadas <strong>⏳ Esperando método de pago</strong> ya muestran el monto,
+        pero se pagan recién cuando el analista de compras indica el método de pago (ahí se habilita el pago).
       </p>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
@@ -3932,7 +3933,10 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                 <td className="mono">{r.orden.oc_codigo ?? '—'}</td>
                 <td className="mono">{r.orden.codigo}</td>
                 <td>{r.proveedorNombre}</td>
-                <td style={{ fontSize: '.78rem' }}>{labelCondicionPago(r.orden.condiciones_pago)}</td>
+                <td style={{ fontSize: '.78rem' }}>
+                  {labelCondicionPago(r.orden.condiciones_pago)}
+                  {r.esperandoMetodo && <div><span className="badge warning" style={{ fontSize: '.66rem', marginTop: '.2rem' }}>⏳ Esperando método de pago</span></div>}
+                </td>
                 <td className="mono" style={{ textAlign: 'right' }}>
                   {monto(r.montoAPagar, 'USD')}
                   {r.esContraEntrega && r.montoAPagar < Number(r.orden.total) && (
@@ -3941,7 +3945,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                 </td>
                 <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
                 <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
-                <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>Ver / Pagar</button></td>
+                <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>{r.esperandoMetodo ? 'Ver' : 'Ver / Pagar'}</button></td>
               </tr>
             ))}
           </tbody>
@@ -5177,8 +5181,10 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={() => descargarOrdenCompraPdf(o.id).catch(() => toast('No se pudo generar el PDF', 'error'))}>↓ OC PDF</button>
-      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving || excedeTotal}>{saving ? 'Pagando…' : excedeTotal ? 'Excede el total de la OC' : `PAGAR ORDEN · ${esMultimoneda ? monto(sumUsdMulti, 'USD') : monto(Number(montoStr) || 0, moneda)}`}</button>
+      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>{row.esperandoMetodo ? 'Cerrar' : 'Cancelar'}</button>
+      {!row.esperandoMetodo && (
+        <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving || excedeTotal}>{saving ? 'Pagando…' : excedeTotal ? 'Excede el total de la OC' : `PAGAR ORDEN · ${esMultimoneda ? monto(sumUsdMulti, 'USD') : monto(Number(montoStr) || 0, moneda)}`}</button>
+      )}
     </>
   );
 
@@ -5186,6 +5192,16 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
     <Modal title={`Pagar OC ${o.oc_codigo ?? o.codigo}`} size="lg" onClose={() => !saving && onClose()} footer={footer}>
       <form id="pagar-oc" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {row.esperandoMetodo && (
+          <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)' }}>
+            <div style={{ fontSize: '.86rem' }}>
+              ⏳ <strong>Esperando método de pago.</strong> Esta OC ya fue aprobada por el Gerente y muestra el monto a pagar
+              (<strong className="mono">{monto(row.montoAPagar, 'USD')}</strong>), pero el <strong>analista de compras</strong> debe
+              indicar el método de pago. Cuando lo haga, se habilita el pago acá automáticamente.
+            </div>
+          </div>
+        )}
 
         {/* Trazabilidad: de la OP a la confirmación, con fechas */}
         <div className="card" style={{ marginBottom: '.75rem' }}>
@@ -5207,6 +5223,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
           </div>
         </div>
 
+        {!row.esperandoMetodo && (<>
         {pagoParcial && (
           <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)' }}>
             <div style={{ fontSize: '.84rem' }}>
@@ -5469,6 +5486,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             <small className="muted">Se suma al motivo de la OP en el registro de movimientos.</small>
           </div>
         </div>
+        </>)}
       </form>
     </Modal>
   );

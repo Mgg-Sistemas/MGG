@@ -142,7 +142,6 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('EMISOR', MARGIN, y);
   doc.text('PROVEEDOR', PAGE_W / 2, y);
   y += 14;
   doc.setFont('helvetica', 'normal');
@@ -180,13 +179,20 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.setFontSize(9);
   const documentosOc = orden.historial?.find((h) => h.evento === 'oc_emitida')?.documentos ?? [];
   const clasificacion = orden.clasificacion ?? [];
+  // Unidad/área solicitante = áreas distintas de los ítems (Administrativa / Fundición…).
+  const unidadSolicitante = Array.from(new Set((orden.items ?? []).map((it) => it.area).filter(Boolean) as string[])).join(' · ') || '—';
+  const solicitadoPor = [orden.solicitante || orden.solicitante_email || '—', orden.ci_solicitante ? `C.I. ${orden.ci_solicitante}` : ''].filter(Boolean).join(' · ');
   const cond: Array<[string, string]> = [
+    ['Unidad / área solicitante', unidadSolicitante],
+    ['Solicitado por', solicitadoPor],
+    ['Fecha de solicitud', orden.created_at ? dateTime(orden.created_at) : '—'],
     ['Clasificación', clasificacion.length ? clasificacion.join(' · ') : '—'],
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
     ['Documentos', documentosOc.length ? documentosOc.join(' · ') : '—'],
     ['Aprobada por', orden.aprobada_por ?? '—'],
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
+    ['OC confirmada el', orden.oc_aprobada_en ? dateTime(orden.oc_aprobada_en) : '—'],
   ];
   autoTable(doc, {
     startY: y,
@@ -330,7 +336,9 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       head: [['SKU', 'Descripción', 'Área', 'Cantidad', 'Precio unit.', 'Subtotal']],
       body: o.items.map((it) => [
         it.sku,
-        it.nombre,
+        [it.marca, it.modelo].filter(Boolean).length
+          ? `${it.nombre}\n(${[it.marca, it.modelo].filter(Boolean).join(' · ')})`
+          : it.nombre,
         it.area?.trim() || '—',
         num(it.cantidad),
         money(it.precio),
