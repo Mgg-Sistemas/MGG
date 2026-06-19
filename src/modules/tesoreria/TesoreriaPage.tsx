@@ -437,6 +437,23 @@ export function TesoreriaPage() {
                     );
                   })}
                 </tbody>
+                {!loading && libroView.length > 0 && (
+                  <tfoot>
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>
+                        Total {fTipo === 'ingreso' ? 'ingresos' : fTipo === 'salida' ? 'egresos' : 'neto'} · {libroView.length} mov.
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>
+                        {totalesMontoPorMoneda(libroView).map(([mon, tot]) => (
+                          <div key={mon} style={{ whiteSpace: 'nowrap', color: tot < 0 ? 'var(--danger)' : 'var(--success)' }}>
+                            {tot < 0 ? '−' : '+'}{monto(Math.abs(tot), mon)}
+                          </div>
+                        ))}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>
@@ -1239,6 +1256,21 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                 );
               })}
             </tbody>
+            {!loading && movs.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total neto · {movs.length} mov.</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>
+                    {totalesMontoPorMoneda(movs).map(([mon, tot]) => (
+                      <div key={mon} style={{ whiteSpace: 'nowrap', color: tot < 0 ? 'var(--danger)' : 'var(--success)' }}>
+                        {tot < 0 ? '−' : '+'}{monto(Math.abs(tot), mon)}
+                      </div>
+                    ))}
+                  </td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
@@ -2276,6 +2308,17 @@ function esEgresoMov(m: MovimientoCaja): boolean {
   return m.tipo === 'salida' || m.tipo === 'traslado_salida' || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
 }
 
+/** Total NETO de la columna Monto por moneda (ingresos − egresos) de una lista de
+ *  movimientos de caja. Devuelve pares [moneda, total] ordenados por moneda. */
+function totalesMontoPorMoneda(movs: MovimientoCaja[]): [string, number][] {
+  const acc = new Map<string, number>();
+  for (const m of movs) {
+    const signo = esEgresoMov(m) ? -1 : 1;
+    acc.set(m.moneda, (acc.get(m.moneda) || 0) + signo * (Number(m.monto) || 0));
+  }
+  return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'));
+}
+
 function LibroMayorPanel({ movs, saldos, cxp, cxc, monedas, onVerMov }: {
   movs: MovimientoCaja[]; saldos: CajaSaldo[]; cxp: CuentaPorPagar[]; cxc: CuentaPorCobrar[];
   monedas: string[]; onVerMov: (m: MovimientoCaja) => void;
@@ -2431,6 +2474,14 @@ function LibroMayorMonedaModal({ moneda, movs, rango, onVerMov, onClose }: {
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr style={{ fontWeight: 700 }}>
+                <td colSpan={4} style={{ textAlign: 'right' }}>Totales ({ordenados.length} mov.)</td>
+                <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{monto(debe, moneda)}</td>
+                <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>{monto(haber, moneda)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>Neto {monto(debe - haber, moneda)}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}
