@@ -367,6 +367,52 @@ export async function consumoCombustiblePorEquipo(desde: Date, hasta: Date): Pro
   }));
 }
 
+/** Un movimiento de combustible de un equipo/vehículo (para el detalle al hacer click). */
+export interface MovimientoEquipo {
+  id: string;
+  fecha: string;
+  tipo: string;
+  litros: number;
+  costo_litro: number;
+  valor: number;
+  tanque_nombre: string | null;
+  destino: string | null;
+  autorizado_por: string | null;
+  observacion: string | null;
+  horometro_inicial: number | null;
+  horometro_final: number | null;
+}
+
+/** Movimientos de un equipo/vehículo en el período (todos los tipos), para el detalle. */
+export async function movimientosDeEquipo(equipo: string, desde: Date, hasta: Date): Promise<MovimientoEquipo[]> {
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('id, fecha, tipo, litros, costo_litro, tanque_nombre, destino, autorizado_por, observacion, horometro_inicial, horometro_final')
+    .eq('equipo', equipo)
+    .gte('fecha', desde.toISOString())
+    .lte('fecha', hasta.toISOString())
+    .order('fecha', { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
+    const litros = Math.abs(Number(r.litros) || 0);
+    const costo = Number(r.costo_litro) || 0;
+    return {
+      id: r.id as string,
+      fecha: r.fecha as string,
+      tipo: (r.tipo as string) || '—',
+      litros,
+      costo_litro: costo,
+      valor: Math.round(litros * costo * 100) / 100,
+      tanque_nombre: (r.tanque_nombre as string) ?? null,
+      destino: (r.destino as string) ?? null,
+      autorizado_por: (r.autorizado_por as string) ?? null,
+      observacion: (r.observacion as string) ?? null,
+      horometro_inicial: r.horometro_inicial != null ? Number(r.horometro_inicial) : null,
+      horometro_final: r.horometro_final != null ? Number(r.horometro_final) : null,
+    };
+  });
+}
+
 /**
  * Salida DIRECTA de combustible de un tanque (sin pasar por una solicitud):
  * descuenta del inventario (almacén "casa"), de la tarjeta de combustible y del
@@ -1207,10 +1253,13 @@ export async function aprobarSolicitudCombustible(s: SolicitudCombustible, actor
  * Finaliza la solicitud: descuenta los litros del inventario del combustible
  * (movimiento tipo 'salida') y cierra el trámite.
  */
-export async function finalizarSolicitudCombustible(s: SolicitudCombustible, actor: string, actorName?: string | null): Promise<void> {
+export async function finalizarSolicitudCombustible(s: SolicitudCombustible, actor: string, actorName?: string | null, litrosReales?: number | null): Promise<void> {
   if (s.estado !== 'aprobada') throw new Error('Solo se finalizan solicitudes aprobadas.');
   if (!s.combustible_id) throw new Error('La solicitud no tiene un combustible asociado.');
-  const litros = Number(s.litros) || 0;
+  // Litros REALMENTE surtidos: si el usuario indicó un valor (echó más/menos), manda
+  // ese; si no, se usa lo solicitado. Es lo que se descuenta del tanque/inventario.
+  const litrosSolicitados = Number(s.litros) || 0;
+  const litros = litrosReales != null && Number(litrosReales) > 0 ? Number(litrosReales) : litrosSolicitados;
 
   const { data: comb, error: cErr } = await supabase
     .from('combustibles')
@@ -1295,8 +1344,9 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
       estado: 'finalizada',
       finalizada_por: actor,
       finalizada_en: new Date().toISOString(),
+      litros_reales: litros,
       mov_id: (mov as { id: string }).id,
-      historial: appendHistorial(s, 'finalizada', actor, { litros }),
+      historial: appendHistorial(s, 'finalizada', actor, { litros, solicitados: litrosSolicitados }),
     })
     .eq('id', s.id);
   if (sErr) throw sErr;

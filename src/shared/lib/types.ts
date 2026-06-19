@@ -433,6 +433,8 @@ export interface SolicitudCombustible {
   tanque_id?: string | null;
   tanque_nombre?: string | null;
   litros: number;
+  /** Litros realmente surtidos al finalizar (puede diferir de lo solicitado). */
+  litros_reales?: number | null;
   estado: EstadoSolicitudCombustible;
   motivo?: string | null;
   historial: EventoHistorial[];

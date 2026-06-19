@@ -489,6 +489,7 @@ create table if not exists public.combustible_solicitudes (
   destino            text not null,
   almacen            text,  -- almacén del inventario de donde sale el combustible
   litros             numeric not null check (litros > 0),
+  litros_reales      numeric,   -- litros realmente surtidos al finalizar (puede diferir de lo solicitado)
   estado             text not null default 'por_aprobar' check (estado in ('por_aprobar','aprobada','finalizada','cancelada')),
   motivo             text,
   historial          jsonb not null default '[]'::jsonb,

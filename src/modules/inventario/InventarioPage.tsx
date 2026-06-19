@@ -50,7 +50,7 @@ import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
 import { AlmacenesView, SedesView, hijosDe, raices, type AlmacenLayout } from './AlmacenesView';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { AlmacenKanban } from './AlmacenKanban';
-import { descargarAlmacenExcel, descargarAlmacenPdf } from './almacenExport';
+import { descargarAlmacenExcel, descargarAlmacenPdf, descargarReporteAlmacenesPdf } from './almacenExport';
 import { AlmacenForm } from './AlmacenForm';
 import {
   listAlmacenes,
@@ -667,8 +667,16 @@ export function InventarioPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
               <h2 style={{ margin: 0 }}>📍 Sedes</h2>
               <span className="muted" style={{ fontSize: '.85rem' }}>Elegí una sede para ver sus almacenes.</span>
+              <button
+                className="btn btn-ghost"
+                style={{ marginLeft: 'auto' }}
+                title="Descargar un PDF de todo el inventario, por almacenes y subalmacenes"
+                onClick={() => descargarReporteAlmacenesPdf().catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'))}
+              >
+                📄 Reporte general (PDF)
+              </button>
               {canWrite && (
-                <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '.7rem 1.3rem', fontSize: '1.02rem', fontWeight: 700 }} onClick={() => setModal({ kind: 'almacenCrear' })}>
+                <button className="btn btn-primary" style={{ padding: '.7rem 1.3rem', fontSize: '1.02rem', fontWeight: 700 }} onClick={() => setModal({ kind: 'almacenCrear' })}>
                   + Agregar almacén
                 </button>
               )}
