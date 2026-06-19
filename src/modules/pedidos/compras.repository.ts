@@ -237,7 +237,7 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
   for (const it of items) {
     const cantidad = Number(it.cantidad) || 0;
     if (cantidad <= 0 || !it.producto_id) continue;
-    const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 10000) / 10000 : 0;
+    const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 100) / 100 : 0;
     const mov = await registrarMovimiento({
       producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
       actor: input.actor, actor_name: input.actorName ?? null,

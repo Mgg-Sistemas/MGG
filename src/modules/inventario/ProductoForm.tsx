@@ -56,6 +56,9 @@ interface FormState {
   descripcion: string;
 }
 
+/** Redondea a 2 decimales (el inventario maneja precios/costos con 2 decimales). */
+const round2 = (n: number | string | null | undefined) => Math.round((Number(n) || 0) * 100) / 100;
+
 function initialState(p: Producto | null, cats: string[], unids: string[], fixedAlmacen?: string | null): FormState {
   return {
     sku: p?.sku ?? '',
@@ -64,8 +67,8 @@ function initialState(p: Producto | null, cats: string[], unids: string[], fixed
     unidad: p?.unidad ?? unids[0] ?? '',
     stock: String(p?.stock ?? 0),
     stock_min: String(p?.stock_min ?? 0),
-    precio: String(p?.precio ?? 0),
-    precio_venta: p?.precio_venta != null ? String(p.precio_venta) : '',
+    precio: String(round2(p?.precio ?? 0)),
+    precio_venta: p?.precio_venta != null ? String(round2(p.precio_venta)) : '',
     // Al crear desde dentro de un almacén, la ubicación arranca (y queda) en ese almacén.
     almacen: p?.almacen ?? fixedAlmacen ?? 'General',
     estado: p?.estado ?? 'activo',
@@ -233,8 +236,8 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
       unidad: form.unidad,
       stock: Number(form.stock) || 0,
       stock_min: Number(form.stock_min) || 0,
-      precio: Number(form.precio) || 0,
-      precio_venta: form.precio_venta.trim() === '' ? null : Math.max(0, Number(form.precio_venta)),
+      precio: round2(Number(form.precio) || 0),
+      precio_venta: form.precio_venta.trim() === '' ? null : round2(Math.max(0, Number(form.precio_venta))),
       almacen: form.almacen.trim() || 'General',
       estado: form.estado,
       restock_pct: restockRaw === '' ? null : Math.max(0, Number(restockRaw)),
