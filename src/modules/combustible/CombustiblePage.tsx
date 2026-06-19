@@ -553,7 +553,15 @@ function SolicitudModal({ combustibles, tanques, vehiculos, actor, defaultSolici
   const [error, setError] = useState<string | null>(null);
   const comb = combustibles.find((c) => c.id === combustibleId) ?? null;
   const litrosNum = Number(litros) || 0;
-  const excede = comb ? litrosNum > Number(comb.litros) : false;
+  // Litros REALES disponibles = suma de los tanques del combustible (lo mismo que muestra
+  // la tarjeta). El campo `combustibles.litros` puede estar desfasado: los tanques mandan.
+  const litrosRealPorComb = useMemo(() => {
+    const m = new Map<string, number>();
+    tanques.forEach((t) => { if (t.combustible_id) m.set(t.combustible_id, (m.get(t.combustible_id) ?? 0) + (Number(t.litros) || 0)); });
+    return m;
+  }, [tanques]);
+  const litrosReal = useCallback((id: string) => litrosRealPorComb.get(id) ?? 0, [litrosRealPorComb]);
+  const excede = comb ? litrosNum > litrosReal(comb.id) : false;
   // Origen: SOLO tanques registrados (activos) del combustible elegido.
   const tanquesDisp = useMemo(() => tanquesDelCombustible(tanques, combustibleId), [tanques, combustibleId]);
   const [tanqueId, setTanqueId] = useState(tanquesDisp[0]?.id ?? '');
@@ -597,9 +605,9 @@ function SolicitudModal({ combustibles, tanques, vehiculos, actor, defaultSolici
             <label>Combustible</label>
             <select className="select" value={combustibleId} onChange={(e) => setCombustibleId(e.target.value)}>
               {!combustibles.length && <option value="">— sin combustibles —</option>}
-              {combustibles.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {num(c.litros)} L disp.</option>)}
+              {combustibles.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {num(litrosReal(c.id))} L disp.</option>)}
             </select>
-            {comb && <small className="muted">Disponible: <strong className="mono">{num(comb.litros)} L</strong></small>}
+            {comb && <small className="muted">Disponible: <strong className="mono">{num(litrosReal(comb.id))} L</strong></small>}
           </div>
           <div className="form-row">
             <label>Total de litros solicitados</label>

@@ -1202,7 +1202,11 @@ alter table public.ofertas_proveedor
   -- procedencia, materiales, dimensiones, peso, calidad, fletes/seguros).
   add column if not exists detalle jsonb,
   -- Precio total si se paga en divisa efectivo (descuento vs. BCV; informa la decisión).
-  add column if not exists precio_efectivo numeric;
+  add column if not exists precio_efectivo numeric,
+  -- Descuento sobre el total BCV (BCV total = subtotal − descuento).
+  add column if not exists descuento numeric,
+  -- Adjuntos (varias fotos/PDF de la cotización): [{ path, filename }].
+  add column if not exists adjuntos jsonb;
 
 create index if not exists idx_ofertas_orden     on public.ofertas_proveedor(orden_id);
 create index if not exists idx_ofertas_proveedor on public.ofertas_proveedor(proveedor_id);

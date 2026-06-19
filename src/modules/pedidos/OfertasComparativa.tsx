@@ -9,7 +9,7 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
-import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta } from './ofertas.repository';
+import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
@@ -42,7 +42,14 @@ export function OfertasComparativa({
   const [confirmando, setConfirmando] = useState<ScoredOferta | null>(null);
   const [eliminando, setEliminando] = useState<OfertaProveedor | null>(null);
   const [editando, setEditando] = useState<OfertaProveedor | null>(null);
+  const [expandido, setExpandido] = useState<Set<string>>(new Set());
   const [bump, setBump] = useState(0);
+
+  const toggleExpand = (id: string) => setExpandido((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   // Lista de proveedores (para mostrar el nombre fijo al editar una oferta).
   const proveedores = Array.from(proveedorMap.values());
@@ -198,6 +205,14 @@ export function OfertasComparativa({
                         {s.masPuntual && <span className="badge info">Más puntual</span>}
                         {s.mejorCalidad && <span className="badge info">Mejor calidad</span>}
                       </div>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        style={{ marginTop: '.3rem', padding: '0 .35rem', fontSize: '.78rem' }}
+                        onClick={(e) => { e.stopPropagation(); toggleExpand(s.oferta.id); }}
+                        title="Ver la comparación BCV vs USD por producto"
+                      >
+                        {expandido.has(s.oferta.id) ? '▾' : '▸'} Por producto (Bs/USD)
+                      </button>
                     </td>
                     <td className="num mono">
                       {money(s.oferta.precio_total)}
@@ -218,17 +233,25 @@ export function OfertasComparativa({
                     <td className="num mono">{(s.score.cumplimiento * 100).toFixed(0)}%</td>
                     <td className="num mono"><strong>{(s.score.total * 100).toFixed(0)}</strong></td>
                     <td>
-                      {s.oferta.pdf_path ? (
-                        <button
-                          className="btn btn-sm btn-ghost"
-                          onClick={(e) => { e.stopPropagation(); abrirPdf(s.oferta.pdf_path!); }}
-                          title={s.oferta.pdf_filename ?? 'Ver PDF de la oferta'}
-                        >
-                          📎 Ver
-                        </button>
-                      ) : (
-                        <span className="muted" style={{ fontSize: '.78rem' }}>—</span>
-                      )}
+                      {(() => {
+                        const adj = adjuntosDeOferta(s.oferta);
+                        if (!adj.length) return <span className="muted" style={{ fontSize: '.78rem' }}>—</span>;
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', alignItems: 'flex-start' }}>
+                            {adj.map((a, i) => (
+                              <button
+                                key={a.path}
+                                className="btn btn-sm btn-ghost"
+                                style={{ padding: '0 .35rem' }}
+                                onClick={(e) => { e.stopPropagation(); abrirPdf(a.path); }}
+                                title={a.filename}
+                              >
+                                📎 {adj.length > 1 ? `Ver ${i + 1}` : 'Ver'}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
@@ -273,6 +296,69 @@ export function OfertasComparativa({
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem .6rem' }}>
                             {tecn.map(([k, v]) => <span key={k} className="muted"><strong>{k}:</strong> {v}</span>)}
                             {log.map(([k, v]) => <span key={k} className="muted">🚚 <strong>{k}:</strong> {v}</span>)}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                  {expandido.has(s.oferta.id) && (() => {
+                    const filas = comparativaPorProducto(s.oferta.items);
+                    const totBcvBruto = filas.reduce((a, f) => a + f.totalBcv, 0);
+                    const totUsd = filas.reduce((a, f) => a + f.totalUsd, 0);
+                    const desc = Number(s.oferta.descuento) || 0;
+                    const totBcv = totBcvBruto - desc;
+                    const hayUsd = filas.some((f) => f.precioUsd > 0);
+                    return (
+                      <tr>
+                        <td colSpan={9} style={{ padding: '.3rem .6rem .7rem' }}>
+                          <div className="table-wrap">
+                            <table className="table" style={{ fontSize: '.8rem', margin: 0 }}>
+                              <thead>
+                                <tr>
+                                  <th>Producto</th>
+                                  <th className="num">Cant.</th>
+                                  <th className="num" style={{ background: 'rgba(80,140,255,.10)' }}>Precio BCV</th>
+                                  <th className="num" style={{ background: 'rgba(80,140,255,.10)' }}>Total BCV</th>
+                                  <th className="num" style={{ background: 'rgba(255,120,120,.10)' }}>Precio USD</th>
+                                  <th className="num" style={{ background: 'rgba(255,120,120,.10)' }}>Total USD</th>
+                                  <th className="num">Diferencia</th>
+                                  <th className="num">Var. %</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filas.map((f) => (
+                                  <tr key={f.sku}>
+                                    <td>{f.nombre}</td>
+                                    <td className="num mono">{f.cantidad}</td>
+                                    <td className="num mono">{money(f.precioBcv)}</td>
+                                    <td className="num mono">{money(f.totalBcv)}</td>
+                                    <td className="num mono">{f.precioUsd > 0 ? money(f.precioUsd) : '—'}</td>
+                                    <td className="num mono">{f.precioUsd > 0 ? money(f.totalUsd) : '—'}</td>
+                                    <td className="num mono" style={{ color: f.diferencia > 0 ? 'var(--success)' : undefined }}>{hayUsd ? money(f.diferencia) : '—'}</td>
+                                    <td className="num mono">{f.precioUsd > 0 ? `${f.pct.toFixed(2)}%` : '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                {desc > 0 && (
+                                  <tr>
+                                    <td colSpan={3} className="num" style={{ color: 'var(--danger)' }}>Descuento</td>
+                                    <td className="num mono" style={{ color: 'var(--danger)' }}>−{money(desc)}</td>
+                                    <td colSpan={2}></td>
+                                    <td className="num mono" style={{ color: 'var(--danger)' }}>−{money(desc)}</td>
+                                    <td></td>
+                                  </tr>
+                                )}
+                                <tr style={{ fontWeight: 700 }}>
+                                  <td colSpan={3} className="num">TOTAL</td>
+                                  <td className="num mono">{money(totBcv)}</td>
+                                  <td></td>
+                                  <td className="num mono">{hayUsd ? money(totUsd) : '—'}</td>
+                                  <td className="num mono">{hayUsd ? money(totBcv - totUsd) : '—'}</td>
+                                  <td></td>
+                                </tr>
+                              </tfoot>
+                            </table>
                           </div>
                         </td>
                       </tr>

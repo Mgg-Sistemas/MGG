@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import type { ItemOrden, OfertaProveedor, OfertaDetalle } from '@/shared/lib/types';
+import type { ItemOrden, OfertaProveedor, OfertaDetalle, OfertaAdjunto } from '@/shared/lib/types';
 
 const TABLE = 'ofertas_proveedor';
 const BUCKET = 'ofertas-pdf';
@@ -17,6 +17,8 @@ export interface CrearOfertaInput {
   precio_total: number;
   /** Precio total si se paga en divisa efectivo (opcional; descuento vs. BCV). */
   precio_efectivo?: number | null;
+  /** Descuento aplicado al total BCV (BCV total = subtotal − descuento). */
+  descuento?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
   notas?: string | null;
@@ -24,6 +26,8 @@ export interface CrearOfertaInput {
   registrada_por_email: string;
   pdf_path?: string | null;
   pdf_filename?: string | null;
+  /** Varios adjuntos (fotos/PDF) de la cotización. */
+  adjuntos?: OfertaAdjunto[] | null;
 }
 
 /** Quita campos vacíos del detalle; devuelve null si no quedó nada. */
@@ -71,6 +75,29 @@ export function descuentoEfectivo(precioBcv?: number | null, precioEfectivo?: nu
   return { diferencia, pct };
 }
 
+/** Una fila de la comparativa por producto: precio y total a BCV vs USD, con la
+ *  diferencia ($) y la variación (%) por línea. */
+export interface FilaComparativaProducto {
+  sku: string; nombre: string; cantidad: number;
+  precioBcv: number; totalBcv: number;
+  precioUsd: number; totalUsd: number;
+  diferencia: number; pct: number;
+}
+
+/** Descompone los ítems de una oferta en la tabla BCV vs USD por producto. */
+export function comparativaPorProducto(items: ItemOrden[]): FilaComparativaProducto[] {
+  return (items ?? []).map((it) => {
+    const cantidad = Number(it.cantidad) || 0;
+    const precioBcv = Number(it.precio) || 0;
+    const precioUsd = Number(it.precio_usd) || 0;
+    const totalBcv = Math.round(cantidad * precioBcv * 100) / 100;
+    const totalUsd = Math.round(cantidad * precioUsd * 100) / 100;
+    const diferencia = Math.round((totalBcv - totalUsd) * 100) / 100;
+    const pct = precioBcv > 0 ? Math.round(((precioBcv - precioUsd) / precioBcv) * 10000) / 100 : 0;
+    return { sku: it.sku, nombre: it.nombre, cantidad, precioBcv, totalBcv, precioUsd, totalUsd, diferencia, pct };
+  });
+}
+
 /** Sube la cotización (PDF o imagen) al bucket `ofertas-pdf` y retorna su path. */
 export async function subirPdfOferta(
   ordenId: string,
@@ -87,6 +114,30 @@ export async function subirPdfOferta(
     .upload(path, file, { contentType: file.type || 'application/pdf', upsert: false });
   if (error) throw error;
   return { path, filename: file.name };
+}
+
+/** Sube VARIOS adjuntos (fotos/PDF) de una oferta y devuelve sus {path, filename}. */
+export async function subirAdjuntosOferta(
+  ordenId: string,
+  proveedorId: string,
+  files: File[],
+): Promise<OfertaAdjunto[]> {
+  const out: OfertaAdjunto[] = [];
+  for (const file of files) {
+    const { path, filename } = await subirPdfOferta(ordenId, proveedorId, file);
+    out.push({ path, filename });
+  }
+  return out;
+}
+
+/** Lista unificada de adjuntos de una oferta: junta el `pdf_path` legacy con `adjuntos`
+ *  (sin duplicar). Lo usa la comparativa para mostrar todas las fotos/PDF. */
+export function adjuntosDeOferta(oferta: Pick<OfertaProveedor, 'pdf_path' | 'pdf_filename' | 'adjuntos'>): OfertaAdjunto[] {
+  const lista = [...(oferta.adjuntos ?? [])];
+  if (oferta.pdf_path && !lista.some((a) => a.path === oferta.pdf_path)) {
+    lista.unshift({ path: oferta.pdf_path, filename: oferta.pdf_filename ?? 'adjunto' });
+  }
+  return lista;
 }
 
 /** Genera un signed URL de 5 min para descargar un PDF de oferta. */
@@ -115,6 +166,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       items: input.items,
       precio_total: input.precio_total,
       precio_efectivo: input.precio_efectivo ?? null,
+      descuento: input.descuento ?? null,
       fecha_entrega_prometida: input.fecha_entrega_prometida ?? null,
       condiciones_pago: input.condiciones_pago ?? null,
       notas: input.notas ?? null,
@@ -122,6 +174,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       registrada_por_email: input.registrada_por_email,
       pdf_path: input.pdf_path ?? null,
       pdf_filename: input.pdf_filename ?? null,
+      adjuntos: input.adjuntos ?? null,
     })
     .select('*')
     .single();
@@ -134,12 +187,14 @@ export interface EditarOfertaInput {
   items?: ItemOrden[];
   precio_total?: number;
   precio_efectivo?: number | null;
+  descuento?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;
   notas?: string | null;
   detalle?: OfertaDetalle | null;
   pdf_path?: string | null;
   pdf_filename?: string | null;
+  adjuntos?: OfertaAdjunto[] | null;
 }
 
 export async function actualizarOferta(
@@ -150,12 +205,14 @@ export async function actualizarOferta(
   if (input.items !== undefined) patch.items = input.items;
   if (input.precio_total !== undefined) patch.precio_total = input.precio_total;
   if (input.precio_efectivo !== undefined) patch.precio_efectivo = input.precio_efectivo;
+  if (input.descuento !== undefined) patch.descuento = input.descuento;
   if (input.fecha_entrega_prometida !== undefined) patch.fecha_entrega_prometida = input.fecha_entrega_prometida;
   if (input.condiciones_pago !== undefined) patch.condiciones_pago = input.condiciones_pago;
   if (input.notas !== undefined) patch.notas = input.notas;
   if (input.detalle !== undefined) patch.detalle = limpiarDetalleOferta(input.detalle);
   if (input.pdf_path !== undefined) patch.pdf_path = input.pdf_path;
   if (input.pdf_filename !== undefined) patch.pdf_filename = input.pdf_filename;
+  if (input.adjuntos !== undefined) patch.adjuntos = input.adjuntos;
   const { data, error } = await supabase
     .from(TABLE)
     .update(patch)

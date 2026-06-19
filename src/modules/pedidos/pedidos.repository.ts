@@ -299,6 +299,19 @@ export function reprecioPorEfectivo(
   const ef = Number(precioEfectivo) || 0;
   const generalR = Math.round(general * 100) / 100;
   if (ef <= 0 || generalR <= 0 || ef >= generalR) return null;
+  // Si la oferta trae precio USD POR ÍTEM (cada producto con precio>0 tiene su precio_usd),
+  // se usan esos precios EXACTOS en lugar del reparto proporcional. Así el costo de
+  // inventario por producto coincide con la comparativa BCV vs USD que vio el usuario.
+  const usdCompleto = items.some((i) => (Number(i.precio_usd) || 0) > 0)
+    && items.every((i) => (Number(i.precio) || 0) <= 0 || (Number(i.precio_usd) || 0) > 0);
+  if (usdCompleto) {
+    const reps = items.map((it) => {
+      const u = Number(it.precio_usd) || 0;
+      return u > 0 ? { ...it, precio: u } : it;
+    });
+    const suma = Math.round(reps.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0) * 100) / 100;
+    if (suma > 0 && suma < generalR) return { items: reps, total: suma, bcv: generalR };
+  }
   const factor = ef / generalR;
   const reps = items.map((it) => ({ ...it, precio: Math.round((Number(it.precio) || 0) * factor * 10000) / 10000 }));
   // Ajuste de redondeo: forzar que la suma cuadre EXACTO con el efectivo.

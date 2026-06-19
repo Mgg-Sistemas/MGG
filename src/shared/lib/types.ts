@@ -651,6 +651,9 @@ export interface ItemOrden {
   nombre: string;
   cantidad: number;
   precio: number;
+  /** Precio unitario si se paga en divisa efectivo (USD), por producto. Para la
+   *  comparativa BCV vs USD por línea (diferencia y % por producto). */
+  precio_usd?: number | null;
   productoId?: string;
   /** Unidad de medida del producto (KG, L, und…), traída del inventario. */
   unidad?: string;
@@ -947,6 +950,8 @@ export interface OfertaProveedor {
   /** Precio total si se paga en divisa efectivo (descuento por pago en efectivo).
    *  Si está cargado y es menor al BCV, la comparativa muestra la diferencia y el % de ahorro. */
   precio_efectivo?: number | null;
+  /** Descuento (sobre el total BCV) aplicado a la cotización: BCV total = subtotal − descuento. */
+  descuento?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;
   notas?: string | null;
@@ -961,6 +966,15 @@ export interface OfertaProveedor {
   motivo_descarte?: string | null;
   pdf_path?: string | null;
   pdf_filename?: string | null;
+  /** Adjuntos de la oferta (varias fotos/PDF de la cotización). El `pdf_path` legacy
+   *  sigue valiendo como primer adjunto. */
+  adjuntos?: OfertaAdjunto[] | null;
+}
+
+/** Un archivo adjunto a una oferta (PDF o imagen) guardado en el bucket. */
+export interface OfertaAdjunto {
+  path: string;
+  filename: string;
 }
 
 export interface EvaluacionRecepcion {
