@@ -226,6 +226,39 @@ export function InventarioPage() {
   // Valor por almacén (desde existencias: stock × costo propio del almacén).
   const valoresAlm = useMemo<Record<string, AlmacenValor>>(() => agruparValores(existencias), [existencias]);
 
+  // Nombres de un almacén + TODOS sus subalmacenes (descendientes), para el roll-up:
+  // un almacén "contiene" lo suyo y lo de sus subalmacenes.
+  const descendientesDe = useCallback((nombre: string): string[] => {
+    const root = almacenes.find((a) => a.nombre === nombre);
+    if (!root) return [nombre];
+    const out = [root.nombre];
+    const stack = [root.id];
+    while (stack.length) {
+      const pid = stack.pop()!;
+      for (const h of almacenes) if ((h.parent_id ?? null) === pid) { out.push(h.nombre); stack.push(h.id); }
+    }
+    return out;
+  }, [almacenes]);
+
+  // Valor/conteo ROLL-UP por almacén (incluye sus subalmacenes) para las tarjetas:
+  // así un almacén padre no aparece en $0 cuando el stock está en sus subalmacenes.
+  const valoresRollup = useMemo<Record<string, AlmacenValor>>(() => {
+    const out: Record<string, AlmacenValor> = {};
+    for (const a of almacenes) {
+      const nombres = new Set(descendientesDe(a.nombre));
+      let valor = 0, items = 0, unidades = 0;
+      for (const e of existencias) {
+        if (!nombres.has(e.almacen)) continue;
+        const st = Number(e.stock) || 0;
+        valor += st * (Number(e.costo_promedio) || 0);
+        items += 1;
+        unidades += st;
+      }
+      out[a.nombre] = { valor, items, unidades };
+    }
+    return out;
+  }, [almacenes, existencias, descendientesDe]);
+
   // Existencias agrupadas por producto (para pasarlas al formulario de movimiento).
   const existMap = useMemo(() => {
     const m = new Map<string, Existencia[]>();
@@ -242,15 +275,27 @@ export function InventarioPage() {
   const almacenRows = useMemo<ProductoDecorado[]>(() => {
     if (!almacenSel) return [];
     const prodMap = new Map(productos.map((p) => [p.id, p]));
-    const virtuales = existencias
-      .filter((e) => e.almacen === almacenSel)
-      .map((e) => {
-        const p = prodMap.get(e.producto_id);
-        return p ? ({ ...p, stock: e.stock, precio: e.costo_promedio, almacen: almacenSel } as Producto) : null;
+    // Roll-up: incluye el almacén + sus subalmacenes. Si un producto está en varios
+    // (sub)almacenes, se agrega: stock sumado y costo = promedio ponderado.
+    const nombres = new Set(descendientesDe(almacenSel));
+    const agg = new Map<string, { stock: number; valor: number }>();
+    for (const e of existencias) {
+      if (!nombres.has(e.almacen)) continue;
+      const cur = agg.get(e.producto_id) ?? { stock: 0, valor: 0 };
+      const st = Number(e.stock) || 0;
+      cur.stock += st;
+      cur.valor += st * (Number(e.costo_promedio) || 0);
+      agg.set(e.producto_id, cur);
+    }
+    const virtuales = [...agg.entries()]
+      .map(([pid, v]) => {
+        const p = prodMap.get(pid);
+        const costo = v.stock > 0 ? v.valor / v.stock : 0;
+        return p ? ({ ...p, stock: v.stock, precio: costo, almacen: almacenSel } as Producto) : null;
       })
       .filter((p): p is Producto => p !== null);
     return decorate(virtuales, DEFAULT_POLICY).filter((p) => coincideFiltros(p, ui));
-  }, [almacenSel, existencias, productos, ui]);
+  }, [almacenSel, existencias, productos, ui, descendientesDe]);
 
   // Filas (con stock/PMP propios del almacén) de CUALQUIER almacén por nombre, sin
   // tener que entrar a su detalle. Lo usa el reporte por almacén desde la lista.
@@ -587,7 +632,7 @@ export function InventarioPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
               <button className="btn btn-ghost" onClick={() => setAlmacenSel(null)}>← Volver a almacenes</button>
               <h2 style={{ margin: 0 }}>▣ {almacenSel}</h2>
-              <span className="muted mono">{money(valoresAlm[almacenSel]?.valor ?? 0)} · {num(almacenRows.length)} producto(s)</span>
+              <span className="muted mono">{money(almacenRows.reduce((s, p) => s + (Number(p.stock) || 0) * (Number(p.precio) || 0), 0))} · {num(almacenRows.length)} producto(s){descendientesDe(almacenSel).length > 1 ? ' · incluye subalmacenes' : ''}</span>
               <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
                 <button className="btn btn-primary btn-sm" onClick={() => setConsumoAlmacen(almacenSel)} title="Gráfica de consumo por producto de este almacén">📊 Consumo</button>
                 <button className="btn btn-ghost btn-sm" disabled={!almacenRows.length}
@@ -639,7 +684,11 @@ export function InventarioPage() {
           // Si la sede tiene un único almacén padre (ej. "Los Pinos"), se salta ese
           // nivel redundante y se muestran directo sus subalmacenes.
           const roots = raices(sedeAlmacenes);
-          const autoPadre = !almacenNavId && roots.length === 1 && hijosDe(roots[0].id, sedeAlmacenes).length > 0 ? roots[0] : null;
+          // Se salta el almacén raíz único (nivel redundante) SOLO si ese almacén no tiene
+          // productos propios. Si los tiene (ej. "General" con 250 productos), NO se salta,
+          // para que el usuario pueda verlo y entrar a sus productos.
+          const rootPropios = roots.length === 1 ? (valoresAlm[roots[0].nombre]?.items ?? 0) : 0;
+          const autoPadre = !almacenNavId && roots.length === 1 && hijosDe(roots[0].id, sedeAlmacenes).length > 0 && rootPropios === 0 ? roots[0] : null;
           const nivelParentId = almacenNavId ?? (autoPadre ? autoPadre.id : null);
           const padre = almacenNavId ? almacenes.find((a) => a.id === almacenNavId) ?? null : null;
           // Contenedor donde se agregaría: el padre que estamos viendo (manual o auto).
@@ -684,7 +733,7 @@ export function InventarioPage() {
             ) : (
               <AlmacenesView
                 almacenes={sedeAlmacenes}
-                valores={valoresAlm}
+                valores={valoresRollup}
                 layout={ui.almacenLayout}
                 canWrite={canWrite}
                 parentId={nivelParentId}

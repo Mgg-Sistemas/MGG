@@ -104,7 +104,6 @@ interface AlmacenesViewProps {
 export function AlmacenesView({ almacenes, valores, layout, canWrite = true, parentId, onSelect, onDrill, onConsumo, onReporte, onEditar, onEliminar, onAgregarSub }: AlmacenesViewProps) {
   const actuales = parentId ? hijosDe(parentId, almacenes) : raices(almacenes);
   const numHijos = (a: Almacen) => hijosDe(a.id, almacenes).length;
-  const abrir = (a: Almacen) => { if (numHijos(a) > 0) onDrill(a); else onSelect(a.nombre); };
 
   if (!actuales.length) {
     return <div className="card"><EmptyState message="No hay almacenes en este nivel. Creá uno con “+ Agregar almacén”." icon="▣" /></div>;
@@ -129,17 +128,19 @@ export function AlmacenesView({ almacenes, valores, layout, canWrite = true, par
               const v = valores[a.nombre] ?? EMPTY_VALOR;
               const hijos = numHijos(a);
               return (
-                <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => abrir(a)}>
+                <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(a.nombre)}>
                   <td>
                     <strong>{nombreCortoAlmacen(a, almacenes)}</strong>
-                    {hijos > 0 && <span className="muted" style={{ marginLeft: '.4rem', fontSize: '.8rem' }}>· {hijos} subalmacén{hijos !== 1 ? 'es' : ''} ›</span>}
+                    {hijos > 0 && <button type="button" className="btn-link" style={{ marginLeft: '.4rem', fontSize: '.8rem', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--primary-3)', font: 'inherit' }}
+                      onClick={(e) => { e.stopPropagation(); onDrill(a); }} title="Ver los subalmacenes">· {hijos} subalmacén{hijos !== 1 ? 'es' : ''} ›</button>}
                   </td>
                   <td className="muted">{a.ubicacion || '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(v.items)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(v.unidades)}</td>
                   <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3)', fontWeight: 600 }}>{money(v.valor)}</td>
                   <td className="actions" onClick={(e) => e.stopPropagation()}>
-                    <button className="btn btn-sm btn-ghost" onClick={() => abrir(a)} title={hijos > 0 ? 'Ver subalmacenes' : 'Ver detalle'}>{hijos > 0 ? 'Abrir' : 'Ver'}</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => onSelect(a.nombre)} title="Ver productos (incluye subalmacenes)">Ver</button>
+                    {hijos > 0 && <button className="btn btn-sm btn-ghost" onClick={() => onDrill(a)} title="Ver subalmacenes">Subs ›</button>}
                     <button className="btn btn-sm btn-ghost" onClick={() => onReporte(a.nombre)} title="Reporte del almacén (Excel/PDF)">📄 Reporte</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => onConsumo(a.nombre)} title="Gráfica de consumo por producto">📊 Consumo</button>
                     {canWrite && (
@@ -170,8 +171,8 @@ export function AlmacenesView({ almacenes, valores, layout, canWrite = true, par
             key={a.id}
             className="card"
             style={{ margin: 0, padding: '1rem', cursor: 'pointer', borderTop: '3px solid var(--primary)', color: 'var(--text)' }}
-            onClick={() => abrir(a)}
-            title={hijos > 0 ? 'Ver subalmacenes' : 'Ver detalle del almacén'}
+            onClick={() => onSelect(a.nombre)}
+            title={hijos > 0 ? 'Ver productos (incluye subalmacenes)' : 'Ver detalle del almacén'}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
               <div>
@@ -198,7 +199,8 @@ export function AlmacenesView({ almacenes, valores, layout, canWrite = true, par
 
             <div className="muted" style={{ fontSize: '.78rem', marginTop: '.4rem' }}>
               {num(v.items)} producto{v.items !== 1 ? 's' : ''} · {num(v.unidades)} und.
-              {hijos > 0 && <> · <strong style={{ color: 'var(--primary-3)' }}>{hijos} subalmacén{hijos !== 1 ? 'es' : ''} ›</strong></>}
+              {hijos > 0 && <> · <button type="button" className="btn-link" style={{ color: 'var(--primary-3)', fontWeight: 700, background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit' }}
+                onClick={(e) => { e.stopPropagation(); onDrill(a); }} title="Ver los subalmacenes">{hijos} subalmacén{hijos !== 1 ? 'es' : ''} ›</button></>}
             </div>
           </div>
         );
