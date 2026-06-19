@@ -25,12 +25,13 @@ async function construir(rows: OcLoteRow[], codigo: string) {
   doc.setTextColor(0, 0, 0);
   y += 50;
 
-  const unidadDe = (r: OcLoteRow) =>
-    Array.from(new Set((r.orden.items ?? []).map((it) => it.area).filter(Boolean) as string[])).join(' · ') || '—';
+  // Unidad solicitante = depto/unidad que pide (orden.solicitante); Solicitante = la persona.
+  const unidadDe = (r: OcLoteRow) => r.orden.solicitante?.trim() || '—';
+  const solicitanteDe = (r: OcLoteRow) => r.orden.ci_solicitante?.trim() || r.orden.solicitante_email || '—';
   const body = rows.map((r, i) => [
     String(i + 1),
     r.orden.oc_codigo ?? r.orden.codigo,
-    r.orden.solicitante || r.orden.solicitante_email || '—',
+    solicitanteDe(r),
     unidadDe(r),
     r.proveedorNombre,
     r.descripcion,
