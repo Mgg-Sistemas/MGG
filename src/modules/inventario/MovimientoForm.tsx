@@ -47,6 +47,14 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const stockAlmacen = Number(exSel?.stock) || 0;
   const costoAlmacen = Number(exSel?.costo_promedio) || 0;
 
+  // Total del producto (suma de todos los almacenes) y desglose, para que coincida
+  // con el número de la lista de inventario y se vea dónde está repartido el stock.
+  const stockTotal = existencias.reduce((acc, e) => acc + (Number(e.stock) || 0), 0);
+  const desglose = existencias
+    .filter((e) => (Number(e.stock) || 0) !== 0)
+    .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
+  const repartido = desglose.length > 1;
+
   const [costoUnit, setCostoUnit] = useState(String(costoAlmacen || producto.precio || 0));
 
   // Conversor de bultos (solo para entradas): se ingresa por bulto/caja y el
@@ -192,6 +200,14 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
           <div className="muted mono" style={{ fontSize: '.78rem' }}>
             Stock en <strong>{almacen}</strong>: <strong>{num(stockAlmacen)} {producto.unidad}</strong> · costo {money(costoAlmacen)}
           </div>
+          {repartido && (
+            <div className="muted mono" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>
+              Total del producto: <strong>{num(stockTotal)} {producto.unidad}</strong> ·{' '}
+              {desglose.map((e, i) => (
+                <span key={e.almacen}>{i > 0 ? ' · ' : ''}{e.almacen} {num(Number(e.stock) || 0)}</span>
+              ))}
+            </div>
+          )}
         </div>
 
         {fixedAlmacen ? (
