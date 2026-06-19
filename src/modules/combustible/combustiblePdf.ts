@@ -2,6 +2,7 @@
    MGG · Combustible · Reporte PDF de solicitud de salida.
    Se descarga / envía SOLO al hacer clic (regla del sistema).
    ============================================================ */
+import { supabase } from '@/shared/lib/supabase';
 import type { SolicitudCombustible } from '@/shared/lib/types';
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -35,18 +36,36 @@ async function construir(s: SolicitudCombustible) {
   doc.line(MARGIN, y, doc.internal.pageSize.getWidth() - MARGIN, y);
   y += 14;
 
+  // Correo → "Nombre Apellido": en el PDF mostramos la persona, no el correo.
+  const personaMap = new Map<string, string>();
+  const { data: usuarios } = await supabase.from('usuarios').select('email, nombre, apellido');
+  (usuarios ?? []).forEach((u) => {
+    const email = (u.email as string | null)?.toLowerCase();
+    if (!email) return;
+    const nom = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
+    personaMap.set(email, nom || email);
+  });
+  const persona = (email?: string | null) => {
+    const e = email?.trim();
+    if (!e) return '';
+    return personaMap.get(e.toLowerCase()) || e;
+  };
+
   const ficha: Array<[string, string]> = [
     ['Combustible', s.combustible_nombre],
     ['Quién solicita', s.solicitante],
     ['Almacén de origen', s.almacen || '—'],
     ['A dónde va', s.destino],
     ['Total de litros solicitados', `${fmt.num(s.litros)} L`],
+    ...(s.estado === 'finalizada' && s.litros_reales != null
+      ? [['Litros surtidos', `${fmt.num(Number(s.litros_reales))} L`]] as Array<[string, string]>
+      : []),
     ['Estado', ESTADO_LABEL[s.estado] ?? s.estado],
     ['Motivo / detalle', s.motivo || '—'],
     ['Creada', fmt.dateTime(s.created_at)],
-    ['Aprobada', s.aprobada_en ? `${fmt.dateTime(s.aprobada_en)} · ${s.aprobada_por ?? ''}`.trim() : '—'],
-    ['Finalizada', s.finalizada_en ? `${fmt.dateTime(s.finalizada_en)} · ${s.finalizada_por ?? ''}`.trim() : '—'],
-    ['Registró', s.actor_name || s.actor || '—'],
+    ['Aprobada', s.aprobada_en ? `${fmt.dateTime(s.aprobada_en)} · ${persona(s.aprobada_por)}`.trim() : '—'],
+    ['Finalizada', s.finalizada_en ? `${fmt.dateTime(s.finalizada_en)} · ${persona(s.finalizada_por)}`.trim() : '—'],
+    ['Registró', persona(s.actor) || s.actor_name || '—'],
   ];
   autoTable(doc, {
     startY: y, body: ficha, theme: 'plain',
