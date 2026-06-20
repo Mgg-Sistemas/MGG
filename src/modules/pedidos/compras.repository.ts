@@ -70,15 +70,22 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
   return { ...r, items };
 }
 
-/** Próximo correlativo CD-YYYY-#### (Compra Directa) contando las compras existentes. */
+/** Próximo correlativo CD-YYYY-#### (Compra Directa) por el MÁXIMO del año + 1 (robusto
+ *  ante borrados: contar filas se desincronizaba al eliminar una compra). */
 export async function nextCodigoCompraDirecta(): Promise<string> {
   const year = new Date().getFullYear();
-  const { count, error } = await supabase
+  const prefix = `CD-${year}-`;
+  const { data, error } = await supabase
     .from('compras_directas')
-    .select('id', { count: 'exact', head: true });
+    .select('codigo')
+    .like('codigo', `${prefix}%`);
   if (error) throw error;
-  const n = (count ?? 0) + 1;
-  return `CD-${year}-${String(n).padStart(4, '0')}`;
+  let max = 0;
+  for (const r of data ?? []) {
+    const m = /-(\d+)$/.exec(String(r.codigo ?? ''));
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`;
 }
 
 export async function listComprasDirectas(): Promise<CompraDirecta[]> {
