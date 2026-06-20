@@ -56,8 +56,16 @@ interface FormState {
   descripcion: string;
 }
 
+/** Parsea un número aceptando coma o punto como separador decimal (es-VE usa coma).
+ *  Así un precio como "0,35" o "0.35" se interpreta igual y no se pierde. */
+const parseDecimal = (s: number | string | null | undefined): number => {
+  if (typeof s === 'number') return Number.isFinite(s) ? s : 0;
+  const limpio = String(s ?? '').trim().replace(/\s+/g, '').replace(',', '.').replace(/[^0-9.]/g, '');
+  return Number(limpio) || 0;
+};
+
 /** Redondea a 2 decimales (el inventario maneja precios/costos con 2 decimales). */
-const round2 = (n: number | string | null | undefined) => Math.round((Number(n) || 0) * 100) / 100;
+const round2 = (n: number | string | null | undefined) => Math.round((parseDecimal(n)) * 100) / 100;
 
 function initialState(p: Producto | null, cats: string[], unids: string[], fixedAlmacen?: string | null): FormState {
   return {
@@ -236,8 +244,8 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
       unidad: form.unidad,
       stock: Number(form.stock) || 0,
       stock_min: Number(form.stock_min) || 0,
-      precio: round2(Number(form.precio) || 0),
-      precio_venta: form.precio_venta.trim() === '' ? null : round2(Math.max(0, Number(form.precio_venta))),
+      precio: round2(form.precio),
+      precio_venta: form.precio_venta.trim() === '' ? null : round2(Math.max(0, parseDecimal(form.precio_venta))),
       almacen: form.almacen.trim() || 'General',
       estado: form.estado,
       restock_pct: restockRaw === '' ? null : Math.max(0, Number(restockRaw)),
@@ -492,9 +500,9 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
             <label>Precio unitario / costo (USD)</label>
             <input
               className="input mono"
-              type="number"
-              min={0}
-              step="0.01"
+              type="text"
+              inputMode="decimal"
+              placeholder="0.00"
               value={form.precio}
               onChange={(e) => update('precio', e.target.value)}
               required
@@ -507,9 +515,8 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
             <label>Posible precio de venta (USD, opcional)</label>
             <input
               className="input mono"
-              type="number"
-              min={0}
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={form.precio_venta}
               onChange={(e) => update('precio_venta', e.target.value)}
               placeholder="para calcular ganancia en fundición"

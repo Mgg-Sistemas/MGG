@@ -21,6 +21,14 @@ interface MovimientoFormProps {
 
 type TipoManual = 'entrada' | 'salida' | 'ajuste' | 'transferencia' | 'consumo' | 'fundicion' | 'fin_fundicion';
 
+/** Parsea un número aceptando coma o punto como separador decimal (es-VE usa coma),
+ *  para que un costo como "0,35" o "0.35" no se pierda. */
+const parseDecimal = (s: number | string | null | undefined): number => {
+  if (typeof s === 'number') return Number.isFinite(s) ? s : 0;
+  const limpio = String(s ?? '').trim().replace(/\s+/g, '').replace(',', '.').replace(/[^0-9.]/g, '');
+  return Number(limpio) || 0;
+};
+
 const OPCIONES: { value: TipoManual; label: string; sign: 'pos' | 'neg' | 'any' | 'zero' }[] = [
   { value: 'entrada',       label: 'Entrada (suma stock)',                sign: 'pos' },
   { value: 'salida',        label: 'Salida (resta stock)',                sign: 'neg' },
@@ -68,7 +76,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const opcion = OPCIONES.find((o) => o.value === tipo)!;
   const bultosNum = Number(bultos) || 0;
   const uPorBultoNum = Number(uPorBulto) || 0;
-  const costoBultoNum = Number(costoBulto) || 0;
+  const costoBultoNum = parseDecimal(costoBulto);
   const usaBultos = tipo === 'entrada' && porBultos;
   const cantidadNum = usaBultos ? bultosNum * uPorBultoNum : (Number(cantidad) || 0);
   const delta =
@@ -86,7 +94,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const isFundicion = tipo === 'fundicion' || tipo === 'fin_fundicion';
   const esEntradaConCosto = tipo === 'entrada';
   const esTransferencia = tipo === 'transferencia';
-  const costoUnitNum = usaBultos ? (uPorBultoNum > 0 ? costoBultoNum / uPorBultoNum : 0) : (Number(costoUnit) || 0);
+  const costoUnitNum = usaBultos ? (uPorBultoNum > 0 ? costoBultoNum / uPorBultoNum : 0) : parseDecimal(costoUnit);
   const nuevoPMP =
     esEntradaConCosto && cantidadNum > 0
       ? calcularPMP(stockAlmacen, costoAlmacen, cantidadNum, costoUnitNum)
@@ -251,7 +259,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
             </div>
             <div className="form-row">
               <label>Costo por bulto (USD)</label>
-              <input className="input mono" type="number" min={0} step="0.01" value={costoBulto} onChange={(e) => setCostoBulto(e.target.value)} placeholder="Precio pagado por cada bulto" />
+              <input className="input mono" type="text" inputMode="decimal" value={costoBulto} onChange={(e) => setCostoBulto(e.target.value)} placeholder="Precio pagado por cada bulto" />
               <small className="muted" style={{ fontSize: '.72rem' }}>
                 {bultosNum > 0 && uPorBultoNum > 0
                   ? <>= <strong>{num(cantidadNum)} {producto.unidad}</strong>{costoBultoNum > 0 ? <> · costo unitario <strong>{money(costoUnitNum)}</strong> ({money(costoBultoNum)} ÷ {num(uPorBultoNum)})</> : ''}</>
@@ -280,9 +288,9 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
               <label>Costo unitario del proveedor (USD)</label>
               <input
                 className="input mono"
-                type="number"
-                min={0}
-                step="0.01"
+                type="text"
+                inputMode="decimal"
+                placeholder="0.00"
                 value={costoUnit}
                 onChange={(e) => setCostoUnit(e.target.value)}
               />
