@@ -105,15 +105,25 @@ export async function getCurrentUsuario(): Promise<Usuario | null> {
   return (data ?? null) as Usuario | null;
 }
 
-/** Genera el siguiente código SP-YYYY-#### (Solicitud de Pedido) contando órdenes existentes. */
+/**
+ * Genera el siguiente código SP-YYYY-#### (Solicitud de Pedido) tomando el MÁXIMO
+ * correlativo base del año + 1 (ignora las OC hijas SP-…-P1/-P2). Antes contaba filas
+ * (count + 1), lo que se desincronizaba si se borraba o agregaba una OC hija.
+ */
 export async function nextCodigo(): Promise<string> {
   const year = new Date().getFullYear();
-  const { count, error } = await supabase
+  const prefix = `SP-${year}-`;
+  const { data, error } = await supabase
     .from(TABLE)
-    .select('id', { count: 'exact', head: true });
+    .select('codigo')
+    .like('codigo', `${prefix}%`);
   if (error) throw error;
-  const n = (count ?? 0) + 1;
-  return `SP-${year}-${String(n).padStart(4, '0')}`;
+  let max = 0;
+  for (const r of data ?? []) {
+    const m = /^SP-\d{4}-(\d{4})$/.exec(String(r.codigo ?? ''));
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`;
 }
 
 export interface CrearOrdenInput {
@@ -686,18 +696,27 @@ export async function rechazarOrden(
   return data as Orden;
 }
 
-/** Genera el siguiente código OC-YYYY-#### contando OCs ÚNICAS ya emitidas. */
+/**
+ * Genera el siguiente código OC-YYYY-#### tomando el MÁXIMO correlativo ya emitido
+ * del año + 1. Antes contaba códigos únicos (size + 1), lo que se atascaba si había
+ * huecos o códigos repetidos (el conteo quedaba por debajo del máximo y reusaba el
+ * mismo número). Con el máximo siempre incrementa, aunque falten números.
+ */
 export async function nextOcCodigo(): Promise<string> {
   const year = new Date().getFullYear();
-  // Cuenta códigos distintos (multiples OPs pueden compartir un mismo oc_codigo).
+  const prefix = `OC-${year}-`;
   const { data, error } = await supabase
     .from(TABLE)
     .select('oc_codigo')
-    .not('oc_codigo', 'is', null);
+    .like('oc_codigo', `${prefix}%`);
   if (error) throw error;
-  const unique = new Set((data ?? []).map((r) => r.oc_codigo as string));
-  const seq = String(unique.size + 1).padStart(4, '0');
-  return `OC-${year}-${seq}`;
+  let max = 0;
+  for (const r of data ?? []) {
+    const m = /-(\d+)$/.exec(String(r.oc_codigo ?? ''));
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  const seq = String(max + 1).padStart(4, '0');
+  return `${prefix}${seq}`;
 }
 
 /** Lista las OPs aprobadas de un proveedor (excluyendo opcionalmente una específica). */
