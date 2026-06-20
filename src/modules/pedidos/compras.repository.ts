@@ -32,6 +32,7 @@ export interface CompraDirectaItem {
 
 export interface CompraDirecta {
   id: string;
+  codigo: string | null;
   producto_id: string | null;
   producto_nombre: string;
   producto_sku: string | null;
@@ -67,6 +68,17 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
     }];
   }
   return { ...r, items };
+}
+
+/** Próximo correlativo CD-YYYY-#### (Compra Directa) contando las compras existentes. */
+export async function nextCodigoCompraDirecta(): Promise<string> {
+  const year = new Date().getFullYear();
+  const { count, error } = await supabase
+    .from('compras_directas')
+    .select('id', { count: 'exact', head: true });
+  if (error) throw error;
+  const n = (count ?? 0) + 1;
+  return `CD-${year}-${String(n).padStart(4, '0')}`;
 }
 
 export async function listComprasDirectas(): Promise<CompraDirecta[]> {
@@ -128,10 +140,12 @@ export async function crearCompraDirecta(
 
   const totalCantidad = items.reduce((a, i) => a + i.cantidad, 0);
   const resumen = items.length === 1 ? items[0].producto_nombre : `${items.length} materiales`;
+  const codigo = await nextCodigoCompraDirecta();
 
   const { data, error } = await supabase
     .from('compras_directas')
     .insert({
+      codigo,
       producto_id: items.length === 1 ? items[0].producto_id : null,
       producto_nombre: resumen,
       producto_sku: items.length === 1 ? items[0].producto_sku : null,
@@ -258,5 +272,20 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
+  if (error) throw error;
+}
+
+/**
+ * Elimina una compra directa que sigue EN PROCESO (todavía no tocó caja ni inventario).
+ * Las finalizadas NO se borran por esta vía porque ya generaron egreso de caja y entrada
+ * al inventario (habría que reversar ambos). Si tiene adjunto, también se quita del Storage.
+ */
+export async function eliminarCompraDirecta(compra: CompraDirecta): Promise<void> {
+  if (compra.estado !== 'en_proceso')
+    throw new Error('Solo se puede eliminar una compra EN PROCESO (las finalizadas ya afectaron caja e inventario).');
+  if (compra.adjunto_path) {
+    try { await supabase.storage.from(BUCKET).remove([compra.adjunto_path]); } catch { /* el adjunto no bloquea el borrado */ }
+  }
+  const { error } = await supabase.from('compras_directas').delete().eq('id', compra.id);
   if (error) throw error;
 }

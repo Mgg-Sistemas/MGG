@@ -46,6 +46,7 @@ import {
   listTanqueMovimientos,
   ultimoHorometroEquipo,
   ultimoContadorTanque,
+  actualizarTelemetriaSolicitud,
   TIPO_TANQUE_LABEL,
   type TablaCatalogo,
 } from './combustible.repository';
@@ -1683,9 +1684,48 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
   const [enviando, setEnviando] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancel, setMotivoCancel] = useState('');
-  // Modal de surtido: al finalizar, el usuario confirma cuántos litros echó realmente.
+  // Modal de surtido: al finalizar, el usuario confirma litros + horómetros e indicadores.
   const [finalizarOpen, setFinalizarOpen] = useState(false);
   const [litrosSurtidos, setLitrosSurtidos] = useState(String(s.litros));
+  // Telemetría (mismas reglas de encadenado que un movimiento de tanque).
+  const [hiVal, setHiVal] = useState(''); const [hfVal, setHfVal] = useState('');
+  const [ciVal, setCiVal] = useState(''); const [cfVal, setCfVal] = useState('');
+  const [hiLock, setHiLock] = useState(false); const [ciLock, setCiLock] = useState(false);
+  const [teleEditOpen, setTeleEditOpen] = useState(false);
+
+  // Precarga HI (último HF del equipo/destino) y contador ini (último del tanque), encadenados.
+  async function precargarTelemetria() {
+    setHiVal(s.horometro_inicial != null ? String(s.horometro_inicial) : '');
+    setHfVal(s.horometro_final != null ? String(s.horometro_final) : '');
+    setCiVal(s.contador_ini != null ? String(s.contador_ini) : '');
+    setCfVal(s.contador_fin != null ? String(s.contador_fin) : '');
+    setHiLock(false); setCiLock(false);
+    if (s.horometro_inicial == null && s.destino) {
+      const hf = await ultimoHorometroEquipo(s.destino).catch(() => null);
+      if (hf != null) { setHiVal(String(hf)); setHiLock(true); }
+    }
+    if (s.contador_ini == null && s.tanque_id) {
+      const c = await ultimoContadorTanque(s.tanque_id).catch(() => null);
+      if (c != null) { setCiVal(String(c)); setCiLock(true); }
+    }
+  }
+  const numOrNull = (v: string) => { const n = Number(String(v).replace(',', '.')); return v.trim() !== '' && Number.isFinite(n) ? n : null; };
+  const teleActual = () => ({
+    horometroInicial: numOrNull(hiVal), horometroFinal: numOrNull(hfVal),
+    contadorIni: numOrNull(ciVal), contadorFin: numOrNull(cfVal),
+  });
+  const hrsTele = numOrNull(hiVal) != null && numOrNull(hfVal) != null ? Math.round((numOrNull(hfVal)! - numOrNull(hiVal)!) * 100) / 100 : null;
+  const difTele = numOrNull(ciVal) != null && numOrNull(cfVal) != null ? Math.round((numOrNull(cfVal)! - numOrNull(ciVal)!) * 100) / 100 : null;
+
+  async function guardarTelemetria() {
+    setBusy(true);
+    try {
+      await actualizarTelemetriaSolicitud(s, teleActual(), actor, null);
+      notify(`Horómetros/indicadores de ${s.codigo} actualizados`, 'success', { link: '#/app/combustible' });
+      setTeleEditOpen(false);
+      await onChanged();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); setBusy(false); }
+  }
 
   async function aprobar() {
     setBusy(true);
@@ -1695,9 +1735,12 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
   async function finalizar() {
     const reales = Number(litrosSurtidos.replace(',', '.'));
     if (!Number.isFinite(reales) || reales <= 0) { toast('Indicá los litros realmente surtidos.', 'error'); return; }
+    const tele = teleActual();
+    if (tele.horometroInicial != null && tele.horometroFinal != null && tele.horometroFinal < tele.horometroInicial) { toast('El horómetro final no puede ser menor que el inicial.', 'error'); return; }
+    if (tele.contadorIni != null && tele.contadorFin != null && tele.contadorFin < tele.contadorIni) { toast('El contador final no puede ser menor que el inicial.', 'error'); return; }
     setBusy(true);
     try {
-      await finalizarSolicitudCombustible(s, actor, null, reales);
+      await finalizarSolicitudCombustible(s, actor, null, reales, tele);
       notify(`Solicitud ${s.codigo} finalizada · -${num(reales)} L`, 'success', { link: '#/app/combustible' });
       setFinalizarOpen(false);
       await onChanged();
@@ -1749,7 +1792,48 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
     ['Creada', dateTime(s.created_at)],
     ['Aprobada', s.aprobada_en ? `${dateTime(s.aprobada_en)} · ${s.aprobada_por ?? ''}`.trim() : '—'],
     ['Finalizada', s.finalizada_en ? `${dateTime(s.finalizada_en)} · ${s.finalizada_por ?? ''}`.trim() : '—'],
+    ...(s.estado === 'finalizada' && (s.horometro_inicial != null || s.horometro_final != null)
+      ? [['Horómetro (HI → HF)', `${s.horometro_inicial != null ? num(Number(s.horometro_inicial)) : '—'} → ${s.horometro_final != null ? num(Number(s.horometro_final)) : '—'}${s.horometro_inicial != null && s.horometro_final != null ? ` · ${num(Number(s.horometro_final) - Number(s.horometro_inicial))} h` : ''}`]] as Array<[string, string]>
+      : []),
+    ...(s.estado === 'finalizada' && (s.contador_ini != null || s.contador_fin != null)
+      ? [['Indicador surtidor (ini → fin)', `${s.contador_ini != null ? num(Number(s.contador_ini)) : '—'} → ${s.contador_fin != null ? num(Number(s.contador_fin)) : '—'}`]] as Array<[string, string]>
+      : []),
   ];
+
+  const telemetriaFields = (
+    <div className="card" style={{ padding: '.7rem', marginTop: '.5rem', background: 'var(--bg-1)' }}>
+      <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.4rem' }}>
+        Horómetros e indicadores {s.destino ? `· ${s.destino}` : ''}
+      </div>
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Horómetro inicial (HI){hiLock ? ' 🔒' : ''}</label>
+          <input className="input mono" type="number" step="any" value={hiVal} readOnly={hiLock}
+            onChange={(e) => setHiVal(e.target.value)} />
+          {hiLock && <small className="muted" style={{ fontSize: '.7rem' }}>Encadenado: último HF del equipo.</small>}
+        </div>
+        <div className="form-row">
+          <label>Horómetro final (HF)</label>
+          <input className="input mono" type="number" step="any" value={hfVal} onChange={(e) => setHfVal(e.target.value)} />
+          {hrsTele != null && <small className="muted" style={{ fontSize: '.7rem' }}>HRS = HF − HI = {num(hrsTele)} h</small>}
+        </div>
+      </div>
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Contador inicial (surtidor){ciLock ? ' 🔒' : ''}</label>
+          <input className="input mono" type="number" step="any" value={ciVal} readOnly={ciLock}
+            onChange={(e) => setCiVal(e.target.value)} />
+          {ciLock && <small className="muted" style={{ fontSize: '.7rem' }}>Encadenado: último contador del tanque.</small>}
+        </div>
+        <div className="form-row">
+          <label>Contador final (surtidor)</label>
+          <input className="input mono" type="number" step="any" value={cfVal} onChange={(e) => setCfVal(e.target.value)} />
+          {difTele != null && <small className="muted" style={{ fontSize: '.7rem' }}>Diferencia = {num(difTele)}</small>}
+        </div>
+      </div>
+      <small className="muted" style={{ fontSize: '.7rem' }}>Opcional. Si los cargás, la solicitud queda en la cadena de telemetría (consumo por equipo).</small>
+    </div>
+  );
 
   return (
     <Modal title={`Solicitud ${s.codigo}`} size="md" onClose={onClose} footer={
@@ -1757,7 +1841,8 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
         <button className="btn btn-ghost" onClick={pdf}>↓ PDF</button>
         <button className="btn btn-ghost" onClick={() => setCorreoOpen(true)}>✉ Correo</button>
         {canWrite && s.estado === 'por_aprobar' && <button className="btn btn-primary" onClick={aprobar} disabled={busy}>Aprobar</button>}
-        {canWrite && s.estado === 'aprobada' && <button className="btn btn-primary" onClick={() => { setLitrosSurtidos(String(s.litros)); setFinalizarOpen(true); }} disabled={busy}>Finalizar (descuenta litros)</button>}
+        {canWrite && s.estado === 'aprobada' && <button className="btn btn-primary" onClick={() => { setLitrosSurtidos(String(s.litros)); void precargarTelemetria(); setFinalizarOpen(true); }} disabled={busy}>Finalizar (descuenta litros)</button>}
+        {canWrite && s.estado === 'finalizada' && <button className="btn btn-ghost" onClick={() => { void precargarTelemetria(); setTeleEditOpen(true); }} disabled={busy} title="Editar horómetros e indicadores">🛠 Horómetros</button>}
         {canWrite && s.estado !== 'finalizada' && s.estado !== 'cancelada' && <button className="btn btn-danger" onClick={() => setCancelOpen(true)} disabled={busy}>Cancelar</button>}
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
@@ -1772,7 +1857,7 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
         const reales = Number(litrosSurtidos.replace(',', '.')) || 0;
         const dif = reales - Number(s.litros);
         return (
-        <Modal title="Confirmar surtido" size="sm" onClose={() => !busy && setFinalizarOpen(false)} footer={
+        <Modal title="Confirmar surtido" size="md" onClose={() => !busy && setFinalizarOpen(false)} footer={
           <>
             <button className="btn btn-ghost" onClick={() => setFinalizarOpen(false)} disabled={busy}>Cancelar</button>
             <button className="btn btn-primary" onClick={finalizar} disabled={busy}>{busy ? 'Surtiendo…' : `Surtir ${num(reales)} L`}</button>
@@ -1792,9 +1877,22 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
               {dif > 0 ? '▲' : '▼'} {dif > 0 ? '+' : ''}{num(dif)} L respecto a lo solicitado.
             </p>
           )}
+          {telemetriaFields}
         </Modal>
         );
       })()}
+
+      {teleEditOpen && (
+        <Modal title="Horómetros e indicadores" size="md" onClose={() => !busy && setTeleEditOpen(false)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setTeleEditOpen(false)} disabled={busy}>Cancelar</button>
+            <button className="btn btn-primary" onClick={guardarTelemetria} disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</button>
+          </>
+        }>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Cargá o corregí los horómetros e indicadores de esta solicitud finalizada (no cambia litros). Se sincroniza con la cadena de combustible.</p>
+          {telemetriaFields}
+        </Modal>
+      )}
 
       {correoOpen && (
         <Modal title="Enviar solicitud por correo" size="md" onClose={() => !enviando && setCorreoOpen(false)} footer={

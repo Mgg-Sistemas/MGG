@@ -1253,7 +1253,15 @@ export async function aprobarSolicitudCombustible(s: SolicitudCombustible, actor
  * Finaliza la solicitud: descuenta los litros del inventario del combustible
  * (movimiento tipo 'salida') y cierra el trámite.
  */
-export async function finalizarSolicitudCombustible(s: SolicitudCombustible, actor: string, actorName?: string | null, litrosReales?: number | null): Promise<void> {
+/** Telemetría capturada al surtir (mismas reglas de encadenado que un movimiento de tanque). */
+export interface TelemetriaSurtido {
+  horometroInicial?: number | null;
+  horometroFinal?: number | null;
+  contadorIni?: number | null;
+  contadorFin?: number | null;
+}
+
+export async function finalizarSolicitudCombustible(s: SolicitudCombustible, actor: string, actorName?: string | null, litrosReales?: number | null, tele?: TelemetriaSurtido | null): Promise<void> {
   if (s.estado !== 'aprobada') throw new Error('Solo se finalizan solicitudes aprobadas.');
   if (!s.combustible_id) throw new Error('La solicitud no tiene un combustible asociado.');
   // Litros REALMENTE surtidos: si el usuario indicó un valor (echó más/menos), manda
@@ -1332,10 +1340,31 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
   if (uErr) throw uErr;
 
   // 3) Tanque origen: descuenta sus litros propios (se refleja en el tanque además del inventario).
+  let tanqueMovId: string | null = null;
   if (s.tanque_id && tanqueLitrosAntes != null) {
     await supabase.from('combustible_tanques')
       .update({ litros: Math.max(0, tanqueLitrosAntes - litros), updated_at: new Date().toISOString() })
       .eq('id', s.tanque_id);
+
+    // 3b) Movimiento de tanque (consumo) SOLO para telemetría/cadena: el tanque ya se
+    // descontó arriba, así que este insert NO vuelve a restar (no usa salidaCombustibleDirecta).
+    // Mismas reglas de encadenado que un movimiento de tanque manual (horómetro x equipo,
+    // contador x tanque). Así la solicitud finalizada aparece en el consumo por equipo.
+    const { data: tqRow } = await supabase.from('combustible_tanques').select('nombre').eq('id', s.tanque_id).maybeSingle();
+    const { data: tmov, error: tmErr } = await supabase.from('combustible_tanque_movimientos').insert({
+      tanque_id: s.tanque_id, tanque_nombre: (tqRow?.nombre as string) ?? s.tanque_nombre ?? null,
+      tipo: 'consumo', fecha: new Date().toISOString(),
+      litros, litros_antes: tanqueLitrosAntes, litros_despues: Math.max(0, tanqueLitrosAntes - litros),
+      horometro_inicial: tele?.horometroInicial ?? null, horometro_final: tele?.horometroFinal ?? null,
+      contador_global_ini: tele?.contadorIni ?? null, contador_global_fin: tele?.contadorFin ?? null,
+      equipo: s.destino?.trim() || null, destino: s.destino?.trim() || null,
+      observacion: `Solicitud ${s.codigo}`,
+      combustible_id: s.combustible_id, costo_litro: costo,
+      actor, actor_name: actorName ?? null,
+    }).select('id').single();
+    if (tmErr) throw tmErr;
+    tanqueMovId = (tmov as { id: string }).id;
+    await reencadenarTrasCambio(s.tanque_id, null, s.destino?.trim() || null, null);
   }
 
   const { error: sErr } = await supabase
@@ -1345,11 +1374,66 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
       finalizada_por: actor,
       finalizada_en: new Date().toISOString(),
       litros_reales: litros,
+      horometro_inicial: tele?.horometroInicial ?? null,
+      horometro_final: tele?.horometroFinal ?? null,
+      contador_ini: tele?.contadorIni ?? null,
+      contador_fin: tele?.contadorFin ?? null,
+      tanque_mov_id: tanqueMovId,
       mov_id: (mov as { id: string }).id,
       historial: appendHistorial(s, 'finalizada', actor, { litros, solicitados: litrosSolicitados }),
     })
     .eq('id', s.id);
   if (sErr) throw sErr;
+}
+
+/**
+ * Edita los horómetros e indicadores de una solicitud YA FINALIZADA (backfill).
+ * No toca litros ni balances: solo telemetría. Sincroniza el movimiento de tanque
+ * vinculado (lo actualiza, o lo crea si la solicitud se finalizó sin telemetría) y
+ * re-encadena con la misma regla (horómetro x equipo, contador x tanque).
+ */
+export async function actualizarTelemetriaSolicitud(
+  s: SolicitudCombustible, tele: TelemetriaSurtido, actor: string, actorName?: string | null,
+): Promise<void> {
+  if (s.estado !== 'finalizada') throw new Error('Solo se editan los horómetros de una solicitud finalizada.');
+  const hi = tele.horometroInicial ?? null, hf = tele.horometroFinal ?? null;
+  const ci = tele.contadorIni ?? null, cf = tele.contadorFin ?? null;
+  if (hi != null && hf != null && hf < hi) throw new Error('El horómetro final no puede ser menor que el inicial.');
+  if (ci != null && cf != null && cf < ci) throw new Error('El contador final no puede ser menor que el inicial.');
+
+  let movId = s.tanque_mov_id ?? null;
+  if (s.tanque_id) {
+    if (movId) {
+      await supabase.from('combustible_tanque_movimientos').update({
+        horometro_inicial: hi, horometro_final: hf, contador_global_ini: ci, contador_global_fin: cf,
+      }).eq('id', movId);
+    } else {
+      // La solicitud se finalizó sin telemetría: creamos el movimiento de tanque ahora
+      // (solo telemetría/cadena, sin re-descontar litros).
+      const litros = Number(s.litros_reales ?? s.litros) || 0;
+      const { data: tqRow } = await supabase.from('combustible_tanques').select('nombre').eq('id', s.tanque_id).maybeSingle();
+      const { data: comb } = await supabase.from('combustibles').select('costo_litro').eq('id', s.combustible_id ?? '').maybeSingle();
+      const { data: tmov, error: tmErr } = await supabase.from('combustible_tanque_movimientos').insert({
+        tanque_id: s.tanque_id, tanque_nombre: (tqRow?.nombre as string) ?? s.tanque_nombre ?? null,
+        tipo: 'consumo', fecha: s.finalizada_en ?? new Date().toISOString(),
+        litros: litros > 0 ? litros : 0.0001,
+        horometro_inicial: hi, horometro_final: hf, contador_global_ini: ci, contador_global_fin: cf,
+        equipo: s.destino?.trim() || null, destino: s.destino?.trim() || null,
+        observacion: `Solicitud ${s.codigo} (telemetría)`,
+        combustible_id: s.combustible_id, costo_litro: Number(comb?.costo_litro) || 0,
+        actor, actor_name: actorName ?? null,
+      }).select('id').single();
+      if (tmErr) throw tmErr;
+      movId = (tmov as { id: string }).id;
+    }
+    await reencadenarTrasCambio(s.tanque_id, null, s.destino?.trim() || null, null);
+  }
+
+  const { error } = await supabase.from('combustible_solicitudes').update({
+    horometro_inicial: hi, horometro_final: hf, contador_ini: ci, contador_fin: cf, tanque_mov_id: movId,
+    historial: appendHistorial(s, 'telemetria_editada', actor, { hi, hf, ci, cf }),
+  }).eq('id', s.id);
+  if (error) throw error;
 }
 
 export async function cancelarSolicitudCombustible(s: SolicitudCombustible, actor: string, motivo: string): Promise<void> {

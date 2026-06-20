@@ -84,7 +84,15 @@ const TIPO_MOV_LABEL: Record<string, string> = {
 };
 const CAT_LABEL: Record<string, string> = {
   gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', pago_nomina: 'Pago de nómina',
+  traslado: 'Traslado', conversion: 'Conversión', compra_directa: 'Compra directa',
+  cobro_cxc: 'Cobro por cobrar', abono_cxp: 'Abono por pagar', combustible: 'Combustible',
 };
+
+/** Etiqueta legible de una categoría de movimiento (cae al valor crudo si no está mapeada). */
+function catLabel(cat: string | null | undefined): string {
+  const c = (cat ?? '').trim();
+  return c ? (CAT_LABEL[c] ?? c) : '—';
+}
 
 /** Formatea un monto con el símbolo de su moneda (2 decimales). */
 function monto(n: number | null | undefined, moneda: string): string {
@@ -163,6 +171,7 @@ export function TesoreriaPage() {
   const [monedasReg, setMonedasReg] = useState<string[]>(['Bs', 'USD', 'USDT', 'COP']);
   useEffect(() => { listMonedas().then(setMonedasReg).catch(() => { /* base */ }); }, []);
   const [fTipo, setFTipo] = useState('');
+  const [fCategoria, setFCategoria] = useState('');
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
   const [fBuscar, setFBuscar] = useState('');
@@ -211,19 +220,27 @@ export function TesoreriaPage() {
   // Búsqueda general (client-side) sobre los movimientos ya cargados: caja,
   // concepto, beneficiario, motivo, moneda, monto, saldo y fecha. Cada palabra
   // tecleada debe aparecer en algún campo (búsqueda tipo "todas las palabras").
+  // Categorías presentes en el registro (para el filtro), ordenadas por etiqueta.
+  const categoriasReg = useMemo(() => {
+    const set = new Set<string>();
+    libro.forEach((m) => { const c = (m.categoria ?? '').trim(); if (c) set.add(c); });
+    return Array.from(set).sort((a, b) => catLabel(a).localeCompare(catLabel(b), 'es'));
+  }, [libro]);
+
   const libroView = useMemo(() => {
     const q = normalizarBusqueda(fBuscar);
-    if (!q) return libro;
-    const palabras = q.split(/\s+/).filter(Boolean);
+    const palabras = q ? q.split(/\s+/).filter(Boolean) : [];
     return libro.filter((m) => {
+      if (fCategoria && (m.categoria ?? '') !== fCategoria) return false;
+      if (!palabras.length) return true;
       const heno = normalizarBusqueda([
-        m.caja?.nombre, TIPO_MOV_LABEL[m.tipo] ?? m.tipo, CAT_LABEL[m.categoria ?? ''] ?? m.categoria,
+        m.caja?.nombre, TIPO_MOV_LABEL[m.tipo] ?? m.tipo, catLabel(m.categoria),
         m.beneficiario, m.motivo, m.destino, m.cuenta, m.moneda,
         monto(m.monto, m.moneda), monto(m.saldo_despues, m.moneda), dateTime(m.at),
       ].filter(Boolean).join(' '));
       return palabras.every((p) => heno.includes(p));
     });
-  }, [libro, fBuscar]);
+  }, [libro, fBuscar, fCategoria]);
 
   // Metadatos del reporte PDF/correo del registro de movimientos (según filtros).
   const reporteMeta = () => ({
@@ -231,6 +248,7 @@ export function TesoreriaPage() {
     subtitulo: [
       fDesde && `Desde ${fDesde}`, fHasta && `Hasta ${fHasta}`,
       fMoneda && `Moneda ${fMoneda}`, fTipo && `Tipo ${fTipo}`,
+      fCategoria && `Categoría ${catLabel(fCategoria)}`,
       fBuscar.trim() && `Búsqueda "${fBuscar.trim()}"`,
     ].filter(Boolean).join(' · ') || 'Todos los movimientos',
   });
@@ -399,6 +417,10 @@ export function TesoreriaPage() {
                   <option value="ingreso">Ingresos</option><option value="salida">Egresos</option>
                   <option value="traslado_salida">Traslados</option><option value="ajuste">Ajustes</option>
                 </select>
+                <select className="select" value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={{ width: 'auto' }}>
+                  <option value="">Toda categoría</option>
+                  {categoriasReg.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
+                </select>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.5rem', alignItems: 'center' }}>
@@ -406,7 +428,7 @@ export function TesoreriaPage() {
                 try { await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
-              {fBuscar.trim() && (
+              {(fBuscar.trim() || fCategoria) && (
                 <span className="muted" style={{ fontSize: '.8rem' }}>
                   {libroView.length} de {libro.length} {libro.length === 1 ? 'movimiento' : 'movimientos'}
                 </span>
@@ -414,19 +436,20 @@ export function TesoreriaPage() {
             </div>
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.85rem' }}>
-                <thead><tr><th>Fecha</th><th>Caja</th><th>Movimiento</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>Saldo</th><th style={{ textAlign: 'center' }}>Detalle</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Caja</th><th>Movimiento</th><th>Categoría</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>Saldo</th><th style={{ textAlign: 'center' }}>Detalle</th></tr></thead>
                 <tbody>
-                  {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-                  {!loading && !libroView.length && <tr><td colSpan={7}><EmptyState message={fBuscar.trim() ? `Sin resultados para "${fBuscar.trim()}"` : 'Sin movimientos'} /></td></tr>}
+                  {loading && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+                  {!loading && !libroView.length && <tr><td colSpan={8}><EmptyState message={fBuscar.trim() ? `Sin resultados para "${fBuscar.trim()}"` : 'Sin movimientos'} /></td></tr>}
                   {!loading && libroView.map((m) => {
                     const egreso = m.tipo === 'salida' || m.tipo === 'traslado_salida'
                   || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
-                    const concepto = [CAT_LABEL[m.categoria ?? ''] , m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
+                    const concepto = [m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
                     return (
                       <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => setMovSel(m)} title="Ver todos los detalles">
                         <td>{dateTime(m.at)}</td>
                         <td>{m.caja?.nombre ?? '—'}</td>
                         <td>{TIPO_MOV_LABEL[m.tipo] ?? m.tipo}</td>
+                        <td>{m.categoria ? <span className="badge">{catLabel(m.categoria)}</span> : <span className="muted">—</span>}</td>
                         <td>{concepto}</td>
                         <td className="mono" style={{ textAlign: 'right', color: egreso ? 'var(--danger)' : 'var(--success)' }}>{egreso ? '−' : '+'}{monto(m.monto, m.moneda)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{monto(m.saldo_despues, m.moneda)}</td>
@@ -440,7 +463,7 @@ export function TesoreriaPage() {
                 {!loading && libroView.length > 0 && (
                   <tfoot>
                     <tr>
-                      <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>
+                      <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700 }}>
                         Total {fTipo === 'ingreso' ? 'ingresos' : fTipo === 'salida' ? 'egresos' : 'neto'} · {libroView.length} mov.
                       </td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>
