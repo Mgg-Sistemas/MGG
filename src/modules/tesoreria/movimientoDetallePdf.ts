@@ -9,6 +9,7 @@
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
+import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import type { MovimientoCaja, Orden } from '@/shared/lib/types';
 
 const TIPO_LABEL: Record<string, string> = {
@@ -30,10 +31,11 @@ function esEgreso(m: MovimientoCaja): boolean {
 }
 
 async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null) {
-  const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [logoDataUrl, { jsPDF }, { default: autoTable }, personas] = await Promise.all([
     loadLogoDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
+    cargarPersonasPorEmail().catch(() => new Map<string, string>()),
   ]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -78,7 +80,7 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null) {
   filasMov.push(['Saldo después', montoStr(mov.saldo_despues, mov.moneda)]);
   if (mov.beneficiario) filasMov.push(['Beneficiario', String(mov.beneficiario)]);
   if (mov.destino) filasMov.push(['Destino', String(mov.destino)]);
-  filasMov.push(['Registrado por', mov.actor_name || mov.actor]);
+  filasMov.push(['Registrado por', personaDe(mov.actor, personas, mov.actor_name)]);
   if (mov.motivo) filasMov.push(['Concepto / motivo', String(mov.motivo)]);
 
   autoTable(doc, {
@@ -100,7 +102,7 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null) {
       ['Total OC', montoStr(orden.total, 'USD')],
     ];
     if (orden.recibido_total != null) filasOrden.push(['Recibido', montoStr(Number(orden.recibido_total), 'USD')]);
-    filasOrden.push(['Solicitante', orden.solicitante || orden.solicitante_email]);
+    filasOrden.push(['Solicitante', orden.ci_solicitante || orden.solicitante || personaDe(orden.solicitante_email, personas, null)]);
     if (orden.condiciones_pago) filasOrden.push(['Condición de pago', labelCondicionPago(orden.condiciones_pago)]);
     if (orden.pagada_en) filasOrden.push(['Pagada', dateTime(orden.pagada_en)]);
     filasOrden.push(['Seriales de billetes', seriales.length ? seriales.join('  ·  ') : 'No se registraron seriales']);

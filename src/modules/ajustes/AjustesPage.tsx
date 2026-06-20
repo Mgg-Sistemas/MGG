@@ -91,7 +91,7 @@ export function AjustesPage() {
   function setScope(s: 'pedidos' | 'oc') {
     setScopePref(s);
     try { localStorage.setItem(SCOPE_KEY, s); } catch { /* localStorage no disponible */ }
-    toast(`Vista preferida: ${s === 'oc' ? 'Órdenes de Compra' : 'Órdenes de Pedido'}`, 'info');
+    toast(`Vista preferida: ${s === 'oc' ? 'Órdenes de Compra' : 'Solicitud de Pedido'}`, 'info');
   }
 
   async function handleLogout() {
@@ -311,7 +311,7 @@ export function AjustesPage() {
             <button className={`chip${viewPref === 'lista' ? ' chip-active' : ''}`} onClick={() => setView('lista')}>☰ Lista</button>
           </div>
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            <button className={`chip${scopePref === 'pedidos' ? ' chip-active' : ''}`} onClick={() => setScope('pedidos')}>✉ Órdenes de Pedido</button>
+            <button className={`chip${scopePref === 'pedidos' ? ' chip-active' : ''}`} onClick={() => setScope('pedidos')}>✉ Solicitud de Pedido</button>
             <button className={`chip${scopePref === 'oc' ? ' chip-active' : ''}`} onClick={() => setScope('oc')}>🧾 Órdenes de Compra</button>
           </div>
         </div>

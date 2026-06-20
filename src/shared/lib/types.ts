@@ -435,6 +435,13 @@ export interface SolicitudCombustible {
   litros: number;
   /** Litros realmente surtidos al finalizar (puede diferir de lo solicitado). */
   litros_reales?: number | null;
+  /** Telemetría capturada al surtir: horómetro del equipo e indicadores del surtidor. */
+  horometro_inicial?: number | null;
+  horometro_final?: number | null;
+  contador_ini?: number | null;
+  contador_fin?: number | null;
+  /** Movimiento de tanque (consumo) generado al finalizar, para la cadena/telemetría. */
+  tanque_mov_id?: string | null;
   estado: EstadoSolicitudCombustible;
   motivo?: string | null;
   historial: EventoHistorial[];

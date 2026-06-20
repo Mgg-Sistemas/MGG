@@ -54,6 +54,7 @@ import {
   listAbonos,
   urlAdjuntoOc,
   indicarMetodoPago,
+  reasignarProveedorAReaprobacion,
   METODOS_PAGO,
   labelMetodoPago,
   listCatalogoPedido,
@@ -430,9 +431,9 @@ export function PedidosPage() {
           <button
             className={scope === 'pedidos' ? 'active' : ''}
             onClick={() => switchScope('pedidos')}
-            title="Ver órdenes de pedido"
+            title="Ver solicitudes de pedido"
           >
-            ✉ Órdenes de Pedido
+            ✉ Solicitud de Pedido
           </button>
           <button
             className={scope === 'oc' ? 'active' : ''}
@@ -785,12 +786,24 @@ export function PedidosPage() {
       {modal.kind === 'metodo-pago' && (
         <MetodoPagoModal
           orden={modal.orden}
+          proveedores={proveedores}
+          proveedorActual={modal.orden.proveedor_id ? proveedorMap.get(modal.orden.proveedor_id) ?? null : null}
           onClose={() => setModal({ kind: 'none' })}
-          onSent={async (metodos, soporte) => {
+          onSent={async (metodos, soporte, proveedorId) => {
             try {
-              await indicarMetodoPago(modal.orden, metodos, usuario?.email ?? user?.email ?? 'sistema', soporte);
+              const email = usuario?.email ?? user?.email ?? 'sistema';
+              const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
+              // Si se cambió el proveedor, NO va a pago: vuelve a aprobación del Gerente.
+              if (proveedorId && proveedorId !== modal.orden.proveedor_id) {
+                await reasignarProveedorAReaprobacion(modal.orden, proveedorId, email);
+                notify(`OC ${codigo} · proveedor cambiado → vuelve a Pendiente por aprobación (Gerente General)`, 'info', { link: '#/app/pedidos' });
+                setModal({ kind: 'none' });
+                await refresh();
+                return;
+              }
+              await indicarMetodoPago(modal.orden, metodos, email, soporte);
               const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
-              notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
+              notify(`OC ${codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
               setModal({ kind: 'none' });
               await refresh();
             } catch (e) {
@@ -1083,18 +1096,31 @@ function monedaPorMetodo(metodo: string): string {
 
 function MetodoPagoModal({
   orden,
+  proveedores,
+  proveedorActual,
   onClose,
   onSent,
 }: {
   orden: Orden;
+  proveedores: Proveedor[];
+  proveedorActual: Proveedor | null;
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }, proveedorId: string) => Promise<void> | void;
 }) {
   const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Datos de pago del proveedor ya guardados (para precargar por método).
   const [datosGuardados, setDatosGuardados] = useState<Record<string, DatosPago>>({});
+  // Proveedor de la OC: se puede cambiar acá (la orden ya está aprobada; solo se reasigna).
+  const [proveedorId, setProveedorId] = useState<string>(orden.proveedor_id ?? '');
+  const proveedorCambiado = !!orden.proveedor_id && proveedorId !== orden.proveedor_id;
+  // Lista para el selector: activos + el actual (aunque esté inactivo), sin duplicar.
+  const proveedoresSel = useMemo(() => {
+    const out = [...proveedores];
+    if (proveedorActual && !out.some((p) => p.id === proveedorActual.id)) out.unshift(proveedorActual);
+    return out;
+  }, [proveedores, proveedorActual]);
   // Contra entrega: ya se recibió y verificó; se confirma la Nota de entrega antes de pagar.
   const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
   const [notaEntrega, setNotaEntrega] = useState(false);
@@ -1102,10 +1128,17 @@ function MetodoPagoModal({
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
 
+  // Precarga los datos de pago guardados del proveedor SELECCIONADO (no del original).
   useEffect(() => {
-    if (!orden.proveedor_id) return;
-    listDatosPago(orden.proveedor_id).then(setDatosGuardados).catch(() => { /* sin datos previos */ });
-  }, [orden.proveedor_id]);
+    if (!proveedorId) { setDatosGuardados({}); return; }
+    listDatosPago(proveedorId).then(setDatosGuardados).catch(() => setDatosGuardados({}));
+  }, [proveedorId]);
+
+  // Al cambiar de proveedor, los datos de cuenta cargados ya no aplican: se reinician los métodos.
+  function cambiarProveedor(id: string) {
+    setProveedorId(id);
+    setLegs([{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }]);
+  }
 
   function setLeg(i: number, patch: Partial<PagoMetodo>) {
     setLegs((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
@@ -1122,17 +1155,21 @@ function MetodoPagoModal({
 
   async function handleSend() {
     setError(null);
-    if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
-    if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
-    // Validar datos del proveedor en los métodos que los requieren.
-    for (const l of validos) {
-      if (requiereDatos(l.metodo)) {
-        const err = validarDatosPago(l.metodo, l.datos ?? {});
-        if (err) { setError(`${METODOS_PAGO.find((m) => m.value === l.metodo)?.label}: ${err}`); return; }
+    if (!proveedorId) { setError('Indicá el proveedor.'); return; }
+    // Si cambió el proveedor, la OC vuelve a aprobación del Gerente: no se exige método de pago.
+    if (!proveedorCambiado) {
+      if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
+      if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+      // Validar datos del proveedor en los métodos que los requieren.
+      for (const l of validos) {
+        if (requiereDatos(l.metodo)) {
+          const err = validarDatosPago(l.metodo, l.datos ?? {});
+          if (err) { setError(`${METODOS_PAGO.find((m) => m.value === l.metodo)?.label}: ${err}`); return; }
+        }
       }
     }
     setSaving(true);
-    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null }); }
+    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null }, proveedorId); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
 
@@ -1145,7 +1182,7 @@ function MetodoPagoModal({
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
           <button className="btn btn-primary" onClick={handleSend} disabled={saving}>
-            {saving ? 'Enviando…' : '💳 Enviar para Pagar'}
+            {saving ? 'Enviando…' : proveedorCambiado ? '↩ Reenviar a aprobación del Gerente' : '💳 Enviar para Pagar'}
           </button>
         </>
       }
@@ -1158,6 +1195,28 @@ function MetodoPagoModal({
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
+      {/* Proveedor: la OC ya está aprobada; acá se puede reasignar a otro proveedor (solo cambia el proveedor). */}
+      <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: proveedorCambiado ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+        <div className="card-title" style={{ marginBottom: '.45rem' }}>Proveedor</div>
+        <select className="select" value={proveedorId} onChange={(e) => cambiarProveedor(e.target.value)}>
+          {!proveedorId && <option value="">— Elegí el proveedor —</option>}
+          {proveedoresSel.map((p) => (
+            <option key={p.id} value={p.id}>{p.razon_social}{p.rif ? ` · ${p.rif}` : ''}</option>
+          ))}
+        </select>
+        {proveedorCambiado && (
+          <small className="muted" style={{ display: 'block', marginTop: '.4rem', color: 'var(--brand, #ff8a00)' }}>
+            ⚠️ Cambiarás el proveedor de la OC (de <strong>{proveedorActual?.razon_social ?? '—'}</strong>). Al cambiarlo, la OC <strong>vuelve a “Pendiente por aprobación (Gerente General)”</strong> para que el gerente la confirme de nuevo; el método de pago se indicará después. Los ítems y montos se conservan.
+          </small>
+        )}
+      </div>
+
+      {proveedorCambiado ? (
+        <div className="card" style={{ margin: 0, padding: '.85rem 1rem', borderColor: 'var(--brand, #ff8a00)' }}>
+          <strong>No hace falta indicar el método de pago.</strong> Al cambiar el proveedor, la OC vuelve a aprobación del Gerente; el método se indicará cuando él la confirme de nuevo.
+        </div>
+      ) : (
+      <>
       {/* Soporte: Nota de entrega (directo a Tesorería) vs Factura (pasa por Retenciones) */}
       <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
         <div className="card-title" style={{ marginBottom: '.45rem' }}>Tipo de soporte</div>
@@ -1221,6 +1280,8 @@ function MetodoPagoModal({
       <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
         Si el método es <strong>en efectivo</strong> (divisas o Bs), en Tesorería <strong>no se exigirá comprobante</strong>.
       </small>
+      </>
+      )}
     </Modal>
   );
 }

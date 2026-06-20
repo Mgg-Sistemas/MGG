@@ -401,6 +401,7 @@ alter table public.movimientos add column if not exists solicitante text;
 -- ─────────────────────────────────────────────────────────────
 create table if not exists public.compras_directas (
   id              uuid primary key default gen_random_uuid(),
+  codigo          text,                       -- correlativo CD-YYYY-#### (Compra Directa)
   producto_id     uuid references public.productos(id) on delete set null,
   producto_nombre text not null,
   producto_sku    text,
@@ -490,6 +491,10 @@ create table if not exists public.combustible_solicitudes (
   almacen            text,  -- almacén del inventario de donde sale el combustible
   litros             numeric not null check (litros > 0),
   litros_reales      numeric,   -- litros realmente surtidos al finalizar (puede diferir de lo solicitado)
+  -- Telemetría capturada al surtir (mismas reglas de encadenado que un mov. de tanque):
+  horometro_inicial  numeric, horometro_final numeric,
+  contador_ini       numeric, contador_fin    numeric,
+  tanque_mov_id      uuid,     -- mov. de tanque (consumo) generado al finalizar
   estado             text not null default 'por_aprobar' check (estado in ('por_aprobar','aprobada','finalizada','cancelada')),
   motivo             text,
   historial          jsonb not null default '[]'::jsonb,

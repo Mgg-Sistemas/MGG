@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -12,10 +12,10 @@ import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos } from '@/modules/inventario/inventario.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
-import { saldosDeCaja, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
+import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import {
-  crearCompraDirecta, finalizarCompraDirecta, listComprasDirectas,
+  crearCompraDirecta, finalizarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
   urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
 } from './compras.repository';
 
@@ -43,6 +43,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [vista, setVista] = useState<Vista>('kanban');
   const [crear, setCrear] = useState(false);
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
+  const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
     // Cada fuente con su propio catch: si una falla (RLS/red), las demás cargan igual
@@ -80,6 +81,17 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
+  async function confirmarEliminar() {
+    const c = eliminar;
+    if (!c) return;
+    setEliminar(null);
+    try {
+      await eliminarCompraDirecta(c);
+      toast('Compra directa eliminada', 'success');
+      await reload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  }
+
   return (
     <div>
       <div className="filterbar" style={{ justifyContent: 'space-between' }}>
@@ -102,7 +114,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
                   <CompraCard key={c.id} compra={c}
-                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} />
+                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -112,10 +124,11 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       ) : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Material(es)</th><th>Almacén</th><th>Proveedor</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
+            <thead><tr><th>Código</th><th>Material(es)</th><th>Almacén</th><th>Proveedor</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
             <tbody>
               {compras.map((c) => (
                 <tr key={c.id}>
+                  <td className="mono">{c.codigo ?? '—'}</td>
                   <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : (c.producto_sku ? <span className="muted"> · {c.producto_sku}</span> : null)}</td>
                   <td>{c.almacen}</td>
                   <td>{c.proveedor_nombre || '—'}</td>
@@ -128,6 +141,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Descargar detalle en PDF">↓ PDF</button>
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
+                    {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑</button>}
                   </td>
                 </tr>
               ))}
@@ -145,12 +159,23 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
         <FinalizarCompraModal compra={finalizar} cajas={cajas} actor={actor} actorName={actorName}
           onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
       )}
+
+      {eliminar && (
+        <ConfirmDialog
+          title="Eliminar compra directa"
+          message={`¿Eliminar la compra directa ${eliminar.codigo ? `${eliminar.codigo} · ` : ''}"${eliminar.producto_nombre}"? Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onConfirm={confirmarEliminar}
+          onCancel={() => setEliminar(null)}
+        />
+      )}
     </div>
   );
 }
 
-function CompraCard({ compra, onFinalizar, onPdf }: {
-  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void;
+function CompraCard({ compra, onFinalizar, onPdf, onEliminar }: {
+  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void; onEliminar: () => void;
 }) {
   return (
     <div className="card" style={{ margin: 0 }}>
@@ -158,6 +183,7 @@ function CompraCard({ compra, onFinalizar, onPdf }: {
         <strong>{compra.producto_nombre}</strong>
         <span className="badge">{num(compra.cantidad)}</span>
       </div>
+      {compra.codigo && <div className="muted mono" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>{compra.codigo}</div>}
       <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>→ {compra.almacen}</div>
       {compra.proveedor_nombre && <div className="muted" style={{ fontSize: '.74rem' }}>🏭 {compra.proveedor_nombre}</div>}
       {compra.items.length > 1 && (
@@ -179,6 +205,7 @@ function CompraCard({ compra, onFinalizar, onPdf }: {
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Descargar detalle en PDF">↓ PDF</button>
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
+        {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>
     </div>
   );
@@ -370,6 +397,22 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
   const moneda = caja?.moneda ?? 'USD';
 
+  // Saldo REAL de cada caja desde caja_saldos (lo mismo que descuenta el egreso y muestra
+  // Tesorería). Antes el desplegable mostraba el saldo legado de `cajas`, que no se movía.
+  const [saldoReal, setSaldoReal] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    listSaldos().then((rows) => {
+      const m = new Map<string, number>();
+      for (const c of cajas) {
+        const s = rows
+          .filter((r) => r.caja_id === c.id && r.moneda === c.moneda)
+          .reduce((a, r) => a + (Number(r.saldo) || 0), 0);
+        m.set(c.id, s);
+      }
+      setSaldoReal(m);
+    }).catch(() => { /* sin saldos: cae al saldo legado */ });
+  }, [cajas]);
+
   const total = useMemo(
     () => Math.round(compra.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100,
     [gastos, compra.items],
@@ -402,7 +445,9 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
   const cubreTotalMulti = sumUsdMulti >= total - 0.01;
   // No se puede pagar más que el total de la compra.
   const excedeTotalMulti = esMultimoneda && sumUsdMulti > total + 0.01;
-  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
+  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
+  // Nombre de la billetera/cuenta para mostrar al elegir la caja (sin el '·' inicial).
+  const billeteraNombre = (c: string) => c === 'general' ? 'General' : c === 'juridica' ? 'Jurídica' : c === 'personal' ? 'Personal' : c;
 
   // Conversión del total a Bs con la tasa BCV (editable), para cualquier caja.
   // El total se expresa en la moneda de la caja; lo llevamos a USD y a Bs.
@@ -449,9 +494,19 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
           <label>Caja (de dónde sale el dinero)</label>
           <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required style={{ maxWidth: 320 }}>
             {!cajas.length && <option value="">— sin cajas —</option>}
-            {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(c.saldo, c.moneda)}</option>)}
+            {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(saldoReal.get(c.id) ?? c.saldo, c.moneda)}</option>)}
           </select>
           <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
+          {cajaId && saldosCaja.length > 0 && (
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '.4rem' }}>
+              <span className="muted" style={{ fontSize: '.8rem' }}>💳 Billetera{saldosCaja.length > 1 ? 's' : ''}:</span>
+              {saldosCaja.map((s) => (
+                <span key={s.id} className="badge" title="Billetera de la caja · saldo disponible">
+                  {billeteraNombre(s.cuenta)} · <span className="mono">{montoCaja(Number(s.saldo), s.moneda)}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="table-wrap">

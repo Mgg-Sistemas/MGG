@@ -82,6 +82,7 @@ const INITIAL_UI: UiState = {
   filterStock: '',
   filterEstado: 'activo',
   filterFundicion: '',
+  filterAlmacen: '',
 };
 
 /** Predicado de filtros compartido por inventario general y el detalle de almacén. */
@@ -218,11 +219,6 @@ export function InventarioPage() {
     [productos],
   );
 
-  const filtered = useMemo<ProductoDecorado[]>(
-    () => decorated.filter((p) => coincideFiltros(p, ui)),
-    [decorated, ui],
-  );
-
   // Valor por almacén (desde existencias: stock × costo propio del almacén).
   const valoresAlm = useMemo<Record<string, AlmacenValor>>(() => agruparValores(existencias), [existencias]);
 
@@ -272,12 +268,12 @@ export function InventarioPage() {
 
   // Detalle de almacén: "productos virtuales" = producto con el stock y costo
   // (PMP) propios del almacén seleccionado, decorados y filtrados como inventario.
-  const almacenRows = useMemo<ProductoDecorado[]>(() => {
-    if (!almacenSel) return [];
+  // Roll-up de un almacén (incluye sus subalmacenes): cada producto con su stock sumado
+  // y costo = promedio ponderado en ese almacén. Lo usan el detalle de almacén y el
+  // filtro "por almacén" de la vista general.
+  const rollupAlmacen = useCallback((nombre: string): ProductoDecorado[] => {
     const prodMap = new Map(productos.map((p) => [p.id, p]));
-    // Roll-up: incluye el almacén + sus subalmacenes. Si un producto está en varios
-    // (sub)almacenes, se agrega: stock sumado y costo = promedio ponderado.
-    const nombres = new Set(descendientesDe(almacenSel));
+    const nombres = new Set(descendientesDe(nombre));
     const agg = new Map<string, { stock: number; valor: number }>();
     for (const e of existencias) {
       if (!nombres.has(e.almacen)) continue;
@@ -291,11 +287,32 @@ export function InventarioPage() {
       .map(([pid, v]) => {
         const p = prodMap.get(pid);
         const costo = v.stock > 0 ? v.valor / v.stock : 0;
-        return p ? ({ ...p, stock: v.stock, precio: costo, almacen: almacenSel } as Producto) : null;
+        return p ? ({ ...p, stock: v.stock, precio: costo, almacen: nombre } as Producto) : null;
       })
       .filter((p): p is Producto => p !== null);
-    return decorate(virtuales, DEFAULT_POLICY).filter((p) => coincideFiltros(p, ui));
-  }, [almacenSel, existencias, productos, ui, descendientesDe]);
+    return decorate(virtuales, DEFAULT_POLICY);
+  }, [productos, existencias, descendientesDe]);
+
+  const almacenRows = useMemo<ProductoDecorado[]>(
+    () => (almacenSel ? rollupAlmacen(almacenSel).filter((p) => coincideFiltros(p, ui)) : []),
+    [almacenSel, rollupAlmacen, ui],
+  );
+
+  // Lista de la vista general. Si hay filtro por almacén, las filas son las de ese
+  // almacén (stock/PMP propios); si no, el catálogo global. Luego aplica los demás filtros.
+  const filtered = useMemo<ProductoDecorado[]>(() => {
+    const base = ui.filterAlmacen ? rollupAlmacen(ui.filterAlmacen) : decorated;
+    return base.filter((p) => coincideFiltros(p, ui));
+  }, [decorated, rollupAlmacen, ui]);
+
+  // Nombres de almacén para el filtro de la vista general (catálogo activo + los que
+  // tengan existencias, por si hay nombres legados fuera del catálogo).
+  const almacenNombres = useMemo<string[]>(() => {
+    const s = new Set<string>();
+    almacenes.filter((a) => a.estado === 'activo').forEach((a) => s.add(a.nombre));
+    existencias.forEach((e) => { if (e.almacen) s.add(e.almacen); });
+    return Array.from(s).sort((x, y) => x.localeCompare(y, 'es'));
+  }, [almacenes, existencias]);
 
   // Filas (con stock/PMP propios del almacén) de CUALQUIER almacén por nombre, sin
   // tener que entrar a su detalle. Lo usa el reporte por almacén desde la lista.
@@ -759,7 +776,7 @@ export function InventarioPage() {
         })()
       ) : (
         <>
-          <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} />
+          <InventarioFilterbar values={ui} categorias={categorias} almacenes={almacenNombres} onChange={setFilter2} />
           {loading ? (
             <EmptyState message="Cargando productos…" icon="◔" />
           ) : (

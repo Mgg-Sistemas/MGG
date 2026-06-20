@@ -3,14 +3,16 @@
    Relación de compras pendientes por pagar. Solo por botón.
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import type { OcLoteRow } from './ocLote.repository';
 
 async function construir(rows: OcLoteRow[], codigo: string) {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, personas] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
+    cargarPersonasPorEmail().catch(() => new Map<string, string>()),
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
@@ -27,7 +29,7 @@ async function construir(rows: OcLoteRow[], codigo: string) {
 
   // Unidad solicitante = depto/unidad que pide (orden.solicitante); Solicitante = la persona.
   const unidadDe = (r: OcLoteRow) => r.orden.solicitante?.trim() || '—';
-  const solicitanteDe = (r: OcLoteRow) => r.orden.ci_solicitante?.trim() || r.orden.solicitante_email || '—';
+  const solicitanteDe = (r: OcLoteRow) => r.orden.ci_solicitante?.trim() || personaDe(r.orden.solicitante_email, personas, null);
   const body = rows.map((r, i) => [
     String(i + 1),
     r.orden.oc_codigo ?? r.orden.codigo,

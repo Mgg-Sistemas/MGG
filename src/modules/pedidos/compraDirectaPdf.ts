@@ -3,14 +3,16 @@
    Se descarga SOLO al hacer clic (regla del sistema).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import type { CompraDirecta } from './compras.repository';
 
 export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, personas] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
+    cargarPersonasPorEmail().catch(() => new Map<string, string>()),
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -29,13 +31,14 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   const costoUnit = gasto != null && cant > 0 ? gasto / cant : null;
 
   const ficha: Array<[string, string]> = [
+    ...(compra.codigo ? [['Código', compra.codigo] as [string, string]] : []),
     ['Material', compra.producto_sku ? `${compra.producto_sku} — ${compra.producto_nombre}` : compra.producto_nombre],
     ['Almacén destino', compra.almacen || '—'],
     ['Cantidad', fmt.num(cant)],
     ['Estado', compra.estado === 'finalizada' ? 'Finalizada (ingresó a inventario)' : 'En proceso'],
     ['Gasto', gasto != null ? fmt.money(gasto) : '—'],
     ['Costo unitario', costoUnit != null ? fmt.money(costoUnit) : '—'],
-    ['Generó', compra.actor_name || compra.actor || '—'],
+    ['Generó', personaDe(compra.actor, personas, compra.actor_name)],
     ['Fecha de creación', fmt.dateTime(compra.created_at)],
     ['Fecha de compra', compra.finalizada_at ? fmt.dateTime(compra.finalizada_at) : '—'],
     ['Adjunto', compra.adjunto_nombre || '—'],

@@ -105,7 +105,7 @@ export async function getCurrentUsuario(): Promise<Usuario | null> {
   return (data ?? null) as Usuario | null;
 }
 
-/** Genera el siguiente código OP-YYYY-#### contando órdenes existentes. */
+/** Genera el siguiente código SP-YYYY-#### (Solicitud de Pedido) contando órdenes existentes. */
 export async function nextCodigo(): Promise<string> {
   const year = new Date().getFullYear();
   const { count, error } = await supabase
@@ -113,7 +113,7 @@ export async function nextCodigo(): Promise<string> {
     .select('id', { count: 'exact', head: true });
   if (error) throw error;
   const n = (count ?? 0) + 1;
-  return `OP-${year}-${String(n).padStart(4, '0')}`;
+  return `SP-${year}-${String(n).padStart(4, '0')}`;
 }
 
 export interface CrearOrdenInput {
@@ -629,6 +629,36 @@ export async function indicarMetodoPago(
       }
     }
   }
+  return data as Orden;
+}
+
+/**
+ * Reasigna el proveedor de una OC mientras se indica el método de pago. Como cambia
+ * el proveedor, la OC NO sigue a pago: vuelve a "Pendiente por aprobación (Gerente
+ * General)" (oc_creada) para que el gerente la confirme de nuevo con el nuevo proveedor.
+ * Se limpia el método de pago previo (se vuelve a indicar tras la re-confirmación). Los
+ * ítems, cantidades y montos se conservan. Queda registro en el historial.
+ */
+export async function reasignarProveedorAReaprobacion(
+  o: Orden,
+  nuevoProveedorId: string,
+  actorEmail: string,
+): Promise<Orden> {
+  const id = (nuevoProveedorId ?? '').trim();
+  if (!id) throw new Error('Indicá el proveedor.');
+  if (id === o.proveedor_id) throw new Error('El proveedor es el mismo; no hay cambio que reaprobar.');
+  const patch = {
+    proveedor_id: id,
+    estado: 'oc_creada' as EstadoOrden,
+    metodo_pago: null,
+    metodo_pago_por: null,
+    metodo_pago_en: null,
+    comprobante_tipo: null,
+    retencion_modo: null,
+    historial: appendHistorial(o, 'proveedor_cambiado', actorEmail, { de: o.proveedor_id, a: id, vuelve_a: 'oc_creada' }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
   return data as Orden;
 }
 
