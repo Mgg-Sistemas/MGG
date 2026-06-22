@@ -55,18 +55,19 @@ export async function descargarResumenPorPagarPdf(rows: OrdenPorPagar[]): Promis
     head: [['ITEM', 'N°OC', 'PROVEEDOR', 'FINALIDAD', 'NOTAS', 'ESTADO', 'MONTO $']],
     body,
     foot: [['', '', '', '', '', 'TOTAL', money(total)]],
-    tableWidth: 'auto',
+    // Anchos que suman el ancho útil (página − márgenes de 1,5 cm a cada lado), para que
+    // la tabla ocupe de margen a margen y los 1,5 cm queden parejos a ambos lados.
     styles: { fontSize: 8, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right' },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 26 },
-      1: { halign: 'center', cellWidth: 62 },
-      2: { cellWidth: 118 },
-      3: { cellWidth: 150 },
-      4: { cellWidth: 150 },
-      5: { halign: 'center', cellWidth: 72 },
-      6: { halign: 'right', cellWidth: 58 },
+      0: { halign: 'center', cellWidth: 28 },
+      1: { halign: 'center', cellWidth: 64 },
+      2: { cellWidth: 120 },
+      3: { cellWidth: 165 },
+      4: { cellWidth: 165 },
+      5: { halign: 'center', cellWidth: 95 },
+      6: { halign: 'right', cellWidth: 70 },
     },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });

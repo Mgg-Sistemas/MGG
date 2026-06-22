@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -73,6 +73,8 @@ import { descargarReportePdf, type ReporteMeta } from './reportePdf';
 import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
 import { descargarResumenPorPagarPdf } from './ordenesPorPagarPdf';
 import { descargarLibroMayorMonedaPdf } from './libroMayorPdf';
+import { ChatOC } from '@/modules/pedidos/ChatOC';
+import { noLeidosPorOrden } from '@/modules/pedidos/ocChat.repository';
 import { descargarCuentaPorPagarPdf } from './cuentaPorPagarPdf';
 import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo } from './enviarReporte';
 import type { AbonoCredito } from '@/shared/lib/types';
@@ -507,7 +509,7 @@ export function TesoreriaPage() {
       {modal === 'resumen' && <ResumenMovimientosModal monedas={monedasReg} defaultMoneda={fMoneda || 'USD'} defaultDesde={fDesde} defaultHasta={fHasta} onClose={() => setModal('none')} />}
       {modal === 'retencion' && <RetencionesTesoreriaModal items={retencionListas} onClose={() => setModal('none')} />}
       {modal === 'grafico' && <GraficoTasasModal onClose={() => setModal('none')} />}
-      {modal === 'porpagar' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
+      {modal === 'porpagar' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName} userId={user?.id ?? ''} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'cobrar' && <CuentasPorCobrarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'contrapartes' && <ContrapartesModal onClose={() => setModal('none')} />}
@@ -3925,8 +3927,8 @@ function GraficoTasasModal({ onClose }: { onClose: () => void }) {
 
 /* ───────────── Órdenes pendientes por pagar (OC confirmadas) ───────────── */
 
-function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
-  cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void;
+function OrdenesPorPagarModal({ cajas, actor, actorName, userId, onClose, onPaid }: {
+  cajas: Caja[]; actor: string; actorName: string | null; userId: string; onClose: () => void; onPaid: () => void;
 }) {
   const [rows, setRows] = useState<OrdenPorPagar[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3942,6 +3944,15 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
+
+  // Badge 💬 de mensajes no leídos por OC (chat con Compras), en realtime.
+  const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
+  const cargarNoLeidos = useCallback(() => {
+    if (!userId) return;
+    noLeidosPorOrden(userId).then(setNoLeidos).catch(() => { /* sin badge si falla */ });
+  }, [userId]);
+  useEffect(() => { cargarNoLeidos(); }, [cargarNoLeidos]);
+  useRealtime(['oc_mensajes'], cargarNoLeidos);
 
   // Bloqueo del lote: una vez marcada la primera OC, solo se suman las del MISMO
   // proveedor. Se permiten también las que aún no tienen método de pago (Tesorería
@@ -4012,7 +4023,13 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                       onChange={() => toggle(r)} />
                   )}
                 </td>
-                <td className="mono">{r.orden.oc_codigo ?? '—'}</td>
+                <td className="mono">
+                  {r.orden.oc_codigo ?? '—'}
+                  {(noLeidos.get(r.orden.id) ?? 0) > 0 && (
+                    <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--brand, #ff8a00)', color: '#fff', fontSize: '.66rem' }}
+                      title="Mensajes sin leer en el chat de la OC">💬 {noLeidos.get(r.orden.id)}</span>
+                  )}
+                </td>
                 <td className="mono">{r.orden.codigo}</td>
                 <td>{r.proveedorNombre}</td>
                 <td style={{ fontSize: '.78rem' }}>
@@ -4037,7 +4054,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
 
       {sel && (
         <PagarOrdenModal
-          row={sel} cajas={cajas} actor={actor} actorName={actorName}
+          row={sel} cajas={cajas} actor={actor} actorName={actorName} userId={userId}
           onClose={() => setSel(null)}
           onPaid={async () => { setSel(null); await reload(); onPaid(); }}
         />
@@ -4072,6 +4089,20 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
   const [saving, setSaving] = useState(false);
   const [progreso, setProgreso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Detalle expandible por OC (click en la fila del lote).
+  const [abierta, setAbierta] = useState<Set<string>>(new Set());
+  const toggleDetalle = (id: string) => setAbierta((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  // Finalidad de la OC: encabezado o, si está vacío, la unión de finalidades por ítem.
+  const finalidadDe = (o: OrdenPorPagar['orden']): string => {
+    const cab = (o.finalidad ?? '').trim();
+    if (cab) return cab;
+    const porItem = Array.from(new Set((o.items ?? []).map((it) => (it.finalidad ?? '').trim()).filter(Boolean)));
+    return porItem.length ? porItem.join(' · ') : '—';
+  };
 
   useEffect(() => {
     if (!cajaId) { setSaldos([]); return; }
@@ -4154,20 +4185,55 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
           <div className="card-title" style={{ marginBottom: '.4rem' }}>OC del lote · {proveedor}</div>
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.8rem' }}>
-              <thead><tr><th>N°ODC</th><th>SP</th><th style={{ textAlign: 'right' }}>A pagar $</th></tr></thead>
+              <thead><tr><th style={{ width: 24 }}></th><th>N°ODC</th><th>SP</th><th style={{ textAlign: 'right' }}>A pagar $</th></tr></thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.orden.id}>
-                    <td className="mono">{r.orden.oc_codigo ?? '—'}</td>
-                    <td className="mono">{r.orden.codigo}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{monto(r.montoAPagar, 'USD')}</td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const o = r.orden;
+                  const open = abierta.has(o.id);
+                  return (
+                    <Fragment key={o.id}>
+                      <tr onClick={() => toggleDetalle(o.id)} style={{ cursor: 'pointer' }} title="Ver detalle de la OC">
+                        <td className="mono" style={{ color: 'var(--brand, #ff8a00)', fontWeight: 700, textAlign: 'center' }}>{open ? '▾' : '▸'}</td>
+                        <td className="mono">{o.oc_codigo ?? '—'}</td>
+                        <td className="mono">{o.codigo}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{monto(r.montoAPagar, 'USD')}</td>
+                      </tr>
+                      {open && (
+                        <tr>
+                          <td></td>
+                          <td colSpan={3} style={{ background: 'var(--bg-1, rgba(0,0,0,.02))', padding: '.5rem .65rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.25rem .9rem', fontSize: '.78rem', marginBottom: '.5rem' }}>
+                              <div><span className="muted">Proveedor:</span> {r.proveedorNombre}</div>
+                              <div><span className="muted">Unidad solicitante:</span> {o.solicitante || '—'}</div>
+                              <div><span className="muted">Solicitante:</span> {o.ci_solicitante || o.solicitante_email || '—'}</div>
+                              <div style={{ gridColumn: '1 / -1' }}><span className="muted">Finalidad:</span> {finalidadDe(o)}</div>
+                              {o.notas && <div style={{ gridColumn: '1 / -1' }}><span className="muted">Notas:</span> {o.notas}</div>}
+                            </div>
+                            <table className="table" style={{ fontSize: '.76rem' }}>
+                              <thead><tr><th>SKU</th><th>Producto</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th><th style={{ textAlign: 'right' }}>Subtotal</th></tr></thead>
+                              <tbody>
+                                {(o.items ?? []).map((it, i) => (
+                                  <tr key={`${it.sku}-${i}`}>
+                                    <td className="mono">{it.sku}</td><td>{it.nombre}</td>
+                                    <td className="mono" style={{ textAlign: 'right' }}>{it.cantidad}</td>
+                                    <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, 'USD')}</td>
+                                    <td className="mono" style={{ textAlign: 'right' }}>{monto(it.cantidad * it.precio, 'USD')}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot><tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>Total OC</td><td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{monto(o.total, 'USD')}</td></tr></tfoot>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
-              <tfoot><tr><td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>Total</td><td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{monto(totalUsd, 'USD')}</td></tr></tfoot>
+              <tfoot><tr><td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total</td><td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{monto(totalUsd, 'USD')}</td></tr></tfoot>
             </table>
           </div>
-          <small className="muted">Se genera <strong>un egreso por cada OC</strong> (cada una queda casada con su pago en el Libro Mayor).</small>
+          <small className="muted">Tocá una OC para ver su detalle. Se genera <strong>un egreso por cada OC</strong> (cada una queda casada con su pago en el Libro Mayor).</small>
         </div>
 
         <div className="form-row">
@@ -5252,8 +5318,8 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
   );
 }
 
-function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
-  row: OrdenPorPagar; cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void;
+function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid }: {
+  row: OrdenPorPagar; cajas: Caja[]; actor: string; actorName: string | null; userId: string; onClose: () => void; onPaid: () => void;
 }) {
   const o = row.orden;
   // Contra entrega: se paga SOLO lo recibido (montoAPagar = recibido_total).
@@ -5800,6 +5866,16 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         </div>
         </>)}
       </form>
+
+      {/* Chat por OC: mismo hilo que ve el analista de compras en Pedidos. Tesorería lo
+          usa para coordinar el método de pago antes de pagar. */}
+      <ChatOC
+        ordenId={o.id}
+        ordenCodigo={o.oc_codigo ?? o.codigo}
+        userId={userId}
+        autorEmail={actor}
+        autorNombre={actorName ?? actor}
+      />
     </Modal>
   );
 }
