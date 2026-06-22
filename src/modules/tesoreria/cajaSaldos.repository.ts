@@ -123,6 +123,8 @@ export interface EgresarDivisaInput {
   monto: number;             // EN LA MONEDA de la cuenta
   concepto?: string | null;
   categoria?: string | null; // ej. 'pago_oc'
+  gastoCategoria?: string | null;    // anclaje a categoría de gasto (opcional)
+  gastoSubcategoria?: string | null; // anclaje a subcategoría de gasto (opcional)
   refOrdenId?: string | null;
   actor: string;
   actorName?: string | null;
@@ -158,6 +160,7 @@ export async function egresarDivisa(input: EgresarDivisaInput): Promise<{ id: st
     caja_id: input.cajaId, tipo: 'salida', monto, moneda: input.moneda, cuenta: input.cuenta,
     tasa_bs: tasaBs, saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.concepto?.trim() || 'Pago de compra', categoria: input.categoria ?? 'pago_oc',
+    gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
     ref_orden_id: input.refOrdenId ?? null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('id').single();
