@@ -54,11 +54,14 @@ export function ResumenActividadModal({ onClose }: { onClose: () => void }) {
   // Realtime: cuando alguien entra/sale o late, refrescamos la lista de conectados en vivo.
   useRealtime(['user_sessions'], () => { void listConectadosAhora().then(setConectados).catch(() => {}); });
 
-  // Agregado por usuario para el período.
+  // Agregado por usuario para el período. Incluye SIEMPRE las sesiones conectadas ahora
+  // (aunque hayan empezado antes del período), para que ningún conectado quede fuera.
   const filas = useMemo<ActividadFila[]>(() => {
     const conSet = new Set(conectados.map(claveDe));
+    const porId = new Map<string, UserSession>();
+    for (const s of [...sesiones, ...conectados]) porId.set(s.id, s);
     const map = new Map<string, ActividadFila>();
-    for (const s of sesiones) {
+    for (const s of porId.values()) {
       const key = claveDe(s);
       const cur = map.get(key) ?? { nombre: s.nombre ?? s.email ?? '—', email: s.email ?? '—', sesiones: 0, minutos: 0, ultima: s.last_seen_at, conectado: false };
       cur.sesiones += 1;

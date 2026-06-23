@@ -97,6 +97,8 @@ export function AgregarOfertaModal({
   const setLog = (k: 'flete' | 'transporte' | 'embalaje' | 'seguros', v: CostoLogistico) =>
     setDetalle((d) => ({ ...d, logistica: { ...(d.logistica ?? {}), [k]: v } }));
   const [pdfFiles, setPdfFiles] = useState<File[]>([]);
+  // Adjuntos que YA tenía la oferta (en edición): se pueden quitar uno por uno.
+  const [adjuntosExist, setAdjuntosExist] = useState(() => (isEdit && ofertaEdit ? adjuntosDeOferta(ofertaEdit) : []));
   const [submitting, setSubmitting] = useState(false);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -183,15 +185,15 @@ export function AgregarOfertaModal({
     try {
       // ── Modo edición: proveedor fijo, se actualiza la oferta existente ──
       if (isEdit && ofertaEdit) {
-        // Los nuevos archivos se SUMAN a los adjuntos que ya tenía la oferta.
-        const adjuntosPatch: EditarOfertaInput = {};
-        if (pdfFiles.length) {
-          const subidos = await subirAdjuntosOferta(orden.id, ofertaEdit.proveedor_id, pdfFiles);
-          const todos = [...adjuntosDeOferta(ofertaEdit), ...subidos];
-          adjuntosPatch.adjuntos = todos;
-          adjuntosPatch.pdf_path = todos[0]?.path ?? null;
-          adjuntosPatch.pdf_filename = todos[0]?.filename ?? null;
-        }
+        // Adjuntos finales = los existentes que se conservaron (se pueden quitar) + los
+        // nuevos que se cargaron. Siempre se persiste, así las remociones quedan guardadas.
+        const subidos = pdfFiles.length ? await subirAdjuntosOferta(orden.id, ofertaEdit.proveedor_id, pdfFiles) : [];
+        const todos = [...adjuntosExist, ...subidos];
+        const adjuntosPatch: EditarOfertaInput = {
+          adjuntos: todos.length ? todos : null,
+          pdf_path: todos[0]?.path ?? null,
+          pdf_filename: todos[0]?.filename ?? null,
+        };
         await actualizarOferta(ofertaEdit.id, {
           proveedor_id: proveedorId || ofertaEdit.proveedor_id,
           items: itemsLimpios,
@@ -601,10 +603,23 @@ export function AgregarOfertaModal({
             ))}
           </div>
         )}
-        {isEdit && adjuntosDeOferta(ofertaEdit ?? {}).length > 0 && (
-          <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
-            📎 {adjuntosDeOferta(ofertaEdit ?? {}).length} adjunto(s) actual(es). Los nuevos que cargues se <strong>suman</strong> a los existentes.
-          </div>
+        {isEdit && (
+          adjuntosExist.length > 0 ? (
+            <div style={{ marginTop: '.35rem' }}>
+              <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.2rem' }}>📎 Adjuntos actuales (los nuevos se suman; podés quitar los que no quieras):</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                {adjuntosExist.map((a, i) => (
+                  <div key={a.path ?? i} className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                    📎 {a.filename ?? 'adjunto'}
+                    <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', color: 'var(--danger)' }}
+                      onClick={() => setAdjuntosExist((prev) => prev.filter((_, k) => k !== i))} title="Quitar este adjunto">✕</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>Sin adjuntos. Cargá las fotos/PDF de la cotización si querés.</div>
+          )
         )}
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
           PDF o imágenes · máximo 10 MB c/u. Podés seleccionar o ir agregando varias fotos de la cotización.
