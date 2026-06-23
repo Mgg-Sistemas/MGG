@@ -16,6 +16,7 @@ import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { prefetchRoute } from '@/shared/lib/routePrefetch';
+import { ensureSession, heartbeat, endSession } from '@/modules/usuarios/userSessions.repository';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -96,12 +97,37 @@ export function AppShell() {
   // Inicializa el contexto de audio (se "desbloquea" en el primer click/tecla).
   useEffect(() => { initSound(); }, []);
 
+  // Supervisión de actividad: abre/retoma una sesión, manda latidos cada 60s y la
+  // cierra al salir (logout, cierre de pestaña). Permite ver quién está conectado
+  // y cuánto tiempo dura en el sistema (Usuarios → Resumen de Actividad).
+  const sessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    void ensureSession().then((id) => {
+      if (cancelled || !id) return;
+      sessionIdRef.current = id;
+      void heartbeat(id);
+      timer = setInterval(() => { void heartbeat(id); }, 60_000);
+    });
+    const cerrar = () => { const id = sessionIdRef.current; if (id) void endSession(id); };
+    window.addEventListener('beforeunload', cerrar);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      window.removeEventListener('beforeunload', cerrar);
+    };
+  }, [user?.id]);
+
   // Cuando cualquier `notify()` persista en BD, refresca el contador de la campana.
   useEffect(() => onNotifRefresh(() => { void refreshUnread(); }), []);
   // Realtime: el contador se actualiza en vivo si OTRO usuario me genera una notificación.
   useRealtime(['notificaciones'], () => { void refreshUnread(); });
 
   async function handleLogout() {
+    const id = sessionIdRef.current;
+    if (id) { await endSession(id).catch(() => { /* no bloquea el logout */ }); sessionIdRef.current = null; }
     await signOut();
     navigate('/login');
   }
@@ -229,7 +255,7 @@ export function AppShell() {
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
-          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria" />}
+          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" />}
           {(can('acopio') || can('acopio_reporte') || can('acopio_gmt') || can('acopio_peramanal') || can('acopio_esmeralda') || can('acopio_pijiguaos')) && (
             <NavGroup icon="🏭" label="Cajas Centro de Costo" defaultOpen={location.pathname.startsWith('/app/acopio')}>
               {can('acopio_reporte') && <NavItem to="/app/acopio/reporte-preliminar" icon="📅" label="Reporte Preliminar" />}

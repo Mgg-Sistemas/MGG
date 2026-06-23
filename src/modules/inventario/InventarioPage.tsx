@@ -44,6 +44,7 @@ import { MovimientoForm } from './MovimientoForm';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { ExportInventarioModal } from './ExportInventarioModal';
+import { ResumenInventarioModal } from './ResumenInventarioModal';
 import { ImportarExcelModal } from './ImportarExcelModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
@@ -119,7 +120,8 @@ type ModalState =
   | { kind: 'almacenCrear'; parentId?: string | null; sede?: string | null }
   | { kind: 'almacenEditar'; almacen: Almacen }
   | { kind: 'almacenEliminar'; almacen: Almacen }
-  | { kind: 'sedeEditar'; sede: string };
+  | { kind: 'sedeEditar'; sede: string }
+  | { kind: 'resumen' };
 
 export function InventarioPage() {
   const { user } = useSession();
@@ -583,6 +585,9 @@ export function InventarioPage() {
               />
             </>
           )}
+          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen de inventario: almacenes, productos nuevos, salidas y traslados">
+            📊 Resumen
+          </button>
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
             ↓ Exportar
           </button>
@@ -797,6 +802,14 @@ export function InventarioPage() {
       )}
 
       {/* Modales */}
+      {modal.kind === 'resumen' && (
+        <ResumenInventarioModal
+          productos={productos}
+          existencias={existencias}
+          almacenes={almacenes}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
       {modal.kind === 'crear' && (
         <ProductoForm
           producto={null}

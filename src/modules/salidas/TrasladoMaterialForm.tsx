@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
-import { num } from '@/shared/lib/format';
+import { money, num } from '@/shared/lib/format';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
+import { ClientePicker } from './ClientePicker';
+import type { Cliente } from '@/modules/ventas/clientes.repository';
 
 interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string }
 
@@ -67,6 +69,11 @@ export function TrasladoMaterialForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Traslado a CLIENTE: genera una cuenta por cobrar (monto = valor del material, editable).
+  const [esCliente, setEsCliente] = useState(false);
+  const [cliente, setCliente] = useState<Cliente | null>(null);
+  const [cxcMonto, setCxcMonto] = useState('');
+
   const prodDe = (id: string) => activos.find((p) => p.id === id) ?? null;
   const stockDe = (l: LineaUI) => Number(exMap.get(`${l.productoId}|${l.almacen}`)?.stock) || 0;
   const precioDe = (l: LineaUI) => {
@@ -74,6 +81,11 @@ export function TrasladoMaterialForm({
     const p = prodDe(l.productoId);
     return Number(ex?.costo_promedio) || p?.precio || 0;
   };
+  const totalGeneral = useMemo(
+    () => lineas.reduce((a, l) => a + precioDe(l) * (Number(l.cantidad) || 0), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lineas, exMap],
+  );
 
   function onCantidadChange(l: LineaUI, v: string) {
     const stock = stockDe(l);
@@ -89,6 +101,9 @@ export function TrasladoMaterialForm({
     e.preventDefault();
     setError(null);
     if (!destino) { setError('Elegí la sede y el almacén de destino.'); return; }
+    if (esCliente && !cliente) { setError('Elegí (o agregá) el cliente para la cuenta por cobrar.'); return; }
+    const montoCxc = esCliente ? (Number(cxcMonto) || totalGeneral) : 0;
+    if (esCliente && montoCxc <= 0) { setError('El monto de la cuenta por cobrar debe ser mayor que 0.'); return; }
     const items: ItemSolicitudSalida[] = [];
     for (const l of lineas) {
       const p = prodDe(l.productoId);
@@ -110,6 +125,10 @@ export function TrasladoMaterialForm({
         chofer: chofer?.nombre ?? null, choferCedula: chofer?.cedula ?? null,
         vehiculo: vehiculo?.nombre ?? null, vehiculoPlaca: vehiculo?.placa ?? null,
         direccionDespacho: dirDespacho.trim() || null, direccionDestino: dirDestino.trim() || null,
+        clienteId: esCliente ? cliente?.id ?? null : null,
+        clienteNombre: esCliente ? cliente?.nombre ?? null : null,
+        cxcMonto: esCliente ? montoCxc : null,
+        cxcMoneda: esCliente ? 'USD' : null,
         consumoInterno,
         solicitante: actorName || actor, actor, actorName,
       });
@@ -139,6 +158,25 @@ export function TrasladoMaterialForm({
     <Modal title="Nueva solicitud de traslado de material" size="lg" onClose={onClose} footer={footer}>
       <form id="traslado-mat-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {/* ¿Es para un CLIENTE? — visible desde el inicio. Genera cuenta por cobrar. */}
+        <div className="card" style={{ padding: '.6rem .85rem', margin: '0 0 .8rem', borderLeft: '3px solid var(--warning)' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontWeight: 600 }}>
+            <input type="checkbox" checked={esCliente} onChange={(e) => { setEsCliente(e.target.checked); if (e.target.checked && !cxcMonto) setCxcMonto(totalGeneral ? String(Math.round(totalGeneral * 100) / 100) : ''); }} />
+            🧾 Cliente (se le crea una cuenta por cobrar)
+          </label>
+          {esCliente && (
+            <div style={{ marginTop: '.6rem' }}>
+              <ClientePicker value={cliente} onChange={setCliente} actor={actor} actorName={actorName} />
+              <div className="form-row" style={{ marginTop: '.5rem' }}>
+                <label>Monto de la cuenta por cobrar (USD)</label>
+                <input className="input mono" type="number" min={0} step="any" value={cxcMonto}
+                  onChange={(e) => setCxcMonto(e.target.value)} placeholder={String(Math.round(totalGeneral * 100) / 100)} />
+                <small className="muted">Sugerido: valor del material <strong>{money(totalGeneral)}</strong>. Podés editarlo. El cliente lo paga luego en dinero o en producto desde Tesorería.</small>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Almacén destino (a dónde va). El origen se asigna solo: el almacén con más stock. */}
         <AlmacenPicker value={destino} onChange={setDestino} almacenes={almacenesObj} sedeLabel="Sede destino" label="Almacén destino" />

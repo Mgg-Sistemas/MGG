@@ -118,7 +118,7 @@ export function MaquinariaPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>🚜 Control de Maquinaria</h1>
+          <h1>🚜 Control de Maquinaria y Vehículos</h1>
         </div>
         <div className="actions" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           {canWrite && <button className="btn btn-primary" onClick={() => setForm({ open: true, equipo: null })}>+ Nuevo equipo</button>}
@@ -197,7 +197,7 @@ export function MaquinariaPage() {
       {bitacora && <BitacoraModal equipo={bitacora} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setBitacora(null)} />}
       {correoOpen && (
         <CorreoReporteModal
-          titulo="Enviar Control de Maquinaria"
+          titulo="Enviar Control de Maquinaria y Vehículos"
           descripcion={`Se enviará el PDF con ${lista.length} equipo(s).`}
           defaultEmail={actor}
           onEnviar={async (emails) => (await enviarEquiposPorCorreo(lista, emails)).destinatarios}
