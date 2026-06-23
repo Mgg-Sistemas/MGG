@@ -29,6 +29,8 @@ import {
   anularOrden,
   cancelarOrden,
   crearOrden,
+  ultimaOrdenMercado,
+  FINALIDAD_MERCADO,
   actualizarOrden,
   actualizarOc,
   sincronizarNombreProductos,
@@ -67,7 +69,7 @@ import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
-import { createProducto, getUnidades } from '@/modules/inventario/inventario.repository';
+import { createProducto, getUnidades, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
@@ -531,7 +533,7 @@ export function PedidosPage() {
         <OrdenesTable
           ordenes={filteredOrdenes}
           proveedorMap={proveedorMap}
-          isAdmin={isAdmin}
+          canManageProcurement={canManageProcurement}
           noLeidos={noLeidos}
           onView={(id) => setModal({ kind: 'detail', ordenId: id })}
           onApprove={(o) => setModal({ kind: 'approve', orden: o })}
@@ -1570,12 +1572,13 @@ function AbonosModal({
 interface OrdenesTableProps {
   ordenes: Orden[];
   proveedorMap: Map<string, Proveedor>;
-  isAdmin: boolean;
+  /** Quién puede aprobar la Solicitud de Pedido: administrador o analista de compras. */
+  canManageProcurement: boolean;
   noLeidos: Map<string, number>;
   onView: (id: string) => void;
   onApprove: (o: Orden) => void;
 }
-function OrdenesTable({ ordenes, proveedorMap, isAdmin, noLeidos, onView, onApprove }: OrdenesTableProps) {
+function OrdenesTable({ ordenes, proveedorMap, canManageProcurement, noLeidos, onView, onApprove }: OrdenesTableProps) {
   if (!ordenes.length) {
     return (
       <div className="card">
@@ -1601,7 +1604,7 @@ function OrdenesTable({ ordenes, proveedorMap, isAdmin, noLeidos, onView, onAppr
         <tbody>
           {ordenes.map((o) => {
             const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined;
-            const canApprove = isAdmin && o.estado === 'pendiente';
+            const canApprove = canManageProcurement && o.estado === 'pendiente';
             const cambios = (o.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
             return (
               <tr key={o.id}>
@@ -2767,6 +2770,29 @@ function CrearOrdenModal({
   const [urgente, setUrgente] = useState(orden?.urgente ?? false);
   const [imagen, setImagen] = useState<File | null>(null);
 
+  // MERCADO (reposición): finalidad general automática + reponer desde la última compra.
+  const [mercado, setMercado] = useState(false);
+  const [ultimaMercado, setUltimaMercado] = useState<Orden | null>(null);
+  const [selMercado, setSelMercado] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!mercado || ultimaMercado || esEdicion) return;
+    ultimaOrdenMercado()
+      .then((o) => { setUltimaMercado(o); setSelMercado(new Set((o?.items ?? []).map((i) => i.sku))); })
+      .catch(() => setUltimaMercado(null));
+  }, [mercado, ultimaMercado, esEdicion]);
+  function agregarSeleccionMercado() {
+    const elegidos = (ultimaMercado?.items ?? []).filter((i) => selMercado.has(i.sku));
+    setItems((prev) => {
+      const skus = new Set(prev.map((p) => p.sku));
+      const nuevos = elegidos.filter((i) => !skus.has(i.sku)).map((i) => ({
+        sku: i.sku, nombre: i.nombre, cantidad: Number(i.cantidad) || 1, precio: 0,
+        productoId: i.productoId, unidad: i.unidad, comprar: true,
+      }));
+      return [...prev, ...nuevos];
+    });
+    toast('Productos de la última compra agregados al pedido', 'success');
+  }
+
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
   // el resto se completa luego desde el módulo de inventario).
   const [nuevoOpen, setNuevoOpen] = useState(false);
@@ -2789,10 +2815,14 @@ function CrearOrdenModal({
     try {
       const base = nombre.replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 14) || 'PROD';
       const sufijo = Math.floor(performance.now() % 100000).toString(36).toUpperCase();
+      // En una SP de MERCADO, los productos nuevos entran como VÍVERES y con su SKU
+      // correlativo definitivo (VIV-NNN), ya sincronizado con el inventario.
+      const categoria = mercado ? 'VIVERES' : (nuevoCategoria.trim().toUpperCase() || 'GENERAL');
+      const sku = mercado ? siguienteSku('VIVERES', allProductos) : `NEW-${base}-${sufijo}`;
       const creado = await createProducto({
-        sku: `NEW-${base}-${sufijo}`,
+        sku,
         nombre,
-        categoria: nuevoCategoria.trim().toUpperCase() || 'GENERAL',
+        categoria,
         unidad: nuevoUnidad.trim() || 'und',
         stock: 0,
         stock_min: 0,
@@ -2913,7 +2943,7 @@ function CrearOrdenModal({
         items: itemsValor,
         notas: notaValor || null,
         motivo: null,
-        finalidad: null,
+        finalidad: mercado ? FINALIDAD_MERCADO : null,
         clasificacion: [],
         solicitante_email: email,
         solicitante: solicitanteNombre.trim() || null,
@@ -2980,6 +3010,49 @@ function CrearOrdenModal({
           <input className="input mono" value={codigo} disabled />
         </div>
       </div>
+
+      {/* MERCADO (reposición): finalidad automática + reponer desde la última compra. */}
+      {!esEdicion && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: mercado ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontWeight: 600 }}>
+            <input type="checkbox" checked={mercado} onChange={(e) => setMercado(e.target.checked)} />
+            🛒 MERCADO (reposición)
+          </label>
+          {mercado && (
+            <div style={{ marginTop: '.5rem' }}>
+              <small className="muted">Finalidad: <strong>{FINALIDAD_MERCADO}</strong> (se asigna automáticamente). Marcá qué reponer de la última compra y/o agregá productos abajo.</small>
+              {ultimaMercado ? (
+                <>
+                  <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Última compra: <strong className="mono">{ultimaMercado.codigo}</strong>{ultimaMercado.created_at ? <> · {dateTime(ultimaMercado.created_at)}</> : null}</div>
+                  <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto', marginTop: '.3rem' }}>
+                    <table className="table" style={{ fontSize: '.82rem' }}>
+                      <thead><tr>
+                        <th style={{ width: 34 }}>
+                          <input type="checkbox"
+                            checked={!!(ultimaMercado.items ?? []).length && selMercado.size === (ultimaMercado.items ?? []).length}
+                            onChange={(e) => setSelMercado(e.target.checked ? new Set((ultimaMercado.items ?? []).map((i) => i.sku)) : new Set())} />
+                        </th>
+                        <th>Producto</th><th style={{ textAlign: 'right' }}>Cant. (últ.)</th>
+                      </tr></thead>
+                      <tbody>
+                        {(ultimaMercado.items ?? []).map((it) => (
+                          <tr key={it.sku}>
+                            <td><input type="checkbox" checked={selMercado.has(it.sku)}
+                              onChange={() => setSelMercado((s) => { const n = new Set(s); n.has(it.sku) ? n.delete(it.sku) : n.add(it.sku); return n; })} /></td>
+                            <td>{it.nombre} <span className="muted mono" style={{ fontSize: '.7rem' }}>{it.sku}</span></td>
+                            <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)} {it.unidad ?? ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.3rem' }} onClick={agregarSeleccionMercado} disabled={!selMercado.size}>➕ Agregar seleccionados ({selMercado.size})</button>
+                </>
+              ) : <p className="muted" style={{ fontSize: '.8rem', marginTop: '.4rem' }}>No hay una compra anterior para mostrar. Agregá los productos abajo.</p>}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="form-row">
         <label>Solicitante</label>
