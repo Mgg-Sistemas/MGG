@@ -157,14 +157,16 @@ const SOL_ESTADO_TXT: Record<string, string> = {
 };
 
 export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, personas] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, pdfLogo, personas] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
     cargarPersonasPorEmail().catch(() => new Map<string, string>()),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await pdfLogo.loadLogoDataUrl().catch(() => null);
+  // Firma de Leydi Rengel (solo en Salidas/Traslados), para el bloque "Autorizado por".
+  const firmaSalidas = await pdfLogo.loadFirmaSalidasDataUrl().catch(() => null);
 
   const esTraslado = sol.scope === 'traslado';
   const autorizoEmail = sol.ejecutada_por || sol.aprobada_por;
@@ -283,15 +285,23 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // ── Firmas al pie ──
   const fy = PAGE_H - MARGIN - 50;
   const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
+  const cxAutoriza = MARGIN + colW + 40 + colW / 2;
+  // Firma de Leydi Rengel (Salidas/Traslados) sobre la línea de "Autorizado por".
+  if (firmaSalidas) {
+    try {
+      const sw = 130, sh = 46;
+      doc.addImage(firmaSalidas, 'JPEG', cxAutoriza - sw / 2, fy - sh + 4, sw, sh);
+    } catch { /* firma opcional */ }
+  }
   doc.setDrawColor(120); doc.setLineWidth(0.7);
   doc.line(MARGIN, fy, MARGIN + colW, fy);
   doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
   doc.text('Solicitado / Creado por', MARGIN + colW / 2, fy + 14, { align: 'center' });
-  doc.text('Autorizado por', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
+  doc.text('Autorizado por', cxAutoriza, fy + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.text(creo || '—', MARGIN + colW / 2, fy + 27, { align: 'center' });
-  doc.text(autorizo || '—', MARGIN + colW + 40 + colW / 2, fy + 27, { align: 'center' });
+  doc.text(firmaSalidas ? 'Leydi Rengel' : (autorizo || '—'), cxAutoriza, fy + 27, { align: 'center' });
 
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);

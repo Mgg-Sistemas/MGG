@@ -38,10 +38,14 @@ export function TasaChip() {
     window.addEventListener('mgg:tasas', onTasas);
     window.addEventListener('focus', onTasas);
     const id = window.setInterval(cargar, 5 * 60_000);
+    // Cada hora: fuerza el refresco de las tasas desde la fuente (BCV/Binance/COP) si el
+    // último dato tiene ≥1 h, y re-lee. Así el navbar se actualiza cada hora.
+    const idHora = window.setInterval(() => { refrescarTasasSiVencido(1).then(cargar).catch(() => { /* sin red / función */ }); }, 60 * 60_000);
     return () => {
       window.removeEventListener('mgg:tasas', onTasas);
       window.removeEventListener('focus', onTasas);
       window.clearInterval(id);
+      window.clearInterval(idHora);
     };
   }, [cargar]);
 
