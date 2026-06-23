@@ -3165,7 +3165,7 @@ function CrearOrdenModal({
           />
           <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
         </div>
-        <div className="line-picker head" style={{ gridTemplateColumns: '34px 2fr 130px 40px' }}>
+        <div className="line-picker head" style={{ gridTemplateColumns: '34px 1.4fr 190px 36px' }}>
           <div title="Comprar">✓</div>
           <div>Producto</div>
           <div>Cantidad</div>
@@ -3176,7 +3176,7 @@ function CrearOrdenModal({
             const comprar = it.comprar !== false;
             return (
             <div key={`${it.sku}-${idx}`} style={{ opacity: comprar ? 1 : 0.5, marginBottom: '.4rem' }}>
-            <div className="line-picker" style={{ gridTemplateColumns: '34px 2fr 130px 40px', marginBottom: 0 }}>
+            <div className="line-picker" style={{ gridTemplateColumns: '34px 1.4fr 190px 36px', marginBottom: 0 }}>
               <input
                 type="checkbox"
                 checked={comprar}
@@ -3197,7 +3197,7 @@ function CrearOrdenModal({
                   type="number"
                   min={0}
                   step="any"
-                  style={{ flex: 1, minWidth: 0 }}
+                  style={{ flex: 1, minWidth: 0, fontSize: '1.1rem', fontWeight: 700, textAlign: 'center' }}
                   value={cantEdit[it.sku] ?? String(it.cantidad)}
                   onChange={(e) => {
                     const raw = e.target.value;
@@ -3212,7 +3212,16 @@ function CrearOrdenModal({
                     setCantEdit((m) => ({ ...m, [it.sku]: String(val) }));
                   }}
                 />
-                {it.unidad && <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{it.unidad}</span>}
+                {/* Unidad de medida editable (bulto, caja, KG, und…) con sugerencias del inventario. */}
+                <input
+                  className="input mono"
+                  list="item-medidas"
+                  style={{ width: 72, fontSize: '.78rem' }}
+                  placeholder="unidad"
+                  value={it.unidad ?? ''}
+                  onChange={(e) => updateItem(idx, { unidad: e.target.value })}
+                  title="Unidad de medida (bulto, caja, KG, und…)"
+                />
               </div>
               <button
                 type="button"
@@ -3236,6 +3245,10 @@ function CrearOrdenModal({
             </div>
             );
           })}
+          {/* Sugerencias de unidades de medida (del inventario) para los renglones de arriba. */}
+          <datalist id="item-medidas">
+            {medidas.map((u) => <option key={u} value={u} />)}
+          </datalist>
         </div>
 
         <div style={{ marginTop: '.5rem' }}>

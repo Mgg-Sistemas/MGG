@@ -488,6 +488,7 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
               className="input mono"
               type="number"
               min={0}
+              step="any"
               value={form.stock}
               onChange={(e) => update('stock', e.target.value)}
               required={!isEdit}
@@ -508,6 +509,7 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
               className="input mono"
               type="number"
               min={0}
+              step="any"
               value={form.stock_min}
               onChange={(e) => update('stock_min', e.target.value)}
               required
