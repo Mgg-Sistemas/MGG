@@ -24,7 +24,7 @@ import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacene
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
-import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, ajustarSaldoDivisa } from './cajaSaldos.repository';
+import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, ajustarSaldoDivisa, round4 } from './cajaSaldos.repository';
 // Vínculo Tesorería → Centro de Acopio interno: el traspaso se refleja como entrada (USD ENTREGADOS) en el acopio.
 import { entradaTesoreriaACentroAcopio, centroAcopioShort } from '@/modules/acopio/caja.repository';
 import {
@@ -3014,7 +3014,10 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   const origenSaldo = saldosOrigen.find((s) => s.id === origenSaldoId) ?? null;
   const disponible = Number(origenSaldo?.saldo) || 0;
   const montoNum = Number(montoStr) || 0;
-  const tasaNum = Number(tasaStr) || 0;
+  // La conversión real (convertirDivisa) redondea la tasa a 4 decimales antes de
+  // multiplicar; usamos esa MISMA tasa efectiva en la vista previa para que lo que
+  // se muestra sea exactamente lo que se acredita (sin diferencia de céntimos).
+  const tasaNum = round4(Number(tasaStr) || 0);
   const comisionPctInput = Math.max(0, Math.min(100, Number(comisionStr) || 0));
   const bruto = round2(montoNum * tasaNum);
   // Neto redondeado a mano: tiene prioridad mientras sea válido (≤ bruto). Si no, manda el %.
