@@ -8,6 +8,10 @@ import type { Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from
 import { crearSolicitudSalida } from './salidas.repository';
 import { listCatalogoPedido, crearCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
+import { ClientePicker } from './ClientePicker';
+import type { Cliente } from '@/modules/ventas/clientes.repository';
+import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { listCentrosAcopio } from './cajas.repository';
 
 interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string }
 
@@ -55,11 +59,27 @@ export function SalidaMaterialForm({
   // Datos de la nota de salida en tránsito.
   const [chofer, setChofer] = useState<Chofer | null>(null);
   const [vehiculo, setVehiculo] = useState<Vehiculo | null>(null);
-  const [dirDespacho, setDirDespacho] = useState('');
-  const [dirDestino, setDirDestino] = useState('');
   const [consumoInterno, setConsumoInterno] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sede/centro de acopio destino (almacenes padre + centros de acopio).
+  const [sedeDestino, setSedeDestino] = useState('');
+  const [sedePrincipales, setSedePrincipales] = useState<string[]>([]);
+  const [sedeCentros, setSedeCentros] = useState<string[]>([]);
+  useEffect(() => {
+    Promise.all([listAlmacenes().catch(() => []), listCentrosAcopio().catch(() => [])])
+      .then(([alms, centros]) => {
+        setSedePrincipales(alms.filter((a) => !a.parent_id && a.estado === 'activo').map((a) => a.nombre));
+        setSedeCentros(centros.map((c) => c.nombre));
+      })
+      .catch(() => { /* sin sedes: el campo queda vacío */ });
+  }, []);
+
+  // Salida a CLIENTE: genera una cuenta por cobrar (monto = valor del material, editable).
+  const [esCliente, setEsCliente] = useState(false);
+  const [cliente, setCliente] = useState<Cliente | null>(null);
+  const [cxcMonto, setCxcMonto] = useState('');
 
   // Unidad solicitante: desplegable desde el catálogo compartido con OP + alta al vuelo.
   const [unidad, setUnidad] = useState('');
@@ -115,6 +135,9 @@ export function SalidaMaterialForm({
     e.preventDefault();
     setError(null);
     if (!unidad.trim()) { setError('Indicá la unidad solicitante.'); return; }
+    if (esCliente && !cliente) { setError('Elegí (o agregá) el cliente para la cuenta por cobrar.'); return; }
+    const montoCxc = esCliente ? (Number(cxcMonto) || totalGeneral) : 0;
+    if (esCliente && montoCxc <= 0) { setError('El monto de la cuenta por cobrar debe ser mayor que 0.'); return; }
     const items: ItemSolicitudSalida[] = [];
     for (const l of lineas) {
       const p = prodDe(l.productoId);
@@ -134,7 +157,11 @@ export function SalidaMaterialForm({
         fechaEntrega: fechaEntrega || null,
         chofer: chofer?.nombre ?? null, choferCedula: chofer?.cedula ?? null,
         vehiculo: vehiculo?.nombre ?? null, vehiculoPlaca: vehiculo?.placa ?? null,
-        direccionDespacho: dirDespacho.trim() || null, direccionDestino: dirDestino.trim() || null,
+        sedeDestino: sedeDestino || null,
+        clienteId: esCliente ? cliente?.id ?? null : null,
+        clienteNombre: esCliente ? cliente?.nombre ?? null : null,
+        cxcMonto: esCliente ? montoCxc : null,
+        cxcMoneda: esCliente ? 'USD' : null,
         consumoInterno,
         solicitante: actorName || actor, actor, actorName,
       });
@@ -165,6 +192,25 @@ export function SalidaMaterialForm({
       <form id="salida-mat-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
+        {/* 0) ¿Es para un CLIENTE? — visible desde el inicio. Genera cuenta por cobrar. */}
+        <div className="card" style={{ padding: '.6rem .85rem', margin: '0 0 .8rem', borderLeft: '3px solid var(--warning)' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', fontWeight: 600 }}>
+            <input type="checkbox" checked={esCliente} onChange={(e) => { setEsCliente(e.target.checked); if (e.target.checked && !cxcMonto) setCxcMonto(totalGeneral ? String(Math.round(totalGeneral * 100) / 100) : ''); }} />
+            🧾 Cliente (se le crea una cuenta por cobrar)
+          </label>
+          {esCliente && (
+            <div style={{ marginTop: '.6rem' }}>
+              <ClientePicker value={cliente} onChange={setCliente} actor={actor} actorName={actorName} />
+              <div className="form-row" style={{ marginTop: '.5rem' }}>
+                <label>Monto de la cuenta por cobrar (USD)</label>
+                <input className="input mono" type="number" min={0} step="any" value={cxcMonto}
+                  onChange={(e) => setCxcMonto(e.target.value)} placeholder={String(Math.round(totalGeneral * 100) / 100)} />
+                <small className="muted">Sugerido: valor del material <strong>{money(totalGeneral)}</strong>. Podés editarlo (precio de venta). El cliente lo paga luego en dinero o en producto desde Tesorería.</small>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* 1) Unidad solicitante (gerencia/área) — primero, como pediste. Catálogo compartido con OP. */}
         <div className="form-row">
           <label>Unidad solicitante</label>
@@ -182,6 +228,25 @@ export function SalidaMaterialForm({
             </button>
           </div>
           <small className="muted">Se comparte con el catálogo de OP: lo que agregues acá aparece allá y viceversa.</small>
+        </div>
+
+        {/* 1b) Sede / centro de acopio destino (almacenes padre + centros de acopio). */}
+        <div className="form-row">
+          <label>Sede destino</label>
+          <select className="select" value={sedeDestino} onChange={(e) => setSedeDestino(e.target.value)}>
+            <option value="">— elegí la sede destino (opcional) —</option>
+            {sedePrincipales.length > 0 && (
+              <optgroup label="Almacenes / sedes">
+                {sedePrincipales.map((s) => <option key={`a-${s}`} value={s}>{s}</option>)}
+              </optgroup>
+            )}
+            {sedeCentros.length > 0 && (
+              <optgroup label="Centros de acopio">
+                {sedeCentros.map((c) => <option key={`c-${c}`} value={c}>{c}</option>)}
+              </optgroup>
+            )}
+          </select>
+          <small className="muted">A dónde va el material (almacén padre o centro de acopio, ej. La Esperanza).</small>
         </div>
 
         {/* 2) Materiales (varias líneas) — producto buscable; el almacén se asigna solo. */}
@@ -224,16 +289,6 @@ export function SalidaMaterialForm({
         {/* 3) Datos del despacho (nota de salida): chofer/responsable + vehículo + direcciones */}
         <div className="form-row" style={{ marginTop: '.8rem', marginBottom: '.3rem' }}><label>Datos del despacho</label></div>
         <ChoferVehiculoPicker chofer={chofer} vehiculo={vehiculo} onChofer={setChofer} onVehiculo={setVehiculo} actor={actor} />
-        <div className="form-grid" style={{ marginTop: '.4rem' }}>
-          <div className="form-row">
-            <label>Origen — dirección de despacho</label>
-            <input className="input" value={dirDespacho} onChange={(e) => setDirDespacho(e.target.value)} placeholder="Desde dónde sale (zona, galpón…)" />
-          </div>
-          <div className="form-row">
-            <label>Destino — dirección</label>
-            <input className="input" value={dirDestino} onChange={(e) => setDirDestino(e.target.value)} placeholder="A dónde va (empresa, RIF, dirección)" />
-          </div>
-        </div>
         <div className="form-row" style={{ marginTop: '.45rem' }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
             <input type="checkbox" checked={consumoInterno} onChange={(e) => setConsumoInterno(e.target.checked)} />

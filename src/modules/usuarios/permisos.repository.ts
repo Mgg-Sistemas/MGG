@@ -50,7 +50,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'acopio_peramanal',label: 'C. Costo · Peramanal (Ender Mejías)', path: 'acopio/peramanal-ender' },
   { key: 'acopio_esmeralda',label: 'C. Costo · La Esmeralda (Alí)', path: 'acopio/esmeralda-ali' },
   { key: 'acopio_pijiguaos',label: 'C. Costo · Los Pijiguaos', path: 'acopio/los-pijiguaos' },
-  { key: 'maquinaria',  label: 'Control de Maquinaria' },
+  { key: 'maquinaria',  label: 'Control de Maquinaria y Vehículos' },
   { key: 'ventas',      label: 'Ventas' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'retenciones', label: 'Retenciones' },

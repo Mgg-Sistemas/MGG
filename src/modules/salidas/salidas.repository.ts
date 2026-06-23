@@ -12,6 +12,7 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { salidaDinero, trasladoDinero } from './cajas.repository';
 import { ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
+import { registrarSobrepagoCobrar } from '@/modules/tesoreria/cuentasPorCobrar.repository';
 
 export interface SalidaMaterialInput {
   productoId: string;
@@ -219,6 +220,14 @@ export interface CrearSolicitudSalidaInput {
   vehiculoPlaca?: string | null;
   direccionDespacho?: string | null;
   direccionDestino?: string | null;
+  /** Sede/centro de acopio destino (almacén padre o centro de acopio del desplegable). */
+  sedeDestino?: string | null;
+  /** Salida a CLIENTE: al ejecutar genera una cuenta por cobrar. */
+  clienteId?: string | null;
+  clienteNombre?: string | null;
+  /** Monto de la cuenta por cobrar (valor del material, editable) y su moneda (def. USD). */
+  cxcMonto?: number | null;
+  cxcMoneda?: string | null;
   /** Marca que la salida/traslado es para consumo interno de la empresa. */
   consumoInterno?: boolean | null;
   // material
@@ -327,6 +336,11 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       vehiculo_placa: input.vehiculoPlaca?.trim() || null,
       direccion_despacho: input.direccionDespacho?.trim() || null,
       direccion_destino: input.direccionDestino?.trim() || null,
+      sede_destino: input.sedeDestino?.trim() || null,
+      cliente_id: input.clienteId ?? null,
+      cliente_nombre: input.clienteNombre?.trim() || null,
+      cxc_monto: input.cxcMonto != null ? Number(input.cxcMonto) : null,
+      cxc_moneda: input.cxcMoneda ?? null,
       consumo_interno: input.consumoInterno ?? false,
       historial,
       actor: input.actor,
@@ -407,6 +421,29 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     throw new Error('Combinación de solicitud no soportada.');
   }
 
+  // Salida a CLIENTE: genera una cuenta por cobrar (incremental por cliente). El cliente
+  // la salda luego en dinero o en producto desde Tesorería. Motivo = "Salida de material · <codigo>".
+  let cxcId: string | null = null;
+  const cxcMonto = Number(s.cxc_monto) || 0;
+  if (s.tipo === 'material' && s.cliente_nombre && cxcMonto > 0) {
+    try {
+      const cuenta = await registrarSobrepagoCobrar({
+        tipo: 'cliente',
+        contraparte: s.cliente_nombre,
+        monto: cxcMonto,
+        moneda: s.cxc_moneda || 'USD',
+        origen: 'salida_material',
+        nota: `Salida de material · ${s.codigo}`,
+        actor,
+        actorName,
+      });
+      cxcId = cuenta.id;
+    } catch (e) {
+      // No bloquea la salida ya ejecutada: el material salió; la CxC se puede crear a mano.
+      console.error('No se pudo crear la cuenta por cobrar de la salida', e);
+    }
+  }
+
   const { error } = await supabase
     .from(SOL)
     .update({
@@ -415,7 +452,8 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       ejecutada_en: new Date().toISOString(),
       mov_id: movId,
       mov_ref: movRef,
-      historial: appendHistorial(s, 'ejecutada', actor),
+      cxc_id: cxcId,
+      historial: appendHistorial(s, 'ejecutada', actor, cxcId ? { cxc: `Salida de material · ${s.codigo}`, monto: cxcMonto, moneda: s.cxc_moneda || 'USD' } : {}),
     })
     .eq('id', s.id);
   if (error) throw error;

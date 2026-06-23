@@ -535,6 +535,16 @@ export interface SolicitudSalida {
   /** Direcciones de la nota de salida en tránsito (origen → destino). */
   direccion_despacho?: string | null;
   direccion_destino?: string | null;
+  /** Sede/centro de acopio destino (almacén padre o centro de acopio elegido del desplegable). */
+  sede_destino?: string | null;
+  /** Salida a CLIENTE: genera una cuenta por cobrar al ejecutar. */
+  cliente_id?: string | null;
+  cliente_nombre?: string | null;
+  /** Monto de la cuenta por cobrar (valor del material, editable) y su moneda. */
+  cxc_monto?: number | null;
+  cxc_moneda?: string | null;
+  /** Id de la cuenta por cobrar generada al ejecutar (trazabilidad). */
+  cxc_id?: string | null;
   /** Marca que la salida/traslado es para consumo interno de la empresa. */
   consumo_interno?: boolean | null;
   historial: EventoHistorial[];

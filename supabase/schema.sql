@@ -70,6 +70,28 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- Sesiones de usuario (supervisión de actividad): cada conexión registra inicio,
+-- último latido (heartbeat) y cierre. "Conectado ahora" = ended_at null y last_seen
+-- reciente. Lo alimenta el front (AppShell: start/heartbeat/end). RLS: lectura para
+-- cualquier autenticado (supervisión); escritura SOLO de la propia fila (auth.uid()).
+create table if not exists public.user_sessions (
+  id           uuid primary key default gen_random_uuid(),
+  usuario_id   uuid references public.usuarios(id) on delete cascade,
+  email        text,
+  nombre       text,
+  started_at   timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  ended_at     timestamptz,
+  user_agent   text,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_user_sessions_usuario on public.user_sessions(usuario_id, started_at desc);
+create index if not exists idx_user_sessions_lastseen on public.user_sessions(last_seen_at desc);
+alter table public.user_sessions enable row level security;
+create policy "user_sessions read auth"     on public.user_sessions for select using (auth.role() = 'authenticated');
+create policy "user_sessions insert propio" on public.user_sessions for insert with check (auth.uid() = usuario_id);
+create policy "user_sessions update propio" on public.user_sessions for update using (auth.uid() = usuario_id) with check (auth.uid() = usuario_id);
+
 -- ─────────────────────────────────────────────────────────────
 -- 3. proveedores
 -- ─────────────────────────────────────────────────────────────
@@ -750,6 +772,16 @@ alter table public.solicitudes_salida add column if not exists vehiculo_placa   
 alter table public.solicitudes_salida add column if not exists direccion_despacho text;
 alter table public.solicitudes_salida add column if not exists direccion_destino  text;
 alter table public.solicitudes_salida add column if not exists consumo_interno    boolean not null default false;
+
+-- Sede/centro de acopio destino (desplegable de almacenes padre + centros de acopio) y
+-- salida a CLIENTE: al ejecutar se genera una cuenta por cobrar (motivo "Salida de material
+-- · <codigo>", monto = valor del material, editable; el cliente paga en dinero o producto).
+alter table public.solicitudes_salida add column if not exists sede_destino   text;
+alter table public.solicitudes_salida add column if not exists cliente_id     uuid references public.clientes(id) on delete set null;
+alter table public.solicitudes_salida add column if not exists cliente_nombre text;
+alter table public.solicitudes_salida add column if not exists cxc_monto      numeric;
+alter table public.solicitudes_salida add column if not exists cxc_moneda     text;
+alter table public.solicitudes_salida add column if not exists cxc_id         uuid;
 
 -- ─────────────────────────────────────────────────────────────
 -- 5c. Catálogos de Salidas/Traslados: choferes y vehículos (modificables, deshabilitables).
