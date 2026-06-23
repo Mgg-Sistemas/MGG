@@ -113,12 +113,21 @@ export async function crearAlmacen(input: AlmacenInput, actorEmail?: string): Pr
 }
 
 export async function actualizarAlmacen(id: string, patch: Partial<AlmacenInput>): Promise<Almacen> {
-  const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  // El NOMBRE es la "llave" textual del stock (existencias/movimientos/etc. lo
+  // referencian por texto). Si cambia, se renombra vía RPC que propaga el nuevo
+  // nombre a todas esas tablas en una transacción (no orfana las existencias).
   if (patch.nombre !== undefined) {
     const nombre = patch.nombre.trim();
     if (!nombre) throw new Error('El nombre del almacén no puede estar vacío');
-    payload.nombre = nombre;
+    const { data: actual } = await supabase.from(TABLE).select('nombre').eq('id', id).single();
+    const nombreActual = (actual as { nombre?: string } | null)?.nombre ?? null;
+    if (nombre !== nombreActual) {
+      const { error: rpcErr } = await supabase.rpc('rename_almacen', { p_id: id, p_nuevo: nombre });
+      if (rpcErr) throw new Error(rpcErr.message || 'No se pudo renombrar el almacén');
+    }
   }
+  // Resto de campos (ubicación/sede/padre): update normal.
+  const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.ubicacion !== undefined) payload.ubicacion = patch.ubicacion?.trim() || null;
   if (patch.sede !== undefined) payload.sede = patch.sede?.trim() || null;
   if (patch.parent_id !== undefined) payload.parent_id = patch.parent_id ?? null;

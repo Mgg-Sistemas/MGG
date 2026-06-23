@@ -8,7 +8,7 @@ import { crearSolicitudSalida } from './salidas.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string; observacion: string }
+interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string }
 
 export function TrasladoMaterialForm({
   productos, existencias, almacenesObj, actor, actorName, onClose, onSaved,
@@ -39,10 +39,10 @@ export function TrasladoMaterialForm({
     return ex ? { almacen: ex.almacen, stock: Number(ex.stock) || 0 } : null;
   };
 
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '', observacion: '' }]);
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '' }]);
   const [seq, setSeq] = useState(2);
   const setLinea = (id: number, patch: Partial<LineaUI>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '', observacion: '' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '' }]); setSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
 
   function elegirProducto(id: number, productoId: string) {
@@ -100,7 +100,7 @@ export function TrasladoMaterialForm({
       if (l.almacen === destino) { setError(`${p?.nombre ?? 'El material'}: el origen no puede ser igual al destino.`); return; }
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
       if (cant > stockDe(l)) { setError(`No hay stock suficiente de ${p?.nombre} en ${l.almacen}. Disponible: ${num(stockDe(l))}.`); return; }
-      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: cant, precio_unit: precioDe(l) || null, unidad: p?.unidad ?? null, almacen: l.almacen, observacion: l.observacion.trim() || null });
+      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: cant, precio_unit: precioDe(l) || null, unidad: p?.unidad ?? null, almacen: l.almacen, observacion: null });
     }
     setSaving(true);
     try {
@@ -177,11 +177,6 @@ export function TrasladoMaterialForm({
                   {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {prod?.unidad ?? ''}.</small>}
                   <small className="muted">Lleva el costo (PMP) del origen.</small>
                 </div>
-              </div>
-              <div className="form-row" style={{ marginTop: '.4rem' }}>
-                <label>Observación</label>
-                <input className="input" value={l.observacion} onChange={(e) => setLinea(l.id, { observacion: e.target.value })}
-                  placeholder="Ej.: serial / Nº, «será trasladado para reparación»…" />
               </div>
             </div>
           );
