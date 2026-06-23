@@ -2674,9 +2674,16 @@ create index if not exists idx_acopio_resumen_semanal_fecha on public.acopio_res
 -- allá con la service-key de GT (secretos GT_URL / GT_SERVICE_KEY).
 create or replace function public.metrica_acopio_saldo_kg()
 returns numeric language sql security definer set search_path = public as $fn$
-  select coalesce((select sum(kg_seco_limpio) from public.acopio_contratos),0)
-       + coalesce((select sum(kg_cerrados)   from public.acopio_caja_movimientos),0)
-       - coalesce((select sum(kg_recibidos)  from public.acopio_caja_movimientos),0);
+  -- Saldo en Kg del acopio LA ESPERANZA = Σ(kg_cerrados − kg_recibidos) de SUS cajas,
+  -- idéntico a la tarjeta «Saldo en Kg» del módulo (resumirCaja, centro LA ESPERANZA).
+  -- Se ACOTA al centro LA ESPERANZA para no sumar los demás centros que comparten la
+  -- tabla acopio_caja_movimientos (GMT, LA ESMERALDA ALÍ, LOS PIJIGUAOS, PERAMANAL).
+  select coalesce((
+    select sum(coalesce(m.kg_cerrados,0) - coalesce(m.kg_recibidos,0))
+    from public.acopio_caja_movimientos m
+    join public.acopio_cajas c on c.id = m.caja_id
+    where c.centro_nombre = 'LA ESPERANZA'
+  ),0);
 $fn$;
 revoke all on function public.metrica_acopio_saldo_kg() from public;
 grant execute on function public.metrica_acopio_saldo_kg() to authenticated, service_role;
