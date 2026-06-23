@@ -280,10 +280,42 @@ export async function createProducto(input: ProductoInput): Promise<Producto> {
   return data as Producto;
 }
 
+/**
+ * Mueve el stock (existencia) de un producto de un almacén a otro. Si el destino
+ * ya tiene fila, fusiona stock y costo (PMP ponderado) y borra la de origen.
+ */
+async function moverExistenciaProducto(productoId: string, origen: string, destino: string): Promise<void> {
+  if (!origen || !destino || origen === destino) return;
+  const { data } = await supabase.from('existencias').select('*').eq('producto_id', productoId).in('almacen', [origen, destino]);
+  const rows = (data ?? []) as Array<{ almacen: string; stock: number; costo_promedio: number }>;
+  const src = rows.find((r) => r.almacen === origen);
+  if (!src) return; // no hay stock en el origen: nada que mover
+  const dst = rows.find((r) => r.almacen === destino);
+  if (!dst) {
+    await supabase.from('existencias').update({ almacen: destino, updated_at: new Date().toISOString() })
+      .eq('producto_id', productoId).eq('almacen', origen);
+    return;
+  }
+  const stock = (Number(src.stock) || 0) + (Number(dst.stock) || 0);
+  const costo = stock > 0
+    ? ((Number(src.stock) || 0) * (Number(src.costo_promedio) || 0) + (Number(dst.stock) || 0) * (Number(dst.costo_promedio) || 0)) / stock
+    : (Number(dst.costo_promedio) || 0);
+  await supabase.from('existencias').update({ stock, costo_promedio: costo, updated_at: new Date().toISOString() })
+    .eq('producto_id', productoId).eq('almacen', destino);
+  await supabase.from('existencias').delete().eq('producto_id', productoId).eq('almacen', origen);
+}
+
 export async function updateProducto(
   id: string,
   patch: Partial<ProductoInput>,
 ): Promise<Producto> {
+  // Si cambia el almacén "home", hay que MOVER su stock al nuevo almacén; si no,
+  // la existencia se queda en el almacén viejo y el producto sigue apareciendo allá.
+  let homeAnterior: string | null = null;
+  if (patch.almacen !== undefined && patch.almacen) {
+    const { data: actual } = await supabase.from('productos').select('almacen').eq('id', id).single();
+    homeAnterior = (actual as { almacen?: string } | null)?.almacen ?? null;
+  }
   const { data, error } = await supabase
     .from('productos')
     .update(patch)
@@ -291,6 +323,16 @@ export async function updateProducto(
     .select('*')
     .single();
   if (error) throw error;
+
+  if (patch.almacen && homeAnterior && patch.almacen !== homeAnterior) {
+    // Origen del stock: el home anterior; si ahí no hay existencia pero el producto
+    // tiene una sola ubicación, se mueve esa (caso típico: creado en "General").
+    let origen = homeAnterior;
+    const { data: exs } = await supabase.from('existencias').select('almacen').eq('producto_id', id);
+    const ubic = (exs ?? []) as Array<{ almacen: string }>;
+    if (!ubic.some((r) => r.almacen === origen) && ubic.length === 1) origen = ubic[0].almacen;
+    await moverExistenciaProducto(id, origen, patch.almacen).catch(() => { /* no bloquea el guardado */ });
+  }
   return data as Producto;
 }
 

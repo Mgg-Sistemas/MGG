@@ -57,8 +57,6 @@ export function TrasladoMaterialForm({
   }, [destino]);
 
   const [motivo, setMotivo] = useState('');
-  const [notaOn, setNotaOn] = useState(false);
-  const [notaTexto, setNotaTexto] = useState('');
   const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().slice(0, 10));
   // Datos de la nota de salida en tránsito.
   const [chofer, setChofer] = useState<Chofer | null>(null);
@@ -108,7 +106,7 @@ export function TrasladoMaterialForm({
         scope: 'traslado', tipo: 'material',
         almacenDestino: destino, items,
         motivo: motivo.trim() || null,
-        notaEntrega: notaOn ? (notaTexto.trim() || null) : null, fechaEntrega: fechaEntrega || null,
+        notaEntrega: null, fechaEntrega: fechaEntrega || null,
         chofer: chofer?.nombre ?? null, choferCedula: chofer?.cedula ?? null,
         vehiculo: vehiculo?.nombre ?? null, vehiculoPlaca: vehiculo?.placa ?? null,
         direccionDespacho: dirDespacho.trim() || null, direccionDestino: dirDestino.trim() || null,
@@ -217,17 +215,6 @@ export function TrasladoMaterialForm({
           </div>
         </div>
 
-        <div className="form-row" style={{ marginTop: '.25rem' }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
-            <input type="checkbox" checked={notaOn} onChange={(e) => setNotaOn(e.target.checked)} />
-            Nota de entrega
-          </label>
-          {notaOn && (
-            <textarea className="input" rows={2} value={notaTexto} onChange={(e) => setNotaTexto(e.target.value)}
-              placeholder="Escribí el motivo / detalle de la nota de entrega…" style={{ marginTop: '.4rem' }} />
-          )}
-          {notaOn && <small className="muted">Este texto se imprime en el PDF del traslado como “Nota de entrega”.</small>}
-        </div>
       </form>
     </Modal>
   );

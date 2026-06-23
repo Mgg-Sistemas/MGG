@@ -5371,12 +5371,21 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
   const [legMontos, setLegMontos] = useState<Record<string, string>>({});
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
+  // Patas EXTRA desde OTRAS cajas (multipago entre cajas): cada una referencia un
+  // saldo de otra caja + su monto. Cubre el caso de que una sola caja no alcance.
+  const [todosSaldos, setTodosSaldos] = useState<CajaSaldo[]>([]);
+  const [extraLegs, setExtraLegs] = useState<Array<{ id: number; saldoId: string; monto: string }>>([]);
+  const extraSeq = useRef(1);
   useEffect(() => {
     if (!cajaId) { setSaldosCaja([]); return; }
     saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
     setLegMontos({});
+    setExtraLegs([]);
   }, [cajaId]);
+  useEffect(() => { listSaldos().then((rows) => setTodosSaldos(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setTodosSaldos([])); }, []);
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
+  // Cuentas de OTRAS cajas disponibles para sumar como pata extra.
+  const saldosOtrasCajas = todosSaldos.filter((s) => s.caja_id !== cajaId);
   // Si la caja maneja saldos por cuenta/moneda (caja_saldos), se paga eligiendo
   // de qué cuentas sale el dinero — aunque tenga una sola moneda con saldo.
   const esMultimoneda = saldosCaja.length >= 1;
@@ -5425,7 +5434,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     if (monedaLeg === 'COP') return mercado?.copUsd ? round2(usd * mercado.copUsd) : 0;
     return round2(usd);
   }
-  const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
+  const sumUsdCaja = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
+  // Patas extra (otras cajas): su equivalente en USD se suma al cubierto total.
+  const extraSaldoDe = (saldoId: string) => todosSaldos.find((s) => s.id === saldoId) ?? null;
+  const sumUsdExtra = round2(extraLegs.reduce((a, l) => {
+    const s = extraSaldoDe(l.saldoId);
+    return a + (s ? legUsd(s.moneda, Number(l.monto) || 0) : 0);
+  }, 0));
+  const sumUsdMulti = round2(sumUsdCaja + sumUsdExtra);
   const cubreTotalMulti = sumUsdMulti >= totalUsd - 0.01;
   // No se puede pagar más que el total de la OC (ni en multipago ni en pago simple).
   const excedeTotalMulti = sumUsdMulti > totalUsd + 0.01;
@@ -5502,9 +5518,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     setSaving(true);
     try {
       if (esMultimoneda) {
-        const legs = saldosCaja
-          .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, montoUsd: legUsd(s.moneda, Number(legMontos[s.id]) || 0) }))
+        const legsCaja = saldosCaja
+          .map((s) => ({ cajaId, cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, montoUsd: legUsd(s.moneda, Number(legMontos[s.id]) || 0) }))
           .filter((l) => l.monto > 0);
+        // Patas extra desde otras cajas (cada una sale de SU propia caja).
+        const legsExtra = extraLegs
+          .map((l) => { const s = extraSaldoDe(l.saldoId); return s ? { cajaId: s.caja_id, cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(l.monto) || 0, montoUsd: legUsd(s.moneda, Number(l.monto) || 0) } : null; })
+          .filter((l): l is NonNullable<typeof l> => !!l && l.monto > 0);
+        const legs = [...legsCaja, ...legsExtra];
         if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); setSaving(false); return; }
         if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(sumUsdMulti, 'USD')}, total ${monto(totalUsd, 'USD')} (te pasaste por ${monto(round2(sumUsdMulti - totalUsd), 'USD')}).`); setSaving(false); return; }
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
@@ -5786,6 +5807,54 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                 ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
                 : <>Faltan <strong>{monto(round2(totalUsd - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}
             </small>
+
+            {/* Patas EXTRA desde otras cajas: cuando la caja elegida no alcanza, se
+                completa con cuentas de otras cajas (cada una sale de su propia caja). */}
+            {extraLegs.length > 0 && (
+              <div className="table-wrap" style={{ marginTop: '.5rem' }}>
+                <table className="table" style={{ fontSize: '.84rem' }}>
+                  <thead><tr><th>Otra caja · cuenta</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar</th><th style={{ textAlign: 'right' }}>Equiv. USD</th><th></th></tr></thead>
+                  <tbody>
+                    {extraLegs.map((l) => {
+                      const s = extraSaldoDe(l.saldoId);
+                      const n = Number(l.monto) || 0;
+                      const excede = !!s && n > Number(s.saldo);
+                      const cuentaLbl = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
+                      return (
+                        <tr key={l.id}>
+                          <td>
+                            <select className="select" style={{ minWidth: 200 }} value={l.saldoId}
+                              onChange={(e) => setExtraLegs((xs) => xs.map((x) => x.id === l.id ? { ...x, saldoId: e.target.value } : x))}>
+                              <option value="">— elegí caja y cuenta —</option>
+                              {saldosOtrasCajas.map((o) => (
+                                <option key={o.id} value={o.id}>{o.caja?.nombre ?? 'Caja'} · {o.moneda}{cuentaLbl(o.cuenta)} · {monto(Number(o.saldo), o.moneda)}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{s ? monto(Number(s.saldo), s.moneda) : '—'}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <input className="input mono" type="number" min={0} max={s ? Number(s.saldo) : undefined} step="any"
+                              value={l.monto} placeholder="0,00" disabled={!s}
+                              onChange={(e) => setExtraLegs((xs) => xs.map((x) => x.id === l.id ? { ...x, monto: dosDecimales(e.target.value) } : x))}
+                              style={{ width: 130, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
+                          </td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{s && n > 0 ? monto(legUsd(s.moneda, n), 'USD') : '—'}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setExtraLegs((xs) => xs.filter((x) => x.id !== l.id))}>✕</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {saldosOtrasCajas.length > 0 && (
+              <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }}
+                onClick={() => setExtraLegs((xs) => [...xs, { id: extraSeq.current++, saldoId: '', monto: '' }])}>
+                ＋ Añadir cuenta de otra caja
+              </button>
+            )}
           </div>
         )}
         {/* Seriales de los billetes entregados (solo al pagar con USD físico). */}

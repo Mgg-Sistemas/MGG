@@ -126,6 +126,8 @@ function eventLabel(ev: string): string {
       desistida_proveedor: 'Proveedor desistió',
       proveedor_cambiado: 'Cambio de proveedor',
       oc_creada: 'OC creada (oferta elegida)',
+      oc_editada: 'OC editada',
+      oc_reabierta_edicion: 'OC modificada · vuelve a aprobación del Gerente',
       confirmada_metodo: 'OC confirmada · indicar método de pago',
       confirmada_por_recibir: 'OC confirmada · pendiente por recepción',
       confirmada_cuenta_abierta: 'OC confirmada · crédito (cuenta abierta)',
@@ -148,6 +150,8 @@ function eventClass(ev: string): string {
       desistida_proveedor: 'warn',
       proveedor_cambiado: 'info',
       oc_creada: 'info',
+      oc_editada: 'info',
+      oc_reabierta_edicion: 'warn',
       confirmada_metodo: 'info',
       confirmada_por_recibir: 'info',
       confirmada_cuenta_abierta: 'warn',
@@ -627,6 +631,8 @@ export function PedidosPage() {
       {modal.kind === 'edit-oc' && (
         <EditarOcModal
           orden={modal.orden}
+          proveedores={proveedores}
+          proveedorMap={proveedorMap}
           actorEmail={usuario?.email ?? user?.email ?? 'sistema'}
           onClose={() => setModal({ kind: 'none' })}
           onSaved={async () => { setModal({ kind: 'none' }); await refresh(); }}
@@ -1961,6 +1967,7 @@ function OrdenDetailModal({
       {isConfirmadaMetodo && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={onEditarOc} title="Editar la OC. Al guardar, vuelve a aprobación del Gerente General">✎ Modificar OC</button>
           <button className="btn btn-primary" onClick={onEnviarPagar} title="Indicar método de pago y enviar a Tesorería">
             💳 Indicar método de pago / Enviar para Pagar
           </button>
@@ -2578,14 +2585,24 @@ function Timeline({
    Modal: Crear orden
    ───────────────────────────────────────────── */
 /* ───────────── Editar OC (oc_creada, antes de aprobarla) ───────────── */
-function EditarOcModal({ orden, actorEmail, onClose, onSaved }: {
-  orden: Orden; actorEmail: string; onClose: () => void; onSaved: () => void;
+function EditarOcModal({ orden, proveedores = [], proveedorMap, actorEmail, onClose, onSaved }: {
+  orden: Orden; proveedores?: Proveedor[]; proveedorMap?: Map<string, Proveedor>; actorEmail: string; onClose: () => void; onSaved: () => void;
 }) {
   const [items, setItems] = useState<ItemOrden[]>(orden.items.map((i) => ({ ...i })));
   const [cond, setCond] = useState(orden.condiciones_pago ?? '');
   const [notas, setNotas] = useState(orden.notas ?? '');
+  const [proveedorId, setProveedorId] = useState<string>(orden.proveedor_id ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Selector de proveedor: activos + el actual (aunque esté inactivo), sin duplicar.
+  const proveedorActual = orden.proveedor_id ? proveedorMap?.get(orden.proveedor_id) ?? null : null;
+  const proveedoresSel = useMemo(() => {
+    const out = [...proveedores];
+    if (proveedorActual && !out.some((p) => p.id === proveedorActual.id)) out.unshift(proveedorActual);
+    return out;
+  }, [proveedores, proveedorActual]);
+  const proveedorCambiado = proveedorId !== (orden.proveedor_id ?? '');
 
   const total = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
   const upd = (idx: number, patch: Partial<ItemOrden>) =>
@@ -2594,7 +2611,7 @@ function EditarOcModal({ orden, actorEmail, onClose, onSaved }: {
   async function guardar() {
     setError(null); setSaving(true);
     try {
-      await actualizarOc(orden, { items, condiciones_pago: cond || null, notas }, actorEmail);
+      await actualizarOc(orden, { items, condiciones_pago: cond || null, notas, proveedorId: proveedorId || null }, actorEmail);
       // Sincroniza con inventario los nombres que cambiaron respecto al original.
       const orig = new Map(orden.items.map((i) => [i.sku, i.nombre]));
       const cambios = items
@@ -2612,7 +2629,21 @@ function EditarOcModal({ orden, actorEmail, onClose, onSaved }: {
       <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>Ajustá cantidades y precios de cada producto y la condición de pago. El total se recalcula solo. Se puede editar solo mientras la OC no esté aprobada.</p>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>Ajustá el proveedor, cantidades, precios y la condición de pago. El total se recalcula solo. Si cambiás algo, la OC vuelve a aprobación del Gerente General.</p>
+      {proveedoresSel.length > 0 && (
+        <div className="form-row" style={{ marginBottom: '.6rem' }}>
+          <label>Proveedor</label>
+          <select className="select" value={proveedorId} onChange={(e) => setProveedorId(e.target.value)}>
+            {!proveedorId && <option value="">— elegí el proveedor —</option>}
+            {proveedoresSel.map((p) => <option key={p.id} value={p.id}>{p.razon_social}{p.rif ? ` · ${p.rif}` : ''}</option>)}
+          </select>
+          {proveedorCambiado && (
+            <small className="muted" style={{ color: 'var(--brand, #ff8a00)' }}>
+              ⚠️ Cambiás el proveedor: la OC vuelve a aprobación del Gerente General.
+            </small>
+          )}
+        </div>
+      )}
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead><tr><th>Producto</th><th style={{ textAlign: 'right', width: 110 }}>Cantidad</th><th style={{ textAlign: 'right', width: 130 }}>Precio unit.</th><th style={{ textAlign: 'right', width: 130 }}>Subtotal</th></tr></thead>

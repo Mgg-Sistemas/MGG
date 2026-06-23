@@ -683,6 +683,27 @@ alter table public.combustible_tanque_movimientos enable row level security;
 create policy "comb_tanque_mov read auth" on public.combustible_tanque_movimientos for select using (auth.role()='authenticated');
 create policy "comb_tanque_mov write op"  on public.combustible_tanque_movimientos for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Control de Alimentación (Cocina): consumo de víveres por comida.
+-- Toma precios/stock del inventario; al registrar descuenta el stock (salida en kardex).
+create table if not exists public.cocina_comidas (
+  id           uuid primary key default gen_random_uuid(),
+  codigo       text not null,                 -- COC-AAAA-NNNN
+  tipo_comida  text not null check (tipo_comida in ('desayuno','almuerzo','cena')),
+  platos       numeric not null default 0 check (platos >= 0),
+  -- [{producto_id, sku, nombre, unidad, cantidad, precio, subtotal, almacen}]
+  items        jsonb not null default '[]'::jsonb,
+  valor_total  numeric not null default 0,
+  nota         text,
+  actor        text, actor_name text,
+  at           timestamptz not null default now(),
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_cocina_at   on public.cocina_comidas(at desc);
+create index if not exists idx_cocina_tipo on public.cocina_comidas(tipo_comida);
+alter table public.cocina_comidas enable row level security;
+create policy "cocina read auth"      on public.cocina_comidas for select using (auth.role()='authenticated');
+create policy "cocina write operativo" on public.cocina_comidas for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- Solicitudes de salida/traslado (material y dinero) con flujo de aprobación.
 -- El obrero crea (por_aprobar); admin/analista aprueba y ejecuta (gate en el front).
 -- Al ejecutar se realiza el movimiento real (movimientos / movimientos_caja) y se guarda mov_id.

@@ -8,6 +8,7 @@ export type ModuleKey =
   | 'inventario'
   | 'produccion'
   | 'salidas'
+  | 'cocina'
   | 'combustible'
   | 'acopio'
   | 'acopio_reporte'
@@ -41,6 +42,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'inventario',  label: 'Inventario' },
   { key: 'produccion',  label: 'Fundición' },
   { key: 'salidas',     label: 'Salidas / Traslados' },
+  { key: 'cocina',      label: 'Control de Alimentación (Cocina)' },
   { key: 'combustible', label: 'Combustible' },
   { key: 'acopio',          label: 'C. Costo · La Esperanza' },
   { key: 'acopio_reporte',  label: 'C. Costo · Reporte Preliminar', path: 'acopio/reporte-preliminar' },

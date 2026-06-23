@@ -1446,3 +1446,33 @@ export interface HojaExcel {
   datos: CeldaExcel[][];
   updated_at?: string | null;
 }
+
+/* ───────── Control de Alimentación (Cocina) ───────── */
+export type TipoComida = 'desayuno' | 'almuerzo' | 'cena';
+
+/** Una línea de víveres consumida en una comida (precio tomado del inventario). */
+export interface ItemCocina {
+  producto_id: string;
+  sku: string;
+  nombre: string;
+  unidad: string;
+  cantidad: number;
+  precio: number;       // precio unitario del inventario al momento
+  subtotal: number;     // cantidad × precio
+  almacen?: string | null; // de dónde se descontó el stock
+}
+
+/** Movimiento de cocina: consumo de víveres para un servicio (desayuno/almuerzo/cena). */
+export interface CocinaComida {
+  id: string;
+  codigo: string;
+  tipo_comida: TipoComida;
+  platos: number;
+  items: ItemCocina[];
+  valor_total: number;
+  nota?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  at: string;
+  created_at?: string | null;
+}

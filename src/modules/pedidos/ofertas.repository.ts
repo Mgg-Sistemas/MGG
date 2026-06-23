@@ -192,6 +192,8 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
 
 /** Campos editables de una oferta ya cargada (solo mientras está `pendiente`). */
 export interface EditarOfertaInput {
+  /** Reasignar la oferta a otro proveedor (corrección de carga). */
+  proveedor_id?: string;
   items?: ItemOrden[];
   precio_total?: number;
   precio_efectivo?: number | null;
@@ -210,6 +212,7 @@ export async function actualizarOferta(
   input: EditarOfertaInput
 ): Promise<OfertaProveedor> {
   const patch: Record<string, unknown> = {};
+  if (input.proveedor_id !== undefined) patch.proveedor_id = input.proveedor_id;
   if (input.items !== undefined) patch.items = input.items;
   if (input.precio_total !== undefined) patch.precio_total = input.precio_total;
   if (input.precio_efectivo !== undefined) patch.precio_efectivo = input.precio_efectivo;

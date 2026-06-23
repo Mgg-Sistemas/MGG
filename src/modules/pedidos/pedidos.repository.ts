@@ -273,6 +273,8 @@ export interface EditarOcInput {
   items: ItemOrden[];
   condiciones_pago?: string | null;
   notas?: string | null;
+  /** Reasignar el proveedor de la OC (opcional). Si cambia, la OC se reabre a aprobación. */
+  proveedorId?: string | null;
 }
 
 /**
@@ -281,16 +283,30 @@ export interface EditarOcInput {
  * nota. Recalcula el total. Una vez aprobada/confirmada ya no se edita por aquí.
  */
 export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: string): Promise<Orden> {
-  if (o.estado !== 'oc_creada') throw new Error('Solo se puede editar la OC antes de aprobarla (estado «OC creada»).');
+  // Editable mientras no se haya pagado/recibido: «OC creada» (por aprobar) o
+  // «Confirmada (indicar método de pago)». Si ya estaba confirmada por el Gerente,
+  // editarla la REABRE: vuelve a «OC creada» y debe aprobarse de nuevo.
+  const editable = o.estado === 'oc_creada' || o.estado === 'confirmada_metodo';
+  if (!editable) throw new Error('Solo se puede editar la OC mientras está por aprobar o pendiente de cargar el método de pago.');
   if (!input.items.length) throw new Error('La OC debe tener al menos un producto.');
   const total = input.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
-  const patch = {
+  // Cambio de proveedor (opcional): si difiere del actual, la OC se reabre a aprobación.
+  const cambiaProveedor = input.proveedorId !== undefined && input.proveedorId !== o.proveedor_id;
+  const reabre = o.estado === 'confirmada_metodo' || cambiaProveedor;
+  const patch: Record<string, unknown> = {
     items: input.items,
     total,
     condiciones_pago: input.condiciones_pago ?? o.condiciones_pago ?? null,
     notas: input.notas?.trim() || null,
-    historial: appendHistorial(o, 'oc_editada', actorEmail),
+    historial: appendHistorial(o, reabre ? 'oc_reabierta_edicion' : 'oc_editada', actorEmail),
   };
+  if (cambiaProveedor) patch.proveedor_id = input.proveedorId ?? null;
+  if (reabre) {
+    // Vuelve a aprobación del Gerente General y se limpia la confirmación previa.
+    patch.estado = 'oc_creada';
+    patch.oc_aprobada_por = null;
+    patch.oc_aprobada_en = null;
+  }
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
   return data as Orden;
@@ -972,6 +988,9 @@ export interface PagarOcMultiLeg {
   moneda: string;
   monto: number;        // EN SU PROPIA MONEDA
   montoUsd?: number;    // equivalente USD (solo para la traza)
+  /** Caja de la que sale esta pata. Si falta, usa la caja principal del pago.
+   *  Permite multipago con cuentas de DISTINTAS cajas (ej.: USD de una y Bs de otra). */
+  cajaId?: string;
 }
 export interface PagarOcMultiInput {
   orden: Orden;
@@ -1009,7 +1028,7 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
   for (const leg of legs) {
     const serLeg = leg.moneda === 'USD' ? seriales : null;
     const mov = await egresarDivisa({
-      cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+      cajaId: leg.cajaId || input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
       concepto: conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg), categoria: 'pago_oc', refOrdenId: o.id,
       gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actorEmail, actorName: input.actorName ?? null,

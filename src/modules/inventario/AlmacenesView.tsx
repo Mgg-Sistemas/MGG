@@ -26,10 +26,13 @@ export function raices(almacenes: Almacen[]): Almacen[] {
 /* ───────────────────────── Tarjetas de SEDE (nivel 1) ───────────────────────── */
 
 /** Agrupa los almacenes por su sede y, al hacer clic, entra a esa sede. */
-export function SedesView({ almacenes, valores, onSelectSede }: {
+export function SedesView({ almacenes, valores, onSelectSede, onEditarSede, canWrite = true }: {
   almacenes: Almacen[];
   valores: Record<string, AlmacenValor>;
   onSelectSede: (sede: string) => void;
+  /** Renombrar la sede (se aplica a todos sus almacenes). */
+  onEditarSede?: (sede: string) => void;
+  canWrite?: boolean;
 }) {
   const sedes = new Map<string, { almacenes: number; subalmacenes: number; valor: number; items: number; unidades: number }>();
   for (const a of almacenes) {
@@ -64,7 +67,13 @@ export function SedesView({ almacenes, valores, onSelectSede }: {
                 {a.subalmacenes} subalmacén{a.subalmacenes !== 1 ? 'es' : ''} · {a.almacenes} almacén{a.almacenes !== 1 ? 'es' : ''}
               </div>
             </div>
-            <span className="muted" style={{ fontSize: '1.2rem', lineHeight: 1 }}>›</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
+              {canWrite && onEditarSede && (
+                <button className="btn btn-sm btn-ghost" title="Renombrar la sede (se aplica a todos sus almacenes)"
+                  onClick={(e) => { e.stopPropagation(); onEditarSede(sede); }}>✎</button>
+              )}
+              <span className="muted" style={{ fontSize: '1.2rem', lineHeight: 1 }}>›</span>
+            </div>
           </div>
           <div style={{ marginTop: '.75rem' }}>
             <div className="muted" style={{ fontSize: '.68rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Valor total</div>

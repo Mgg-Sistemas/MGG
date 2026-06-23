@@ -52,6 +52,12 @@ export function AgregarOfertaModal({
     () => proveedores.filter((p) => p.estado === 'activo' && !proveedoresYaOfertados.has(p.id)),
     [proveedores, proveedoresYaOfertados]
   );
+  // En edición: activos + el proveedor actual (aunque esté inactivo), sin duplicar.
+  const opcionesProveedorEdit = useMemo(() => {
+    const out = proveedores.filter((p) => p.estado === 'activo');
+    if (provEdit && !out.some((p) => p.id === provEdit.id)) out.unshift(provEdit);
+    return out.sort((a, b) => a.razon_social.localeCompare(b.razon_social, 'es'));
+  }, [proveedores, provEdit]);
 
   // Modo proveedor: si el checkbox está activo, se crea uno nuevo en línea.
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
@@ -187,6 +193,7 @@ export function AgregarOfertaModal({
           adjuntosPatch.pdf_filename = todos[0]?.filename ?? null;
         }
         await actualizarOferta(ofertaEdit.id, {
+          proveedor_id: proveedorId || ofertaEdit.proveedor_id,
           items: itemsLimpios,
           precio_total: precioTotal,
           precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
@@ -280,8 +287,14 @@ export function AgregarOfertaModal({
       {isEdit ? (
         <div className="form-row">
           <label>Proveedor</label>
-          <input className="input" value={provEdit?.razon_social ?? '—'} readOnly disabled />
-          <small className="muted">El proveedor de una oferta no se cambia: si te equivocaste de proveedor, eliminá la oferta y cargá una nueva.</small>
+          <SearchSelect
+            value={proveedorId}
+            onChange={setProveedorId}
+            options={opcionesProveedorEdit.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ` (${p.rif})` : ''}` }))}
+            placeholder="Buscar proveedor por nombre o RIF…"
+            emptyText="Ningún proveedor coincide"
+          />
+          <small className="muted">Podés corregir el proveedor de la oferta. El resto de datos se edita abajo.</small>
         </div>
       ) : (
       <div className="form-row">
