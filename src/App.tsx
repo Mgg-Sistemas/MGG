@@ -18,6 +18,7 @@ const ProveedoresPage = lazyReload(() => import('./modules/proveedores/Proveedor
 const InventarioPage = lazyReload(() => import('./modules/inventario/InventarioPage').then((m) => ({ default: m.InventarioPage })));
 const ProduccionPage = lazyReload(() => import('./modules/produccion/ProduccionPage').then((m) => ({ default: m.ProduccionPage })));
 const SalidasPage = lazyReload(() => import('./modules/salidas/SalidasPage').then((m) => ({ default: m.SalidasPage })));
+const CocinaPage = lazyReload(() => import('./modules/cocina/CocinaPage').then((m) => ({ default: m.CocinaPage })));
 const CombustiblePage = lazyReload(() => import('./modules/combustible/CombustiblePage').then((m) => ({ default: m.CombustiblePage })));
 const AcopioPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.AcopioPage })));
 const ReportePreliminarPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.ReportePreliminarPage })));
@@ -86,6 +87,7 @@ export function App() {
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
           <Route path="produccion" element={<RequireModule module="produccion"><Suspense fallback={<PageLoader />}><ProduccionPage /></Suspense></RequireModule>} />
           <Route path="salidas" element={<RequireModule module="salidas"><Suspense fallback={<PageLoader />}><SalidasPage /></Suspense></RequireModule>} />
+          <Route path="cocina" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaPage /></Suspense></RequireModule>} />
           <Route path="combustible" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><CombustiblePage /></Suspense></RequireModule>} />
           <Route path="acopio" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><AcopioPage /></Suspense></RequireModule>} />
           <Route path="acopio/reporte-preliminar" element={<RequireModule module="acopio_reporte"><Suspense fallback={<PageLoader />}><ReportePreliminarPage /></Suspense></RequireModule>} />

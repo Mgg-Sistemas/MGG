@@ -62,6 +62,7 @@ import {
   crearAlmacen,
   actualizarAlmacen,
   eliminarAlmacen,
+  renombrarSede,
   nombreCortoAlmacen,
   type AlmacenInput,
   type AlmacenValor,
@@ -117,7 +118,8 @@ type ModalState =
   | { kind: 'import'; analisis: AnalisisImport }
   | { kind: 'almacenCrear'; parentId?: string | null; sede?: string | null }
   | { kind: 'almacenEditar'; almacen: Almacen }
-  | { kind: 'almacenEliminar'; almacen: Almacen };
+  | { kind: 'almacenEliminar'; almacen: Almacen }
+  | { kind: 'sedeEditar'; sede: string };
 
 export function InventarioPage() {
   const { user } = useSession();
@@ -701,7 +703,9 @@ export function InventarioPage() {
             {loading ? (
               <EmptyState message="Cargando almacenes…" icon="◔" />
             ) : (
-              <SedesView almacenes={almacenes} valores={valoresAlm} onSelectSede={(s) => { setSedeSel(s); setAlmacenNavId(null); }} />
+              <SedesView almacenes={almacenes} valores={valoresAlm} canWrite={canWrite}
+                onSelectSede={(s) => { setSedeSel(s); setAlmacenNavId(null); }}
+                onEditarSede={(s) => setModal({ kind: 'sedeEditar', sede: s })} />
             )}
           </>
         ) : (() => {
@@ -924,6 +928,13 @@ export function InventarioPage() {
           onConfirm={() => handleEliminarAlmacen(modal.almacen)}
         />
       )}
+      {modal.kind === 'sedeEditar' && (
+        <SedeRenameModal
+          sede={modal.sede}
+          onClose={() => setModal({ kind: 'none' })}
+          onSaved={async () => { setModal({ kind: 'none' }); setSedeSel(null); await reload(); }}
+        />
+      )}
 
       {gestionCatsOpen && (
         <GestionarCategoriasModal
@@ -1013,6 +1024,50 @@ function EliminarAlmacenDialog({ almacen, onCancel, onConfirm }: {
         {texto.trim() !== '' && !ok && (
           <small className="muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────── Renombrar sede (se aplica a todos los almacenes de esa sede) ───────── */
+function SedeRenameModal({ sede, onClose, onSaved }: {
+  sede: string; onClose: () => void; onSaved: () => void | Promise<void>;
+}) {
+  // La tarjeta «Sin sede» agrupa los almacenes con sede nula: renombrarla les asigna una sede.
+  const esSinSede = sede === 'Sin sede';
+  const actual = esSinSede ? null : sede;
+  const [nombre, setNombre] = useState(esSinSede ? '' : sede);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    const n = nombre.trim();
+    if (!n) { setError('Escribí el nombre de la sede.'); return; }
+    setError(null); setSaving(true);
+    try {
+      await renombrarSede(actual, n);
+      toast(esSinSede ? `Almacenes sin sede asignados a «${n}»` : `Sede renombrada a «${n}»`, 'success');
+      await onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
+  }
+
+  return (
+    <Modal title={esSinSede ? 'Asignar sede' : `Renombrar sede · ${sede}`} size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+        {esSinSede
+          ? 'Se asignará esta sede a todos los almacenes que hoy no tienen una.'
+          : 'El nuevo nombre se aplica a todos los almacenes de esta sede.'}
+      </p>
+      <div className="form-row">
+        <label>Nombre de la sede</label>
+        <input className="input" autoFocus value={nombre} onChange={(e) => setNombre(e.target.value.toUpperCase())}
+          placeholder="Ej.: MATANZAS, LOS PINOS…" onKeyDown={(e) => { if (e.key === 'Enter') void guardar(); }} />
       </div>
     </Modal>
   );
