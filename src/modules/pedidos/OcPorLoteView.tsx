@@ -15,9 +15,11 @@ import { enviarChecklistAMultiples } from './enviarChecklist';
 /** Checklist "OC por lote": relación de OC por confirmar. Aprobar en lote + PDF/correo. */
 export function OcPorLoteView() {
   const { user } = useSession();
-  // Aprueba/modifica/anula OC: el administrador o quien tenga FULL CONTROL de Pedidos/Compras.
+  // Modifica/anula OC: el administrador o quien tenga FULL CONTROL de Pedidos/Compras.
   const { isAdmin: esAdmin, can } = usePermissions();
   const isAdmin = esAdmin || can('pedidos', 'full');
+  // APROBAR una OC es exclusivo del rol administrador (no basta con el control total).
+  const soloAdmin = esAdmin;
   const [rows, setRows] = useState<OcLoteRow[]>([]);
   const [incluirPagadas, setIncluirPagadas] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -70,7 +72,7 @@ export function OcPorLoteView() {
   // Aprobar en lote: solo las seleccionadas que estén "por confirmar" (oc_creada).
   const porConfirmar = (list: OcLoteRow[]) => seleccionadas(list).filter((r) => r.orden.estado === 'oc_creada');
   async function aprobar() {
-    if (!isAdmin) { toast('Solo el administrador puede aprobar las órdenes de compra.', 'error'); return; }
+    if (!soloAdmin) { toast('Solo el administrador puede aprobar las órdenes de compra.', 'error'); return; }
     const elegidas = porConfirmar(rows);
     if (!elegidas.length) { toast('No hay órdenes por confirmar seleccionadas', 'error'); return; }
     setAprobando(true);
@@ -124,7 +126,9 @@ export function OcPorLoteView() {
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {isAdmin && (
             <>
-              <button className="btn btn-primary" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setConfirmAprob(true); }}>✔ Aprobar en lote ({porConfirmar(rows).length})</button>
+              {soloAdmin && (
+                <button className="btn btn-primary" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setConfirmAprob(true); }}>✔ Aprobar en lote ({porConfirmar(rows).length})</button>
+              )}
               <button className="btn btn-ghost" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setConfirmModificar(true); }} title="Reabrir las OC seleccionadas para re-elegir oferta">✎ Modificar ({porConfirmar(rows).length})</button>
               <button className="btn btn-danger" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setAnularOpen(true); }} title="Anular las OC seleccionadas">⊘ Anular ({porConfirmar(rows).length})</button>
             </>

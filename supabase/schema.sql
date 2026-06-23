@@ -159,6 +159,40 @@ create table if not exists public.almacenes (
 );
 create index if not exists idx_almacenes_parent on public.almacenes(parent_id);
 
+-- Renombrar un almacén PROPAGANDO el nombre a todas las tablas que lo referencian
+-- por texto (el nombre es la "llave" del stock). Atómico: evita orfanar existencias.
+create or replace function public.rename_almacen(p_id uuid, p_nuevo text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_old text;
+begin
+  select nombre into v_old from public.almacenes where id = p_id;
+  if v_old is null then raise exception 'Almacén no encontrado'; end if;
+  p_nuevo := btrim(p_nuevo);
+  if p_nuevo = '' then raise exception 'El nombre del almacén no puede estar vacío'; end if;
+  if p_nuevo = v_old then return; end if;
+  if exists (select 1 from public.almacenes where nombre = p_nuevo and id <> p_id) then
+    raise exception 'Ya existe un almacén con ese nombre';
+  end if;
+  update public.almacenes               set nombre = p_nuevo, updated_at = now() where id = p_id;
+  update public.productos               set almacen = p_nuevo            where almacen = v_old;
+  update public.existencias             set almacen = p_nuevo            where almacen = v_old;
+  update public.movimientos             set almacen = p_nuevo            where almacen = v_old;
+  update public.ordenes                 set almacen_destino = p_nuevo    where almacen_destino = v_old;
+  update public.produccion              set almacen_destino = p_nuevo    where almacen_destino = v_old;
+  update public.produccion_materiales   set almacen = p_nuevo            where almacen = v_old;
+  update public.compras_directas        set almacen = p_nuevo            where almacen = v_old;
+  update public.combustible_solicitudes set almacen = p_nuevo            where almacen = v_old;
+  update public.solicitudes_salida      set almacen_origen = p_nuevo     where almacen_origen = v_old;
+  update public.solicitudes_salida      set almacen_destino = p_nuevo    where almacen_destino = v_old;
+  update public.cuentas_por_cobrar_abonos set almacen = p_nuevo          where almacen = v_old;
+  update public.acopio_aliado_cierres   set almacen = p_nuevo            where almacen = v_old;
+end $$;
+grant execute on function public.rename_almacen(uuid, text) to authenticated;
+
 -- ─────────────────────────────────────────────────────────────
 -- 5.2 existencias: stock y costo (PMP) por (producto, almacen).
 --     productos.stock / productos.precio quedan como agregados

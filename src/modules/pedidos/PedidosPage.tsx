@@ -561,6 +561,7 @@ export function PedidosPage() {
           onEditarOc={() => setModal({ kind: 'edit-oc', orden: currentDetail })}
           onAsignar={() => setModal({ kind: 'asignar', orden: currentDetail })}
           onConfirmOc={async () => {
+            if (usuario?.role !== 'admin') { toast('Solo el administrador puede aprobar las órdenes de compra.', 'error'); return; }
             try {
               await aprobarOcsEnLote([currentDetail], usuario?.email ?? user?.email ?? 'sistema', null);
               notify(`OC confirmada: ${currentDetail.oc_codigo ?? currentDetail.codigo} · falta indicar el método de pago (el almacén destino se elige al recibir)`, 'success', { link: '#/app/pedidos' });
@@ -1088,6 +1089,11 @@ function monedaPorMetodo(metodo: string): string {
   if (metodo === 'binance_usdt') return 'USDT';
   return 'USD'; // divisas_efectivo, zelle, otro
 }
+/** Monto con su moneda ($ para USD, "Bs 1.000,00" para el resto). */
+function fmtMonto(n: number, moneda: string): string {
+  const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return moneda === 'USD' ? `$ ${v}` : `${moneda} ${v}`;
+}
 
 function MetodoPagoModal({
   orden,
@@ -1145,8 +1151,16 @@ function MetodoPagoModal({
   function addLeg() { setLegs((ls) => [...ls, { metodo: 'transferencia', moneda: monedaPorMetodo('transferencia'), monto: 0, datos: datosGuardados['transferencia'] ?? {} }]); }
   function removeLeg(i: number) { setLegs((ls) => ls.filter((_, k) => k !== i)); }
 
-  // El monto lo define Tesorería al pagar; acá solo se eligen método(s) y moneda(s).
   const validos = legs.filter((l) => l.metodo && l.moneda);
+  // Multipago = 2+ métodos: ahí sí se indica desde la OC cuánto va por cada moneda.
+  const esMultipago = validos.length > 1;
+  // Total indicado por moneda (informa a Tesorería el reparto previsto).
+  const totalesPorMoneda = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of validos) if ((l.monto ?? 0) > 0) m.set(l.moneda, Math.round(((m.get(l.moneda) ?? 0) + Number(l.monto)) * 100) / 100);
+    return [...m.entries()];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legs]);
 
   async function handleSend() {
     setError(null);
@@ -1154,6 +1168,10 @@ function MetodoPagoModal({
     // Si cambió el proveedor, la OC vuelve a aprobación del Gerente: no se exige método de pago.
     if (!proveedorCambiado) {
       if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
+      // En multipago, cada método/moneda debe llevar su monto (es el reparto que define la OC).
+      if (esMultipago && validos.some((l) => !((l.monto ?? 0) > 0))) {
+        setError('En multipago, indicá el monto por cada método/moneda.'); return;
+      }
       if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
       // Validar datos del proveedor en los métodos que los requieren.
       for (const l of validos) {
@@ -1186,7 +1204,7 @@ function MetodoPagoModal({
         Indicá <strong>con qué método(s)</strong> se va a pagar la OC ({orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null
           ? <>recibido <strong>{money(orden.recibido_total)}</strong></>
           : <>total <strong>{money(orden.total)}</strong></>}). Podés combinar
-        varios (<strong>multipago</strong>). El <strong>monto lo define Tesorería</strong> al pagar. Al enviar pasa a <strong>Confirmada pagar</strong> y aparece en Tesorería.
+        varios (<strong>multipago</strong>); en ese caso <strong>indicá cuánto va por cada método/moneda</strong>. Con un solo método, el monto lo define Tesorería al pagar. Al enviar pasa a <strong>Confirmada pagar</strong> y aparece en Tesorería.
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -1252,6 +1270,15 @@ function MetodoPagoModal({
                   {METODOS_PAGO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                 </select>
               </div>
+              {esMultipago && (
+                <div className="form-row" style={{ margin: 0, flex: '0 1 170px' }}>
+                  <label>Monto ({l.moneda}) *</label>
+                  <input className="input mono" type="number" min={0} step="any"
+                    value={l.monto ? String(l.monto) : ''}
+                    onChange={(e) => setLeg(i, { monto: Number(e.target.value) || 0 })}
+                    placeholder="0,00" />
+                </div>
+              )}
               {legs.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => removeLeg(i)}>✕ Quitar</button>}
             </div>
             {requiereDatos(l.metodo) && (
@@ -1264,6 +1291,16 @@ function MetodoPagoModal({
         ))}
       </div>
       <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} onClick={addLeg}>+ Agregar método (multipago)</button>
+      {esMultipago && totalesPorMoneda.length > 0 && (
+        <div className="card" style={{ margin: '.6rem 0 0', padding: '.55rem .75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+          <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.25rem' }}>Reparto indicado (lo confirma Tesorería al pagar)</div>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            {totalesPorMoneda.map(([m, v]) => (
+              <strong key={m} className="mono" style={{ fontSize: '.9rem' }}>{fmtMonto(v, m)}</strong>
+            ))}
+          </div>
+        </div>
+      )}
       {esContraEntrega && (
         <label className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', marginTop: '.6rem', padding: '.55rem .7rem', cursor: 'pointer', borderColor: notaEntrega ? 'var(--success)' : 'var(--warning)' }}>
           <input type="checkbox" checked={notaEntrega} onChange={(e) => setNotaEntrega(e.target.checked)} style={{ marginTop: '.2rem' }} />
@@ -1913,7 +1950,9 @@ function OrdenDetailModal({
           <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (queda en estado Anulada)">⊘ Anular OC</button>
         </>
       )}
-      {isOcCreada && isAdmin && (
+      {/* Aprobar la OC = confirmación del Gerente: SOLO el rol administrador (no basta con
+          tener control total de Pedidos). El resto de acciones de la OC quedan igual. */}
+      {isOcCreada && usuarioRole === 'admin' && (
         <button className="btn btn-success" onClick={onConfirmOc} title="Aprobar esta OC de forma puntual (sin pasar por el lote)">
           ✔ Aprobar OC
         </button>
