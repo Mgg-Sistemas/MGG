@@ -10,6 +10,9 @@ import { dateTime, money, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import {
+  listAlertasMercadoPendientes, marcarTodasAtendidas, type AlertaMercado,
+} from '@/modules/cocina/alertasMercado.repository';
 import type {
   EstadoOrden,
   EventoHistorial,
@@ -171,7 +174,7 @@ function eventClass(ev: string): string {
 type ModalKind =
   | { kind: 'none' }
   | { kind: 'detail'; ordenId: string }
-  | { kind: 'create' }
+  | { kind: 'create'; mercado?: boolean }
   | { kind: 'edit'; orden: Orden }
   | { kind: 'edit-oc'; orden: Orden }
   | { kind: 'asignar'; orden: Orden }
@@ -250,6 +253,14 @@ export function PedidosPage() {
   // así el contador baja al leer y sube si llega un mensaje mientras revisás otra OC.
   useRealtime(['oc_mensajes'], () => { void loadNoLeidos(); });
   useEffect(() => { void loadNoLeidos(); }, [loadNoLeidos]);
+
+  // Alertas "a restablecer el mercado" enviadas desde Cocina (tarjeta para el analista).
+  const [alertasMercado, setAlertasMercado] = useState<AlertaMercado[]>([]);
+  const loadAlertas = useCallback(async () => {
+    try { setAlertasMercado(await listAlertasMercadoPendientes()); } catch { /* sin tarjeta si falla */ }
+  }, []);
+  useEffect(() => { void loadAlertas(); }, [loadAlertas]);
+  useRealtime(['alertas_mercado'], () => { void loadAlertas(); });
 
   // Al cerrar cualquier modal, traer lo que haya cambiado mientras estuvo pausado.
   const modalKindPrev = useRef(modal.kind);
@@ -420,6 +431,23 @@ export function PedidosPage() {
           )}
         </div>
       </div>
+
+      {/* Alerta de Cocina: hay que restablecer el mercado. El analista monta el pedido MERCADO. */}
+      {alertasMercado.length > 0 && scope === 'pedidos' && (
+        <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.7rem', cursor: 'pointer' }}
+          onClick={() => setModal({ kind: 'create', mercado: true })} title="Montar el pedido MERCADO para reponer los víveres">
+          <div>
+            <strong>🛒 La cocina solicitó restablecer el mercado</strong>
+            <div className="muted" style={{ fontSize: '.8rem' }}>
+              {alertasMercado.length} alerta(s) · última {dateTime(alertasMercado[0].creada_en)}{alertasMercado[0].creada_por ? ` · ${alertasMercado[0].creada_por}` : ''}. Hacé clic para montar el pedido MERCADO.
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '.4rem' }}>
+            <button className="btn btn-ghost btn-sm" onClick={async (e) => { e.stopPropagation(); await marcarTodasAtendidas(user?.email).catch(() => {}); await loadAlertas(); }}>✓ Descartar</button>
+            <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); setModal({ kind: 'create', mercado: true }); }}>🛒 Montar MERCADO</button>
+          </div>
+        </div>
+      )}
 
       {/* El obrero no ve la pestaña de Órdenes de Compra: solo trabaja pedidos. */}
       {!isObrero && (
@@ -606,10 +634,14 @@ export function PedidosPage() {
           productos={productos}
           usuario={usuario}
           authEmail={user?.email ?? ''}
+          mercadoInicial={modal.mercado}
           onClose={() => setModal({ kind: 'none' })}
           onCreated={async () => {
+            // Si se montó el MERCADO desde una alerta de cocina, se cierran las pendientes.
+            if (modal.kind === 'create' && modal.mercado) await marcarTodasAtendidas(user?.email).catch(() => {});
             setModal({ kind: 'none' });
             await refresh();
+            await loadAlertas();
           }}
         />
       )}
@@ -2715,6 +2747,8 @@ interface CrearOrdenModalProps {
   authEmail: string;
   /** Si viene, el modal edita esa OP (pendiente) en vez de crear una nueva. */
   orden?: Orden | null;
+  /** Abre con el check MERCADO ya marcado (cuando se monta desde una alerta de cocina). */
+  mercadoInicial?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -2723,6 +2757,7 @@ function CrearOrdenModal({
   usuario,
   authEmail,
   orden,
+  mercadoInicial,
   onClose,
   onCreated,
 }: CrearOrdenModalProps) {
@@ -2771,23 +2806,36 @@ function CrearOrdenModal({
   const [imagen, setImagen] = useState<File | null>(null);
 
   // MERCADO (reposición): finalidad general automática + reponer desde la última compra.
-  const [mercado, setMercado] = useState(false);
+  const [mercado, setMercado] = useState(!!mercadoInicial && !esEdicion);
   const [ultimaMercado, setUltimaMercado] = useState<Orden | null>(null);
   const [selMercado, setSelMercado] = useState<Set<string>>(new Set());
+  // Cantidad/unidad editables por renglón de la última compra (antes de agregar al pedido).
+  const [mercadoEdits, setMercadoEdits] = useState<Record<string, { cantidad: string; unidad: string }>>({});
   useEffect(() => {
     if (!mercado || ultimaMercado || esEdicion) return;
     ultimaOrdenMercado()
-      .then((o) => { setUltimaMercado(o); setSelMercado(new Set((o?.items ?? []).map((i) => i.sku))); })
+      .then((o) => {
+        setUltimaMercado(o);
+        const its = o?.items ?? [];
+        setSelMercado(new Set(its.map((i) => i.sku)));
+        const eds: Record<string, { cantidad: string; unidad: string }> = {};
+        its.forEach((i) => { eds[i.sku] = { cantidad: String(Number(i.cantidad) || 1), unidad: i.unidad ?? '' }; });
+        setMercadoEdits(eds);
+      })
       .catch(() => setUltimaMercado(null));
   }, [mercado, ultimaMercado, esEdicion]);
+  const editMercadoDe = (it: ItemOrden) => mercadoEdits[it.sku] ?? { cantidad: String(Number(it.cantidad) || 1), unidad: it.unidad ?? '' };
   function agregarSeleccionMercado() {
     const elegidos = (ultimaMercado?.items ?? []).filter((i) => selMercado.has(i.sku));
     setItems((prev) => {
       const skus = new Set(prev.map((p) => p.sku));
-      const nuevos = elegidos.filter((i) => !skus.has(i.sku)).map((i) => ({
-        sku: i.sku, nombre: i.nombre, cantidad: Number(i.cantidad) || 1, precio: 0,
-        productoId: i.productoId, unidad: i.unidad, comprar: true,
-      }));
+      const nuevos = elegidos.filter((i) => !skus.has(i.sku)).map((i) => {
+        const ed = editMercadoDe(i);
+        return {
+          sku: i.sku, nombre: i.nombre, cantidad: Number(ed.cantidad) || Number(i.cantidad) || 1, precio: 0,
+          productoId: i.productoId, unidad: ed.unidad.trim() || i.unidad, comprar: true,
+        };
+      });
       return [...prev, ...nuevos];
     });
     toast('Productos de la última compra agregados al pedido', 'success');
@@ -3032,19 +3080,34 @@ function CrearOrdenModal({
                             checked={!!(ultimaMercado.items ?? []).length && selMercado.size === (ultimaMercado.items ?? []).length}
                             onChange={(e) => setSelMercado(e.target.checked ? new Set((ultimaMercado.items ?? []).map((i) => i.sku)) : new Set())} />
                         </th>
-                        <th>Producto</th><th style={{ textAlign: 'right' }}>Cant. (últ.)</th>
+                        <th>Producto</th><th style={{ textAlign: 'right', minWidth: 170 }}>Cantidad · Unidad</th>
                       </tr></thead>
                       <tbody>
-                        {(ultimaMercado.items ?? []).map((it) => (
+                        {(ultimaMercado.items ?? []).map((it) => {
+                          const ed = editMercadoDe(it);
+                          return (
                           <tr key={it.sku}>
                             <td><input type="checkbox" checked={selMercado.has(it.sku)}
                               onChange={() => setSelMercado((s) => { const n = new Set(s); n.has(it.sku) ? n.delete(it.sku) : n.add(it.sku); return n; })} /></td>
                             <td>{it.nombre} <span className="muted mono" style={{ fontSize: '.7rem' }}>{it.sku}</span></td>
-                            <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)} {it.unidad ?? ''}</td>
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
+                                <input className="input mono" type="number" min={0} step="any" style={{ width: 72, textAlign: 'right' }}
+                                  value={ed.cantidad}
+                                  onChange={(e) => setMercadoEdits((m) => ({ ...m, [it.sku]: { cantidad: e.target.value, unidad: (m[it.sku]?.unidad ?? it.unidad ?? '') } }))} />
+                                <input className="input" list="mercado-unidades" style={{ width: 90 }} placeholder="unidad"
+                                  value={ed.unidad}
+                                  onChange={(e) => setMercadoEdits((m) => ({ ...m, [it.sku]: { cantidad: (m[it.sku]?.cantidad ?? String(Number(it.cantidad) || 1)), unidad: e.target.value } }))} />
+                              </div>
+                            </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
+                    <datalist id="mercado-unidades">
+                      {medidas.map((u) => <option key={u} value={u} />)}
+                    </datalist>
                   </div>
                   <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.3rem' }} onClick={agregarSeleccionMercado} disabled={!selMercado.size}>➕ Agregar seleccionados ({selMercado.size})</button>
                 </>

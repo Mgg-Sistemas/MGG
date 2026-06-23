@@ -20,6 +20,7 @@ import {
   TIPOS_COMIDA, labelTipoComida, type ViverDisponible, type ResumenCocina,
 } from './cocina.repository';
 import { descargarReporteCocinaPdf } from './cocinaPdf';
+import { crearAlertaMercado, listAlertasMercadoPendientes } from './alertasMercado.repository';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -32,6 +33,21 @@ export function CocinaPage() {
   const [comidas, setComidas] = useState<CocinaComida[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'none' | 'add' | 'resumen'>('none');
+  const [alertando, setAlertando] = useState(false);
+
+  // Alerta "a restablecer el mercado": avisa a Pedidos/Compras que hay que reponer víveres.
+  async function enviarAlertaMercado() {
+    setAlertando(true);
+    try {
+      const pend = await listAlertasMercadoPendientes();
+      if (pend.length) { toast('Ya hay una alerta de mercado pendiente en Pedidos/Compras', 'warning'); return; }
+      await crearAlertaMercado({ actor });
+      notify('🛒 La cocina solicitó RESTABLECER EL MERCADO — montar el pedido', 'warning', { link: '#/app/pedidos' });
+      toast('Alerta enviada a Pedidos/Compras', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo enviar la alerta', 'error');
+    } finally { setAlertando(false); }
+  }
 
   // Filtros de la tabla
   const [q, setQ] = useState('');
@@ -90,6 +106,12 @@ export function CocinaPage() {
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen / Consumo</button>
           <button className="btn btn-ghost" onClick={() => descargarReporteCocinaPdf(filtradas, rangoLabel()).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!filtradas.length}>↓ Reporte PDF</button>
+          {canWrite && (
+            <button className="btn btn-ghost" style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
+              onClick={enviarAlertaMercado} disabled={alertando} title="Avisar a Pedidos/Compras que hay que reponer víveres">
+              🔔 Alerta a restablecer
+            </button>
+          )}
         </div>
         {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>＋ Añadir movimiento</button>}
       </div>

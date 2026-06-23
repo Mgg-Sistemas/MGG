@@ -726,6 +726,23 @@ alter table public.cocina_comidas enable row level security;
 create policy "cocina read auth"      on public.cocina_comidas for select using (auth.role()='authenticated');
 create policy "cocina write operativo" on public.cocina_comidas for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Alerta "a restablecer el mercado": la cocina avisa que hay que reponer víveres; la
+-- alerta aparece como tarjeta en Pedidos/Compras para que el analista monte el MERCADO.
+create table if not exists public.alertas_mercado (
+  id           uuid primary key default gen_random_uuid(),
+  estado       text not null default 'pendiente' check (estado in ('pendiente','atendida')),
+  nota         text,
+  creada_por   text,
+  creada_en    timestamptz not null default now(),
+  atendida_por text,
+  atendida_en  timestamptz,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_alertas_mercado_estado on public.alertas_mercado(estado, creada_en desc);
+alter table public.alertas_mercado enable row level security;
+create policy "alertas_mercado read auth"      on public.alertas_mercado for select using (auth.role()='authenticated');
+create policy "alertas_mercado write operativo" on public.alertas_mercado for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- Solicitudes de salida/traslado (material y dinero) con flujo de aprobación.
 -- El obrero crea (por_aprobar); admin/analista aprueba y ejecuta (gate en el front).
 -- Al ejecutar se realiza el movimiento real (movimientos / movimientos_caja) y se guarda mov_id.
