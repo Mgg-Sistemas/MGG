@@ -28,7 +28,9 @@ export interface ScoredOferta {
 export function costoEfectivo(o: Pick<OfertaProveedor, 'precio_total' | 'precio_efectivo'>): number {
   const bcv = Number(o.precio_total) || 0;
   const efe = Number(o.precio_efectivo) || 0;
-  return efe > 0 && efe < bcv ? efe : bcv;
+  if (bcv <= 0) return efe;             // oferta SOLO en USD efectivo (sin precio Bs)
+  if (efe <= 0) return bcv;             // oferta SOLO en Bs a BCV
+  return efe < bcv ? efe : bcv;         // ambos: manda el efectivo si trae descuento
 }
 
 /**

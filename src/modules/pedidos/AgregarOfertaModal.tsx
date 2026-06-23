@@ -160,15 +160,16 @@ export function AgregarOfertaModal({
   }
 
   async function handleSubmit() {
-    if (precioTotal <= 0) {
-      toast('El precio total debe ser mayor a cero', 'error');
+    if (precioTotal <= 0 && precioEfectivo <= 0) {
+      toast('Ingresá el precio en Bs (BCV) y/o en USD efectivo: al menos uno.', 'error');
       return;
     }
     if (!condiciones.trim()) {
       toast('Elegí la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
-    if (precioEfectivo > 0 && precioEfectivo >= precioTotal) {
+    // El descuento por pago en efectivo solo aplica cuando la oferta trae AMBOS precios.
+    if (precioTotal > 0 && precioEfectivo > 0 && precioEfectivo >= precioTotal) {
       toast('El precio en divisa efectivo debe ser menor al total BCV (es un descuento por pago en efectivo).', 'error');
       return;
     }
@@ -436,7 +437,7 @@ export function AgregarOfertaModal({
       )}
 
       <div className="form-row">
-        <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y, si aplica, en USD efectivo)</span></label>
+        <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y/o en USD efectivo — completá al menos una columna)</span></label>
         <p className="muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.4rem' }}>
           💡 Si el proveedor ofrece el mismo producto en <strong>varias marcas/modelos</strong>, usá <strong>＋ marca</strong> para agregar otra variante con su propio precio.
         </p>
@@ -526,7 +527,7 @@ export function AgregarOfertaModal({
       <div className="card" style={{ background: 'var(--bg-2)', padding: '.8rem', marginBottom: '.75rem' }}>
         <div className="card-title" style={{ marginBottom: '.5rem' }}><span>💵 Totales</span></div>
         <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
-          <div>Total BCV: <strong>{money(precioTotal)}</strong></div>
+          <div>Total BCV: <strong>{precioTotal > 0 ? money(precioTotal) : '—'}</strong></div>
           <div>Total USD: <strong style={{ color: 'var(--success)' }}>{precioEfectivo > 0 ? money(precioEfectivo) : '—'}</strong></div>
           {ahorroEfectivo && (
             <div>Diferencia: <strong>{money(ahorroEfectivo.diferencia)}</strong> <span className="badge success" style={{ marginLeft: '.3rem' }}>−{ahorroEfectivo.pct.toFixed(2)}%</span></div>
