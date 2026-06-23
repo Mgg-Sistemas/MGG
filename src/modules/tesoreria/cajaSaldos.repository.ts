@@ -253,7 +253,9 @@ export interface ConvertirDivisaInput {
  */
 export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ origen: CajaSaldo | null; destino: CajaSaldo }> {
   const montoDe = round2(input.montoDe);
-  const tasa = round4(input.tasa);
+  // Tasa con TODA la precisión que indicó el usuario (no se redondea a 4 dec): así el
+  // monto acreditado refleja exactamente `montoDe × tasa` (lo mismo que la vista previa).
+  const tasa = Number(input.tasa) || 0;
   if (montoDe <= 0) throw new Error('El monto a convertir debe ser mayor que 0.');
   if (tasa <= 0) throw new Error('La tasa de conversión debe ser mayor que 0.');
   if (input.monedaDe === input.monedaA && input.origenCajaId === input.destinoCajaId && input.origenCuenta === input.destinoCuenta)

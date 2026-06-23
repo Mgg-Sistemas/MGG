@@ -209,7 +209,7 @@ export function TrasladoMaterialForm({
                 </div>
                 <div className="form-row">
                   <label>Cantidad{prod?.unidad ? ` (${prod.unidad})` : ''}</label>
-                  <input className="input mono" type="number" min={1} max={stock || undefined} step="any" value={l.cantidad} onChange={(e) => onCantidadChange(l, e.target.value)} required />
+                  <input className="input mono" type="number" min={0} max={stock || undefined} step="any" value={l.cantidad} onChange={(e) => onCantidadChange(l, e.target.value)} required />
                   {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {prod?.unidad ?? ''}.</small>}
                   <small className="muted">Lleva el costo (PMP) del origen.</small>
                 </div>
