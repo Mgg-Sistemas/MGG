@@ -1103,7 +1103,7 @@ export async function enviarCreditoARecepcion(o: Orden, actorEmail: string): Pro
   return data as Orden;
 }
 
-export async function finalizarPedido(o: Orden, actorEmail: string): Promise<Orden> {
+export async function finalizarPedido(o: Orden, actorEmail: string, factura?: File | null): Promise<Orden> {
   // Anticipado/contado/crédito finalizan desde 'recibida'. Contra entrega recibe
   // ANTES de pagar, así que finaliza desde 'pagada' (ya tiene recibida_en).
   const contraEntregaPagada = o.estado === 'pagada' && o.condiciones_pago === 'contra_entrega' && !!o.recibida_en;
@@ -1112,11 +1112,18 @@ export async function finalizarPedido(o: Orden, actorEmail: string): Promise<Ord
   const creditoRecibidoSaldado = o.estado === 'cuenta_abierta' && o.condiciones_pago === 'credito' && !!o.recibida_en && creditoSaldado(o);
   if (o.estado !== 'recibida' && !contraEntregaPagada && !creditoRecibidoSaldado)
     throw new Error('Solo se finaliza una orden ya recibida');
+  // Solo si el soporte de la OC es FACTURA se puede adjuntar la imagen de la factura al finalizar.
+  let facturaPatch: Record<string, string | null> = {};
+  if (o.comprobante_tipo === 'factura' && factura) {
+    const path = await subirAdjuntoOc(o.id, factura, 'factura');
+    facturaPatch = { factura_path: path, factura_nombre: factura.name };
+  }
   const patch = {
     estado: 'finalizada' as EstadoOrden,
     finalizada_por: actorEmail,
     finalizada_en: new Date().toISOString(),
     historial: appendHistorial(o, 'finalizada', actorEmail),
+    ...facturaPatch,
   };
   const { data, error } = await supabase
     .from(TABLE)

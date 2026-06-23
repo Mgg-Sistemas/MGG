@@ -895,7 +895,7 @@ export function PedidosPage() {
           orden={modal.orden}
           rolEvaluador={usuario?.role === 'obrero' ? 'almacenista' : 'jefe'}
           onClose={() => setModal({ kind: 'none' })}
-          onConfirm={async ({ calidad, puntualidadDias, comentario }) => {
+          onConfirm={async ({ calidad, puntualidadDias, comentario, factura }) => {
             const actor = usuario?.email ?? user?.email ?? 'sistema';
             // Registrar la evaluación (queda en la trazabilidad PDF y en el correo).
             if (modal.orden.proveedor_id) {
@@ -909,7 +909,7 @@ export function PedidosPage() {
                 evaluado_por_rol: usuario?.role === 'obrero' ? 'almacenista' : 'jefe',
               });
             }
-            await finalizarPedido(modal.orden, actor);
+            await finalizarPedido(modal.orden, actor, factura);
             notify(`Pedido finalizado · ${modal.orden.codigo}`, 'success', { link: '#/app/pedidos' });
             setModal({ kind: 'none' });
             await refresh();
@@ -980,8 +980,10 @@ function FinalizarPedidoModal({
   orden: Orden;
   rolEvaluador: 'almacenista' | 'jefe';
   onClose: () => void;
-  onConfirm: (data: { calidad: number; puntualidadDias: number; comentario: string }) => Promise<void>;
+  onConfirm: (data: { calidad: number; puntualidadDias: number; comentario: string; factura: File | null }) => Promise<void>;
 }) {
+  const esFactura = orden.comprobante_tipo === 'factura';
+  const [factura, setFactura] = useState<File | null>(null);
   const [calidad, setCalidad] = useState(5);
   const [puntualidad, setPuntualidad] = useState<'por_fecha' | 'en_fecha' | 'adelantado' | 'atrasado'>('por_fecha');
   const [dias, setDias] = useState('1');
@@ -1030,7 +1032,7 @@ function FinalizarPedidoModal({
     }
     setSaving(true);
     try {
-      await onConfirm({ calidad, puntualidadDias, comentario: comentario.trim() });
+      await onConfirm({ calidad, puntualidadDias, comentario: comentario.trim(), factura });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo finalizar');
       setSaving(false);
@@ -1109,6 +1111,22 @@ function FinalizarPedidoModal({
             </div>
           )}
         </>
+      )}
+
+      {/* Imagen de la factura: SOLO cuando el soporte de la OC es Factura. */}
+      {esFactura && (
+        <div className="form-row">
+          <label>Imagen de la factura {orden.factura_path ? '(reemplaza la actual)' : '(opcional)'}</label>
+          <input className="input" type="file" accept="application/pdf,image/*"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              if (f && f.size > 10 * 1024 * 1024) { setError('La factura no puede superar 10 MB.'); e.target.value = ''; return; }
+              setError(null); setFactura(f);
+            }} />
+          {factura
+            ? <small className="muted">✓ {factura.name} ({(factura.size / 1024).toFixed(0)} KB)</small>
+            : <small className="muted">PDF o imagen · máx. 10 MB. El soporte de esta OC es <strong>Factura</strong>: podés adjuntar la factura definitiva al finalizar.</small>}
+        </div>
       )}
 
       <div className="form-row">
