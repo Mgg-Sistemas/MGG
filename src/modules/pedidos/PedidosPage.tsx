@@ -633,6 +633,7 @@ export function PedidosPage() {
           orden={modal.orden}
           proveedores={proveedores}
           proveedorMap={proveedorMap}
+          productos={productos}
           actorEmail={usuario?.email ?? user?.email ?? 'sistema'}
           onClose={() => setModal({ kind: 'none' })}
           onSaved={async () => { setModal({ kind: 'none' }); await refresh(); }}
@@ -2585,13 +2586,14 @@ function Timeline({
    Modal: Crear orden
    ───────────────────────────────────────────── */
 /* ───────────── Editar OC (oc_creada, antes de aprobarla) ───────────── */
-function EditarOcModal({ orden, proveedores = [], proveedorMap, actorEmail, onClose, onSaved }: {
-  orden: Orden; proveedores?: Proveedor[]; proveedorMap?: Map<string, Proveedor>; actorEmail: string; onClose: () => void; onSaved: () => void;
+function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], actorEmail, onClose, onSaved }: {
+  orden: Orden; proveedores?: Proveedor[]; proveedorMap?: Map<string, Proveedor>; productos?: Producto[]; actorEmail: string; onClose: () => void; onSaved: () => void;
 }) {
   const [items, setItems] = useState<ItemOrden[]>(orden.items.map((i) => ({ ...i })));
   const [cond, setCond] = useState(orden.condiciones_pago ?? '');
   const [notas, setNotas] = useState(orden.notas ?? '');
   const [proveedorId, setProveedorId] = useState<string>(orden.proveedor_id ?? '');
+  const [nuevoProd, setNuevoProd] = useState('');   // producto a agregar (id)
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -2604,9 +2606,23 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, actorEmail, onCl
   }, [proveedores, proveedorActual]);
   const proveedorCambiado = proveedorId !== (orden.proveedor_id ?? '');
 
+  // Productos del catálogo que aún no están en la OC (para agregar uno nuevo).
+  const skusEnOc = useMemo(() => new Set(items.map((i) => i.sku)), [items]);
+  const productosDisponibles = useMemo(
+    () => productos.filter((p) => p.estado === 'activo' && !skusEnOc.has(p.sku)),
+    [productos, skusEnOc],
+  );
+
   const total = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
   const upd = (idx: number, patch: Partial<ItemOrden>) =>
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
+  const quitarItem = (idx: number) => setItems((prev) => prev.filter((_, k) => k !== idx));
+  function agregarProducto() {
+    const p = productos.find((x) => x.id === nuevoProd);
+    if (!p) return;
+    setItems((prev) => [...prev, { sku: p.sku, nombre: p.nombre, cantidad: 1, precio: Number(p.precio) || 0, productoId: p.id, unidad: p.unidad, comprar: true }]);
+    setNuevoProd('');
+  }
 
   async function guardar() {
     setError(null); setSaving(true);
@@ -2646,7 +2662,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, actorEmail, onCl
       )}
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
-          <thead><tr><th>Producto</th><th style={{ textAlign: 'right', width: 110 }}>Cantidad</th><th style={{ textAlign: 'right', width: 130 }}>Precio unit.</th><th style={{ textAlign: 'right', width: 130 }}>Subtotal</th></tr></thead>
+          <thead><tr><th>Producto</th><th style={{ textAlign: 'right', width: 110 }}>Cantidad</th><th style={{ textAlign: 'right', width: 130 }}>Precio unit.</th><th style={{ textAlign: 'right', width: 130 }}>Subtotal</th><th style={{ width: 40 }}></th></tr></thead>
           <tbody>
             {items.map((it, idx) => (
               <tr key={it.sku ?? idx}>
@@ -2658,11 +2674,25 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, actorEmail, onCl
                 <td><input className="input mono" type="number" min={0} step="any" value={it.cantidad} onChange={(e) => upd(idx, { cantidad: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} /></td>
                 <td><input className="input mono" type="number" min={0} step="any" value={it.precio} onChange={(e) => upd(idx, { precio: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} /></td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}</td>
+                <td style={{ textAlign: 'center' }}>{items.length > 1 && <button type="button" className="btn btn-sm btn-ghost" title="Quitar producto" onClick={() => quitarItem(idx)}>✕</button>}</td>
               </tr>
             ))}
           </tbody>
-          <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={3} style={{ textAlign: 'right' }}>Total</td><td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td></tr></tfoot>
+          <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={3} style={{ textAlign: 'right' }}>Total</td><td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td><td></td></tr></tfoot>
         </table>
+      </div>
+      {/* Agregar un producto nuevo a la OC (del catálogo de inventario). */}
+      <div className="form-row" style={{ marginTop: '.5rem' }}>
+        <label>Agregar producto</label>
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 280px' }}>
+            <SearchSelect value={nuevoProd} onChange={setNuevoProd}
+              options={productosDisponibles.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku} · ${money(Number(p.precio) || 0)}` }))}
+              placeholder="Buscar producto del inventario…" emptyText="Sin productos disponibles." />
+          </div>
+          <button type="button" className="btn btn-ghost" disabled={!nuevoProd} onClick={agregarProducto}>＋ Agregar</button>
+        </div>
+        <small className="muted">El precio viene del inventario; podés ajustarlo en la tabla. Agregar/quitar productos reabre la OC a aprobación del Gerente.</small>
       </div>
       <div className="form-row" style={{ marginTop: '.6rem' }}>
         <label>Condición de pago</label>
