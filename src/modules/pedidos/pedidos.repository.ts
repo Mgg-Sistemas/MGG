@@ -160,6 +160,24 @@ export async function sincronizarNombreProductos(
   }
 }
 
+/** Finalidad general de un pedido de reposición de mercado. */
+export const FINALIDAD_MERCADO = 'PEDIDO PARA RESTABLECER EL MERCADO';
+
+/**
+ * Última compra de mercado: la SP/orden más reciente marcada como reposición de
+ * mercado; si no hay ninguna, la última orden creada (no anulada). Sirve para
+ * mostrar "qué se compró la última vez" y reponer.
+ */
+export async function ultimaOrdenMercado(): Promise<Orden | null> {
+  const { data: merc } = await supabase.from(TABLE).select('*')
+    .eq('finalidad', FINALIDAD_MERCADO).order('created_at', { ascending: false }).limit(1);
+  if (merc && merc.length) return merc[0] as Orden;
+  const { data } = await supabase.from(TABLE).select('*')
+    .not('estado', 'in', '(cancelada,anulada,desistida_proveedor)')
+    .order('created_at', { ascending: false }).limit(1);
+  return (data && data.length) ? (data[0] as Orden) : null;
+}
+
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
   const codigo = await nextCodigo();
   const total = input.items.reduce((a, i) => a + i.cantidad * i.precio, 0);

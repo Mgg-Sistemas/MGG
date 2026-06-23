@@ -154,8 +154,16 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
   }, [isEdit, form.categoria, productos, producto]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Ingreso del stock inicial: por unidad o por bulto/caja (× unidades por bulto).
+  const [stockModo, setStockModo] = useState<'unidad' | 'bulto'>('unidad');
 
   const showReceta = useMemo(() => form.esReceta, [form.esReceta]);
+  // El stock siempre se guarda en UNIDADES. Si se ingresa por bulto, se multiplica
+  // por las unidades por bulto (ej.: 2 cajas × 20 und = 40 und).
+  const undPorBulto = Math.max(0, Number(form.unidades_empaque) || 0);
+  const stockUnidades = stockModo === 'bulto'
+    ? (Number(form.stock) || 0) * (undPorBulto || 1)
+    : (Number(form.stock) || 0);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -235,6 +243,11 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
       setError('Seleccioná la receta de fundición o cambiá la respuesta a "No".');
       return;
     }
+    // Stock por bulto: necesita "unidades por bulto" para convertir a unidades.
+    if (stockModo === 'bulto' && (Number(form.stock) || 0) > 0 && undPorBulto <= 0) {
+      setError('Indicá las “Unidades por caja/bulto” para convertir el stock a unidades.');
+      return;
+    }
     const restockRaw = form.restock_pct.trim();
 
     const payload: ProductoInput = {
@@ -242,7 +255,8 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
       nombre,
       categoria: form.categoria,
       unidad: form.unidad,
-      stock: Number(form.stock) || 0,
+      // El stock se guarda en unidades (si se ingresó por bulto, ya viene multiplicado).
+      stock: stockUnidades,
       stock_min: Number(form.stock_min) || 0,
       precio: round2(form.precio),
       precio_venta: form.precio_venta.trim() === '' ? null : round2(Math.max(0, parseDecimal(form.precio_venta))),
@@ -463,7 +477,13 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
 
         <div className="form-grid">
           <div className="form-row">
-            <label>{isEdit ? 'Stock total (todos los almacenes)' : 'Stock inicial'}</label>
+            <label>{isEdit ? `Stock total (todos los almacenes)${stockModo === 'bulto' ? ' (en cajas/bultos)' : ''}` : `Stock inicial${stockModo === 'bulto' ? ' (en cajas/bultos)' : ''}`}</label>
+            {!esUnidadLiquida(form.unidad) && (
+              <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.4rem' }}>
+                <button type="button" className={`btn btn-sm ${stockModo === 'unidad' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setStockModo('unidad')}>Por {form.unidad || 'unidad'}</button>
+                <button type="button" className={`btn btn-sm ${stockModo === 'bulto' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setStockModo('bulto')}>Por caja/bulto</button>
+              </div>
+            )}
             <input
               className="input mono"
               type="number"
@@ -471,12 +491,15 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
               value={form.stock}
               onChange={(e) => update('stock', e.target.value)}
               required={!isEdit}
-              disabled={isEdit}
             />
             <small className="muted" style={{ fontSize: '.72rem' }}>
-              {isEdit
-                ? 'El stock es por almacén. Ajustalo desde “Movimiento” (entrada/salida/ajuste) en cada almacén.'
-                : 'Ingresa al almacén seleccionado arriba. Luego se ajusta por movimientos.'}
+              {stockModo === 'bulto'
+                ? (undPorBulto > 0
+                  ? <><strong>{Number(form.stock) || 0}</strong> caja(s)/bulto(s) × {undPorBulto} {form.unidad || 'und'} = <strong className="mono">{stockUnidades} {form.unidad || 'und'}</strong> {isEdit ? 'de stock total.' : 'en stock.'}</>
+                  : <span style={{ color: 'var(--warning)' }}>Indicá abajo las “Unidades por caja/bulto” para convertir a {form.unidad || 'unidades'}.</span>)
+                : (isEdit
+                  ? 'Stock total del producto. Para mover entre almacenes usá “Movimiento” (entrada/salida/ajuste).'
+                  : 'Ingresa al almacén seleccionado arriba. Luego se ajusta por movimientos.')}
             </small>
           </div>
           <div className="form-row">
@@ -544,34 +567,20 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
         </div>
 
         {!esUnidadLiquida(form.unidad) && (
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Presentación de compra (opcional)</label>
-              <input
-                className="input"
-                value={form.presentacion}
-                onChange={(e) => update('presentacion', e.target.value)}
-                placeholder="Ej: Caja, Bulto, Paca…"
-              />
-              <small className="muted" style={{ fontSize: '.72rem' }}>
-                Cómo se compra (por bulto/caja). El stock siempre se guarda en {form.unidad || 'unidades'}.
-              </small>
-            </div>
-            <div className="form-row">
-              <label>Unidades por bulto (sugerido)</label>
-              <input
-                className="input mono"
-                type="number"
-                min={0}
-                step="any"
-                value={form.unidades_empaque}
-                onChange={(e) => update('unidades_empaque', e.target.value)}
-                placeholder="Ej: 24"
-              />
-              <small className="muted" style={{ fontSize: '.72rem' }}>
-                Valor sugerido para el conversor de bultos al ingresar stock. Se puede ajustar en cada ingreso (el tamaño puede variar).
-              </small>
-            </div>
+          <div className="form-row">
+            <label>Unidades por caja/bulto (opcional)</label>
+            <input
+              className="input mono"
+              type="number"
+              min={0}
+              step="any"
+              value={form.unidades_empaque}
+              onChange={(e) => update('unidades_empaque', e.target.value)}
+              placeholder="Ej: 24"
+            />
+            <small className="muted" style={{ fontSize: '.72rem' }}>
+              Cuántas {form.unidad || 'unidades'} trae cada caja/bulto. Se usa para convertir el stock al ingresarlo por bulto (el stock siempre se guarda en {form.unidad || 'unidades'}).
+            </small>
           </div>
         )}
 
