@@ -3357,6 +3357,13 @@ function CalculadoraModal({ actor, onClose }: { actor: string; onClose: () => vo
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<{ expr: string; result: number }[]>([]);
   const [exporting, setExporting] = useState(false);
+  // Conversor rápido USD → Bs (BCV / Binance + margen de ahorro). Carga sus tasas.
+  const [usdConv, setUsdConv] = useState('');
+  const [mercadoCalc, setMercadoCalc] = useState<TasasMercado | null>(null);
+  useEffect(() => { getTasasMercado().then(setMercadoCalc).catch(() => setMercadoCalc(null)); }, []);
+  const bcv = mercadoCalc?.bcvUsd ?? null;
+  const binance = mercadoCalc?.usdtVes ?? null;
+  const fmtBs = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const press = useCallback((val: string) => {
     setError(null);
@@ -3486,6 +3493,44 @@ function CalculadoraModal({ actor, onClose }: { actor: string; onClose: () => vo
             {k.label}
           </button>
         ))}
+      </div>
+
+      {/* Conversor rápido USD → Bs (BCV / Binance + margen de ahorro). */}
+      <div className="card" style={{ padding: '.6rem .8rem', marginTop: '.7rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: '.84rem' }}>💵 USD → Bs</strong>
+          <span className="muted" style={{ fontSize: '.78rem' }}>Monto $</span>
+          <input className="input mono" type="number" min={0} step="any" style={{ width: 120 }}
+            value={usdConv} onChange={(e) => setUsdConv(e.target.value)} placeholder="9.50" />
+        </div>
+        {(() => {
+          const usd = Number(usdConv) || 0;
+          const enBcv = bcv != null ? usd * bcv : null;
+          const enBin = binance != null ? usd * binance : null;
+          const margen = bcv != null && binance != null && binance > 0 ? ((binance - bcv) / binance) * 100 : null;
+          const ahorroBs = enBcv != null && enBin != null ? enBin - enBcv : null;
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '.5rem', marginTop: '.5rem' }}>
+              <div>
+                <div className="muted" style={{ fontSize: '.66rem' }}>A BCV {bcv != null ? `(${fmtBs(bcv)})` : ''}</div>
+                <div className="mono" style={{ fontWeight: 700 }}>{enBcv != null ? `Bs ${fmtBs(enBcv)}` : '—'}</div>
+              </div>
+              <div>
+                <div className="muted" style={{ fontSize: '.66rem' }}>A BINANCE {binance != null ? `(${fmtBs(binance)})` : ''}</div>
+                <div className="mono" style={{ fontWeight: 700 }}>{enBin != null ? `Bs ${fmtBs(enBin)}` : '—'}</div>
+              </div>
+              <div>
+                <div className="muted" style={{ fontSize: '.66rem' }}>MARGEN DE AHORRO</div>
+                <div className="mono" style={{ fontWeight: 700, color: margen != null && margen > 0 ? 'var(--success)' : 'var(--muted)' }}>
+                  {margen != null ? `${fmtBs(margen)} %` : '—'}
+                  {ahorroBs != null && ahorroBs > 0 && <span className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}> · ahorro Bs {fmtBs(ahorroBs)}</span>}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+        {(bcv == null || binance == null) && <div className="muted" style={{ fontSize: '.7rem', marginTop: '.3rem' }}>Si una tasa no aparece, actualizala desde Tesorería (↻).</div>}
+        <div className="muted" style={{ fontSize: '.68rem', marginTop: '.35rem' }}>Margen = cuánto ahorrás pagando a BCV vs Binance: (Binance − BCV) ÷ Binance.</div>
       </div>
 
       {/* Cinta de operaciones (resultado junto a la operación). */}

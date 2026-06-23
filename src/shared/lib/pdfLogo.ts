@@ -1,5 +1,32 @@
 let cachedDataUrl: string | null = null;
 let cachedFirma: string | null | undefined;
+let cachedFirmaSalidas: string | null | undefined;
+
+/**
+ * Firma de LEYDI RENGEL para los PDF de Salidas/Traslados (Orden de Salida), en el
+ * bloque "Autorizado por". Lee `public/firma2.jpeg`. Devuelve null si no existe,
+ * así el PDF se genera igual. Solo se usa en el módulo de Salidas/Traslados.
+ */
+export async function loadFirmaSalidasDataUrl(): Promise<string | null> {
+  if (cachedFirmaSalidas !== undefined) return cachedFirmaSalidas;
+  try {
+    const url = `${import.meta.env.BASE_URL}firma2.jpeg`;
+    const resp = await fetch(url);
+    if (!resp.ok) { cachedFirmaSalidas = null; return null; }
+    const blob = await resp.blob();
+    if (!blob.type.startsWith('image/')) { cachedFirmaSalidas = null; return null; }
+    cachedFirmaSalidas = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => reject(new Error('No se pudo leer la firma de salidas'));
+      fr.readAsDataURL(blob);
+    });
+    return cachedFirmaSalidas;
+  } catch {
+    cachedFirmaSalidas = null;
+    return null;
+  }
+}
 
 /**
  * Firma del Gerente General para los PDF de OC (se coloca al aprobar la orden).
