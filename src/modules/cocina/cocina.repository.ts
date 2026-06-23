@@ -41,7 +41,7 @@ export async function listViveres(): Promise<ViverDisponible[]> {
     arr.push(e); porProducto.set(e.producto_id, arr);
   }
   return productos
-    .filter((p) => (p.categoria ?? '').toUpperCase() === CATEGORIA_VIVERES && p.estado === 'activo')
+    .filter((p) => (p.categoria ?? '').trim().toUpperCase() === CATEGORIA_VIVERES && p.estado === 'activo')
     .map((p) => {
       const exs = porProducto.get(p.id) ?? [];
       const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
