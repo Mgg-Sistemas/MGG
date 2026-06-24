@@ -29,6 +29,10 @@ export interface MaquinariaEquipo {
   ficha_mantenimiento: string | null;
   documentacion: string | null;
   mantenimiento_cada_hrs: number | null;
+  /** Intervalos de servicio por ítem (horas de horómetro) para el control de ESTADO CRÍTICO. */
+  aceite_cada_hrs: number | null;
+  filtro_cada_hrs: number | null;
+  combustible_cada_hrs: number | null;
   combustible_equipo: string | null;
   /** Grupo del submódulo Servicio de Mantenimiento (ver GRUPOS_MANTENIMIENTO). */
   grupo_mantenimiento: string | null;
@@ -79,6 +83,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
     combustible: v(input.combustible), litros_consume: n(input.litros_consume),
     ficha_tecnica: v(input.ficha_tecnica), ficha_mantenimiento: v(input.ficha_mantenimiento),
     documentacion: v(input.documentacion), mantenimiento_cada_hrs: n(input.mantenimiento_cada_hrs),
+    aceite_cada_hrs: n(input.aceite_cada_hrs), filtro_cada_hrs: n(input.filtro_cada_hrs), combustible_cada_hrs: n(input.combustible_cada_hrs),
     combustible_equipo: v(input.combustible_equipo),
     grupo_mantenimiento: v(input.grupo_mantenimiento),
     doc_fisico: !!input.doc_fisico, ficha_mantt: !!input.ficha_mantt, doc_drive: !!input.doc_drive,
