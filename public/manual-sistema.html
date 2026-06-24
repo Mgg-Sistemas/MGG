@@ -367,6 +367,14 @@
       <li><strong>Pago con caja Multimoneda:</strong> si la caja elegida es <strong>Multimoneda</strong>, se despliegan las <strong>cantidades disponibles en cada moneda/cuenta</strong> y se indica <strong>cuánto pagar desde cada una</strong> (en su propia moneda). El sistema muestra el <strong>equivalente en USD</strong> de cada pata (Bs↔$ con la tasa BCV del día, COP con la TRM) y valida que lo cargado <strong>cubra el total</strong>; cada moneda se descuenta de su <strong>saldo real</strong> de Tesorería.</li>
       <li>Cada compra muestra <strong>quién la generó</strong>, la <strong>fecha de creación</strong> y la <strong>fecha de compra</strong>; su detalle se descarga en <strong>PDF</strong>.</li>
     </ul>
+    <h3>🛠 Servicios (Nuevo servicio)</h3>
+    <p>Pestaña <strong>🛠 Servicios</strong> dentro de Pedidos para solicitar <strong>servicios</strong> (no productos de inventario): recarga de gas, recarga de oxígeno, mantenimiento de maquinaria, recarga de extintores, etc.</p>
+    <ul>
+      <li><strong>Crear:</strong> botón <strong>+ Nuevo servicio</strong>. Lleva su propio correlativo <strong>SV-AAAA-NNNN</strong>. Se elige la <strong>unidad solicitante</strong> y se agregan uno o varios <strong>servicios</strong>; por cada uno se elige la <strong>categoría</strong> y, según la categoría, el <strong>tipo de servicio</strong> (lista desplegable donde podés <strong>escribir uno nuevo</strong> que queda guardado en el catálogo) + <strong>cantidad</strong> y <strong>precio estimado</strong> (opcional, se cotiza después).</li>
+      <li><strong>Mantenimiento de maquinaria:</strong> cuando la categoría es de maquinaria, el servicio se <strong>casa con un equipo</strong> de <strong>Control de Maquinaria y Vehículos</strong> (se elige de la lista de equipos) y se puede describir el mantenimiento.</li>
+      <li><strong>Catálogos:</strong> las <strong>categorías</strong> y los <strong>tipos de servicio</strong> se administran en el botón <strong>📒 Categorías</strong> (pestañas «Categorías de servicio» y «Tipos de servicio»).</li>
+      <li><strong>Flujo:</strong> es el <strong>mismo de una OC</strong> (aprobar → cotizar ofertas → aprobar OC → indicar método → pagar en Tesorería → marcar realizado → finalizar). La diferencia es que <strong>no entra al inventario</strong> (es un servicio, no un material). Los servicios viven en su propia pestaña y kanban; no se mezclan con las compras de productos.</li>
+    </ul>
   </section>
 
   <section class="modulo" id="s6">

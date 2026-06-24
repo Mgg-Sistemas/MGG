@@ -688,6 +688,11 @@ export interface ItemOrden {
    *  producto en varias marcas: cada variante es un renglón propio con su precio. */
   marca?: string | null;
   modelo?: string | null;
+  /** Servicios (clase='servicio'): categoría del servicio (recarga de gas, mantenimiento…). */
+  servicio_categoria?: string | null;
+  /** Servicios · mantenimiento de maquinaria: equipo de Control de Maquinaria al que se hace. */
+  equipo_id?: string | null;
+  equipo_nombre?: string | null;
 }
 
 export interface EventoHistorial {
@@ -702,6 +707,8 @@ export interface EventoHistorial {
 export interface Orden {
   id: string;
   codigo: string;
+  /** 'producto' (compra normal) | 'servicio' (recarga de gas, mantenimiento…). Falta = 'producto'. */
+  clase?: 'producto' | 'servicio' | null;
   oc_codigo?: string | null;
   /** Si es una OC hija (sub-OC por proveedor), apunta a su OP padre. */
   parent_orden_id?: string | null;
