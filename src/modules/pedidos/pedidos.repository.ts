@@ -453,6 +453,30 @@ export async function aprobarOrdenConOferta(
   // los ítems se reprecian al efectivo y el total pasa a ser el efectivo (el BCV original
   // queda en oferta_precio_bcv para mostrar el ahorro). Así el inventario recibe el costo real.
   const efectivoOf = ofRow?.precio_efectivo != null ? Number(ofRow.precio_efectivo) : null;
+
+  // Productos en $0 (sin precio en la oferta) NO entran a la OC. Si quedan productos
+  // con precio, se crea la OC solo con esos y la SP madre conserva los $0 en
+  // "Pendiente (cargar ofertas)". Si TODOS están en $0, no se puede crear la OC.
+  const aComprar = itemsConContexto.filter((it) => it.comprar !== false);
+  const conPrecio = aComprar.filter((it) => (Number(it.precio) || 0) > 0);
+  if (!conPrecio.length) {
+    throw new Error('No se puede crear la OC: todos los productos están en $0. Cargá al menos un precio antes de aceptar la oferta.');
+  }
+  if (conPrecio.length < aComprar.length) {
+    // Hay productos en $0 → se reparte: OC hija con los que SÍ tienen precio, y la SP
+    // madre queda en "Pendiente (cargar ofertas)" con los productos sin precio.
+    await asignarProveedoresAOrden(o, [{
+      proveedorId: ofertaProveedorId,
+      items: conPrecio,
+      condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
+      oferta_detalle: (ofRow?.detalle as Orden['oferta_detalle']) ?? null,
+      oferta_precio_efectivo: efectivoOf,
+    }], actorEmail);
+    const { data: padre, error: padreErr } = await supabase.from(TABLE).select('*').eq('id', o.id).single();
+    if (padreErr) throw padreErr;
+    return padre as Orden;
+  }
+
   const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
