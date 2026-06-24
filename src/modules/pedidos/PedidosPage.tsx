@@ -1031,7 +1031,6 @@ function FinalizarPedidoModal({
   onClose: () => void;
   onConfirm: (data: { calidad: number; puntualidadDias: number; comentario: string; factura: File | null }) => Promise<void>;
 }) {
-  const esFactura = orden.comprobante_tipo === 'factura';
   const [factura, setFactura] = useState<File | null>(null);
   const [calidad, setCalidad] = useState(5);
   const [puntualidad, setPuntualidad] = useState<'por_fecha' | 'en_fecha' | 'adelantado' | 'atrasado'>('por_fecha');
@@ -1162,21 +1161,19 @@ function FinalizarPedidoModal({
         </>
       )}
 
-      {/* Imagen de la factura: SOLO cuando el soporte de la OC es Factura. */}
-      {esFactura && (
-        <div className="form-row">
-          <label>Imagen de la factura {orden.factura_path ? '(reemplaza la actual)' : '(opcional)'}</label>
-          <input className="input" type="file" accept="application/pdf,image/*"
-            onChange={(e) => {
-              const f = e.target.files?.[0] ?? null;
-              if (f && f.size > 10 * 1024 * 1024) { setError('La factura no puede superar 10 MB.'); e.target.value = ''; return; }
-              setError(null); setFactura(f);
-            }} />
-          {factura
-            ? <small className="muted">✓ {factura.name} ({(factura.size / 1024).toFixed(0)} KB)</small>
-            : <small className="muted">PDF o imagen · máx. 10 MB. El soporte de esta OC es <strong>Factura</strong>: podés adjuntar la factura definitiva al finalizar.</small>}
-        </div>
-      )}
+      {/* Cargar la factura al finalizar (queda en la calificación del proveedor). */}
+      <div className="form-row">
+        <label>CARGAR FACTURA {orden.factura_path ? '(reemplaza la actual)' : ''}</label>
+        <input className="input" type="file" accept="application/pdf,image/*"
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            if (f && f.size > 10 * 1024 * 1024) { setError('La factura no puede superar 10 MB.'); e.target.value = ''; return; }
+            setError(null); setFactura(f);
+          }} />
+        {factura
+          ? <small className="muted">✓ {factura.name} ({(factura.size / 1024).toFixed(0)} KB)</small>
+          : <small className="muted">PDF o imagen · máx. 10 MB.</small>}
+      </div>
 
       <div className="form-row">
         <label>Comentario adicional (opcional)</label>

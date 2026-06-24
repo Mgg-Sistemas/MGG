@@ -1556,6 +1556,7 @@ function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
   const [nombre, setNombre] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [edit, setEdit] = useState<{ id: string; nombre: string; descripcion: string } | null>(null);
+  const [borrar, setBorrar] = useState<{ id: string; nombre: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -1606,12 +1607,11 @@ function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
       await refrescar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
-  async function eliminar(it: { id: string; nombre: string }) {
-    if (!window.confirm(`¿Eliminar "${it.nombre}" del catálogo? Esta acción no se puede deshacer.`)) return;
+  async function eliminar(id: string) {
     setBusy(true);
     try {
-      if (tab === 'vehiculos') await eliminarVehiculo(it.id);
-      else await eliminarCatalogo(meta.tabla!, it.id);
+      if (tab === 'vehiculos') await eliminarVehiculo(id);
+      else await eliminarCatalogo(meta.tabla!, id);
       await refrescar();
       toast('Eliminado', 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar (puede estar en uso).', 'error'); }
@@ -1655,7 +1655,7 @@ function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
                 <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => setEdit({ id: it.id, nombre: it.nombre, descripcion: it.descripcion ?? '' })}>✎ Editar</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => void toggle(it)}>{it.estado === 'activo' ? 'Deshabilitar' : 'Habilitar'}</button>
-                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => void eliminar(it)} disabled={busy} title="Eliminar del catálogo">🗑</button>
+                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar({ id: it.id, nombre: it.nombre })} disabled={busy} title="Eliminar del catálogo">🗑</button>
                 </td>
               </tr>
             ))}
@@ -1682,6 +1682,17 @@ function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
             </div>
           )}
         </Modal>
+      )}
+
+      {borrar && (
+        <ConfirmDialog
+          title={`Eliminar ${meta.singular}`}
+          message={`¿Eliminar "${borrar.nombre}" del catálogo? Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onCancel={() => setBorrar(null)}
+          onConfirm={() => { const id = borrar.id; setBorrar(null); void eliminar(id); }}
+        />
       )}
     </Modal>
   );
