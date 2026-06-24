@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signIn, signOutLocal } from './authStore';
 import { isSupabaseConfigured } from '@/shared/lib/supabase';
+import { entrarConBiometria, biometriaDisponible } from './webauthn.repository';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -9,6 +10,25 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [bioOk, setBioOk] = useState(false);     // el equipo tiene sensor biométrico
+  const [bioBusy, setBioBusy] = useState(false);
+
+  // ¿Este equipo soporta huella / Windows Hello / Face ID? (para mostrar el botón)
+  useEffect(() => { biometriaDisponible().then(setBioOk).catch(() => setBioOk(false)); }, []);
+
+  async function handleBiometria() {
+    setError(null);
+    if (!email.trim()) { setError('Escribí tu correo y luego usá la huella.'); return; }
+    setBioBusy(true);
+    try {
+      await entrarConBiometria(email);
+      navigate('/app');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo entrar con huella.');
+    } finally {
+      setBioBusy(false);
+    }
+  }
 
   // Forzar logout al abrir el login: el usuario debe autenticarse siempre.
   const didCleanRef = useRef(false);
@@ -124,6 +144,27 @@ export function LoginPage() {
           <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={submitting}>
             {submitting ? 'Ingresando…' : 'Ingresar'}
           </button>
+
+          {bioOk && isSupabaseConfigured && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', margin: '1rem 0 .8rem', color: 'var(--muted)', fontSize: '.78rem' }}>
+                <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />o<span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'center', gap: '.5rem' }}
+                onClick={handleBiometria}
+                disabled={bioBusy || submitting}
+                title="Entrar con la huella / Windows Hello / Face ID de este dispositivo"
+              >
+                {bioBusy ? 'Verificando…' : '🔒 Entrar con huella'}
+              </button>
+              <div className="login-help" style={{ marginTop: '.5rem' }}>
+                Escribí tu correo y usá la huella. Primero hay que activarla desde el sistema, en este mismo equipo.
+              </div>
+            </>
+          )}
 
           <div className="login-help">
             ¿Sin cuenta? Pídele al administrador que te dé acceso.

@@ -2698,6 +2698,54 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- ─────────────────────────────────────────────────────────────
+-- 19b. Acceso biométrico (WebAuthn / Passkeys)
+-- La huella/Face ID/Windows Hello NUNCA sale del dispositivo: aquí solo
+-- se guarda la CLAVE PÚBLICA. La credencial queda atada al dominio (rp_id)
+-- donde se enroló. La Edge Function `webauthn` (service role) registra/
+-- verifica; el login con clave sigue siendo el respaldo.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.webauthn_credentials (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  email         text not null,
+  credential_id text not null unique,         -- id de la credencial (base64url)
+  public_key    text not null,                -- clave pública (base64url)
+  counter       bigint not null default 0,    -- contador anti-clonación
+  rp_id         text not null,                -- dominio donde se enroló
+  transports    text,                         -- csv (internal, hybrid…)
+  device_label  text,                         -- etiqueta legible del dispositivo
+  created_at    timestamptz not null default now(),
+  last_used_at  timestamptz
+);
+create index if not exists idx_webauthn_cred_user     on public.webauthn_credentials(user_id);
+create index if not exists idx_webauthn_cred_email_rp on public.webauthn_credentials(email, rp_id);
+
+-- Retos efímeros (challenge) de registro/login. Solo la Edge Function (service role) los toca.
+create table if not exists public.webauthn_challenges (
+  id         uuid primary key default gen_random_uuid(),
+  email      text not null,
+  kind       text not null check (kind in ('register','authenticate')),
+  challenge  text not null,
+  user_id    uuid,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_webauthn_chal_lookup on public.webauthn_challenges(email, kind, created_at desc);
+
+alter table public.webauthn_credentials enable row level security;
+alter table public.webauthn_challenges  enable row level security;
+do $$ begin
+  create policy "webauthn_cred owner read"   on public.webauthn_credentials for select using (auth.uid() = user_id);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create policy "webauthn_cred owner delete" on public.webauthn_credentials for delete using (auth.uid() = user_id);
+exception when duplicate_object then null; end $$;
+-- webauthn_challenges: sin policies (deny-all a clientes; solo service role).
+do $$ begin
+  alter publication supabase_realtime add table public.webauthn_credentials;
+exception when duplicate_object then null; end $$;
+
+-- ─────────────────────────────────────────────────────────────
 -- 20. Ventas · Clientes + Facturas
 -- Factura con items (jsonb): producto, cantidad, tenor (ley del mineral),
 -- precio, costo y ganancia por línea. Al EMITIR descuenta stock; al ANULAR

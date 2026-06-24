@@ -10,6 +10,7 @@ import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
 import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
 import { Modal } from '@/shared/ui/Modal';
+import { BiometriaModal } from '@/modules/auth/BiometriaModal';
 import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
@@ -47,6 +48,7 @@ export function AppShell() {
   const MOSTRAR_MANUAL = false;
   const manualSistemaUrl = `${import.meta.env.BASE_URL}manual-sistema.html`;
   const [notifOpen, setNotifOpen] = useState(false);
+  const [biometriaOpen, setBiometriaOpen] = useState(false);
   const [descargandoManual, setDescargandoManual] = useState(false);
   const [descargandoBackup, setDescargandoBackup] = useState(false);
   const mostrarRespaldo = puedeRespaldar(role);
@@ -332,6 +334,9 @@ export function AppShell() {
               <div className="name">{user?.email ?? '—'}</div>
               <div className="role">{role ?? 'Sesión activa'}</div>
             </div>
+            <button onClick={() => setBiometriaOpen(true)} className="btn btn-icon btn-ghost" title="Acceso con huella (activar en este dispositivo)">
+              🔒
+            </button>
             <button onClick={handleLogout} className="btn btn-icon btn-ghost" title="Cerrar sesión">
               ⎋
             </button>
@@ -413,6 +418,8 @@ export function AppShell() {
         onClose={() => { setNotifOpen(false); void refreshUnread(); }}
         onAllRead={handleAllRead}
       />
+
+      {biometriaOpen && <BiometriaModal onClose={() => setBiometriaOpen(false)} />}
 
       {respaldoOpen && (
         <Modal
