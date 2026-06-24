@@ -118,6 +118,7 @@ export interface CajaMovimientoInput {
   gastos?: number;
   nominas?: number;
   traslado?: number;
+  compra_material?: number;
   kg_recibidos?: number;
   clasif_grupo?: GrupoClasificacion | null;
   clasif_valor?: string | null;
@@ -172,7 +173,7 @@ export async function listCajaMovimientos(cajaId?: string, centroNombre: string 
   let saldoKg = 0;
   return (data ?? []).map((row) => {
     const m = row as CajaMovimiento;
-    saldoUsd += num(m.usd_entregado) - num(m.facturados) - num(m.gastos) - num(m.nominas) - num(m.traslado);
+    saldoUsd += num(m.usd_entregado) - num(m.facturados) - num(m.gastos) - num(m.nominas) - num(m.traslado) - num(m.compra_material);
     saldoKg += num(m.kg_cerrados) - num(m.kg_recibidos);
     return { ...m, saldo_usd: saldoUsd, saldo_kg: saldoKg };
   });
@@ -206,8 +207,9 @@ export interface ResumenCajaAcopio {
   totalGastos: number;
   totalNominas: number;
   totalTraslado: number;
+  totalCompraMaterial: number;    // $ Compra de material (egreso)
   totalGastado: number;           // gastos + nóminas
-  saldoUsd: number;               // entregado − facturados − gastos − nóminas − traslado
+  saldoUsd: number;               // entregado − facturados − gastos − nóminas − traslado − compra material
   pctGastos: number;              // gastos / total gastado
   pctNomina: number;              // nóminas / total gastado
   gastosPorCategoria: CategoriaResumen[];   // gastos + nómina (la nómina va metida en los gastos)
@@ -249,10 +251,11 @@ export async function resumenCajaAcopio(
   const totalGastos = sum((m) => m.gastos);
   const totalNominas = sum((m) => m.nominas);
   const totalTraslado = sum((m) => m.traslado);
+  const totalCompraMaterial = sum((m) => m.compra_material);
   const totalGastado = totalGastos + totalNominas;
   // Redondeo a centavos y normalización del «-0» (evita mostrar «$ -0,00»).
   const round2 = (n: number) => { const v = Math.round(n * 100) / 100; return v === 0 ? 0 : v; };
-  const saldoUsd = round2(totalEntregado - totalFacturado - totalGastos - totalNominas - totalTraslado);
+  const saldoUsd = round2(totalEntregado - totalFacturado - totalGastos - totalNominas - totalTraslado - totalCompraMaterial);
   const kgProduccion = sum((m) => m.kg_cerrados);
   const kgEnviados = sum((m) => m.kg_recibidos);
 
@@ -310,7 +313,7 @@ export async function resumenCajaAcopio(
   return {
     centro: centroNombre || CENTRO_ACOPIO_DEFECTO,
     fechaInicio, fechaActualizacion, dias, movimientos: movs.length,
-    totalEntregado, totalFacturado, totalGastos, totalNominas, totalTraslado, totalGastado, saldoUsd,
+    totalEntregado, totalFacturado, totalGastos, totalNominas, totalTraslado, totalCompraMaterial, totalGastado, saldoUsd,
     pctGastos: totalGastado > 0 ? totalGastos / totalGastado : 0,
     pctNomina: totalGastado > 0 ? totalNominas / totalGastado : 0,
     gastosPorCategoria: gastosConNomina(),
@@ -419,11 +422,12 @@ export function resumirCaja(movs: CajaMovimiento[]): CajaResumen {
       gastos: a.gastos + num(m.gastos),
       nominas: a.nominas + num(m.nominas),
       traslado: a.traslado + num(m.traslado),
+      compraMaterial: a.compraMaterial + num(m.compra_material),
       kgRecibidos: a.kgRecibidos + num(m.kg_recibidos),
     }),
-    { usdEntregado: 0, kgCerrados: 0, facturados: 0, gastos: 0, nominas: 0, traslado: 0, kgRecibidos: 0 },
+    { usdEntregado: 0, kgCerrados: 0, facturados: 0, gastos: 0, nominas: 0, traslado: 0, compraMaterial: 0, kgRecibidos: 0 },
   );
-  const saldoUsd = r.usdEntregado - r.facturados - r.gastos - r.nominas - r.traslado;
+  const saldoUsd = r.usdEntregado - r.facturados - r.gastos - r.nominas - r.traslado - r.compraMaterial;
   const saldoKg = r.kgCerrados - r.kgRecibidos;
   // F3 = (G3 + H3 + I3) / E3
   const tasa = r.kgCerrados > 0 ? (r.facturados + r.gastos + r.nominas) / r.kgCerrados : 0;
@@ -441,6 +445,7 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
     gastos: num(input.gastos),
     nominas: num(input.nominas),
     traslado: num(input.traslado),
+    compra_material: num(input.compra_material),
     kg_recibidos: num(input.kg_recibidos),
     clasif_grupo: input.clasif_grupo ?? null,
     clasif_valor: input.clasif_valor?.trim() || null,
@@ -474,6 +479,7 @@ export async function actualizarMovimientoCaja(id: string, input: CajaMovimiento
       gastos: num(input.gastos),
       nominas: num(input.nominas),
       traslado: num(input.traslado),
+      compra_material: num(input.compra_material),
       kg_recibidos: num(input.kg_recibidos),
       clasif_grupo: input.clasif_grupo ?? null,
       clasif_valor: input.clasif_valor?.trim() || null,
@@ -801,9 +807,9 @@ export interface CierreResumen extends CajaResumen {
 
 export function resumirCierre(caja: CajaCierre | null, movs: CajaMovimiento[]): CierreResumen {
   const base = resumirCaja(movs);
-  const totalGastado = base.facturados + base.gastos + base.nominas + base.traslado;
-  // Salidas por grupo de clasificación (suma de gastos+nominas+traslado+facturados de cada fila).
-  const salida = (m: CajaMovimiento) => num(m.gastos) + num(m.nominas) + num(m.traslado) + num(m.facturados);
+  const totalGastado = base.facturados + base.gastos + base.nominas + base.traslado + base.compraMaterial;
+  // Salidas por grupo de clasificación (suma de gastos+nominas+traslado+facturados+compra material de cada fila).
+  const salida = (m: CajaMovimiento) => num(m.gastos) + num(m.nominas) + num(m.traslado) + num(m.facturados) + num(m.compra_material);
   const grupAcc = new Map<string, number>();
   const costoAcc = new Map<string, number>();
   for (const m of movs) {

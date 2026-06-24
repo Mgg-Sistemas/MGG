@@ -1229,6 +1229,7 @@ export interface CajaMovimiento {
   gastos: number;          // H · Gastos GT
   nominas: number;         // I · Nóminas GT
   traslado: number;        // J · Traslado de caja
+  compra_material: number; // $ Compra de material (egreso · baja el Saldo $)
   kg_recibidos: number;    // L · Kg recibidos por MGG
   clasif_grupo?: GrupoClasificacion | null;
   clasif_valor?: string | null;
@@ -1284,7 +1285,8 @@ export interface CajaResumen {
   gastos: number;         // H3
   nominas: number;        // I3
   traslado: number;       // J3
-  saldoUsd: number;       // K3 = D - G - H - I - J
+  compraMaterial: number; // $ Compra de material (egreso)
+  saldoUsd: number;       // K3 = D - G - H - I - J - Compra material
   kgRecibidos: number;    // L3
   saldoKg: number;        // M3 = E - L
   /** Tasa del material = (facturados + gastos + nominas) / kgCerrados (F3). */

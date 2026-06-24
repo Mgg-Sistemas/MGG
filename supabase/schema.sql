@@ -2126,6 +2126,7 @@ create table if not exists public.acopio_caja_movimientos (
   gastos          numeric not null default 0,   -- H · Gastos GT
   nominas         numeric not null default 0,   -- I · Nóminas GT
   traslado        numeric not null default 0,   -- J · Traslado de caja
+  compra_material numeric not null default 0,   -- $ Compra de material (egreso · baja el Saldo $)
   kg_recibidos    numeric not null default 0,   -- L · Kg recibidos por MGG
   clasif_grupo    text check (clasif_grupo in ('contratos','gastos_caja','movimientos_caja','nomina','traslado')),
   clasif_valor    text,
@@ -2473,6 +2474,8 @@ alter table public.acopio_caja_movimientos add column if not exists costo_subcla
 -- Vehículo/maquinaria (del catálogo de Combustible) al que se imputa el gasto cuando la
 -- categoría es de REPUESTOS - REPARACIONES - SERVICIOS. Opcional ("no a juro").
 alter table public.acopio_caja_movimientos add column if not exists vehiculo text;
+-- $ Compra de material: egreso ingresado por el usuario que baja el Saldo $ de la caja.
+alter table public.acopio_caja_movimientos add column if not exists compra_material numeric not null default 0;
 create index if not exists idx_acopio_caja_mov_caja on public.acopio_caja_movimientos(caja_id);
 create index if not exists idx_acopio_caja_mov_vehiculo on public.acopio_caja_movimientos(vehiculo);
 

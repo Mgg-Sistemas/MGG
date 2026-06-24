@@ -32,6 +32,7 @@ interface FilaMov {
   kgCerrados: number;       // ← lo que aporta el contrato (se refleja en la caja)
   precioUsdKg: number | null;
   usdFacturados: number;
+  compraMaterial: number | null;  // $ Compra de material (egreso · baja el Saldo $)
   gastosGt: number | null;
   nominasGt: number | null;
   trasladoCaja: number | null;
@@ -121,6 +122,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
           kgCerrados: kg,
           precioUsdKg: null,
           usdFacturados: 0,
+          compraMaterial: null,
           gastosGt: null,
           nominasGt: null,
           trasladoCaja: null,
@@ -135,9 +137,10 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
       const gastos = Number(m.gastos) || 0;
       const nominas = Number(m.nominas) || 0;
       const traslado = Number(m.traslado) || 0;
+      const compraMaterial = Number(m.compra_material) || 0;
       const kgc = Number(m.kg_cerrados) || 0;
       const mgg = Number(m.kg_recibidos) || 0;
-      saldoUsd = saldoUsd + entregado - facturados - gastos - nominas - traslado;
+      saldoUsd = saldoUsd + entregado - facturados - gastos - nominas - traslado - compraMaterial;
       saldoKg = saldoKg + kgc - mgg;
       return {
         id: `m-${m.id}`,
@@ -147,6 +150,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
         kgCerrados: kgc,
         precioUsdKg: null,
         usdFacturados: facturados,
+        compraMaterial: compraMaterial || null,
         gastosGt: gastos || null,
         nominasGt: nominas || null,
         trasladoCaja: traslado || null,
@@ -197,6 +201,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
   // Totales de la vista (para la fila de totales de la tabla, respeta el filtro).
   const totUsdEntregadoVista = mostradas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);
   const totKgVista = mostradas.reduce((a, f) => a + f.kgCerrados, 0);
+  const totCompraMaterialVista = mostradas.reduce((a, f) => a + (f.compraMaterial ?? 0), 0);
   const totTrasladoVista = mostradas.reduce((a, f) => a + (f.trasladoCaja ?? 0), 0);
   // Saldo final del rango filtrado = el del movimiento cronológicamente más nuevo (no depende del orden mostrado).
   const ascFiltradas = ordenDesc ? mostradas.slice().reverse() : mostradas;
@@ -251,6 +256,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
                 <th>$Usd entregado</th>
                 <th>Kg Cerrados</th>
                 <th>$Usd Facturados</th>
+                <th title="Compra de material (egreso que baja el Saldo $)">Compra Material</th>
                 <th>Gastos</th>
                 <th>Traspaso de Caja</th>
                 <th>Saldo en moneda $ Usd</th>
@@ -260,7 +266,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
             </thead>
             <tbody>
               {!mostradas.length && (
-                <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={11} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {mostradas.map((f) => (
                 <tr
@@ -278,6 +284,8 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
                   {/* Kg que aporta el contrato al cerrarse → resaltado */}
                   <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(f.kgCerrados)}</td>
                   <td className="mono">{money(f.usdFacturados)}</td>
+                  {/* Compra de material (egreso ingresado por el usuario que baja el Saldo $). */}
+                  <td className="mono" style={{ color: f.compraMaterial ? 'var(--primary-3)' : undefined }}>{f.compraMaterial == null ? '—' : money(f.compraMaterial)}</td>
                   {/* Gastos = gastos + nómina (columnas unificadas). */}
                   <td className="mono">{(f.gastosGt == null && f.nominasGt == null) ? '—' : money((f.gastosGt ?? 0) + (f.nominasGt ?? 0))}</td>
                   <td className="mono">{f.trasladoCaja == null ? '—' : money(f.trasladoCaja)}</td>
@@ -304,7 +312,9 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
                 <td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>Totales</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--success, #45c08a)' }}>{totUsdEntregadoVista ? money(totUsdEntregadoVista) : '—'}</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
-                <td colSpan={2}></td>
+                <td></td>
+                <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{totCompraMaterialVista ? money(totCompraMaterialVista) : '—'}</td>
+                <td></td>
                 <td className="mono" style={{ fontWeight: 800 }}>{totTrasladoVista ? money(totTrasladoVista) : '—'}</td>
                 <td></td>
                 <td className="mono" style={{ fontWeight: 800, color: saldoVista < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(saldoVista)}</td>
@@ -348,6 +358,7 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
   const [gastos, setGastos] = useState(String(mov.gastos ?? 0));
   const [nominas, setNominas] = useState(String(mov.nominas ?? 0));
   const [traslado, setTraslado] = useState(String(mov.traslado ?? 0));
+  const [compraMaterial, setCompraMaterial] = useState(String(mov.compra_material ?? 0));
   const [kgRecibidos, setKgRecibidos] = useState(String(mov.kg_recibidos ?? 0));
   const [grupo, setGrupo] = useState<GrupoClasificacion | ''>((mov.clasif_grupo as GrupoClasificacion) ?? '');
   const [clasifValor, setClasifValor] = useState(mov.clasif_valor ?? '');
@@ -364,7 +375,7 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
         fecha,
         descripcion: descripcion.trim() || null,
         usd_entregado: nzr(usdEntregado), kg_cerrados: nzr(kgCerrados), facturados: nzr(facturados),
-        gastos: nzr(gastos), nominas: nzr(nominas), traslado: nzr(traslado), kg_recibidos: nzr(kgRecibidos),
+        gastos: nzr(gastos), nominas: nzr(nominas), traslado: nzr(traslado), compra_material: nzr(compraMaterial), kg_recibidos: nzr(kgRecibidos),
         clasif_grupo: grupo || null, clasif_valor: clasifValor.trim() || null,
       });
       toast('Movimiento actualizado', 'success');
@@ -407,7 +418,10 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
           {campo('Gastos', gastos, setGastos)}
           {campo('Nóminas', nominas, setNominas)}
         </div>
-        {campo('Traslado de caja', traslado, setTraslado)}
+        <div className="form-grid">
+          {campo('Compra Material', compraMaterial, setCompraMaterial)}
+          {campo('Traslado de caja', traslado, setTraslado)}
+        </div>
       </form>
     </Modal>
   );

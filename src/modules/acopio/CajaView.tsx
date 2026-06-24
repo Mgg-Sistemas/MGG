@@ -135,6 +135,7 @@ export function CajaView({ movimientos, clasificaciones, cajas, costoClases, can
               <tr>
                 <th>Fecha</th><th>Descripción</th><th>Clasificación</th>
                 <th style={{ textAlign: 'right' }}>$ Entregado</th><th style={{ textAlign: 'right' }}>Kg Cerr.</th>
+                <th style={{ textAlign: 'right' }} title="Compra de material (egreso que baja el Saldo $)">Compra Material</th>
                 <th style={{ textAlign: 'right' }}>Gastos</th>
                 <th style={{ textAlign: 'right' }}>Saldo $</th>{canWrite && <th></th>}
               </tr>
@@ -147,6 +148,8 @@ export function CajaView({ movimientos, clasificaciones, cajas, costoClases, can
                   <td><Chip grupo={m.clasif_grupo} valor={m.clasif_valor} /></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{m.usd_entregado ? money(m.usd_entregado) : ''}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{m.kg_cerrados ? num(m.kg_cerrados) : ''}</td>
+                  {/* Compra de material (egreso ingresado por el usuario que baja el Saldo $). */}
+                  <td className="mono" style={{ textAlign: 'right', color: m.compra_material ? 'var(--primary-3)' : undefined }}>{m.compra_material ? money(m.compra_material) : ''}</td>
                   {/* Gastos = gastos + nómina (unificados en una sola columna). */}
                   <td className="mono" style={{ textAlign: 'right', color: (m.gastos || m.nominas) ? 'var(--danger)' : undefined }}>{((Number(m.gastos) || 0) + (Number(m.nominas) || 0)) ? money((Number(m.gastos) || 0) + (Number(m.nominas) || 0)) : ''}</td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{money(m.saldo_usd ?? 0)}</td>
@@ -222,6 +225,7 @@ function MovimientoModal({ mov, cajaId, clasificaciones, costoClases, actor, act
   const [gastos, setGastos] = useState(mov?.gastos ? String(mov.gastos) : '');
   const [nominas, setNominas] = useState(mov?.nominas ? String(mov.nominas) : '');
   const [traslado, setTraslado] = useState(mov?.traslado ? String(mov.traslado) : '');
+  const [compraMaterial, setCompraMaterial] = useState(mov?.compra_material ? String(mov.compra_material) : '');
   const [kgRecibidos, setKgRecibidos] = useState(mov?.kg_recibidos ? String(mov.kg_recibidos) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -251,7 +255,7 @@ function MovimientoModal({ mov, cajaId, clasificaciones, costoClases, actor, act
       fecha, descripcion,
       usd_entregado: Number(usdEntregado) || 0, kg_cerrados: Number(kgCerrados) || 0,
       facturados: Number(facturados) || 0, gastos: Number(gastos) || 0, nominas: Number(nominas) || 0,
-      traslado: Number(traslado) || 0, kg_recibidos: Number(kgRecibidos) || 0,
+      traslado: Number(traslado) || 0, compra_material: Number(compraMaterial) || 0, kg_recibidos: Number(kgRecibidos) || 0,
       clasif_grupo: grupo || null, clasif_valor: valor || null,
       costo_clasificacion: costoCl || null, costo_subclasificacion: costoSub || null,
       caja_id: cajaId,
@@ -345,6 +349,7 @@ function MovimientoModal({ mov, cajaId, clasificaciones, costoClases, actor, act
         {fld('$ Facturados', facturados, setFacturados)}
         {fld('Gastos GT', gastos, setGastos, 'suma a la tasa')}
         {fld('Nóminas GT', nominas, setNominas, 'suma a la tasa')}
+        {fld('Compra Material', compraMaterial, setCompraMaterial, 'egreso · baja el Saldo $')}
         {fld('Traslado de caja', traslado, setTraslado)}
         {fld('Kg Recibidos por MGG', kgRecibidos, setKgRecibidos)}
       </div>
