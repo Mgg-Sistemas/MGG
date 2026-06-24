@@ -96,6 +96,12 @@ export function OfertasComparativa({
   }
 
   async function confirmarAceptacion(s: ScoredOferta) {
+    // Si todos los productos de la oferta están en $0, no se puede crear la OC.
+    if (!s.oferta.items.some((it) => (Number(it.precio) || 0) > 0)) {
+      toast('Cargá al menos un precio: todos los productos de esta oferta están en $0.', 'error');
+      setConfirmando(null);
+      return;
+    }
     try {
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
       await aprobarOrdenConOferta(
