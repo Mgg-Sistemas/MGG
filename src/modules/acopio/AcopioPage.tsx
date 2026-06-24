@@ -292,6 +292,8 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
   const [gastoVehiculo, setGastoVehiculo] = useState(''); // vehículo imputado (solo categorías de REPUESTOS-REPARACIONES-SERVICIOS)
   const [vehiculos, setVehiculos] = useState<{ value: string; label: string }[]>([]);
   const [descGastos, setDescGastos] = useState('');
+  const [compraMaterial, setCompraMaterial] = useState('');
+  const [descCompra, setDescCompra] = useState('');
   const [traslado, setTraslado] = useState('');
   const [descTraslado, setDescTraslado] = useState('');
   const [destinoId, setDestinoId] = useState('');
@@ -322,9 +324,9 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
 
   async function guardar() {
     setError(null);
-    const usd = r2(usdEntregado), gas = r2(gastos), tras = r2(traslado);
+    const usd = r2(usdEntregado), gas = r2(gastos), tras = r2(traslado), cmat = r2(compraMaterial);
     const kg = Number(kgRecibidos) || 0;
-    if (usd <= 0 && gas <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (usd <= 0 && gas <= 0 && tras <= 0 && cmat <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
     if (usd > 0 && !usdCat) { setError('Elegí la categoría de la entrada (movimientos de caja).'); return; }
     if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto.'); return; }
     const destino = destinosActivos.find((d) => d.id === destinoId) ?? null;
@@ -337,6 +339,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
       const filas: CajaMovimientoInput[] = [];
       if (usd > 0) filas.push({ fecha, usd_entregado: usd, clasif_grupo: 'movimientos_caja', clasif_valor: usdCat, descripcion: descUsd.trim() || usdCat, caja_id: cajaId });
       if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, vehiculo: gastoEsVehiculo ? (gastoVehiculo.trim() || null) : null, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
+      if (cmat > 0) filas.push({ fecha, compra_material: cmat, descripcion: descCompra.trim() || 'Compra de material', caja_id: cajaId });
       if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: descKg.trim() || 'Kg recibidos por MGG', caja_id: cajaId });
       for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
       // El traslado va por el orquestador: baja la caja general y refleja el monto
@@ -417,6 +420,15 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
         </div>
       )}
       {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto')}
+
+      {/* Compra de material: monto que ingresa el usuario (egreso · baja el Saldo $) */}
+      <div className="form-grid">
+        {campoUsd('$ Compra Material', compraMaterial, setCompraMaterial)}
+        <div className="form-row" style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <small className="muted">Egreso por compra de material: baja el Saldo $ de la caja (no afecta el Saldo en Kg).</small>
+        </div>
+      </div>
+      {campoDesc(descCompra, setDescCompra, 'Descripción de la compra de material')}
 
       {/* Traslado: monto + destino (catálogo) + descripción opcional */}
       <div className="form-grid">
