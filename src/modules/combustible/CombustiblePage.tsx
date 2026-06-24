@@ -30,6 +30,7 @@ import {
   crearVehiculo,
   actualizarVehiculo,
   setEstadoVehiculo,
+  eliminarVehiculo,
   listPlantaMovimientos,
   crearPlantaMovimiento,
   PLANTA_ALERTA_LITROS,
@@ -37,6 +38,7 @@ import {
   crearCatalogo,
   actualizarCatalogo,
   setEstadoCatalogo,
+  eliminarCatalogo,
   crearTanqueMovimiento,
   actualizarTanqueMovimiento,
   eliminarTanqueMovimiento,
@@ -1604,6 +1606,17 @@ function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
       await refrescar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
+  async function eliminar(it: { id: string; nombre: string }) {
+    if (!window.confirm(`¿Eliminar "${it.nombre}" del catálogo? Esta acción no se puede deshacer.`)) return;
+    setBusy(true);
+    try {
+      if (tab === 'vehiculos') await eliminarVehiculo(it.id);
+      else await eliminarCatalogo(meta.tabla!, it.id);
+      await refrescar();
+      toast('Eliminado', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar (puede estar en uso).', 'error'); }
+    finally { setBusy(false); }
+  }
 
   return (
     <Modal title="📒 Catálogo de combustible" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
@@ -1642,6 +1655,7 @@ function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
                 <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => setEdit({ id: it.id, nombre: it.nombre, descripcion: it.descripcion ?? '' })}>✎ Editar</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => void toggle(it)}>{it.estado === 'activo' ? 'Deshabilitar' : 'Habilitar'}</button>
+                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => void eliminar(it)} disabled={busy} title="Eliminar del catálogo">🗑</button>
                 </td>
               </tr>
             ))}

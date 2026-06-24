@@ -599,6 +599,7 @@ export function PedidosPage() {
         <OrdenesTable
           ordenes={filteredOrdenes}
           proveedorMap={proveedorMap}
+          personaMap={personaMap}
           canManageProcurement={canManageProcurement}
           noLeidos={noLeidos}
           onView={(id) => setModal({ kind: 'detail', ordenId: id })}
@@ -1670,13 +1671,15 @@ function AbonosModal({
 interface OrdenesTableProps {
   ordenes: Orden[];
   proveedorMap: Map<string, Proveedor>;
+  /** email → nombre completo, para mostrar el nombre del solicitante (no la unidad). */
+  personaMap: Map<string, string>;
   /** Quién puede aprobar la Solicitud de Pedido: administrador o analista de compras. */
   canManageProcurement: boolean;
   noLeidos: Map<string, number>;
   onView: (id: string) => void;
   onApprove: (o: Orden) => void;
 }
-function OrdenesTable({ ordenes, proveedorMap, canManageProcurement, noLeidos, onView, onApprove }: OrdenesTableProps) {
+function OrdenesTable({ ordenes, proveedorMap, personaMap, canManageProcurement, noLeidos, onView, onApprove }: OrdenesTableProps) {
   if (!ordenes.length) {
     return (
       <div className="card">
@@ -1705,7 +1708,7 @@ function OrdenesTable({ ordenes, proveedorMap, canManageProcurement, noLeidos, o
             const canApprove = canManageProcurement && o.estado === 'pendiente';
             const cambios = (o.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
             return (
-              <tr key={o.id}>
+              <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => onView(o.id)} title="Ver detalle">
                 <td className="mono">
                   {o.codigo}
                   {o.urgente && <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--danger)', color: '#fff', fontSize: '.6rem', padding: '.05rem .35rem' }}>🚨 URGENTE</span>}
@@ -1722,13 +1725,13 @@ function OrdenesTable({ ordenes, proveedorMap, canManageProcurement, noLeidos, o
                   )}
                 </td>
                 <td>
-                  <div>{o.solicitante ?? '—'}</div>
+                  <div>{o.ci_solicitante ?? persona(o.solicitante_email, personaMap)}</div>
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{o.items.length}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
                 <td><StatusBadge estado={o.estado} /></td>
                 <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(o.created_at)}</td>
-                <td className="actions">
+                <td className="actions" onClick={(e) => e.stopPropagation()}>
                   <button className="btn btn-sm btn-ghost" onClick={() => onView(o.id)}>Ver</button>
                   {canApprove && (
                     <button className="btn btn-sm btn-success" onClick={() => onApprove(o)}>Aprobar</button>
