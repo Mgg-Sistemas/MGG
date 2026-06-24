@@ -262,7 +262,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
         payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant });
       } else {
         if (!l.nombre.trim()) { setError('Indicá el nombre del material nuevo.'); return; }
-        payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: l.categoria, unidad: l.unidad, cantidad: cant });
+        payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: l.categoria, unidad: l.unidad.trim() || 'und', cantidad: cant });
       }
     }
     setSaving(true);
@@ -367,8 +367,11 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
                 <div className="form-grid">
                   <div className="form-row"><label>Categoría</label>
                     <select className="select" value={l.categoria} onChange={(e) => set(l.id, { categoria: e.target.value })}>{categorias.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
-                  <div className="form-row"><label>Unidad</label>
-                    <select className="select" value={l.unidad} onChange={(e) => set(l.id, { unidad: e.target.value })}>{unidades.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
+                  <div className="form-row"><label>Medida / unidad</label>
+                    <input className="input mono" list="cd-medidas" value={l.unidad}
+                      onChange={(e) => set(l.id, { unidad: e.target.value })}
+                      placeholder="und, KG, bulto, 1/2''…"
+                      title="Escribí una medida nueva o elegí una de las sugeridas" /></div>
                   <div className="form-row"><label>Cantidad</label>
                     <input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
@@ -376,6 +379,11 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
             )}
           </div>
         ))}
+
+        {/* Sugerencias de medidas/unidades del inventario (se puede escribir una nueva). */}
+        <datalist id="cd-medidas">
+          {unidades.map((u) => <option key={u} value={u} />)}
+        </datalist>
 
         <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar material</button>
         <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan precios. El gasto por material y la caja se indican al finalizar.</p>
