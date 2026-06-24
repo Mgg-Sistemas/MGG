@@ -27,6 +27,7 @@ const PeramanalEnderPage = lazyReload(() => import('./modules/acopio/AcopioPage'
 const EsmeraldaAliPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.EsmeraldaAliPage })));
 const PijiguaosPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.PijiguaosPage })));
 const MaquinariaPage = lazyReload(() => import('./modules/maquinaria/MaquinariaPage').then((m) => ({ default: m.MaquinariaPage })));
+const ServicioMantenimientoPage = lazyReload(() => import('./modules/maquinaria/ServicioMantenimientoPage').then((m) => ({ default: m.ServicioMantenimientoPage })));
 const VentasPage = lazyReload(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const TesoreriaPage = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
 const RetencionesPage = lazyReload(() => import('./modules/retenciones/RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
@@ -96,6 +97,7 @@ export function App() {
           <Route path="acopio/esmeralda-ali" element={<RequireModule module="acopio_esmeralda"><Suspense fallback={<PageLoader />}><EsmeraldaAliPage /></Suspense></RequireModule>} />
           <Route path="acopio/los-pijiguaos" element={<RequireModule module="acopio_pijiguaos"><Suspense fallback={<PageLoader />}><PijiguaosPage /></Suspense></RequireModule>} />
           <Route path="maquinaria" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/servicio-mantenimiento" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><ServicioMantenimientoPage /></Suspense></RequireModule>} />
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />
           <Route path="retenciones" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesPage /></Suspense></RequireModule>} />

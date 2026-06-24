@@ -10,7 +10,7 @@ import { descargarCompraDirectaPdf } from './compraDirectaPdf';
 import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor } from '@/shared/lib/types';
-import { getCategorias, getUnidades, listProductos } from '@/modules/inventario/inventario.repository';
+import { getCategorias, getUnidades, listProductos, updateProducto, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
@@ -254,19 +254,39 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
     e.preventDefault(); setError(null);
     if (!almacen) { setError('Elegí la sede y el almacén destino.'); return; }
     const payload: LineaCompra[] = [];
+    const medidaUpdates: { id: string; unidad: string }[] = [];   // productos existentes con medida cambiada
+    const nuevasCats = new Set<string>();                          // categorías a registrar en el catálogo
+    const nuevasUnis = new Set<string>();                          // medidas a registrar en el catálogo
+    const tieneUni = (u: string) => unidades.some((x) => x.toLowerCase() === u.toLowerCase());
+    const tieneCat = (c: string) => categorias.some((x) => x.toLowerCase() === c.toLowerCase());
     for (const l of lineas) {
       const cant = Number(l.cantidad) || 0;
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
       if (modo === 'existente') {
         if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
         payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant });
+        // Si tocaron la medida del producto existente, se actualiza en el inventario.
+        const prod = activos.find((p) => p.id === l.productoId);
+        const med = l.unidad.trim();
+        if (prod && med && med.toLowerCase() !== (prod.unidad ?? '').toLowerCase()) {
+          medidaUpdates.push({ id: prod.id, unidad: med });
+          if (!tieneUni(med)) nuevasUnis.add(med);
+        }
       } else {
         if (!l.nombre.trim()) { setError('Indicá el nombre del material nuevo.'); return; }
-        payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: l.categoria, unidad: l.unidad.trim() || 'und', cantidad: cant });
+        const uni = l.unidad.trim() || 'und';
+        const cat = l.categoria.trim();
+        payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: cat, unidad: uni, cantidad: cant });
+        if (cat && !tieneCat(cat)) nuevasCats.add(cat);
+        if (uni && !tieneUni(uni)) nuevasUnis.add(uni);
       }
     }
     setSaving(true);
     try {
+      // Registrar en el catálogo las categorías/medidas nuevas + aplicar cambios de medida (best-effort).
+      for (const c of nuevasCats) { try { await addCategoria(c, actor); } catch { /* duplicado/red: no bloquea */ } }
+      for (const u of nuevasUnis) { try { await addUnidad(u, actor); } catch { /* duplicado/red: no bloquea */ } }
+      for (const u of medidaUpdates) { try { await updateProducto(u.id, { unidad: u.unidad }); } catch { /* no bloquea la compra */ } }
       // Resolver el proveedor: existente elegido, o alta rápida si es nuevo.
       let proveedorId2: string | null = null;
       let proveedorNombre: string | null = null;
@@ -345,18 +365,24 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
             </div>
 
             {modo === 'existente' ? (
-              <div className="form-grid">
+              <>
                 <div className="form-row">
                   <label>Material #{idx + 1}</label>
-                  <SearchSelect value={l.productoId} onChange={(id) => set(l.id, { productoId: id })}
+                  <SearchSelect value={l.productoId}
+                    onChange={(id) => set(l.id, { productoId: id, unidad: activos.find((p) => p.id === id)?.unidad ?? l.unidad })}
                     options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))}
                     placeholder="🔎 Buscá el material…" emptyText="Sin materiales." />
                 </div>
-                <div className="form-row">
-                  <label>Cantidad</label>
-                  <input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
+                <div className="form-grid">
+                  <div className="form-row"><label>Medida / unidad</label>
+                    <SearchSelect allowCreate value={l.unidad} onChange={(v) => set(l.id, { unidad: v })}
+                      options={unidades.map((u) => ({ value: u, label: u }))}
+                      placeholder="🔎 Buscá o escribí una medida…" emptyText="Sin medidas." />
+                    <small className="muted" style={{ fontSize: '.72rem' }}>Si la cambiás, se actualiza la medida del producto en el inventario.</small></div>
+                  <div className="form-row"><label>Cantidad</label>
+                    <input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
-              </div>
+              </>
             ) : (
               <>
                 <div className="form-row">
@@ -366,12 +392,13 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
                 </div>
                 <div className="form-grid">
                   <div className="form-row"><label>Categoría</label>
-                    <select className="select" value={l.categoria} onChange={(e) => set(l.id, { categoria: e.target.value })}>{categorias.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
+                    <SearchSelect allowCreate value={l.categoria} onChange={(v) => set(l.id, { categoria: v.toUpperCase() })}
+                      options={categorias.map((c) => ({ value: c, label: c }))}
+                      placeholder="🔎 Buscá o escribí una categoría…" emptyText="Sin categorías." /></div>
                   <div className="form-row"><label>Medida / unidad</label>
-                    <input className="input mono" list="cd-medidas" value={l.unidad}
-                      onChange={(e) => set(l.id, { unidad: e.target.value })}
-                      placeholder="und, KG, bulto, 1/2''…"
-                      title="Escribí una medida nueva o elegí una de las sugeridas" /></div>
+                    <SearchSelect allowCreate value={l.unidad} onChange={(v) => set(l.id, { unidad: v })}
+                      options={unidades.map((u) => ({ value: u, label: u }))}
+                      placeholder="🔎 Buscá o escribí una medida…" emptyText="Sin medidas." /></div>
                   <div className="form-row"><label>Cantidad</label>
                     <input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
@@ -379,11 +406,6 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
             )}
           </div>
         ))}
-
-        {/* Sugerencias de medidas/unidades del inventario (se puede escribir una nueva). */}
-        <datalist id="cd-medidas">
-          {unidades.map((u) => <option key={u} value={u} />)}
-        </datalist>
 
         <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar material</button>
         <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan precios. El gasto por material y la caja se indican al finalizar.</p>

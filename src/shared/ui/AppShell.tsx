@@ -257,7 +257,12 @@ export function AppShell() {
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
-          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" />}
+          {can('maquinaria') && (
+            <NavGroup icon="🚜" label="Control de Maquinaria y Vehículos" defaultOpen={location.pathname.startsWith('/app/maquinaria')}>
+              <NavItem to="/app/maquinaria" icon="🚜" label="Equipos" />
+              <NavItem to="/app/maquinaria/servicio-mantenimiento" icon="🔧" label="Servicio de Mantenimiento" />
+            </NavGroup>
+          )}
           {(can('acopio') || can('acopio_reporte') || can('acopio_gmt') || can('acopio_peramanal') || can('acopio_esmeralda') || can('acopio_pijiguaos')) && (
             <NavGroup icon="🏭" label="Cajas Centro de Costo" defaultOpen={location.pathname.startsWith('/app/acopio')}>
               {can('acopio_reporte') && <NavItem to="/app/acopio/reporte-preliminar" icon="📅" label="Reporte Preliminar" />}

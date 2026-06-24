@@ -1248,6 +1248,9 @@ create table if not exists public.maquinaria_equipos (
   mantenimiento_cada_hrs numeric,
   -- INTEGRACIÓN COMBUSTIBLE: nombre del equipo en el módulo de Combustible.
   combustible_equipo text,
+  -- Submódulo Servicio de Mantenimiento: clasifica el equipo en un grupo
+  -- (FLOTA PESADA / VEHÍCULOS DE CARGA / PLANTAS ELÉCTRICAS). Texto libre clasificado por la UI.
+  grupo_mantenimiento text,
   doc_fisico boolean not null default false, ficha_mantt boolean not null default false,
   doc_drive boolean not null default false, esp_tecnicas boolean not null default false,
   revision_mina boolean not null default false,
@@ -1256,6 +1259,7 @@ create table if not exists public.maquinaria_equipos (
 );
 create index if not exists idx_maq_equipos_tipo on public.maquinaria_equipos(tipo);
 create index if not exists idx_maq_equipos_status on public.maquinaria_equipos(status);
+create index if not exists idx_maq_equipos_grupo on public.maquinaria_equipos(grupo_mantenimiento);
 
 create table if not exists public.maquinaria_mantenimientos (
   id            uuid primary key default gen_random_uuid(),
@@ -1265,6 +1269,7 @@ create table if not exists public.maquinaria_mantenimientos (
   tipo          text,   -- tipo de mantenimiento (cambio de aceite, cambio de pieza, preventivo…)
   pieza         text,   -- pieza cambiada (cuando tipo = cambio de pieza, ej. motor)
   aceite_lts    numeric, refrigerante_lts numeric, gasoil_lts numeric,
+  filtros_cant  numeric, filtros_tipo text,   -- filtros cambiados: cantidad + tipo (aceite/aire/combustible…)
   trabajo       text, consumibles text, mecanico text, ubicacion text, observacion text,
   created_by    text, actor_name text,
   created_at    timestamptz not null default now()

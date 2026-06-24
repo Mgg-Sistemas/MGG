@@ -23,6 +23,7 @@ export function SearchSelect({
   style,
   id,
   disabled = false,
+  allowCreate = false,
 }: {
   options: SearchOption[];
   value: string;
@@ -32,6 +33,8 @@ export function SearchSelect({
   style?: CSSProperties;
   id?: string;
   disabled?: boolean;
+  /** Si true, permite escribir un valor que no está en la lista y crearlo (combobox creable). */
+  allowCreate?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -47,6 +50,11 @@ export function SearchSelect({
     if (!q) return options;
     return options.filter((o) => o.label.toLowerCase().includes(q));
   }, [options, query]);
+
+  // Opción de "crear" (combobox creable): aparece si lo escrito no calza exacto con una opción.
+  const queryTrim = query.trim();
+  const exactExists = options.some((o) => o.label.toLowerCase() === queryTrim.toLowerCase());
+  const showCreate = allowCreate && queryTrim !== '' && !exactExists;
 
   // Posiciona el desplegable bajo el input (coords de viewport, position: fixed).
   const updateRect = () => {
@@ -98,6 +106,9 @@ export function SearchSelect({
       if (open && filtered[hi]) {
         e.preventDefault();
         pick(filtered[hi].value);
+      } else if (open && showCreate) {
+        e.preventDefault();
+        pick(queryTrim);
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
@@ -112,8 +123,8 @@ export function SearchSelect({
         className="input"
         autoComplete="off"
         disabled={disabled}
-        value={open ? query : (selected?.label ?? '')}
-        placeholder={selected ? selected.label : placeholder}
+        value={open ? query : (selected?.label ?? value ?? '')}
+        placeholder={selected ? selected.label : (value || placeholder)}
         onFocus={() => { if (disabled) return; setOpen(true); setQuery(''); setHi(0); updateRect(); }}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setHi(0); }}
         onKeyDown={onKeyDown}
@@ -129,8 +140,21 @@ export function SearchSelect({
             borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.45)',
           }}
         >
-          {filtered.length === 0 && (
+          {filtered.length === 0 && !showCreate && (
             <div className="muted" style={{ padding: '.5rem .7rem', fontSize: '.85rem' }}>{emptyText}</div>
+          )}
+          {showCreate && (
+            <div
+              role="option"
+              onMouseDown={(e) => { e.preventDefault(); pick(queryTrim); }}
+              style={{
+                padding: '.45rem .7rem', cursor: 'pointer', fontSize: '.9rem',
+                color: 'var(--primary-3, #ff8a00)', fontWeight: 600,
+                borderBottom: filtered.length ? '1px solid var(--border, #2a3240)' : undefined,
+              }}
+            >
+              ➕ Usar «{queryTrim}»
+            </div>
           )}
           {filtered.map((o, i) => (
             <div
