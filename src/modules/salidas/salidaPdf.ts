@@ -5,6 +5,7 @@
    ============================================================ */
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
+import { previewPdfDoc } from '@/shared/lib/reportPreview';
 
 async function nuevoDoc(titulo: string) {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, personas] = await Promise.all([
@@ -54,7 +55,7 @@ export async function descargarSalidaMaterialPdf(mov: Movimiento, esTraslado: bo
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 150 } },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
-  doc.save(`${esTraslado ? 'traslado' : 'salida'}-${(prod?.sku ?? 'material')}-${mov.id.slice(0, 8)}.pdf`);
+  previewPdfDoc(doc, `${esTraslado ? 'traslado' : 'salida'}-${(prod?.sku ?? 'material')}-${mov.id.slice(0, 8)}.pdf`);
 }
 
 /** Igual que el comprobante de salida/traslado pero devuelve el PDF en base64
@@ -119,7 +120,7 @@ export async function descargarSalidaDineroPdf(mov: MovimientoCaja): Promise<voi
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
-  doc.save(`salida-dinero-${mov.id.slice(0, 8)}.pdf`);
+  previewPdfDoc(doc, `salida-dinero-${mov.id.slice(0, 8)}.pdf`);
 }
 
 /** Comprobante de traslado de dinero entre cajas (incluye nota de entrega). */
@@ -140,7 +141,7 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
-  doc.save(`traslado-dinero-${mov.id.slice(0, 8)}.pdf`);
+  previewPdfDoc(doc, `traslado-dinero-${mov.id.slice(0, 8)}.pdf`);
 }
 
 /* ============================================================
@@ -221,10 +222,16 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   ];
   let dy = y;
   doc.setFontSize(9);
+  // El valor se ENVUELVE dentro del margen derecho (antes valores largos como el
+  // vehículo se salían de la hoja): se corta al ancho disponible y avanza por línea.
+  const valX = colDatosX + 108;
+  const valW = PAGE_W - MARGIN - valX;
   datos.forEach(([k, v]) => {
     doc.setFont('helvetica', 'bold'); doc.text(`${k}:`, colDatosX, dy);
-    doc.setFont('helvetica', 'normal'); doc.text(v, colDatosX + 108, dy);
-    dy += 13;
+    doc.setFont('helvetica', 'normal');
+    const lines = doc.splitTextToSize(v, valW);
+    doc.text(lines, valX, dy);
+    dy += Math.max(13, lines.length * 11);
   });
   y = Math.max(y + 38, dy) + 6;
 
@@ -306,5 +313,5 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
 
-  doc.save(`orden-${esTraslado ? 'traslado' : 'salida'}-${sol.codigo}.pdf`);
+  previewPdfDoc(doc, `orden-${esTraslado ? 'traslado' : 'salida'}-${sol.codigo}.pdf`);
 }
