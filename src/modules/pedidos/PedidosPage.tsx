@@ -782,6 +782,7 @@ export function PedidosPage() {
           title={`Cancelar ${modal.orden.codigo}`}
           confirmText="Cancelar orden"
           danger
+          confirmMessage={`¿Seguro que querés cancelar la orden ${modal.orden.codigo}? Esta acción no se puede deshacer.`}
           intro="Cancelar la orden. Útil cuando el cliente solicita cancelar o la empresa desiste del proyecto."
           label="Motivo"
           onClose={() => setModal({ kind: 'none' })}
@@ -831,6 +832,7 @@ export function PedidosPage() {
           title={`Anular OC · ${modal.orden.oc_codigo ?? modal.orden.codigo}`}
           confirmText="Anular OC"
           danger
+          confirmMessage={`¿Seguro que querés anular la OC ${modal.orden.oc_codigo ?? modal.orden.codigo}? Esta acción no se puede deshacer.`}
           intro="La OC pasa a estado ANULADA y no continúa el flujo. No mueve inventario ni caja."
           label="Motivo de la anulación"
           placeholder="Ya no se requiere, error de carga, se reemplaza por otra…"
@@ -3706,6 +3708,8 @@ interface MotivoModalProps {
   intro?: string;
   placeholder?: string;
   danger?: boolean;
+  /** Si se indica, antes de ejecutar muestra un «¿Seguro?» con este mensaje. */
+  confirmMessage?: string;
   onClose: () => void;
   onConfirm: (motivo: string) => void | Promise<void>;
 }
@@ -3716,11 +3720,24 @@ function MotivoModal({
   intro,
   placeholder,
   danger,
+  confirmMessage,
   onClose,
   onConfirm,
 }: MotivoModalProps) {
   const [motivo, setMotivo] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [confirmar, setConfirmar] = useState(false);
+
+  async function ejecutar() {
+    setConfirmar(false);
+    setSubmitting(true);
+    try {
+      await onConfirm(motivo.trim());
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <Modal
       title={title}
@@ -3731,14 +3748,7 @@ function MotivoModal({
           <button
             className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
             disabled={submitting || !motivo.trim()}
-            onClick={async () => {
-              setSubmitting(true);
-              try {
-                await onConfirm(motivo.trim());
-              } finally {
-                setSubmitting(false);
-              }
-            }}
+            onClick={() => { if (confirmMessage) setConfirmar(true); else void ejecutar(); }}
           >
             {confirmText}
           </button>
@@ -3756,6 +3766,16 @@ function MotivoModal({
           required
         />
       </div>
+      {confirmar && (
+        <ConfirmDialog
+          title={title}
+          message={confirmMessage as string}
+          confirmText={confirmText}
+          danger
+          onConfirm={() => void ejecutar()}
+          onCancel={() => setConfirmar(false)}
+        />
+      )}
     </Modal>
   );
 }
