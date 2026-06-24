@@ -30,7 +30,7 @@ export function InventarioFilterbar({ values, categorias, almacenes, onChange }:
     <div className="filterbar">
       <input
         className="search"
-        placeholder="Buscar por SKU o nombre…"
+        placeholder="Buscar: nombre, medida, marca, alias… (ej. clavo media pulgada)"
         value={values.filterText}
         onChange={(e) => onChange('filterText', e.target.value)}
       />

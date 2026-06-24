@@ -101,9 +101,18 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   if (ui.filterStock === 'ok' && p._needsRestock) return false;
   if (ui.filterStock === 'sin_mov' && (p.stock ?? 0) > 0) return false;
   if (q) {
-    const campos = [p.sku, p.nombre, p.nombre_busqueda, p.marca, p.modelo, p.codigo, p.serial, p.numero]
-      .filter(Boolean).map((s) => String(s).toLowerCase());
-    if (!campos.some((c) => c.includes(q))) return false;
+    // Búsqueda por PALABRAS sobre el nombre + todos los datos del «Detalle del producto»
+    // (alias, marca, modelo, fabricante, color, serial, N°, código, presentación,
+    // descripción, ubicación, categoría, unidad). Cada palabra debe aparecer en algún
+    // dato, en cualquier orden: así "clavo media pulgada" cruza el nombre con la medida
+    // anotada en el detalle/alias/descripción.
+    const haystack = [
+      p.sku, p.nombre, p.nombre_busqueda, p.marca, p.modelo, p.fabricante,
+      p.color, p.codigo, p.serial, p.numero, p.presentacion, p.descripcion,
+      p.ubicacion_fisica, p.categoria, p.unidad,
+    ].filter(Boolean).map((s) => String(s).toLowerCase()).join(' ');
+    const tokens = q.split(/\s+/).filter(Boolean);
+    if (!tokens.every((t) => haystack.includes(t))) return false;
   }
   return true;
 }
