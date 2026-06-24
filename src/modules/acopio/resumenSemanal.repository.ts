@@ -134,6 +134,9 @@ export const METRICAS_SECTOR: FuenteExterna[] = [
   { sistema: 'mgg-centro-tasa', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Tasa actual del material $/Kg (LA ESMERALDA ALÍ)' },
   { sistema: 'mgg-centro-saldo', metrica: 'LOS PIJIGUAOS', label: 'Este sistema · Saldo de caja $USD (acopio LOS PIJIGUAOS)' },
   { sistema: 'mgg-centro-tasa', metrica: 'LOS PIJIGUAOS', label: 'Este sistema · Tasa actual del material $/Kg (LOS PIJIGUAOS)' },
+  // PERAMANAL ENDER MEJÍAS — orden pedido: primero la Tasa, luego el Saldo de caja.
+  { sistema: 'mgg-centro-tasa', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Tasa actual del material $/Kg (PERAMANAL ENDER MEJÍAS)' },
+  { sistema: 'mgg-centro-saldo', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Saldo de caja $USD (acopio PERAMANAL ENDER MEJÍAS)' },
   { sistema: 'golden-touch', metrica: 'acopio_saldo_usd', label: 'Golden Touch · Saldo de caja $USD (acopio)' },
   { sistema: 'golden-touch', metrica: 'acopio_tasa_material', label: 'Golden Touch · Tasa del material $/Kg (acopio)' },
 ];
@@ -300,17 +303,6 @@ export function sectoresPorDefecto(): SectorResumen[] {
       centros: [
         // El disponible de GUANERGE = Saldo en Kg de la caja GMT (en vivo).
         { centro: 'C.A. GLOBAL MINERAL TIN - P-MGG08-A GUANERGE', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg-centro-saldokg', metrica: 'GLOBAL MINERAL TIN', label: 'Este sistema · Saldo en Kg (acopio GLOBAL MINERAL TIN)' } },
-      ],
-    },
-    {
-      nombre: 'C.A. LA ESMERALDA (ALÍ)', color: '#fecaca', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
-      // Centro INTERNO con caja propia en ESTE sistema: Saldo $USD y Precio Promedio
-      // del sector = Saldo de caja y Tasa del material de la caja LA ESMERALDA ALI.
-      fuente_saldo: { sistema: 'mgg-centro-saldo', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Saldo de caja $USD (acopio LA ESMERALDA ALÍ)' },
-      fuente_precio: { sistema: 'mgg-centro-tasa', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Tasa actual del material $/Kg (LA ESMERALDA ALÍ)' },
-      centros: [
-        // El disponible de ALÍ = Saldo en Kg de la caja LA ESMERALDA ALI (en vivo).
-        { centro: 'C.A. LA ESMERALDA ALÍ - P-MGG12 - A ALÍ TORREALBA', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg-centro-saldokg', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Saldo en Kg (acopio LA ESMERALDA ALÍ)' } },
       ],
     },
     {

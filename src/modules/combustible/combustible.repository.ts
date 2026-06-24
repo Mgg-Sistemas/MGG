@@ -706,6 +706,11 @@ export async function setEstadoCatalogo(tabla: TablaCatalogo, id: string, estado
   if (error) throw error;
 }
 
+export async function eliminarCatalogo(tabla: TablaCatalogo, id: string): Promise<void> {
+  const { error } = await supabase.from(tabla).delete().eq('id', id);
+  if (error) throw error;
+}
+
 /* ───────────── Movimientos de tanque (botón "Registrar Movimiento") ─────────────
    El tipo define el signo: ingreso/retorno suman litros, consumo/merma restan.
    Si el tanque tiene combustible asignado, se reusa la lógica de inventario

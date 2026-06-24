@@ -429,15 +429,26 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
 
   // Saldo REAL de cada caja desde caja_saldos (lo mismo que descuenta el egreso y muestra
   // Tesorería). Antes el desplegable mostraba el saldo legado de `cajas`, que no se movía.
-  const [saldoReal, setSaldoReal] = useState<Map<string, number>>(new Map());
+  const [saldoReal, setSaldoReal] = useState<Map<string, { saldo: number; moneda: string }>>(new Map());
   useEffect(() => {
     listSaldos().then((rows) => {
-      const m = new Map<string, number>();
+      const m = new Map<string, { saldo: number; moneda: string }>();
       for (const c of cajas) {
-        const s = rows
-          .filter((r) => r.caja_id === c.id && r.moneda === c.moneda)
-          .reduce((a, r) => a + (Number(r.saldo) || 0), 0);
-        m.set(c.id, s);
+        // Agrupa los saldos de la caja por moneda (una caja puede tener varias billeteras).
+        const porMoneda = new Map<string, number>();
+        for (const r of rows) {
+          if (r.caja_id !== c.id) continue;
+          porMoneda.set(r.moneda, (porMoneda.get(r.moneda) ?? 0) + (Number(r.saldo) || 0));
+        }
+        // Prefiere la moneda de la caja; si ahí no hay saldo, usa la moneda con mayor saldo
+        // (evita mostrar 0 cuando la caja tiene el dinero en otra moneda, p. ej. USDT).
+        let moneda: string = c.moneda;
+        let saldo = porMoneda.get(c.moneda) ?? 0;
+        if (saldo === 0 && porMoneda.size) {
+          const mejor = [...porMoneda.entries()].sort((a, b) => b[1] - a[1])[0];
+          moneda = mejor[0]; saldo = mejor[1];
+        }
+        m.set(c.id, { saldo, moneda });
       }
       setSaldoReal(m);
     }).catch(() => { /* sin saldos: cae al saldo legado */ });
@@ -524,7 +535,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
           <label>Caja (de dónde sale el dinero)</label>
           <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required style={{ maxWidth: 320 }}>
             {!cajas.length && <option value="">— sin cajas —</option>}
-            {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(saldoReal.get(c.id) ?? c.saldo, c.moneda)}</option>)}
+            {cajas.map((c) => { const sr = saldoReal.get(c.id); return <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(sr?.saldo ?? c.saldo, sr?.moneda ?? c.moneda)}</option>; })}
           </select>
           <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
           {cajaId && saldosCaja.length > 0 && (

@@ -206,8 +206,13 @@ export function OfertasComparativa({
                         {s.mejorCalidad && <span className="badge info">Mejor calidad</span>}
                       </div>
                       <button
-                        className="btn btn-sm btn-ghost"
-                        style={{ marginTop: '.3rem', padding: '0 .35rem', fontSize: '.78rem' }}
+                        className="btn btn-sm"
+                        style={{
+                          marginTop: '.4rem', padding: '.26rem .7rem', fontSize: '.78rem', fontWeight: 600,
+                          background: 'rgba(255,138,0,.12)', color: 'var(--primary-3, #ff8a00)',
+                          border: '1px solid var(--primary, #ff8a00)', borderRadius: 999,
+                          display: 'inline-flex', alignItems: 'center', gap: '.35rem',
+                        }}
                         onClick={(e) => { e.stopPropagation(); toggleExpand(s.oferta.id); }}
                         title="Ver la comparación BCV vs USD por producto"
                       >
