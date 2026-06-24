@@ -1986,6 +1986,14 @@ function OrdenDetailModal({
     return () => { cancel = true; };
   }, [o.id, o.parent_orden_id, offersReloadKey]);
 
+  // Ítems de la OP madre que TODAVÍA no se asignaron a ninguna sub-OC (lo que falta por
+  // comprar). Mientras queden, la SP madre sigue en "Pendiente (cargar ofertas)".
+  const itemsPendientesAsignar = useMemo(() => {
+    if (!subOcs.length) return [];
+    const cubiertos = new Set(subOcs.flatMap((h) => (h.items ?? []).map((it) => it.sku)));
+    return o.items.filter((it) => it.comprar !== false && !cubiertos.has(it.sku));
+  }, [subOcs, o.items]);
+
   // Marca/desmarca un ítem como "a comprar" en la etapa OP (antes de tener precio).
   // Así una OP con 4 productos puede quedar con solo 2 aprobados para comprar.
   const [togglingSku, setTogglingSku] = useState<string | null>(null);
@@ -2392,6 +2400,19 @@ function OrdenDetailModal({
             </table>
           </div>
           <p className="muted" style={{ fontSize: '.76rem', margin: '.4rem 0 0' }}>Cada sub-OC se confirma, paga y recibe por separado (método de pago por proveedor).</p>
+          {itemsPendientesAsignar.length > 0 && (
+            <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginTop: '.6rem', padding: '.55rem .8rem' }}>
+              <div style={{ fontWeight: 600, marginBottom: '.25rem' }}>⚠️ {itemsPendientesAsignar.length} ítem(s) sin asignar — la SP sigue en «Pendiente (cargar ofertas)»</div>
+              <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '.8rem' }}>
+                {itemsPendientesAsignar.map((it) => (
+                  <li key={it.sku}>{it.nombre}{it.cantidad ? <span className="muted"> · {num(it.cantidad)} {it.unidad ?? ''}</span> : null}</li>
+                ))}
+              </ul>
+              {canManageProcurement && (
+                <button className="btn btn-sm btn-primary" style={{ marginTop: '.5rem' }} onClick={onAsignar}>🧩 Asignar / cargar ofertas de lo que falta</button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
