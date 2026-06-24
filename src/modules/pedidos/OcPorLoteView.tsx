@@ -30,6 +30,7 @@ export function OcPorLoteView() {
   const [confirmModificar, setConfirmModificar] = useState(false);
   const [anularOpen, setAnularOpen] = useState(false);
   const [motivoAnular, setMotivoAnular] = useState('');
+  const [confirmarAnular, setConfirmarAnular] = useState(false);
   const [procesando, setProcesando] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
 
@@ -108,6 +109,7 @@ export function OcPorLoteView() {
     const elegidas = porConfirmar(rows);
     if (!elegidas.length) { toast('No hay órdenes por confirmar seleccionadas', 'error'); return; }
     if (!motivoAnular.trim()) { toast('Indicá el motivo de la anulación', 'error'); return; }
+    setConfirmarAnular(false);
     setProcesando(true);
     try {
       for (const r of elegidas) await anularOrden(r.orden, user?.email ?? 'sistema', motivoAnular.trim());
@@ -219,7 +221,7 @@ export function OcPorLoteView() {
           footer={
             <>
               <button className="btn btn-ghost" onClick={() => { setAnularOpen(false); setMotivoAnular(''); }} disabled={procesando}>Cancelar</button>
-              <button className="btn btn-danger" onClick={anularLote} disabled={procesando || !motivoAnular.trim()}>{procesando ? 'Anulando…' : `Anular ${porConfirmar(rows).length} OC`}</button>
+              <button className="btn btn-danger" onClick={() => { if (motivoAnular.trim()) setConfirmarAnular(true); }} disabled={procesando || !motivoAnular.trim()}>{procesando ? 'Anulando…' : `Anular ${porConfirmar(rows).length} OC`}</button>
             </>
           }
         >
@@ -230,6 +232,16 @@ export function OcPorLoteView() {
             <label>Motivo de la anulación</label>
             <textarea className="input" rows={3} value={motivoAnular} onChange={(e) => setMotivoAnular(e.target.value)} placeholder="Ya no se requiere, error de carga, se reemplaza por otra…" autoFocus />
           </div>
+          {confirmarAnular && (
+            <ConfirmDialog
+              title="Anular órdenes de compra"
+              message={`¿Seguro que querés anular ${porConfirmar(rows).length} OC? Esta acción no se puede deshacer.`}
+              confirmText={`Anular ${porConfirmar(rows).length} OC`}
+              danger
+              onConfirm={() => void anularLote()}
+              onCancel={() => setConfirmarAnular(false)}
+            />
+          )}
         </Modal>
       )}
     </div>

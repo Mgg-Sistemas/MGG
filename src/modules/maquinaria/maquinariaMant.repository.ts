@@ -151,6 +151,39 @@ export function sumarConsumos(rows: MantenimientoMaquinaria[]): ConsumoMant {
   return c;
 }
 
+/** Horómetro del ÚLTIMO servicio de cada ítem (aceite/filtro/combustible) por equipo. */
+export interface UltimoServicio {
+  aceite: number | null;        // horómetro del último registro con aceite_lts > 0
+  filtro: number | null;        // horómetro del último registro con filtros_cant > 0
+  combustible: number | null;   // horómetro del último registro con gasoil_lts > 0
+}
+
+/**
+ * Para el control de ESTADO CRÍTICO: por equipo, el horómetro del último registro
+ * de bitácora en el que se hizo cada ítem (cambió aceite, cambió filtro, cargó
+ * gasoil). Se compara contra el horómetro vigente y el intervalo del equipo para
+ * saber si el servicio está vencido. Una sola consulta, agrupada en memoria.
+ */
+export async function ultimoServicioPorEquipo(): Promise<Map<string, UltimoServicio>> {
+  const { data, error } = await supabase.from(TABLE)
+    .select('equipo_id, horometro, aceite_lts, filtros_cant, gasoil_lts, fecha, created_at')
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const out = new Map<string, UltimoServicio>();
+  // Las filas vienen de nuevo→viejo: el PRIMER registro de cada ítem con valor > 0 es el último servicio.
+  for (const r of (data ?? []) as Array<{ equipo_id: string; horometro: number | null; aceite_lts: number | null; filtros_cant: number | null; gasoil_lts: number | null }>) {
+    const horo = num(r.horometro);
+    if (horo == null) continue;
+    const cur = out.get(r.equipo_id) ?? { aceite: null, filtro: null, combustible: null };
+    if (cur.aceite == null && (num(r.aceite_lts) ?? 0) > 0) cur.aceite = horo;
+    if (cur.filtro == null && (num(r.filtros_cant) ?? 0) > 0) cur.filtro = horo;
+    if (cur.combustible == null && (num(r.gasoil_lts) ?? 0) > 0) cur.combustible = horo;
+    out.set(r.equipo_id, cur);
+  }
+  return out;
+}
+
 /** Resumen del estado de horómetro de un equipo a partir de su bitácora. */
 export interface ResumenHorometro {
   ultimoHorometro: number | null;   // lectura más reciente

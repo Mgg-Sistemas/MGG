@@ -1246,6 +1246,9 @@ create table if not exists public.maquinaria_equipos (
   combustible   text, litros_consume numeric,
   ficha_tecnica text, ficha_mantenimiento text, documentacion text,
   mantenimiento_cada_hrs numeric,
+  -- Intervalos de servicio por ítem (horas de horómetro) para el control de ESTADO CRÍTICO.
+  -- El "último servicio" de cada ítem se deriva de la bitácora (último registro con aceite/filtro/gasoil).
+  aceite_cada_hrs numeric, filtro_cada_hrs numeric, combustible_cada_hrs numeric,
   -- INTEGRACIÓN COMBUSTIBLE: nombre del equipo en el módulo de Combustible.
   combustible_equipo text,
   -- Submódulo Servicio de Mantenimiento: clasifica el equipo en un grupo
@@ -1260,6 +1263,10 @@ create table if not exists public.maquinaria_equipos (
 create index if not exists idx_maq_equipos_tipo on public.maquinaria_equipos(tipo);
 create index if not exists idx_maq_equipos_status on public.maquinaria_equipos(status);
 create index if not exists idx_maq_equipos_grupo on public.maquinaria_equipos(grupo_mantenimiento);
+-- Intervalos de servicio por ítem (control de ESTADO CRÍTICO) para entornos ya creados.
+alter table public.maquinaria_equipos add column if not exists aceite_cada_hrs numeric;
+alter table public.maquinaria_equipos add column if not exists filtro_cada_hrs numeric;
+alter table public.maquinaria_equipos add column if not exists combustible_cada_hrs numeric;
 
 create table if not exists public.maquinaria_mantenimientos (
   id            uuid primary key default gen_random_uuid(),

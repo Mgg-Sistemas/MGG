@@ -32,6 +32,9 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     combustible: equipo?.combustible ?? 'GASOIL',
     litros_consume: equipo?.litros_consume ?? null,
     mantenimiento_cada_hrs: equipo?.mantenimiento_cada_hrs ?? null,
+    aceite_cada_hrs: equipo?.aceite_cada_hrs ?? null,
+    filtro_cada_hrs: equipo?.filtro_cada_hrs ?? null,
+    combustible_cada_hrs: equipo?.combustible_cada_hrs ?? null,
     combustible_equipo: equipo?.combustible_equipo ?? null,
     grupo_mantenimiento: equipo?.grupo_mantenimiento ?? null,
     documentacion: equipo?.documentacion ?? null,
@@ -170,6 +173,25 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
             <label>Mantenimiento cada (hrs)</label>
             <input name="f-mantenimiento_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.mantenimiento_cada_hrs ?? ''} onChange={(e) => set('mantenimiento_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
             <small className="muted">Frecuencia para la alerta de mantenimiento preventivo.</small>
+          </div>
+        </div>
+
+        {/* Intervalos por ítem para el ESTADO CRÍTICO: vencido cuando (horómetro − último servicio) ≥ intervalo. */}
+        <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)', margin: '.25rem 0 .75rem' }}>
+          <small className="muted" style={{ display: 'block', marginBottom: '.4rem' }}>🛢 <strong>Intervalos de servicio</strong> (horas de horómetro). Se marca <strong>crítico</strong> cuando el equipo pasa el intervalo desde su último cambio (registrado en la bitácora).</small>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Aceite cada (hrs)</label>
+              <input name="f-aceite_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.aceite_cada_hrs ?? ''} onChange={(e) => set('aceite_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
+            </div>
+            <div className="form-row">
+              <label>Filtro cada (hrs)</label>
+              <input name="f-filtro_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.filtro_cada_hrs ?? ''} onChange={(e) => set('filtro_cada_hrs', numField(e.target.value))} placeholder="Ej. 500" />
+            </div>
+            <div className="form-row">
+              <label>Combustible cada (hrs)</label>
+              <input name="f-combustible_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.combustible_cada_hrs ?? ''} onChange={(e) => set('combustible_cada_hrs', numField(e.target.value))} placeholder="Ej. 50" />
+            </div>
           </div>
         </div>
 
