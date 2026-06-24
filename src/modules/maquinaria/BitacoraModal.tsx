@@ -4,7 +4,7 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { date as fmtDate, num as fmtNum } from '@/shared/lib/format';
 import {
-  listMantenimientos, addMantenimiento, eliminarMantenimiento, resumenHorometro,
+  listMantenimientos, addMantenimiento, eliminarMantenimiento, resumenHorometro, sumarConsumos,
   type MantenimientoCalc,
 } from './maquinariaMant.repository';
 import { datosCombustibleDeEquipo, type DatosCombustibleEquipo } from './maquinariaEquipos.repository';
@@ -41,11 +41,16 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const [aceite, setAceite] = useState('');
   const [refrigerante, setRefrigerante] = useState('');
   const [gasoil, setGasoil] = useState('');
+  const [filtrosCant, setFiltrosCant] = useState('');
+  const [filtrosTipo, setFiltrosTipo] = useState('');
   const [trabajo, setTrabajo] = useState('');
   const [consumibles, setConsumibles] = useState('');
   const [mecanico, setMecanico] = useState('');
   const [ubicacion, setUbicacion] = useState(equipo.ubicacion ?? '');
   const [saving, setSaving] = useState(false);
+  // Filtro por fechas del detalle (movimientos): acota la tabla y los totales.
+  const [fDesde, setFDesde] = useState('');
+  const [fHasta, setFHasta] = useState('');
 
   const cargar = useCallback(async () => {
     try {
@@ -60,6 +65,12 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   useRealtime(['maquinaria_mantenimientos', 'combustible_tanque_movimientos'], () => { void cargar(); });
 
   const res = useMemo(() => resumenHorometro(rows), [rows]);
+  // Registros acotados por el filtro de fechas (para la tabla y los totales del detalle).
+  const rowsFiltradas = useMemo(
+    () => rows.filter((r) => (!fDesde || r.fecha >= fDesde) && (!fHasta || r.fecha <= fHasta)),
+    [rows, fDesde, fHasta],
+  );
+  const totales = useMemo(() => sumarConsumos(rowsFiltradas), [rowsFiltradas]);
   // Mantenimiento preventivo: horas del último período vs frecuencia del equipo.
   const freq = equipo.mantenimiento_cada_hrs;
   const horasUlt = res.horasUltimo ?? 0;
@@ -80,11 +91,13 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         aceite_lts: aceite === '' ? null : Number(aceite),
         refrigerante_lts: refrigerante === '' ? null : Number(refrigerante),
         gasoil_lts: gasoil === '' ? null : Number(gasoil),
+        filtros_cant: filtrosCant === '' ? null : Number(filtrosCant),
+        filtros_tipo: filtrosTipo || null,
         trabajo: trabajo || null, consumibles: consumibles || null,
         mecanico: mecanico || null, ubicacion: ubicacion || null,
       }, actor, actorName);
       toast('Registro agregado', 'success');
-      setTipo(''); setPieza(''); setHorometro(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
+      setTipo(''); setPieza(''); setHorometro(''); setAceite(''); setRefrigerante(''); setGasoil(''); setFiltrosCant(''); setFiltrosTipo(''); setTrabajo(''); setConsumibles(''); setMecanico('');
       setShowForm(false);
       await cargar();
     } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo agregar', 'error'); }
@@ -160,6 +173,18 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
             <div className="form-row"><label>Gasoil (Lts)</label><input className="input mono" name="bit-gasoil" type="number" step="any" defaultValue={gasoil} onChange={(e) => setGasoil(e.target.value)} /></div>
             <div className="form-row"><label>Mecánico / taller</label><input className="input" name="bit-mecanico" defaultValue={mecanico} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setMecanico(e.target.value); }} /></div>
           </div>
+          <div className="form-grid">
+            <div className="form-row"><label>Filtros (cant.)</label><input className="input mono" name="bit-filtros-cant" type="number" step="any" min={0} defaultValue={filtrosCant} onChange={(e) => setFiltrosCant(e.target.value)} placeholder="0" /></div>
+            <div className="form-row">
+              <label>Tipo de filtro</label>
+              <input className="input" name="bit-filtros-tipo" list="bit-filtros-tipos" defaultValue={filtrosTipo}
+                onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setFiltrosTipo(e.target.value); }}
+                placeholder="ACEITE / AIRE / COMBUSTIBLE / HIDRÁULICO…" />
+              <datalist id="bit-filtros-tipos">
+                {['ACEITE', 'AIRE', 'COMBUSTIBLE', 'HIDRÁULICO', 'REFRIGERANTE', 'SEPARADOR'].map((t) => <option key={t} value={t} />)}
+              </datalist>
+            </div>
+          </div>
           <div className="form-row"><label>Trabajo y/o servicio</label><input className="input" name="bit-trabajo" defaultValue={trabajo} onChange={(e) => setTrabajo(e.target.value)} /></div>
           <div className="form-grid">
             <div className="form-row"><label>Consumibles utilizados</label><input className="input" name="bit-consumibles" defaultValue={consumibles} onChange={(e) => setConsumibles(e.target.value)} /></div>
@@ -171,17 +196,50 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         </form>
       )}
 
+      {/* Filtro por fechas del detalle (movimientos) + totales del rango */}
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.5rem' }}>
+        <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+          Desde <input className="input" type="date" value={fDesde} max={fHasta || undefined} onChange={(e) => setFDesde(e.target.value)} style={{ width: 'auto' }} />
+        </label>
+        <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+          Hasta <input className="input" type="date" value={fHasta} min={fDesde || undefined} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} />
+        </label>
+        {(fDesde || fHasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setFDesde(''); setFHasta(''); }}>✕ Fechas</button>}
+        <span className="muted" style={{ fontSize: '.78rem', marginLeft: 'auto' }}>{rowsFiltradas.length} de {rows.length} registro(s)</span>
+      </div>
+
+      {/* Totales del rango: cuánto se llevó de aceite / gasoil / filtros */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '.5rem', marginBottom: '.6rem' }}>
+        <div className="card" style={{ margin: 0, padding: '.45rem .7rem' }}>
+          <div className="muted" style={{ fontSize: '.66rem' }}>ACEITE (Σ)</div>
+          <div className="mono" style={{ fontSize: '1rem', fontWeight: 700 }}>{fmtNum(totales.aceite)} L</div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.45rem .7rem' }}>
+          <div className="muted" style={{ fontSize: '.66rem' }}>GASOIL (Σ)</div>
+          <div className="mono" style={{ fontSize: '1rem', fontWeight: 700 }}>{fmtNum(totales.gasoil)} L</div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.45rem .7rem' }}>
+          <div className="muted" style={{ fontSize: '.66rem' }}>REFRIGERANTE (Σ)</div>
+          <div className="mono" style={{ fontSize: '1rem', fontWeight: 700 }}>{fmtNum(totales.refrigerante)} L</div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.45rem .7rem' }}>
+          <div className="muted" style={{ fontSize: '.66rem' }}>FILTROS (Σ)</div>
+          <div className="mono" style={{ fontSize: '1rem', fontWeight: 700 }}>{fmtNum(totales.filtros)}</div>
+        </div>
+      </div>
+
       <div className="table-wrap" style={{ maxHeight: 360, overflow: 'auto' }}>
         <table className="table" style={{ fontSize: '.8rem' }}>
           <thead><tr>
             <th>Fecha</th><th>Tipo</th><th style={{ textAlign: 'right' }}>Horómetro</th><th style={{ textAlign: 'right' }}>HRS.</th>
             <th style={{ textAlign: 'right' }}>Aceite</th><th style={{ textAlign: 'right' }}>Gasoil</th><th style={{ textAlign: 'right' }}>Lts/h</th>
+            <th style={{ textAlign: 'right' }}>Filtros</th>
             <th>Trabajo</th><th>Mecánico</th><th>Ubicación</th>{canWrite && <th></th>}
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={canWrite ? 11 : 10} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={canWrite ? 11 : 10} className="muted" style={{ textAlign: 'center' }}>Sin registros.</td></tr>}
-            {rows.map((r) => (
+            {loading && <tr><td colSpan={canWrite ? 12 : 11} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !rowsFiltradas.length && <tr><td colSpan={canWrite ? 12 : 11} className="muted" style={{ textAlign: 'center' }}>{rows.length ? 'Sin registros en el rango de fechas.' : 'Sin registros.'}</td></tr>}
+            {rowsFiltradas.map((r) => (
               <tr key={r.id}>
                 <td>{fmtDate(r.fecha)}</td>
                 <td style={{ fontSize: '.76rem' }}>
@@ -193,6 +251,10 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
                 <td className="mono" style={{ textAlign: 'right' }}>{r.aceite_lts != null ? fmtNum(r.aceite_lts) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.gasoil_lts != null ? fmtNum(r.gasoil_lts) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.consumoLh != null ? fmtNum(r.consumoLh) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>
+                  {r.filtros_cant != null ? fmtNum(r.filtros_cant) : '—'}
+                  {r.filtros_tipo ? <div className="muted" style={{ fontSize: '.68rem' }}>{r.filtros_tipo}</div> : null}
+                </td>
                 <td style={{ fontSize: '.78rem' }}>{r.trabajo || '—'}</td>
                 <td style={{ fontSize: '.78rem' }}>{r.mecanico || '—'}</td>
                 <td style={{ fontSize: '.78rem' }}>{r.ubicacion || '—'}</td>

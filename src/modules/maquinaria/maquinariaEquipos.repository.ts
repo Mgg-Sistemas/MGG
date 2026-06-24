@@ -30,6 +30,8 @@ export interface MaquinariaEquipo {
   documentacion: string | null;
   mantenimiento_cada_hrs: number | null;
   combustible_equipo: string | null;
+  /** Grupo del submódulo Servicio de Mantenimiento (ver GRUPOS_MANTENIMIENTO). */
+  grupo_mantenimiento: string | null;
   doc_fisico: boolean;
   ficha_mantt: boolean;
   doc_drive: boolean;
@@ -43,6 +45,10 @@ export interface MaquinariaEquipo {
 }
 
 export type MaquinariaEquipoInput = Partial<Omit<MaquinariaEquipo, 'id' | 'created_at' | 'updated_at'>> & { equipo: string };
+
+/** Grupos del submódulo Servicio de Mantenimiento (switches). Orden = orden de los switches. */
+export const GRUPOS_MANTENIMIENTO = ['FLOTA PESADA', 'VEHÍCULOS DE CARGA', 'PLANTAS ELÉCTRICAS'] as const;
+export type GrupoMantenimiento = (typeof GRUPOS_MANTENIMIENTO)[number];
 
 const TABLE = 'maquinaria_equipos';
 
@@ -74,6 +80,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
     ficha_tecnica: v(input.ficha_tecnica), ficha_mantenimiento: v(input.ficha_mantenimiento),
     documentacion: v(input.documentacion), mantenimiento_cada_hrs: n(input.mantenimiento_cada_hrs),
     combustible_equipo: v(input.combustible_equipo),
+    grupo_mantenimiento: v(input.grupo_mantenimiento),
     doc_fisico: !!input.doc_fisico, ficha_mantt: !!input.ficha_mantt, doc_drive: !!input.doc_drive,
     esp_tecnicas: !!input.esp_tecnicas, revision_mina: !!input.revision_mina,
     notas: v(input.notas),

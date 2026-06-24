@@ -2912,10 +2912,9 @@ function NuevoServicioModal({ usuario, authEmail, onClose, onCreated }: {
 
       <div className="form-row">
         <label>Unidad solicitante</label>
-        <select className="select" value={unidadSol} onChange={(e) => { setUnidadSol(e.target.value); setNuevaUnidad(''); }}>
-          <option value="">— Elegí la unidad —</option>
-          {unidades.map((u) => <option key={u} value={u}>{u}</option>)}
-        </select>
+        <SearchSelect value={unidadSol} onChange={(v) => { setUnidadSol(v); setNuevaUnidad(''); }}
+          options={unidades.map((u) => ({ value: u, label: u }))}
+          placeholder="🔎 Elegí o buscá la unidad…" emptyText="Sin unidades. Escribí una nueva abajo." />
         <input className="input" style={{ marginTop: '.4rem' }} value={nuevaUnidad}
           onChange={(e) => { setNuevaUnidad(e.target.value.toUpperCase()); if (e.target.value) setUnidadSol(''); }}
           placeholder="¿No está? Escribí una nueva…" />
@@ -2932,18 +2931,16 @@ function NuevoServicioModal({ usuario, authEmail, onClose, onCreated }: {
                 <div className="form-grid">
                   <div className="form-row" style={{ margin: 0 }}>
                     <label style={{ fontSize: '.74rem' }}>Categoría</label>
-                    <select className="select" value={l.categoria} onChange={(e) => setLinea(l.id, { categoria: e.target.value, equipoId: '', tipo: '' })}>
-                      <option value="">— Elegí categoría —</option>
-                      {categorias.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
-                    </select>
+                    <SearchSelect value={l.categoria} onChange={(v) => setLinea(l.id, { categoria: v, equipoId: '', tipo: '' })}
+                      options={categorias.map((c) => ({ value: c.nombre, label: c.nombre }))}
+                      placeholder="🔎 Elegí o buscá categoría…" emptyText="Sin categorías." />
                   </div>
                   {mant ? (
                     <div className="form-row" style={{ margin: 0 }}>
                       <label style={{ fontSize: '.74rem' }}>Equipo (Control de Maquinaria)</label>
-                      <select className="select" value={l.equipoId} onChange={(e) => setLinea(l.id, { equipoId: e.target.value })}>
-                        <option value="">— Elegí el equipo —</option>
-                        {equipos.map((eq) => <option key={eq.id} value={eq.id}>{eq.equipo}{eq.placa ? ` · ${eq.placa}` : ''}</option>)}
-                      </select>
+                      <SearchSelect value={l.equipoId} onChange={(v) => setLinea(l.id, { equipoId: v })}
+                        options={equipos.map((eq) => ({ value: eq.id, label: `${eq.equipo}${eq.placa ? ` · ${eq.placa}` : ''}` }))}
+                        placeholder="🔎 Elegí o buscá el equipo…" emptyText="Sin equipos." />
                     </div>
                   ) : (
                     <div className="form-row" style={{ margin: 0 }}>

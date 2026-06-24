@@ -4,7 +4,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { listActivosMaquinaria } from './maquinaria.repository';
 import { listVehiculos, listCatalogo } from '@/modules/combustible/combustible.repository';
-import { addEquipo, updateEquipo, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
+import { addEquipo, updateEquipo, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
 
 const COMBUSTIBLES = ['GASOIL', 'GASOLINA', 'GAS', 'ELÉCTRICO', 'N/A'];
 
@@ -33,6 +33,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     litros_consume: equipo?.litros_consume ?? null,
     mantenimiento_cada_hrs: equipo?.mantenimiento_cada_hrs ?? null,
     combustible_equipo: equipo?.combustible_equipo ?? null,
+    grupo_mantenimiento: equipo?.grupo_mantenimiento ?? null,
     documentacion: equipo?.documentacion ?? null,
     ficha_tecnica: equipo?.ficha_tecnica ?? null,
     ficha_mantenimiento: equipo?.ficha_mantenimiento ?? null,
@@ -169,6 +170,17 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
             <label>Mantenimiento cada (hrs)</label>
             <input name="f-mantenimiento_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.mantenimiento_cada_hrs ?? ''} onChange={(e) => set('mantenimiento_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
             <small className="muted">Frecuencia para la alerta de mantenimiento preventivo.</small>
+          </div>
+        </div>
+
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Grupo · Servicio de Mantenimiento</label>
+            <select className="select" value={f.grupo_mantenimiento ?? ''} onChange={(e) => set('grupo_mantenimiento', e.target.value || null)}>
+              <option value="">— sin grupo —</option>
+              {GRUPOS_MANTENIMIENTO.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+            <small className="muted">Define bajo qué switch aparece el equipo en el submódulo <strong>Servicio de Mantenimiento</strong>.</small>
           </div>
         </div>
 
