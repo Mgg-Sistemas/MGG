@@ -535,7 +535,7 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
     const total = repEf ? repEf.total : totalBase;
     const ocCodigo = await nextOcCodigo();
     const row = {
-      codigo: `${op.codigo}-P${n}`,
+      codigo: `${op.codigo}-${n}`,
       parent_orden_id: op.id,
       oc_codigo: ocCodigo,
       proveedor_id: a.proveedorId,
