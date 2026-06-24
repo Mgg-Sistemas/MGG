@@ -289,8 +289,8 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // Firma de Leydi Rengel (Salidas/Traslados) sobre la línea de "Autorizado por".
   if (firmaSalidas) {
     try {
-      const sw = 130, sh = 46;
-      doc.addImage(firmaSalidas, 'JPEG', cxAutoriza - sw / 2, fy - sh + 4, sw, sh);
+      const sw = 200, sh = 70;
+      doc.addImage(firmaSalidas, 'JPEG', cxAutoriza - sw / 2, fy - sh + 10, sw, sh);
     } catch { /* firma opcional */ }
   }
   doc.setDrawColor(120); doc.setLineWidth(0.7);
