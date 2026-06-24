@@ -1133,9 +1133,9 @@ export async function finalizarPedido(o: Orden, actorEmail: string, factura?: Fi
   const creditoRecibidoSaldado = o.estado === 'cuenta_abierta' && o.condiciones_pago === 'credito' && !!o.recibida_en && creditoSaldado(o);
   if (o.estado !== 'recibida' && !contraEntregaPagada && !creditoRecibidoSaldado)
     throw new Error('Solo se finaliza una orden ya recibida');
-  // Solo si el soporte de la OC es FACTURA se puede adjuntar la imagen de la factura al finalizar.
+  // Al finalizar se puede adjuntar la factura (opcional, sea cual sea el soporte de la OC).
   let facturaPatch: Record<string, string | null> = {};
-  if (o.comprobante_tipo === 'factura' && factura) {
+  if (factura) {
     const path = await subirAdjuntoOc(o.id, factura, 'factura');
     facturaPatch = { factura_path: path, factura_nombre: factura.name };
   }
