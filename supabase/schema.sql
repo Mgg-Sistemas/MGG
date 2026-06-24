@@ -662,10 +662,13 @@ create policy "comb_ubicaciones write op"  on public.combustible_ubicaciones for
 -- Catálogos de Pedidos (gestionables desde el botón "📒 Categorías"):
 --   scope='clasificacion'        → clasificación del pedido (Producción, Bienes…)
 --   scope='unidad_solicitante'   → unidad/área que solicita (se alimenta sola al crear OP)
+--   scope='servicio_categoria'   → categorías de servicio (recarga de gas, mantenimiento…)
+--   scope='servicio_tipo'        → tipos/servicios específicos (lista extensible)
 create table if not exists public.catalogos_pedido (
   id uuid primary key default gen_random_uuid(),
-  scope text not null check (scope in ('clasificacion','unidad_solicitante')),
+  scope text not null check (scope in ('clasificacion','unidad_solicitante','servicio_categoria','servicio_tipo')),
   nombre text not null,
+  categoria text,                 -- (servicio_tipo) categoría a la que pertenece, opcional
   estado text not null default 'activo' check (estado in ('activo','inactivo')),
   created_by text, created_at timestamptz not null default now(), updated_at timestamptz
 );
@@ -677,6 +680,12 @@ create policy "cat_pedido write op"  on public.catalogos_pedido for all using (p
 insert into public.catalogos_pedido (scope, nombre)
 select 'clasificacion', v from (values ('Producción'),('Bienes'),('Servicios'),('Papelería')) as t(v)
 where not exists (select 1 from public.catalogos_pedido c where c.scope='clasificacion' and lower(c.nombre)=lower(t.v));
+-- Categorías de servicio por defecto.
+insert into public.catalogos_pedido (scope, nombre)
+select 'servicio_categoria', v from (values
+  ('RECARGA DE GAS'),('RECARGA DE OXÍGENO'),('MANTENIMIENTO DE MAQUINARIA'),('RECARGA DE EXTINTORES')
+) as t(v)
+where not exists (select 1 from public.catalogos_pedido c where c.scope='servicio_categoria' and lower(c.nombre)=lower(t.v));
 
 -- Movimientos de tanque (botón "Registrar Movimiento"). El tipo define el signo:
 --   ingreso / retorno → suman litros al tanque · consumo / merma → restan.
@@ -1428,6 +1437,9 @@ alter table public.tasa_cambio drop constraint if exists tasa_cambio_moneda_chec
 alter type public.estado_orden add value if not exists 'finalizada';
 alter type public.estado_orden add value if not exists 'anulada';
 alter table public.ordenes add column if not exists oc_codigo       text;
+-- clase: 'producto' (compra normal) | 'servicio' (recarga de gas, mantenimiento…). Los
+-- servicios usan correlativo SV y no tocan inventario al recibir (sus items no tienen productoId).
+alter table public.ordenes add column if not exists clase           text not null default 'producto';
 alter table public.ordenes add column if not exists oc_emitida_por  text;
 alter table public.ordenes add column if not exists oc_emitida_en   timestamptz;
 alter table public.ordenes add column if not exists oc_creada_por   text;

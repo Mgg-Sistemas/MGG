@@ -126,6 +126,23 @@ export async function nextCodigo(): Promise<string> {
   return `${prefix}${String(max + 1).padStart(4, '0')}`;
 }
 
+/** Próximo correlativo de SERVICIO: SV-AAAA-NNNN (independiente de los SP de productos). */
+export async function nextCodigoServicio(): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `SV-${year}-`;
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('codigo')
+    .like('codigo', `${prefix}%`);
+  if (error) throw error;
+  let max = 0;
+  for (const r of data ?? []) {
+    const m = /^SV-\d{4}-(\d{4})$/.exec(String(r.codigo ?? ''));
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`;
+}
+
 export interface CrearOrdenInput {
   proveedor_id: string | null;
   items: ItemOrden[];
@@ -137,6 +154,8 @@ export interface CrearOrdenInput {
   solicitante: string | null;
   ci_solicitante: string | null;
   urgente?: boolean;
+  /** 'servicio' usa correlativo SV y no toca inventario al recibir. Falta = 'producto'. */
+  clase?: 'producto' | 'servicio';
 }
 
 /**
@@ -179,7 +198,8 @@ export async function ultimaOrdenMercado(): Promise<Orden | null> {
 }
 
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
-  const codigo = await nextCodigo();
+  const esServicio = input.clase === 'servicio';
+  const codigo = esServicio ? await nextCodigoServicio() : await nextCodigo();
   const total = input.items.reduce((a, i) => a + i.cantidad * i.precio, 0);
   const urgente = !!input.urgente;
   const historial: EventoHistorial[] = [
@@ -203,6 +223,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     motivo: input.motivo?.trim() || null,
     finalidad: input.finalidad?.trim() || null,
     clasificacion: input.clasificacion?.length ? input.clasificacion : null,
+    clase: esServicio ? 'servicio' : 'producto',
     urgente,
     historial,
   };
@@ -1591,7 +1612,7 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
    scope 'clasificacion' = clasificación del pedido
    scope 'unidad_solicitante' = unidad/área que solicita
    ───────────────────────────────────────────── */
-export type ScopeCatalogoPedido = 'clasificacion' | 'unidad_solicitante';
+export type ScopeCatalogoPedido = 'clasificacion' | 'unidad_solicitante' | 'servicio_categoria' | 'servicio_tipo';
 export interface CatalogoPedido {
   id: string;
   scope: ScopeCatalogoPedido;

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -49,6 +49,7 @@ import {
   listProveedoresActivos,
   listProveedores,
   nextCodigo,
+  nextCodigoServicio,
   recibirOrdenParcial,
   enviarCreditoARecepcion,
   listAbonos,
@@ -76,6 +77,7 @@ import { createProducto, getUnidades, siguienteSku } from '@/modules/inventario/
 import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
@@ -95,7 +97,7 @@ import { OcPorLoteView } from './OcPorLoteView';
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
 type ViewMode = 'kanban' | 'lista';
-type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote';
+type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote' | 'servicio';
 
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
 const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
@@ -118,6 +120,22 @@ const KANBAN_COLS_OC: { key: EstadoOrden; label: string }[] = [
   { key: 'finalizada', label: 'Finalizada' },
   { key: 'anulada', label: 'Anulada' },
   { key: 'desistida_proveedor', label: 'Proveedor desistió' },
+];
+
+// Servicios (clase='servicio'): comparten el ciclo completo de una OC, pero viven en su
+// propia pestaña. El kanban cubre todo el flujo para que nada quede oculto.
+const KANBAN_COLS_SERVICIO: { key: EstadoOrden; label: string }[] = [
+  { key: 'pendiente', label: 'Solicitado' },
+  { key: 'aprobada', label: 'Aprobado (cotizar)' },
+  { key: 'oc_creada', label: 'Pendiente por aprobación' },
+  { key: 'cuenta_abierta', label: 'Crédito / cuenta abierta' },
+  { key: 'confirmada_metodo', label: 'Confirmado (método de pago)' },
+  { key: 'oc_aprobada', label: 'Confirmado pagar' },
+  { key: 'por_recibir', label: 'Pendiente por realizar' },
+  { key: 'pagada', label: 'Pagado' },
+  { key: 'recibida', label: 'Servicio realizado' },
+  { key: 'finalizada', label: 'Finalizado' },
+  { key: 'cancelada', label: 'Cancelado' },
 ];
 
 // Etiqueta y clase visual de cada evento del historial (igual al demo).
@@ -175,6 +193,7 @@ type ModalKind =
   | { kind: 'none' }
   | { kind: 'detail'; ordenId: string }
   | { kind: 'create'; mercado?: boolean }
+  | { kind: 'create-servicio' }
   | { kind: 'edit'; orden: Orden }
   | { kind: 'edit-oc'; orden: Orden }
   | { kind: 'asignar'; orden: Orden }
@@ -350,6 +369,9 @@ export function PedidosPage() {
   const filteredOrdenes = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     return ordenes.filter((o) => {
+      // La pestaña de Servicios muestra solo clase='servicio'; el resto, solo productos.
+      const esServicio = o.clase === 'servicio';
+      if (scope === 'servicio' ? !esServicio : esServicio) return false;
       if (viewMode === 'lista' && filterEstado && o.estado !== filterEstado) return false;
       if (q) {
         const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined;
@@ -366,7 +388,7 @@ export function PedidosPage() {
       }
       return true;
     });
-  }, [ordenes, filterText, filterEstado, viewMode, proveedorMap]);
+  }, [ordenes, filterText, filterEstado, viewMode, proveedorMap, scope]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -386,7 +408,7 @@ export function PedidosPage() {
     }
   }
 
-  const kanbanCols = scope === 'oc' ? KANBAN_COLS_OC : KANBAN_COLS_PEDIDOS;
+  const kanbanCols = scope === 'oc' ? KANBAN_COLS_OC : scope === 'servicio' ? KANBAN_COLS_SERVICIO : KANBAN_COLS_PEDIDOS;
 
   const currentDetail =
     modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
@@ -395,7 +417,7 @@ export function PedidosPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'oc_lote' ? 'OC por lote' : 'Órdenes'}</h1>
+          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicio' ? 'Servicios' : 'Órdenes'}</h1>
           <p className="muted">
             {scope === 'oc'
               ? 'Seguimiento del ciclo de compras: emisión de OC, recepción y finalización del pedido.'
@@ -421,12 +443,21 @@ export function PedidosPage() {
               >
                 📒 Categorías
               </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => setModal({ kind: 'create' })}
-              >
-                + Nueva orden
-              </button>
+              {scope === 'servicio' ? (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setModal({ kind: 'create-servicio' })}
+                >
+                  + Nuevo servicio
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setModal({ kind: 'create' })}
+                >
+                  + Nueva orden
+                </button>
+              )}
             </>
           )}
         </div>
@@ -484,6 +515,13 @@ export function PedidosPage() {
             title="Compras sin proveedor"
           >
             🛒 Compra Directa
+          </button>
+          <button
+            className={scope === 'servicio' ? 'active' : ''}
+            onClick={() => switchScope('servicio')}
+            title="Solicitudes de servicio (recarga de gas, mantenimiento de maquinaria…)"
+          >
+            🛠 Servicios
           </button>
         </div>
       )}
@@ -643,6 +681,16 @@ export function PedidosPage() {
             await refresh();
             await loadAlertas();
           }}
+        />
+      )}
+
+      {/* Modal: nuevo servicio (clase='servicio') */}
+      {modal.kind === 'create-servicio' && (
+        <NuevoServicioModal
+          usuario={usuario}
+          authEmail={user?.email ?? ''}
+          onClose={() => setModal({ kind: 'none' })}
+          onCreated={async () => { setModal({ kind: 'none' }); await refresh(); }}
         />
       )}
 
@@ -2759,6 +2807,194 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   );
 }
 
+/* ───────────── Nuevo Servicio (clase='servicio') ───────────── */
+interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; precio: string; }
+
+/** Detecta la categoría "mantenimiento de maquinaria" (se casa con un equipo). */
+function esMantenimientoMaquinaria(cat: string): boolean {
+  return /maquinaria/i.test(cat);
+}
+
+function NuevoServicioModal({ usuario, authEmail, onClose, onCreated }: {
+  usuario: Usuario | null; authEmail: string; onClose: () => void; onCreated: () => void | Promise<void>;
+}) {
+  const [codigo, setCodigo] = useState('SV-…');
+  const [categorias, setCategorias] = useState<CatalogoPedido[]>([]);
+  const [tipos, setTipos] = useState<CatalogoPedido[]>([]);
+  const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+  const [unidades, setUnidades] = useState<string[]>([]);
+  const [unidadSol, setUnidadSol] = useState('');
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [nota, setNota] = useState('');
+  const [lineas, setLineas] = useState<LineaServicio[]>([{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '' }]);
+  const [seq, setSeq] = useState(2);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    nextCodigoServicio().then(setCodigo).catch(() => setCodigo('SV-?'));
+    listCatalogoPedido('servicio_categoria', true).then(setCategorias).catch(() => { /* sin catálogo */ });
+    listCatalogoPedido('servicio_tipo', true).then(setTipos).catch(() => { /* sin catálogo */ });
+    listEquipos().then(setEquipos).catch(() => setEquipos([]));
+    listCatalogoPedido('unidad_solicitante', true).then((u) => setUnidades(u.map((x) => x.nombre))).catch(() => { /* sin catálogo */ });
+  }, []);
+
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '' }]); setSeq((s) => s + 1); };
+  const setLinea = (id: number, patch: Partial<Omit<LineaServicio, 'id'>>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  const delLinea = (id: number) => setLineas((ls) => ls.filter((l) => l.id !== id));
+
+  const total = lineas.reduce((a, l) => a + (Number(l.cantidad) || 0) * (Number(l.precio) || 0), 0);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    const unidad = (nuevaUnidad.trim() || unidadSol).trim().toUpperCase();
+    if (!unidad) { setError('Indicá la unidad solicitante.'); return; }
+
+    const items: ItemOrden[] = [];
+    const tiposNuevos: string[] = [];
+    for (const l of lineas) {
+      const cat = l.categoria.trim();
+      if (!cat) continue;
+      const cant = Number(l.cantidad) || 0;
+      if (cant <= 0) { setError('Cada servicio debe tener cantidad mayor que 0.'); return; }
+      const precio = Number(l.precio) || 0;
+      if (esMantenimientoMaquinaria(cat)) {
+        const eq = equipos.find((x) => x.id === l.equipoId);
+        if (!eq) { setError(`Elegí el equipo de "${cat}".`); return; }
+        const desc = l.tipo.trim();
+        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${eq.equipo}${desc ? ` · ${desc}` : ''}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, equipo_id: eq.id, equipo_nombre: eq.equipo, comprar: true });
+      } else {
+        const tipo = l.tipo.trim();
+        if (!tipo) { setError(`Indicá el servicio de "${cat}".`); return; }
+        items.push({ sku: `SRV-${items.length + 1}`, nombre: tipo.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, comprar: true });
+        if (!tipos.some((t) => t.nombre.toLowerCase() === tipo.toLowerCase())) tiposNuevos.push(tipo.toUpperCase());
+      }
+    }
+    if (!items.length) { setError('Agregá al menos un servicio con su categoría.'); return; }
+
+    setSaving(true);
+    try {
+      for (const t of Array.from(new Set(tiposNuevos))) {
+        try { await crearCatalogoPedido('servicio_tipo', t, authEmail); } catch { /* duplicado: no bloquea */ }
+      }
+      try { await ensureUnidadSolicitante(unidad, authEmail); } catch { /* ya existe */ }
+      await crearOrden({
+        clase: 'servicio',
+        proveedor_id: null,
+        items,
+        solicitante_email: authEmail,
+        solicitante: unidad,
+        ci_solicitante: usuario?.ci ?? null,
+        notas: nota.trim() || null,
+        clasificacion: ['Servicios'],
+      });
+      toast(`Servicio ${codigo} creado`, 'success');
+      await onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo crear el servicio.');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title={`Nuevo servicio · ${codigo}`} size="lg" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={(e) => void submit(e as unknown as FormEvent)} disabled={saving}>
+          {saving ? 'Creando…' : '🛠 Crear servicio'}
+        </button>
+      </>
+    }>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+        Mismo flujo que una Solicitud de Pedido pero para <strong>servicios</strong> (recarga de gas, oxígeno,
+        mantenimiento de maquinaria, recarga de extintores…). Correlativo <strong className="mono">{codigo}</strong>. Luego se aprueba,
+        se cotiza y se paga como cualquier OC. <strong>Mantenimiento de maquinaria</strong> se casa con un equipo de Control de Maquinaria.
+      </p>
+
+      <div className="form-row">
+        <label>Unidad solicitante</label>
+        <select className="select" value={unidadSol} onChange={(e) => { setUnidadSol(e.target.value); setNuevaUnidad(''); }}>
+          <option value="">— Elegí la unidad —</option>
+          {unidades.map((u) => <option key={u} value={u}>{u}</option>)}
+        </select>
+        <input className="input" style={{ marginTop: '.4rem' }} value={nuevaUnidad}
+          onChange={(e) => { setNuevaUnidad(e.target.value.toUpperCase()); if (e.target.value) setUnidadSol(''); }}
+          placeholder="¿No está? Escribí una nueva…" />
+        <small className="muted" style={{ fontSize: '.72rem' }}>La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
+      </div>
+
+      <div className="form-row">
+        <label>Servicios</label>
+        <div style={{ display: 'grid', gap: '.5rem' }}>
+          {lineas.map((l) => {
+            const mant = esMantenimientoMaquinaria(l.categoria);
+            return (
+              <div key={l.id} className="card" style={{ margin: 0, padding: '.6rem' }}>
+                <div className="form-grid">
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '.74rem' }}>Categoría</label>
+                    <select className="select" value={l.categoria} onChange={(e) => setLinea(l.id, { categoria: e.target.value, equipoId: '', tipo: '' })}>
+                      <option value="">— Elegí categoría —</option>
+                      {categorias.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+                    </select>
+                  </div>
+                  {mant ? (
+                    <div className="form-row" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '.74rem' }}>Equipo (Control de Maquinaria)</label>
+                      <select className="select" value={l.equipoId} onChange={(e) => setLinea(l.id, { equipoId: e.target.value })}>
+                        <option value="">— Elegí el equipo —</option>
+                        {equipos.map((eq) => <option key={eq.id} value={eq.id}>{eq.equipo}{eq.placa ? ` · ${eq.placa}` : ''}</option>)}
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="form-row" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '.74rem' }}>Servicio</label>
+                      <input className="input" list={`servicio-tipos-${l.id}`} value={l.tipo}
+                        onChange={(e) => setLinea(l.id, { tipo: e.target.value.toUpperCase() })}
+                        placeholder="Elegí o escribí uno nuevo…" disabled={!l.categoria} />
+                      <datalist id={`servicio-tipos-${l.id}`}>
+                        {tipos.map((t) => <option key={t.id} value={t.nombre} />)}
+                      </datalist>
+                    </div>
+                  )}
+                </div>
+                {mant && (
+                  <div className="form-row" style={{ marginTop: '.4rem' }}>
+                    <label style={{ fontSize: '.74rem' }}>Descripción del mantenimiento (opcional)</label>
+                    <input className="input" value={l.tipo} onChange={(e) => setLinea(l.id, { tipo: e.target.value.toUpperCase() })}
+                      placeholder="Cambio de aceite, reparación de…" />
+                  </div>
+                )}
+                <div className="form-grid" style={{ marginTop: '.4rem', alignItems: 'end' }}>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '.74rem' }}>Cantidad</label>
+                    <input className="input mono" type="number" min={0} step="any" value={l.cantidad} onChange={(e) => setLinea(l.id, { cantidad: e.target.value })} />
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '.74rem' }}>Precio estimado (USD, opcional)</label>
+                    <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLinea(l.id)}>✕ Quitar</button>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={addLinea}>+ Agregar servicio</button>
+      </div>
+
+      <div className="form-row">
+        <label>Nota (opcional)</label>
+        <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Detalle / referencia del servicio…" />
+      </div>
+
+      {total > 0 && <div className="muted" style={{ textAlign: 'right', fontSize: '.85rem' }}>Total estimado: <strong className="mono">{money(total)}</strong></div>}
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginTop: '.5rem' }}><strong>Error:</strong> {error}</div>}
+    </Modal>
+  );
+}
+
 interface CrearOrdenModalProps {
   productos: Producto[];
   usuario: Usuario | null;
@@ -3326,6 +3562,8 @@ function CrearOrdenModal({
    ───────────────────────────────────────────── */
 const CATALOGO_TABS: { key: ScopeCatalogoPedido; label: string; singular: string; placeholder: string }[] = [
   { key: 'unidad_solicitante', label: 'Unidad solicitante', singular: 'unidad solicitante', placeholder: 'Gerencia, Taller, Mina…' },
+  { key: 'servicio_categoria', label: 'Categorías de servicio', singular: 'categoría de servicio', placeholder: 'Recarga de gas, Mantenimiento…' },
+  { key: 'servicio_tipo', label: 'Tipos de servicio', singular: 'tipo de servicio', placeholder: 'Recarga 20kg, Cambio de aceite…' },
 ];
 
 function CatalogoPedidosModal({ actor, onClose }: { actor: string; onClose: () => void }) {
