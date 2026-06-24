@@ -72,6 +72,8 @@ import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesH
 import { descargarReportePdf, type ReporteMeta } from './reportePdf';
 import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
 import { descargarResumenPorPagarPdf } from './ordenesPorPagarPdf';
+import { descargarResumenCreditosPdf } from './cuentasCreditoPdf';
+import { descargarResumenPorCobrarPdf } from './cuentasPorCobrarPdf';
 import { descargarLibroMayorMonedaPdf } from './libroMayorPdf';
 import { ChatOC } from '@/modules/pedidos/ChatOC';
 import { noLeidosPorOrden } from '@/modules/pedidos/ocChat.repository';
@@ -4430,6 +4432,12 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
       {vista === 'manual' && <CuentasPorPagarManualPanel cajas={cajas} actor={actor} actorName={actorName} onChanged={onChanged} />}
 
       {vista === 'oc' && (<>
+      <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
+        <button className="btn btn-sm btn-ghost" disabled={!ordenes.length}
+          onClick={() => descargarResumenCreditosPdf(ordenes).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+          ↓ Resumen PDF
+        </button>
+      </div>
       {loading && <p className="muted">Cargando…</p>}
       {!loading && !ordenes.length && <p className="muted" style={{ textAlign: 'center' }}>No hay compras a crédito con cuenta abierta. 🎉</p>}
       {!loading && ordenes.length > 0 && (
@@ -5149,6 +5157,13 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
       <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
         Deudas hacia la empresa (clientes, proveedores y <strong>centros de costo</strong>; cada <strong>traspaso de dinero</strong> a un centro genera una cuenta por cobrar <strong>incremental</strong>). Se saldan con <strong>abonos en dinero</strong> (entran a la caja) o <strong>en producto al cambio</strong> (entra al inventario y su valor abona la deuda).
       </p>
+
+      <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
+        <button className="btn btn-sm btn-ghost" disabled={!lista.length}
+          onClick={() => descargarResumenPorCobrarPdf(lista).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+          ↓ Resumen PDF
+        </button>
+      </div>
 
       {/* Alta manual de una cuenta por cobrar */}
       <div className="card" style={{ padding: '.6rem .7rem', marginBottom: '.7rem' }}>
