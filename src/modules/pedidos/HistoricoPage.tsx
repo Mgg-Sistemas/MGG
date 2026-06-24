@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
-import { dateTime, money } from '@/shared/lib/format';
+import { Modal } from '@/shared/ui/Modal';
+import { toast } from '@/shared/ui/Toast';
+import { dateTime, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
 import { listOrdenes, listProveedoresActivos } from './pedidos.repository';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
+import { descargarDetallePedidoPdf } from './historicoPedidoPdf';
+import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 
 type FechaCampo = 'created_at' | 'aprobada_en' | 'oc_emitida_en' | 'finalizada_en';
 
@@ -42,6 +46,7 @@ export function HistoricoPage() {
   const [hasta, setHasta] = useState('');
   const [sortDesc, setSortDesc] = useState(true);
   const [demandaOpen, setDemandaOpen] = useState(false);
+  const [detalle, setDetalle] = useState<Orden | null>(null);   // pedido abierto en el modal de detalle
 
   const reload = useCallback(async () => {
     try {
@@ -251,7 +256,7 @@ export function HistoricoPage() {
               {filtered.map((o) => {
                 const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : null;
                 return (
-                  <tr key={o.id}>
+                  <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setDetalle(o)} title="Ver detalle e imprimir PDF">
                     <td className="mono"><strong>{o.codigo}</strong></td>
                     <td className="mono">
                       {o.oc_codigo
@@ -279,6 +284,99 @@ export function HistoricoPage() {
       {demandaOpen && (
         <MaterialesDemandaModal ordenes={ordenes} onClose={() => setDemandaOpen(false)} />
       )}
+
+      {detalle && (
+        <PedidoDetalleModal
+          orden={detalle}
+          proveedorNombre={detalle.proveedor_id ? (proveedorMap.get(detalle.proveedor_id)?.razon_social ?? null) : null}
+          onClose={() => setDetalle(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Detalle de un pedido/compra (solo lectura) con impresión a PDF (vista previa). */
+function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
+  orden: Orden; proveedorNombre: string | null; onClose: () => void;
+}) {
+  const items = orden.items ?? [];
+  const fila = (k: string, v: ReactNode) => (
+    <div style={{ display: 'flex', gap: '.5rem', fontSize: '.85rem' }}>
+      <span className="muted" style={{ minWidth: 130 }}>{k}</span>
+      <span style={{ fontWeight: 500 }}>{v}</span>
+    </div>
+  );
+  const motivo = (orden.motivo ?? orden.finalidad ?? '').trim();
+  const notas = (orden.notas ?? '').trim();
+
+  return (
+    <Modal
+      title={`Pedido ${orden.codigo}${orden.oc_codigo ? ` · OC ${orden.oc_codigo}` : ''}`}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+          {orden.oc_codigo && (
+            <button className="btn btn-ghost"
+              onClick={() => descargarOrdenCompraPdf(orden.id).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+              📄 PDF Orden de Compra
+            </button>
+          )}
+          <button className="btn btn-primary"
+            onClick={() => descargarDetallePedidoPdf(orden, proveedorNombre).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+            🖨 Imprimir PDF
+          </button>
+        </div>
+      }
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginBottom: '.8rem' }}>
+        <StatusBadge estado={orden.estado} />
+        <span className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{money(orden.total)}</span>
+      </div>
+
+      <div className="card" style={{ padding: '.7rem .85rem', marginBottom: '.8rem', display: 'grid', gap: '.3rem' }}>
+        {fila('Solicitante', orden.solicitante ?? orden.solicitante_email ?? '—')}
+        {fila('Proveedor', proveedorNombre || '—')}
+        {(orden.clasificacion ?? []).length > 0 && fila('Clasificación', (orden.clasificacion ?? []).join(', '))}
+        {orden.condiciones_pago && fila('Condición de pago', orden.condiciones_pago)}
+        {orden.almacen_destino && fila('Almacén destino', orden.almacen_destino)}
+        {fila('Fecha solicitud', dateTime(orden.created_at))}
+        {orden.aprobada_en && fila('Aprobada', dateTime(orden.aprobada_en))}
+        {orden.oc_emitida_en && fila('OC emitida', dateTime(orden.oc_emitida_en))}
+        {orden.finalizada_en && fila('Finalizada', dateTime(orden.finalizada_en))}
+      </div>
+
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.84rem' }}>
+          <thead><tr>
+            <th>SKU</th><th>Producto</th>
+            <th style={{ textAlign: 'right' }}>Cantidad</th>
+            <th style={{ textAlign: 'right' }}>Precio</th>
+            <th style={{ textAlign: 'right' }}>Subtotal</th>
+          </tr></thead>
+          <tbody>
+            {!items.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin items</td></tr>}
+            {items.map((it, i) => (
+              <tr key={`${it.sku}-${i}`}>
+                <td className="mono" style={{ fontSize: '.78rem' }}>{it.sku ?? '—'}</td>
+                <td>{it.nombre ?? '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{money(it.precio)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot><tr>
+            <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL</td>
+            <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(orden.total)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+
+      {motivo && <div style={{ marginTop: '.8rem' }}><div className="muted" style={{ fontSize: '.78rem' }}>Motivo / finalidad</div><div style={{ fontSize: '.85rem' }}>{motivo}</div></div>}
+      {notas && <div style={{ marginTop: '.6rem' }}><div className="muted" style={{ fontSize: '.78rem' }}>Notas</div><div style={{ fontSize: '.85rem' }}>{notas}</div></div>}
+    </Modal>
   );
 }
