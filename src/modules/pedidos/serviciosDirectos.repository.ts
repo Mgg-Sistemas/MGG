@@ -24,8 +24,16 @@ export interface ServicioDirectoItem {
   equipo_nombre: string | null;
   descripcion: string;          // nombre del renglón (categoría · equipo · tipo)
   cantidad: number;
+  /** Recarga (gas / oxígeno / extintores): nº de bombonas y KG a recargar. */
+  bombonas?: number | null;
+  kg_recarga?: number | null;
   /** Monto del renglón (se carga al finalizar). */
   gasto?: number | null;
+}
+
+/** ¿La categoría es de recarga (gas / oxígeno / extintores)? → pide bombonas + KG. */
+export function esRecargaGas(cat: string): boolean {
+  return /gas|ox[ií]geno|extintor|bombona/i.test(cat);
 }
 
 export interface ServicioDirecto {
@@ -87,6 +95,8 @@ export interface LineaServicioInput {
   equipoId?: string | null;
   equipoNombre?: string | null;
   cantidad: number;
+  bombonas?: number | null;
+  kgRecarga?: number | null;
 }
 
 export interface CrearServicioDirectoInput {
@@ -107,11 +117,17 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
     const cat = l.servicioCategoria.trim().toUpperCase();
     const tipo = (l.servicioTipo ?? '').trim().toUpperCase() || null;
     const eq = (l.equipoNombre ?? '').trim() || null;
-    const desc = [cat, eq, tipo].filter(Boolean).join(' · ');
+    const recarga = esRecargaGas(cat);
+    const bombonas = recarga ? (l.bombonas ?? null) : null;
+    const kg = recarga ? (l.kgRecarga ?? null) : null;
+    // La descripción incluye bombonas/KG para que se vea en tarjetas, Tesorería y PDF.
+    const extra = recarga ? [bombonas != null ? `${bombonas} bombona(s)` : '', kg != null ? `${kg} KG` : ''].filter(Boolean).join(' · ') : '';
+    const desc = [cat, eq, tipo].filter(Boolean).join(' · ') + (extra ? ` · ${extra}` : '');
     return {
       servicio_categoria: cat, servicio_tipo: tipo,
       equipo_id: l.equipoId ?? null, equipo_nombre: eq,
       descripcion: desc, cantidad: Number(l.cantidad) || 0,
+      bombonas, kg_recarga: kg,
     };
   });
 
