@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { date as fmtDate, num as fmtNum } from '@/shared/lib/format';
@@ -17,17 +18,29 @@ const SERVICIO_ESTADO_LABEL: Record<string, string> = {
   cuenta_abierta: 'Crédito / cuenta abierta', confirmada_metodo: 'Confirmado (método de pago)',
   oc_aprobada: 'Confirmado pagar', por_recibir: 'Pendiente por realizar', pagada: 'Pagado',
   recibida: 'Servicio realizado', finalizada: 'Finalizado', cancelada: 'Cancelado', anulada: 'Anulado',
+  en_proceso: '🔧 Servicio directo · en proceso',
 };
 
-/** Tipos de mantenimiento (trazabilidad estructurada). */
-const TIPOS_MANT = [
-  'Cambio de aceite',
-  'Cambio de pieza',
-  'Mantenimiento preventivo',
-  'Mantenimiento correctivo',
-  'Reparación',
-  'Inspección',
-  'Otro',
+/** Tipos de mantenimiento — misma lista curada (con íconos) que «Tipo de servicio» en Pedidos. */
+const TIPOS_MANT: { value: string; label: string }[] = [
+  { value: 'CAMBIO DE ACEITE', label: '🛢️ Cambio de aceite' },
+  { value: 'CAMBIO DE FILTRO', label: '🧯 Cambio de filtro' },
+  { value: 'CAMBIO DE CAUCHOS / NEUMÁTICOS', label: '🛞 Cambio de cauchos / neumáticos' },
+  { value: 'REPUESTOS', label: '🛠️ Repuestos' },
+  { value: 'CAMBIO DE PIEZA', label: '⚙️ Cambio de pieza' },
+  { value: 'PINTURA / LATONERÍA', label: '🎨 Pintura / latonería' },
+  { value: 'FRENOS', label: '🛑 Frenos' },
+  { value: 'BATERÍA', label: '🔋 Batería' },
+  { value: 'SISTEMA ELÉCTRICO', label: '💡 Sistema eléctrico' },
+  { value: 'SISTEMA HIDRÁULICO', label: '💧 Sistema hidráulico' },
+  { value: 'SOLDADURA', label: '🔥 Soldadura' },
+  { value: 'ENGRASE / LUBRICACIÓN', label: '🧴 Engrase / lubricación' },
+  { value: 'REFRIGERANTE', label: '❄️ Refrigerante' },
+  { value: 'SERVICIO / PREVENTIVO', label: '🔧 Servicio / preventivo' },
+  { value: 'REPARACIÓN', label: '🛠️ Reparación' },
+  { value: 'INSPECCIÓN', label: '🔍 Inspección' },
+  { value: 'LECTURA DE HORÓMETRO', label: '⏱️ Lectura de horómetro' },
+  { value: 'OTRO', label: '• Otro' },
 ];
 
 export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
@@ -84,7 +97,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
     } finally { setLoading(false); }
   }, [equipo.id, equipo.combustible_equipo]);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes'], () => { void cargar(); });
+  useRealtime(['maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes', 'servicios_directos'], () => { void cargar(); });
 
   const res = useMemo(() => resumenHorometro(rows), [rows]);
   // Registros acotados por el filtro de fechas (para la tabla y los totales del detalle).
@@ -109,7 +122,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
-    if (tipo === 'Cambio de pieza' && !pieza.trim()) { toast('Indicá qué pieza se cambió (ej: MOTOR).', 'error'); return; }
+    if (tipo === 'CAMBIO DE PIEZA' && !pieza.trim()) { toast('Indicá qué pieza se cambió (ej: MOTOR).', 'error'); return; }
     setSaving(true);
     try {
       await addMantenimiento({
@@ -252,14 +265,13 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
           <div className="form-grid">
             <div className="form-row">
               <label>Tipo de mantenimiento</label>
-              <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value)}>
-                <option value="">— elegir —</option>
-                {TIPOS_MANT.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <SearchSelect value={tipo} onChange={setTipo} allowCreate
+                options={TIPOS_MANT}
+                placeholder="🔎 Elegí el tipo (caucho, repuesto, aceite, pintura…)" emptyText="Escribí uno nuevo." />
             </div>
             <div className="form-row">
-              <label>{tipo === 'Cambio de pieza' ? 'Pieza cambiada *' : 'Pieza / repuesto'}</label>
-              <input className="input" name="bit-pieza" placeholder={tipo === 'Cambio de pieza' ? 'Ej: MOTOR, BOMBA, ALTERNADOR…' : 'Opcional'}
+              <label>{tipo === 'CAMBIO DE PIEZA' ? 'Pieza cambiada *' : 'Pieza / repuesto'}</label>
+              <input className="input" name="bit-pieza" placeholder={tipo === 'CAMBIO DE PIEZA' ? 'Ej: MOTOR, BOMBA, ALTERNADOR…' : 'Opcional'}
                 value={pieza} onChange={(e) => setPieza(e.target.value.toUpperCase())} />
             </div>
           </div>

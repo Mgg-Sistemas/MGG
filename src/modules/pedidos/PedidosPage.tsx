@@ -87,6 +87,7 @@ import { AgregarOfertaModal } from './AgregarOfertaModal';
 // (al generar) para no cargar jsPDF al abrir Pedidos.
 import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
 import { CompraDirectaView } from './CompraDirectaView';
+import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
 
 /* ============================================================
@@ -98,7 +99,7 @@ import { OcPorLoteView } from './OcPorLoteView';
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
 type ViewMode = 'kanban' | 'lista';
-type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote' | 'servicio';
+type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote' | 'servicio' | 'servicio_directo';
 
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
 const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
@@ -418,7 +419,7 @@ export function PedidosPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicio' ? 'Servicios' : 'Órdenes'}</h1>
+          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'servicio_directo' ? 'Servicio Directo' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicio' ? 'Servicios' : 'Órdenes'}</h1>
           <p className="muted">
             {scope === 'oc'
               ? 'Seguimiento del ciclo de compras: emisión de OC, recepción y finalización del pedido.'
@@ -435,7 +436,7 @@ export function PedidosPage() {
           <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
             ⌕ Histórico
           </Link>
-          {scope !== 'compra_directa' && scope !== 'oc_lote' && (
+          {scope !== 'compra_directa' && scope !== 'oc_lote' && scope !== 'servicio_directo' && (
             <>
               <button
                 className="btn btn-ghost"
@@ -524,6 +525,13 @@ export function PedidosPage() {
           >
             🛠 Servicios
           </button>
+          <button
+            className={scope === 'servicio_directo' ? 'active' : ''}
+            onClick={() => switchScope('servicio_directo')}
+            title="Servicio sin solicitud previa: cargás la factura y el monto (paga por Tesorería, casa con Maquinaria)"
+          >
+            🔧 Servicio Directo
+          </button>
         </div>
       )}
 
@@ -537,6 +545,11 @@ export function PedidosPage() {
         <OcPorLoteView />
       ) : scope === 'compra_directa' ? (
         <CompraDirectaView
+          actor={usuario?.email ?? user?.email ?? 'sistema'}
+          actorName={usuario?.nombre ?? null}
+        />
+      ) : scope === 'servicio_directo' ? (
+        <ServicioDirectoView
           actor={usuario?.email ?? user?.email ?? 'sistema'}
           actorName={usuario?.nombre ?? null}
         />

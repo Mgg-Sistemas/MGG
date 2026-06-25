@@ -17,6 +17,7 @@ const SERVICIO_ESTADO_LABEL: Record<string, string> = {
   cuenta_abierta: 'Crédito / cuenta abierta', confirmada_metodo: 'Confirmado (método de pago)',
   oc_aprobada: 'Confirmado pagar', por_recibir: 'Pendiente por realizar', pagada: 'Pagado',
   recibida: 'Servicio realizado', finalizada: 'Finalizado', cancelada: 'Cancelado', anulada: 'Anulado',
+  en_proceso: '🔧 Servicio directo · en proceso',
 };
 const estadoServicioLabel = (e: string) => SERVICIO_ESTADO_LABEL[e] ?? e;
 
@@ -91,7 +92,7 @@ export function ServicioMantenimientoPage() {
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes'], () => { void cargar(); });
+  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes', 'servicios_directos'], () => { void cargar(); });
 
   // Horómetro vigente + HRS restantes por equipo (igual que en Control de Maquinaria).
   const infoEquipo = useMemo(() => {
