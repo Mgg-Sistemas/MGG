@@ -778,6 +778,27 @@ export async function horometrosVigentesPorEquipo(): Promise<Map<string, number>
   return out;
 }
 
+/**
+ * Kilometraje VIGENTE de cada equipo (último km registrado en Combustible), en un
+ * solo viaje. Map<nombreEquipo, km>. Lo usa Control de Maquinaria para las alertas
+ * de mantenimiento por kilometraje.
+ */
+export async function kilometrajesVigentesPorEquipo(): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('equipo, kilometraje_final, fecha')
+    .not('kilometraje_final', 'is', null)
+    .order('fecha', { ascending: false });
+  if (error) throw error;
+  const out = new Map<string, number>();
+  for (const r of (data ?? []) as Array<{ equipo: string | null; kilometraje_final: number | null }>) {
+    const eq = (r.equipo ?? '').trim();
+    if (!eq || r.kilometraje_final == null) continue;
+    if (!out.has(eq)) out.set(eq, Number(r.kilometraje_final)); // desc por fecha: el primero es el vigente
+  }
+  return out;
+}
+
 /** Último contador global (totalizador del surtidor) registrado para un tanque. */
 export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {
   if (!tanqueId) return null;
@@ -803,6 +824,7 @@ export async function crearTanqueMovimiento(input: {
   fecha?: string | null;
   horometroInicial?: number | null;
   horometroFinal?: number | null;
+  kilometrajeFinal?: number | null;
   contadorIni?: number | null;
   contadorFin?: number | null;
   equipo?: string | null;
@@ -865,6 +887,7 @@ export async function crearTanqueMovimiento(input: {
     fecha: input.fecha ?? new Date().toISOString(),
     litros, litros_antes: litrosAntes, litros_despues: Math.max(0, litrosDespues),
     horometro_inicial: input.horometroInicial ?? null, horometro_final: input.horometroFinal ?? null,
+    kilometraje_final: input.kilometrajeFinal ?? null,
     contador_global_ini: input.contadorIni ?? null, contador_global_fin: input.contadorFin ?? null,
     equipo: input.equipo?.trim() || null, autorizado_por: input.autorizadoPor?.trim() || null,
     destino: input.destino?.trim() || null, observacion: input.observacion?.trim() || null,

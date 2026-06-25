@@ -32,6 +32,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     combustible: equipo?.combustible ?? 'GASOIL',
     litros_consume: equipo?.litros_consume ?? null,
     mantenimiento_cada_hrs: equipo?.mantenimiento_cada_hrs ?? null,
+    alerta_km: equipo?.alerta_km ?? null,
+    alerta_horometro: equipo?.alerta_horometro ?? null,
     aceite_cada_hrs: equipo?.aceite_cada_hrs ?? null,
     filtro_cada_hrs: equipo?.filtro_cada_hrs ?? null,
     combustible_cada_hrs: equipo?.combustible_cada_hrs ?? null,
@@ -173,6 +175,21 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
             <label>Mantenimiento cada (hrs)</label>
             <input name="f-mantenimiento_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.mantenimiento_cada_hrs ?? ''} onChange={(e) => set('mantenimiento_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
             <small className="muted">Frecuencia para la alerta de mantenimiento preventivo.</small>
+          </div>
+        </div>
+
+        {/* Alerta por KILOMETRAJE: el usuario fija el objetivo; la lectura vigente sale de Combustible. */}
+        <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)', margin: '.25rem 0 .75rem' }}>
+          <small className="muted" style={{ display: 'block', marginBottom: '.4rem' }}>🛣️ <strong>Alerta por kilometraje / horómetro objetivo</strong>. Al acercarse, salta una tarjeta en Equipos. La lectura vigente se toma de <strong>Combustible</strong> (el km y el horómetro se cargan ahí).</small>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Alerta a los (km)</label>
+              <input name="f-alerta_km" className="input mono" type="number" step="any" defaultValue={f.alerta_km ?? ''} onChange={(e) => set('alerta_km', numField(e.target.value))} placeholder="Ej. 50000" />
+            </div>
+            <div className="form-row">
+              <label>Alerta al horómetro (hrs)</label>
+              <input name="f-alerta_horometro" className="input mono" type="number" step="any" defaultValue={f.alerta_horometro ?? ''} onChange={(e) => set('alerta_horometro', numField(e.target.value))} placeholder="Opcional" />
+            </div>
           </div>
         </div>
 

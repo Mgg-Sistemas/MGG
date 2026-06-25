@@ -699,6 +699,7 @@ create table if not exists public.combustible_tanque_movimientos (
   litros numeric not null check (litros > 0),
   litros_antes numeric, litros_despues numeric,
   horometro_inicial numeric, horometro_final numeric,  -- por equipo: el HF pasa a ser el HI del próximo movimiento del mismo equipo
+  kilometraje_final numeric,  -- lectura de odómetro (km) del equipo en este movimiento (vehículos)
   contador_global_ini numeric, contador_global_fin numeric,  -- totalizador del surtidor (por tanque): el fin pasa a ser el ini del próximo movimiento del tanque
   equipo text,            -- vehículo/máquina (combustible_vehiculos)
   autorizado_por text,    -- combustible_autorizados
@@ -1246,6 +1247,9 @@ create table if not exists public.maquinaria_equipos (
   combustible   text, litros_consume numeric,
   ficha_tecnica text, ficha_mantenimiento text, documentacion text,
   mantenimiento_cada_hrs numeric,
+  -- Nivel de DISPARO de alerta (objetivo) que el usuario fija en la ficha del equipo.
+  -- Las lecturas (horómetro/km vigente) se toman de Combustible; al acercarse, salta tarjeta en Equipos.
+  alerta_km numeric, alerta_horometro numeric,
   -- Intervalos de servicio por ítem (horas de horómetro) para el control de ESTADO CRÍTICO.
   -- El "último servicio" de cada ítem se deriva de la bitácora (último registro con aceite/filtro/gasoil).
   aceite_cada_hrs numeric, filtro_cada_hrs numeric, combustible_cada_hrs numeric,
@@ -1273,6 +1277,8 @@ create table if not exists public.maquinaria_mantenimientos (
   equipo_id     uuid not null references public.maquinaria_equipos(id) on delete cascade,
   fecha         date not null default current_date,
   horometro     numeric,
+  kilometraje   numeric,   -- lectura del odómetro (km) en este registro (vehículos)
+  alerta_km     numeric,   -- km objetivo de aviso: al acercarse, salta alerta en Servicio de Mantenimiento
   tipo          text,   -- tipo de mantenimiento (cambio de aceite, cambio de pieza, preventivo…)
   pieza         text,   -- pieza cambiada (cuando tipo = cambio de pieza, ej. motor)
   aceite_lts    numeric, refrigerante_lts numeric, gasoil_lts numeric,

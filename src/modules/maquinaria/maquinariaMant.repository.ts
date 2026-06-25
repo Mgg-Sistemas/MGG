@@ -20,6 +20,10 @@ export interface MantenimientoMaquinaria {
   equipo_id: string;
   fecha: string;
   horometro: number | null;
+  /** Lectura del odómetro (km) en este registro. */
+  kilometraje: number | null;
+  /** Km objetivo de aviso: al acercarse, salta alerta en Servicio de Mantenimiento. */
+  alerta_km: number | null;
   tipo: string | null;
   pieza: string | null;
   aceite_lts: number | null;
@@ -100,6 +104,8 @@ function sanitize(input: MantenimientoInput): Record<string, unknown> {
     equipo_id: input.equipo_id,
     fecha: input.fecha || new Date().toISOString().slice(0, 10),
     horometro: num(input.horometro),
+    kilometraje: num(input.kilometraje),
+    alerta_km: num(input.alerta_km),
     tipo: v(input.tipo), pieza: v(input.pieza),
     aceite_lts: num(input.aceite_lts),
     refrigerante_lts: num(input.refrigerante_lts),
@@ -224,6 +230,37 @@ export async function ultimoServicioPorEquipo(): Promise<Map<string, UltimoServi
     if (cur.aceite == null && (num(r.aceite_lts) ?? 0) > 0) cur.aceite = horo;
     if (cur.filtro == null && (num(r.filtros_cant) ?? 0) > 0) cur.filtro = horo;
     if (cur.combustible == null && (num(r.gasoil_lts) ?? 0) > 0) cur.combustible = horo;
+    out.set(r.equipo_id, cur);
+  }
+  return out;
+}
+
+/** Kilometraje vigente (última lectura) + km de alerta (último indicado) por equipo. */
+export interface KmAlertaEquipo {
+  km: number | null;        // última lectura de odómetro registrada
+  alertaKm: number | null;  // km objetivo de aviso (el último indicado en bitácora)
+  fecha: string | null;     // fecha de la última lectura
+}
+
+/**
+ * Por equipo: la última lectura de kilometraje y el último km de alerta indicado en
+ * la bitácora. Sirve para avisar en Servicio de Mantenimiento cuando un equipo está
+ * cerca (o ya superó) el kilometraje objetivo. Una sola consulta, agrupada en memoria.
+ */
+export async function kilometrajeAlertaPorEquipo(): Promise<Map<string, KmAlertaEquipo>> {
+  const { data, error } = await supabase.from(TABLE)
+    .select('equipo_id, kilometraje, alerta_km, fecha, created_at')
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const out = new Map<string, KmAlertaEquipo>();
+  // Filas de nuevo→viejo: el PRIMER valor no nulo de cada campo es el vigente.
+  for (const r of (data ?? []) as Array<{ equipo_id: string; kilometraje: number | null; alerta_km: number | null; fecha: string | null }>) {
+    const km = num(r.kilometraje);
+    const al = num(r.alerta_km);
+    const cur = out.get(r.equipo_id) ?? { km: null, alertaKm: null, fecha: null };
+    if (cur.km == null && km != null) { cur.km = km; cur.fecha = r.fecha ?? null; }
+    if (cur.alertaKm == null && al != null) cur.alertaKm = al;
     out.set(r.equipo_id, cur);
   }
   return out;

@@ -7,9 +7,9 @@ import { useSession } from '@/modules/auth/authStore';
 import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMantenimientoModal } from './ResumenMantenimientoModal';
-import { listEquipos, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type GrupoMantenimiento } from './maquinariaEquipos.repository';
+import { listEquipos, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
-import { horometrosVigentesPorEquipo } from '@/modules/combustible/combustible.repository';
+import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo } from '@/modules/combustible/combustible.repository';
 
 /** Etiqueta del estado de un servicio (alineada con la pestaña Servicios de Pedidos). */
 const SERVICIO_ESTADO_LABEL: Record<string, string> = {
@@ -27,12 +27,18 @@ const STATUS_COLOR: Record<string, string> = {
 
 /** Umbral de alerta: si faltan ≤ 250 HRS para el próximo mantenimiento, se avisa. */
 const UMBRAL_ALERTA_HRS = 250;
+/** Umbral de alerta por kilometraje: si faltan ≤ 1.000 km para el objetivo indicado, se avisa. */
+const UMBRAL_ALERTA_KM = 1000;
+
+/** Pestaña virtual: equipos sin grupo asignado que YA tienen solicitudes de servicio. */
+const TAB_CON_SOLICITUDES = 'CON SOLICITUDES';
 
 /** Ícono de cada switch (grupo). */
 const GRUPO_ICON: Record<string, string> = {
   'FLOTA PESADA': '🚜',
   'VEHÍCULOS DE CARGA': '🚚',
   'PLANTAS ELÉCTRICAS': '⚡',
+  [TAB_CON_SOLICITUDES]: '🧾',
 };
 
 /**
@@ -61,24 +67,27 @@ export function ServicioMantenimientoPage() {
   const [horometros, setHorometros] = useState<Map<string, number>>(new Map());
   const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map());
   const [solMap, setSolMap] = useState<Map<string, SolicitudServicioEquipo[]>>(new Map());
+  const [kmMap, setKmMap] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
-  const [grupo, setGrupo] = useState<GrupoMantenimiento>(GRUPOS_MANTENIMIENTO[0]);
+  const [grupo, setGrupo] = useState<string>(GRUPOS_MANTENIMIENTO[0]);
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
   const [resumenOpen, setResumenOpen] = useState(false);
   const [solDe, setSolDe] = useState<MaquinariaEquipo | null>(null);
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, bit, sol] = await Promise.all([
+      const [eqs, horos, bit, sol, km] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
         solicitudesServicioPorEquipo().catch(() => new Map<string, SolicitudServicioEquipo[]>()),
+        kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>()),
       ]);
       setEquipos(eqs);
       setHorometros(horos);
       setBitMap(bit);
       setSolMap(sol);
+      setKmMap(km);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -109,7 +118,32 @@ export function ServicioMantenimientoPage() {
     return { m, sinGrupo };
   }, [equipos]);
 
-  const lista = porGrupo.m.get(grupo) ?? [];
+  // Equipos SIN grupo asignado pero que YA tienen solicitudes de servicio: se muestran
+  // igual en la pestaña «CON SOLICITUDES» para que ninguna solicitud quede invisible.
+  const conSolicitudesSinGrupo = useMemo(() => {
+    return equipos.filter((e) => {
+      const g = (e.grupo_mantenimiento ?? '').trim();
+      const sinGrupo = !g || !GRUPOS_MANTENIMIENTO.includes(g as never);
+      return sinGrupo && (solMap.get(e.id)?.length ?? 0) > 0;
+    });
+  }, [equipos, solMap]);
+
+  const lista = grupo === TAB_CON_SOLICITUDES ? conSolicitudesSinGrupo : (porGrupo.m.get(grupo) ?? []);
+
+  // Equipos próximos a mantenimiento POR KILOMETRAJE: tienen km de alerta indicado y la
+  // última lectura está a ≤ UMBRAL_ALERTA_KM del objetivo (o ya lo superaron). Se listan
+  // en TODOS los grupos (la flota completa), no solo el switch activo.
+  const proximosKm = useMemo(() => {
+    const out: Array<{ equipo: MaquinariaEquipo; km: number; alertaKm: number; faltan: number }> = [];
+    for (const e of equipos) {
+      if (e.alerta_km == null) continue;
+      const km = e.combustible_equipo ? kmMap.get(e.combustible_equipo.trim()) : undefined;
+      if (km == null) continue;
+      const faltan = Math.round(Number(e.alerta_km) - km);
+      if (faltan <= UMBRAL_ALERTA_KM) out.push({ equipo: e, km, alertaKm: Number(e.alerta_km), faltan });
+    }
+    return out.sort((a, b) => a.faltan - b.faltan);
+  }, [equipos, kmMap]);
   const enAlerta = lista.filter((e) => e.activo && infoEquipo.get(e.id)?.alerta);
 
   return (
@@ -133,17 +167,48 @@ export function ServicioMantenimientoPage() {
             {GRUPO_ICON[g] ?? '🔧'} {g} <span className="badge" style={{ marginLeft: '.35rem' }}>{porGrupo.m.get(g)?.length ?? 0}</span>
           </button>
         ))}
+        {conSolicitudesSinGrupo.length > 0 && (
+          <button role="tab" aria-selected={grupo === TAB_CON_SOLICITUDES} className={grupo === TAB_CON_SOLICITUDES ? 'active' : ''} onClick={() => setGrupo(TAB_CON_SOLICITUDES)}
+            title="Equipos con solicitudes de servicio que aún no tienen grupo asignado">
+            {GRUPO_ICON[TAB_CON_SOLICITUDES]} {TAB_CON_SOLICITUDES} <span className="badge" style={{ marginLeft: '.35rem', color: 'var(--warning)', borderColor: 'var(--warning)' }}>{conSolicitudesSinGrupo.length}</span>
+          </button>
+        )}
       </div>
 
-      {porGrupo.sinGrupo > 0 && (
+      {porGrupo.sinGrupo > 0 && grupo !== TAB_CON_SOLICITUDES && (
         <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.6rem' }}>
-          ℹ️ {porGrupo.sinGrupo} equipo(s) sin grupo asignado — clasificálos en su ficha (Control de Maquinaria → ✎ → «Grupo · Servicio de Mantenimiento») para que aparezcan acá.
+          ℹ️ {porGrupo.sinGrupo} equipo(s) sin grupo asignado — clasificálos en su ficha (Control de Maquinaria → ✎ → «Grupo · Servicio de Mantenimiento»). Los que ya tienen una solicitud de servicio aparecen en la pestaña <strong>🧾 {TAB_CON_SOLICITUDES}</strong>.
+        </div>
+      )}
+      {grupo === TAB_CON_SOLICITUDES && (
+        <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.6rem' }}>
+          🧾 Equipos con <strong>solicitudes de servicio</strong> que todavía no tienen grupo asignado. Asignáles grupo en su ficha para que entren a su flota; igual podés llevarles la bitácora desde acá.
         </div>
       )}
 
       {enAlerta.length > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
           ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
+        </div>
+      )}
+
+      {/* Próximos a mantenimiento por KILOMETRAJE (km de alerta indicado en la bitácora). */}
+      {proximosKm.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.6rem .85rem' }}>
+          <div style={{ fontWeight: 700, marginBottom: '.35rem' }}>🛣️ Próximos a Mantenimiento según kilometraje</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+            {proximosKm.map(({ equipo, km, alertaKm, faltan }) => (
+              <div key={equipo.id} style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', alignItems: 'baseline', fontSize: '.85rem' }}>
+                <strong>{equipo.equipo}</strong>
+                <span className="mono muted">{fmtNum(km)} / {fmtNum(alertaKm)} km</span>
+                {faltan < 0
+                  ? <span className="badge" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}>⚠️ superó por {fmtNum(Math.abs(faltan))} km</span>
+                  : faltan === 0
+                    ? <span className="badge" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}>⚠️ alcanzó el objetivo</span>
+                    : <span className="badge" style={{ color: 'var(--warning)', borderColor: 'var(--warning)' }}>faltan {fmtNum(faltan)} km</span>}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -11,6 +11,14 @@ import {
 import { datosCombustibleDeEquipo, type DatosCombustibleEquipo } from './maquinariaEquipos.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
+/** Etiqueta del estado de un servicio (alineada con Servicio de Mantenimiento / Pedidos). */
+const SERVICIO_ESTADO_LABEL: Record<string, string> = {
+  pendiente: 'Solicitado', aprobada: 'Aprobado (cotizar)', oc_creada: 'Pendiente por aprobación',
+  cuenta_abierta: 'Crédito / cuenta abierta', confirmada_metodo: 'Confirmado (método de pago)',
+  oc_aprobada: 'Confirmado pagar', por_recibir: 'Pendiente por realizar', pagada: 'Pagado',
+  recibida: 'Servicio realizado', finalizada: 'Finalizado', cancelada: 'Cancelado', anulada: 'Anulado',
+};
+
 /** Tipos de mantenimiento (trazabilidad estructurada). */
 const TIPOS_MANT = [
   'Cambio de aceite',
@@ -40,6 +48,8 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const [tipo, setTipo] = useState('');
   const [pieza, setPieza] = useState('');
   const [horometro, setHorometro] = useState('');
+  // Kilometraje (odómetro) leído en este registro. El NIVEL de alerta se fija en la ficha del equipo.
+  const [kilometraje, setKilometraje] = useState('');
   const [aceite, setAceite] = useState('');
   const [refrigerante, setRefrigerante] = useState('');
   const [gasoil, setGasoil] = useState('');
@@ -91,6 +101,11 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const alerta = freq != null && freq > 0 && horasUlt >= freq;
   // Horómetro vigente: prioriza el de Combustible (vínculo), si no el de la bitácora.
   const horometroVigente = comb?.horometro ?? res.ultimoHorometro;
+  // Kilometraje vigente (última lectura) + km de alerta (último indicado). rows: nuevo→viejo.
+  const kmVigente = rows.find((r) => r.kilometraje != null)?.kilometraje ?? null;
+  const alertaKmVigente = equipo.alerta_km ?? null;  // nivel de disparo fijado en la ficha
+  const faltanKm = kmVigente != null && alertaKmVigente != null ? Math.round(alertaKmVigente - kmVigente) : null;
+  const alertaKmDispara = faltanKm != null && faltanKm <= 1000;
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
@@ -102,6 +117,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         tipo: tipo || null,
         pieza: tipo === 'Cambio de pieza' ? (pieza || null) : (pieza || null),
         horometro: horometro === '' ? null : Number(horometro),
+        kilometraje: kilometraje === '' ? null : Number(kilometraje),
         aceite_lts: aceite === '' ? null : Number(aceite),
         refrigerante_lts: refrigerante === '' ? null : Number(refrigerante),
         gasoil_lts: gasoil === '' ? null : Number(gasoil),
@@ -117,7 +133,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         mecanico: mecanico || null, ubicacion: ubicacion || null,
       }, actor, actorName);
       toast('Registro agregado', 'success');
-      setTipo(''); setPieza(''); setHorometro(''); setAceite(''); setRefrigerante(''); setGasoil(''); setFiltrosCant(''); setFiltrosTipo(''); setTrabajo(''); setConsumibles(''); setMecanico(''); setInsumos([]); setSolicitudId(''); setCantidadColocada('');
+      setTipo(''); setPieza(''); setHorometro(''); setKilometraje(''); setAceite(''); setRefrigerante(''); setGasoil(''); setFiltrosCant(''); setFiltrosTipo(''); setTrabajo(''); setConsumibles(''); setMecanico(''); setInsumos([]); setSolicitudId(''); setCantidadColocada('');
       setShowForm(false);
       await cargar();
     } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo agregar', 'error'); }
@@ -140,6 +156,11 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{horometroVigente != null ? fmtNum(horometroVigente) : '—'}</div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
+          <div className="muted" style={{ fontSize: '.68rem' }}>KILOMETRAJE VIGENTE</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{kmVigente != null ? `${fmtNum(kmVigente)} km` : '—'}</div>
+          {alertaKmVigente != null && <div className="muted" style={{ fontSize: '.66rem' }}>⚠️ alerta {fmtNum(alertaKmVigente)} km</div>}
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>HRS. ÚLTIMO PERÍODO</div>
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{res.horasUltimo != null ? fmtNum(res.horasUltimo) : '—'}</div>
         </div>
@@ -159,6 +180,35 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         </div>
       )}
 
+      {alertaKmDispara && (
+        <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.75rem', padding: '.55rem .85rem' }}>
+          🛣️ <strong>Alerta de kilometraje:</strong> va en <strong>{fmtNum(kmVigente!)} km</strong> y el objetivo es <strong>{fmtNum(alertaKmVigente!)} km</strong> ·{' '}
+          {faltanKm! < 0 ? <span style={{ color: 'var(--danger)' }}>lo superó por {fmtNum(Math.abs(faltanKm!))} km</span> : faltanKm === 0 ? <span style={{ color: 'var(--danger)' }}>alcanzó el objetivo</span> : <>faltan <strong>{fmtNum(faltanKm!)} km</strong></>}.
+        </div>
+      )}
+
+      {/* Solicitudes de servicio casadas a este equipo (vienen de Pedidos → Servicios). */}
+      {solicitudes.length > 0 && (
+        <div className="card" style={{ marginBottom: '.75rem', padding: '.6rem .85rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>
+            <span>🔧 Solicitudes de servicio de este equipo <span className="badge" style={{ marginLeft: '.3rem' }}>{solicitudes.length}</span></span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+            {solicitudes.map((s) => (
+              <div key={`${s.id}-${s.equipo_id}`} style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', alignItems: 'baseline', fontSize: '.82rem', opacity: s.abierta ? 1 : 0.6 }}>
+                <span className="mono">{s.codigo}</span>
+                <span className="badge" style={s.abierta ? { color: 'var(--warning)', borderColor: 'var(--warning)' } : undefined}>{SERVICIO_ESTADO_LABEL[s.estado] ?? s.estado}</span>
+                <span className="muted">{fmtDate(s.created_at)}</span>
+                <span>{s.descripcion}</span>
+              </div>
+            ))}
+          </div>
+          <small className="muted" style={{ display: 'block', marginTop: '.4rem', fontSize: '.72rem' }}>
+            Vienen de <strong>Pedidos → Nuevo servicio</strong> (mantenimiento casado a este equipo). Acá registrás el seguimiento real (litros, filtros, trabajo…) en la bitácora.
+          </small>
+        </div>
+      )}
+
       {canWrite && (
         <div style={{ marginBottom: '.6rem' }}>
           <button className="btn btn-sm btn-primary" onClick={() => setShowForm((v) => !v)}>{showForm ? '✕ Cancelar' : '+ Nuevo registro'}</button>
@@ -170,6 +220,13 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
           <div className="form-grid">
             <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
             <div className="form-row"><label>Horómetro (lectura)</label><input className="input mono" name="bit-horometro" type="number" step="any" defaultValue={horometro} onChange={(e) => setHorometro(e.target.value)} /></div>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Kilometraje (lectura)</label>
+              <input className="input mono" name="bit-km" type="number" step="any" min={0} value={kilometraje} onChange={(e) => setKilometraje(e.target.value)} placeholder="Odómetro en km" />
+              <small className="muted" style={{ fontSize: '.72rem' }}>El nivel de alerta se fija en la ficha del equipo (Alerta a los X km).</small>
+            </div>
           </div>
           {/* Vínculo con la Solicitud de Servicio + cuánto se colocó del servicio solicitado. */}
           {solicitudes.length > 0 && (
