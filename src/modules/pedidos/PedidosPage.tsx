@@ -1455,11 +1455,14 @@ function RecepcionParcialModal({
   });
   const [nota, setNota] = useState('');
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
-  const [almacen, setAlmacen] = useState<string>(orden.almacen_destino ?? '');
+  // Un SERVICIO no se almacena por sede: entra directo al inventario General (sin elegir almacén).
+  const esServicio = orden.clase === 'servicio';
+  const [almacen, setAlmacen] = useState<string>(esServicio ? 'General' : (orden.almacen_destino ?? ''));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (esServicio) return; // los servicios no eligen almacén
     listAlmacenes().then((as) => {
       setAlmacenes(as);
       // Si la OC ya traía un destino, se respeta; si no, se preselecciona el primero.
@@ -1508,7 +1511,7 @@ function RecepcionParcialModal({
     setError(null);
     const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
     if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
-    if (!almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
+    if (!esServicio && !almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
     setSaving(true);
     try { await onConfirm(recepciones, nota.trim() || null, almacen.trim()); }
@@ -1563,6 +1566,11 @@ function RecepcionParcialModal({
         </table>
       </div>
 
+      {esServicio ? (
+        <div className="form-row" style={{ marginTop: '.5rem' }}>
+          <small className="muted">🔧 Es un <strong>servicio</strong>: no se elige almacén — lo recibido entra directo al <strong>inventario General</strong>.</small>
+        </div>
+      ) : (
       <div className="form-row" style={{ marginTop: '.5rem' }}>
         <label>Almacén destino *</label>
         <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
@@ -1579,6 +1587,7 @@ function RecepcionParcialModal({
         </select>
         <small className="muted">La mercancía entra a este almacén (o subalmacén) y queda en la trazabilidad final.</small>
       </div>
+      )}
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
         <label>Nota de recepción {hayDiferencia && <span style={{ color: 'var(--warning)' }}>(obligatoria · llegó menos de lo pedido)</span>}</label>
