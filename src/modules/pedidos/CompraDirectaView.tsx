@@ -6,7 +6,7 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
-import { descargarCompraDirectaPdf } from './compraDirectaPdf';
+// descargarCompraDirectaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir la vista.
 import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor } from '@/shared/lib/types';
@@ -78,7 +78,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   }, [compras]);
 
   async function handlePdf(c: CompraDirecta) {
-    try { await descargarCompraDirectaPdf(c); }
+    try { const { descargarCompraDirectaPdf } = await import('./compraDirectaPdf'); await descargarCompraDirectaPdf(c); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 

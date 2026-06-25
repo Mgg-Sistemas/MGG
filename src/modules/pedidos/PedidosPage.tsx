@@ -82,9 +82,9 @@ import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
-import { descargarTrazabilidadPdf } from './trazabilidadPdf';
+// descargarTrazabilidadPdf / descargarOrdenCompraPdf se importan dinámicamente
+// (al generar) para no cargar jsPDF al abrir Pedidos.
 import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
-import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { CompraDirectaView } from './CompraDirectaView';
 import { OcPorLoteView } from './OcPorLoteView';
 
@@ -2020,13 +2020,17 @@ function OrdenDetailModal({
 
   async function handleDownloadPdf() {
     try {
+      // Carga jsPDF solo al generar (no al abrir la página).
+      const { descargarTrazabilidadPdf } = await import('./trazabilidadPdf');
       await descargarTrazabilidadPdf(o.id);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
     }
   }
   function handleOcPdf() {
-    descargarOrdenCompraPdf(o.id).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar', 'error'));
+    import('./ordenCompraPdf')
+      .then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(o.id))
+      .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar', 'error'));
   }
   async function handleComprobante() {
     if (!o.factura_path) return;

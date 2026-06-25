@@ -4,7 +4,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { money, num } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import type { Orden } from '@/shared/lib/types';
-import { descargarDemandaPdf, type DemandaRow } from './demandaPdf';
+import { type DemandaRow } from './demandaPdf'; // función descargarDemandaPdf: import dinámico (al exportar) para no cargar jsPDF al abrir.
 
 interface Props {
   ordenes: Orden[];
@@ -94,6 +94,7 @@ export function MaterialesDemandaModal({ ordenes, onClose }: Props) {
   async function exportar() {
     setExporting(true);
     try {
+      const { descargarDemandaPdf } = await import('./demandaPdf');
       await descargarDemandaPdf(sorted, { metrica, periodo: periodoLabel(), totalOrdenes: ordenesPeriodo.length });
     } catch {
       toast('No se pudo generar el PDF', 'error');

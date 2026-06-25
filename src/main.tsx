@@ -14,10 +14,6 @@ instalarSelectOnFocusMonto();
 instalarRecuperacionChunks();
 // Todos los campos de texto del sistema se escriben en MAYÚSCULA automáticamente.
 instalarMayusculaAutomatica();
-// Reportes: en vez de descargar directo, muestran una vista previa (PDF embebido)
-// y solo descargan si el usuario lo pide.
-void instalarPreviewPdf();
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <HashRouter>
@@ -25,3 +21,13 @@ createRoot(document.getElementById('root')!).render(
     </HashRouter>
   </StrictMode>
 );
+
+// Reportes: en vez de descargar directo, muestran una vista previa (PDF embebido).
+// El parche carga jsPDF (~600 kB); se instala en tiempo OCIOSO tras el primer
+// render para no competir con los recursos críticos del arranque. La preview ya
+// está lista mucho antes de que el usuario pueda navegar y generar un reporte.
+const instalarEnOcio = () => { void instalarPreviewPdf(); };
+type IdleWin = Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
+const w = window as IdleWin;
+if (typeof w.requestIdleCallback === 'function') w.requestIdleCallback(instalarEnOcio, { timeout: 3000 });
+else setTimeout(instalarEnOcio, 1500);

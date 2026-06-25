@@ -9,7 +9,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { date, money } from '@/shared/lib/format';
 import { listOcPorLote, nextCodigoChecklist, type OcLoteRow } from './ocLote.repository';
 import { aprobarOcsEnLote, anularOrden, reabrirOcAOfertas } from './pedidos.repository';
-import { descargarChecklistOcPdf } from './checklistOcPdf';
+// descargarChecklistOcPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir la vista.
 import { enviarChecklistAMultiples } from './enviarChecklist';
 
 /** Checklist "OC por lote": relación de OC por confirmar. Aprobar en lote + PDF/correo. */
@@ -66,7 +66,10 @@ export function OcPorLoteView() {
   async function pdf() {
     const elegidas = seleccionadas(rows);
     if (!elegidas.length) { toast('Seleccioná al menos una orden para el PDF', 'error'); return; }
-    try { await descargarChecklistOcPdf(elegidas, await ensureCodigo()); }
+    try {
+      const { descargarChecklistOcPdf } = await import('./checklistOcPdf');
+      await descargarChecklistOcPdf(elegidas, await ensureCodigo());
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 

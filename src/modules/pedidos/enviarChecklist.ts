@@ -1,6 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { OcLoteRow } from './ocLote.repository';
-import { obtenerChecklistOcPdfBase64 } from './checklistOcPdf';
+// obtenerChecklistOcPdfBase64 se importa dinámicamente (al enviar) para no cargar jsPDF al abrir la vista.
 
 const FUNCTION_SLUG = 'enviar-checklist';
 
@@ -18,6 +18,7 @@ export async function enviarChecklistAMultiples(
   );
   if (!unicos.length) throw new Error('Indicá al menos un correo válido');
 
+  const { obtenerChecklistOcPdfBase64 } = await import('./checklistOcPdf');
   const base64 = await obtenerChecklistOcPdfBase64(rows, codigo);
   const total = rows.reduce((a, r) => a + (Number(r.orden.total) || 0), 0);
   const enviados: string[] = [];

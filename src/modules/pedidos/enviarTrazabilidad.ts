@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import { obtenerTrazabilidadPdfBase64 } from './trazabilidadPdf';
+// obtenerTrazabilidadPdfBase64 se importa dinámicamente (al enviar) para no cargar jsPDF al abrir Pedidos.
 
 const FUNCTION_SLUG = 'enviar-trazabilidad';
 
@@ -21,6 +21,7 @@ export async function enviarTrazabilidadPorCorreo(
   ordenId: string,
   options: EnviarOptions = {},
 ): Promise<EnviarResult> {
+  const { obtenerTrazabilidadPdfBase64 } = await import('./trazabilidadPdf');
   const { base64 } = await obtenerTrazabilidadPdfBase64(ordenId);
 
   const { data, error } = await supabase.functions.invoke<{
@@ -61,6 +62,7 @@ export async function enviarTrazabilidadAMultiples(
   );
   if (!unicos.length) throw new Error('Indicá al menos un correo válido');
 
+  const { obtenerTrazabilidadPdfBase64 } = await import('./trazabilidadPdf');
   const { base64 } = await obtenerTrazabilidadPdfBase64(ordenId);
   const enviados: string[] = [];
   const fallidos: Array<{ email: string; motivo: string }> = [];
