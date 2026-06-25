@@ -14,6 +14,7 @@ import { getCategorias, getUnidades, listProductos, updateProducto, addCategoria
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
+import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
   crearCompraDirecta, finalizarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
   urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
@@ -427,6 +428,17 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
   const moneda = caja?.moneda ?? 'USD';
 
+  // Categoría → subcategoría de gasto (las mismas de Tesorería); el egreso queda etiquetado.
+  const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
+  const [catId, setCatId] = useState('');
+  const [subId, setSubId] = useState('');
+  useEffect(() => { listCategoriasGasto(true).then(setCatRows).catch(() => setCatRows([])); }, []);
+  const categorias = useMemo(() => soloCategorias(catRows), [catRows]);
+  const subcategorias = useMemo(() => (catId ? subcategoriasDe(catRows, catId) : []), [catRows, catId]);
+  useEffect(() => { setSubId(''); }, [catId]);
+  const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
+  const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
+
   // Saldo REAL de cada caja desde caja_saldos (lo mismo que descuenta el egreso y muestra
   // Tesorería). Antes el desplegable mostraba el saldo legado de `cajas`, que no se movía.
   const [saldoReal, setSaldoReal] = useState<Map<string, { saldo: number; moneda: string }>>(new Map());
@@ -498,6 +510,8 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
+    if (!catId) { setError('Elegí la categoría de gasto.'); return; }
+    if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
     if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
     let legs: PagoLeg[] | undefined;
@@ -512,7 +526,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
     const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await finalizarCompraDirecta({ compra, items, cajaId, legs, file, actor, actorName });
+      await finalizarCompraDirecta({ compra, items, cajaId, legs, file, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
       const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
       notify(`Compra finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
       onSaved();
@@ -549,6 +563,24 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
             </div>
           )}
         </div>
+
+        {/* Categoría → subcategoría de gasto (las mismas de Tesorería): el egreso queda etiquetado. */}
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Categoría de gasto <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <SearchSelect value={catId} onChange={setCatId}
+              options={categorias.map((c) => ({ value: c.id, label: c.nombre }))}
+              placeholder="Buscar categoría…" emptyText="Cargá categorías en Tesorería → 🗂️ Categorías de gasto" />
+          </div>
+          <div className="form-row">
+            <label>Subcategoría <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <SearchSelect value={subId} onChange={setSubId}
+              options={subcategorias.map((s) => ({ value: s.id, label: s.nombre }))}
+              placeholder={catId ? 'Buscar subcategoría…' : 'Elegí primero la categoría'}
+              emptyText={catId ? 'Esta categoría no tiene subcategorías.' : 'Elegí una categoría'} />
+          </div>
+        </div>
+        <small className="muted" style={{ display: 'block', marginBottom: '.6rem' }}>El gasto queda etiquetado por <strong>categoría → subcategoría</strong> y se refleja así en el movimiento de Tesorería (GASTOS / MOVIMIENTOS).</small>
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
