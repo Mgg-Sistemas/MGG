@@ -13,7 +13,7 @@ import type { Cliente } from '@/modules/ventas/clientes.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCentrosAcopio } from './cajas.repository';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string }
+interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string; precio: string }
 
 export function SalidaMaterialForm({
   productos, existencias, actor, actorName, onClose, onSaved,
@@ -42,16 +42,19 @@ export function SalidaMaterialForm({
   };
 
   // Varias líneas de producto (como una OC). Cada una: producto + cantidad + almacén autoasignado.
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '' }]);
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '', precio: '' }]);
   const [seq, setSeq] = useState(2);
   const setLinea = (id: number, patch: Partial<LineaUI>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '', precio: '' }]); setSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
 
-  // Al elegir el producto, se autoasigna el almacén con más stock.
+  // Al elegir el producto, se autoasigna el almacén con más stock y el precio (costo/PMP) editable.
   function elegirProducto(id: number, productoId: string) {
     const mej = mejorAlmacen(productoId);
-    setLinea(id, { productoId, almacen: mej?.almacen ?? '', cantidad: '1' });
+    const almacen = mej?.almacen ?? '';
+    const p = activos.find((x) => x.id === productoId);
+    const costo = Number(exMap.get(`${productoId}|${almacen}`)?.costo_promedio) || p?.precio || 0;
+    setLinea(id, { productoId, almacen, cantidad: '1', precio: costo ? String(costo) : '' });
   }
 
   const [motivo, setMotivo] = useState('');
@@ -110,11 +113,14 @@ export function SalidaMaterialForm({
   // Datos derivados por línea (producto, stock del almacén autoasignado, precio).
   const prodDe = (id: string) => activos.find((p) => p.id === id) ?? null;
   const stockDe = (l: LineaUI) => Number(exMap.get(`${l.productoId}|${l.almacen}`)?.stock) || 0;
-  const precioDe = (l: LineaUI) => {
-    const ex = exMap.get(`${l.productoId}|${l.almacen}`);
-    const p = prodDe(l.productoId);
-    return p?.precio_venta ?? (Number(ex?.costo_promedio) || p?.precio || 0);
+  // Costo/PMP del inventario para ese producto+almacén (valor por defecto y placeholder del precio).
+  const costoInvDe = (productoId: string, almacen: string) => {
+    const ex = exMap.get(`${productoId}|${almacen}`);
+    const p = prodDe(productoId);
+    return Number(ex?.costo_promedio) || p?.precio || 0;
   };
+  // Precio efectivo del renglón: el que el usuario editó; si está vacío, el costo del inventario.
+  const precioDe = (l: LineaUI) => (Number(l.precio) > 0 ? Number(l.precio) : costoInvDe(l.productoId, l.almacen));
   const totalGeneral = useMemo(
     () => lineas.reduce((a, l) => a + precioDe(l) * (Number(l.cantidad) || 0), 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -279,6 +285,13 @@ export function SalidaMaterialForm({
                   <label>Cantidad{prod?.unidad ? ` (${prod.unidad})` : ''}</label>
                   <input className="input mono" type="number" min={0} max={stock || undefined} step="any" value={l.cantidad} onChange={(e) => onCantidadChange(l, e.target.value)} required />
                   {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {prod?.unidad ?? ''}.</small>}
+                </div>
+                <div className="form-row">
+                  <label>Precio unit. (costo)</label>
+                  <input className="input mono" type="number" min={0} step="any" value={l.precio}
+                    onChange={(e) => setLinea(l.id, { precio: e.target.value })}
+                    placeholder={l.productoId ? String(costoInvDe(l.productoId, l.almacen)) : '0'} />
+                  <small className="muted">Editable. Al ejecutar la salida actualiza el costo del producto en Inventario · subtotal {money(precioDe(l) * (Number(l.cantidad) || 0))}</small>
                 </div>
               </div>
             </div>

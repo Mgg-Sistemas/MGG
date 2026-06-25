@@ -15,12 +15,20 @@ export interface OcLoteRow {
   pagado: boolean;
 }
 
-/** Resumen legible de los ítems de la orden (para la columna Descripción). */
+/** Resumen legible de los ítems de la orden (para la columna Descripción).
+ *  Incluye la marca/modelo de cada ítem (cuando el usuario las cargó en la oferta)
+ *  para que el Gerente General las vea al revisar/aprobar la OC. */
 function describir(o: Orden): string {
-  if (o.notas && o.notas.trim()) return o.notas.trim();
   const items = Array.isArray(o.items) ? o.items : [];
-  if (!items.length) return '—';
-  return items.map((it) => `${it.nombre}${it.cantidad ? ` (${it.cantidad})` : ''}`).join(', ');
+  const detalle = items.length
+    ? items.map((it) => {
+        const mm = [it.marca, it.modelo].filter(Boolean).join(' · ');
+        return `${it.nombre}${mm ? ` [${mm}]` : ''}${it.cantidad ? ` (${it.cantidad})` : ''}`;
+      }).join(', ')
+    : '';
+  const notas = o.notas?.trim();
+  // Si hay notas, se anteponen; igual se muestran los ítems con su marca/modelo.
+  return [notas, detalle].filter(Boolean).join(' · ') || '—';
 }
 
 /**
