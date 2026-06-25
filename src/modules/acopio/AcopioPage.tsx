@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, num, hoyISO, date } from '@/shared/lib/format';
@@ -1108,6 +1108,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
   const [vinculandoSector, setVinculandoSector] = useState<{ si: number; campo: 'saldo' | 'precio' } | null>(null);
   const [resolviendo, setResolviendo] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
+  const [borrar, setBorrar] = useState<ResumenSemanal | null>(null);
 
   const cargarHist = useCallback(() => { listResumenes().then(setHistorico).catch(() => setHistorico([])); }, []);
   useEffect(() => { cargarHist(); }, [cargarHist]);
@@ -1335,8 +1336,14 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
     toast(`Reporte ${r.numero} cargado al editor (podés ajustarlo y archivar uno nuevo)`, 'info');
   }
 
-  async function borrarHist(r: ResumenSemanal) {
-    if (!window.confirm(`¿Eliminar del histórico el reporte ${r.numero} (${r.fecha})?`)) return;
+  // Confirmación con el diálogo estilizado de la app (en vez del window.confirm nativo).
+  function borrarHist(r: ResumenSemanal) {
+    setBorrar(r);
+  }
+  async function confirmarBorrarHist() {
+    const r = borrar;
+    if (!r) return;
+    setBorrar(null);
     try { await eliminarResumen(r.id); toast('Reporte eliminado', 'success'); cargarHist(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
@@ -1357,6 +1364,16 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
 
   const cuerpo = (
     <>
+      {borrar && (
+        <ConfirmDialog
+          title="Eliminar reporte"
+          message={`¿Eliminar del histórico el reporte ${borrar.numero} (${borrar.fecha})? Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onCancel={() => setBorrar(null)}
+          onConfirm={() => void confirmarBorrarHist()}
+        />
+      )}
       {correoOpen && (
         <CorreoReporteModal
           titulo="Enviar Reporte Preliminar"
