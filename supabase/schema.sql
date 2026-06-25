@@ -1277,6 +1277,10 @@ create table if not exists public.maquinaria_mantenimientos (
   pieza         text,   -- pieza cambiada (cuando tipo = cambio de pieza, ej. motor)
   aceite_lts    numeric, refrigerante_lts numeric, gasoil_lts numeric,
   filtros_cant  numeric, filtros_tipo text,   -- filtros cambiados: cantidad + tipo (aceite/aire/combustible…)
+  insumos       jsonb not null default '[]'::jsonb,  -- repuestos/insumos cambiados: [{concepto, cantidad, unidad}] (cauchos, pintura, batería…)
+  solicitud_id  uuid,                  -- vínculo con la Solicitud de Servicio (ordenes clase='servicio')
+  solicitud_codigo text,               -- SV-AAAA-NNNN de la solicitud atendida
+  cantidad_colocada numeric,           -- cuánto se colocó/aplicó del servicio solicitado
   trabajo       text, consumibles text, mecanico text, ubicacion text, observacion text,
   created_by    text, actor_name text,
   created_at    timestamptz not null default now()
@@ -1418,6 +1422,7 @@ alter table public.movimientos add column if not exists precio_unitario numeric;
 alter table public.movimientos add column if not exists costo_promedio  numeric;
 alter table public.ordenes     add column if not exists updated_at      timestamptz;
 alter table public.ordenes     add column if not exists ci_solicitante  text;
+alter table public.ordenes     add column if not exists solicitante_persona text;  -- persona que solicita (servicios)
 -- El formulario de solicitud del obrero/planta NO pide proveedor; el admin
 -- lo asigna después en el flujo de aprobación / sourcing.
 alter table public.ordenes     alter column proveedor_id drop not null;

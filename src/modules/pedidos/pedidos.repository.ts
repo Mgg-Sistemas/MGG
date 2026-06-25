@@ -152,6 +152,8 @@ export interface CrearOrdenInput {
   clasificacion?: string[] | null;
   solicitante_email: string;
   solicitante: string | null;
+  /** Persona que solicita (nombre). En servicios va junto a la unidad solicitante. */
+  solicitante_persona?: string | null;
   ci_solicitante: string | null;
   urgente?: boolean;
   /** 'servicio' usa correlativo SV y no toca inventario al recibir. Falta = 'producto'. */
@@ -215,6 +217,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     proveedor_id: input.proveedor_id,
     solicitante_email: input.solicitante_email,
     solicitante: input.solicitante,
+    solicitante_persona: input.solicitante_persona?.trim() || null,
     ci_solicitante: input.ci_solicitante,
     items: input.items,
     total,
@@ -277,6 +280,7 @@ export interface EditarOrdenInput {
   items: ItemOrden[];
   notas?: string | null;
   solicitante?: string | null;
+  solicitante_persona?: string | null;
   ci_solicitante?: string | null;
   urgente?: boolean;
 }
@@ -299,6 +303,7 @@ export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEm
     total,
     notas: input.notas?.trim() || null,
     solicitante: input.solicitante?.trim() || null,
+    solicitante_persona: input.solicitante_persona?.trim() || null,
     ci_solicitante: input.ci_solicitante?.trim() || null,
     urgente: !!input.urgente,
     historial: appendHistorial(o, 'editada', actorEmail),
