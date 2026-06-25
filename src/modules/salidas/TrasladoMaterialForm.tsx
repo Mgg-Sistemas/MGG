@@ -10,7 +10,7 @@ import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string }
+interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string; precio: string }
 
 export function TrasladoMaterialForm({
   productos, existencias, almacenesObj, actor, actorName, onClose, onSaved,
@@ -41,20 +41,34 @@ export function TrasladoMaterialForm({
     return ex ? { almacen: ex.almacen, stock: Number(ex.stock) || 0 } : null;
   };
 
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '' }]);
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '', precio: '' }]);
   const [seq, setSeq] = useState(2);
   const setLinea = (id: number, patch: Partial<LineaUI>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '', precio: '' }]); setSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
+
+  // Costo/PMP del origen (valor por defecto y placeholder del precio editable).
+  const costoOrigenDe = (productoId: string, almacen: string) => {
+    const ex = exMap.get(`${productoId}|${almacen}`);
+    const p = activos.find((x) => x.id === productoId);
+    return Number(ex?.costo_promedio) || p?.precio || 0;
+  };
 
   function elegirProducto(id: number, productoId: string) {
     const mej = mejorOrigen(productoId, destino);
-    setLinea(id, { productoId, almacen: mej?.almacen ?? '', cantidad: '1' });
+    const almacen = mej?.almacen ?? '';
+    const costo = costoOrigenDe(productoId, almacen);
+    setLinea(id, { productoId, almacen, cantidad: '1', precio: costo ? String(costo) : '' });
   }
 
-  // Al cambiar el destino, recalculamos el almacén origen de cada línea (no puede ser el destino).
+  // Al cambiar el destino, recalculamos el almacén origen de cada línea (no puede ser el destino)
+  // y reajustamos el precio por defecto al costo de ese nuevo origen (si el usuario no lo tocó).
   useEffect(() => {
-    setLineas((ls) => ls.map((l) => (l.productoId ? { ...l, almacen: mejorOrigen(l.productoId, destino)?.almacen ?? '' } : l)));
+    setLineas((ls) => ls.map((l) => {
+      if (!l.productoId) return l;
+      const almacen = mejorOrigen(l.productoId, destino)?.almacen ?? '';
+      return { ...l, almacen, precio: almacen ? String(costoOrigenDe(l.productoId, almacen)) : '' };
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destino]);
 
@@ -76,11 +90,8 @@ export function TrasladoMaterialForm({
 
   const prodDe = (id: string) => activos.find((p) => p.id === id) ?? null;
   const stockDe = (l: LineaUI) => Number(exMap.get(`${l.productoId}|${l.almacen}`)?.stock) || 0;
-  const precioDe = (l: LineaUI) => {
-    const ex = exMap.get(`${l.productoId}|${l.almacen}`);
-    const p = prodDe(l.productoId);
-    return Number(ex?.costo_promedio) || p?.precio || 0;
-  };
+  // Precio efectivo del renglón: el que el usuario editó; si está vacío, el costo del origen.
+  const precioDe = (l: LineaUI) => (Number(l.precio) > 0 ? Number(l.precio) : costoOrigenDe(l.productoId, l.almacen));
   const totalGeneral = useMemo(
     () => lineas.reduce((a, l) => a + precioDe(l) * (Number(l.cantidad) || 0), 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -211,7 +222,13 @@ export function TrasladoMaterialForm({
                   <label>Cantidad{prod?.unidad ? ` (${prod.unidad})` : ''}</label>
                   <input className="input mono" type="number" min={0} max={stock || undefined} step="any" value={l.cantidad} onChange={(e) => onCantidadChange(l, e.target.value)} required />
                   {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {prod?.unidad ?? ''}.</small>}
-                  <small className="muted">Lleva el costo (PMP) del origen.</small>
+                </div>
+                <div className="form-row">
+                  <label>Precio unit. (costo)</label>
+                  <input className="input mono" type="number" min={0} step="any" value={l.precio}
+                    onChange={(e) => setLinea(l.id, { precio: e.target.value })}
+                    placeholder={l.productoId ? String(costoOrigenDe(l.productoId, l.almacen)) : '0'} />
+                  <small className="muted">Costo/PMP del origen. Si lo editás, ese costo viaja al destino y actualiza el producto en Inventario · subtotal {money(precioDe(l) * (Number(l.cantidad) || 0))}</small>
                 </div>
               </div>
             </div>

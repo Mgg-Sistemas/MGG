@@ -8,11 +8,38 @@ import { supabase } from '@/shared/lib/supabase';
 import type {
   Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, ItemSolicitudSalida,
 } from '@/shared/lib/types';
-import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { registrarMovimiento, recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { salidaDinero, trasladoDinero } from './cajas.repository';
 import { ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
 import { registrarSobrepagoCobrar } from '@/modules/tesoreria/cuentasPorCobrar.repository';
+
+/**
+ * Vínculo Salidas/Traslados → Inventario: fija el costo/PMP del producto en un
+ * almacén y propaga al precio global del producto. Así el precio que el usuario
+ * edita en la salida/traslado queda reflejado en el inventario (durable: escribe
+ * la existencia, no `productos.precio` directo —que lo recalcula cada movimiento—).
+ * No-op si el costo no cambió.
+ */
+async function vincularPrecioInventario(productoId: string, almacen: string, costo: number): Promise<void> {
+  if (!productoId || !almacen || !Number.isFinite(costo) || costo < 0) return;
+  const { data } = await supabase
+    .from('existencias')
+    .select('stock, costo_promedio')
+    .eq('producto_id', productoId)
+    .eq('almacen', almacen)
+    .maybeSingle();
+  const costoActual = Number(data?.costo_promedio) || 0;
+  if (Math.abs(costoActual - costo) < 0.005) return; // sin cambios reales
+  const { error } = await supabase
+    .from('existencias')
+    .upsert(
+      { producto_id: productoId, almacen, stock: Number(data?.stock) || 0, costo_promedio: costo, updated_at: new Date().toISOString() },
+      { onConflict: 'producto_id,almacen' },
+    );
+  if (error) throw error;
+  await recomputeProductoAgg(productoId);
+}
 
 export interface SalidaMaterialInput {
   productoId: string;
@@ -39,7 +66,7 @@ export async function salidaMaterial(input: SalidaMaterialInput): Promise<Movimi
   const stock = Number(ex?.stock) || 0;
   if (cantidad > stock) throw new Error(`Stock insuficiente en ${input.almacen}. Disponible: ${stock}.`);
 
-  return registrarMovimiento({
+  const mov = await registrarMovimiento({
     producto_id: input.productoId,
     tipo: 'salida',
     delta: -cantidad,
@@ -54,6 +81,9 @@ export async function salidaMaterial(input: SalidaMaterialInput): Promise<Movimi
     consumo_interno: input.consumoInterno ?? false,
     solicitante: input.solicitante ?? null,
   });
+  // El precio editado se vincula con el inventario (actualiza el costo/PMP del producto).
+  if (input.precioUnit != null) await vincularPrecioInventario(input.productoId, input.almacen, Number(input.precioUnit));
+  return mov;
 }
 
 export interface TrasladoMaterialInput {
@@ -88,6 +118,9 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
   if (cantidad > stockOrigen) throw new Error(`Stock insuficiente en ${input.almacenOrigen}. Disponible: ${stockOrigen}.`);
   const costoOrigen = Number(exOrigen?.costo_promedio) || 0;
   const precio = input.precioUnit != null ? Number(input.precioUnit) : null;
+  // Si el usuario editó el precio, ese pasa a ser el costo que viaja al destino
+  // (y se fija como costo del origen en el inventario). Si no, se conserva el PMP del origen.
+  const costoDestino = precio != null && precio >= 0 ? precio : costoOrigen;
   const motivo = input.motivo?.trim() || null;
   const notaEntrega = input.notaEntrega?.trim() || null;
 
@@ -121,10 +154,12 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     nota_entrega: notaEntrega,
     fecha_entrega: input.fechaEntrega || null,
     detalle: motivo ? `Traslado desde ${input.almacenOrigen} · ${motivo}` : `Traslado desde ${input.almacenOrigen}`,
-    precio_unitario: costoOrigen,
+    precio_unitario: costoDestino,
     consumo_interno: input.consumoInterno ?? false,
     solicitante: input.solicitante ?? null,
   });
+  // El precio editado se vincula con el inventario: fija el costo/PMP del producto en el origen.
+  if (precio != null && precio >= 0) await vincularPrecioInventario(input.productoId, input.almacenOrigen, precio);
   return movSalida;
 }
 
