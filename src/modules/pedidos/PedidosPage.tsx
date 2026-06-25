@@ -62,6 +62,7 @@ import {
   crearCatalogoPedido,
   actualizarCatalogoPedido,
   setEstadoCatalogoPedido,
+  eliminarCatalogoPedido,
   ensureUnidadSolicitante,
   type PrecioHistorico,
   type CatalogoPedido,
@@ -618,7 +619,7 @@ export function PedidosPage() {
           personaMap={personaMap}
           isAdmin={isAdmin}
           canManageProcurement={canManageProcurement}
-          enOc={scope === 'oc'}
+          enOc={scope === 'oc' || currentDetail.clase === 'servicio'}
           actorEmail={user?.email ?? ''}
           actorUserId={user?.id ?? ''}
           actorNombre={personaMap.get((user?.email ?? '').toLowerCase()) ?? user?.email ?? ''}
@@ -1305,7 +1306,7 @@ function MetodoPagoModal({
 
   return (
     <Modal
-      title={`Método de pago · OC ${orden.oc_codigo ?? orden.codigo}`}
+      title={orden.clase === 'servicio' ? `Método de pago · SERVICIO ${orden.codigo}` : `Método de pago · OC ${orden.oc_codigo ?? orden.codigo}`}
       size="lg"
       onClose={onClose}
       footer={
@@ -1734,7 +1735,7 @@ function OrdenesTable({ ordenes, proveedorMap, personaMap, canManageProcurement,
                   )}
                 </td>
                 <td>
-                  <div>{o.ci_solicitante ?? persona(o.solicitante_email, personaMap)}</div>
+                  <div>{o.solicitante_persona ?? o.ci_solicitante ?? persona(o.solicitante_email, personaMap)}</div>
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{o.items.length}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
@@ -1846,8 +1847,8 @@ const KanbanCard = memo(function KanbanCard({
       </div>
       <div className="prov">
         {proveedor?.razon_social
-          ?? ((orden.ci_solicitante ?? orden.solicitante)
-            ? `Solicita: ${orden.ci_solicitante ?? orden.solicitante}`
+          ?? ((orden.solicitante_persona ?? orden.ci_solicitante ?? orden.solicitante)
+            ? `Solicita: ${orden.solicitante_persona ?? orden.ci_solicitante ?? orden.solicitante}`
             : 'Sin proveedor asignado')}
       </div>
       <div className="meta">
@@ -1864,8 +1865,8 @@ const KanbanCard = memo(function KanbanCard({
         )}
       </div>
       <div className="meta" style={{ fontSize: '.72rem', marginTop: '.15rem' }} title="Solicitante y fecha de creación">
-        <span>👤 {orden.ci_solicitante ?? orden.solicitante ?? orden.solicitante_email ?? '—'}
-          {orden.ci_solicitante && orden.solicitante ? <span className="muted"> · {orden.solicitante}</span> : null}
+        <span>👤 {orden.solicitante_persona ?? orden.ci_solicitante ?? orden.solicitante ?? orden.solicitante_email ?? '—'}
+          {(orden.solicitante_persona ?? orden.ci_solicitante) && orden.solicitante ? <span className="muted"> · {orden.solicitante}</span> : null}
         </span>
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
@@ -2246,7 +2247,7 @@ function OrdenDetailModal({
       <div className="detail-row">
         <div className="k">Solicitante</div>
         <div className="v">
-          {o.ci_solicitante ?? persona(o.solicitante_email, personaMap)}
+          {o.solicitante_persona ?? o.ci_solicitante ?? persona(o.solicitante_email, personaMap)}
         </div>
       </div>
       <div className="detail-row">
@@ -3707,6 +3708,7 @@ function CatalogoPedidosModal({ actor, onClose }: { actor: string; onClose: () =
   const [filtro, setFiltro] = useState('');
   const [nombre, setNombre] = useState('');
   const [edit, setEdit] = useState<{ id: string; nombre: string } | null>(null);
+  const [borrar, setBorrar] = useState<CatalogoPedido | null>(null);
   const [busy, setBusy] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -3742,6 +3744,13 @@ function CatalogoPedidosModal({ actor, onClose }: { actor: string; onClose: () =
   async function toggle(it: CatalogoPedido) {
     try { await setEstadoCatalogoPedido(it.id, it.estado === 'activo' ? 'inactivo' : 'activo'); await cargar(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
+  }
+  async function eliminar() {
+    const it = borrar;
+    if (!it) return;
+    setBorrar(null);
+    try { await eliminarCatalogoPedido(it.id); await cargar(); toast('Eliminado', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
   return (
@@ -3788,6 +3797,7 @@ function CatalogoPedidosModal({ actor, onClose }: { actor: string; onClose: () =
                 <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => setEdit({ id: it.id, nombre: it.nombre })}>✎ Editar</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => void toggle(it)}>{it.estado === 'activo' ? 'Deshabilitar' : 'Habilitar'}</button>
+                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(it)} title="Eliminar definitivamente">🗑 Eliminar</button>
                 </td>
               </tr>
             ))}
@@ -3808,6 +3818,17 @@ function CatalogoPedidosModal({ actor, onClose }: { actor: string; onClose: () =
               onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdit(); }} />
           </div>
         </Modal>
+      )}
+
+      {borrar && (
+        <ConfirmDialog
+          title={`Eliminar ${meta.singular}`}
+          message={`¿Eliminar definitivamente «${borrar.nombre}» del catálogo? Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onCancel={() => setBorrar(null)}
+          onConfirm={() => void eliminar()}
+        />
       )}
     </Modal>
   );

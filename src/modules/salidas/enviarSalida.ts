@@ -1,6 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Movimiento } from '@/shared/lib/types';
-import { obtenerSalidaMaterialPdfBase64 } from './salidaPdf';
+// obtenerSalidaMaterialPdfBase64 se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 const FUNCTION_SLUG = 'enviar-salida';
 
@@ -24,6 +24,7 @@ export async function enviarSalidaAMultiples(
   );
   if (!unicos.length) throw new Error('Indicá al menos un correo válido');
 
+  const { obtenerSalidaMaterialPdfBase64 } = await import('./salidaPdf');
   const { base64 } = await obtenerSalidaMaterialPdfBase64(mov, esTraslado);
   const enviados: string[] = [];
   const fallidos: Array<{ email: string; motivo: string }> = [];

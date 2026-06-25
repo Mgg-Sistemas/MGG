@@ -27,10 +27,10 @@ import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcop
 import type { GrupoClasificacion, CajaMovimiento } from '@/shared/lib/types';
 import { listVehiculos } from '@/modules/combustible/combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
-import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
+// descargarResumenCajaPdf / enviarResumenCajaPorCorreo se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import type { ClasificacionAcopio } from '@/shared/lib/types';
-import { descargarRecepcionPdf } from './acopioPdf';
+// descargarRecepcionPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import type { CajaCierre } from '@/shared/lib/types';
 import {
   listResumenes, crearResumen, eliminarResumen,
@@ -38,7 +38,7 @@ import {
   leerMetricaExterna, METRICAS_EXTERNAS, METRICAS_SECTOR,
   type ResumenSemanal, type SectorResumen, type FuenteExterna,
 } from './resumenSemanal.repository';
-import { descargarResumenSemanalPdf, enviarResumenSemanalPorCorreo } from './resumenSemanalPdf';
+// descargarResumenSemanalPdf / enviarResumenSemanalPorCorreo se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { AliadosVista } from './AliadosVista';
 import { CuentasCobrarView } from './CuentasCobrarView';
 import { CuentaPerdidaAliView, CuadroResumenPerdidaView } from './EsmeraldaPerdidaView';
@@ -821,7 +821,7 @@ function ResumenCajaModal({ defaultEmail, centro, cajaId, onClose }: { defaultEm
         onClick={async () => {
           if (!r) return;
           setBajando(true);
-          try { await descargarResumenCajaPdf(r); }
+          try { const { descargarResumenCajaPdf } = await import('./resumenCajaPdf'); await descargarResumenCajaPdf(r); }
           catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
           finally { setBajando(false); }
         }}>{bajando ? 'Generando…' : '↓ PDF'}</button>
@@ -1011,6 +1011,7 @@ function ResumenCajaModal({ defaultEmail, centro, cajaId, onClose }: { defaultEm
           descripcion={`Se enviará el PDF del resumen de caja al ${r.fechaActualizacion} (saldo ${money(r.saldoUsd)} · total gastado ${money(r.totalGastado)}).`}
           defaultEmail={defaultEmail}
           onEnviar={async (emails) => {
+            const { enviarResumenCajaPorCorreo } = await import('./resumenCajaPdf');
             const { destinatarios } = await enviarResumenCajaPorCorreo(r, emails);
             return destinatarios;
           }}
@@ -1325,7 +1326,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
   });
 
   async function pdfActual() {
-    try { await descargarResumenSemanalPdf(resumenActual()); }
+    try { const { descargarResumenSemanalPdf } = await import('./resumenSemanalPdf'); await descargarResumenSemanalPdf(resumenActual()); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
@@ -1380,6 +1381,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
           descripcion={`Se enviará el PDF del ${titulo || 'Reporte Preliminar de Centros de Acopio'} (fecha ${fecha}).`}
           defaultEmail={actor}
           onEnviar={async (emails) => {
+            const { enviarResumenSemanalPorCorreo } = await import('./resumenSemanalPdf');
             const { destinatarios } = await enviarResumenSemanalPorCorreo(resumenActual(), emails);
             return destinatarios;
           }}
@@ -1549,7 +1551,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
                     <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3)' }}>{fmtKg(r.totales?.kg_acopiado_mgg ?? 0)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(r.totales?.saldo_usd ?? 0)}</td>
                     <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      <button className="btn btn-sm btn-ghost" title="Descargar PDF" onClick={() => void descargarResumenSemanalPdf(r).catch((e) => toast(e instanceof Error ? e.message : 'Error PDF', 'error'))}>↓ PDF</button>
+                      <button className="btn btn-sm btn-ghost" title="Descargar PDF" onClick={() => void import('./resumenSemanalPdf').then(({ descargarResumenSemanalPdf }) => descargarResumenSemanalPdf(r)).catch((e) => toast(e instanceof Error ? e.message : 'Error PDF', 'error'))}>↓ PDF</button>
                       {canWrite && <button className="btn btn-sm btn-ghost" title="Cargar al editor" onClick={() => cargarDesdeHist(r)}>✎ Cargar</button>}
                       {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => void borrarHist(r)}>🗑</button>}
                     </td>
@@ -1751,6 +1753,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, cent
           precinto_final: f.precinto_final, verificado: verf(f),
         })),
       } as RecepcionAcopio;
+      const { descargarRecepcionPdf } = await import('./acopioPdf');
       await descargarRecepcionPdf(r);
     } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo generar el PDF', 'error'); }
   }

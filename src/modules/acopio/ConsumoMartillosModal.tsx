@@ -11,7 +11,7 @@ import {
   listMovimientosMartillos, crearMovimientoMartillo, actualizarMovimientoMartillo, eliminarMovimientoMartillo,
   resumirMartillos, type MartilloMovimiento, type MartilloInput,
 } from './martillos.repository';
-import { descargarMartillosPdf, enviarMartillosPorCorreo } from './martillosPdf';
+// descargarMartillosPdf / enviarMartillosPorCorreo se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 /**
  * Consumo de Martillos del Molino H66 (réplica de la hoja «CONSUMO MAZOS MARTILLOS GT»).
@@ -49,7 +49,7 @@ export function ConsumoMartillosModal({ onClose }: { onClose: () => void }) {
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       <button className="btn btn-ghost" disabled={!movs.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
       <button className="btn btn-ghost" disabled={!movs.length || bajando}
-        onClick={async () => { setBajando(true); try { await descargarMartillosPdf(movs); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); } finally { setBajando(false); } }}>
+        onClick={async () => { setBajando(true); try { const { descargarMartillosPdf } = await import('./martillosPdf'); await descargarMartillosPdf(movs); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); } finally { setBajando(false); } }}>
         {bajando ? 'Generando…' : '↓ PDF'}
       </button>
       {canWrite && <button className="btn btn-primary" onClick={() => setForm({ editar: null })}>+ Agregar</button>}
@@ -136,7 +136,7 @@ export function ConsumoMartillosModal({ onClose }: { onClose: () => void }) {
           titulo="Enviar Consumo de Martillos"
           descripcion={`Se enviará el PDF del consumo de martillos del Molino H66 (${movs.length} movimiento(s)).`}
           defaultEmail={user?.email ?? ''}
-          onEnviar={async (emails) => { const { destinatarios } = await enviarMartillosPorCorreo(movs, emails); return destinatarios; }}
+          onEnviar={async (emails) => { const { enviarMartillosPorCorreo } = await import('./martillosPdf'); const { destinatarios } = await enviarMartillosPorCorreo(movs, emails); return destinatarios; }}
           onClose={() => setCorreoOpen(false)}
         />
       )}

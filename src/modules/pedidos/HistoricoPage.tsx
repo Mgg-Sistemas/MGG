@@ -9,8 +9,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
 import { listOrdenes, listProveedoresActivos } from './pedidos.repository';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
-import { descargarDetallePedidoPdf } from './historicoPedidoPdf';
-import { descargarOrdenCompraPdf } from './ordenCompraPdf';
+// descargarDetallePedidoPdf / descargarOrdenCompraPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 type FechaCampo = 'created_at' | 'aprobada_en' | 'oc_emitida_en' | 'finalizada_en';
 
@@ -320,12 +319,12 @@ function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
           <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
           {orden.oc_codigo && (
             <button className="btn btn-ghost"
-              onClick={() => descargarOrdenCompraPdf(orden.id).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+              onClick={() => void import('./ordenCompraPdf').then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(orden.id)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
               📄 PDF Orden de Compra
             </button>
           )}
           <button className="btn btn-primary"
-            onClick={() => descargarDetallePedidoPdf(orden, proveedorNombre).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+            onClick={() => void import('./historicoPedidoPdf').then(({ descargarDetallePedidoPdf }) => descargarDetallePedidoPdf(orden, proveedorNombre)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
             🖨 Imprimir PDF
           </button>
         </div>

@@ -9,7 +9,7 @@ import type { Personal, AnticipoPrestamo, NominaRenglon, DeduccionRef } from '@/
 import { getTasaHoy, round2 } from '../tesoreria/tasas.repository';
 import { listPersonal, setPersonalActivo } from './personal.repository';
 import { listAnticiposActivos } from './anticipos.repository';
-import { descargarNominaReciboPdf } from './nominaReciboPdf';
+// descargarNominaReciboPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import {
   cargarNomina, listNominas, listRenglones, eliminarNomina, calcularRenglon,
   type NominaPeriodoResumen, type RenglonInput,
@@ -45,6 +45,7 @@ export function NominaTab({ canWrite, actor, actorName }: { canWrite: boolean; a
       const [rens, pers] = await Promise.all([listRenglones(p.id), listPersonal(false)]);
       if (!rens.length) { toast('La nómina no tiene renglones', 'error'); return; }
       const cedulas = Object.fromEntries(pers.map((x) => [x.id, x.cedula]));
+      const { descargarNominaReciboPdf } = await import('./nominaReciboPdf');
       await descargarNominaReciboPdf(rens, { periodo: p, cedulas });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
@@ -398,14 +399,14 @@ function NominaDetalleModal({ periodo, onClose }: { periodo: NominaPeriodoResume
   useEffect(() => { listPersonal(false).then((ps) => setCedulas(Object.fromEntries(ps.map((x) => [x.id, x.cedula])))).catch(() => {}); }, []);
 
   async function reciboDe(r: NominaRenglon) {
-    try { await descargarNominaReciboPdf([r], { periodo, cedulas }); }
+    try { const { descargarNominaReciboPdf } = await import('./nominaReciboPdf'); await descargarNominaReciboPdf([r], { periodo, cedulas }); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
   return (
     <Modal title={`Nómina ${periodo.codigo}`} size="xl" onClose={onClose} footer={
       <>
-        <button className="btn btn-ghost" onClick={() => descargarNominaReciboPdf(rows, { periodo, cedulas }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!rows.length}>📄 Comprobantes (todos)</button>
+        <button className="btn btn-ghost" onClick={() => void import('./nominaReciboPdf').then(({ descargarNominaReciboPdf }) => descargarNominaReciboPdf(rows, { periodo, cedulas })).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!rows.length}>📄 Comprobantes (todos)</button>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>

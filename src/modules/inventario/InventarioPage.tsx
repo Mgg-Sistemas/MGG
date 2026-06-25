@@ -51,7 +51,7 @@ import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
 import { AlmacenesView, SedesView, hijosDe, raices, type AlmacenLayout } from './AlmacenesView';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { AlmacenKanban } from './AlmacenKanban';
-import { descargarAlmacenExcel, descargarAlmacenPdf, descargarReporteAlmacenesPdf } from './almacenExport';
+// Los generadores de PDF/Excel de almacén se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
 import { AlmacenForm } from './AlmacenForm';
 import {
   listAlmacenes,
@@ -669,9 +669,9 @@ export function InventarioPage() {
               <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
                 <button className="btn btn-primary btn-sm" onClick={() => setConsumoAlmacen(almacenSel)} title="Gráfica de consumo por producto de este almacén">📊 Consumo</button>
                 <button className="btn btn-ghost btn-sm" disabled={!almacenRows.length}
-                  onClick={() => descargarAlmacenExcel(almacenSel, almacenRows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
+                  onClick={() => import('./almacenExport').then(({ descargarAlmacenExcel }) => descargarAlmacenExcel(almacenSel, almacenRows)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
                 <button className="btn btn-ghost btn-sm" disabled={!almacenRows.length}
-                  onClick={() => descargarAlmacenPdf(almacenSel, almacenRows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+                  onClick={() => import('./almacenExport').then(({ descargarAlmacenPdf }) => descargarAlmacenPdf(almacenSel, almacenRows)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
               </div>
             </div>
             <div className="view-toggle" role="tablist" aria-label="Vista del almacén" style={{ marginBottom: '.75rem', marginLeft: 0 }}>
@@ -704,7 +704,7 @@ export function InventarioPage() {
                 className="btn btn-ghost"
                 style={{ marginLeft: 'auto' }}
                 title="Descargar un PDF de todo el inventario, por almacenes y subalmacenes"
-                onClick={() => descargarReporteAlmacenesPdf().catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'))}
+                onClick={() => import('./almacenExport').then(({ descargarReporteAlmacenesPdf }) => descargarReporteAlmacenesPdf()).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'))}
               >
                 📄 Reporte general (PDF)
               </button>
@@ -896,9 +896,9 @@ export function InventarioPage() {
               <>
                 <button className="btn btn-ghost" onClick={() => setReporteAlmacen(null)}>Cerrar</button>
                 <button className="btn btn-ghost" disabled={!rows.length}
-                  onClick={() => descargarAlmacenExcel(reporteAlmacen, rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
+                  onClick={() => import('./almacenExport').then(({ descargarAlmacenExcel }) => descargarAlmacenExcel(reporteAlmacen, rows)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
                 <button className="btn btn-primary" disabled={!rows.length}
-                  onClick={() => descargarAlmacenPdf(reporteAlmacen, rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+                  onClick={() => import('./almacenExport').then(({ descargarAlmacenPdf }) => descargarAlmacenPdf(reporteAlmacen, rows)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
               </>
             }
           >

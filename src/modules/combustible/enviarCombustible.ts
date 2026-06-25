@@ -1,6 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { SolicitudCombustible } from '@/shared/lib/types';
-import { obtenerSolicitudCombustiblePdfBase64 } from './combustiblePdf';
+// obtenerSolicitudCombustiblePdfBase64 se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 const FUNCTION_SLUG = 'enviar-combustible';
 
@@ -17,6 +17,7 @@ export async function enviarCombustibleAMultiples(
   );
   if (!unicos.length) throw new Error('Indicá al menos un correo válido');
 
+  const { obtenerSolicitudCombustiblePdfBase64 } = await import('./combustiblePdf');
   const { base64 } = await obtenerSolicitudCombustiblePdfBase64(s);
   const enviados: string[] = [];
   const fallidos: Array<{ email: string; motivo: string }> = [];

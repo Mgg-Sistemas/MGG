@@ -19,7 +19,7 @@ import {
   listSalidasMaterial, listTrasladosMaterial,
   listSolicitudesSalida, aprobarSolicitudSalida, ejecutarSolicitudSalida, cancelarSolicitudSalida,
 } from './salidas.repository';
-import { descargarSalidaDineroPdf, descargarTrasladoDineroPdf, descargarOrdenSalidaPdf } from './salidaPdf';
+// descargarSalidaDineroPdf, descargarTrasladoDineroPdf y descargarOrdenSalidaPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { SalidaMaterialForm } from './SalidaMaterialForm';
 import { TrasladoMaterialForm } from './TrasladoMaterialForm';
 import { SalidaDineroForm } from './SalidaDineroForm';
@@ -325,7 +325,7 @@ function Historial({
                 </td>
               )}
               <td className="actions" onClick={(e) => e.stopPropagation()}>
-                <button className="btn btn-sm btn-ghost" onClick={() => esTraslado ? descargarTrasladoDineroPdf(m) : descargarSalidaDineroPdf(m)}>↓ PDF</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => { void import('./salidaPdf').then(({ descargarTrasladoDineroPdf, descargarSalidaDineroPdf }) => esTraslado ? descargarTrasladoDineroPdf(m) : descargarSalidaDineroPdf(m)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}>↓ PDF</button>
                 {!esTraslado && canWrite && m.estado_mineral === 'pendiente' && (
                   <button className="btn btn-sm btn-primary" onClick={() => onConciliar(m)}>⛏ Recibir mineral</button>
                 )}
@@ -429,7 +429,7 @@ function SolicitudDetalleModal({
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', justifyContent: 'flex-end', width: '100%' }}>
       {sol.tipo === 'material' && (
         <button className="btn btn-ghost" disabled={busy}
-          onClick={() => { void descargarOrdenSalidaPdf(sol).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}>
+          onClick={() => { void import('./salidaPdf').then(({ descargarOrdenSalidaPdf }) => descargarOrdenSalidaPdf(sol)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}>
           ↓ Orden de salida (PDF)
         </button>
       )}

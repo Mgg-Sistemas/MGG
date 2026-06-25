@@ -4,7 +4,8 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { num as fmtNum } from '@/shared/lib/format';
 import { consumosPorEquipo, type ConsumoMant } from './maquinariaMant.repository';
-import { descargarResumenMantenimientoPdf, type ResumenMantRow } from './servicioMantenimientoPdf';
+import { type ResumenMantRow } from './servicioMantenimientoPdf';
+// descargarResumenMantenimientoPdf de ./servicioMantenimientoPdf: import dinámico (al generar) para no cargar jsPDF/xlsx al abrir.
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
 const CERO: ConsumoMant = { aceite: 0, refrigerante: 0, gasoil: 0, filtros: 0, registros: 0 };
@@ -50,7 +51,7 @@ export function ResumenMantenimientoModal({ grupo, equipos, infoEquipo, onClose 
   }), { aceite: 0, gasoil: 0, refrigerante: 0, filtros: 0 }), [rows]);
 
   async function pdf() {
-    try { await descargarResumenMantenimientoPdf(grupo, rows, { desde, hasta }); }
+    try { const { descargarResumenMantenimientoPdf } = await import('./servicioMantenimientoPdf'); await descargarResumenMantenimientoPdf(grupo, rows, { desde, hasta }); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 

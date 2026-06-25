@@ -46,7 +46,8 @@ import {
   computeReporteCierre, crearCierre, listCierres, reabrirCierre,
   type ReporteCierre, type Cierre,
 } from './cierres.repository';
-import { descargarCierrePdf, descargarCierreExcel, periodoLargo } from './cierreReporte';
+// descargarCierrePdf y descargarCierreExcel se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
+import { periodoLargo } from './cierreReporte';
 import {
   listContrapartes, crearContraparte, actualizarContraparte, eliminarContraparte,
   type Contraparte, type TipoContraparte,
@@ -69,18 +70,13 @@ import {
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
-import { descargarReportePdf, type ReporteMeta } from './reportePdf';
-import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
-import { descargarResumenPorPagarPdf } from './ordenesPorPagarPdf';
-import { descargarResumenCreditosPdf } from './cuentasCreditoPdf';
-import { descargarResumenPorCobrarPdf } from './cuentasPorCobrarPdf';
-import { descargarLibroMayorMonedaPdf } from './libroMayorPdf';
+// Generadores de PDF/Excel: se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir la página.
+import { type ReporteMeta } from './reportePdf';
 import { ChatOC } from '@/modules/pedidos/ChatOC';
 import { noLeidosPorOrden } from '@/modules/pedidos/ocChat.repository';
-import { descargarCuentaPorPagarPdf } from './cuentaPorPagarPdf';
-import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo } from './enviarReporte';
+// enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo y
+// descargarOrdenCompraPdf se importan dinámicamente (al generar/enviar) para no cargar jsPDF al abrir.
 import type { AbonoCredito } from '@/shared/lib/types';
-import { descargarOrdenCompraPdf } from '@/modules/pedidos/ordenCompraPdf';
 import { listOfertasByOrden, getPdfOfertaSignedUrl, descuentoEfectivo } from '@/modules/pedidos/ofertas.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
 
@@ -431,7 +427,7 @@ export function TesoreriaPage() {
             </div>
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.5rem', alignItems: 'center' }}>
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={async () => {
-                try { await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+                try { const { descargarReportePdf } = await import('./reportePdf'); await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
               {(fBuscar.trim() || fCategoria) && (
@@ -627,7 +623,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClos
 
   async function descargarPdf() {
     setGenerandoPdf(true);
-    try { await descargarMovimientoDetallePdf(mov, orden); }
+    try { const { descargarMovimientoDetallePdf } = await import('./movimientoDetallePdf'); await descargarMovimientoDetallePdf(mov, orden); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
     finally { setGenerandoPdf(false); }
   }
@@ -834,6 +830,7 @@ function DetalleCorreoModal({ mov, orden, defaultEmail, onClose }: {
     }
     setEnviando(true);
     try {
+      const { enviarMovimientoDetallePorCorreo } = await import('./enviarReporte');
       const r = await enviarMovimientoDetallePorCorreo(mov, orden, lista);
       notify(`Detalle enviado a ${r.destinatarios.join(', ')}`, 'success', { link: '#/app/tesoreria' });
       onClose();
@@ -1015,7 +1012,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
           <span>Saldos por cuenta / moneda</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
             <button className="btn btn-sm btn-ghost" disabled={!movs.length} onClick={async () => {
-              try { await descargarReportePdf(movs, { titulo: 'REPORTE DE CAJA', subtitulo: caja.nombre }); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+              try { const { descargarReportePdf } = await import('./reportePdf'); await descargarReportePdf(movs, { titulo: 'REPORTE DE CAJA', subtitulo: caja.nombre }); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
             }}>↓ PDF</button>
             <button className="btn btn-sm btn-ghost" disabled={!movs.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
           </span>
@@ -1992,8 +1989,8 @@ function CierreMesModal({ actor, actorName, onClose, onChanged }: {
         <button className="btn btn-ghost" onClick={onClose} disabled={cerrando}>Cerrar</button>
         {repVer && (
           <>
-            <button className="btn btn-ghost" onClick={() => descargarCierrePdf(repVer).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo el PDF', 'error'))}>📄 PDF</button>
-            <button className="btn btn-ghost" onClick={() => descargarCierreExcel(repVer).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo el Excel', 'error'))}>📊 Excel</button>
+            <button className="btn btn-ghost" onClick={() => import('./cierreReporte').then(({ descargarCierrePdf }) => descargarCierrePdf(repVer)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo el PDF', 'error'))}>📄 PDF</button>
+            <button className="btn btn-ghost" onClick={() => import('./cierreReporte').then(({ descargarCierreExcel }) => descargarCierreExcel(repVer)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo el Excel', 'error'))}>📊 Excel</button>
           </>
         )}
         {!verHist && !yaCerrado && rep && !confirmar && (
@@ -2472,7 +2469,7 @@ function LibroMayorMonedaModal({ moneda, movs, rango, onVerMov, onClose }: {
         <div className="mono" style={{ color: 'var(--danger)' }}>Haber: {monto(haber, moneda)}</div>
         <div className="mono" style={{ fontWeight: 700 }}>Neto: {monto(debe - haber, moneda)}</div>
         <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }} disabled={!ordenados.length}
-          onClick={() => descargarLibroMayorMonedaPdf(moneda, ordenados, rango).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+          onClick={() => import('./libroMayorPdf').then(({ descargarLibroMayorMonedaPdf }) => descargarLibroMayorMonedaPdf(moneda, ordenados, rango)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
           ↓ PDF
         </button>
       </div>
@@ -2650,6 +2647,7 @@ function EnviarReporteModal({ movs, meta, defaultEmail, onClose }: {
     }
     setEnviando(true);
     try {
+      const { enviarReportePorCorreo } = await import('./enviarReporte');
       const r = await enviarReportePorCorreo(movs, meta, lista);
       notify(`Reporte enviado a ${r.destinatarios.join(', ')}`, 'success', { link: '#/app/tesoreria' });
       onClose();
@@ -4035,7 +4033,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, onClose, onPaid
 
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
         <button className="btn btn-sm btn-ghost" disabled={!rows.length}
-          onClick={() => descargarResumenPorPagarPdf(rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+          onClick={() => import('./ordenesPorPagarPdf').then(({ descargarResumenPorPagarPdf }) => descargarResumenPorPagarPdf(rows)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
           ↓ Resumen PDF
         </button>
       </div>
@@ -4073,7 +4071,9 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, onClose, onPaid
                   )}
                 </td>
                 <td className="mono">
-                  {r.orden.oc_codigo ?? '—'}
+                  {r.orden.clase === 'servicio'
+                    ? <span className="badge" style={{ background: '#7c5cff', color: '#fff', fontSize: '.66rem', fontWeight: 700 }} title="Solicitud de servicio (no es OC)">🔧 SERVICIO</span>
+                    : (r.orden.oc_codigo ?? '—')}
                   {(noLeidos.get(r.orden.id) ?? 0) > 0 && (
                     <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--brand, #ff8a00)', color: '#fff', fontSize: '.66rem' }}
                       title="Mensajes sin leer en el chat de la OC">💬 {noLeidos.get(r.orden.id)}</span>
@@ -4434,7 +4434,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
       {vista === 'oc' && (<>
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
         <button className="btn btn-sm btn-ghost" disabled={!ordenes.length}
-          onClick={() => descargarResumenCreditosPdf(ordenes).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+          onClick={() => import('./cuentasCreditoPdf').then(({ descargarResumenCreditosPdf }) => descargarResumenCreditosPdf(ordenes)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
           ↓ Resumen PDF
         </button>
       </div>
@@ -4858,7 +4858,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                 className="btn btn-sm btn-ghost"
                 title="Descargar el reporte de esta cuenta por pagar en PDF"
                 onClick={async () => {
-                  try { await descargarCuentaPorPagarPdf(sel, abonos, ingresos); }
+                  try { const { descargarCuentaPorPagarPdf } = await import('./cuentaPorPagarPdf'); await descargarCuentaPorPagarPdf(sel, abonos, ingresos); }
                   catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
                 }}
               >↓ PDF</button>
@@ -4916,6 +4916,7 @@ function EnviarCuentaPorPagarModal({ cuenta, abonos, ingresos, defaultEmail, onC
     }
     setEnviando(true);
     try {
+      const { enviarCuentaPorPagarPorCorreo } = await import('./enviarReporte');
       const r = await enviarCuentaPorPagarPorCorreo(cuenta, abonos, lista, ingresos);
       notify(`Reporte enviado a ${r.destinatarios.join(', ')}`, 'success', { link: '#/app/tesoreria' });
       onClose();
@@ -5160,7 +5161,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
 
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
         <button className="btn btn-sm btn-ghost" disabled={!lista.length}
-          onClick={() => descargarResumenPorCobrarPdf(lista).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+          onClick={() => import('./cuentasPorCobrarPdf').then(({ descargarResumenPorCobrarPdf }) => descargarResumenPorCobrarPdf(lista)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
           ↓ Resumen PDF
         </button>
       </div>
@@ -5609,7 +5610,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
 
   const footer = (
     <>
-      <button className="btn btn-ghost" onClick={() => descargarOrdenCompraPdf(o.id).catch(() => toast('No se pudo generar el PDF', 'error'))}>↓ OC PDF</button>
+      <button className="btn btn-ghost" onClick={() => import('@/modules/pedidos/ordenCompraPdf').then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(o.id)).catch(() => toast('No se pudo generar el PDF', 'error'))}>↓ OC PDF</button>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>{row.esperandoMetodo ? 'Cerrar' : 'Cancelar'}</button>
       {!row.esperandoMetodo && (
         <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving || excedeTotal}>{saving ? 'Pagando…' : excedeTotal ? 'Excede el total de la OC' : `PAGAR ORDEN · ${esMultimoneda ? monto(sumUsdMulti, 'USD') : monto(Number(montoStr) || 0, moneda)}`}</button>
@@ -5618,7 +5619,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   );
 
   return (
-    <Modal title={`Pagar OC ${o.oc_codigo ?? o.codigo}`} size="lg" onClose={() => !saving && onClose()} footer={footer}>
+    <Modal title={o.clase === 'servicio' ? `Pagar SERVICIO ${o.codigo}` : `Pagar OC ${o.oc_codigo ?? o.codigo}`} size="lg" onClose={() => !saving && onClose()} footer={footer}>
       <form id="pagar-oc" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -5636,11 +5637,15 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         <div className="card" style={{ marginBottom: '.75rem' }}>
           <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle de la orden</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
-            <div><span className="muted">OP:</span> <strong className="mono">{o.codigo}</strong></div>
-            <div><span className="muted">N°ODC:</span> <strong className="mono">{o.oc_codigo ?? '—'}</strong></div>
+            <div><span className="muted">{o.clase === 'servicio' ? 'Solicitud:' : 'OP:'}</span> <strong className="mono">{o.codigo}</strong></div>
+            <div><span className="muted">{o.clase === 'servicio' ? 'Tipo:' : 'N°ODC:'}</span>{' '}
+              {o.clase === 'servicio'
+                ? <span className="badge" style={{ background: '#7c5cff', color: '#fff', fontWeight: 700 }}>🔧 SERVICIO</span>
+                : <strong className="mono">{o.oc_codigo ?? '—'}</strong>}
+            </div>
             <div><span className="muted">Proveedor:</span> {row.proveedorNombre}</div>
             <div><span className="muted">Unidad solicitante:</span> {o.solicitante || '—'}</div>
-            <div><span className="muted">Solicitante:</span> {o.ci_solicitante || o.solicitante_email || '—'}</div>
+            <div><span className="muted">Solicitante:</span> {o.solicitante_persona || o.ci_solicitante || o.solicitante_email || '—'}</div>
             <div><span className="muted">Creada (OP):</span> {dateTime(o.created_at)}</div>
             <div><span className="muted">Aprobada (OP):</span> {o.aprobada_en ? dateTime(o.aprobada_en) : '—'}</div>
             <div><span className="muted">OC creada:</span> {o.oc_creada_en ? dateTime(o.oc_creada_en) : '—'}</div>

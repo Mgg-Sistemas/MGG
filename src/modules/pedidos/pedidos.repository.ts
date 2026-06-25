@@ -433,7 +433,9 @@ export async function aprobarOrdenConOferta(
 ): Promise<Orden> {
   if (!['aprobada', 'desistida_proveedor'].includes(o.estado))
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
-  const ocCodigo = o.oc_codigo ?? (await nextOcCodigo());
+  // Las SOLICITUDES DE SERVICIO conservan su propio correlativo (SV-AAAA-NNNN):
+  // no se les genera código de Orden de Compra (no son OC, son SS).
+  const ocCodigo = o.clase === 'servicio' ? (o.oc_codigo ?? null) : (o.oc_codigo ?? (await nextOcCodigo()));
   const nowIso = new Date().toISOString();
   // Copiamos las condiciones de pago de la oferta elegida a la orden.
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
@@ -447,8 +449,20 @@ export async function aprobarOrdenConOferta(
   // La oferta manda en precio/cantidad, pero la FINALIDAD y el ÁREA (y el flag
   // comprar) los puso el solicitante en la OP: los conservamos por SKU para que
   // no se pierdan al crear la OC.
+  // Oferta cotizada SOLO en USD efectivo (sin precio en Bs/BCV): el precio en
+  // divisa pasa a ser el precio nominal del renglón, así una oferta 100% en
+  // dólares puede generar OC (el motor de precios/inventario opera sobre `precio`).
+  const soloUsd = ofertaItems.length > 0
+    && ofertaItems.every((it) => (Number(it.precio) || 0) <= 0)
+    && ofertaItems.some((it) => (Number(it.precio_usd) || 0) > 0);
+  const itemsBase = soloUsd
+    ? ofertaItems.map((it) => ((Number(it.precio_usd) || 0) > 0 ? { ...it, precio: Number(it.precio_usd) } : it))
+    : ofertaItems;
+  const totalBase = soloUsd
+    ? Math.round(itemsBase.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0) * 100) / 100
+    : ofertaPrecioTotal;
   const origBySku = new Map(o.items.map((it) => [it.sku, it]));
-  const itemsConContexto = ofertaItems.map((of) => {
+  const itemsConContexto = itemsBase.map((of) => {
     const orig = origBySku.get(of.sku);
     return orig
       ? { ...of, finalidad: of.finalidad ?? orig.finalidad, area: of.area ?? orig.area, comprar: of.comprar ?? orig.comprar }
@@ -457,7 +471,8 @@ export async function aprobarOrdenConOferta(
   // Si la oferta trae precio efectivo (descuento), se aplica AUTOMÁTICO a toda la OC:
   // los ítems se reprecian al efectivo y el total pasa a ser el efectivo (el BCV original
   // queda en oferta_precio_bcv para mostrar el ahorro). Así el inventario recibe el costo real.
-  const efectivoOf = ofRow?.precio_efectivo != null ? Number(ofRow.precio_efectivo) : null;
+  // En solo-USD el precio YA es la divisa: no hay "descuento por efectivo" que aplicar.
+  const efectivoOf = soloUsd ? null : (ofRow?.precio_efectivo != null ? Number(ofRow.precio_efectivo) : null);
 
   // Productos en $0 (sin precio en la oferta) NO entran a la OC. Si quedan productos
   // con precio, se crea la OC solo con esos y la SP madre conserva los $0 en
@@ -487,7 +502,7 @@ export async function aprobarOrdenConOferta(
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
     items: repEf ? repEf.items : itemsConContexto,
-    total: repEf ? repEf.total : ofertaPrecioTotal,
+    total: repEf ? repEf.total : totalBase,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     // Snapshot de la oferta elegida: datos técnicos/logísticos + precio efectivo (se ven en la OC y su PDF).
@@ -498,7 +513,7 @@ export async function aprobarOrdenConOferta(
     oc_creada_en: nowIso,
     historial: appendHistorial(o, 'oc_creada', actorEmail, {
       proveedorId: ofertaProveedorId,
-      precio: ofertaPrecioTotal,
+      precio: totalBase,
       score: scoreCalculado,
       oc_codigo: ocCodigo,
     }),
@@ -1674,6 +1689,12 @@ export async function actualizarCatalogoPedido(id: string, nombre: string): Prom
 
 export async function setEstadoCatalogoPedido(id: string, estado: 'activo' | 'inactivo'): Promise<void> {
   const { error } = await supabase.from('catalogos_pedido').update({ estado, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+/** Elimina definitivamente una entrada del catálogo (categoría/tipo/unidad). */
+export async function eliminarCatalogoPedido(id: string): Promise<void> {
+  const { error } = await supabase.from('catalogos_pedido').delete().eq('id', id);
   if (error) throw error;
 }
 

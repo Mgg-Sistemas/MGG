@@ -15,7 +15,7 @@ import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo, consumosPorEquipo, ultimoServicioPorEquipo, type ConsumoMant, type UltimoServicio } from './maquinariaMant.repository';
 import { horometrosVigentesPorEquipo } from '@/modules/combustible/combustible.repository';
-import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
+// generadores de ./maquinariaReportes: import dinámico (al generar) para no cargar jsPDF/xlsx al abrir.
 
 const STATUS_COLOR: Record<string, string> = {
   'ACTIVO': 'var(--success)', 'MANTENIMIENTO': 'var(--warning)',
@@ -183,8 +183,8 @@ export function MaquinariaPage() {
           {canWrite && <button className="btn btn-primary" onClick={() => setForm({ open: true, equipo: null })}>+ Nuevo equipo</button>}
           <button className="btn btn-ghost" onClick={() => setResumenOpen(true)}>📊 Resumen</button>
           <button className="btn btn-ghost" onClick={() => setCatalogoOpen(true)}>🏷 Catálogo</button>
-          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void descargarEquiposPdf(lista)}>↓ PDF</button>
-          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void descargarEquiposExcel(lista)}>↓ Excel</button>
+          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void import('./maquinariaReportes').then(({ descargarEquiposPdf }) => descargarEquiposPdf(lista)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void import('./maquinariaReportes').then(({ descargarEquiposExcel }) => descargarEquiposExcel(lista)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
         </div>
       </div>
@@ -347,7 +347,7 @@ export function MaquinariaPage() {
           titulo="Enviar Control de Maquinaria y Vehículos"
           descripcion={`Se enviará el PDF con ${lista.length} equipo(s).`}
           defaultEmail={actor}
-          onEnviar={async (emails) => (await enviarEquiposPorCorreo(lista, emails)).destinatarios}
+          onEnviar={async (emails) => { const { enviarEquiposPorCorreo } = await import('./maquinariaReportes'); return (await enviarEquiposPorCorreo(lista, emails)).destinatarios; }}
           onClose={() => setCorreoOpen(false)}
         />
       )}
