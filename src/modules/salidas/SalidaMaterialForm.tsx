@@ -73,7 +73,9 @@ export function SalidaMaterialForm({
   useEffect(() => {
     Promise.all([listAlmacenes().catch(() => []), listCentrosAcopio().catch(() => [])])
       .then(([alms, centros]) => {
-        setSedePrincipales(alms.filter((a) => !a.parent_id && a.estado === 'activo').map((a) => a.nombre));
+        // Solo almacenes PADRE (principales con subalmacenes); se excluyen los top-level sin hijos.
+        const conHijos = new Set(alms.filter((a) => a.parent_id).map((a) => a.parent_id));
+        setSedePrincipales(alms.filter((a) => !a.parent_id && a.estado === 'activo' && conHijos.has(a.id)).map((a) => a.nombre));
         setSedeCentros(centros.map((c) => c.nombre));
       })
       .catch(() => { /* sin sedes: el campo queda vacío */ });
