@@ -191,12 +191,12 @@ export function OfertasComparativa({
               return (
                 <Fragment key={s.oferta.id}>
                   <tr
-                    className={seleccionable ? 'row-selectable' : undefined}
-                    onClick={seleccionable ? () => setConfirmando(s) : undefined}
-                    title={seleccionable ? 'Clic para aceptar esta oferta' : undefined}
+                    className="row-selectable"
+                    onClick={() => toggleExpand(s.oferta.id)}
+                    title="Clic para ver el detalle por producto (Bs · USD)"
                     style={{
                       background: rowBg,
-                      cursor: seleccionable ? 'pointer' : undefined,
+                      cursor: 'pointer',
                       borderBottom: seleccionable ? 'none' : undefined,
                     }}
                   >
@@ -206,24 +206,14 @@ export function OfertasComparativa({
                         {recomendada && <span className="badge primary" style={{ marginLeft: '.4rem' }}>★ Recomendada</span>}
                         {aceptada && <span className="badge success" style={{ marginLeft: '.4rem' }}>Aceptada</span>}
                       </div>
-                      <div style={{ marginTop: '.2rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
+                      <div style={{ marginTop: '.2rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
                         {s.mejorPrecio && <span className="badge info">Mejor precio</span>}
                         {s.masPuntual && <span className="badge info">Más puntual</span>}
                         {s.mejorCalidad && <span className="badge info">Mejor calidad</span>}
+                        <span className="muted" style={{ fontSize: '.74rem' }}>
+                          {expandido.has(s.oferta.id) ? '▾ Detalle por producto' : '▸ Clic para ver detalle por producto'}
+                        </span>
                       </div>
-                      <button
-                        className="btn btn-sm"
-                        style={{
-                          marginTop: '.4rem', padding: '.26rem .7rem', fontSize: '.78rem', fontWeight: 600,
-                          background: 'rgba(255,138,0,.12)', color: 'var(--primary-3, #ff8a00)',
-                          border: '1px solid var(--primary, #ff8a00)', borderRadius: 999,
-                          display: 'inline-flex', alignItems: 'center', gap: '.35rem',
-                        }}
-                        onClick={(e) => { e.stopPropagation(); toggleExpand(s.oferta.id); }}
-                        title="Ver la comparación BCV vs USD por producto"
-                      >
-                        {expandido.has(s.oferta.id) ? '▾' : '▸'} Por producto (Bs/USD)
-                      </button>
                     </td>
                     <td className="num mono">
                       {money(s.oferta.precio_total)}

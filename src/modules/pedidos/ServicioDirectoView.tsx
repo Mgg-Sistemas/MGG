@@ -326,31 +326,22 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                   options={categorias.map((c) => ({ value: c.nombre.toUpperCase(), label: c.nombre }))}
                   placeholder="🔎 Buscá o escribí (mantenimiento de vehículos…)" emptyText="Escribí una nueva." />
               </div>
-              <div className="form-row">
-                <label>Tipo de servicio</label>
-                <SearchSelect allowCreate value={l.tipo} onChange={(v) => set(l.id, { tipo: v.toUpperCase() })}
-                  options={tipoOptions}
-                  placeholder="🔎 Elegí el tipo (caucho, aceite, pintura…)" emptyText="Escribí uno nuevo." />
-              </div>
-            </div>
-            <div className="form-grid">
-              <div className="form-row">
-                <label>Equipo (Control de Maquinaria)</label>
-                <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })}
-                  options={equipos.map((e) => ({ value: e.id, label: `${e.equipo}${e.placa ? ` · ${e.placa}` : ''}` }))}
-                  placeholder="🔎 Buscá el equipo / vehículo…" emptyText="Sin equipos." />
-                <small className="muted" style={{ fontSize: '.72rem' }}>Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
-              </div>
+              {/* En recarga (gas/oxígeno/extintores) solo se pide cantidad de bombonas y KG: sin tipo ni equipo. */}
               {esRecargaGas(l.categoria) ? (
                 <div className="form-row">
                   <label>🛢️ Cantidad de bombonas</label>
                   <input className="input mono" type="number" min={0} step="any" value={l.bombonas} onChange={(e) => set(l.id, { bombonas: e.target.value })} placeholder="N° de bombonas" required />
                 </div>
               ) : (
-                <div className="form-row"><label>Cantidad</label><input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
+                <div className="form-row">
+                  <label>Tipo de servicio</label>
+                  <SearchSelect allowCreate value={l.tipo} onChange={(v) => set(l.id, { tipo: v.toUpperCase() })}
+                    options={tipoOptions}
+                    placeholder="🔎 Elegí el tipo (caucho, aceite, pintura…)" emptyText="Escribí uno nuevo." />
+                </div>
               )}
             </div>
-            {esRecargaGas(l.categoria) && (
+            {esRecargaGas(l.categoria) ? (
               <div className="form-grid">
                 <div className="form-row">
                   <label>⚖️ KG por bombona</label>
@@ -362,6 +353,17 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                     {(Number(l.bombonas) || 0)} bombona(s) · {Math.round((Number(l.bombonas) || 0) * (Number(l.kg) || 0) * 100) / 100} KG
                   </div>
                 </div>
+              </div>
+            ) : (
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Equipo (Control de Maquinaria)</label>
+                  <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })}
+                    options={equipos.map((e) => ({ value: e.id, label: `${e.equipo}${e.placa ? ` · ${e.placa}` : ''}` }))}
+                    placeholder="🔎 Buscá el equipo / vehículo…" emptyText="Sin equipos." />
+                  <small className="muted" style={{ fontSize: '.72rem' }}>Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
+                </div>
+                <div className="form-row"><label>Cantidad</label><input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
               </div>
             )}
           </div>
