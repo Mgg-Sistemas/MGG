@@ -47,6 +47,7 @@ export function AgregarOfertaModal({
   onCreated,
 }: Props) {
   const isEdit = !!ofertaEdit;
+  const esServicio = orden.clase === 'servicio';
   const provEdit = ofertaEdit ? proveedores.find((p) => p.id === ofertaEdit.proveedor_id) : undefined;
   const opcionesProveedor = useMemo(
     () => proveedores.filter((p) => p.estado === 'activo' && !proveedoresYaOfertados.has(p.id)),
@@ -446,7 +447,9 @@ export function AgregarOfertaModal({
             <thead>
               <tr>
                 <th rowSpan={2}>SKU</th>
-                <th rowSpan={2}>Producto</th>
+                <th rowSpan={2}>{esServicio ? 'Servicio' : 'Producto'}</th>
+                {esServicio && <th rowSpan={2}>Categoría</th>}
+                {esServicio && <th rowSpan={2}>Subcategoría</th>}
                 <th rowSpan={2}>Marca / modelo</th>
                 <th className="num" rowSpan={2}>Cant.</th>
                 <th className="num" colSpan={2} style={{ textAlign: 'center', background: 'rgba(80,140,255,.10)' }}>Pago en Bs a BCV</th>
@@ -472,6 +475,12 @@ export function AgregarOfertaModal({
                   <tr key={it._rid}>
                     <td className="mono">{it._variante ? <span className="muted" title="Variante del mismo producto">↳</span> : it.sku}</td>
                     <td>{it._variante ? <span className="muted">{it.nombre}</span> : it.nombre}</td>
+                    {esServicio && (
+                      <td style={{ fontSize: '.82rem' }}>{it._variante ? '' : (it.servicio_categoria?.trim() || <span className="muted">—</span>)}</td>
+                    )}
+                    {esServicio && (
+                      <td style={{ fontSize: '.82rem' }}>{it._variante ? '' : (it.servicio_tipo?.trim() || <span className="muted">—</span>)}</td>
+                    )}
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                         <input className="input" style={{ minWidth: 110 }} placeholder="Marca"
@@ -510,7 +519,7 @@ export function AgregarOfertaModal({
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={5} className="num" style={{ fontWeight: 700 }}>SUBTOTAL</td>
+                <td colSpan={esServicio ? 7 : 5} className="num" style={{ fontWeight: 700 }}>SUBTOTAL</td>
                 <td className="num mono" style={{ fontWeight: 700 }}>{money(bcvSubtotal)}</td>
                 <td></td>
                 <td className="num mono" style={{ fontWeight: 700 }}>{usdTotal > 0 ? money(usdTotal) : '—'}</td>
