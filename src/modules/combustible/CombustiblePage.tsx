@@ -678,6 +678,7 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
   const [equipo, setEquipo] = useState('');
   const [hi, setHi] = useState('');
   const [hf, setHf] = useState('');
+  const [km, setKm] = useState('');  // kilometraje (odómetro) del equipo en este movimiento
   const [ci, setCi] = useState('');
   const [cf, setCf] = useState('');
   // HI/CI quedan BLOQUEADOS cuando se autocompletan con la lectura previa (encadenado).
@@ -750,6 +751,7 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
         tanqueId, tipo, litros: litrosNum, fecha: fechaIso,
         costoLitro: tipo === 'ingreso' && tasaNum != null && tasaNum >= 0 ? tasaNum : null,
         horometroInicial: hi !== '' ? hiNum : null, horometroFinal: hf !== '' ? hfNum : null,
+        kilometrajeFinal: km !== '' ? Number(km) : null,
         contadorIni: ci !== '' ? ciNum : null, contadorFin: cf !== '' ? cfNum : null,
         equipo: equipo.trim() || null, autorizadoPor: autorizado.trim() || null,
         destino: destino.trim() || null, observacion: observacion.trim() || null,
@@ -851,6 +853,14 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
             <label>Horómetro final (HF)</label>
             <input className="input mono" type="number" min={0} step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
             {horasEquipo != null && <small className="muted">HRS = HF − HI = <strong className="mono">{num(horasEquipo)} h</strong></small>}
+          </div>
+        </div>
+        {/* Kilometraje (odómetro) del equipo: alimenta la ALERTA POR KILOMETRAJE de Control de Maquinaria. */}
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Kilometraje (odómetro)</label>
+            <input className="input mono" type="number" min={0} step="any" value={km} onChange={(e) => setKm(e.target.value)} placeholder="Km actual del vehículo" />
+            <small className="muted">Para vehículos: se usa en la alerta de mantenimiento por kilometraje (Equipos).</small>
           </div>
         </div>
         {/* Contador global del surtidor (totalizador): el CI se precarga con el último CF del tanque. */}

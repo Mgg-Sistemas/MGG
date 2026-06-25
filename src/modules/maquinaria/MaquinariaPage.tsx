@@ -14,7 +14,7 @@ import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo, consumosPorEquipo, ultimoServicioPorEquipo, type ConsumoMant, type UltimoServicio } from './maquinariaMant.repository';
-import { horometrosVigentesPorEquipo } from '@/modules/combustible/combustible.repository';
+import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo } from '@/modules/combustible/combustible.repository';
 // generadores de ./maquinariaReportes: import dinámico (al generar) para no cargar jsPDF/xlsx al abrir.
 
 const STATUS_COLOR: Record<string, string> = {
@@ -24,6 +24,8 @@ const STATUS_COLOR: Record<string, string> = {
 
 /** Umbral de alerta: si faltan ≤ 250 HRS para el próximo mantenimiento, se avisa. */
 const UMBRAL_ALERTA_HRS = 250;
+/** Umbral de alerta por kilometraje: si faltan ≤ 1.000 km al objetivo, se avisa. */
+const UMBRAL_ALERTA_KM = 1000;
 
 /** Quita acentos y pasa a minúsculas para una búsqueda tolerante. */
 const normTxt = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -76,8 +78,12 @@ export function MaquinariaPage() {
   const actorName = appUser?.nombre ?? null;
 
   const navigate = useNavigate();
+  // Vista raíz tipo Combustible: landing con 2 tarjetas grandes → EQUIPOS · ALERTA POR KILOMETRAJE.
+  const [seccion, setSeccion] = useState<'landing' | 'equipos' | 'alertas'>('landing');
+  const [filtroAlerta, setFiltroAlerta] = useState('');
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [horometros, setHorometros] = useState<Map<string, number>>(new Map());     // combustible: nombre→horómetro
+  const [kmVig, setKmVig] = useState<Map<string, number>>(new Map());                // combustible: nombre→kilometraje
   const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map()); // bitácora: equipo_id→…
   const [consumos, setConsumos] = useState<Map<string, ConsumoMant>>(new Map());     // bitácora: equipo_id→consumos
   const [ultimoServ, setUltimoServ] = useState<Map<string, UltimoServicio>>(new Map()); // bitácora: equipo_id→último servicio
@@ -97,18 +103,20 @@ export function MaquinariaPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, bit, cons, us] = await Promise.all([
+      const [eqs, horos, bit, cons, us, kms] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
         consumosPorEquipo().catch(() => new Map<string, ConsumoMant>()),
         ultimoServicioPorEquipo().catch(() => new Map<string, UltimoServicio>()),
+        kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>()),
       ]);
       setEquipos(eqs);
       setHorometros(horos);
       setBitMap(bit);
       setConsumos(cons);
       setUltimoServ(us);
+      setKmVig(kms);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -164,6 +172,26 @@ export function MaquinariaPage() {
   }, [equipos, infoEquipo, ultimoServ]);
   const criticos = useMemo(() => equipos.filter((e) => critMap.has(e.id)), [equipos, critMap]);
 
+  // ALERTA POR KILOMETRAJE: equipos con km objetivo (alerta_km) cuya lectura vigente de
+  // Combustible está a ≤ UMBRAL_ALERTA_KM del objetivo (o ya lo superaron).
+  const alertasKm = useMemo(() => {
+    const out: Array<{ equipo: MaquinariaEquipo; km: number; alertaKm: number; faltan: number }> = [];
+    for (const e of equipos) {
+      if (!e.activo || e.alerta_km == null) continue;
+      const km = e.combustible_equipo ? kmVig.get(e.combustible_equipo.trim()) : undefined;
+      if (km == null) continue;
+      const faltan = Math.round(Number(e.alerta_km) - km);
+      if (faltan <= UMBRAL_ALERTA_KM) out.push({ equipo: e, km, alertaKm: Number(e.alerta_km), faltan });
+    }
+    return out.sort((a, b) => a.faltan - b.faltan);
+  }, [equipos, kmVig]);
+
+  const alertasKmFiltradas = useMemo(() => {
+    const q = normTxt(filtroAlerta.trim());
+    if (!q) return alertasKm;
+    return alertasKm.filter(({ equipo: e }) => [e.equipo, e.tipo, e.propietario, e.serial, e.placa].some((v) => normTxt(v ?? '').includes(q)));
+  }, [alertasKm, filtroAlerta]);
+
   async function toggleActivo(e: MaquinariaEquipo) {
     try { await setEquipoActivo(e.id, !e.activo); await cargar(); }
     catch (err) { toast(err instanceof Error ? err.message : 'No se pudo cambiar', 'error'); }
@@ -179,15 +207,85 @@ export function MaquinariaPage() {
         <div>
           <h1>🚜 Control de Maquinaria y Vehículos</h1>
         </div>
-        <div className="actions" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        {seccion === 'equipos' && (<div className="actions" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           {canWrite && <button className="btn btn-primary" onClick={() => setForm({ open: true, equipo: null })}>+ Nuevo equipo</button>}
           <button className="btn btn-ghost" onClick={() => setResumenOpen(true)}>📊 Resumen</button>
           <button className="btn btn-ghost" onClick={() => setCatalogoOpen(true)}>🏷 Catálogo</button>
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void import('./maquinariaReportes').then(({ descargarEquiposPdf }) => descargarEquiposPdf(lista)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void import('./maquinariaReportes').then(({ descargarEquiposExcel }) => descargarEquiposExcel(lista)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
-        </div>
+        </div>)}
       </div>
+
+      {/* ── Landing tipo Combustible: dos tarjetas grandes ── */}
+      {seccion === 'landing' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', marginTop: '.5rem' }}>
+          <button type="button" className="card" onClick={() => setSeccion('equipos')}
+            style={{ textAlign: 'left', cursor: 'pointer', margin: 0, padding: '1.1rem 1.3rem', borderColor: 'var(--success)', borderWidth: 2, borderStyle: 'solid' }}>
+            <div className="muted" style={{ fontSize: '.8rem', textTransform: 'uppercase', letterSpacing: '.03em', display: 'flex', justifyContent: 'space-between' }}>
+              <span>🚜 Equipos · total</span><span style={{ color: 'var(--muted)' }}>Entrar →</span>
+            </div>
+            <div className="mono" style={{ fontSize: '2.6rem', fontWeight: 800, lineHeight: 1.1 }}>{equipos.length}</div>
+            <div className="muted" style={{ fontSize: '.82rem' }}>
+              <span style={{ color: 'var(--success)' }}>● Activos {activos.length}</span> · <span style={{ color: 'var(--warning)' }}>● Mantenimiento {enMantenimiento.length}</span> · <span style={{ color: 'var(--danger)' }}>● Crítico {criticos.length}</span>
+            </div>
+          </button>
+          <button type="button" className="card" onClick={() => setSeccion('alertas')}
+            style={{ textAlign: 'left', cursor: 'pointer', margin: 0, padding: '1.1rem 1.3rem', borderColor: alertasKm.length ? 'var(--warning)' : 'var(--border)', borderWidth: 2, borderStyle: 'solid' }}>
+            <div className="muted" style={{ fontSize: '.8rem', textTransform: 'uppercase', letterSpacing: '.03em', display: 'flex', justifyContent: 'space-between' }}>
+              <span>🛣️ Alerta por kilometraje</span><span style={{ color: 'var(--muted)' }}>Ver →</span>
+            </div>
+            <div className="mono" style={{ fontSize: '2.6rem', fontWeight: 800, lineHeight: 1.1, color: alertasKm.length ? 'var(--warning)' : undefined }}>{alertasKm.length}</div>
+            <div className="muted" style={{ fontSize: '.82rem' }}>Equipos próximos (o pasados) del kilometraje objetivo · lectura desde Combustible</div>
+          </button>
+        </div>
+      )}
+
+      {seccion === 'alertas' && (
+        <div>
+          <button className="btn btn-ghost" style={{ marginBottom: '.7rem' }} onClick={() => { setSeccion('landing'); setFiltroAlerta(''); }}>← Volver</button>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
+            <input className="input" value={filtroAlerta} onChange={(e) => setFiltroAlerta(e.target.value)} placeholder="🔍 Buscar equipo con alerta…" style={{ flex: '1 1 280px' }} />
+            <span className="muted" style={{ fontSize: '.8rem' }}>{alertasKmFiltradas.length} de {alertasKm.length} equipo(s)</span>
+          </div>
+          {!alertasKmFiltradas.length ? (
+            <EmptyState icon="🛣️" message={alertasKm.length ? 'Sin resultados.' : 'Ningún equipo cerca de su kilometraje objetivo. Definí «Alerta a los X km» en la ficha del equipo y registrá el kilometraje en Combustible.'} />
+          ) : (
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.85rem' }}>
+                <thead><tr>
+                  <th>Equipo</th><th>Tipo</th>
+                  <th style={{ textAlign: 'right' }}>Km vigente</th><th style={{ textAlign: 'right' }}>Km objetivo</th><th style={{ textAlign: 'right' }}>Faltan</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {alertasKmFiltradas.map(({ equipo: e, km, alertaKm, faltan }) => (
+                    <tr key={e.id} style={{ background: faltan <= 0 ? 'rgba(239,68,68,.08)' : 'rgba(255,165,0,.08)' }}>
+                      <td><strong>{e.equipo}</strong>{e.serial ? <div className="muted mono" style={{ fontSize: '.72rem' }}>{e.serial}</div> : null}</td>
+                      <td>{e.tipo ?? '—'}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(km)} km</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(alertaKm)} km</td>
+                      <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {faltan < 0
+                          ? <span style={{ color: 'var(--danger)', fontWeight: 700 }}>⚠️ superó {fmtNum(Math.abs(faltan))} km</span>
+                          : faltan === 0
+                            ? <span style={{ color: 'var(--danger)', fontWeight: 700 }}>⚠️ alcanzó</span>
+                            : <span style={{ color: 'var(--warning)', fontWeight: 700 }}>{fmtNum(faltan)} km</span>}
+                      </td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
+                        {canWrite && <button className="btn btn-sm btn-ghost" title="Editar ficha / km objetivo" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {seccion === 'equipos' && (<>
+      <button className="btn btn-ghost" style={{ marginBottom: '.7rem' }} onClick={() => setSeccion('landing')}>← Volver</button>
 
       {enAlerta.length > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
@@ -337,6 +435,7 @@ export function MaquinariaPage() {
           </div>
         )
       )}
+      </>)}
 
       {catalogoOpen && <MaquinariaCatalogoModal canWrite={canWrite} onClose={() => setCatalogoOpen(false)} />}
       {resumenOpen && <ResumenMaquinariaModal equipos={equipos.filter((e) => e.activo)} onClose={() => setResumenOpen(false)} />}

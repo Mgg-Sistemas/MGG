@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { num as fmtNum } from '@/shared/lib/format';
-import { consumosPorEquipo, type ConsumoMant } from './maquinariaMant.repository';
-import { type ResumenMantRow } from './servicioMantenimientoPdf';
+import { num as fmtNum, date as fmtDate } from '@/shared/lib/format';
+import { consumosPorEquipo, listMantenimientos, type ConsumoMant, type MantenimientoCalc } from './maquinariaMant.repository';
+import { type ResumenMantRow, type MovEquipoRow } from './servicioMantenimientoPdf';
 // descargarResumenMantenimientoPdf de ./servicioMantenimientoPdf: import dinámico (al generar) para no cargar jsPDF/xlsx al abrir.
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
@@ -25,6 +25,8 @@ export function ResumenMantenimientoModal({ grupo, equipos, infoEquipo, onClose 
   const [hasta, setHasta] = useState('');
   const [consumos, setConsumos] = useState<Map<string, ConsumoMant>>(new Map());
   const [loading, setLoading] = useState(true);
+  // Equipo seleccionado para ver TODOS sus movimientos en el rango (modal anidado).
+  const [verEquipo, setVerEquipo] = useState<MaquinariaEquipo | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -105,8 +107,9 @@ export function ResumenMantenimientoModal({ grupo, equipos, infoEquipo, onClose 
           <tbody>
             {!rows.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Sin equipos en este grupo.</td></tr>}
             {rows.map((r, i) => (
-              <tr key={i}>
-                <td><strong>{r.equipo}</strong></td>
+              <tr key={i} className="row-selectable" style={{ cursor: 'pointer' }}
+                title="Ver todos los movimientos de este equipo" onClick={() => setVerEquipo(equipos[i])}>
+                <td><strong>{r.equipo}</strong> <span className="muted" style={{ fontSize: '.7rem' }}>🔍</span></td>
                 <td>{r.status}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.horometro != null ? fmtNum(r.horometro) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.restantes != null ? `${fmtNum(r.restantes)} h` : '—'}</td>
@@ -121,7 +124,104 @@ export function ResumenMantenimientoModal({ grupo, equipos, infoEquipo, onClose 
       </div>
       <p className="muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>
         Los consumos (aceite / gasoil / refrigerante / filtros) se suman de la bitácora de cada equipo en el período elegido.
+        Tocá una fila para ver <strong>todos los movimientos</strong> del equipo y descargar su PDF.
       </p>
+
+      {verEquipo && (
+        <MovimientosEquipoModal equipo={verEquipo} desde={desde} hasta={hasta} onClose={() => setVerEquipo(null)} />
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Detalle de TODOS los movimientos de un equipo (bitácora) en el rango de fechas
+ * heredado del resumen: qué se consumió y cuándo (ej.: "25/06 · 6 cauchos"), con PDF.
+ */
+function MovimientosEquipoModal({ equipo, desde, hasta, onClose }: {
+  equipo: MaquinariaEquipo;
+  desde: string;
+  hasta: string;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<MantenimientoCalc[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancel = false;
+    setLoading(true);
+    listMantenimientos(equipo.id)
+      .then((m) => { if (!cancel) setRows(m); })
+      .catch(() => { if (!cancel) setRows([]); })
+      .finally(() => { if (!cancel) setLoading(false); });
+    return () => { cancel = true; };
+  }, [equipo.id]);
+
+  // Movimientos acotados al rango heredado del resumen.
+  const enRango = useMemo(
+    () => rows.filter((r) => (!desde || r.fecha >= desde) && (!hasta || r.fecha <= hasta)),
+    [rows, desde, hasta],
+  );
+
+  const fmtInsumos = (r: MantenimientoCalc) =>
+    (r.insumos ?? []).map((i) => `${i.concepto}${i.cantidad != null ? ` ×${fmtNum(i.cantidad)}${i.unidad ? ` ${i.unidad}` : ''}` : ''}`).join(', ');
+
+  async function pdf() {
+    try {
+      const { descargarMovimientosEquipoPdf } = await import('./servicioMantenimientoPdf');
+      const data: MovEquipoRow[] = enRango.map((r) => ({
+        fecha: r.fecha, tipo: r.tipo, horometro: r.horometro, kilometraje: r.kilometraje,
+        aceite: r.aceite_lts, gasoil: r.gasoil_lts, refrigerante: r.refrigerante_lts,
+        filtros: r.filtros_cant, filtrosTipo: r.filtros_tipo, insumos: fmtInsumos(r),
+        trabajo: r.trabajo, mecanico: r.mecanico,
+      }));
+      await descargarMovimientosEquipoPdf(equipo.equipo, data, { desde, hasta });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+  }
+
+  return (
+    <Modal title={`🔧 Movimientos · ${equipo.equipo}`} size="xl" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+        <button className="btn btn-primary" disabled={!enRango.length} onClick={() => void pdf()}>↓ PDF de movimientos</button>
+      </>
+    }>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+        Todo lo que se le hizo a <strong>{equipo.equipo}</strong>{desde || hasta ? <> en el período <strong>{desde ? fmtDate(desde) : '…'} — {hasta ? fmtDate(hasta) : 'hoy'}</strong></> : ' (histórico completo)'}.
+      </p>
+      <div className="table-wrap" style={{ maxHeight: 460, overflow: 'auto' }}>
+        <table className="table" style={{ fontSize: '.8rem' }}>
+          <thead><tr>
+            <th>Fecha</th><th>Tipo</th>
+            <th style={{ textAlign: 'right' }}>Horóm.</th><th style={{ textAlign: 'right' }}>Km</th>
+            <th style={{ textAlign: 'right' }}>Aceite</th><th style={{ textAlign: 'right' }}>Gasoil</th><th style={{ textAlign: 'right' }}>Filtros</th>
+            <th>Repuestos / insumos</th><th>Trabajo</th>
+          </tr></thead>
+          <tbody>
+            {loading && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !enRango.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Sin movimientos en el período.</td></tr>}
+            {enRango.map((r) => (
+              <tr key={r.id}>
+                <td>{fmtDate(r.fecha)}</td>
+                <td style={{ fontSize: '.76rem' }}>{r.tipo ? <span className="badge">{r.tipo}</span> : '—'}{r.pieza ? <div className="muted mono" style={{ fontSize: '.68rem' }}>🔩 {r.pieza}</div> : null}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{r.horometro != null ? fmtNum(r.horometro) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{r.kilometraje != null ? fmtNum(r.kilometraje) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{r.aceite_lts != null ? fmtNum(r.aceite_lts) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{r.gasoil_lts != null ? fmtNum(r.gasoil_lts) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{r.filtros_cant != null ? fmtNum(r.filtros_cant) : '—'}{r.filtros_tipo ? <div className="muted" style={{ fontSize: '.66rem' }}>{r.filtros_tipo}</div> : null}</td>
+                <td style={{ fontSize: '.74rem' }}>
+                  {(r.insumos && r.insumos.length)
+                    ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.25rem' }}>
+                        {r.insumos.map((i, k) => <span key={k} className="badge" style={{ fontSize: '.68rem' }}>{i.concepto}{i.cantidad != null ? ` ×${fmtNum(i.cantidad)}${i.unidad ? ` ${i.unidad}` : ''}` : ''}</span>)}
+                      </div>
+                    : '—'}
+                </td>
+                <td style={{ fontSize: '.76rem' }}>{r.trabajo || r.mecanico || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Modal>
   );
 }
