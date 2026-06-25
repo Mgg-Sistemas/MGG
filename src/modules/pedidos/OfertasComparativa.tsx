@@ -96,8 +96,8 @@ export function OfertasComparativa({
   }
 
   async function confirmarAceptacion(s: ScoredOferta) {
-    // Si todos los productos de la oferta están en $0, no se puede crear la OC.
-    if (!s.oferta.items.some((it) => (Number(it.precio) || 0) > 0)) {
+    // Si todos los productos de la oferta están en $0 (ni BCV ni USD), no se puede crear la OC.
+    if (!s.oferta.items.some((it) => (Number(it.precio) || 0) > 0 || (Number(it.precio_usd) || 0) > 0)) {
       toast('Cargá al menos un precio: todos los productos de esta oferta están en $0.', 'error');
       setConfirmando(null);
       return;
