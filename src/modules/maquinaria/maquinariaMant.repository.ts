@@ -323,6 +323,33 @@ export async function solicitudesServicioPorEquipo(): Promise<Map<string, Solici
       out.set(eqId, arr);
     }
   }
+
+  // También los SERVICIOS DIRECTOS (servicios_directos): se casan al mismo equipo.
+  // Consulta directa a la tabla (sin importar el repo de Pedidos, para no acoplar módulos).
+  const { data: sd } = await supabase
+    .from('servicios_directos')
+    .select('id, codigo, estado, created_at, solicitante, solicitante_persona, items')
+    .order('created_at', { ascending: false });
+  for (const s of (sd ?? []) as Array<{ id: string; codigo: string | null; estado: string; created_at: string; solicitante: string | null; solicitante_persona: string | null; items: unknown }>) {
+    const items = Array.isArray(s.items)
+      ? (s.items as Array<{ equipo_id?: string | null; equipo_nombre?: string | null; descripcion?: string | null }>)
+      : [];
+    const vistos = new Set<string>();
+    for (const it of items) {
+      const eqId = it.equipo_id ?? null;
+      if (!eqId || vistos.has(eqId)) continue;
+      vistos.add(eqId);
+      const fila: SolicitudServicioEquipo = {
+        id: s.id, codigo: s.codigo ?? '—', estado: s.estado, created_at: s.created_at,
+        solicitante: s.solicitante, solicitante_persona: s.solicitante_persona ?? null,
+        equipo_id: eqId, equipo_nombre: it.equipo_nombre ?? null,
+        descripcion: it.descripcion ?? (s.codigo ?? 'Servicio directo'), abierta: s.estado === 'en_proceso',
+      };
+      const arr = out.get(eqId) ?? [];
+      arr.push(fila);
+      out.set(eqId, arr);
+    }
+  }
   return out;
 }
 

@@ -482,6 +482,37 @@ alter table public.compras_directas add column if not exists proveedor_nombre te
 -- Bucket privado 'compras-directas' (storage) con políticas para autenticados.
 -- (Ver migración aplicada; políticas: compra_directa read/write + cd_obj_* en storage.objects.)
 
+-- SERVICIO DIRECTO: igual que la compra directa pero COMO SERVICIO (sin inventario).
+-- Renglones de servicio (categoría · tipo · equipo de maquinaria); al finalizar se
+-- carga la FACTURA + monto y la caja (egreso en Tesorería). Queda casado al equipo
+-- (aparece en Control de Mantenimiento / bitácora). Adjunto en el bucket 'compras-directas' (prefijo sd/).
+create table if not exists public.servicios_directos (
+  id               uuid primary key default gen_random_uuid(),
+  codigo           text,                       -- correlativo SD-YYYY-####
+  descripcion      text not null,
+  proveedor_id     uuid references public.proveedores(id) on delete set null,
+  proveedor_nombre text,
+  equipo_id        uuid references public.maquinaria_equipos(id) on delete set null,
+  equipo_nombre    text,
+  cantidad         numeric not null default 1,
+  items            jsonb not null default '[]'::jsonb,  -- [{servicio_categoria, servicio_tipo, equipo_id, equipo_nombre, descripcion, cantidad, gasto}]
+  estado           text not null default 'en_proceso' check (estado in ('en_proceso','finalizada')),
+  gasto            numeric,
+  caja_id          uuid references public.cajas(id) on delete set null,
+  caja_mov_id      uuid,
+  adjunto_path     text, adjunto_nombre text,
+  solicitante      text, solicitante_persona text,
+  actor            text, actor_name text,
+  created_at       timestamptz not null default now(),
+  finalizada_at    timestamptz,
+  updated_at       timestamptz not null default now()
+);
+create index if not exists idx_serv_directo_estado on public.servicios_directos(estado);
+create index if not exists idx_serv_directo_equipo on public.servicios_directos(equipo_id);
+alter table public.servicios_directos enable row level security;
+create policy "serv_directo read auth" on public.servicios_directos for select using (auth.role()='authenticated');
+create policy "serv_directo write op" on public.servicios_directos for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- ─────────────────────────────────────────────────────────────
 -- 5c. combustible — inventario por tipo (litros + costo PMP por litro)
 --   y solicitudes de salida (por_aprobar → aprobada → finalizada).
