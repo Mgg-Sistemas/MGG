@@ -2479,7 +2479,8 @@ function OrdenDetailModal({
           <tr>
             <th>SKU</th>
             <th>Producto</th>
-            <th>Finalidad</th>
+            <th>Categoría</th>
+            <th>Subcategoría</th>
             <th className="num">Cantidad</th>
             {conPrecio ? (
               <>
@@ -2502,7 +2503,8 @@ function OrdenDetailModal({
                   <div className="muted" style={{ fontSize: '.74rem' }}>🏷️ {[it.marca, it.modelo].filter(Boolean).join(' · ')}</div>
                 )}
               </td>
-              <td style={{ fontSize: '.84rem' }}>{it.finalidad?.trim() ? it.finalidad : <span className="muted">—</span>}</td>
+              <td style={{ fontSize: '.84rem' }}>{it.servicio_categoria?.trim() ? it.servicio_categoria : <span className="muted">—</span>}</td>
+              <td style={{ fontSize: '.84rem' }}>{it.servicio_tipo?.trim() ? it.servicio_tipo : <span className="muted">—</span>}</td>
               <td className="num">{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
               {conPrecio ? (
                 <>
@@ -2540,7 +2542,7 @@ function OrdenDetailModal({
         {conPrecio && (
           <tfoot>
             <tr>
-              <td colSpan={5} className="num">TOTAL</td>
+              <td colSpan={6} className="num">TOTAL</td>
               <td className="num">{money(o.total)}</td>
               <td></td>
             </tr>
@@ -2868,7 +2870,12 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 }
 
 /* ───────────── Nuevo Servicio (clase='servicio') ───────────── */
-interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; precio: string; }
+interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; precio: string; bombonas: string; kg: string; }
+
+/** ¿La categoría es de recarga (gas / oxígeno / extintores)? → pide bombonas + KG. */
+function esRecargaGas(cat: string): boolean {
+  return /gas|ox[ií]geno|extintor|bombona/i.test(cat);
+}
 
 /** Un equipo es VEHÍCULO si su tipo es carro, camión, camioneta o vehículo; el resto es maquinaria. */
 function esVehiculo(e: MaquinariaEquipo): boolean {
@@ -2942,9 +2949,9 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           tipo = it.nombre ?? '';
         }
       }
-      return { id: i + 1, categoria: cat, tipo, equipoId: it.equipo_id ?? '', cantidad: String(it.cantidad ?? 1), precio: String(it.precio ?? '') };
+      return { id: i + 1, categoria: cat, tipo, equipoId: it.equipo_id ?? '', cantidad: String(it.cantidad ?? 1), precio: String(it.precio ?? ''), bombonas: String(it.bombonas ?? ''), kg: String(it.kg_recarga ?? '') };
     });
-    return out.length ? out : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '' }];
+    return out.length ? out : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '' }];
   };
 
   const [codigo, setCodigo] = useState(orden?.codigo ?? 'SV-…');
@@ -2956,7 +2963,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
   const [nuevaUnidad, setNuevaUnidad] = useState('');
   const [solicitantePersona, setSolicitantePersona] = useState(esEdicion ? (orden!.solicitante_persona ?? '') : '');
   const [nota, setNota] = useState(esEdicion ? (orden!.notas ?? '') : '');
-  const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '' }]);
+  const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '' }]);
   const [seq, setSeq] = useState(() => (esEdicion ? lineasDeOrden(orden!).length + 1 : 2));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2969,7 +2976,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
     listCatalogoPedido('unidad_solicitante', true).then((u) => setUnidades(u.map((x) => x.nombre))).catch(() => { /* sin catálogo */ });
   }, [esEdicion]);
 
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '' }]); setSeq((s) => s + 1); };
   const setLinea = (id: number, patch: Partial<Omit<LineaServicio, 'id'>>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const delLinea = (id: number) => setLineas((ls) => ls.filter((l) => l.id !== id));
 
@@ -2985,22 +2992,32 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
     for (const l of lineas) {
       const cat = l.categoria.trim();
       if (!cat) continue;
-      const cant = Number(l.cantidad) || 0;
-      if (cant <= 0) { setError('Cada servicio debe tener cantidad mayor que 0.'); return; }
+      const recargaCat = esRecargaGas(cat);
+      // Recarga (gas / oxígeno / extintores): la "cantidad" es el nº de bombonas; el
+      // KG por bombona × bombonas da el total a recargar.
+      const bombonas = recargaCat ? (Number(l.bombonas) || 0) : 0;
+      const kgPorBombona = recargaCat ? (Number(l.kg) || 0) : 0;
+      const kgTotal = Math.round(bombonas * kgPorBombona * 100) / 100;
+      const cant = recargaCat ? bombonas : (Number(l.cantidad) || 0);
+      if (cant <= 0) { setError(recargaCat ? 'Indicá la cantidad de bombonas.' : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
       const precio = Number(l.precio) || 0;
+      const recarga = recargaCat ? { bombonas, kg_recarga: kgTotal } : {};
+      // Sufijo visible (tablero + PDF): "· 2 BOMBONA(S) · 86 KG".
+      const recargaSuf = recargaCat ? ` · ${bombonas} BOMBONA(S) · ${kgTotal} KG` : '';
       if (esMantenimientoEquipo(cat)) {
         const eq = equipos.find((x) => x.id === l.equipoId);
         if (!eq) { setError(`Elegí el equipo de "${cat}".`); return; }
         const desc = l.tipo.trim();
         // equipo_id mantiene el vínculo con Control de Maquinaria (aparece en su módulo de mantenimiento).
-        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${eq.equipo}${desc ? ` · ${desc}` : ''}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: desc.toUpperCase() || null, equipo_id: eq.id, equipo_nombre: eq.equipo, comprar: true });
+        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${eq.equipo}${desc ? ` · ${desc}` : ''}${recargaSuf}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: desc.toUpperCase() || null, equipo_id: eq.id, equipo_nombre: eq.equipo, ...recarga, comprar: true });
         // El tipo de servicio elegido/escrito acá también alimenta el catálogo compartido.
         if (desc && !tipos.some((t) => t.nombre.toLowerCase() === desc.toLowerCase())) tiposNuevos.push(desc.toUpperCase());
       } else {
         const tipo = l.tipo.trim();
-        if (!tipo) { setError(`Indicá el servicio de "${cat}".`); return; }
-        items.push({ sku: `SRV-${items.length + 1}`, nombre: tipo.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: tipo.toUpperCase(), comprar: true });
-        if (!tipos.some((t) => t.nombre.toLowerCase() === tipo.toLowerCase())) tiposNuevos.push(tipo.toUpperCase());
+        if (!recargaCat && !tipo) { setError(`Indicá el servicio de "${cat}".`); return; }
+        const nombre = recargaCat ? `${cat}${tipo ? ` · ${tipo}` : ''}${recargaSuf}`.toUpperCase() : tipo.toUpperCase();
+        items.push({ sku: `SRV-${items.length + 1}`, nombre, cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: tipo.toUpperCase() || null, ...recarga, comprar: true });
+        if (tipo && !tipos.some((t) => t.nombre.toLowerCase() === tipo.toLowerCase())) tiposNuevos.push(tipo.toUpperCase());
       }
     }
     if (!items.length) { setError('Agregá al menos un servicio con su categoría.'); return; }
@@ -3122,19 +3139,49 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                     <small className="muted" style={{ fontSize: '.72rem' }}>Lista base + catálogo. Si escribís uno nuevo, queda guardado.</small>
                   </div>
                 )}
-                <div className="form-grid" style={{ marginTop: '.4rem', alignItems: 'end' }}>
-                  <div className="form-row" style={{ margin: 0 }}>
-                    <label style={{ fontSize: '.74rem' }}>Cantidad</label>
-                    <input className="input mono" type="number" min={0} step="any" value={l.cantidad} onChange={(e) => setLinea(l.id, { cantidad: e.target.value })} />
+                {esRecargaGas(l.categoria) ? (
+                  <>
+                    <div className="form-grid" style={{ marginTop: '.4rem' }}>
+                      <div className="form-row" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '.74rem' }}>🛢️ Cantidad de bombonas</label>
+                        <input className="input mono" type="number" min={0} step="any" value={l.bombonas} onChange={(e) => setLinea(l.id, { bombonas: e.target.value })} placeholder="N° de bombonas" />
+                      </div>
+                      <div className="form-row" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '.74rem' }}>⚖️ KG por bombona</label>
+                        <input className="input mono" type="number" min={0} step="any" value={l.kg} onChange={(e) => setLinea(l.id, { kg: e.target.value })} placeholder="Kg de cada una" />
+                      </div>
+                    </div>
+                    <div className="form-grid" style={{ marginTop: '.4rem', alignItems: 'end' }}>
+                      <div className="form-row" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '.74rem' }}>Total recarga</label>
+                        <div className="card mono" style={{ margin: 0, padding: '.45rem .7rem', fontWeight: 700 }}>
+                          {(Number(l.bombonas) || 0)} bombona(s) · {Math.round((Number(l.bombonas) || 0) * (Number(l.kg) || 0) * 100) / 100} KG
+                        </div>
+                      </div>
+                      <div className="form-row" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '.74rem' }}>Precio estimado (USD, opcional)</label>
+                        <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLinea(l.id)}>✕ Quitar</button>}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="form-grid" style={{ marginTop: '.4rem', alignItems: 'end' }}>
+                    <div className="form-row" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '.74rem' }}>Cantidad</label>
+                      <input className="input mono" type="number" min={0} step="any" value={l.cantidad} onChange={(e) => setLinea(l.id, { cantidad: e.target.value })} />
+                    </div>
+                    <div className="form-row" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '.74rem' }}>Precio estimado (USD, opcional)</label>
+                      <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLinea(l.id)}>✕ Quitar</button>}
+                    </div>
                   </div>
-                  <div className="form-row" style={{ margin: 0 }}>
-                    <label style={{ fontSize: '.74rem' }}>Precio estimado (USD, opcional)</label>
-                    <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLinea(l.id)}>✕ Quitar</button>}
-                  </div>
-                </div>
+                )}
               </div>
             );
           })}

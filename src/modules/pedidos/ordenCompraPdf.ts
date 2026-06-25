@@ -358,23 +358,24 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
     autoTable(doc, {
       startY: y,
-      head: [['SKU', 'Descripción', 'Marca / Modelo', 'Finalidad', 'Cantidad', 'Precio unit.', 'Subtotal']],
+      head: [['SKU', 'Descripción', 'Marca / Modelo', 'Categoría', 'Subcategoría', 'Cantidad', 'Precio unit.', 'Subtotal']],
       // Marca/Modelo en su propia columna: solo aparece poblada cuando el usuario la cargó en la oferta.
       body: o.items.map((it) => [
         it.sku,
         it.nombre,
         [it.marca, it.modelo].filter(Boolean).join(' · ') || '—',
-        it.finalidad?.trim() || '—',
+        it.servicio_categoria?.trim() || '—',
+        it.servicio_tipo?.trim() || '—',
         num(it.cantidad),
         money(it.precio),
         money(it.cantidad * it.precio),
       ]),
-      foot: [['', '', '', '', '', esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL', money(o.total)]],
+      foot: [['', '', '', '', '', '', esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL', money(o.total)]],
       theme: 'grid',
       headStyles: { fillColor: [255, 138, 0], textColor: 255 },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       styles: { fontSize: 9, cellPadding: 4 },
-      columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      columnStyles: { 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
       margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;

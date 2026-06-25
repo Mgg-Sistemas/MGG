@@ -16,7 +16,7 @@ import { listCatalogoPedido, type CatalogoPedido } from './pedidos.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import {
   crearServicioDirecto, finalizarServicioDirecto, listServiciosDirectos, eliminarServicioDirecto,
-  urlAdjuntoServicio, type ServicioDirecto, type ServicioDirectoItem, type LineaServicioInput, type FinalizarServicioDirectoInput,
+  urlAdjuntoServicio, esRecargaGas, type ServicioDirecto, type ServicioDirectoItem, type LineaServicioInput, type FinalizarServicioDirectoInput,
 } from './serviciosDirectos.repository';
 import type { PagoLeg } from './compras.repository';
 
@@ -219,13 +219,13 @@ function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
 
 /* ───────── Modal: nuevo servicio directo (varios servicios) ───────── */
 
-interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string }
+interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; bombonas: string; kg: string }
 
 function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, actorName, onClose, onSaved }: {
   categorias: CatalogoPedido[]; tipos: CatalogoPedido[]; equipos: MaquinariaEquipo[]; proveedores: Proveedor[];
   actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1' });
+  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '' });
   const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
   const [provModo, setProvModo] = useState<'existente' | 'nuevo'>('existente');
   const [proveedorId, setProveedorId] = useState('');
@@ -250,11 +250,14 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
     e.preventDefault(); setError(null);
     const payload: LineaServicioInput[] = [];
     for (const l of lineas) {
-      const cant = Number(l.cantidad) || 0;
-      if (cant <= 0) { setError('Cada servicio debe tener cantidad mayor que 0.'); return; }
       if (!l.categoria.trim()) { setError('Indicá la categoría del servicio en cada renglón.'); return; }
+      const recargaCat = esRecargaGas(l.categoria);
+      const bombonas = recargaCat ? (Number(l.bombonas) || 0) : 0;
+      const kgTotal = recargaCat ? Math.round(bombonas * (Number(l.kg) || 0) * 100) / 100 : null;
+      const cant = recargaCat ? bombonas : (Number(l.cantidad) || 0);
+      if (cant <= 0) { setError(recargaCat ? 'Indicá la cantidad de bombonas.' : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
       const eq = equipos.find((x) => x.id === l.equipoId) ?? null;
-      payload.push({ servicioCategoria: l.categoria, servicioTipo: l.tipo || null, equipoId: l.equipoId || null, equipoNombre: eq?.equipo ?? null, cantidad: cant });
+      payload.push({ servicioCategoria: l.categoria, servicioTipo: l.tipo || null, equipoId: l.equipoId || null, equipoNombre: eq?.equipo ?? null, cantidad: cant, bombonas: recargaCat ? bombonas : null, kgRecarga: kgTotal });
     }
     setSaving(true);
     try {
@@ -338,8 +341,29 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                   placeholder="🔎 Buscá el equipo / vehículo…" emptyText="Sin equipos." />
                 <small className="muted" style={{ fontSize: '.72rem' }}>Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
               </div>
-              <div className="form-row"><label>Cantidad</label><input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
+              {esRecargaGas(l.categoria) ? (
+                <div className="form-row">
+                  <label>🛢️ Cantidad de bombonas</label>
+                  <input className="input mono" type="number" min={0} step="any" value={l.bombonas} onChange={(e) => set(l.id, { bombonas: e.target.value })} placeholder="N° de bombonas" required />
+                </div>
+              ) : (
+                <div className="form-row"><label>Cantidad</label><input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
+              )}
             </div>
+            {esRecargaGas(l.categoria) && (
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>⚖️ KG por bombona</label>
+                  <input className="input mono" type="number" min={0} step="any" value={l.kg} onChange={(e) => set(l.id, { kg: e.target.value })} placeholder="Kg de cada una" />
+                </div>
+                <div className="form-row">
+                  <label>Total recarga</label>
+                  <div className="card mono" style={{ margin: 0, padding: '.45rem .7rem', fontWeight: 700 }}>
+                    {(Number(l.bombonas) || 0)} bombona(s) · {Math.round((Number(l.bombonas) || 0) * (Number(l.kg) || 0) * 100) / 100} KG
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ))}
 

@@ -695,6 +695,9 @@ export interface ItemOrden {
   /** Servicios · mantenimiento de maquinaria: equipo de Control de Maquinaria al que se hace. */
   equipo_id?: string | null;
   equipo_nombre?: string | null;
+  /** Servicios de recarga (gas / oxígeno / extintores): nº de bombonas y KG a recargar. */
+  bombonas?: number | null;
+  kg_recarga?: number | null;
 }
 
 export interface EventoHistorial {
