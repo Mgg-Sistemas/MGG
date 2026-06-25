@@ -690,6 +690,8 @@ export interface ItemOrden {
   modelo?: string | null;
   /** Servicios (clase='servicio'): categoría del servicio (recarga de gas, mantenimiento…). */
   servicio_categoria?: string | null;
+  /** Servicios: tipo de servicio elegido (cambio de aceite, cauchos, repuestos…). */
+  servicio_tipo?: string | null;
   /** Servicios · mantenimiento de maquinaria: equipo de Control de Maquinaria al que se hace. */
   equipo_id?: string | null;
   equipo_nombre?: string | null;
@@ -715,6 +717,8 @@ export interface Orden {
   proveedor_id: string | null;
   solicitante_email: string;
   solicitante?: string | null;
+  /** Persona que solicita (nombre). En servicios va junto a la unidad solicitante. */
+  solicitante_persona?: string | null;
   ci_solicitante?: string | null;
   items: ItemOrden[];
   total: number;

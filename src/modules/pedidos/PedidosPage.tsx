@@ -695,8 +695,18 @@ export function PedidosPage() {
         />
       )}
 
-      {/* Modal: editar OP (solo pendiente, antes de aprobación del GG) */}
-      {modal.kind === 'edit' && (
+      {/* Modal: editar OP (solo pendiente, antes de aprobación del GG).
+          Los servicios se editan con el FORMATO DE SERVICIO (no el de productos). */}
+      {modal.kind === 'edit' && modal.orden.clase === 'servicio' && (
+        <NuevoServicioModal
+          usuario={usuario}
+          authEmail={user?.email ?? ''}
+          orden={modal.orden}
+          onClose={() => setModal({ kind: 'none' })}
+          onCreated={async () => { setModal({ kind: 'none' }); await refresh(); }}
+        />
+      )}
+      {modal.kind === 'edit' && modal.orden.clase !== 'servicio' && (
         <CrearOrdenModal
           productos={productos}
           usuario={usuario}
@@ -2833,34 +2843,104 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 /* ───────────── Nuevo Servicio (clase='servicio') ───────────── */
 interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; precio: string; }
 
-/** Detecta la categoría "mantenimiento de maquinaria" (se casa con un equipo). */
-function esMantenimientoMaquinaria(cat: string): boolean {
-  return /maquinaria/i.test(cat);
+/** Un equipo es VEHÍCULO si su tipo es carro, camión, camioneta o vehículo; el resto es maquinaria. */
+function esVehiculo(e: MaquinariaEquipo): boolean {
+  return /carro|cami[oó]n|camioneta|veh[ií]culo|auto/i.test(e.tipo ?? '');
 }
 
-function NuevoServicioModal({ usuario, authEmail, onClose, onCreated }: {
-  usuario: Usuario | null; authEmail: string; onClose: () => void; onCreated: () => void | Promise<void>;
+/**
+ * Para una categoría de servicio de mantenimiento, qué lista de equipos aplica:
+ *  - 'vehiculos'  → Control de Vehículos (carro / camión / camioneta…)
+ *  - 'maquinaria' → Control de Maquinaria (todo lo demás: grúas, plantas, montacargas…)
+ *  - null         → no es mantenimiento de equipo (no pide equipo)
+ */
+function tipoMantenimiento(cat: string): 'maquinaria' | 'vehiculos' | null {
+  if (/veh[ií]culo/i.test(cat)) return 'vehiculos';
+  if (/maquinaria|planta/i.test(cat)) return 'maquinaria';
+  return null;
+}
+
+/** ¿La categoría se casa con un equipo de Control de Maquinaria/Vehículos? */
+function esMantenimientoEquipo(cat: string): boolean {
+  return tipoMantenimiento(cat) !== null;
+}
+
+/** Filtra los equipos según el tipo de mantenimiento de la categoría (por el tipo del equipo). */
+function equiposDeTipo(equipos: MaquinariaEquipo[], tipo: 'maquinaria' | 'vehiculos' | null): MaquinariaEquipo[] {
+  if (tipo === 'vehiculos') return equipos.filter(esVehiculo);
+  if (tipo === 'maquinaria') return equipos.filter((e) => !esVehiculo(e));
+  return equipos;
+}
+
+/** Tipos de servicio de mantenimiento sugeridos (lista base con íconos). El usuario
+ *  igual puede escribir uno nuevo (allowCreate) y queda guardado en el catálogo. */
+const TIPOS_SERVICIO_MANT: { value: string; label: string }[] = [
+  { value: 'CAMBIO DE ACEITE', label: '🛢️ Cambio de aceite' },
+  { value: 'CAMBIO DE FILTRO', label: '🧯 Cambio de filtro' },
+  { value: 'CAMBIO DE CAUCHOS / NEUMÁTICOS', label: '🛞 Cambio de cauchos / neumáticos' },
+  { value: 'REPUESTOS', label: '🛠️ Repuestos' },
+  { value: 'CAMBIO DE PIEZA', label: '⚙️ Cambio de pieza' },
+  { value: 'PINTURA / LATONERÍA', label: '🎨 Pintura / latonería' },
+  { value: 'FRENOS', label: '🛑 Frenos' },
+  { value: 'BATERÍA', label: '🔋 Batería' },
+  { value: 'SISTEMA ELÉCTRICO', label: '💡 Sistema eléctrico' },
+  { value: 'SISTEMA HIDRÁULICO', label: '💧 Sistema hidráulico' },
+  { value: 'SOLDADURA', label: '🔥 Soldadura' },
+  { value: 'ENGRASE / LUBRICACIÓN', label: '🧴 Engrase / lubricación' },
+  { value: 'REFRIGERANTE', label: '❄️ Refrigerante' },
+  { value: 'SERVICIO / PREVENTIVO', label: '🔧 Servicio / preventivo' },
+  { value: 'REPARACIÓN', label: '🛠️ Reparación' },
+  { value: 'INSPECCIÓN', label: '🔍 Inspección' },
+  { value: 'LECTURA DE HORÓMETRO', label: '⏱️ Lectura de horómetro' },
+  { value: 'OTRO', label: '• Otro' },
+];
+
+function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
+  usuario: Usuario | null; authEmail: string; orden?: Orden | null; onClose: () => void; onCreated: () => void | Promise<void>;
 }) {
-  const [codigo, setCodigo] = useState('SV-…');
+  const esEdicion = !!orden;
+  // Reconstruye las líneas de servicio desde los ítems de una orden (para editar).
+  const lineasDeOrden = (o: Orden): LineaServicio[] => {
+    const its = Array.isArray(o.items) ? o.items : [];
+    const out = its.map((it, i): LineaServicio => {
+      const cat = it.servicio_categoria ?? '';
+      // tipo: el guardado en servicio_tipo; si no, se infiere del nombre (ítems viejos).
+      let tipo = it.servicio_tipo ?? '';
+      if (!tipo) {
+        if (esMantenimientoEquipo(cat) && it.equipo_nombre) {
+          const pref = `${cat} · ${it.equipo_nombre}`.toUpperCase();
+          const full = String(it.nombre ?? '').toUpperCase();
+          tipo = full.startsWith(pref) ? full.slice(pref.length).replace(/^\s*·\s*/, '') : '';
+        } else if (!esMantenimientoEquipo(cat)) {
+          tipo = it.nombre ?? '';
+        }
+      }
+      return { id: i + 1, categoria: cat, tipo, equipoId: it.equipo_id ?? '', cantidad: String(it.cantidad ?? 1), precio: String(it.precio ?? '') };
+    });
+    return out.length ? out : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '' }];
+  };
+
+  const [codigo, setCodigo] = useState(orden?.codigo ?? 'SV-…');
   const [categorias, setCategorias] = useState<CatalogoPedido[]>([]);
   const [tipos, setTipos] = useState<CatalogoPedido[]>([]);
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
-  const [unidadSol, setUnidadSol] = useState('');
+  const [unidadSol, setUnidadSol] = useState(esEdicion ? (orden!.solicitante ?? '') : '');
   const [nuevaUnidad, setNuevaUnidad] = useState('');
-  const [nota, setNota] = useState('');
-  const [lineas, setLineas] = useState<LineaServicio[]>([{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '' }]);
-  const [seq, setSeq] = useState(2);
+  const [solicitantePersona, setSolicitantePersona] = useState(esEdicion ? (orden!.solicitante_persona ?? '') : '');
+  const [nota, setNota] = useState(esEdicion ? (orden!.notas ?? '') : '');
+  const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '' }]);
+  const [seq, setSeq] = useState(() => (esEdicion ? lineasDeOrden(orden!).length + 1 : 2));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    nextCodigoServicio().then(setCodigo).catch(() => setCodigo('SV-?'));
+    if (!esEdicion) nextCodigoServicio().then(setCodigo).catch(() => setCodigo('SV-?'));
     listCatalogoPedido('servicio_categoria', true).then(setCategorias).catch(() => { /* sin catálogo */ });
     listCatalogoPedido('servicio_tipo', true).then(setTipos).catch(() => { /* sin catálogo */ });
     listEquipos().then(setEquipos).catch(() => setEquipos([]));
     listCatalogoPedido('unidad_solicitante', true).then((u) => setUnidades(u.map((x) => x.nombre))).catch(() => { /* sin catálogo */ });
-  }, []);
+  }, [esEdicion]);
 
   const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '' }]); setSeq((s) => s + 1); };
   const setLinea = (id: number, patch: Partial<Omit<LineaServicio, 'id'>>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -2881,15 +2961,18 @@ function NuevoServicioModal({ usuario, authEmail, onClose, onCreated }: {
       const cant = Number(l.cantidad) || 0;
       if (cant <= 0) { setError('Cada servicio debe tener cantidad mayor que 0.'); return; }
       const precio = Number(l.precio) || 0;
-      if (esMantenimientoMaquinaria(cat)) {
+      if (esMantenimientoEquipo(cat)) {
         const eq = equipos.find((x) => x.id === l.equipoId);
         if (!eq) { setError(`Elegí el equipo de "${cat}".`); return; }
         const desc = l.tipo.trim();
-        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${eq.equipo}${desc ? ` · ${desc}` : ''}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, equipo_id: eq.id, equipo_nombre: eq.equipo, comprar: true });
+        // equipo_id mantiene el vínculo con Control de Maquinaria (aparece en su módulo de mantenimiento).
+        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${eq.equipo}${desc ? ` · ${desc}` : ''}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: desc.toUpperCase() || null, equipo_id: eq.id, equipo_nombre: eq.equipo, comprar: true });
+        // El tipo de servicio elegido/escrito acá también alimenta el catálogo compartido.
+        if (desc && !tipos.some((t) => t.nombre.toLowerCase() === desc.toLowerCase())) tiposNuevos.push(desc.toUpperCase());
       } else {
         const tipo = l.tipo.trim();
         if (!tipo) { setError(`Indicá el servicio de "${cat}".`); return; }
-        items.push({ sku: `SRV-${items.length + 1}`, nombre: tipo.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, comprar: true });
+        items.push({ sku: `SRV-${items.length + 1}`, nombre: tipo.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: tipo.toUpperCase(), comprar: true });
         if (!tipos.some((t) => t.nombre.toLowerCase() === tipo.toLowerCase())) tiposNuevos.push(tipo.toUpperCase());
       }
     }
@@ -2901,36 +2984,48 @@ function NuevoServicioModal({ usuario, authEmail, onClose, onCreated }: {
         try { await crearCatalogoPedido('servicio_tipo', t, authEmail); } catch { /* duplicado: no bloquea */ }
       }
       try { await ensureUnidadSolicitante(unidad, authEmail); } catch { /* ya existe */ }
-      await crearOrden({
-        clase: 'servicio',
-        proveedor_id: null,
-        items,
-        solicitante_email: authEmail,
-        solicitante: unidad,
-        ci_solicitante: usuario?.ci ?? null,
-        notas: nota.trim() || null,
-        clasificacion: ['Servicios'],
-      });
-      toast(`Servicio ${codigo} creado`, 'success');
+      if (esEdicion) {
+        await actualizarOrden(orden!, {
+          items,
+          notas: nota.trim() || null,
+          solicitante: unidad,
+          solicitante_persona: solicitantePersona.trim() || null,
+          ci_solicitante: orden!.ci_solicitante ?? null,
+        }, authEmail);
+        toast(`Servicio ${codigo} actualizado`, 'success');
+      } else {
+        await crearOrden({
+          clase: 'servicio',
+          proveedor_id: null,
+          items,
+          solicitante_email: authEmail,
+          solicitante: unidad,
+          solicitante_persona: solicitantePersona.trim() || null,
+          ci_solicitante: usuario?.ci ?? null,
+          notas: nota.trim() || null,
+          clasificacion: ['Servicios'],
+        });
+        toast(`Servicio ${codigo} creado`, 'success');
+      }
       await onCreated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo crear el servicio.');
+      setError(err instanceof Error ? err.message : 'No se pudo guardar el servicio.');
     } finally { setSaving(false); }
   }
 
   return (
-    <Modal title={`Nuevo servicio · ${codigo}`} size="lg" onClose={onClose} footer={
+    <Modal title={esEdicion ? `Editar servicio · ${codigo}` : `Nuevo servicio · ${codigo}`} size="lg" onClose={onClose} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button className="btn btn-primary" onClick={(e) => void submit(e as unknown as FormEvent)} disabled={saving}>
-          {saving ? 'Creando…' : '🛠 Crear servicio'}
+          {saving ? 'Guardando…' : (esEdicion ? '🛠 Guardar cambios' : '🛠 Crear servicio')}
         </button>
       </>
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Mismo flujo que una Solicitud de Pedido pero para <strong>servicios</strong> (recarga de gas, oxígeno,
         mantenimiento de maquinaria, recarga de extintores…). Correlativo <strong className="mono">{codigo}</strong>. Luego se aprueba,
-        se cotiza y se paga como cualquier OC. <strong>Mantenimiento de maquinaria</strong> se casa con un equipo de Control de Maquinaria.
+        se cotiza y se paga como cualquier OC. <strong>Mantenimiento de maquinaria</strong> lista los equipos de Maquinaria y Plantas Eléctricas; <strong>mantenimiento de vehículos</strong> lista los vehículos. En ambos se casa con el equipo de Control de Maquinaria/Vehículos.
       </p>
 
       <div className="form-row">
@@ -2945,10 +3040,20 @@ function NuevoServicioModal({ usuario, authEmail, onClose, onCreated }: {
       </div>
 
       <div className="form-row">
+        <label>Quién lo solicita</label>
+        <input className="input" value={solicitantePersona}
+          onChange={(e) => setSolicitantePersona(e.target.value.toUpperCase())}
+          placeholder="Nombre de la persona que pide el servicio…" />
+        <small className="muted" style={{ fontSize: '.72rem' }}>La persona que solicita (queda registrada en la solicitud y se ve en Control de Mantenimiento).</small>
+      </div>
+
+      <div className="form-row">
         <label>Servicios</label>
         <div style={{ display: 'grid', gap: '.5rem' }}>
           {lineas.map((l) => {
-            const mant = esMantenimientoMaquinaria(l.categoria);
+            const mantTipo = tipoMantenimiento(l.categoria);
+            const mant = mantTipo !== null;
+            const equiposLista = equiposDeTipo(equipos, mantTipo);
             return (
               <div key={l.id} className="card" style={{ margin: 0, padding: '.6rem' }}>
                 <div className="form-grid">
@@ -2960,10 +3065,11 @@ function NuevoServicioModal({ usuario, authEmail, onClose, onCreated }: {
                   </div>
                   {mant ? (
                     <div className="form-row" style={{ margin: 0 }}>
-                      <label style={{ fontSize: '.74rem' }}>Equipo (Control de Maquinaria)</label>
+                      <label style={{ fontSize: '.74rem' }}>{mantTipo === 'vehiculos' ? 'Vehículo (Control de Vehículos)' : 'Equipo (Control de Maquinaria)'}</label>
                       <SearchSelect value={l.equipoId} onChange={(v) => setLinea(l.id, { equipoId: v })}
-                        options={equipos.map((eq) => ({ value: eq.id, label: `${eq.equipo}${eq.placa ? ` · ${eq.placa}` : ''}` }))}
-                        placeholder="🔎 Elegí o buscá el equipo…" emptyText="Sin equipos." />
+                        options={equiposLista.map((eq) => ({ value: eq.id, label: `${eq.equipo}${eq.placa ? ` · ${eq.placa}` : ''}` }))}
+                        placeholder={mantTipo === 'vehiculos' ? '🔎 Elegí o buscá el vehículo…' : '🔎 Elegí o buscá el equipo…'}
+                        emptyText={mantTipo === 'vehiculos' ? 'Sin vehículos en ese grupo.' : 'Sin equipos.'} />
                     </div>
                   ) : (
                     <div className="form-row" style={{ margin: 0 }}>
@@ -2979,9 +3085,14 @@ function NuevoServicioModal({ usuario, authEmail, onClose, onCreated }: {
                 </div>
                 {mant && (
                   <div className="form-row" style={{ marginTop: '.4rem' }}>
-                    <label style={{ fontSize: '.74rem' }}>Descripción del mantenimiento (opcional)</label>
-                    <input className="input" value={l.tipo} onChange={(e) => setLinea(l.id, { tipo: e.target.value.toUpperCase() })}
-                      placeholder="Cambio de aceite, reparación de…" />
+                    <label style={{ fontSize: '.74rem' }}>Tipo de servicio</label>
+                    <SearchSelect value={l.tipo} onChange={(v) => setLinea(l.id, { tipo: v.toUpperCase() })}
+                      options={[
+                        ...TIPOS_SERVICIO_MANT,
+                        ...tipos.filter((t) => !TIPOS_SERVICIO_MANT.some((x) => x.value === t.nombre.trim().toUpperCase())).map((t) => ({ value: t.nombre, label: t.nombre })),
+                      ]}
+                      placeholder="🔎 Elegí el tipo (caucho, repuesto, aceite, pintura…)" emptyText="Escribí uno nuevo." allowCreate />
+                    <small className="muted" style={{ fontSize: '.72rem' }}>Lista base + catálogo. Si escribís uno nuevo, queda guardado.</small>
                   </div>
                 )}
                 <div className="form-grid" style={{ marginTop: '.4rem', alignItems: 'end' }}>

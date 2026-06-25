@@ -5,7 +5,6 @@ import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
-import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
@@ -31,6 +30,12 @@ export function TrasladoMaterialForm({
   }, [existencias]);
 
   const [destino, setDestino] = useState('');
+
+  // Solo almacenes PADRE (principales con subalmacenes): se excluyen los top-level sin hijos.
+  const almacenesPadre = useMemo(() => {
+    const conHijos = new Set(almacenesObj.filter((a) => a.parent_id).map((a) => a.parent_id));
+    return almacenesObj.filter((a) => !a.parent_id && a.estado === 'activo' && conHijos.has(a.id));
+  }, [almacenesObj]);
 
   // Para un producto, el almacén con MÁS stock distinto del destino (de ahí sale).
   const mejorOrigen = (productoId: string, excluir: string): { almacen: string; stock: number } | null => {
@@ -189,8 +194,15 @@ export function TrasladoMaterialForm({
           )}
         </div>
 
-        {/* Almacén destino (a dónde va). El origen se asigna solo: el almacén con más stock. */}
-        <AlmacenPicker value={destino} onChange={setDestino} almacenes={almacenesObj} sedeLabel="Sede destino" label="Almacén destino" />
+        {/* Almacén destino (a dónde va). Solo almacenes PADRE. El origen se asigna solo: el almacén con más stock. */}
+        <div className="form-row">
+          <label>Almacén destino (padre)</label>
+          <select className="select" value={destino} onChange={(e) => setDestino(e.target.value)}>
+            <option value="">— elegí el almacén destino —</option>
+            {almacenesPadre.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+          </select>
+          <small className="muted">Solo se muestran los almacenes padre (sedes principales con subalmacenes).</small>
+        </div>
 
         {/* Materiales (varias líneas) — producto buscable; el origen se asigna solo. */}
         <div className="form-row" style={{ marginTop: '.6rem', marginBottom: '.3rem' }}><label>Materiales</label></div>

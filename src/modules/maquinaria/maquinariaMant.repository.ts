@@ -8,6 +8,13 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 
+/** Un repuesto/insumo cambiado en un mantenimiento (caucho, pintura, batería, repuesto…). */
+export interface InsumoMant {
+  concepto: string;          // CAUCHOS, PINTURA, BATERÍA, CORREA, REPUESTO…
+  cantidad: number | null;
+  unidad: string | null;     // UND, GAL, LTS, JGO…
+}
+
 export interface MantenimientoMaquinaria {
   id: string;
   equipo_id: string;
@@ -20,6 +27,13 @@ export interface MantenimientoMaquinaria {
   gasoil_lts: number | null;
   filtros_cant: number | null;
   filtros_tipo: string | null;
+  /** Repuestos/insumos cambiados (cauchos, pintura, batería…) con su cantidad. */
+  insumos: InsumoMant[] | null;
+  /** Vínculo con la Solicitud de Servicio atendida (clase='servicio'). */
+  solicitud_id: string | null;
+  solicitud_codigo: string | null;
+  /** Cuánto se colocó/aplicó del servicio solicitado. */
+  cantidad_colocada: number | null;
   trabajo: string | null;
   consumibles: string | null;
   mecanico: string | null;
@@ -69,6 +83,17 @@ export async function listMantenimientos(equipoId: string): Promise<Mantenimient
   });
 }
 
+/** Limpia la lista de insumos: concepto obligatorio, cantidad numérica, unidad opcional. */
+function sanitizeInsumos(insumos?: InsumoMant[] | null): InsumoMant[] {
+  return (insumos ?? [])
+    .map((i) => ({
+      concepto: String(i.concepto ?? '').trim().toUpperCase(),
+      cantidad: num(i.cantidad),
+      unidad: i.unidad ? String(i.unidad).trim().toUpperCase() || null : null,
+    }))
+    .filter((i) => i.concepto !== '');
+}
+
 function sanitize(input: MantenimientoInput): Record<string, unknown> {
   const v = (s?: string | null) => (s == null ? null : String(s).trim() || null);
   return {
@@ -81,9 +106,29 @@ function sanitize(input: MantenimientoInput): Record<string, unknown> {
     gasoil_lts: num(input.gasoil_lts),
     filtros_cant: num(input.filtros_cant),
     filtros_tipo: v(input.filtros_tipo),
+    insumos: sanitizeInsumos(input.insumos),
+    solicitud_id: input.solicitud_id ?? null,
+    solicitud_codigo: v(input.solicitud_codigo),
+    cantidad_colocada: num(input.cantidad_colocada),
     trabajo: v(input.trabajo), consumibles: v(input.consumibles),
     mecanico: v(input.mecanico), ubicacion: v(input.ubicacion), observacion: v(input.observacion),
   };
+}
+
+/** Suma las cantidades de insumos/repuestos por concepto en una lista de registros. */
+export function insumosPorConcepto(rows: MantenimientoMaquinaria[]): Array<{ concepto: string; cantidad: number; unidad: string | null }> {
+  const m = new Map<string, { concepto: string; cantidad: number; unidad: string | null }>();
+  for (const r of rows) {
+    for (const i of (r.insumos ?? [])) {
+      const concepto = String(i.concepto ?? '').trim().toUpperCase();
+      if (!concepto) continue;
+      const cur = m.get(concepto) ?? { concepto, cantidad: 0, unidad: i.unidad ?? null };
+      cur.cantidad += num(i.cantidad) ?? 0;
+      if (!cur.unidad && i.unidad) cur.unidad = i.unidad;
+      m.set(concepto, cur);
+    }
+  }
+  return Array.from(m.values()).sort((a, b) => b.cantidad - a.cantidad);
 }
 
 export async function addMantenimiento(input: MantenimientoInput, actor: string, actorName?: string | null): Promise<MantenimientoMaquinaria> {
@@ -180,6 +225,66 @@ export async function ultimoServicioPorEquipo(): Promise<Map<string, UltimoServi
     if (cur.filtro == null && (num(r.filtros_cant) ?? 0) > 0) cur.filtro = horo;
     if (cur.combustible == null && (num(r.gasoil_lts) ?? 0) > 0) cur.combustible = horo;
     out.set(r.equipo_id, cur);
+  }
+  return out;
+}
+
+/* ============================================================
+   Vínculo Solicitud de Servicio (Pedidos) → Control de Mantenimiento
+   Un servicio de "mantenimiento de maquinaria" (clase='servicio')
+   guarda el equipo en sus ítems. Acá se exponen agrupados por equipo
+   para que aparezcan en el módulo de mantenimiento: de donde se pidió
+   el servicio → donde se ve el equipo.
+   ============================================================ */
+
+/** Estados de un servicio que ya NO está en curso (cerrado: no cuenta como pendiente). */
+const ESTADOS_SERVICIO_CERRADO = new Set(['finalizada', 'cancelada', 'anulada', 'rechazada', 'desistida_proveedor', 'reasignada']);
+
+export interface SolicitudServicioEquipo {
+  id: string;              // id de la orden (clase servicio)
+  codigo: string;          // SV-AAAA-NNNN
+  estado: string;
+  created_at: string;
+  solicitante: string | null;        // unidad solicitante
+  solicitante_persona: string | null; // persona que pidió el servicio
+  equipo_id: string;
+  equipo_nombre: string | null;
+  descripcion: string;     // nombre del ítem (categoría · equipo · tipo)
+  abierta: boolean;        // sigue en curso (no finalizada/cancelada…)
+}
+
+/**
+ * Solicitudes de servicio vinculadas a equipos de Control de Maquinaria, agrupadas
+ * por equipo_id (más reciente primero). Una sola consulta a `ordenes`; se recorre
+ * `items` en memoria tomando un renglón por equipo dentro de cada orden.
+ */
+export async function solicitudesServicioPorEquipo(): Promise<Map<string, SolicitudServicioEquipo[]>> {
+  const { data, error } = await supabase
+    .from('ordenes')
+    .select('id, codigo, estado, created_at, solicitante, solicitante_persona, items')
+    .eq('clase', 'servicio')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const out = new Map<string, SolicitudServicioEquipo[]>();
+  for (const o of (data ?? []) as Array<{ id: string; codigo: string; estado: string; created_at: string; solicitante: string | null; solicitante_persona: string | null; items: unknown }>) {
+    const items = Array.isArray(o.items)
+      ? (o.items as Array<{ equipo_id?: string | null; equipo_nombre?: string | null; nombre?: string | null }>)
+      : [];
+    const vistos = new Set<string>();
+    for (const it of items) {
+      const eqId = it.equipo_id ?? null;
+      if (!eqId || vistos.has(eqId)) continue; // un renglón por equipo por orden
+      vistos.add(eqId);
+      const fila: SolicitudServicioEquipo = {
+        id: o.id, codigo: o.codigo, estado: o.estado, created_at: o.created_at,
+        solicitante: o.solicitante, solicitante_persona: o.solicitante_persona ?? null,
+        equipo_id: eqId, equipo_nombre: it.equipo_nombre ?? null,
+        descripcion: it.nombre ?? o.codigo, abierta: !ESTADOS_SERVICIO_CERRADO.has(o.estado),
+      };
+      const arr = out.get(eqId) ?? [];
+      arr.push(fila);
+      out.set(eqId, arr);
+    }
   }
   return out;
 }
