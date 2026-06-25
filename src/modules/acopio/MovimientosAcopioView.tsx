@@ -13,7 +13,7 @@ import type { ContratoAcopio, CajaMovimiento, GrupoClasificacion } from '@/share
 // Stub local que devuelve []. Reemplazar al construir contratos. (Centro de Acopio standalone)
 import { listContratos } from './contratos.stub';
 import { listCajaMovimientos, actualizarMovimientoCaja, eliminarMovimientoCaja, GRUPOS } from './caja.repository';
-import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorreo } from './movimientosAcopioReportes';
+// descargarMovAcopioPdf / descargarMovAcopioExcel / enviarMovAcopioPorCorreo se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
 
 /**
  * Lista de movimientos del Centro de Acopio (réplica del Excel «caja» de acopio).
@@ -239,8 +239,8 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
       </div>
 
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
-        <button className="btn btn-ghost btn-sm" disabled={!mostradas.length} onClick={() => void descargarMovAcopioPdf(mostradas, { filtro: filtroTxt() }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
-        <button className="btn btn-ghost btn-sm" disabled={!mostradas.length} onClick={() => void descargarMovAcopioExcel(mostradas).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
+        <button className="btn btn-ghost btn-sm" disabled={!mostradas.length} onClick={() => void import('./movimientosAcopioReportes').then(({ descargarMovAcopioPdf }) => descargarMovAcopioPdf(mostradas, { filtro: filtroTxt() })).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+        <button className="btn btn-ghost btn-sm" disabled={!mostradas.length} onClick={() => void import('./movimientosAcopioReportes').then(({ descargarMovAcopioExcel }) => descargarMovAcopioExcel(mostradas)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
         <button className="btn btn-ghost btn-sm" disabled={!mostradas.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
       </div>
 
@@ -334,6 +334,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
           descripcion={`Se enviará el PDF con ${mostradas.length} movimiento(s)${hayFiltro ? ', con el filtro aplicado' : ''}.`}
           defaultEmail={user?.email ?? ''}
           onEnviar={async (emails) => {
+            const { enviarMovAcopioPorCorreo } = await import('./movimientosAcopioReportes');
             const { destinatarios } = await enviarMovAcopioPorCorreo(mostradas, emails, { filtro: filtroTxt() });
             return destinatarios;
           }}

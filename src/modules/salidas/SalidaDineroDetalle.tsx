@@ -4,7 +4,7 @@ import { toast } from '@/shared/ui/Toast';
 import { money, num, dateTime } from '@/shared/lib/format';
 import type { MovimientoCaja, Producto } from '@/shared/lib/types';
 import { ProductoDetail } from '@/modules/inventario/ProductoDetail';
-import { descargarSalidaDineroPdf, descargarTrasladoDineroPdf } from './salidaPdf';
+// descargarSalidaDineroPdf y descargarTrasladoDineroPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 /**
  * Detalle COMPLETO de una salida/traslado de DINERO (gasto). Muestra todos los datos:
@@ -23,7 +23,10 @@ export function SalidaDineroDetalle({
   const conciliada = mov.estado_mineral === 'conciliada';
 
   async function handlePdf() {
-    try { esTraslado ? await descargarTrasladoDineroPdf(mov) : await descargarSalidaDineroPdf(mov); }
+    try {
+      const { descargarSalidaDineroPdf, descargarTrasladoDineroPdf } = await import('./salidaPdf');
+      esTraslado ? await descargarTrasladoDineroPdf(mov) : await descargarSalidaDineroPdf(mov);
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 

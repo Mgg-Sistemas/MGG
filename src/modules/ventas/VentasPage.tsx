@@ -18,7 +18,7 @@ import {
   type Venta, type VentaItem, type EstadoVenta,
 } from './ventas.repository';
 import { listClientes, crearCliente, actualizarCliente, eliminarCliente, type Cliente, type ClienteInput } from './clientes.repository';
-import { descargarFacturaPdf } from './facturaPdf';
+// descargarFacturaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 const ESTADO: Record<EstadoVenta, { label: string; color: string }> = {
   borrador: { label: '● Borrador', color: 'var(--muted)' },
@@ -91,7 +91,7 @@ export function VentasPage() {
   // Botones de acción de una factura (compartidos por tarjeta y lista).
   const Acciones = ({ v }: { v: Venta }) => (
     <>
-      <button className="btn btn-sm btn-ghost" title="PDF" onClick={() => void descargarFacturaPdf(v).catch((e) => toast(e instanceof Error ? e.message : 'Error PDF', 'error'))}>↓ PDF</button>
+      <button className="btn btn-sm btn-ghost" title="PDF" onClick={() => void import('./facturaPdf').then(({ descargarFacturaPdf }) => descargarFacturaPdf(v)).catch((e) => toast(e instanceof Error ? e.message : 'Error PDF', 'error'))}>↓ PDF</button>
       {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setEditar(v)}>✎</button>}
       {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-primary" title="Emitir (descuenta stock)" onClick={() => void emitir(v)}>Emitir</button>}
       {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => void eliminar(v)}>🗑</button>}

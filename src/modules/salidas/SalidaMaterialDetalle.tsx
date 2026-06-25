@@ -4,7 +4,7 @@ import { toast } from '@/shared/ui/Toast';
 import { money, num, date, dateTime } from '@/shared/lib/format';
 import type { Movimiento, Producto } from '@/shared/lib/types';
 import { ProductoDetail } from '@/modules/inventario/ProductoDetail';
-import { descargarSalidaMaterialPdf } from './salidaPdf';
+// descargarSalidaMaterialPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { enviarSalidaAMultiples } from './enviarSalida';
 
 /** Detalle de una salida/traslado de material con opciones de PDF y trazabilidad. */
@@ -24,7 +24,7 @@ export function SalidaMaterialDetalle({
   const precio = Number(mov.precio_unitario) || 0;
 
   async function handlePdf() {
-    try { await descargarSalidaMaterialPdf(mov, esTraslado); }
+    try { const { descargarSalidaMaterialPdf } = await import('./salidaPdf'); await descargarSalidaMaterialPdf(mov, esTraslado); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 

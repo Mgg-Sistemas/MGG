@@ -54,7 +54,7 @@ import {
 } from './combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { enviarReportePdf } from '@/shared/lib/enviarReporte';
-import { descargarSolicitudCombustiblePdf } from './combustiblePdf';
+// descargarSolicitudCombustiblePdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { enviarCombustibleAMultiples } from './enviarCombustible';
 import {
   listTransferenciasCombustible,
@@ -1785,7 +1785,7 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cancelar', 'error'); setBusy(false); }
   }
   async function pdf() {
-    try { await descargarSolicitudCombustiblePdf(s); }
+    try { const { descargarSolicitudCombustiblePdf } = await import('./combustiblePdf'); await descargarSolicitudCombustiblePdf(s); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
   async function enviarCorreo() {

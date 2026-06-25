@@ -1,7 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
-import { obtenerReporteBase64, type ReporteMeta } from './reportePdf';
-import { obtenerMovimientoDetalleBase64 } from './movimientoDetallePdf';
-import { obtenerCuentaPorPagarBase64 } from './cuentaPorPagarPdf';
+import { type ReporteMeta } from './reportePdf';
+// obtenerReporteBase64, obtenerMovimientoDetalleBase64 y obtenerCuentaPorPagarBase64
+// se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 import type { CuentaPorPagar, AbonoCxP, IngresoCxP } from './cuentasPorPagar.repository';
 import type { MovimientoCaja, Orden } from '@/shared/lib/types';
 
@@ -18,6 +18,7 @@ export async function enviarReportePorCorreo(
   meta: ReporteMeta,
   destinos?: string[] | string,
 ): Promise<{ destinatarios: string[] }> {
+  const { obtenerReporteBase64 } = await import('./reportePdf');
   const { base64, nombre } = await obtenerReporteBase64(movs, meta);
   const lista = Array.isArray(destinos) ? destinos : destinos ? [destinos] : [];
   const { data, error } = await supabase.functions.invoke<
@@ -46,6 +47,7 @@ export async function enviarCuentaPorPagarPorCorreo(
   destinos?: string[] | string,
   ingresos: IngresoCxP[] = [],
 ): Promise<{ destinatarios: string[] }> {
+  const { obtenerCuentaPorPagarBase64 } = await import('./cuentaPorPagarPdf');
   const { base64, nombre } = await obtenerCuentaPorPagarBase64(cuenta, abonos, ingresos);
   const lista = Array.isArray(destinos) ? destinos : destinos ? [destinos] : [];
   const tipoLabel = cuenta.tipo === 'proveedor' ? 'Proveedor' : 'Cliente';
@@ -74,6 +76,7 @@ export async function enviarMovimientoDetallePorCorreo(
   orden: Orden | null,
   destinos?: string[] | string,
 ): Promise<{ destinatarios: string[] }> {
+  const { obtenerMovimientoDetalleBase64 } = await import('./movimientoDetallePdf');
   const { base64, nombre } = await obtenerMovimientoDetalleBase64(mov, orden);
   const lista = Array.isArray(destinos) ? destinos : destinos ? [destinos] : [];
   const ref = orden?.oc_codigo || orden?.codigo || mov.id.slice(0, 8);

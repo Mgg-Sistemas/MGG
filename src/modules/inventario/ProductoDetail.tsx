@@ -5,7 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { date, dateTime, money, num } from '@/shared/lib/format';
 import type { Movimiento, Producto } from '@/shared/lib/types';
 import { listMovimientosPorProducto, TIPOS_MOVIMIENTO } from './movimientos.repository';
-import { descargarProductoPdf } from './productoPdf';
+// descargarProductoPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 interface ProductoDetailProps {
   producto: Producto;
@@ -51,6 +51,7 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
 
   async function handleDownloadPdf() {
     try {
+      const { descargarProductoPdf } = await import('./productoPdf');
       await descargarProductoPdf(producto.id);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');

@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import { obtenerProduccionPdfBase64 } from './produccionPdf';
+// obtenerProduccionPdfBase64 se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 const FUNCTION_SLUG = 'enviar-produccion';
 
@@ -13,6 +13,7 @@ interface EnviarResult {
  * `enviar-produccion` (Brevo). Mismo patrón que la trazabilidad de compras.
  */
 export async function enviarProduccionPorCorreo(produccionId: string, toEmail?: string): Promise<EnviarResult> {
+  const { obtenerProduccionPdfBase64 } = await import('./produccionPdf');
   const { base64 } = await obtenerProduccionPdfBase64(produccionId);
   const { data, error } = await supabase.functions.invoke<
     { ok: true; destinatarios: string[]; id?: string | null } | { error: string }
@@ -41,6 +42,7 @@ export async function enviarProduccionAMultiples(
   );
   if (!unicos.length) throw new Error('Indicá al menos un correo válido');
 
+  const { obtenerProduccionPdfBase64 } = await import('./produccionPdf');
   const { base64 } = await obtenerProduccionPdfBase64(produccionId);
   const enviados: string[] = [];
   const fallidos: Array<{ email: string; motivo: string }> = [];

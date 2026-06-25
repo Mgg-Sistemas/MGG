@@ -6,8 +6,7 @@ import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
 import type { Produccion } from '@/shared/lib/types';
 import { getProduccionConMateriales } from './produccion.repository';
-import { descargarProduccionPdf } from './produccionPdf';
-import { descargarProduccionExcel } from './produccionExcel';
+// descargarProduccionPdf / descargarProduccionExcel se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
 import { enviarProduccionAMultiples } from './enviarProduccion';
 
 export function duracionProd(inicio: string, fin?: string | null): string {
@@ -46,12 +45,12 @@ export function ProduccionDetalle({
   }, [id]);
 
   async function handlePdf() {
-    try { await descargarProduccionPdf(id); }
+    try { const { descargarProduccionPdf } = await import('./produccionPdf'); await descargarProduccionPdf(id); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
   async function handleExcel() {
-    try { await descargarProduccionExcel(id); }
+    try { const { descargarProduccionExcel } = await import('./produccionExcel'); await descargarProduccionExcel(id); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'); }
   }
 

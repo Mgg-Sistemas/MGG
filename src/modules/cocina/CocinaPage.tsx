@@ -19,7 +19,7 @@ import {
   listComidas, crearComida, listViveres, resumirComidas,
   TIPOS_COMIDA, labelTipoComida, type ViverDisponible, type ResumenCocina,
 } from './cocina.repository';
-import { descargarReporteCocinaPdf } from './cocinaPdf';
+// descargarReporteCocinaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { crearAlertaMercado, listAlertasMercadoPendientes } from './alertasMercado.repository';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -105,7 +105,7 @@ export function CocinaPage() {
       <div className="filterbar" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen / Consumo</button>
-          <button className="btn btn-ghost" onClick={() => descargarReporteCocinaPdf(filtradas, rangoLabel()).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!filtradas.length}>↓ Reporte PDF</button>
+          <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(filtradas, rangoLabel())).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!filtradas.length}>↓ Reporte PDF</button>
           {canWrite && (
             <button className="btn btn-ghost" style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
               onClick={enviarAlertaMercado} disabled={alertando} title="Avisar a Pedidos/Compras que hay que reponer víveres">
@@ -342,7 +342,7 @@ function ResumenModal({ onClose }: { onClose: () => void }) {
     <Modal title="📊 Resumen / Consumo de cocina" size="xl" onClose={onClose}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={() => descargarReporteCocinaPdf(comidas, `Resumen · ${fmtDia(rango.desde.toISOString().slice(0, 10))} a ${fmtDia(rango.hasta.toISOString().slice(0, 10))}`).catch(() => toast('No se pudo generar el PDF', 'error'))} disabled={!comidas.length}>↓ PDF</button>
+          <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(comidas, `Resumen · ${fmtDia(rango.desde.toISOString().slice(0, 10))} a ${fmtDia(rango.hasta.toISOString().slice(0, 10))}`)).catch(() => toast('No se pudo generar el PDF', 'error'))} disabled={!comidas.length}>↓ PDF</button>
           <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
         </>
       }>
