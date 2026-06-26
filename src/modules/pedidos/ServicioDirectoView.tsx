@@ -21,6 +21,7 @@ import {
 import type { PagoLeg } from './compras.repository';
 import { FacturasModal } from './FacturasModal';
 import { EditarMontosModal } from './EditarMontosModal';
+import { DetalleDirectoModal } from './DetalleDirectoModal';
 
 type Vista = 'kanban' | 'lista';
 
@@ -67,6 +68,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   const [eliminar, setEliminar] = useState<ServicioDirecto | null>(null);
   const [facturas, setFacturas] = useState<ServicioDirecto | null>(null);
   const [editarMontos, setEditarMontos] = useState<ServicioDirecto | null>(null);
+  const [detalle, setDetalle] = useState<ServicioDirecto | null>(null);
 
   const reload = useCallback(async () => {
     const [ss, cats, tps, eqs, cjs, provs] = await Promise.all([
@@ -131,7 +133,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
               <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((s) => (
-                  <ServicioCard key={s.id} servicio={s} onFinalizar={() => setFinalizar(s)} onPdf={() => handlePdf(s)} onFacturas={() => setFacturas(s)} onEditarMontos={() => setEditarMontos(s)} onEliminar={() => setEliminar(s)} />
+                  <ServicioCard key={s.id} servicio={s} onVer={() => setDetalle(s)} onFinalizar={() => setFinalizar(s)} onPdf={() => handlePdf(s)} onFacturas={() => setFacturas(s)} onEditarMontos={() => setEditarMontos(s)} onEliminar={() => setEliminar(s)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -144,7 +146,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
             <thead><tr><th>Código</th><th>Servicio(s)</th><th>Equipo</th><th>Proveedor</th><th>Estado</th><th>Monto</th><th>Generó</th><th>Creado</th><th>Pagado</th><th></th></tr></thead>
             <tbody>
               {servicios.map((s) => (
-                <tr key={s.id}>
+                <tr key={s.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setDetalle(s)} title="Ver el detalle">
                   <td className="mono">{s.codigo ?? '—'}</td>
                   <td>{s.descripcion}{s.items.length > 1 ? <span className="muted"> · {s.items.length} ítems</span> : null}</td>
                   <td>{s.equipo_nombre || '—'}</td>
@@ -154,7 +156,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                   <td>{s.actor_name || s.actor || '—'}</td>
                   <td className="muted">{dateTime(s.created_at)}</td>
                   <td className="muted">{s.finalizada_at ? dateTime(s.finalizada_at) : '—'}</td>
-                  <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                  <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(s)} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
                     {s.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setEditarMontos(s)} title="Editar montos (sincroniza Tesorería)">✎ Editar</button>}
                     {s.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(s)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
@@ -205,13 +207,45 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           onClose={() => setEditarMontos(null)}
         />
       )}
+
+      {detalle && (
+        <DetalleDirectoModal
+          title={`Servicio directo · ${detalle.codigo ?? ''}`}
+          estadoLabel={ESTADO_LABEL[detalle.estado] ?? detalle.estado}
+          ficha={[
+            ['Equipo', detalle.equipo_nombre || '—'],
+            ['Proveedor / taller', detalle.proveedor_nombre || '—'],
+            ...(detalle.solicitante ? [['Unidad solicitante', detalle.solicitante] as [string, string]] : []),
+            ...(detalle.solicitante_persona ? [['Quién lo solicita', detalle.solicitante_persona] as [string, string]] : []),
+            ['Generó', detalle.actor_name || detalle.actor || '—'],
+            ['Creado', dateTime(detalle.created_at)],
+            ['Pagado', detalle.finalizada_at ? dateTime(detalle.finalizada_at) : '—'],
+          ]}
+          itemsTitle="Servicios"
+          items={detalle.items.map((it) => ({ nombre: it.descripcion, cantidad: it.cantidad, gasto: it.gasto }))}
+          moneda={cajas.find((c) => c.id === detalle.caja_id)?.moneda ?? 'USD'}
+          total={detalle.gasto}
+          facturas={detalle.facturas}
+          urlFor={urlAdjuntoServicio}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setDetalle(null)}>Cerrar</button>
+              <button className="btn btn-ghost" onClick={() => handlePdf(detalle)}>↓ PDF</button>
+              {detalle.estado === 'finalizada' && <button className="btn btn-ghost" onClick={() => { setFacturas(detalle); setDetalle(null); }}>🧾 Facturas</button>}
+              {detalle.estado === 'finalizada' && <button className="btn btn-primary" onClick={() => { setEditarMontos(detalle); setDetalle(null); }}>✎ Editar montos</button>}
+              {detalle.estado === 'en_proceso' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>Cargar factura y monto</button>}
+            </>
+          }
+          onClose={() => setDetalle(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ServicioCard({ servicio, onFinalizar, onPdf, onFacturas, onEditarMontos, onEliminar }: { servicio: ServicioDirecto; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEditarMontos: () => void; onEliminar: () => void }) {
+function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEditarMontos, onEliminar }: { servicio: ServicioDirecto; onVer: () => void; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEditarMontos: () => void; onEliminar: () => void }) {
   return (
-    <div className="card" style={{ margin: 0 }}>
+    <div className="card" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver el detalle">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
         <strong>{servicio.descripcion}</strong>
         <span className="badge">{num(servicio.cantidad)}</span>
@@ -235,7 +269,7 @@ function ServicioCard({ servicio, onFinalizar, onPdf, onFacturas, onEditarMontos
           <div className="muted"><AdjuntoLink servicio={servicio} /></div>
         </div>
       )}
-      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
         {servicio.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onEditarMontos} title="Editar montos (sincroniza Tesorería)">✎ Editar</button>}
         {servicio.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
