@@ -11,7 +11,9 @@
 import { supabase } from '@/shared/lib/supabase';
 import { registrarGasto } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
-import type { PagoLeg } from './compras.repository';
+import type { PagoLeg, AdjuntoFactura } from './compras.repository';
+
+export type { AdjuntoFactura } from './compras.repository';
 
 const BUCKET = 'compras-directas'; // se reutiliza el bucket existente (prefijo sd/)
 
@@ -52,6 +54,8 @@ export interface ServicioDirecto {
   caja_mov_id: string | null;
   adjunto_path: string | null;
   adjunto_nombre: string | null;
+  /** Facturas adjuntas (PDF o imagen). La primera se refleja en adjunto_path/nombre. */
+  facturas: AdjuntoFactura[];
   solicitante: string | null;
   solicitante_persona: string | null;
   actor: string | null;
@@ -63,7 +67,12 @@ export interface ServicioDirecto {
 
 function normalizar(row: Record<string, unknown>): ServicioDirecto {
   const r = row as unknown as ServicioDirecto;
-  return { ...r, items: Array.isArray(r.items) ? r.items : [] };
+  let facturas = Array.isArray(r.facturas) ? r.facturas : [];
+  // Legado: un servicio con factura suelta se expone como una factura en la lista.
+  if (!facturas.length && r.adjunto_path) {
+    facturas = [{ path: r.adjunto_path, filename: r.adjunto_nombre ?? 'factura', at: r.finalizada_at ?? r.created_at }];
+  }
+  return { ...r, items: Array.isArray(r.items) ? r.items : [], facturas };
 }
 
 /** Próximo correlativo SD-YYYY-#### por el MÁXIMO del año + 1 (robusto ante borrados). */
@@ -160,7 +169,8 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
 
 export async function subirAdjuntoServicio(servicioId: string, file: File): Promise<string> {
   const safe = file.name.replace(/[^\w.\-]+/g, '_');
-  const path = `sd/${servicioId}/${safe}`;
+  // Prefijo de tiempo: permite varias facturas con el mismo nombre sin pisarse.
+  const path = `sd/${servicioId}/${Date.now()}-${safe}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: file.type || 'application/pdf' });
   if (error) throw error;
   return path;
@@ -170,6 +180,41 @@ export async function urlAdjuntoServicio(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
+}
+
+/**
+ * Gestiona las FACTURAS de un servicio ya creado (sirve para finalizados): sube las nuevas
+ * (PDF o imagen), borra del Storage las que se quitaron y guarda la lista resultante.
+ * adjunto_path/nombre quedan apuntando a la primera factura (compatibilidad).
+ */
+export async function gestionarFacturasServicio(
+  servicio: ServicioDirecto,
+  nuevos: File[],
+  quitarPaths: string[],
+): Promise<ServicioDirecto> {
+  const subidas: AdjuntoFactura[] = [];
+  for (const f of nuevos) {
+    const path = await subirAdjuntoServicio(servicio.id, f);
+    subidas.push({ path, filename: f.name, at: new Date().toISOString() });
+  }
+  if (quitarPaths.length) {
+    try { await supabase.storage.from(BUCKET).remove(quitarPaths); } catch { /* el Storage no bloquea */ }
+  }
+  const facturas = [...(servicio.facturas ?? []).filter((a) => !quitarPaths.includes(a.path)), ...subidas];
+  const primera = facturas[0] ?? null;
+  const { data, error } = await supabase
+    .from('servicios_directos')
+    .update({
+      facturas,
+      adjunto_path: primera?.path ?? null,
+      adjunto_nombre: primera?.filename ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', servicio.id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizar(data as Record<string, unknown>);
 }
 
 /* ───────── Finalizar (factura + montos + caja de Tesorería) ───────── */
@@ -227,12 +272,14 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
     movCajaId = movCaja.id;
   }
 
-  // 2) Factura (opcional).
+  // 2) Factura (opcional, PDF o imagen). Inicia la lista de facturas.
   let adjuntoPath: string | null = null;
   let adjuntoNombre: string | null = null;
+  const facturas: AdjuntoFactura[] = [];
   if (input.file) {
     adjuntoPath = await subirAdjuntoServicio(servicio.id, input.file);
     adjuntoNombre = input.file.name;
+    facturas.push({ path: adjuntoPath, filename: adjuntoNombre, at: new Date().toISOString() });
   }
 
   // 3) Cerrar el servicio directo.
@@ -241,7 +288,7 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
     .update({
       estado: 'finalizada', gasto: total, items,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
-      adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre,
+      adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre, facturas,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', servicio.id);

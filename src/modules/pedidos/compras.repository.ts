@@ -30,6 +30,13 @@ export interface CompraDirectaItem {
   gasto?: number | null;
 }
 
+/** Una factura adjunta (PDF o imagen) guardada en Storage. */
+export interface AdjuntoFactura {
+  path: string;
+  filename: string;
+  at: string;
+}
+
 export interface CompraDirecta {
   id: string;
   codigo: string | null;
@@ -47,6 +54,8 @@ export interface CompraDirecta {
   caja_mov_id: string | null;
   adjunto_path: string | null;
   adjunto_nombre: string | null;
+  /** Facturas adjuntas (PDF o imagen). La primera se refleja en adjunto_path/nombre. */
+  facturas: AdjuntoFactura[];
   mov_id: string | null;
   actor: string | null;
   actor_name: string | null;
@@ -67,7 +76,12 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
       producto_sku: r.producto_sku, cantidad: Number(r.cantidad) || 0, gasto: r.gasto ?? null,
     }];
   }
-  return { ...r, items };
+  let facturas = Array.isArray(r.facturas) ? r.facturas : [];
+  // Legado: una compra con adjunto suelto se expone como una factura en la lista.
+  if (!facturas.length && r.adjunto_path) {
+    facturas = [{ path: r.adjunto_path, filename: r.adjunto_nombre ?? 'factura', at: r.finalizada_at ?? r.created_at }];
+  }
+  return { ...r, items, facturas };
 }
 
 /** Próximo correlativo CD-YYYY-#### (Compra Directa) por el MÁXIMO del año + 1 (robusto
@@ -175,7 +189,8 @@ export async function crearCompraDirecta(
 
 export async function subirAdjuntoCompra(compraId: string, file: File): Promise<string> {
   const safe = file.name.replace(/[^\w.\-]+/g, '_');
-  const path = `${compraId}/${safe}`;
+  // Prefijo de tiempo: permite varias facturas con el mismo nombre sin pisarse.
+  const path = `${compraId}/${Date.now()}-${safe}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
     upsert: true, contentType: file.type || 'application/pdf',
   });
@@ -187,6 +202,41 @@ export async function urlAdjuntoCompra(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
+}
+
+/**
+ * Gestiona las FACTURAS de una compra ya creada (sirve para finalizadas): sube las nuevas
+ * (PDF o imagen), borra del Storage las que se quitaron y guarda la lista resultante.
+ * adjunto_path/nombre quedan apuntando a la primera factura (compatibilidad con el resto).
+ */
+export async function gestionarFacturasCompra(
+  compra: CompraDirecta,
+  nuevos: File[],
+  quitarPaths: string[],
+): Promise<CompraDirecta> {
+  const subidas: AdjuntoFactura[] = [];
+  for (const f of nuevos) {
+    const path = await subirAdjuntoCompra(compra.id, f);
+    subidas.push({ path, filename: f.name, at: new Date().toISOString() });
+  }
+  if (quitarPaths.length) {
+    try { await supabase.storage.from(BUCKET).remove(quitarPaths); } catch { /* el Storage no bloquea */ }
+  }
+  const facturas = [...(compra.facturas ?? []).filter((a) => !quitarPaths.includes(a.path)), ...subidas];
+  const primera = facturas[0] ?? null;
+  const { data, error } = await supabase
+    .from('compras_directas')
+    .update({
+      facturas,
+      adjunto_path: primera?.path ?? null,
+      adjunto_nombre: primera?.filename ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', compra.id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizar(data as Record<string, unknown>);
 }
 
 /* ───────── Completar (factura + precios + caja de Tesorería) ───────── */
@@ -251,12 +301,14 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     movCajaId = movCaja.id;
   }
 
-  // 2) Adjunto opcional.
+  // 2) Adjunto opcional (factura PDF o imagen). Inicia la lista de facturas.
   let adjuntoPath: string | null = null;
   let adjuntoNombre: string | null = null;
+  const facturas: AdjuntoFactura[] = [];
   if (input.file) {
     adjuntoPath = await subirAdjuntoCompra(compra.id, input.file);
     adjuntoNombre = input.file.name;
+    facturas.push({ path: adjuntoPath, filename: adjuntoNombre, at: new Date().toISOString() });
   }
 
   // 3) Entrada al inventario por cada material (costo = gasto / cantidad).
@@ -280,7 +332,7 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     .update({
       estado: 'finalizada', gasto: total, items,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
-      adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre,
+      adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre, facturas,
       mov_id: primerMov,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })

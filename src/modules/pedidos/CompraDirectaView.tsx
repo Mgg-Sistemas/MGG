@@ -17,8 +17,9 @@ import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesore
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
   crearCompraDirecta, finalizarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
-  urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
+  urlAdjuntoCompra, gestionarFacturasCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
 } from './compras.repository';
+import { FacturasModal } from './FacturasModal';
 
 type Vista = 'kanban' | 'lista';
 
@@ -45,6 +46,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [crear, setCrear] = useState(false);
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
   const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
+  const [facturas, setFacturas] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
     // Cada fuente con su propio catch: si una falla (RLS/red), las demás cargan igual
@@ -115,7 +117,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
                   <CompraCard key={c.id} compra={c}
-                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} />
+                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onFacturas={() => setFacturas(c)} onEliminar={() => setEliminar(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -140,7 +142,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td className="muted">{dateTime(c.created_at)}</td>
                   <td className="muted">{c.finalizada_at ? dateTime(c.finalizada_at) : '—'}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Descargar detalle en PDF">↓ PDF</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
+                    {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(c)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑</button>}
                   </td>
@@ -171,12 +174,22 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           onCancel={() => setEliminar(null)}
         />
       )}
+
+      {facturas && (
+        <FacturasModal
+          title={`Facturas · ${facturas.codigo ?? 'Compra directa'}`}
+          facturas={facturas.facturas}
+          urlFor={urlAdjuntoCompra}
+          onSave={async (nuevos, quitar) => { await gestionarFacturasCompra(facturas, nuevos, quitar); await reload(); }}
+          onClose={() => setFacturas(null)}
+        />
+      )}
     </div>
   );
 }
 
-function CompraCard({ compra, onFinalizar, onPdf, onEliminar }: {
-  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void; onEliminar: () => void;
+function CompraCard({ compra, onFinalizar, onPdf, onFacturas, onEliminar }: {
+  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEliminar: () => void;
 }) {
   return (
     <div className="card" style={{ margin: 0 }}>
@@ -204,7 +217,8 @@ function CompraCard({ compra, onFinalizar, onPdf, onEliminar }: {
         </div>
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
-        <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Descargar detalle en PDF">↓ PDF</button>
+        <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
+        {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>

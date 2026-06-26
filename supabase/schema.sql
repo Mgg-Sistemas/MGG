@@ -478,6 +478,8 @@ create index if not exists idx_compra_directa_estado on public.compras_directas(
 -- Proveedor de la compra directa (opcional; si es nuevo, se da de alta en `proveedores`).
 alter table public.compras_directas add column if not exists proveedor_id uuid references public.proveedores(id) on delete set null;
 alter table public.compras_directas add column if not exists proveedor_nombre text;
+-- Facturas (varias, PDF o imagen): [{path, filename, at}]. adjunto_path/nombre siguen apuntando a la primera (compatibilidad).
+alter table public.compras_directas add column if not exists facturas jsonb not null default '[]'::jsonb;
 -- RLS: lectura para autenticados, escritura para operativo (admin/analista/obrero).
 -- Bucket privado 'compras-directas' (storage) con políticas para autenticados.
 -- (Ver migración aplicada; políticas: compra_directa read/write + cd_obj_* en storage.objects.)
@@ -509,6 +511,8 @@ create table if not exists public.servicios_directos (
 );
 create index if not exists idx_serv_directo_estado on public.servicios_directos(estado);
 create index if not exists idx_serv_directo_equipo on public.servicios_directos(equipo_id);
+-- Facturas (varias, PDF o imagen): [{path, filename, at}]. adjunto_path/nombre = la primera (compatibilidad).
+alter table public.servicios_directos add column if not exists facturas jsonb not null default '[]'::jsonb;
 alter table public.servicios_directos enable row level security;
 create policy "serv_directo read auth" on public.servicios_directos for select using (auth.role()='authenticated');
 create policy "serv_directo write op" on public.servicios_directos for all using (public.is_operativo()) with check (public.is_operativo());
