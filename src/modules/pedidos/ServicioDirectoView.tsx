@@ -70,16 +70,23 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   const [editarMontos, setEditarMontos] = useState<ServicioDirecto | null>(null);
   const [detalle, setDetalle] = useState<ServicioDirecto | null>(null);
 
-  const reload = useCallback(async () => {
-    const [ss, cats, tps, eqs, cjs, provs] = await Promise.all([
-      listServiciosDirectos().catch(() => [] as ServicioDirecto[]),
+  // Solo la lista (los datos del equipo/proveedor van denormalizados en la fila):
+  // una mutación o un evento realtime de servicios_directos pide UNA consulta.
+  const reloadLista = useCallback(async () => {
+    setServicios(await listServiciosDirectos().catch(() => [] as ServicioDirecto[]));
+  }, []);
+
+  // Catálogos del formulario (categorías, tipos, equipos, cajas, proveedores): casi
+  // estáticos; se cargan al entrar y solo se refrescan si cambian en su origen.
+  const reloadCatalogos = useCallback(async () => {
+    const [cats, tps, eqs, cjs, provs] = await Promise.all([
       listCatalogoPedido('servicio_categoria', true).catch(() => [] as CatalogoPedido[]),
       listCatalogoPedido('servicio_tipo', true).catch(() => [] as CatalogoPedido[]),
       listEquipos().catch(() => [] as MaquinariaEquipo[]),
       listCajasActivas().catch(() => [] as Caja[]),
       listProveedores().catch(() => [] as Proveedor[]),
     ]);
-    setServicios(ss); setCategorias(cats); setTipos(tps);
+    setCategorias(cats); setTipos(tps);
     setEquipos(eqs.filter((e) => e.activo)); setCajas(cjs);
     setProveedores(provs.filter((p) => p.estado === 'activo'));
   }, []);
@@ -87,11 +94,14 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   useEffect(() => {
     let cancel = false;
     setLoading(true);
-    reload().catch(() => { /* RLS/red */ }).finally(() => { if (!cancel) setLoading(false); });
+    Promise.all([reloadLista(), reloadCatalogos()]).catch(() => { /* RLS/red */ }).finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
-  }, [reload]);
+  }, [reloadLista, reloadCatalogos]);
 
-  useRealtime(['servicios_directos', 'proveedores', 'maquinaria_equipos'], () => { void reload(); });
+  // Realtime: la lista solo depende de servicios_directos; proveedores/equipos solo
+  // alimentan el formulario de alta.
+  useRealtime(['servicios_directos'], () => { void reloadLista(); });
+  useRealtime(['proveedores', 'maquinaria_equipos'], () => { void reloadCatalogos(); });
 
   const porEstado = useMemo(() => {
     const m: Record<string, ServicioDirecto[]> = { en_proceso: [], finalizada: [] };
@@ -108,7 +118,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
     const s = eliminar;
     if (!s) return;
     setEliminar(null);
-    try { await eliminarServicioDirecto(s); toast('Servicio directo eliminado', 'success'); await reload(); }
+    try { await eliminarServicioDirecto(s); toast('Servicio directo eliminado', 'success'); await reloadLista(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
@@ -173,11 +183,11 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
 
       {crear && (
         <CrearServicioModal categorias={categorias} tipos={tipos} equipos={equipos} proveedores={proveedores}
-          actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await reload(); }} />
+          actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await Promise.all([reloadLista(), reloadCatalogos()]); }} />
       )}
       {finalizar && (
         <FinalizarServicioModal servicio={finalizar} cajas={cajas} actor={actor} actorName={actorName}
-          onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
+          onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reloadLista(); }} />
       )}
       {eliminar && (
         <ConfirmDialog title="Eliminar servicio directo"
@@ -189,7 +199,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           title={`Facturas · ${facturas.codigo ?? 'Servicio directo'}`}
           facturas={facturas.facturas}
           urlFor={urlAdjuntoServicio}
-          onSave={async (nuevos, quitar) => { await gestionarFacturasServicio(facturas, nuevos, quitar); await reload(); }}
+          onSave={async (nuevos, quitar) => { await gestionarFacturasServicio(facturas, nuevos, quitar); await reloadLista(); }}
           onClose={() => setFacturas(null)}
         />
       )}
@@ -202,7 +212,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           onSave={async (gastos) => {
             const items = editarMontos.items.map((it, i) => ({ ...it, gasto: gastos[i] ?? 0 }));
             await editarServicioDirectoFinalizado({ servicio: editarMontos, items, actor, actorName });
-            await reload();
+            await reloadLista();
           }}
           onClose={() => setEditarMontos(null)}
         />

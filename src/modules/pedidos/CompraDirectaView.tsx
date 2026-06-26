@@ -52,30 +52,37 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [editarMontos, setEditarMontos] = useState<CompraDirecta | null>(null);
   const [detalle, setDetalle] = useState<CompraDirecta | null>(null);
 
-  const reload = useCallback(async () => {
-    // Cada fuente con su propio catch: si una falla (RLS/red), las demás cargan igual
-    // (antes, un error en cualquiera dejaba sin proveedores el formulario).
-    const [cs, pds, cats, unis, cjs, provs] = await Promise.all([
-      listComprasDirectas().catch(() => [] as CompraDirecta[]),
+  // Solo la lista (la tabla/kanban). Lo que se muestra va denormalizado en la fila,
+  // así que una mutación o un evento realtime de compras_directas pide UNA consulta.
+  const reloadLista = useCallback(async () => {
+    setCompras(await listComprasDirectas().catch(() => [] as CompraDirecta[]));
+  }, []);
+
+  // Catálogos del formulario de alta (productos, categorías, medidas, cajas, proveedores):
+  // casi estáticos; se cargan al entrar y solo se refrescan si cambian en su origen.
+  const reloadCatalogos = useCallback(async () => {
+    const [pds, cats, unis, cjs, provs] = await Promise.all([
       listProductos().catch(() => [] as Producto[]),
       getCategorias().catch(() => [] as string[]),
       getUnidades().catch(() => [] as string[]),
       listCajasActivas().catch(() => [] as Caja[]),
       listProveedores().catch(() => [] as Proveedor[]),
     ]);
-    setCompras(cs); setProductos(pds); setCategorias(cats); setUnidades(unis); setCajas(cjs);
+    setProductos(pds); setCategorias(cats); setUnidades(unis); setCajas(cjs);
     setProveedores(provs.filter((p) => p.estado === 'activo'));
   }, []);
 
   useEffect(() => {
     let cancel = false;
     setLoading(true);
-    reload().catch(() => { /* RLS/red */ }).finally(() => { if (!cancel) setLoading(false); });
+    Promise.all([reloadLista(), reloadCatalogos()]).catch(() => { /* RLS/red */ }).finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
-  }, [reload]);
+  }, [reloadLista, reloadCatalogos]);
 
-  // Realtime multiusuario: las compras directas se reflejan al instante.
-  useRealtime(['compras_directas', 'productos', 'proveedores'], () => { void reload(); });
+  // Realtime: la lista solo depende de compras_directas; productos/proveedores solo
+  // alimentan el formulario de alta (no se vuelve a traer todo en cada cambio).
+  useRealtime(['compras_directas'], () => { void reloadLista(); });
+  useRealtime(['productos', 'proveedores'], () => { void reloadCatalogos(); });
 
   const porEstado = useMemo(() => {
     const m: Record<string, CompraDirecta[]> = { en_proceso: [], finalizada: [] };
@@ -95,7 +102,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
     try {
       await eliminarCompraDirecta(c);
       toast('Compra directa eliminada', 'success');
-      await reload();
+      await reloadLista();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
@@ -161,12 +168,12 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
 
       {crear && (
         <CrearCompraModal productos={productos} categorias={categorias} unidades={unidades} proveedores={proveedores}
-          actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await reload(); }} />
+          actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await Promise.all([reloadLista(), reloadCatalogos()]); }} />
       )}
 
       {finalizar && (
         <FinalizarCompraModal compra={finalizar} cajas={cajas} actor={actor} actorName={actorName}
-          onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
+          onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reloadLista(); }} />
       )}
 
       {eliminar && (
@@ -185,7 +192,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           title={`Facturas · ${facturas.codigo ?? 'Compra directa'}`}
           facturas={facturas.facturas}
           urlFor={urlAdjuntoCompra}
-          onSave={async (nuevos, quitar) => { await gestionarFacturasCompra(facturas, nuevos, quitar); await reload(); }}
+          onSave={async (nuevos, quitar) => { await gestionarFacturasCompra(facturas, nuevos, quitar); await reloadLista(); }}
           onClose={() => setFacturas(null)}
         />
       )}
@@ -198,7 +205,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           onSave={async (gastos) => {
             const items = editarMontos.items.map((it, i) => ({ ...it, gasto: gastos[i] ?? 0 }));
             await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName });
-            await reload();
+            await reloadLista();
           }}
           onClose={() => setEditarMontos(null)}
         />
