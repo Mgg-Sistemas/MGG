@@ -22,6 +22,7 @@ import type { PagoLeg } from './compras.repository';
 import { FacturasModal } from './FacturasModal';
 import { EditarMontosModal } from './EditarMontosModal';
 import { DetalleDirectoModal } from './DetalleDirectoModal';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 
 type Vista = 'kanban' | 'lista';
 
@@ -293,7 +294,7 @@ function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEdita
 function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
   if (!servicio.adjunto_path) return <span className="muted">— sin factura</span>;
   async function abrir() {
-    try { window.open(await urlAdjuntoServicio(servicio.adjunto_path as string), '_blank', 'noopener'); }
+    try { await previewFileUrl(await urlAdjuntoServicio(servicio.adjunto_path as string), servicio.adjunto_nombre ?? 'factura'); }
     catch { toast('No se pudo abrir la factura', 'error'); }
   }
   return <button className="btn btn-sm btn-ghost" onClick={abrir} title={servicio.adjunto_nombre ?? 'Factura'}>📎 Factura</button>;
