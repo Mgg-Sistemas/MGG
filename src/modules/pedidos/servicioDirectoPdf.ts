@@ -1,13 +1,13 @@
 /* ============================================================
-   MGG · Compra Directa · Comprobante PDF
+   MGG · Servicio Directo · Comprobante PDF
    Se abre en VISTA PREVIA SOLO al hacer clic (regla del sistema).
-   Muestra TODOS los materiales con cantidad y precio.
+   Muestra TODOS los servicios con cantidad y precio.
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
-import type { CompraDirecta } from './compras.repository';
+import type { ServicioDirecto } from './serviciosDirectos.repository';
 
-export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<void> {
+export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, personas] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -22,27 +22,28 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 60 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text('Comprobante de Compra Directa', tx, y + 18);
+  doc.text('Comprobante de Servicio Directo', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text(`MGG · ${fmt.dateTime(new Date().toISOString())}`, tx, y + 33);
   y += 60;
 
-  // Ítems: si la fila vieja no trae items[], se arma uno con el producto suelto.
-  const items = compra.items?.length
-    ? compra.items
-    : [{ producto_id: compra.producto_id ?? '', producto_nombre: compra.producto_nombre, producto_sku: compra.producto_sku, cantidad: Number(compra.cantidad) || 0, gasto: compra.gasto }];
-  const totalGasto = compra.gasto != null ? Number(compra.gasto) : items.reduce((a, it) => a + (Number(it.gasto) || 0), 0);
+  const items = servicio.items ?? [];
+  const totalGasto = servicio.gasto != null ? Number(servicio.gasto) : items.reduce((a, it) => a + (Number(it.gasto) || 0), 0);
+  const equipos = Array.from(new Set(items.map((it) => it.equipo_nombre).filter(Boolean) as string[])).join(' · ')
+    || servicio.equipo_nombre || '—';
 
   const ficha: Array<[string, string]> = [
-    ...(compra.codigo ? [['Código', compra.codigo] as [string, string]] : []),
-    ['Almacén destino', compra.almacen || '—'],
-    ['Proveedor', compra.proveedor_nombre || '—'],
-    ['Estado', compra.estado === 'finalizada' ? 'Finalizada (ingresó a inventario)' : 'En proceso'],
+    ...(servicio.codigo ? [['Código', servicio.codigo] as [string, string]] : []),
+    ['Equipo / vehículo', equipos],
+    ['Proveedor / taller', servicio.proveedor_nombre || '—'],
+    ...(servicio.solicitante ? [['Unidad solicitante', servicio.solicitante] as [string, string]] : []),
+    ...(servicio.solicitante_persona ? [['Quién lo solicita', servicio.solicitante_persona] as [string, string]] : []),
+    ['Estado', servicio.estado === 'finalizada' ? 'Finalizada (pagada)' : 'En proceso'],
     ['Gasto total', totalGasto > 0 ? fmt.money(totalGasto) : '—'],
-    ['Generó', personaDe(compra.actor, personas, compra.actor_name)],
-    ['Fecha de creación', fmt.dateTime(compra.created_at)],
-    ['Fecha de compra', compra.finalizada_at ? fmt.dateTime(compra.finalizada_at) : '—'],
-    ['Adjunto', compra.adjunto_nombre || '—'],
+    ['Generó', personaDe(servicio.actor, personas, servicio.actor_name)],
+    ['Fecha de creación', fmt.dateTime(servicio.created_at)],
+    ['Fecha de pago', servicio.finalizada_at ? fmt.dateTime(servicio.finalizada_at) : '—'],
+    ['Factura', servicio.adjunto_nombre || '—'],
   ];
   autoTable(doc, {
     startY: y, body: ficha, theme: 'plain',
@@ -52,33 +53,34 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
 
-  // Detalle de materiales: cantidad, costo unitario y precio (gasto) de cada renglón.
+  // Detalle de servicios: categoría, subcategoría, cantidad, costo unitario y precio.
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text('Materiales comprados', MARGIN, y);
+  doc.text('Servicios realizados', MARGIN, y);
   y += 6;
   autoTable(doc, {
     startY: y,
-    head: [['SKU', 'Material', 'Cantidad', 'Costo unit.', 'Precio']],
+    head: [['Categoría', 'Subcategoría', 'Detalle', 'Cantidad', 'Costo unit.', 'Precio']],
     body: items.map((it) => {
       const cant = Number(it.cantidad) || 0;
       const g = it.gasto != null ? Number(it.gasto) : null;
       const cu = g != null && cant > 0 ? g / cant : null;
       return [
-        it.producto_sku || '—',
-        it.producto_nombre,
+        it.servicio_categoria || '—',
+        it.servicio_tipo || '—',
+        it.descripcion || '—',
         fmt.num(cant),
         cu != null ? fmt.money(cu) : '—',
         g != null ? fmt.money(g) : '—',
       ];
     }),
-    foot: [['', '', '', 'TOTAL', totalGasto > 0 ? fmt.money(totalGasto) : '—']],
+    foot: [['', '', '', '', 'TOTAL', totalGasto > 0 ? fmt.money(totalGasto) : '—']],
     theme: 'grid',
     headStyles: { fillColor: [255, 138, 0], textColor: 255 },
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
     styles: { fontSize: 9, cellPadding: 4 },
-    columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+    columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
-  previewPdfDoc(doc, `compra-directa-${(compra.codigo ?? compra.id.slice(0, 8))}.pdf`);
+  previewPdfDoc(doc, `servicio-directo-${(servicio.codigo ?? servicio.id.slice(0, 8))}.pdf`);
 }

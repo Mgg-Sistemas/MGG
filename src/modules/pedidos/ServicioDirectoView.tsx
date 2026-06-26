@@ -93,6 +93,11 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
     return m;
   }, [servicios]);
 
+  async function handlePdf(s: ServicioDirecto) {
+    try { const { descargarServicioDirectoPdf } = await import('./servicioDirectoPdf'); await descargarServicioDirectoPdf(s); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+  }
+
   async function confirmarEliminar() {
     const s = eliminar;
     if (!s) return;
@@ -122,7 +127,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
               <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((s) => (
-                  <ServicioCard key={s.id} servicio={s} onFinalizar={() => setFinalizar(s)} onEliminar={() => setEliminar(s)} />
+                  <ServicioCard key={s.id} servicio={s} onFinalizar={() => setFinalizar(s)} onPdf={() => handlePdf(s)} onEliminar={() => setEliminar(s)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -146,6 +151,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                   <td className="muted">{dateTime(s.created_at)}</td>
                   <td className="muted">{s.finalizada_at ? dateTime(s.finalizada_at) : '—'}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(s)} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑</button>}
                     {s.estado === 'finalizada' && <AdjuntoLink servicio={s} />}
@@ -174,7 +180,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   );
 }
 
-function ServicioCard({ servicio, onFinalizar, onEliminar }: { servicio: ServicioDirecto; onFinalizar: () => void; onEliminar: () => void }) {
+function ServicioCard({ servicio, onFinalizar, onPdf, onEliminar }: { servicio: ServicioDirecto; onFinalizar: () => void; onPdf: () => void; onEliminar: () => void }) {
   return (
     <div className="card" style={{ margin: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
@@ -201,6 +207,7 @@ function ServicioCard({ servicio, onFinalizar, onEliminar }: { servicio: Servici
         </div>
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+        <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>}
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar">🗑 Eliminar</button>}
       </div>
