@@ -10,7 +10,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { createProducto, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import { registrarGasto } from '@/modules/tesoreria/tesoreria.repository';
+import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Producto, CuentaCaja } from '@/shared/lib/types';
 
@@ -336,6 +336,75 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
       mov_id: primerMov,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
+    .eq('id', compra.id);
+  if (error) throw error;
+}
+
+export interface EditarCompraFinalizadaInput {
+  compra: CompraDirecta;
+  /** Ítems con el nuevo gasto (precio) por material; la cantidad NO cambia. */
+  items: CompraDirectaItem[];
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * Edita una compra directa YA FINALIZADA y sincroniza todo:
+ *  · Tesorería: ajusta el egreso (mismo movimiento) al nuevo total (saldo + Libro Mayor).
+ *  · Inventario: reversa la entrada anterior de cada material y la vuelve a registrar al
+ *    nuevo costo (cantidad igual), recalculando el PMP del almacén.
+ * Solo soporta pagos en una sola moneda (el movimiento guardado debe coincidir con el
+ * total previo). Si se pagó con multimoneda, hay que corregir el egreso desde Tesorería.
+ */
+export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizadaInput): Promise<void> {
+  const { compra } = input;
+  if (compra.estado !== 'finalizada') throw new Error('Solo se edita una compra ya finalizada.');
+  const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
+  const nuevoTotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  if (nuevoTotal <= 0) throw new Error('El total debe ser mayor que 0.');
+  const totalPrevio = Math.round(Number(compra.gasto || 0) * 100) / 100;
+
+  // 1) Tesorería: ajustar el egreso al nuevo total.
+  if (!compra.caja_mov_id) throw new Error('La compra no tiene egreso de caja asociado.');
+  const mov = await getMovimientoCajaPorId(compra.caja_mov_id);
+  if (!mov) throw new Error('No se encontró el egreso en Tesorería; corregí el monto manualmente.');
+  if (Math.round(Number(mov.monto) * 100) / 100 !== totalPrevio) {
+    throw new Error('Esta compra se pagó con multimoneda (varias monedas). Corregí el egreso desde Tesorería y volvé a intentar.');
+  }
+  await editarMovimientoCaja(mov, {
+    monto: nuevoTotal,
+    motivo: `Compra directa · ${compra.producto_nombre}`,
+    gastoCategoria: input.gastoCategoria ?? undefined,
+    gastoSubcategoria: input.gastoSubcategoria ?? undefined,
+  });
+
+  // 2) Inventario: reversar la entrada previa y reingresar al nuevo costo (misma cantidad).
+  for (const it of items) {
+    const cantidad = Number(it.cantidad) || 0;
+    if (cantidad <= 0 || !it.producto_id) continue;
+    // Reversa: salida de la cantidad ingresada (no altera el PMP).
+    await registrarMovimiento({
+      producto_id: it.producto_id, tipo: 'salida', delta: -cantidad, almacen: compra.almacen,
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'compra_directa', ref_id: compra.id,
+      detalle: `Ajuste por edición · reversa ${it.producto_nombre}`,
+    });
+    // Reingreso al nuevo costo (recalcula el PMP del almacén hacia adelante).
+    const costoNuevo = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 100) / 100 : 0;
+    await registrarMovimiento({
+      producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'compra_directa', ref_id: compra.id,
+      detalle: `Ajuste por edición · ${it.producto_nombre}`, precio_unitario: costoNuevo,
+    });
+  }
+
+  // 3) Guardar los nuevos montos en la compra.
+  const { error } = await supabase
+    .from('compras_directas')
+    .update({ items, gasto: nuevoTotal, updated_at: new Date().toISOString() })
     .eq('id', compra.id);
   if (error) throw error;
 }

@@ -9,7 +9,7 @@
    (aparece en Control de Mantenimiento / bitácora del equipo).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { registrarGasto } from '@/modules/tesoreria/tesoreria.repository';
+import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { PagoLeg, AdjuntoFactura } from './compras.repository';
 
@@ -291,6 +291,51 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
       adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre, facturas,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
+    .eq('id', servicio.id);
+  if (error) throw error;
+}
+
+export interface EditarServicioFinalizadoInput {
+  servicio: ServicioDirecto;
+  /** Ítems con el nuevo monto (gasto) por renglón. */
+  items: ServicioDirectoItem[];
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * Edita un servicio directo YA FINALIZADO y sincroniza todo:
+ *  · Tesorería: ajusta el egreso (mismo movimiento) al nuevo total (saldo + Libro Mayor).
+ *  · Maquinaria / Control de Mantenimiento: lee servicios_directos en vivo, así que los
+ *    nuevos montos y datos quedan reflejados al instante (no entra al inventario).
+ * Solo soporta pagos en una sola moneda (el movimiento debe coincidir con el total previo).
+ */
+export async function editarServicioDirectoFinalizado(input: EditarServicioFinalizadoInput): Promise<void> {
+  const { servicio } = input;
+  if (servicio.estado !== 'finalizada') throw new Error('Solo se edita un servicio ya finalizado.');
+  const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
+  const nuevoTotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  if (nuevoTotal <= 0) throw new Error('El total debe ser mayor que 0.');
+  const totalPrevio = Math.round(Number(servicio.gasto || 0) * 100) / 100;
+
+  if (!servicio.caja_mov_id) throw new Error('El servicio no tiene egreso de caja asociado.');
+  const mov = await getMovimientoCajaPorId(servicio.caja_mov_id);
+  if (!mov) throw new Error('No se encontró el egreso en Tesorería; corregí el monto manualmente.');
+  if (Math.round(Number(mov.monto) * 100) / 100 !== totalPrevio) {
+    throw new Error('Este servicio se pagó con multimoneda (varias monedas). Corregí el egreso desde Tesorería y volvé a intentar.');
+  }
+  await editarMovimientoCaja(mov, {
+    monto: nuevoTotal,
+    motivo: `Servicio directo · ${servicio.descripcion}`,
+    gastoCategoria: input.gastoCategoria ?? undefined,
+    gastoSubcategoria: input.gastoSubcategoria ?? undefined,
+  });
+
+  const { error } = await supabase
+    .from('servicios_directos')
+    .update({ items, gasto: nuevoTotal, updated_at: new Date().toISOString() })
     .eq('id', servicio.id);
   if (error) throw error;
 }
