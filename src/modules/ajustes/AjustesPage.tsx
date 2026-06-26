@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/shared/lib/supabase';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { signOut, useSession } from '@/modules/auth/authStore';
+import { BiometriaModal } from '@/modules/auth/BiometriaModal';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
 import type { Usuario } from '@/shared/lib/types';
@@ -29,6 +30,7 @@ export function AjustesPage() {
   const [telefono, setTelefono] = useState('');
   const [departamento, setDepartamento] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
+  const [biometriaOpen, setBiometriaOpen] = useState(false);
 
   // Preferencias locales (localStorage)
   const [viewPref, setViewPref] = useState<'kanban' | 'lista'>(() =>
@@ -292,9 +294,17 @@ export function AjustesPage() {
           <p className="muted" style={{ fontSize: '.85rem', marginBottom: '1rem' }}>
             Cambia tu clave de acceso al sistema. Vas a ser redirigido al login después de actualizarla.
           </p>
-          <button className="btn btn-ghost" onClick={handleCambiarClave}>
-            🔑 Cambiar mi clave
-          </button>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={handleCambiarClave}>
+              🔑 Cambiar mi clave
+            </button>
+            <button className="btn btn-ghost" onClick={() => setBiometriaOpen(true)} title="Activar el acceso con huella en este dispositivo">
+              🔒 Acceso con huella
+            </button>
+          </div>
+          <p className="muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>
+            El acceso con huella se activa por dispositivo. Lo podés configurar acá cuando quieras.
+          </p>
         </div>
 
         {/* Preferencias de vista */}
@@ -353,6 +363,8 @@ export function AjustesPage() {
         </div>
 
       </div>
+
+      {biometriaOpen && <BiometriaModal onClose={() => setBiometriaOpen(false)} />}
     </div>
   );
 }

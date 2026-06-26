@@ -21,6 +21,7 @@ import {
 } from './compras.repository';
 import { FacturasModal } from './FacturasModal';
 import { EditarMontosModal } from './EditarMontosModal';
+import { DetalleDirectoModal } from './DetalleDirectoModal';
 
 type Vista = 'kanban' | 'lista';
 
@@ -49,6 +50,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
   const [facturas, setFacturas] = useState<CompraDirecta | null>(null);
   const [editarMontos, setEditarMontos] = useState<CompraDirecta | null>(null);
+  const [detalle, setDetalle] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
     // Cada fuente con su propio catch: si una falla (RLS/red), las demás cargan igual
@@ -118,7 +120,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
-                  <CompraCard key={c.id} compra={c}
+                  <CompraCard key={c.id} compra={c} onVer={() => setDetalle(c)}
                     onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onFacturas={() => setFacturas(c)} onEditarMontos={() => setEditarMontos(c)} onEliminar={() => setEliminar(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
@@ -132,7 +134,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
             <thead><tr><th>Código</th><th>Material(es)</th><th>Almacén</th><th>Proveedor</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
             <tbody>
               {compras.map((c) => (
-                <tr key={c.id}>
+                <tr key={c.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setDetalle(c)} title="Ver el detalle">
                   <td className="mono">{c.codigo ?? '—'}</td>
                   <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : (c.producto_sku ? <span className="muted"> · {c.producto_sku}</span> : null)}</td>
                   <td>{c.almacen}</td>
@@ -143,7 +145,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td>{c.actor_name || c.actor || '—'}</td>
                   <td className="muted">{dateTime(c.created_at)}</td>
                   <td className="muted">{c.finalizada_at ? dateTime(c.finalizada_at) : '—'}</td>
-                  <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                  <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
                     {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setEditarMontos(c)} title="Editar montos (sincroniza Tesorería e inventario)">✎ Editar</button>}
                     {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(c)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
@@ -201,15 +203,45 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           onClose={() => setEditarMontos(null)}
         />
       )}
+
+      {detalle && (
+        <DetalleDirectoModal
+          title={`Compra directa · ${detalle.codigo ?? ''}`}
+          estadoLabel={ESTADO_LABEL[detalle.estado] ?? detalle.estado}
+          ficha={[
+            ['Almacén', detalle.almacen || '—'],
+            ['Proveedor', detalle.proveedor_nombre || '—'],
+            ['Generó', detalle.actor_name || detalle.actor || '—'],
+            ['Creada', dateTime(detalle.created_at)],
+            ['Comprada', detalle.finalizada_at ? dateTime(detalle.finalizada_at) : '—'],
+          ]}
+          itemsTitle="Materiales"
+          items={detalle.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: it.gasto }))}
+          moneda={cajas.find((c) => c.id === detalle.caja_id)?.moneda ?? 'USD'}
+          total={detalle.gasto}
+          facturas={detalle.facturas}
+          urlFor={urlAdjuntoCompra}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setDetalle(null)}>Cerrar</button>
+              <button className="btn btn-ghost" onClick={() => handlePdf(detalle)}>↓ PDF</button>
+              {detalle.estado === 'finalizada' && <button className="btn btn-ghost" onClick={() => { setFacturas(detalle); setDetalle(null); }}>🧾 Facturas</button>}
+              {detalle.estado === 'finalizada' && <button className="btn btn-primary" onClick={() => { setEditarMontos(detalle); setDetalle(null); }}>✎ Editar montos</button>}
+              {detalle.estado === 'en_proceso' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>Cargar factura y precios</button>}
+            </>
+          }
+          onClose={() => setDetalle(null)}
+        />
+      )}
     </div>
   );
 }
 
-function CompraCard({ compra, onFinalizar, onPdf, onFacturas, onEditarMontos, onEliminar }: {
-  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEditarMontos: () => void; onEliminar: () => void;
+function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMontos, onEliminar }: {
+  compra: CompraDirecta; onVer: () => void; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEditarMontos: () => void; onEliminar: () => void;
 }) {
   return (
-    <div className="card" style={{ margin: 0 }}>
+    <div className="card" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver el detalle">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
         <strong>{compra.producto_nombre}</strong>
         <span className="badge">{num(compra.cantidad)}</span>
@@ -233,7 +265,7 @@ function CompraCard({ compra, onFinalizar, onPdf, onFacturas, onEditarMontos, on
           <div className="muted"><AdjuntoLink compra={compra} /></div>
         </div>
       )}
-      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
         {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onEditarMontos} title="Editar montos (sincroniza Tesorería e inventario)">✎ Editar</button>}
         {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
