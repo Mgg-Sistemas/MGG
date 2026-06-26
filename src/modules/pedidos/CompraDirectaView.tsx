@@ -22,6 +22,7 @@ import {
 import { FacturasModal } from './FacturasModal';
 import { EditarMontosModal } from './EditarMontosModal';
 import { DetalleDirectoModal } from './DetalleDirectoModal';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 
 type Vista = 'kanban' | 'lista';
 
@@ -286,7 +287,7 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMon
 function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
   if (!compra.adjunto_path) return <span className="muted">—</span>;
   async function abrir() {
-    try { window.open(await urlAdjuntoCompra(compra.adjunto_path as string), '_blank', 'noopener'); }
+    try { await previewFileUrl(await urlAdjuntoCompra(compra.adjunto_path as string), compra.adjunto_nombre ?? 'factura'); }
     catch { toast('No se pudo abrir el adjunto', 'error'); }
   }
   return <button className="btn btn-sm btn-ghost" onClick={abrir} title={compra.adjunto_nombre ?? 'Adjunto'}>📎 PDF</button>;

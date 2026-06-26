@@ -106,6 +106,41 @@ export function previewPdfDoc(doc: { output: (type: string) => unknown }, filena
   });
 }
 
+/**
+ * Muestra en el visor un archivo YA SUBIDO (factura/comprobante) desde su URL firmada.
+ * Soporta PDF (iframe) e imagen (img). Trae el blob para el botón Descargar; si el
+ * fetch falla (CORS/red), cae a abrir en pestaña nueva.
+ */
+export async function previewFileUrl(url: string, filename: string, titulo = 'Factura'): Promise<void> {
+  let blob: Blob;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('no-ok');
+    blob = await resp.blob();
+  } catch {
+    window.open(url, '_blank', 'noopener');
+    return;
+  }
+  const objUrl = URL.createObjectURL(blob);
+  const esImagen = blob.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename);
+  let cuerpo: HTMLElement;
+  if (esImagen) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:1rem;';
+    const img = document.createElement('img');
+    img.src = objUrl;
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;display:block;';
+    wrap.appendChild(img);
+    cuerpo = wrap;
+  } else {
+    const iframe = document.createElement('iframe');
+    iframe.src = objUrl;
+    iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
+    cuerpo = iframe;
+  }
+  abrirVisor({ titulo, filename, cuerpo, blob, onClose: () => URL.revokeObjectURL(objUrl) });
+}
+
 /** Muestra un workbook de Excel: hojas como tabla + botón Descargar.
  *  `xlsxMod` es el módulo `xlsx-js-style` (se acepta sin tipar para tolerar los
  *  casts locales de cada generador). */

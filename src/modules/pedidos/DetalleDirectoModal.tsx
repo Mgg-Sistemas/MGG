@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { num, dateTime } from '@/shared/lib/format';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { AdjuntoFactura } from './compras.repository';
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
@@ -27,8 +28,8 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
   footer: ReactNode;
   onClose: () => void;
 }) {
-  async function abrir(path: string) {
-    try { window.open(await urlFor(path), '_blank', 'noopener'); }
+  async function abrir(a: AdjuntoFactura) {
+    try { await previewFileUrl(await urlFor(a.path), a.filename); }
     catch { toast('No se pudo abrir la factura', 'error'); }
   }
 
@@ -77,7 +78,7 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
           {facturas.map((a) => (
             <div key={a.path} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 6, padding: '.35rem .55rem' }}>
-              <button className="btn btn-sm btn-ghost" onClick={() => abrir(a.path)} title="Abrir factura" style={{ padding: 0 }}>📎 {a.filename}</button>
+              <button className="btn btn-sm btn-ghost" onClick={() => abrir(a)} title="Ver factura (vista previa)" style={{ padding: 0 }}>📎 {a.filename}</button>
               <span className="muted" style={{ fontSize: '.72rem' }}>{dateTime(a.at)}</span>
             </div>
           ))}
