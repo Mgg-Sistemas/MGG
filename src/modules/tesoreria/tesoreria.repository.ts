@@ -354,6 +354,13 @@ export function movEstaVinculado(m: MovimientoCaja): boolean {
   return !!(m.ref_orden_id || m.ref_nomina_renglon_id) || m.tipo === 'traslado_salida' || m.tipo === 'traslado_entrada' || m.categoria === 'abono_cxp' || m.categoria === 'pago_oc' || m.categoria === 'pago_nomina';
 }
 
+/** Lee un movimiento de caja por id (para editarlo/revertirlo desde otro módulo). */
+export async function getMovimientoCajaPorId(id: string): Promise<MovimientoCaja | null> {
+  const { data, error } = await supabase.from(LIBRO).select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return (data as MovimientoCaja) ?? null;
+}
+
 export interface EditarMovimientoInput {
   monto?: number;
   motivo?: string;
