@@ -1659,6 +1659,7 @@ function GastosView({ libro, onVerMov }: { libro: MovimientoCaja[]; onVerMov: (m
   const [buscar, setBuscar] = useState('');
   const [openCat, setOpenCat] = useState('');
   const [openSub, setOpenSub] = useState('');
+  const [verDetalle, setVerDetalle] = useState(false);
 
   const gastos = useMemo(() => {
     const q = buscar.trim().toLowerCase();
@@ -1696,6 +1697,27 @@ function GastosView({ libro, onVerMov }: { libro: MovimientoCaja[]; onVerMov: (m
 
   const fmt = (t: Record<string, number>) => Object.entries(t).map(([mon, val]) => monto(val, mon)).join(' · ') || '—';
 
+  // Total general de gastos del período (suma por moneda) — alimenta la barra de resumen.
+  const totalesGeneral = useMemo(() => {
+    const t: Record<string, number> = {};
+    for (const m of gastos) t[m.moneda] = round2((t[m.moneda] || 0) + Number(m.monto));
+    return t;
+  }, [gastos]);
+
+  // Monedas presentes (orden fijo: Bs, USDT, USD, resto) y filas planas para el PDF.
+  const monedas = useMemo(() => {
+    const orden = ['Bs', 'USDT', 'USD'];
+    const set = Array.from(new Set(gastos.map((m) => m.moneda)));
+    return set.sort((a, b) => {
+      const ia = orden.indexOf(a), ib = orden.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b, 'es');
+    });
+  }, [gastos]);
+  const reporteRows = useMemo(() => grupos.flatMap((g) =>
+    Array.from(g.subs.values()).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+      .map((s) => ({ categoria: g.nombre, subcategoria: s.nombre, count: s.count, totales: s.totales }))
+  ), [grupos]);
+
   return (
     <div className="card">
       <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
@@ -1711,6 +1733,23 @@ function GastosView({ libro, onVerMov }: { libro: MovimientoCaja[]; onVerMov: (m
           {(desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }}>✕ Fechas</button>}
         </div>
       </div>
+
+      {/* Barra de resumen (estilo Combustible): total de gastos del período · clic = detalle */}
+      {grupos.length > 0 && (
+        <button type="button" onClick={() => setVerDetalle(true)} title="Ver el detalle de todos los gastos del período"
+          className="card" style={{ width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: '.5rem',
+            borderColor: 'var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+          <div>
+            <span className="muted" style={{ fontSize: '.8rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>
+              Total de gastos{(desde || hasta) ? ' · período' : ''}
+            </span>
+            <div className="muted" style={{ fontSize: '.78rem', marginTop: '.15rem' }}>
+              {gastos.length} movimiento(s) · {grupos.length} categoría(s) · clic para ver el detalle
+            </div>
+          </div>
+          <strong className="mono" style={{ fontSize: '1.25rem', color: 'var(--primary-3)' }}>{fmt(totalesGeneral)}</strong>
+        </button>
+      )}
 
       {!grupos.length ? (
         <EmptyState message="Sin gastos en el período. Registrá un gasto con su categoría/subcategoría." icon="💸" />
@@ -1769,7 +1808,79 @@ function GastosView({ libro, onVerMov }: { libro: MovimientoCaja[]; onVerMov: (m
           })}
         </div>
       )}
+
+      {verDetalle && (
+        <GastosDetalleModal
+          gastos={gastos} reporteRows={reporteRows} monedas={monedas} totales={totalesGeneral}
+          desde={desde} hasta={hasta} onVerMov={onVerMov} onClose={() => setVerDetalle(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/* ───────────── Detalle de gastos (barra de resumen → tabla + PDF en vista previa) ───────────── */
+function GastosDetalleModal({ gastos, reporteRows, monedas, totales, desde, hasta, onVerMov, onClose }: {
+  gastos: MovimientoCaja[];
+  reporteRows: { categoria: string; subcategoria: string; count: number; totales: Record<string, number> }[];
+  monedas: string[];
+  totales: Record<string, number>;
+  desde: string; hasta: string;
+  onVerMov: (m: MovimientoCaja) => void;
+  onClose: () => void;
+}) {
+  const [generando, setGenerando] = useState(false);
+  const filas = useMemo(() => gastos.slice().sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '')), [gastos]);
+  const fmtT = (t: Record<string, number>) => Object.entries(t).map(([mon, val]) => monto(val, mon)).join(' · ') || '—';
+
+  async function descargarPdf() {
+    setGenerando(true);
+    try {
+      const { descargarReporteGastosPdf } = await import('./gastosReportePdf');
+      await descargarReporteGastosPdf(reporteRows, monedas, { desde: desde || undefined, hasta: hasta || undefined });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    finally { setGenerando(false); }
+  }
+
+  return (
+    <Modal title="Detalle de gastos" size="lg" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={descargarPdf} disabled={generando} style={{ marginRight: 'auto' }}>
+          {generando ? 'Generando…' : '↓ PDF (vista previa)'}
+        </button>
+        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+      </>
+    }>
+      <div className="card" style={{ borderColor: 'var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+        <span className="muted" style={{ fontSize: '.8rem', textTransform: 'uppercase' }}>
+          Total{(desde || hasta) ? ' del período' : ''} · {gastos.length} movimiento(s)
+        </span>
+        <strong className="mono" style={{ fontSize: '1.15rem', color: 'var(--primary-3)' }}>{fmtT(totales)}</strong>
+      </div>
+      {!filas.length ? (
+        <EmptyState message="Sin gastos en el período." icon="💸" />
+      ) : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr><th>Fecha</th><th>Categoría</th><th>Subcategoría</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+            <tbody>
+              {filas.map((m) => (
+                <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => onVerMov(m)} title="Ver / editar el movimiento">
+                  <td>{dateTime(m.at)}</td>
+                  <td>{m.gasto_categoria || '(Sin categoría)'}</td>
+                  <td>{m.gasto_subcategoria || '(Sin subcategoría)'}</td>
+                  <td>
+                    {m.gasto_correlativo != null && <span className="badge" style={{ marginRight: '.4rem' }}>N° {m.gasto_correlativo}</span>}
+                    {m.motivo || '—'}
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(m.monto), m.moneda)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }
 
