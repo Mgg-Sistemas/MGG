@@ -7,18 +7,15 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
 import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
-import type { Caja, CajaSaldo, CuentaCaja, Proveedor } from '@/shared/lib/types';
+import type { Caja, Proveedor } from '@/shared/lib/types';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
-import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
-import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listCatalogoPedido, type CatalogoPedido } from './pedidos.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import {
-  crearServicioDirecto, finalizarServicioDirecto, listServiciosDirectos, eliminarServicioDirecto,
-  urlAdjuntoServicio, gestionarFacturasServicio, editarServicioDirectoFinalizado, esRecargaGas, type ServicioDirecto, type ServicioDirectoItem, type LineaServicioInput, type FinalizarServicioDirectoInput,
+  crearServicioDirecto, montarServicioDirecto, listServiciosDirectos, eliminarServicioDirecto,
+  urlAdjuntoServicio, gestionarFacturasServicio, editarServicioDirectoFinalizado, esRecargaGas, type ServicioDirecto, type ServicioDirectoItem, type LineaServicioInput,
 } from './serviciosDirectos.repository';
-import type { PagoLeg } from './compras.repository';
 import { FacturasModal } from './FacturasModal';
 import { EditarMontosModal } from './EditarMontosModal';
 import { DetalleDirectoModal } from './DetalleDirectoModal';
@@ -46,9 +43,10 @@ const TIPOS_SERVICIO: { value: string; label: string }[] = [
 
 const COLS: { key: ServicioDirecto['estado']; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
+  { key: 'por_pagar', label: 'Por pagar' },
   { key: 'finalizada', label: 'Finalizada' },
 ];
-const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', finalizada: '🏁 Finalizada' };
+const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', por_pagar: '💸 Por pagar', finalizada: '🏁 Finalizada' };
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -172,8 +170,9 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                     {s.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setEditarMontos(s)} title="Editar montos (sincroniza Tesorería)">✎ Editar</button>}
                     {s.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(s)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
+                    {s.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(s)} title="Editar factura/monto (en Tesorería para pagar)">✎ Factura/monto</button>}
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑</button>}
-                    {s.estado === 'finalizada' && <AdjuntoLink servicio={s} />}
+                    {(s.estado === 'finalizada' || s.estado === 'por_pagar') && <AdjuntoLink servicio={s} />}
                   </td>
                 </tr>
               ))}
@@ -187,7 +186,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await Promise.all([reloadLista(), reloadCatalogos()]); }} />
       )}
       {finalizar && (
-        <FinalizarServicioModal servicio={finalizar} cajas={cajas} actor={actor} actorName={actorName}
+        <MontarServicioModal servicio={finalizar} actor={actor} actorName={actorName}
           onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reloadLista(); }} />
       )}
       {eliminar && (
@@ -245,6 +244,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
               {detalle.estado === 'finalizada' && <button className="btn btn-ghost" onClick={() => { setFacturas(detalle); setDetalle(null); }}>🧾 Facturas</button>}
               {detalle.estado === 'finalizada' && <button className="btn btn-primary" onClick={() => { setEditarMontos(detalle); setDetalle(null); }}>✎ Editar montos</button>}
               {detalle.estado === 'en_proceso' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>Cargar factura y monto</button>}
+              {detalle.estado === 'por_pagar' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>✎ Editar factura/monto</button>}
             </>
           }
           onClose={() => setDetalle(null)}
@@ -274,9 +274,17 @@ function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEdita
         <div>Creado: {dateTime(servicio.created_at)}</div>
         {servicio.estado === 'finalizada' && <div>Pagado: {servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—'}</div>}
       </div>
+      {servicio.estado === 'por_pagar' && (
+        <div style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
+          <div>Por pagar: <strong className="mono">{servicio.gasto != null ? money(servicio.gasto) : '—'}</strong></div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>💸 En Tesorería para pagar</div>
+          <div className="muted"><AdjuntoLink servicio={servicio} /></div>
+        </div>
+      )}
       {servicio.estado === 'finalizada' && (
         <div style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
           <div>Monto: <strong className="mono">{servicio.gasto != null ? money(servicio.gasto) : '—'}</strong></div>
+          {servicio.pagada_por && <div className="muted" style={{ fontSize: '.72rem' }}>Pagó: {servicio.pagada_por}</div>}
           <div className="muted"><AdjuntoLink servicio={servicio} /></div>
         </div>
       )}
@@ -285,6 +293,7 @@ function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEdita
         {servicio.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onEditarMontos} title="Editar montos (sincroniza Tesorería)">✎ Editar</button>}
         {servicio.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>}
+        {servicio.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/monto (en Tesorería para pagar)">✎ Factura/monto</button>}
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar">🗑 Eliminar</button>}
       </div>
     </div>
@@ -459,18 +468,19 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
   );
 }
 
-/* ───────── Modal: finalizar (monto por servicio + caja + factura) ───────── */
+/* ───────── Modal: montar (analista carga factura + montos → POR PAGAR) ───────── */
 
-function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, onSaved }: {
-  servicio: ServicioDirecto; cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
+  servicio: ServicioDirecto; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
-  const [gastos, setGastos] = useState<Record<number, string>>({});
+  const [gastos, setGastos] = useState<Record<number, string>>(() => {
+    const init: Record<number, string> = {};
+    servicio.items.forEach((it, i) => { if (it.gasto != null && Number(it.gasto) > 0) init[i] = String(it.gasto); });
+    return init;
+  });
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const caja = cajas.find((c) => c.id === cajaId) ?? null;
-  const moneda = caja?.moneda ?? 'USD';
 
   const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
   const [catId, setCatId] = useState('');
@@ -478,84 +488,40 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
   useEffect(() => { listCategoriasGasto(true).then(setCatRows).catch(() => setCatRows([])); }, []);
   const categorias = useMemo(() => soloCategorias(catRows), [catRows]);
   const subcategorias = useMemo(() => (catId ? subcategoriasDe(catRows, catId) : []), [catRows, catId]);
-  useEffect(() => { setSubId(''); }, [catId]);
+  useEffect(() => {
+    if (!catRows.length || !servicio.gasto_categoria) return;
+    const c = soloCategorias(catRows).find((x) => x.nombre === servicio.gasto_categoria);
+    if (c) setCatId(c.id);
+  }, [catRows, servicio.gasto_categoria]);
+  useEffect(() => {
+    if (!catId || !servicio.gasto_subcategoria) return;
+    const s = subcategoriasDe(catRows, catId).find((x) => x.nombre === servicio.gasto_subcategoria);
+    if (s) setSubId(s.id);
+  }, [catId, catRows, servicio.gasto_subcategoria]);
   const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
   const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
 
-  const [saldoReal, setSaldoReal] = useState<Map<string, { saldo: number; moneda: string }>>(new Map());
-  useEffect(() => {
-    listSaldos().then((rows) => {
-      const m = new Map<string, { saldo: number; moneda: string }>();
-      for (const c of cajas) {
-        const porMoneda = new Map<string, number>();
-        for (const r of rows) { if (r.caja_id !== c.id) continue; porMoneda.set(r.moneda, (porMoneda.get(r.moneda) ?? 0) + (Number(r.saldo) || 0)); }
-        let mon: string = c.moneda; let saldo = porMoneda.get(c.moneda) ?? 0;
-        if (saldo === 0 && porMoneda.size) { const mejor = [...porMoneda.entries()].sort((a, b) => b[1] - a[1])[0]; mon = mejor[0]; saldo = mejor[1]; }
-        m.set(c.id, { saldo, moneda: mon });
-      }
-      setSaldoReal(m);
-    }).catch(() => { /* sin saldos */ });
-  }, [cajas]);
-
   const total = useMemo(() => Math.round(servicio.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100, [gastos, servicio.items]);
-
-  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
-  const [legMontos, setLegMontos] = useState<Record<string, string>>({});
-  const [tasa, setTasa] = useState<number>(0);
-  const [mercado, setMercado] = useState<TasasMercado | null>(null);
-  useEffect(() => {
-    if (!cajaId) { setSaldosCaja([]); return; }
-    saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
-    setLegMontos({});
-  }, [cajaId]);
-  useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
-  useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
-
-  const esMultimoneda = saldosCaja.length >= 2;
-  function legUsd(monedaLeg: string, n: number): number {
-    if (!n || n <= 0) return 0;
-    if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(n);
-    if (monedaLeg === 'Bs') return tasa > 0 ? round2(n / tasa) : 0;
-    if (monedaLeg === 'COP') return mercado?.copUsd ? round2(n / mercado.copUsd) : 0;
-    return round2(n);
-  }
-  const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
-  const cubreTotalMulti = sumUsdMulti >= total - 0.01;
-  const excedeTotalMulti = esMultimoneda && sumUsdMulti > total + 0.01;
-  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
-
-  const totalUsd = moneda === 'Bs' ? (tasa > 0 ? round2(total / tasa) : 0) : total;
-  const totalBs = moneda === 'Bs' ? total : (tasa > 0 ? round2(total * tasa) : 0);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (!catId) { setError('Elegí la categoría de gasto.'); return; }
     if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
     if (total <= 0) { setError('Indicá cuánto costó cada servicio.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('La factura debe ser un PDF o una imagen.'); return; }
-    let legs: PagoLeg[] | undefined;
-    if (esMultimoneda) {
-      legs = saldosCaja.map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 })).filter((l) => l.monto > 0);
-      if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
-      if (excedeTotalMulti) { setError(`No podés pagar más que el total (${montoCaja(total, 'USD')}).`); return; }
-      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(total, 'USD')}).`); return; }
-    }
     const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      const payload: FinalizarServicioDirectoInput = { servicio, items, cajaId, legs, file, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName };
-      await finalizarServicioDirecto(payload);
-      const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
-      notify(`Servicio directo pagado · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/tesoreria' });
+      await montarServicioDirecto({ servicio, items, file, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
+      notify(`Servicio enviado a Tesorería · ${montoCaja(total, 'USD')} por pagar`, 'success', { link: '#/app/tesoreria' });
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo finalizar el servicio.'); setSaving(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar el servicio a Tesorería.'); setSaving(false); }
   }
 
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="sd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Finalizando…' : excedeTotalMulti ? 'Excede el total' : `Finalizar · ${montoCaja(total, moneda)}`}</button>
+      <button type="submit" form="sd-fin-form" className="btn btn-primary" disabled={saving}>{saving ? 'Enviando…' : `Enviar a Tesorería · ${montoCaja(total, 'USD')}`}</button>
     </>
   );
 
@@ -564,14 +530,9 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
       <form id="sd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-        <div className="form-row">
-          <label>Caja (de dónde sale el dinero)</label>
-          <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required style={{ maxWidth: 320 }}>
-            {!cajas.length && <option value="">— sin cajas —</option>}
-            {cajas.map((c) => { const sr = saldoReal.get(c.id); return <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(sr?.saldo ?? c.saldo, sr?.moneda ?? c.moneda)}</option>; })}
-          </select>
-          <small className="muted">El monto se descuenta de esta caja (egreso en Tesorería).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
-        </div>
+        <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+          Cargá los <strong>montos por servicio</strong> y la <strong>factura</strong>. El servicio queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el monto sale de la caja y se finaliza (queda casado al equipo en Control de Mantenimiento).
+        </p>
 
         <div className="form-grid">
           <div className="form-row">
@@ -585,7 +546,7 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
               placeholder={catId ? 'Buscar subcategoría…' : 'Elegí primero la categoría'} emptyText={catId ? 'Sin subcategorías.' : 'Elegí una categoría'} />
           </div>
         </div>
-        <small className="muted" style={{ display: 'block', marginBottom: '.6rem' }}>El gasto queda etiquetado por <strong>categoría → subcategoría</strong> en el movimiento de Tesorería.</small>
+        <small className="muted" style={{ display: 'block', marginBottom: '.6rem' }}>El gasto queda etiquetado por <strong>categoría → subcategoría</strong> y se reflejará así en Tesorería al pagarse.</small>
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
@@ -599,66 +560,19 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
                     <td>{it.descripcion}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
                     <td><input className="input mono" type="number" min={0} step="any" value={gastos[i] ?? ''} onChange={(e) => setGastos((m) => ({ ...m, [i]: dosDecimales(e.target.value) }))} placeholder="0,00" /></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, 'USD')}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        <div className="card" style={{ margin: '.5rem 0' }}>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong></div>
-
-        {cajaId && (
-          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
-            <div><div className="muted" style={{ fontSize: '.72rem' }}>Total en USD</div><strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda !== 'Bs' ? montoCaja(totalUsd, 'USD') : '—'}</strong></div>
-            <div className="muted" style={{ fontSize: '1.1rem' }}>⇄</div>
-            <div><div className="muted" style={{ fontSize: '.72rem' }}>Equivale en Bs (BCV)</div><strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda === 'Bs' ? montoCaja(totalBs, 'Bs') : '—'}</strong></div>
-            <div className="form-row" style={{ marginLeft: 'auto', minWidth: 150, margin: 0 }}>
-              <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs por $)</label>
-              <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" />
-            </div>
-          </div>
-        )}
-
-        {esMultimoneda && (
-          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
-            <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda · ¿cuánto sale de cada una?</div>
-            <div className="table-wrap">
-              <table className="table" style={{ fontSize: '.84rem' }}>
-                <thead><tr><th>Moneda</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
-                <tbody>
-                  {saldosCaja.map((s) => {
-                    const n = Number(legMontos[s.id]) || 0;
-                    const excede = n > Number(s.saldo);
-                    return (
-                      <tr key={s.id}>
-                        <td><span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(Number(s.saldo), s.moneda)}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          <input className="input mono" type="number" min={0} max={Number(s.saldo)} step="any" value={legMontos[s.id] ?? ''} placeholder="0,00"
-                            onChange={(e) => setLegMontos((m) => ({ ...m, [s.id]: dosDecimales(e.target.value) }))}
-                            style={{ width: 130, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
-                        </td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{n > 0 ? montoCaja(legUsd(s.moneda, n), 'USD') : '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>{montoCaja(sumUsdMulti, 'USD')} / {montoCaja(total, 'USD')}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-        )}
+        <div className="card" style={{ margin: '.5rem 0' }}>Total por pagar: <strong className="mono">{montoCaja(total, 'USD')}</strong></div>
 
         <div className="form-row">
-          <label>Adjuntar FACTURA del servicio · PDF o imagen (opcional)</label>
+          <label>Adjuntar FACTURA del servicio · PDF o imagen</label>
           <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          {file && <small className="muted">{file.name}</small>}
+          {file ? <small className="muted">{file.name}</small> : (servicio.facturas?.length ? <small className="muted">Ya hay {servicio.facturas.length} factura(s) cargada(s).</small> : null)}
         </div>
       </form>
     </Modal>

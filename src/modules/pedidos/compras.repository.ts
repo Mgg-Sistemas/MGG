@@ -19,7 +19,7 @@ export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
 
 const BUCKET = 'compras-directas';
 
-export type EstadoCompraDirecta = 'en_proceso' | 'finalizada';
+export type EstadoCompraDirecta = 'en_proceso' | 'por_pagar' | 'finalizada';
 
 export interface CompraDirectaItem {
   producto_id: string;
@@ -50,6 +50,9 @@ export interface CompraDirecta {
   items: CompraDirectaItem[];
   estado: EstadoCompraDirecta;
   gasto: number | null;
+  /** Etiquetas de gasto (se eligen al montar; Tesorería las usa al pagar). */
+  gasto_categoria: string | null;
+  gasto_subcategoria: string | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   adjunto_path: string | null;
@@ -62,6 +65,8 @@ export interface CompraDirecta {
   created_at: string;
   aprobada_at: string | null;
   aprobada_por: string | null;
+  /** Quién pagó desde Tesorería (en el flujo montar → pagar). */
+  pagada_por: string | null;
   finalizada_at: string | null;
   updated_at: string;
 }
@@ -239,18 +244,13 @@ export async function gestionarFacturasCompra(
   return normalizar(data as Record<string, unknown>);
 }
 
-/* ───────── Completar (factura + precios + caja de Tesorería) ───────── */
+/* ───────── Montar (analista: factura + precios → POR PAGAR) ───────── */
 
-export interface FinalizarCompraInput {
+export interface MontarCompraInput {
   compra: CompraDirecta;
   /** Gasto (precio) por material (alineado con compra.items). */
   items: CompraDirectaItem[];
-  /** Caja de Tesorería de la que sale el dinero. */
-  cajaId: string;
-  /** Si la caja es Multimoneda: cuánto sale de cada moneda/cuenta (en su moneda).
-   *  Cuando viene, el egreso descuenta cada saldo real (no la caja legacy). */
-  legs?: PagoLeg[];
-  /** Categoría → subcategoría de gasto de Tesorería con la que se etiqueta el egreso. */
+  /** Categoría → subcategoría de gasto (se persiste; Tesorería la usa al pagar). */
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
   file?: File | null;
@@ -259,32 +259,74 @@ export interface FinalizarCompraInput {
 }
 
 /**
- * Completa la compra directa (estaba EN PROCESO): adjunta la factura, descuenta el
- * gasto total de la caja elegida (egreso en Tesorería/Libro Mayor), registra la
- * ENTRADA de cada material al inventario (costo = precio_renglón / cantidad → PMP)
- * y cierra la compra.
+ * Monta la compra directa (el analista carga FACTURA + precios). NO toca caja ni
+ * inventario todavía: deja la compra en POR PAGAR para que Tesorería la pague.
  */
-export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promise<void> {
+export async function montarCompraDirecta(input: MontarCompraInput): Promise<void> {
   const { compra } = input;
-  if (compra.estado !== 'en_proceso') throw new Error('Esta compra ya fue completada.');
-  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  if (compra.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('La compra no tiene materiales.');
   const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
   if (total <= 0) throw new Error('Indicá cuánto se gastó.');
+
+  // Factura opcional (PDF o imagen). Se suma a la lista existente.
+  const facturas: AdjuntoFactura[] = [...(compra.facturas ?? [])];
+  if (input.file) {
+    const path = await subirAdjuntoCompra(compra.id, input.file);
+    facturas.push({ path, filename: input.file.name, at: new Date().toISOString() });
+  }
+  const primera = facturas[0] ?? null;
+
+  const { error } = await supabase
+    .from('compras_directas')
+    .update({
+      estado: 'por_pagar', gasto: total, items,
+      gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
+      adjunto_path: primera?.path ?? null, adjunto_nombre: primera?.filename ?? null, facturas,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', compra.id);
+  if (error) throw error;
+}
+
+/* ───────── Pagar (Tesorería: caja → egreso + inventario → FINALIZADA) ───────── */
+
+export interface PagarCompraInput {
+  compra: CompraDirecta;
+  /** Caja de Tesorería de la que sale el dinero. */
+  cajaId: string;
+  /** Si la caja es Multimoneda: cuánto sale de cada moneda/cuenta (en su moneda). */
+  legs?: PagoLeg[];
+  /** Quién paga (usuario de Tesorería). */
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * Paga una compra directa POR PAGAR (lo hace Tesorería): descuenta el gasto de la caja
+ * (egreso en el Libro Mayor con la categoría que eligió el analista), registra la ENTRADA
+ * de cada material al inventario (PMP) y la marca FINALIZADA con quién pagó.
+ */
+export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void> {
+  const { compra } = input;
+  if (compra.estado !== 'por_pagar') throw new Error('Solo se paga una compra que esté POR PAGAR.');
+  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  const items = compra.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
+  const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  if (total <= 0) throw new Error('La compra no tiene montos cargados.');
 
   // 1) Egreso de la caja (valida saldo) → pasa por Tesorería.
   const concepto = `Compra directa · ${compra.producto_nombre}`;
   const legs = (input.legs ?? []).filter((l) => Number(l.monto) > 0);
   let movCajaId: string;
   if (legs.length) {
-    // Caja Multimoneda: descuenta cada moneda/cuenta de su saldo real.
     let primero: string | null = null;
     for (const leg of legs) {
       const r = await egresarDivisa({
         cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'compra_directa',
-        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+        gastoCategoria: compra.gasto_categoria ?? null, gastoSubcategoria: compra.gasto_subcategoria ?? null,
         actor: input.actor, actorName: input.actorName ?? null,
       });
       if (!primero) primero = r.id;
@@ -295,23 +337,13 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     const movCaja = await registrarGasto({
       cajaId: input.cajaId, monto: total,
       concepto, categoria: 'compra_directa',
-      gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+      gastoCategoria: compra.gasto_categoria ?? null, gastoSubcategoria: compra.gasto_subcategoria ?? null,
       actor: input.actor, actorName: input.actorName ?? null,
     });
     movCajaId = movCaja.id;
   }
 
-  // 2) Adjunto opcional (factura PDF o imagen). Inicia la lista de facturas.
-  let adjuntoPath: string | null = null;
-  let adjuntoNombre: string | null = null;
-  const facturas: AdjuntoFactura[] = [];
-  if (input.file) {
-    adjuntoPath = await subirAdjuntoCompra(compra.id, input.file);
-    adjuntoNombre = input.file.name;
-    facturas.push({ path: adjuntoPath, filename: adjuntoNombre, at: new Date().toISOString() });
-  }
-
-  // 3) Entrada al inventario por cada material (costo = gasto / cantidad).
+  // 2) Entrada al inventario por cada material (costo = gasto / cantidad).
   let primerMov: string | null = null;
   for (const it of items) {
     const cantidad = Number(it.cantidad) || 0;
@@ -326,18 +358,26 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     if (!primerMov) primerMov = mov.id;
   }
 
-  // 4) Cerrar la OCD.
+  // 3) Cerrar la OCD (pagada).
   const { error } = await supabase
     .from('compras_directas')
     .update({
       estado: 'finalizada', gasto: total, items,
-      caja_id: input.cajaId, caja_mov_id: movCajaId,
-      adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre, facturas,
-      mov_id: primerMov,
+      caja_id: input.cajaId, caja_mov_id: movCajaId, mov_id: primerMov,
+      pagada_por: input.actorName || input.actor,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
   if (error) throw error;
+}
+
+/** Compras directas POR PAGAR (las monta el analista; Tesorería las paga). */
+export async function listComprasPorPagar(): Promise<CompraDirecta[]> {
+  const { data, error } = await supabase
+    .from('compras_directas').select('*').eq('estado', 'por_pagar')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
 export interface EditarCompraFinalizadaInput {

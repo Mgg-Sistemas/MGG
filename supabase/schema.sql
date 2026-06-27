@@ -463,7 +463,7 @@ create table if not exists public.compras_directas (
   producto_sku    text,
   almacen         text not null,
   cantidad        numeric not null check (cantidad > 0),
-  estado          text not null default 'en_proceso' check (estado in ('en_proceso','finalizada')),
+  estado          text not null default 'en_proceso' check (estado in ('en_proceso','por_pagar','finalizada')),
   gasto           numeric,
   adjunto_path    text,
   adjunto_nombre  text,
@@ -480,6 +480,11 @@ alter table public.compras_directas add column if not exists proveedor_id uuid r
 alter table public.compras_directas add column if not exists proveedor_nombre text;
 -- Facturas (varias, PDF o imagen): [{path, filename, at}]. adjunto_path/nombre siguen apuntando a la primera (compatibilidad).
 alter table public.compras_directas add column if not exists facturas jsonb not null default '[]'::jsonb;
+-- Flujo nuevo: el analista MONTA (factura + montos) -> por_pagar (aparece en Tesorería);
+-- Tesorería paga -> finalizada. Etiquetas de gasto persistidas + quién pagó.
+alter table public.compras_directas add column if not exists gasto_categoria    text;
+alter table public.compras_directas add column if not exists gasto_subcategoria text;
+alter table public.compras_directas add column if not exists pagada_por         text;
 -- RLS: lectura para autenticados, escritura para operativo (admin/analista/obrero).
 -- Bucket privado 'compras-directas' (storage) con políticas para autenticados.
 -- (Ver migración aplicada; políticas: compra_directa read/write + cd_obj_* en storage.objects.)
@@ -498,7 +503,7 @@ create table if not exists public.servicios_directos (
   equipo_nombre    text,
   cantidad         numeric not null default 1,
   items            jsonb not null default '[]'::jsonb,  -- [{servicio_categoria, servicio_tipo, equipo_id, equipo_nombre, descripcion, cantidad, gasto}]
-  estado           text not null default 'en_proceso' check (estado in ('en_proceso','finalizada')),
+  estado           text not null default 'en_proceso' check (estado in ('en_proceso','por_pagar','finalizada')),
   gasto            numeric,
   caja_id          uuid references public.cajas(id) on delete set null,
   caja_mov_id      uuid,
@@ -513,6 +518,10 @@ create index if not exists idx_serv_directo_estado on public.servicios_directos(
 create index if not exists idx_serv_directo_equipo on public.servicios_directos(equipo_id);
 -- Facturas (varias, PDF o imagen): [{path, filename, at}]. adjunto_path/nombre = la primera (compatibilidad).
 alter table public.servicios_directos add column if not exists facturas jsonb not null default '[]'::jsonb;
+-- Flujo nuevo: el analista MONTA (factura + montos) -> por_pagar; Tesorería paga -> finalizada.
+alter table public.servicios_directos add column if not exists gasto_categoria    text;
+alter table public.servicios_directos add column if not exists gasto_subcategoria text;
+alter table public.servicios_directos add column if not exists pagada_por         text;
 alter table public.servicios_directos enable row level security;
 create policy "serv_directo read auth" on public.servicios_directos for select using (auth.role()='authenticated');
 create policy "serv_directo write op" on public.servicios_directos for all using (public.is_operativo()) with check (public.is_operativo());
