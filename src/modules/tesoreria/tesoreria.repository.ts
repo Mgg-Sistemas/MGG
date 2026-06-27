@@ -397,6 +397,66 @@ export async function editarMovimientoCaja(mov: MovimientoCaja, input: EditarMov
   await recomputarCadena(mov.caja_id, cuenta, moneda);
 }
 
+export interface EditarMovimientoFullInput {
+  monto?: number;
+  motivo?: string;
+  at?: string;
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
+  /** Mover el movimiento a otra partición (caja / billetera / moneda). */
+  cajaId?: string;
+  cuenta?: string | null;
+  moneda?: string;
+}
+
+/**
+ * Edición TOTAL de un movimiento: monto, concepto, fecha, categoría de gasto y —si hace
+ * falta— la CAJA / billetera (cuenta) / moneda de la que sale o entra. Sincroniza los
+ * saldos: si cambia de partición, reversa el efecto en la caja vieja y lo aplica en la
+ * nueva, y recalcula la cadena de saldos (Libro Mayor) de AMBAS. No cambia el tipo
+ * (entrada/salida); para eso, eliminá y recreá.
+ */
+export async function editarMovimientoCajaFull(mov: MovimientoCaja, input: EditarMovimientoFullInput): Promise<void> {
+  if (mov.tipo === 'ajuste') throw new Error('Un ajuste no se edita por esta vía; eliminá y recreá si hace falta.');
+  const oldCaja = mov.caja_id, oldCuenta = mov.cuenta ?? null, oldMoneda = mov.moneda;
+  const newCaja = input.cajaId ?? oldCaja;
+  const newMoneda = (input.moneda ?? oldMoneda) as string;
+  const newCuenta = input.cuenta !== undefined ? input.cuenta : oldCuenta;
+  const nuevoMonto = input.monto != null ? round2(input.monto) : round2(Number(mov.monto) || 0);
+  if (nuevoMonto <= 0) throw new Error('El monto debe ser mayor que 0.');
+
+  const patch: Record<string, unknown> = { monto: nuevoMonto };
+  if (input.motivo != null) patch.motivo = input.motivo.trim() || mov.motivo;
+  if (input.at) patch.at = input.at;
+  if (input.gastoCategoria !== undefined) patch.gasto_categoria = input.gastoCategoria;
+  if (input.gastoSubcategoria !== undefined) patch.gasto_subcategoria = input.gastoSubcategoria;
+
+  const mismaParticion = oldCaja === newCaja && (oldCuenta ?? null) === (newCuenta ?? null) && oldMoneda === newMoneda;
+
+  if (mismaParticion) {
+    const signo = signoMov(mov.tipo);
+    const delta = round2(signo * (nuevoMonto - (Number(mov.monto) || 0)));
+    const { error } = await supabase.from(LIBRO).update(patch).eq('id', mov.id);
+    if (error) throw error;
+    if (delta !== 0) await ajustarSaldoVigente(oldCaja, oldCuenta, oldMoneda, delta);
+    await recomputarCadena(oldCaja, oldCuenta, oldMoneda);
+    return;
+  }
+
+  // Cambió de partición: mover la fila + reversar efecto viejo + aplicar efecto nuevo.
+  const efViejo = efectoMov(mov);                                 // efecto del monto VIEJO en la caja vieja
+  const efNuevo = round2(signoMov(mov.tipo) * nuevoMonto);        // efecto del monto NUEVO en la caja nueva
+  patch.caja_id = newCaja;
+  patch.cuenta = newCuenta;
+  patch.moneda = newMoneda;
+  const { error } = await supabase.from(LIBRO).update(patch).eq('id', mov.id);
+  if (error) throw error;
+  if (efViejo !== 0) await ajustarSaldoVigente(oldCaja, oldCuenta, oldMoneda, -efViejo);
+  if (efNuevo !== 0) await ajustarSaldoVigente(newCaja, newCuenta, newMoneda, efNuevo);
+  await recomputarCadena(oldCaja, oldCuenta, oldMoneda);
+  await recomputarCadena(newCaja, newCuenta, newMoneda);
+}
+
 /**
  * Elimina un movimiento revirtiendo su efecto en el saldo vigente y recalculando
  * la cadena. ATENCIÓN: no revierte los módulos vinculados (Compras/Nómina/la otra

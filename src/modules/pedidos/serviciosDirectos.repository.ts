@@ -17,7 +17,7 @@ export type { AdjuntoFactura } from './compras.repository';
 
 const BUCKET = 'compras-directas'; // se reutiliza el bucket existente (prefijo sd/)
 
-export type EstadoServicioDirecto = 'en_proceso' | 'finalizada';
+export type EstadoServicioDirecto = 'en_proceso' | 'por_pagar' | 'finalizada';
 
 export interface ServicioDirectoItem {
   servicio_categoria: string;
@@ -50,6 +50,9 @@ export interface ServicioDirecto {
   items: ServicioDirectoItem[];
   estado: EstadoServicioDirecto;
   gasto: number | null;
+  /** Etiquetas de gasto (se eligen al montar; Tesorería las usa al pagar). */
+  gasto_categoria: string | null;
+  gasto_subcategoria: string | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   adjunto_path: string | null;
@@ -60,6 +63,8 @@ export interface ServicioDirecto {
   solicitante_persona: string | null;
   actor: string | null;
   actor_name: string | null;
+  /** Quién pagó desde Tesorería (en el flujo montar → pagar). */
+  pagada_por: string | null;
   created_at: string;
   finalizada_at: string | null;
   updated_at: string;
@@ -217,13 +222,11 @@ export async function gestionarFacturasServicio(
   return normalizar(data as Record<string, unknown>);
 }
 
-/* ───────── Finalizar (factura + montos + caja de Tesorería) ───────── */
+/* ───────── Montar (analista: factura + montos → POR PAGAR) ───────── */
 
-export interface FinalizarServicioDirectoInput {
+export interface MontarServicioDirectoInput {
   servicio: ServicioDirecto;
   items: ServicioDirectoItem[];   // con el monto (gasto) por renglón
-  cajaId: string;
-  legs?: PagoLeg[];               // multimoneda
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
   file?: File | null;
@@ -232,20 +235,58 @@ export interface FinalizarServicioDirectoInput {
 }
 
 /**
- * Completa el servicio directo: adjunta la factura, descuenta el monto total de la
- * caja elegida (egreso en Tesorería / Libro Mayor) y cierra el servicio. NO toca el
- * inventario (es un servicio, no entra stock).
+ * Monta el servicio directo (el analista carga FACTURA + montos). NO toca caja todavía:
+ * lo deja POR PAGAR para que Tesorería lo pague.
  */
-export async function finalizarServicioDirecto(input: FinalizarServicioDirectoInput): Promise<void> {
+export async function montarServicioDirecto(input: MontarServicioDirectoInput): Promise<void> {
   const { servicio } = input;
-  if (servicio.estado !== 'en_proceso') throw new Error('Este servicio ya fue completado.');
-  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  if (servicio.estado === 'finalizada') throw new Error('Este servicio ya fue pagado.');
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('El servicio no tiene renglones.');
   const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
   if (total <= 0) throw new Error('Indicá cuánto costó el servicio.');
 
-  // 1) Egreso de la caja (valida saldo) → pasa por Tesorería.
+  const facturas: AdjuntoFactura[] = [...(servicio.facturas ?? [])];
+  if (input.file) {
+    const path = await subirAdjuntoServicio(servicio.id, input.file);
+    facturas.push({ path, filename: input.file.name, at: new Date().toISOString() });
+  }
+  const primera = facturas[0] ?? null;
+
+  const { error } = await supabase
+    .from('servicios_directos')
+    .update({
+      estado: 'por_pagar', gasto: total, items,
+      gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
+      adjunto_path: primera?.path ?? null, adjunto_nombre: primera?.filename ?? null, facturas,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', servicio.id);
+  if (error) throw error;
+}
+
+/* ───────── Pagar (Tesorería: caja → egreso → FINALIZADA) ───────── */
+
+export interface PagarServicioDirectoInput {
+  servicio: ServicioDirecto;
+  cajaId: string;
+  legs?: PagoLeg[];               // multimoneda
+  actor: string;                  // quién paga (Tesorería)
+  actorName?: string | null;
+}
+
+/**
+ * Paga un servicio directo POR PAGAR (lo hace Tesorería): descuenta el monto de la caja
+ * (egreso en el Libro Mayor con la categoría que eligió el analista) y lo marca FINALIZADO.
+ * NO toca inventario (es un servicio). Queda casado al equipo (Control de Mantenimiento).
+ */
+export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Promise<void> {
+  const { servicio } = input;
+  if (servicio.estado !== 'por_pagar') throw new Error('Solo se paga un servicio que esté POR PAGAR.');
+  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  const total = Math.round(servicio.items.reduce((a, i) => a + (Number(i.gasto) || 0), 0) * 100) / 100;
+  if (total <= 0) throw new Error('El servicio no tiene montos cargados.');
+
   const concepto = `Servicio directo · ${servicio.descripcion}`;
   const legs = (input.legs ?? []).filter((l) => Number(l.monto) > 0);
   let movCajaId: string;
@@ -255,7 +296,7 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
       const r = await egresarDivisa({
         cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'servicio_directo',
-        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+        gastoCategoria: servicio.gasto_categoria ?? null, gastoSubcategoria: servicio.gasto_subcategoria ?? null,
         actor: input.actor, actorName: input.actorName ?? null,
       });
       if (!primero) primero = r.id;
@@ -266,33 +307,31 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
     const movCaja = await registrarGasto({
       cajaId: input.cajaId, monto: total,
       concepto, categoria: 'servicio_directo',
-      gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+      gastoCategoria: servicio.gasto_categoria ?? null, gastoSubcategoria: servicio.gasto_subcategoria ?? null,
       actor: input.actor, actorName: input.actorName ?? null,
     });
     movCajaId = movCaja.id;
   }
 
-  // 2) Factura (opcional, PDF o imagen). Inicia la lista de facturas.
-  let adjuntoPath: string | null = null;
-  let adjuntoNombre: string | null = null;
-  const facturas: AdjuntoFactura[] = [];
-  if (input.file) {
-    adjuntoPath = await subirAdjuntoServicio(servicio.id, input.file);
-    adjuntoNombre = input.file.name;
-    facturas.push({ path: adjuntoPath, filename: adjuntoNombre, at: new Date().toISOString() });
-  }
-
-  // 3) Cerrar el servicio directo.
   const { error } = await supabase
     .from('servicios_directos')
     .update({
-      estado: 'finalizada', gasto: total, items,
+      estado: 'finalizada', gasto: total,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
-      adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre, facturas,
+      pagada_por: input.actorName || input.actor,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', servicio.id);
   if (error) throw error;
+}
+
+/** Servicios directos POR PAGAR (los monta el analista; Tesorería los paga). */
+export async function listServiciosPorPagar(): Promise<ServicioDirecto[]> {
+  const { data, error } = await supabase
+    .from('servicios_directos').select('*').eq('estado', 'por_pagar')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
 export interface EditarServicioFinalizadoInput {

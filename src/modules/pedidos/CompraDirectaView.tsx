@@ -9,15 +9,13 @@ import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
 // descargarCompraDirectaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir la vista.
 import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
-import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor } from '@/shared/lib/types';
+import type { Caja, Producto, Proveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos, updateProducto, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
-import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
-import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
-  crearCompraDirecta, finalizarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
-  urlAdjuntoCompra, gestionarFacturasCompra, editarCompraDirectaFinalizada, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
+  crearCompraDirecta, montarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
+  urlAdjuntoCompra, gestionarFacturasCompra, editarCompraDirectaFinalizada, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
 } from './compras.repository';
 import { FacturasModal } from './FacturasModal';
 import { EditarMontosModal } from './EditarMontosModal';
@@ -28,9 +26,10 @@ type Vista = 'kanban' | 'lista';
 
 const COLS: { key: CompraDirecta['estado']; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
+  { key: 'por_pagar', label: 'Por pagar' },
   { key: 'finalizada', label: 'Finalizada' },
 ];
-const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', finalizada: '🏁 Finalizada' };
+const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', por_pagar: '💸 Por pagar', finalizada: '🏁 Finalizada' };
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -158,6 +157,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                     {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setEditarMontos(c)} title="Editar montos (sincroniza Tesorería e inventario)">✎ Editar</button>}
                     {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(c)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
+                    {c.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(c)} title="Editar factura/precios (en Tesorería para pagar)">✎ Factura/precios</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑</button>}
                   </td>
                 </tr>
@@ -173,7 +173,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       )}
 
       {finalizar && (
-        <FinalizarCompraModal compra={finalizar} cajas={cajas} actor={actor} actorName={actorName}
+        <MontarCompraModal compra={finalizar} actor={actor} actorName={actorName}
           onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reloadLista(); }} />
       )}
 
@@ -236,6 +236,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               {detalle.estado === 'finalizada' && <button className="btn btn-ghost" onClick={() => { setFacturas(detalle); setDetalle(null); }}>🧾 Facturas</button>}
               {detalle.estado === 'finalizada' && <button className="btn btn-primary" onClick={() => { setEditarMontos(detalle); setDetalle(null); }}>✎ Editar montos</button>}
               {detalle.estado === 'en_proceso' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>Cargar factura y precios</button>}
+              {detalle.estado === 'por_pagar' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>✎ Editar factura/precios</button>}
             </>
           }
           onClose={() => setDetalle(null)}
@@ -267,9 +268,17 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMon
         <div>Creada: {dateTime(compra.created_at)}</div>
         {compra.estado === 'finalizada' && <div>Comprada: {compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'}</div>}
       </div>
+      {compra.estado === 'por_pagar' && (
+        <div style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
+          <div>Por pagar: <strong className="mono">{compra.gasto != null ? money(compra.gasto) : '—'}</strong></div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>💸 En Tesorería para pagar</div>
+          <div className="muted"><AdjuntoLink compra={compra} /></div>
+        </div>
+      )}
       {compra.estado === 'finalizada' && (
         <div style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
           <div>Gasto: <strong className="mono">{compra.gasto != null ? money(compra.gasto) : '—'}</strong></div>
+          {compra.pagada_por && <div className="muted" style={{ fontSize: '.72rem' }}>Pagó: {compra.pagada_por}</div>}
           <div className="muted"><AdjuntoLink compra={compra} /></div>
         </div>
       )}
@@ -278,6 +287,7 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMon
         {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onEditarMontos} title="Editar montos (sincroniza Tesorería e inventario)">✎ Editar</button>}
         {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
+        {compra.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/precios (en Tesorería para pagar)">✎ Factura/precios</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>
     </div>
@@ -487,128 +497,65 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
   );
 }
 
-/* ───────── Modal: finalizar (gasto por material + caja) ───────── */
+/* ───────── Modal: montar (analista carga factura + precios → POR PAGAR) ───────── */
 
-function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSaved }: {
-  compra: CompraDirecta; cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
+  compra: CompraDirecta; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
-  const [gastos, setGastos] = useState<Record<number, string>>({});
+  const [gastos, setGastos] = useState<Record<number, string>>(() => {
+    const init: Record<number, string> = {};
+    compra.items.forEach((it, i) => { if (it.gasto != null && Number(it.gasto) > 0) init[i] = String(it.gasto); });
+    return init;
+  });
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const caja = cajas.find((c) => c.id === cajaId) ?? null;
-  const moneda = caja?.moneda ?? 'USD';
 
-  // Categoría → subcategoría de gasto (las mismas de Tesorería); el egreso queda etiquetado.
+  // Categoría → subcategoría de gasto (las mismas de Tesorería); etiqueta el egreso al pagar.
   const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
   const [catId, setCatId] = useState('');
   const [subId, setSubId] = useState('');
   useEffect(() => { listCategoriasGasto(true).then(setCatRows).catch(() => setCatRows([])); }, []);
   const categorias = useMemo(() => soloCategorias(catRows), [catRows]);
   const subcategorias = useMemo(() => (catId ? subcategoriasDe(catRows, catId) : []), [catRows, catId]);
-  useEffect(() => { setSubId(''); }, [catId]);
+  // Pre-carga la categoría/subcategoría si la compra ya estaba montada (por_pagar).
+  useEffect(() => {
+    if (!catRows.length || !compra.gasto_categoria) return;
+    const c = soloCategorias(catRows).find((x) => x.nombre === compra.gasto_categoria);
+    if (c) setCatId(c.id);
+  }, [catRows, compra.gasto_categoria]);
+  useEffect(() => {
+    if (!catId || !compra.gasto_subcategoria) return;
+    const s = subcategoriasDe(catRows, catId).find((x) => x.nombre === compra.gasto_subcategoria);
+    if (s) setSubId(s.id);
+  }, [catId, catRows, compra.gasto_subcategoria]);
   const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
   const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
-
-  // Saldo REAL de cada caja desde caja_saldos (lo mismo que descuenta el egreso y muestra
-  // Tesorería). Antes el desplegable mostraba el saldo legado de `cajas`, que no se movía.
-  const [saldoReal, setSaldoReal] = useState<Map<string, { saldo: number; moneda: string }>>(new Map());
-  useEffect(() => {
-    listSaldos().then((rows) => {
-      const m = new Map<string, { saldo: number; moneda: string }>();
-      for (const c of cajas) {
-        // Agrupa los saldos de la caja por moneda (una caja puede tener varias billeteras).
-        const porMoneda = new Map<string, number>();
-        for (const r of rows) {
-          if (r.caja_id !== c.id) continue;
-          porMoneda.set(r.moneda, (porMoneda.get(r.moneda) ?? 0) + (Number(r.saldo) || 0));
-        }
-        // Prefiere la moneda de la caja; si ahí no hay saldo, usa la moneda con mayor saldo
-        // (evita mostrar 0 cuando la caja tiene el dinero en otra moneda, p. ej. USDT).
-        let moneda: string = c.moneda;
-        let saldo = porMoneda.get(c.moneda) ?? 0;
-        if (saldo === 0 && porMoneda.size) {
-          const mejor = [...porMoneda.entries()].sort((a, b) => b[1] - a[1])[0];
-          moneda = mejor[0]; saldo = mejor[1];
-        }
-        m.set(c.id, { saldo, moneda });
-      }
-      setSaldoReal(m);
-    }).catch(() => { /* sin saldos: cae al saldo legado */ });
-  }, [cajas]);
 
   const total = useMemo(
     () => Math.round(compra.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100,
     [gastos, compra.items],
   );
 
-  // Saldos multimoneda de la caja elegida (para pagar repartiendo por cuenta/moneda).
-  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
-  const [legMontos, setLegMontos] = useState<Record<string, string>>({});
-  const [tasa, setTasa] = useState<number>(0);
-  const [mercado, setMercado] = useState<TasasMercado | null>(null);
-  useEffect(() => {
-    if (!cajaId) { setSaldosCaja([]); return; }
-    saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
-    setLegMontos({});
-  }, [cajaId]);
-  useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
-  useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
-
-  // Caja con varias monedas (Multimoneda) → se paga repartiendo por cuenta.
-  const esMultimoneda = saldosCaja.length >= 2;
-  // El total a pagar está en USD (moneda de la caja Multimoneda). Equivalente en USD de cada pata.
-  function legUsd(monedaLeg: string, n: number): number {
-    if (!n || n <= 0) return 0;
-    if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(n);
-    if (monedaLeg === 'Bs') return tasa > 0 ? round2(n / tasa) : 0;
-    if (monedaLeg === 'COP') return mercado?.copUsd ? round2(n / mercado.copUsd) : 0;
-    return round2(n);
-  }
-  const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
-  const cubreTotalMulti = sumUsdMulti >= total - 0.01;
-  // No se puede pagar más que el total de la compra.
-  const excedeTotalMulti = esMultimoneda && sumUsdMulti > total + 0.01;
-  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
-  // Nombre de la billetera/cuenta para mostrar al elegir la caja (sin el '·' inicial).
-  const billeteraNombre = (c: string) => c === 'general' ? 'General' : c === 'juridica' ? 'Jurídica' : c === 'personal' ? 'Personal' : c;
-
-  // Conversión del total a Bs con la tasa BCV (editable), para cualquier caja.
-  // El total se expresa en la moneda de la caja; lo llevamos a USD y a Bs.
-  const totalUsd = moneda === 'Bs' ? (tasa > 0 ? round2(total / tasa) : 0) : total;
-  const totalBs = moneda === 'Bs' ? total : (tasa > 0 ? round2(total * tasa) : 0);
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (!catId) { setError('Elegí la categoría de gasto.'); return; }
     if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
     if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
-    let legs: PagoLeg[] | undefined;
-    if (esMultimoneda) {
-      legs = saldosCaja
-        .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 }))
-        .filter((l) => l.monto > 0);
-      if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
-      if (excedeTotalMulti) { setError(`No podés pagar más que el total de la compra. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(total, 'USD')} (te pasaste por ${montoCaja(round2(sumUsdMulti - total), 'USD')}).`); return; }
-      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(total, 'USD')}).`); return; }
-    }
     const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await finalizarCompraDirecta({ compra, items, cajaId, legs, file, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
-      const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
-      notify(`Compra finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
+      await montarCompraDirecta({ compra, items, file, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
+      notify(`Compra enviada a Tesorería · ${montoCaja(total, 'USD')} por pagar`, 'success', { link: '#/app/tesoreria' });
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo finalizar la compra.'); setSaving(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar la compra a Tesorería.'); setSaving(false); }
   }
 
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Finalizando…' : excedeTotalMulti ? 'Excede el total' : `Finalizar · ${montoCaja(total, moneda)}`}</button>
+      <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving}>{saving ? 'Enviando…' : `Enviar a Tesorería · ${montoCaja(total, 'USD')}`}</button>
     </>
   );
 
@@ -617,26 +564,11 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
       <form id="cd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-        <div className="form-row">
-          <label>Caja (de dónde sale el dinero)</label>
-          <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required style={{ maxWidth: 320 }}>
-            {!cajas.length && <option value="">— sin cajas —</option>}
-            {cajas.map((c) => { const sr = saldoReal.get(c.id); return <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(sr?.saldo ?? c.saldo, sr?.moneda ?? c.moneda)}</option>; })}
-          </select>
-          <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
-          {cajaId && saldosCaja.length > 0 && (
-            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '.4rem' }}>
-              <span className="muted" style={{ fontSize: '.8rem' }}>💳 Billetera{saldosCaja.length > 1 ? 's' : ''}:</span>
-              {saldosCaja.map((s) => (
-                <span key={s.id} className="badge" title="Billetera de la caja · saldo disponible">
-                  {billeteraNombre(s.cuenta)} · <span className="mono">{montoCaja(Number(s.saldo), s.moneda)}</span>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+        <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+          Cargá los <strong>precios por material</strong> y la <strong>factura</strong>. La compra queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el gasto sale de la caja y los materiales <strong>entran al inventario</strong> ({compra.almacen}).
+        </p>
 
-        {/* Categoría → subcategoría de gasto (las mismas de Tesorería): el egreso queda etiquetado. */}
+        {/* Categoría → subcategoría de gasto (las mismas de Tesorería): etiqueta el egreso. */}
         <div className="form-grid">
           <div className="form-row">
             <label>Categoría de gasto <span style={{ color: 'var(--danger)' }}>*</span></label>
@@ -652,11 +584,11 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
               emptyText={catId ? 'Esta categoría no tiene subcategorías.' : 'Elegí una categoría'} />
           </div>
         </div>
-        <small className="muted" style={{ display: 'block', marginBottom: '.6rem' }}>El gasto queda etiquetado por <strong>categoría → subcategoría</strong> y se refleja así en el movimiento de Tesorería (GASTOS / MOVIMIENTOS).</small>
+        <small className="muted" style={{ display: 'block', marginBottom: '.6rem' }}>El gasto queda etiquetado por <strong>categoría → subcategoría</strong> y se reflejará así en el movimiento de Tesorería al pagarse.</small>
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ width: 160 }}>Gasto</th><th style={{ textAlign: 'right' }}>Costo unit.</th></tr></thead>
+            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ width: 160 }}>Precio</th><th style={{ textAlign: 'right' }}>Costo unit.</th></tr></thead>
             <tbody>
               {compra.items.map((it, i) => {
                 const g = Number(gastos[i]) || 0;
@@ -666,85 +598,19 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
                     <td><input className="input mono" type="number" min={0} step="any" value={gastos[i] ?? ''} onChange={(e) => setGastos((m) => ({ ...m, [i]: dosDecimales(e.target.value) }))} placeholder="0,00" /></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, 'USD')}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        <div className="card" style={{ margin: '.5rem 0' }}>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong> → entra a inventario en <strong>{compra.almacen}</strong></div>
-
-        {/* Conversión del total a Bs con la tasa BCV (editable) — para cualquier caja. */}
-        {cajaId && (
-          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
-            <div>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Total en USD</div>
-              <strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda !== 'Bs' ? montoCaja(totalUsd, 'USD') : '—'}</strong>
-            </div>
-            <div className="muted" style={{ fontSize: '1.1rem' }}>⇄</div>
-            <div>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Equivale en Bs (BCV)</div>
-              <strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda === 'Bs' ? montoCaja(totalBs, 'Bs') : '—'}</strong>
-            </div>
-            <div className="form-row" style={{ marginLeft: 'auto', minWidth: 150, margin: 0 }}>
-              <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs por $)</label>
-              <input className="input mono" type="number" min={0} step="any" value={tasa || ''}
-                onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" />
-            </div>
-          </div>
-        )}
-
-        {/* Multipago por cuenta: repartí el total entre las monedas de la caja Multimoneda. */}
-        {esMultimoneda && (
-          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
-            <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda · ¿cuánto sale de cada una?</div>
-            <div className="table-wrap">
-              <table className="table" style={{ fontSize: '.84rem' }}>
-                <thead><tr><th>Moneda</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar (en su moneda)</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
-                <tbody>
-                  {saldosCaja.map((s) => {
-                    const n = Number(legMontos[s.id]) || 0;
-                    const excede = n > Number(s.saldo);
-                    return (
-                      <tr key={s.id}>
-                        <td><span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(Number(s.saldo), s.moneda)}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          <input className="input mono" type="number" min={0} max={Number(s.saldo)} step="any"
-                            value={legMontos[s.id] ?? ''} placeholder="0,00"
-                            onChange={(e) => setLegMontos((m) => ({ ...m, [s.id]: dosDecimales(e.target.value) }))}
-                            style={{ width: 130, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
-                        </td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{n > 0 ? montoCaja(legUsd(s.moneda, n), 'USD') : '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
-                      {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(total, 'USD')}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
-              {excedeTotalMulti
-                ? <span style={{ color: 'var(--danger)' }}>⚠ Te pasaste por <strong>{montoCaja(round2(sumUsdMulti - total), 'USD')}</strong>. No podés pagar más que el total de la compra ({montoCaja(total, 'USD')}).</span>
-                : cubreTotalMulti
-                ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
-                : <>Faltan <strong>{montoCaja(round2(total - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}
-            </small>
-          </div>
-        )}
+        <div className="card" style={{ margin: '.5rem 0' }}>Total por pagar: <strong className="mono">{montoCaja(total, 'USD')}</strong></div>
 
         <div className="form-row">
-          <label>Adjuntar comprobante de la compra · PDF o imagen (opcional)</label>
+          <label>Adjuntar FACTURA de la compra · PDF o imagen</label>
           <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          {file && <small className="muted">{file.name}</small>}
+          {file ? <small className="muted">{file.name}</small> : (compra.facturas?.length ? <small className="muted">Ya hay {compra.facturas.length} factura(s) cargada(s).</small> : null)}
         </div>
       </form>
     </Modal>

@@ -39,7 +39,7 @@ import {
   listCajasActivas, listCentrosAcopio,
   registrarGasto, disponibilidadFinanciera, listLibroMayor,
   categoriaLlevaCorrelativo, proximoCorrelativoGasto,
-  editarMovimientoCaja, eliminarMovimientoCaja, movEstaVinculado,
+  editarMovimientoCajaFull, eliminarMovimientoCaja, movEstaVinculado,
   type Disponibilidad,
 } from './tesoreria.repository';
 import {
@@ -68,6 +68,7 @@ import {
   getOrdenById, urlAdjuntoOc,
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
+import { cargarDirectosPorPagar, PagarDirectoModal, type DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
 import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
 // Generadores de PDF/Excel: se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir la página.
@@ -154,6 +155,7 @@ export function TesoreriaPage() {
   const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'resumen' | 'retencion' | 'grafico' | 'contrapartes' | 'categorias-gasto' | 'cierre'>('none');
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
+  const [directos, setDirectos] = useState<DirectoFila[]>([]);
   const [creditosCount, setCreditosCount] = useState(0);
   const [cobrarCount, setCobrarCount] = useState(0);
   const [cxpList, setCxpList] = useState<CuentaPorPagar[]>([]);
@@ -197,13 +199,16 @@ export function TesoreriaPage() {
       listRetencionesHechas().catch(() => [] as RetencionItem[]),
     ]);
     const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
+    // Compras + servicios directos POR PAGAR (los montó el analista): se suman a las órdenes
+    // pendientes por pagar (mismo botón) con una etiqueta DIRECTO.
+    const dir = await cargarDirectosPorPagar().catch(() => [] as DirectoFila[]);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
-    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setLmMovs(lm); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length); setRetencionListas(ret);
-    setCxpList(cxp); setCxcList(cxc);
+    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setLmMovs(lm); setPorPagarCount(pp.length + dir.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length); setRetencionListas(ret);
+    setCxpList(cxp); setCxcList(cxc); setDirectos(dir);
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
-  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_abonos'], () => { void reload(); });
+  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_abonos', 'compras_directas', 'servicios_directos'], () => { void reload(); });
 
   useEffect(() => {
     setLoading(true);
@@ -490,6 +495,7 @@ export function TesoreriaPage() {
       {movSel && (
         <MovimientoDetalleModal
           mov={movSel}
+          cajas={cajas}
           defaultEmail={actor}
           canWrite={canWrite}
           onChanged={async () => { setMovSel(null); await reload(); }}
@@ -504,10 +510,10 @@ export function TesoreriaPage() {
       {modal === 'tasas' && <TasasGate onClose={() => setModal('none')} />}
       {modal === 'conversor' && <ConversorModal cajas={cajas} saldos={saldos} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={reload} />}
       {modal === 'calculadora' && <CalculadoraModal actor={actor} onClose={() => setModal('none')} />}
-      {modal === 'resumen' && <ResumenMovimientosModal monedas={monedasReg} defaultMoneda={fMoneda || 'USD'} defaultDesde={fDesde} defaultHasta={fHasta} onClose={() => setModal('none')} />}
+      {modal === 'resumen' && <ResumenMovimientosModal monedas={monedasReg} defaultMoneda={fMoneda || 'USD'} defaultDesde={fDesde} defaultHasta={fHasta} cajas={cajas} canWrite={canWrite} actor={actor} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'retencion' && <RetencionesTesoreriaModal items={retencionListas} onClose={() => setModal('none')} />}
       {modal === 'grafico' && <GraficoTasasModal onClose={() => setModal('none')} />}
-      {modal === 'porpagar' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName} userId={user?.id ?? ''} onClose={() => setModal('none')} onPaid={reload} />}
+      {modal === 'porpagar' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName} userId={user?.id ?? ''} directos={directos} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'cobrar' && <CuentasPorCobrarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'contrapartes' && <ContrapartesModal onClose={() => setModal('none')} />}
@@ -520,8 +526,8 @@ export function TesoreriaPage() {
 
 /* ───────────── Detalle de un movimiento del registro ───────────── */
 
-function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClose }: {
-  mov: MovimientoCaja; defaultEmail: string; canWrite?: boolean; onChanged?: () => void | Promise<void>; onClose: () => void;
+function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onChanged, onClose }: {
+  mov: MovimientoCaja; cajas?: Caja[]; defaultEmail: string; canWrite?: boolean; onChanged?: () => void | Promise<void>; onClose: () => void;
 }) {
   const egreso = mov.tipo === 'salida' || mov.tipo === 'traslado_salida'
     || (mov.tipo === 'ajuste' && Number(mov.saldo_despues) < Number(mov.saldo_antes));
@@ -551,6 +557,24 @@ function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClos
   const [confirmDel, setConfirmDel] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
+  // Edición de la PARTICIÓN: caja + billetera (cuenta + moneda). Al cambiar la caja se
+  // cargan sus billeteras; la elegida define cuenta+moneda. Sin billeteras = caja legada.
+  const [eCajaId, setECajaId] = useState(mov.caja_id);
+  const [billeteras, setBilleteras] = useState<CajaSaldo[]>([]);
+  // Clave de la billetera elegida: `${cuenta}|${moneda}` ('|' + moneda para la caja legada).
+  const [eBilletera, setEBilletera] = useState(`${mov.cuenta ?? ''}|${mov.moneda}`);
+  useEffect(() => {
+    if (!editando || !eCajaId) { setBilleteras([]); return; }
+    saldosDeCaja(eCajaId).then((rows) => {
+      setBilleteras(rows);
+      // Si la caja elegida no es la del movimiento, predefine la primera billetera (o la legada).
+      if (eCajaId !== mov.caja_id) {
+        const first = rows[0];
+        setEBilletera(first ? `${first.cuenta}|${first.moneda}` : `|${cajas.find((c) => c.id === eCajaId)?.moneda ?? mov.moneda}`);
+      }
+    }).catch(() => setBilleteras([]));
+  }, [editando, eCajaId, mov.caja_id, mov.moneda, cajas]);
+
   async function guardarEdicion() {
     const m = round2(Number(eMonto) || 0);
     if (m <= 0) { toast('El monto debe ser mayor que 0.', 'error'); return; }
@@ -560,10 +584,15 @@ function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClos
       if (isNaN(d.getTime())) { toast('Fecha inválida.', 'error'); return; }
       atISO = d.toISOString();
     }
+    const [cuentaStr, monedaStr] = eBilletera.split('|');
+    const nuevaCuenta = cuentaStr ? cuentaStr : null;
     setGuardando(true);
     try {
-      await editarMovimientoCaja(mov, { monto: m, motivo: eMotivo, at: atISO });
-      toast('Movimiento actualizado · orden y saldo recalculados', 'success');
+      await editarMovimientoCajaFull(mov, {
+        monto: m, motivo: eMotivo, at: atISO,
+        cajaId: eCajaId, cuenta: nuevaCuenta, moneda: monedaStr || mov.moneda,
+      });
+      toast('Movimiento actualizado · saldos recalculados', 'success');
       setEditando(false);
       await onChanged?.();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo editar', 'error'); }
@@ -632,7 +661,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClos
     <Modal title="Detalle del movimiento" size="lg" onClose={onClose} footer={
       editando ? (
         <>
-          <button className="btn btn-ghost" onClick={() => { setEditando(false); setEMonto(String(Number(mov.monto) || 0)); setEMotivo(mov.motivo ?? ''); setEFecha(isoAInputLocal(mov.at)); }} disabled={guardando}>Cancelar</button>
+          <button className="btn btn-ghost" onClick={() => { setEditando(false); setEMonto(String(Number(mov.monto) || 0)); setEMotivo(mov.motivo ?? ''); setEFecha(isoAInputLocal(mov.at)); setECajaId(mov.caja_id); setEBilletera(`${mov.cuenta ?? ''}|${mov.moneda}`); }} disabled={guardando}>Cancelar</button>
           <button className="btn btn-primary" onClick={guardarEdicion} disabled={guardando}>{guardando ? 'Guardando…' : '✓ Guardar cambios'}</button>
         </>
       ) : (
@@ -658,12 +687,28 @@ function MovimientoDetalleModal({ mov, defaultEmail, canWrite, onChanged, onClos
           )}
           <div className="form-grid">
             <div className="form-row">
+              <label>Caja (de dónde sale / entra)</label>
+              <select className="select" value={eCajaId} onChange={(e) => setECajaId(e.target.value)}>
+                {!cajas.length && <option value={mov.caja_id}>{mov.caja?.nombre ?? 'Caja actual'}</option>}
+                {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+              <small className="muted">Si la cambiás, el monto sale de la nueva caja y se reajustan los saldos de ambas.</small>
+            </div>
+            <div className="form-row">
+              <label>Billetera / moneda</label>
+              <select className="select" value={eBilletera} onChange={(e) => setEBilletera(e.target.value)}>
+                {billeteras.length === 0 && <option value={`|${cajas.find((c) => c.id === eCajaId)?.moneda ?? mov.moneda}`}>{cajas.find((c) => c.id === eCajaId)?.moneda ?? mov.moneda} (caja simple)</option>}
+                {billeteras.map((b) => <option key={b.id} value={`${b.cuenta}|${b.moneda}`}>{b.cuenta} · {b.moneda} (disp. {monto(Number(b.saldo), b.moneda)})</option>)}
+              </select>
+              <small className="muted">Define la cuenta y la moneda del movimiento.</small>
+            </div>
+            <div className="form-row">
               <label>Fecha y hora</label>
               <input className="input" type="datetime-local" value={eFecha} onChange={(e) => setEFecha(e.target.value)} />
               <small className="muted">Cambiarla reordena el movimiento en el Libro Mayor y recalcula los saldos.</small>
             </div>
             <div className="form-row">
-              <label>Monto ({mov.moneda})</label>
+              <label>Monto</label>
               <input className="input mono" type="number" min={0} step={0.01} value={eMonto}
                 onChange={(e) => setEMonto(dosDecimales(e.target.value))} style={{ textAlign: 'right' }} />
             </div>
@@ -3561,10 +3606,13 @@ function CalculadoraModal({ actor, onClose }: { actor: string; onClose: () => vo
 
 type CatResumen = 'ingreso' | 'egreso' | 'gasto';
 
-function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, defaultHasta, onClose }: {
-  monedas: string[]; defaultMoneda: string; defaultDesde: string; defaultHasta: string; onClose: () => void;
+function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, defaultHasta, cajas = [], canWrite, actor = '', onClose, onChanged }: {
+  monedas: string[]; defaultMoneda: string; defaultDesde: string; defaultHasta: string;
+  cajas?: Caja[]; canWrite?: boolean; actor?: string; onClose: () => void; onChanged?: () => void | Promise<void>;
 }) {
   const [moneda, setMoneda] = useState(defaultMoneda || 'USD');
+  // Detalle editable de un movimiento (clic en una fila).
+  const [detalleMov, setDetalleMov] = useState<MovimientoCaja | null>(null);
   const [desde, setDesde] = useState(defaultDesde);
   const [hasta, setHasta] = useState(defaultHasta);
   const [allRows, setAllRows] = useState<MovimientoCaja[]>([]);
@@ -3732,7 +3780,7 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
                       {catMovs.map((m) => {
                         const concepto = [m.gasto_subcategoria, m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
                         return (
-                          <tr key={m.id}>
+                          <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => setDetalleMov(m)} title="Ver / editar el movimiento">
                             <td>{dateTime(m.at)}</td>
                             <td>{m.caja?.nombre ?? '—'}</td>
                             <td>{concepto}</td>
@@ -3775,7 +3823,7 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
                     const egreso = esEgreso(m);
                     const concepto = [CAT_LABEL[m.categoria ?? ''], m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
                     return (
-                      <tr key={m.id}>
+                      <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => setDetalleMov(m)} title="Ver / editar el movimiento">
                         <td>{dateTime(m.at)}</td>
                         <td>{m.caja?.nombre ?? '—'}</td>
                         <td>{concepto}</td>
@@ -3788,6 +3836,17 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
             </div>
           )}
         </div>
+      )}
+
+      {detalleMov && (
+        <MovimientoDetalleModal
+          mov={detalleMov}
+          cajas={cajas}
+          defaultEmail={actor}
+          canWrite={canWrite}
+          onChanged={async () => { setDetalleMov(null); await load(); await onChanged?.(); }}
+          onClose={() => setDetalleMov(null)}
+        />
       )}
     </Modal>
   );
@@ -3974,12 +4033,14 @@ function GraficoTasasModal({ onClose }: { onClose: () => void }) {
 
 /* ───────────── Órdenes pendientes por pagar (OC confirmadas) ───────────── */
 
-function OrdenesPorPagarModal({ cajas, actor, actorName, userId, onClose, onPaid }: {
-  cajas: Caja[]; actor: string; actorName: string | null; userId: string; onClose: () => void; onPaid: () => void;
+function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClose, onPaid }: {
+  cajas: Caja[]; actor: string; actorName: string | null; userId: string; directos: DirectoFila[]; onClose: () => void; onPaid: () => void;
 }) {
   const [rows, setRows] = useState<OrdenPorPagar[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<OrdenPorPagar | null>(null);
+  // Directo (compra/servicio directo POR PAGAR) seleccionado para pagar.
+  const [pagarDir, setPagarDir] = useState<DirectoFila | null>(null);
   // Selección para pago en lote (mismo proveedor + mismo método/moneda).
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   const [lote, setLote] = useState(false);
@@ -4057,7 +4118,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, onClose, onPaid
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={9}><EmptyState message="No hay órdenes confirmadas por pagar" icon="✅" /></td></tr>}
+            {!loading && !rows.length && !directos.length && <tr><td colSpan={9}><EmptyState message="No hay órdenes confirmadas por pagar" icon="✅" /></td></tr>}
             {!loading && rows.map((r) => {
               const marcada = marcadas.has(r.orden.id);
               const habilitada = compatible(r) || marcada;
@@ -4097,6 +4158,27 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, onClose, onPaid
               </tr>
               );
             })}
+            {/* Compras / servicios directos POR PAGAR: el analista los montó con factura.
+                Van en esta MISMA lista con una etiqueta DIRECTO; no entran al pago en lote. */}
+            {!loading && directos.map((f) => (
+              <tr key={`dir-${f.kind}-${f.id}`}>
+                <td></td>
+                <td className="mono">
+                  {f.codigo}
+                  <span className="badge" style={{ marginLeft: '.35rem', background: '#0ea5a4', color: '#fff', fontSize: '.66rem', fontWeight: 700 }}
+                    title={f.kind === 'compra' ? 'Compra directa' : 'Servicio directo'}>
+                    {f.kind === 'compra' ? '🛒' : '🔧'} DIRECTO
+                  </span>
+                </td>
+                <td>{f.titulo}{f.detalle ? <span className="muted"> · {f.detalle}</span> : null}</td>
+                <td className="muted" style={{ fontSize: '.78rem' }}>{f.generoPor}</td>
+                <td style={{ fontSize: '.78rem' }}>{f.categoria || '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{monto(f.total, 'USD')}</td>
+                <td className="muted">—</td>
+                <td className="muted">—</td>
+                <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={() => setPagarDir(f)}>Ver / Pagar</button></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -4114,6 +4196,14 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, onClose, onPaid
           rows={seleccionadas} cajas={cajas} actor={actor} actorName={actorName}
           onClose={() => setLote(false)}
           onPaid={async () => { setLote(false); setMarcadas(new Set()); await reload(); onPaid(); }}
+        />
+      )}
+
+      {pagarDir && (
+        <PagarDirectoModal
+          fila={pagarDir} cajas={cajas} actor={actor} actorName={actorName}
+          onClose={() => setPagarDir(null)}
+          onPaid={() => { setPagarDir(null); onPaid(); }}
         />
       )}
     </Modal>
