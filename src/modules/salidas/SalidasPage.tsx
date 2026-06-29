@@ -419,10 +419,19 @@ function SolicitudDetalleModal({
   const [editando, setEditando] = useState(false);
   type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string };
   const initLineas = (): LineaEd[] => {
+    // Almacén de origen: si el guardado no tiene stock del producto, se elige el
+    // almacén con MÁS stock (para que no quede mostrando "0 und").
+    const mejorAlmacen = (pid: string, saved: string): string => {
+      const savedStock = Number(existencias.find((e) => e.producto_id === pid && e.almacen === saved)?.stock) || 0;
+      if (saved && savedStock > 0) return saved;
+      const top = existencias.filter((e) => e.producto_id === pid && (Number(e.stock) || 0) > 0)
+        .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0))[0];
+      return top?.almacen ?? saved;
+    };
     const base = (sol.items && sol.items.length)
       ? sol.items.map((it) => ({ productoId: it.producto_id, almacen: it.almacen ?? sol.almacen_origen ?? '', cantidad: Number(it.cantidad) || 0, precio: it.precio_unit }))
       : [{ productoId: sol.producto_id ?? '', almacen: sol.almacen_origen ?? '', cantidad: Number(sol.cantidad) || 0, precio: sol.precio_unit }];
-    return base.map((it, i) => ({ id: i + 1, productoId: it.productoId, almacen: it.almacen, cantidad: String(it.cantidad || 0), precio: it.precio != null ? String(it.precio) : '' }));
+    return base.map((it, i) => ({ id: i + 1, productoId: it.productoId, almacen: mejorAlmacen(it.productoId, it.almacen), cantidad: String(it.cantidad || 0), precio: it.precio != null ? String(it.precio) : '' }));
   };
   const [edLineas, setEdLineas] = useState<LineaEd[]>([]);
   const [edSeq, setEdSeq] = useState(1);
@@ -438,6 +447,12 @@ function SolicitudDetalleModal({
   const stockDe = (productoId: string, almacen: string) => Number(existencias.find((e) => e.producto_id === productoId && e.almacen === almacen)?.stock) || 0;
   const almacenesProd = (productoId: string) => existencias.filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0).map((e) => e.almacen);
   const almacenesActivos = useMemo(() => almacenes.filter((a) => a.estado === 'activo').map((a) => a.nombre), [almacenes]);
+  // Sedes / centros como en Inventario (CENTRO DE ACOPIO - …, LOS PINOS, …): destino del traslado.
+  const sedes = useMemo(
+    () => Array.from(new Set(almacenes.filter((a) => a.estado === 'activo').map((a) => a.sede?.trim()).filter((s): s is string => !!s)))
+      .sort((a, b) => a.localeCompare(b, 'es')),
+    [almacenes],
+  );
 
   function abrirEdicion() {
     const ls = initLineas();
@@ -557,9 +572,10 @@ function SolicitudDetalleModal({
           <div className="form-row">
             <label>Almacén destino</label>
             <select className="select" value={edAlmacenDestino} onChange={(e) => setEdAlmacenDestino(e.target.value)}>
-              <option value="">— elegí el almacén destino —</option>
-              {almacenesActivos.map((a) => <option key={a} value={a}>{a}</option>)}
+              <option value="">— elegí la sede / centro destino —</option>
+              {Array.from(new Set([...sedes, ...(edAlmacenDestino ? [edAlmacenDestino] : [])])).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            <small className="muted">Sede o centro de acopio destino (como en Inventario). Es lo que se imprime en la orden.</small>
           </div>
         )}
 
@@ -585,6 +601,13 @@ function SolicitudDetalleModal({
                     {activos.map((pr) => <option key={pr.id} value={pr.id}>{pr.nombre} · {pr.sku}</option>)}
                   </select>
                 </div>
+                {sol.scope === 'traslado' ? (
+                  <div className="form-row">
+                    <label>Se descuenta de (automático)</label>
+                    <input className="input" value={l.almacen || '—'} disabled style={{ opacity: .8 }} />
+                    <small className="muted">{l.productoId && l.almacen ? <>El sistema descuenta del almacén con stock: <strong>{l.almacen}</strong> · <strong className="mono">{num(stock)} {p?.unidad ?? ''}</strong></> : 'Elegí el material; el almacén de origen se asigna solo.'}</small>
+                  </div>
+                ) : (
                 <div className="form-row">
                   <label>Almacén origen</label>
                   <select className="select" value={l.almacen} onChange={(e) => setLinea(l.id, { almacen: e.target.value })}>
@@ -598,6 +621,7 @@ function SolicitudDetalleModal({
                   </select>
                   <small className="muted">{l.productoId && l.almacen ? <>stock en {l.almacen}: <strong className="mono">{num(stock)} {p?.unidad ?? ''}</strong></> : 'Elegí el material primero'}</small>
                 </div>
+                )}
                 <div className="form-row">
                   <label>Cantidad{p?.unidad ? ` (${p.unidad})` : ''}</label>
                   <input className="input mono" type="number" min={0} step="any" value={l.cantidad} onChange={(e) => setLinea(l.id, { cantidad: e.target.value })} />
