@@ -313,6 +313,52 @@ export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEm
   return data as Orden;
 }
 
+/**
+ * Ajusta SOLO las cantidades de los ítems de una OP mientras está PENDIENTE o
+ * APROBADA (antes de elegir la oferta y crear la OC). Pensado para la etapa de
+ * selección de proveedores: el analista corrige cuántas unidades pide de cada
+ * producto. Recalcula el total de la OP y RE-SINCRONIZA las cotizaciones ya
+ * cargadas (estado `pendiente`) con la nueva cantidad, manteniendo los precios
+ * unitarios de cada proveedor y recalculando su precio_total / precio_efectivo,
+ * para que la comparativa siga siendo coherente. `cantidadPorSku`: SKU → nueva
+ * cantidad (mayor que 0).
+ */
+export async function actualizarCantidadesOrden(
+  o: Orden,
+  cantidadPorSku: Record<string, number>,
+  actorEmail: string,
+): Promise<Orden> {
+  if (!['pendiente', 'aprobada'].includes(o.estado))
+    throw new Error('Solo se editan las cantidades antes de crear la OC (pendiente o aprobada).');
+  if (o.oc_codigo) throw new Error('Esta OP ya tiene una OC: editá la OC, no la OP.');
+
+  const aplicar = <T extends ItemOrden>(items: T[]): T[] => items.map((it) => {
+    const c = cantidadPorSku[it.sku];
+    return (c != null && Number.isFinite(c)) ? { ...it, cantidad: Math.max(0, Math.round(c * 1000) / 1000) } : it;
+  });
+
+  const nuevosItems = aplicar(o.items);
+  if (nuevosItems.some((it) => (Number(it.cantidad) || 0) <= 0))
+    throw new Error('Cada producto debe tener una cantidad mayor que 0.');
+  const total = nuevosItems.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+
+  const { data, error } = await supabase.from(TABLE)
+    .update({ items: nuevosItems, total, historial: appendHistorial(o, 'cantidades_editadas', actorEmail) })
+    .eq('id', o.id).select('*').single();
+  if (error) throw error;
+
+  // Re-sincronizar las cotizaciones pendientes: misma cantidad, mismos precios unitarios.
+  const { data: ofs } = await supabase.from('ofertas_proveedor').select('id, items').eq('orden_id', o.id).eq('estado', 'pendiente');
+  for (const of of (ofs ?? []) as { id: string; items: ItemOrden[] }[]) {
+    const items = aplicar(of.items ?? []);
+    const precio_total = Math.round(items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0) * 100) / 100;
+    const usdTotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_usd) || 0), 0);
+    const precio_efectivo = usdTotal > 0 ? Math.round(usdTotal * 100) / 100 : null;
+    await supabase.from('ofertas_proveedor').update({ items, precio_total, precio_efectivo }).eq('id', of.id);
+  }
+  return data as Orden;
+}
+
 export interface EditarOcInput {
   items: ItemOrden[];
   condiciones_pago?: string | null;

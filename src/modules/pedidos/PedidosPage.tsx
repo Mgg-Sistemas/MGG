@@ -29,6 +29,7 @@ import {
   aprobarOrden,
   aprobarOcsEnLote,
   actualizarComprarItems,
+  actualizarCantidadesOrden,
   anularOrden,
   cancelarOrden,
   crearOrden,
@@ -2041,6 +2042,38 @@ function OrdenDetailModal({
     }
   }
 
+  // Edición inline de CANTIDADES de la OP (etapa de selección de proveedores, antes
+  // de elegir oferta): el analista corrige cuántas unidades pide de cada producto.
+  // Al guardar se recalcula el total y se re-sincronizan las cotizaciones cargadas.
+  const [editandoCant, setEditandoCant] = useState(false);
+  const [cantDraft, setCantDraft] = useState<Record<string, string>>({});
+  const [savingCant, setSavingCant] = useState(false);
+  function abrirEdicionCant() {
+    const d: Record<string, string> = {};
+    o.items.forEach((it) => { d[it.sku] = String(it.cantidad ?? 0); });
+    setCantDraft(d);
+    setEditandoCant(true);
+  }
+  async function guardarCantidades() {
+    const mapa: Record<string, number> = {};
+    for (const it of o.items) {
+      const v = Number(cantDraft[it.sku]);
+      if (!Number.isFinite(v) || v <= 0) { toast(`La cantidad de "${it.nombre}" debe ser mayor que 0.`, 'error'); return; }
+      mapa[it.sku] = v;
+    }
+    setSavingCant(true);
+    try {
+      await actualizarCantidadesOrden(o, mapa, actorEmail || 'sistema');
+      toast('Cantidades actualizadas · comparativa recalculada', 'success');
+      setEditandoCant(false);
+      await onAcceptedOffer(); // refresca la orden + recarga las ofertas
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudieron actualizar las cantidades', 'error');
+    } finally {
+      setSavingCant(false);
+    }
+  }
+
   async function handleDownloadPdf() {
     try {
       // Carga jsPDF solo al generar (no al abrir la página).
@@ -2465,7 +2498,20 @@ function OrdenDetailModal({
         />
       )}
 
-      <h4 style={{ marginTop: '1rem' }}>Ítems</h4>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginTop: '1rem' }}>
+        <h4 style={{ margin: 0 }}>Ítems</h4>
+        {/* Editar cantidades en la etapa de selección de proveedores (OP sin OC). */}
+        {canEditar && (editandoCant ? (
+          <span style={{ display: 'inline-flex', gap: '.4rem' }}>
+            <button className="btn btn-sm btn-ghost" onClick={() => setEditandoCant(false)} disabled={savingCant}>Cancelar</button>
+            <button className="btn btn-sm btn-primary" onClick={guardarCantidades} disabled={savingCant}>{savingCant ? 'Guardando…' : '✓ Guardar cantidades'}</button>
+          </span>
+        ) : (
+          <button className="btn btn-sm btn-ghost" onClick={abrirEdicionCant} title="Editar las cantidades de la SP antes de elegir el proveedor">
+            ✎ Cantidades
+          </button>
+        ))}
+      </div>
       {/* En etapa OP (sin oferta aceptada) no hay precio: se oculta Precio/Subtotal
           y se marca cuáles se compran. Con oferta aceptada (total>0) se muestra todo. */}
       {(() => {
@@ -2505,7 +2551,22 @@ function OrdenDetailModal({
               </td>
               <td style={{ fontSize: '.84rem' }}>{it.servicio_categoria?.trim() ? it.servicio_categoria : <span className="muted">—</span>}</td>
               <td style={{ fontSize: '.84rem' }}>{it.servicio_tipo?.trim() ? it.servicio_tipo : <span className="muted">—</span>}</td>
-              <td className="num">{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
+              <td className="num">
+                {editandoCant ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25rem', justifyContent: 'flex-end' }}>
+                    <input
+                      type="number" min="0" step="any" className="input mono"
+                      value={cantDraft[it.sku] ?? ''}
+                      disabled={savingCant}
+                      onChange={(e) => setCantDraft((d) => ({ ...d, [it.sku]: e.target.value }))}
+                      style={{ width: 80, textAlign: 'right', padding: '.15rem .35rem' }}
+                    />
+                    {it.unidad ? <span className="muted" style={{ fontSize: '.78rem' }}>{it.unidad}</span> : null}
+                  </span>
+                ) : (
+                  <>{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</>
+                )}
+              </td>
               {conPrecio ? (
                 <>
                   <td className="num">{money(it.precio)}</td>
