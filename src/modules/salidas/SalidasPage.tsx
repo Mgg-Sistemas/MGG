@@ -18,6 +18,7 @@ import {
 import {
   listSalidasMaterial, listTrasladosMaterial,
   listSolicitudesSalida, aprobarSolicitudSalida, ejecutarSolicitudSalida, cancelarSolicitudSalida,
+  editarSolicitudSalida,
 } from './salidas.repository';
 // descargarSalidaDineroPdf, descargarTrasladoDineroPdf y descargarOrdenSalidaPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { SalidaMaterialForm } from './SalidaMaterialForm';
@@ -186,6 +187,9 @@ export function SalidasPage() {
           puedeAprobar={puedeAprobar}
           actor={actor}
           actorName={actorName}
+          productos={productos}
+          existencias={existencias}
+          almacenes={almacenes}
           onClose={() => setModal({ kind: 'none' })}
           onChanged={reload}
         />
@@ -393,18 +397,89 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
 /* ───────────── Detalle + acciones de una solicitud ───────────── */
 
 function SolicitudDetalleModal({
-  sol, puedeAprobar, actor, actorName, onClose, onChanged,
+  sol, puedeAprobar, actor, actorName, productos, existencias, almacenes, onClose, onChanged,
 }: {
   sol: SolicitudSalida;
   puedeAprobar: boolean;
   actor: string;
   actorName: string | null;
+  productos: Producto[];
+  existencias: Existencia[];
+  almacenes: Almacen[];
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancel, setMotivoCancel] = useState('');
+
+  // Edición de la solicitud (solo material, antes de ejecutar). Reusa los datos ya
+  // cargados (productos/existencias/almacenes) para los selects.
+  const editable = sol.tipo === 'material' && (sol.estado === 'por_aprobar' || sol.estado === 'aprobada') && puedeAprobar;
+  const [editando, setEditando] = useState(false);
+  type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string };
+  const initLineas = (): LineaEd[] => {
+    const base = (sol.items && sol.items.length)
+      ? sol.items.map((it) => ({ productoId: it.producto_id, almacen: it.almacen ?? sol.almacen_origen ?? '', cantidad: Number(it.cantidad) || 0, precio: it.precio_unit }))
+      : [{ productoId: sol.producto_id ?? '', almacen: sol.almacen_origen ?? '', cantidad: Number(sol.cantidad) || 0, precio: sol.precio_unit }];
+    return base.map((it, i) => ({ id: i + 1, productoId: it.productoId, almacen: it.almacen, cantidad: String(it.cantidad || 0), precio: it.precio != null ? String(it.precio) : '' }));
+  };
+  const [edLineas, setEdLineas] = useState<LineaEd[]>([]);
+  const [edSeq, setEdSeq] = useState(1);
+  const [edDestino, setEdDestino] = useState(sol.destino ?? '');
+  const [edAlmacenDestino, setEdAlmacenDestino] = useState(sol.almacen_destino ?? '');
+  const [edMotivo, setEdMotivo] = useState(sol.motivo ?? '');
+  const [edFecha, setEdFecha] = useState(sol.fecha_entrega ?? '');
+  const [edConsumo, setEdConsumo] = useState(!!sol.consumo_interno);
+  const [edSolicitante, setEdSolicitante] = useState(sol.solicitante ?? '');
+
+  const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
+  const prodById = useMemo(() => new Map(productos.map((p) => [p.id, p])), [productos]);
+  const stockDe = (productoId: string, almacen: string) => Number(existencias.find((e) => e.producto_id === productoId && e.almacen === almacen)?.stock) || 0;
+  const almacenesProd = (productoId: string) => existencias.filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0).map((e) => e.almacen);
+  const almacenesActivos = useMemo(() => almacenes.filter((a) => a.estado === 'activo').map((a) => a.nombre), [almacenes]);
+
+  function abrirEdicion() {
+    const ls = initLineas();
+    setEdLineas(ls);
+    setEdSeq(ls.length + 1);
+    setEdDestino(sol.destino ?? '');
+    setEdAlmacenDestino(sol.almacen_destino ?? '');
+    setEdMotivo(sol.motivo ?? '');
+    setEdFecha(sol.fecha_entrega ?? '');
+    setEdConsumo(!!sol.consumo_interno);
+    setEdSolicitante(sol.solicitante ?? '');
+    setEditando(true);
+  }
+  const setLinea = (id: number, patch: Partial<LineaEd>) => setEdLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  const addLinea = () => { setEdLineas((ls) => [...ls, { id: edSeq, productoId: '', almacen: '', cantidad: '1', precio: '' }]); setEdSeq((s) => s + 1); };
+  const quitarLinea = (id: number) => setEdLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
+
+  async function guardarEdicion() {
+    const items = edLineas.map((l) => {
+      const p = prodById.get(l.productoId);
+      return { producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: Number(l.cantidad) || 0, precio_unit: l.precio !== '' ? Number(l.precio) : null, unidad: p?.unidad ?? null, almacen: l.almacen || null, observacion: null };
+    });
+    if (items.some((it) => !it.producto_id)) { toast('Elegí el material en cada renglón.', 'error'); return; }
+    if (items.some((it) => !it.almacen)) { toast('Elegí el almacén de origen en cada renglón.', 'error'); return; }
+    if (items.some((it) => it.cantidad <= 0)) { toast('Cada material debe tener cantidad mayor que 0.', 'error'); return; }
+    setBusy(true);
+    try {
+      await editarSolicitudSalida(sol, {
+        items,
+        almacenDestino: sol.scope === 'traslado' ? (edAlmacenDestino || null) : undefined,
+        destino: sol.scope === 'salida' ? edDestino : undefined,
+        motivo: edMotivo, fechaEntrega: edFecha || null, consumoInterno: edConsumo,
+        solicitante: edSolicitante,
+      }, actor);
+      notify(`Solicitud ${sol.codigo} actualizada`, 'success');
+      setEditando(false);
+      onChanged();
+      onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo editar la solicitud', 'error');
+    } finally { setBusy(false); }
+  }
 
   const ejecutarLabel =
     sol.tipo === 'dinero'
@@ -425,12 +500,23 @@ function SolicitudDetalleModal({
     }
   }
 
-  const footer = (
+  const footer = editando ? (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', justifyContent: 'flex-end', width: '100%' }}>
+      <button className="btn btn-ghost" onClick={() => setEditando(false)} disabled={busy}>Cancelar edición</button>
+      <button className="btn btn-primary" onClick={guardarEdicion} disabled={busy}>{busy ? 'Guardando…' : '✓ Guardar cambios'}</button>
+    </div>
+  ) : (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', justifyContent: 'flex-end', width: '100%' }}>
       {sol.tipo === 'material' && (
         <button className="btn btn-ghost" disabled={busy}
           onClick={() => { void import('./salidaPdf').then(({ descargarOrdenSalidaPdf }) => descargarOrdenSalidaPdf(sol)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}>
           ↓ Orden de salida (PDF)
+        </button>
+      )}
+      {editable && (
+        <button className="btn btn-ghost" disabled={busy} onClick={abrirEdicion} style={{ marginRight: 'auto' }}
+          title="Editar los datos de la solicitud antes de ejecutarla">
+          ✎ Editar solicitud
         </button>
       )}
       {puedeAprobar && sol.estado === 'por_aprobar' && (
@@ -451,6 +537,94 @@ function SolicitudDetalleModal({
       <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cerrar</button>
     </div>
   );
+
+  if (editando) {
+    return (
+      <ModalUI title={`Editar solicitud ${sol.codigo}`} size="lg" onClose={() => setEditando(false)} footer={footer}>
+        <div className="muted" style={{ fontSize: '.82rem', marginBottom: '.6rem' }}>
+          {sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de material · estado <strong>{SOL_COLS.find((c) => c.key === sol.estado)?.label}</strong>. Editás antes de ejecutar (todavía no tocó stock).
+        </div>
+        <div className="form-row">
+          <label>Solicitante</label>
+          <input className="input" value={edSolicitante} onChange={(e) => setEdSolicitante(e.target.value)} />
+        </div>
+        {sol.scope === 'salida' ? (
+          <div className="form-row">
+            <label>Dirigido a / unidad solicitante</label>
+            <input className="input" value={edDestino} onChange={(e) => setEdDestino(e.target.value)} placeholder="Gerencia, Taller, Mina…" />
+          </div>
+        ) : (
+          <div className="form-row">
+            <label>Almacén destino</label>
+            <select className="select" value={edAlmacenDestino} onChange={(e) => setEdAlmacenDestino(e.target.value)}>
+              <option value="">— elegí el almacén destino —</option>
+              {almacenesActivos.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div className="form-row" style={{ marginTop: '.5rem', marginBottom: '.3rem' }}><label>Materiales</label></div>
+        {edLineas.map((l, idx) => {
+          const opcionesAlmacen = Array.from(new Set([...(almacenesProd(l.productoId)), ...(l.almacen ? [l.almacen] : [])]));
+          const stock = stockDe(l.productoId, l.almacen);
+          const p = prodById.get(l.productoId);
+          const excede = (Number(l.cantidad) || 0) > stock;
+          return (
+            <div key={l.id} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                <strong className="muted" style={{ fontSize: '.78rem' }}>Material #{idx + 1}</strong>
+                {edLineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => quitarLinea(l.id)} title="Quitar material">✕</button>}
+              </div>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Producto</label>
+                  <select className="select" value={l.productoId} onChange={(e) => { const id = e.target.value; const alms = almacenesProd(id); setLinea(l.id, { productoId: id, almacen: alms[0] ?? '' }); }}>
+                    <option value="">— elegí el material —</option>
+                    {activos.map((pr) => <option key={pr.id} value={pr.id}>{pr.nombre} · {pr.sku}</option>)}
+                  </select>
+                </div>
+                <div className="form-row">
+                  <label>Almacén origen</label>
+                  <select className="select" value={l.almacen} onChange={(e) => setLinea(l.id, { almacen: e.target.value })}>
+                    <option value="">— elegí el almacén —</option>
+                    {(opcionesAlmacen.length ? opcionesAlmacen : almacenesActivos).map((a) => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                  <small className="muted">{l.productoId && l.almacen ? <>stock <strong className="mono">{num(stock)} {p?.unidad ?? ''}</strong></> : 'Elegí el material primero'}</small>
+                </div>
+                <div className="form-row">
+                  <label>Cantidad{p?.unidad ? ` (${p.unidad})` : ''}</label>
+                  <input className="input mono" type="number" min={0} step="any" value={l.cantidad} onChange={(e) => setLinea(l.id, { cantidad: e.target.value })} />
+                  {excede && <small style={{ color: 'var(--warning)' }}>Disponible: {num(stock)} {p?.unidad ?? ''} (se valida al ejecutar).</small>}
+                </div>
+                <div className="form-row">
+                  <label>Precio unit. (costo)</label>
+                  <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea}>＋ Agregar material</button>
+
+        <div className="form-grid" style={{ marginTop: '.8rem' }}>
+          <div className="form-row">
+            <label>Motivo / detalle</label>
+            <input className="input" value={edMotivo} onChange={(e) => setEdMotivo(e.target.value)} placeholder="Motivo del despacho…" />
+          </div>
+          <div className="form-row">
+            <label>Fecha de entrega</label>
+            <input className="input" type="date" value={edFecha} onChange={(e) => setEdFecha(e.target.value)} />
+          </div>
+        </div>
+        <div className="form-row">
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={edConsumo} onChange={(e) => setEdConsumo(e.target.checked)} />
+            Consumo interno
+          </label>
+        </div>
+      </ModalUI>
+    );
+  }
 
   return (
     <ModalUI title={`Solicitud ${sol.codigo}`} onClose={onClose} footer={footer}>
