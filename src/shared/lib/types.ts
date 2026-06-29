@@ -821,6 +821,9 @@ export interface AbonoCredito {
   nota?: string | null;
   comprobante_path?: string | null;
   comprobante_nombre?: string | null;
+  /** Comisión bancaria del abono (egreso extra de la caja; NO reduce la deuda de la OC). */
+  comision_monto?: number | null;
+  comision_moneda?: string | null;
   at: string;
 }
 
