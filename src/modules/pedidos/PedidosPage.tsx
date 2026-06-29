@@ -2636,6 +2636,16 @@ function OrdenDetailModal({
         </tbody>
         {conPrecio && (
           <tfoot>
+            {Number(o.descuento_obtenido) > 0 && (() => {
+              const desc = Number(o.descuento_obtenido) || 0;
+              const sub = Math.round((Number(o.total) + desc) * 100) / 100;
+              return (
+                <>
+                  <tr><td colSpan={6} className="num">Subtotal</td><td className="num">{money(sub)}</td><td></td></tr>
+                  <tr><td colSpan={6} className="num" style={{ color: 'var(--success)' }}>Descuento obtenido</td><td className="num" style={{ color: 'var(--success)' }}>− {money(desc)}</td><td></td></tr>
+                </>
+              );
+            })()}
             <tr>
               <td colSpan={6} className="num">TOTAL</td>
               <td className="num">{money(o.total)}</td>
@@ -2851,6 +2861,8 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   const [cond, setCond] = useState(orden.condiciones_pago ?? '');
   const [notas, setNotas] = useState(orden.notas ?? '');
   const [proveedorId, setProveedorId] = useState<string>(orden.proveedor_id ?? '');
+  // Descuento OBTENIDO (negociado), opcional: reduce el total → total = Σ ítems − descuento.
+  const [descuentoStr, setDescuentoStr] = useState(orden.descuento_obtenido != null ? String(orden.descuento_obtenido) : '');
   const [nuevoProd, setNuevoProd] = useState('');   // producto a agregar (id)
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2871,7 +2883,9 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
     [productos, skusEnOc],
   );
 
-  const total = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+  const subtotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+  const descuentoObt = Math.max(0, Math.round((Number(descuentoStr) || 0) * 100) / 100);
+  const total = Math.round(Math.max(0, subtotal - descuentoObt) * 100) / 100;
   const upd = (idx: number, patch: Partial<ItemOrden>) =>
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
   const quitarItem = (idx: number) => setItems((prev) => prev.filter((_, k) => k !== idx));
@@ -2885,7 +2899,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   async function guardar() {
     setError(null); setSaving(true);
     try {
-      await actualizarOc(orden, { items, condiciones_pago: cond || null, notas, proveedorId: proveedorId || null }, actorEmail);
+      await actualizarOc(orden, { items, condiciones_pago: cond || null, notas, proveedorId: proveedorId || null, descuentoObtenido: descuentoObt }, actorEmail);
       // Sincroniza con inventario los nombres que cambiaron respecto al original.
       const orig = new Map(orden.items.map((i) => [i.sku, i.nombre]));
       const cambios = items
@@ -2936,8 +2950,22 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
               </tr>
             ))}
           </tbody>
-          <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={3} style={{ textAlign: 'right' }}>Total</td><td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td><td></td></tr></tfoot>
+          <tfoot>
+            {descuentoObt > 0 && (
+              <>
+                <tr><td colSpan={3} style={{ textAlign: 'right' }}>Subtotal</td><td className="mono" style={{ textAlign: 'right' }}>{money(subtotal)}</td><td></td></tr>
+                <tr><td colSpan={3} style={{ textAlign: 'right', color: 'var(--success)' }}>Descuento obtenido</td><td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>− {money(descuentoObt)}</td><td></td></tr>
+              </>
+            )}
+            <tr style={{ fontWeight: 700 }}><td colSpan={3} style={{ textAlign: 'right' }}>Total</td><td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td><td></td></tr>
+          </tfoot>
         </table>
+      </div>
+      <div className="form-row" style={{ marginTop: '.5rem' }}>
+        <label>Descuento obtenido (opcional)</label>
+        <input className="input mono" type="number" min={0} step="any" value={descuentoStr}
+          onChange={(e) => setDescuentoStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
+        <small className="muted">Descuento negociado que se le resta al total (la factura a pagar). Se sincroniza con Tesorería y se ve en el PDF y la trazabilidad.</small>
       </div>
       {/* Agregar un producto nuevo a la OC (del catálogo de inventario). */}
       <div className="form-row" style={{ marginTop: '.5rem' }}>

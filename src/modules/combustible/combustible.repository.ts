@@ -48,6 +48,24 @@ export async function listSedesCombustible(): Promise<SedeCombustible[]> {
   return (data ?? []) as SedeCombustible[];
 }
 
+/** Crea una nueva sede (tarjeta) de combustible. Arranca vacía: sin combustibles ni tanques. */
+export async function crearSedeCombustible(nombre: string, titulo?: string): Promise<SedeCombustible> {
+  const n = nombre.trim();
+  if (!n) throw new Error('El nombre de la sede es obligatorio.');
+  // `clave` es el valor estable que guardan combustibles.sede / tanques.sede; debe ser único.
+  const { data: existentes } = await supabase.from('combustible_sedes').select('clave, orden');
+  const claves = new Set((existentes ?? []).map((s) => String((s as { clave: string }).clave).toUpperCase()));
+  let base = n.toUpperCase();
+  let clave = base;
+  let i = 2;
+  while (claves.has(clave)) { clave = `${base} ${i++}`; }
+  const orden = ((existentes ?? []).reduce((m, s) => Math.max(m, Number((s as { orden: number }).orden) || 0), 0)) + 1;
+  const row = { clave, nombre: n, titulo: (titulo?.trim()) || `COMBUSTIBLE ${n}`, orden };
+  const { data, error } = await supabase.from('combustible_sedes').insert(row).select('id, clave, nombre, titulo, orden').single();
+  if (error) throw error;
+  return data as SedeCombustible;
+}
+
 /** Renombra una sede: cambia el nombre de la tarjeta y el título de su vista (no toca los datos). */
 export async function renombrarSedeCombustible(id: string, nombre: string, titulo?: string): Promise<void> {
   const n = nombre.trim();

@@ -790,6 +790,8 @@ export interface Orden {
   abonado_total?: number | null;
   /** Productos ya ingresados manualmente al inventario: al recibir NO suma stock (evita duplicar). */
   sin_inventario?: boolean | null;
+  /** Descuento obtenido (negociado) que reduce el monto a pagar: total = Σ ítems − descuento. */
+  descuento_obtenido?: number | null;
   /** Seriales de los billetes entregados al pagar la OC en USD físico (efectivo). */
   seriales_billetes?: string[] | null;
   /** Marca de prioridad: ORDEN URGENTE (se refleja en el PDF y la trazabilidad). */

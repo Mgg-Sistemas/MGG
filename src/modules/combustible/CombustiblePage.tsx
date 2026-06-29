@@ -44,6 +44,7 @@ import {
   eliminarTanqueMovimiento,
   listSedesCombustible,
   renombrarSedeCombustible,
+  crearSedeCombustible,
   type SedeCombustible,
   listTanqueMovimientos,
   ultimoHorometroEquipo,
@@ -180,6 +181,7 @@ export function CombustiblePage() {
     SEDES_COMBUSTIBLE.map((s, i) => ({ id: s.key, clave: s.key, nombre: s.tarjeta, titulo: s.titulo, orden: i })),
   );
   const [sedeEdit, setSedeEdit] = useState<SedeCombustible | null>(null);
+  const [sedeNueva, setSedeNueva] = useState(false);
 
   const reload = useCallback(async () => {
     const [cs, ss, ts, vs, trs, sd] = await Promise.all([
@@ -299,6 +301,23 @@ export function CombustiblePage() {
               <div className="muted" style={{ fontSize: '.82rem', marginTop: '.5rem' }}>{s.nTanques} tanque(s) · al {hoyStr}</div>
             </div>
           ))}
+          {canWrite && (
+            <button
+              type="button"
+              className="card"
+              onClick={() => setSedeNueva(true)}
+              title="Crear una nueva sede de combustible"
+              style={{
+                cursor: 'pointer', padding: '1.6rem', borderStyle: 'dashed', borderWidth: 1,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                gap: '.5rem', minHeight: 160, color: 'var(--text)', background: 'transparent', textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: '2.4rem', fontWeight: 800, lineHeight: 1 }}>＋</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Añadir Nueva Sede</div>
+              <div className="muted" style={{ fontSize: '.82rem' }}>Arranca vacía, con todo lo que ya se tiene (tanques, combustibles, solicitudes…).</div>
+            </button>
+          )}
         </div>
       )}
 
@@ -511,6 +530,11 @@ export function CombustiblePage() {
           onClose={() => setSedeEdit(null)}
           onSaved={async () => { setSedeEdit(null); await reload(); }} />
       )}
+      {sedeNueva && (
+        <SedeNuevaModal
+          onClose={() => setSedeNueva(false)}
+          onSaved={async (nueva) => { setSedeNueva(false); await reload(); setSedeActiva(nueva.clave); }} />
+      )}
     </div>
   );
 }
@@ -551,6 +575,46 @@ function SedeRenombrarModal({ sede, onClose, onSaved }: {
         <input className="input" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder={`COMBUSTIBLE ${nombre || '…'}`} />
       </div>
       <small className="muted">Solo cambia el nombre visible; los combustibles y tanques de esta sede no se tocan. Los litros y el total siguen saliendo de los tanques.</small>
+    </Modal>
+  );
+}
+
+/* ───────────── Crear una nueva sede de combustible (tarjeta) ───────────── */
+function SedeNuevaModal({ onClose, onSaved }: {
+  onClose: () => void; onSaved: (nueva: SedeCombustible) => void;
+}) {
+  const [nombre, setNombre] = useState('');
+  const [titulo, setTitulo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    if (!nombre.trim()) { setError('El nombre es obligatorio.'); return; }
+    setSaving(true); setError(null);
+    try {
+      const nueva = await crearSedeCombustible(nombre, titulo);
+      toast('Sede creada', 'success');
+      onSaved(nueva);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo crear'); setSaving(false); }
+  }
+
+  return (
+    <Modal title="＋ Añadir nueva sede" size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Creando…' : 'Crear sede'}</button>
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      <div className="form-row">
+        <label>Nombre de la tarjeta</label>
+        <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus placeholder="LOS PINOS, MGG…" />
+      </div>
+      <div className="form-row">
+        <label>Título de la vista <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        <input className="input" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder={`COMBUSTIBLE ${nombre || '…'}`} />
+      </div>
+      <small className="muted">La sede arranca vacía. Al entrar tendrás exactamente las mismas opciones que las demás: agregar tanques, combustibles, registrar movimientos y solicitudes de salida.</small>
     </Modal>
   );
 }

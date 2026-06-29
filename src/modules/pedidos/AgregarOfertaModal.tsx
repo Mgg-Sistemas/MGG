@@ -92,6 +92,8 @@ export function AgregarOfertaModal({
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEdit?.fecha_entrega_prometida ?? '');
   const [condiciones, setCondiciones] = useState(ofertaEdit?.condiciones_pago ?? '');
   const [notas, setNotas] = useState(ofertaEdit?.notas ?? '');
+  // Descuento OBTENIDO (negociado): reduce el monto de la factura (total a pagar).
+  const [descuentoStr, setDescuentoStr] = useState(ofertaEdit?.descuento != null ? String(ofertaEdit.descuento) : '');
   // Datos técnicos/logísticos de la oferta (todos opcionales).
   const [detalle, setDetalle] = useState<OfertaDetalle>(ofertaEdit?.detalle ?? {});
   const setD = (patch: Partial<OfertaDetalle>) => setDetalle((d) => ({ ...d, ...patch }));
@@ -133,6 +135,10 @@ export function AgregarOfertaModal({
   const precioEfectivo = usdTotal > 0 ? Math.round(usdTotal * 100) / 100 : 0;
   // Diferencia y % de ahorro al pagar en divisa efectivo (BCV − efectivo) / BCV.
   const ahorroEfectivo = descuentoEfectivo(precioTotal, precioEfectivo);
+  // Descuento obtenido y monto de la factura resultante (sobre el efectivo si hay, si no el BCV).
+  const descuentoObt = Math.max(0, Math.round((Number(descuentoStr) || 0) * 100) / 100);
+  const baseFactura = precioEfectivo > 0 ? precioEfectivo : precioTotal;
+  const facturaNeta = Math.round(Math.max(0, baseFactura - descuentoObt) * 100) / 100;
 
   function updateItemPrecio(idx: number, precio: number) {
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precio: Math.max(0, precio) } : it)));
@@ -201,7 +207,7 @@ export function AgregarOfertaModal({
           items: itemsLimpios,
           precio_total: precioTotal,
           precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
-          descuento: null,
+          descuento: descuentoObt > 0 ? descuentoObt : null,
           fecha_entrega_prometida: fechaEntrega || null,
           condiciones_pago: condiciones.trim() || null,
           notas: notas.trim() || null,
@@ -256,6 +262,7 @@ export function AgregarOfertaModal({
         items: itemsLimpios,
         precio_total: precioTotal,
         precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
+        descuento: descuentoObt > 0 ? descuentoObt : null,
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
         notas: notas.trim() || null,
@@ -541,6 +548,17 @@ export function AgregarOfertaModal({
           {ahorroEfectivo && (
             <div>Diferencia: <strong>{money(ahorroEfectivo.diferencia)}</strong> <span className="badge success" style={{ marginLeft: '.3rem' }}>−{ahorroEfectivo.pct.toFixed(2)}%</span></div>
           )}
+        </div>
+        {/* Descuento OBTENIDO (negociado): reduce el monto de la factura. */}
+        <div className="form-row" style={{ marginTop: '.6rem' }}>
+          <label>Descuento obtenido (opcional)</label>
+          <input className="input mono" type="number" min={0} step="any" value={descuentoStr}
+            onChange={(e) => setDescuentoStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
+          <small className="muted">
+            Descuento negociado que se le resta al monto. Factura a pagar:{' '}
+            <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(facturaNeta)}</strong>
+            {descuentoObt > 0 && <> · descuento <strong className="mono">{money(descuentoObt)}</strong></>}
+          </small>
         </div>
       </div>
 

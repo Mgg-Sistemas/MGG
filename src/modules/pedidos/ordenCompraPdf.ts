@@ -253,6 +253,16 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       ['Ahorro por pago en efectivo', `${money(ahorro.diferencia)}  (−${ahorro.pct.toFixed(2)}%)`],
     );
   }
+  // Descuento OBTENIDO (negociado): subtotal − descuento = total a pagar.
+  const descObt = Number(orden.descuento_obtenido) || 0;
+  if (descObt > 0) {
+    const subtotalOc = Math.round(((Number(orden.total) || 0) + descObt) * 100) / 100;
+    tecnFilas.push(
+      ['Subtotal', money(subtotalOc)],
+      ['Descuento obtenido', `− ${money(descObt)}`],
+      ['Total a pagar (con descuento)', money(Number(orden.total) || 0)],
+    );
+  }
   if (tecnFilas.length) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
