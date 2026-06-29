@@ -1559,6 +1559,8 @@ alter table public.ordenes add column if not exists abonado_total  numeric defau
 -- Compra cuyos productos YA se ingresaron manualmente al inventario: al recibirla
 -- NO se generan entradas de stock (evita duplicar). La orden igual se recibe/finaliza.
 alter table public.ordenes add column if not exists sin_inventario boolean not null default false;
+-- Descuento OBTENIDO (negociado) que reduce el monto de la factura: total = Σ ítems − descuento.
+alter table public.ordenes add column if not exists descuento_obtenido numeric;
 -- Seriales de los billetes entregados cuando se paga una OC en USD físico (efectivo).
 alter table public.ordenes add column if not exists seriales_billetes text[];
 -- Snapshot de la oferta elegida: datos técnicos/logísticos + precio en divisa efectivo (se ven en la OC y su PDF).

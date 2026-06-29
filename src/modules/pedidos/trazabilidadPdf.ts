@@ -159,7 +159,17 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
       money(it.precio),
       money(it.cantidad * it.precio),
     ]),
-    foot: [['', '', '', '', '', 'TOTAL', money(orden.total)]],
+    foot: (() => {
+      const descObt = Number(orden.descuento_obtenido) || 0;
+      const subtotalItems = orden.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0);
+      return descObt > 0
+        ? [
+          ['', '', '', '', '', 'Subtotal', money(subtotalItems)],
+          ['', '', '', '', '', 'Descuento obtenido', `- ${money(descObt)}`],
+          ['', '', '', '', '', 'TOTAL', money(orden.total)],
+        ]
+        : [['', '', '', '', '', 'TOTAL', money(orden.total)]];
+    })(),
     theme: 'grid',
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
@@ -210,6 +220,9 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ['Proveedor adjudicado', proveedorFinal?.razon_social ?? '—'],
     ['RIF', proveedorFinal?.rif ?? '—'],
     ['Contacto', proveedorFinal?.contacto ?? '—'],
+    ...((Number(orden.descuento_obtenido) || 0) > 0
+      ? [['Descuento obtenido', `- ${money(Number(orden.descuento_obtenido) || 0)}`]] as Array<[string, string]>
+      : []),
     ['Total de la orden', money(orden.total)],
     ['Almacén destino', orden.almacen_destino ?? '—'],
     ['OC confirmada por', orden.oc_aprobada_en ? quien(orden.oc_aprobada_por) : '—'],

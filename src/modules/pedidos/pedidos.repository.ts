@@ -365,6 +365,8 @@ export interface EditarOcInput {
   notas?: string | null;
   /** Reasignar el proveedor de la OC (opcional). Si cambia, la OC se reabre a aprobación. */
   proveedorId?: string | null;
+  /** Descuento obtenido (negociado), opcional: reduce el total → total = Σ ítems − descuento. */
+  descuentoObtenido?: number | null;
 }
 
 /**
@@ -379,13 +381,19 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
   const editable = o.estado === 'oc_creada' || o.estado === 'confirmada_metodo';
   if (!editable) throw new Error('Solo se puede editar la OC mientras está por aprobar o pendiente de cargar el método de pago.');
   if (!input.items.length) throw new Error('La OC debe tener al menos un producto.');
-  const total = input.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+  const subtotal = input.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+  // Descuento obtenido (negociado): si viene en el input se usa; si no, se conserva el de la OC.
+  const descObt = input.descuentoObtenido !== undefined
+    ? Math.max(0, Math.round((Number(input.descuentoObtenido) || 0) * 100) / 100)
+    : (o.descuento_obtenido != null ? Math.max(0, Number(o.descuento_obtenido)) : 0);
+  const total = Math.round(Math.max(0, subtotal - descObt) * 100) / 100;
   // Cambio de proveedor (opcional): si difiere del actual, la OC se reabre a aprobación.
   const cambiaProveedor = input.proveedorId !== undefined && input.proveedorId !== o.proveedor_id;
   const reabre = o.estado === 'confirmada_metodo' || cambiaProveedor;
   const patch: Record<string, unknown> = {
     items: input.items,
     total,
+    descuento_obtenido: descObt || null,
     condiciones_pago: input.condiciones_pago ?? o.condiciones_pago ?? null,
     notas: input.notas?.trim() || null,
     historial: appendHistorial(o, reabre ? 'oc_reabierta_edicion' : 'oc_editada', actorEmail),
@@ -487,7 +495,7 @@ export async function aprobarOrdenConOferta(
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
-    .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo')
+    .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo, descuento')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -519,6 +527,9 @@ export async function aprobarOrdenConOferta(
   // queda en oferta_precio_bcv para mostrar el ahorro). Así el inventario recibe el costo real.
   // En solo-USD el precio YA es la divisa: no hay "descuento por efectivo" que aplicar.
   const efectivoOf = soloUsd ? null : (ofRow?.precio_efectivo != null ? Number(ofRow.precio_efectivo) : null);
+  // Descuento OBTENIDO (negociado): reduce el total de la OC (la factura) sin re-preciar
+  // los ítems → total = Σ ítems − descuento. Se arrastra a la OC para mostrarlo/editarlo.
+  const descObt = ofRow?.descuento != null ? Math.max(0, Math.round(Number(ofRow.descuento) * 100) / 100) : 0;
 
   // Productos en $0 (sin precio en la oferta) NO entran a la OC. Si quedan productos
   // con precio, se crea la OC solo con esos y la SP madre conserva los $0 en
@@ -537,6 +548,7 @@ export async function aprobarOrdenConOferta(
       condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
       oferta_detalle: (ofRow?.detalle as Orden['oferta_detalle']) ?? null,
       oferta_precio_efectivo: efectivoOf,
+      descuento: descObt || null,
     }], actorEmail);
     const { data: padre, error: padreErr } = await supabase.from(TABLE).select('*').eq('id', o.id).single();
     if (padreErr) throw padreErr;
@@ -544,11 +556,14 @@ export async function aprobarOrdenConOferta(
   }
 
   const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
+  const subtotalOc = repEf ? repEf.total : totalBase;
+  const totalOc = Math.round(Math.max(0, subtotalOc - descObt) * 100) / 100;
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
     items: repEf ? repEf.items : itemsConContexto,
-    total: repEf ? repEf.total : totalBase,
+    total: totalOc,
+    descuento_obtenido: descObt || null,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     // Snapshot de la oferta elegida: datos técnicos/logísticos + precio efectivo (se ven en la OC y su PDF).
@@ -582,6 +597,8 @@ export interface AsignacionProveedor {
   condiciones_pago?: string | null;
   oferta_detalle?: Orden['oferta_detalle'];
   oferta_precio_efectivo?: number | null;
+  /** Descuento obtenido (negociado) de esta sub-OC: reduce su total. */
+  descuento?: number | null;
 }
 
 /** OC hijas (sub-OC por proveedor) ya creadas para una OP. */
@@ -622,7 +639,10 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
     // Descuento por efectivo: reprecia la sub-OC al precio efectivo (si lo hay).
     const repEf = reprecioPorEfectivo(itemsBase, a.oferta_precio_efectivo);
     const items = repEf ? repEf.items : itemsBase;
-    const total = repEf ? repEf.total : totalBase;
+    const subtotal = repEf ? repEf.total : totalBase;
+    // Descuento obtenido (negociado) de esta sub-OC: reduce su total (factura).
+    const descObt = a.descuento != null ? Math.max(0, Math.round(Number(a.descuento) * 100) / 100) : 0;
+    const total = Math.round(Math.max(0, subtotal - descObt) * 100) / 100;
     const ocCodigo = await nextOcCodigo();
     const row = {
       codigo: `${op.codigo}-${n}`,
@@ -634,6 +654,7 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       ci_solicitante: op.ci_solicitante ?? null,
       items,
       total,
+      descuento_obtenido: descObt || null,
       estado: 'oc_creada' as EstadoOrden,
       motivo: op.motivo ?? null,
       finalidad: op.finalidad ?? null,
