@@ -1260,7 +1260,11 @@ export async function recibirOrdenParcial(
   actorEmail: string,
   actorName: string | null,
   almacenDestino?: string | null,
+  sinInventario?: boolean,
 ): Promise<Orden> {
+  // Compra cuyos productos ya se cargaron manualmente al inventario: se recibe la
+  // orden (estado/total) pero NO se generan entradas de stock (evita duplicar).
+  const omitirInventario = sinInventario === true || o.sin_inventario === true;
   // 'cuenta_abierta' = crédito: la mercancía puede llegar ANTES de terminar de pagar.
   if (!['por_recibir', 'cuenta_abierta', 'pagada', 'oc_emitida', 'aprobada'].includes(o.estado))
     throw new Error('La orden no está en un estado recibible.');
@@ -1276,7 +1280,8 @@ export async function recibirOrdenParcial(
     throw new Error('Indicá al menos una cantidad recibida.');
 
   // Entradas al inventario solo por lo recibido (>0), recalculando PMP por ítem.
-  await Promise.all(o.items.map(async (it) => {
+  // Si la orden está marcada "sin inventario" (carga manual previa), se omite.
+  if (!omitirInventario) await Promise.all(o.items.map(async (it) => {
     const rec = recMap.get(it.sku) ?? 0;
     if (!it.productoId || rec <= 0) return;
     const { data: prod, error: pErr } = await supabase
@@ -1348,11 +1353,12 @@ export async function recibirOrdenParcial(
     estado: estadoRecepcion,
     items: itemsRec,
     recibido_total: recibidoTotal,
+    sin_inventario: omitirInventario,
     ...(destinoFinal ? { almacen_destino: destinoFinal } : {}),
     nota_recepcion: huboDiferencia ? (nota?.trim() || 'Recepción parcial: llegó menos de lo solicitado.') : (nota?.trim() || null),
     recibida_por: actorEmail,
     recibida_en: new Date().toISOString(),
-    historial: appendHistorial(o, 'recibida', actorEmail, { recibido_total: recibidoTotal, parcial: huboDiferencia, nota: nota?.trim() || null, almacen_destino: destinoFinal }),
+    historial: appendHistorial(o, 'recibida', actorEmail, { recibido_total: recibidoTotal, parcial: huboDiferencia, nota: nota?.trim() || null, almacen_destino: destinoFinal, sin_inventario: omitirInventario }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;

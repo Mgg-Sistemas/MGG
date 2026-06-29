@@ -788,6 +788,8 @@ export interface Orden {
   recibida_en?: string | null;
   /** Compras a crédito: total abonado acumulado. */
   abonado_total?: number | null;
+  /** Productos ya ingresados manualmente al inventario: al recibir NO suma stock (evita duplicar). */
+  sin_inventario?: boolean | null;
   /** Seriales de los billetes entregados al pagar la OC en USD físico (efectivo). */
   seriales_billetes?: string[] | null;
   /** Marca de prioridad: ORDEN URGENTE (se refleja en el PDF y la trazabilidad). */

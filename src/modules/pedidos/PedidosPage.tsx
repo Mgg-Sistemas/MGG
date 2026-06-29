@@ -935,7 +935,7 @@ export function PedidosPage() {
         <RecepcionParcialModal
           orden={modal.orden}
           onClose={() => setModal({ kind: 'none' })}
-          onConfirm={async (recepciones, nota, almacenDestino) => {
+          onConfirm={async (recepciones, nota, almacenDestino, sinInventario) => {
             try {
               await recibirOrdenParcial(
                 modal.orden,
@@ -944,13 +944,17 @@ export function PedidosPage() {
                 usuario?.email ?? user?.email ?? 'sistema',
                 usuario?.nombre ?? null,
                 almacenDestino,
+                sinInventario,
               );
               const esContra = modal.orden.condiciones_pago === 'contra_entrega';
+              const omitio = sinInventario || modal.orden.sin_inventario === true;
               notify(
                 esContra
                   ? `Recepción confirmada · ${modal.orden.codigo} · indicá el método para pagar lo recibido`
-                  : `Mercancía recibida · ${modal.orden.codigo} · stock actualizado`,
-                'success', { link: esContra ? '#/app/pedidos' : '#/app/inventario' },
+                  : omitio
+                    ? `Recepción confirmada · ${modal.orden.codigo} · sin sumar al inventario (carga manual)`
+                    : `Mercancía recibida · ${modal.orden.codigo} · stock actualizado`,
+                'success', { link: esContra || omitio ? '#/app/pedidos' : '#/app/inventario' },
               );
               setModal({ kind: 'none' });
               await refresh();
@@ -1464,7 +1468,7 @@ function RecepcionParcialModal({
 }: {
   orden: Orden;
   onClose: () => void;
-  onConfirm: (recepciones: { sku: string; cantidad_recibida: number }[], nota: string | null, almacenDestino: string) => Promise<void> | void;
+  onConfirm: (recepciones: { sku: string; cantidad_recibida: number }[], nota: string | null, almacenDestino: string, sinInventario: boolean) => Promise<void> | void;
 }) {
   const [recs, setRecs] = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {};
@@ -1472,6 +1476,8 @@ function RecepcionParcialModal({
     return m;
   });
   const [nota, setNota] = useState('');
+  // "Sin inventario": los productos ya se ingresaron manualmente, no sumar stock al recibir.
+  const [sinInv, setSinInv] = useState<boolean>(orden.sin_inventario === true);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   // Un SERVICIO no se almacena por sede: entra directo al inventario General (sin elegir almacén).
   const esServicio = orden.clase === 'servicio';
@@ -1532,7 +1538,7 @@ function RecepcionParcialModal({
     if (!esServicio && !almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
     setSaving(true);
-    try { await onConfirm(recepciones, nota.trim() || null, almacen.trim()); }
+    try { await onConfirm(recepciones, nota.trim() || null, almacen.trim(), sinInv); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo confirmar'); setSaving(false); }
   }
 
@@ -1611,6 +1617,18 @@ function RecepcionParcialModal({
         <label>Nota de recepción {hayDiferencia && <span style={{ color: 'var(--warning)' }}>(obligatoria · llegó menos de lo pedido)</span>}</label>
         <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
           placeholder="Diferencias, faltantes, observaciones de la recepción…" />
+      </div>
+
+      <div className="form-row" style={{ marginTop: '.5rem' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+          <input type="checkbox" checked={sinInv} onChange={(e) => setSinInv(e.target.checked)} style={{ cursor: 'pointer' }} />
+          <span>No sumar al inventario (productos ya ingresados manualmente)</span>
+        </label>
+        {sinInv && (
+          <small className="muted" style={{ display: 'block', color: 'var(--warning)' }}>
+            ⚠ Esta orden se recibirá y cerrará, pero <strong>no</strong> generará entradas de stock (evita duplicar lo cargado a mano).
+          </small>
+        )}
       </div>
       {orden.condiciones_pago === 'contra_entrega' && (
         <small className="muted" style={{ display: 'block' }}>
@@ -2508,7 +2526,14 @@ function OrdenDetailModal({
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginTop: '1rem' }}>
-        <h4 style={{ margin: 0 }}>Ítems</h4>
+        <h4 style={{ margin: 0 }}>
+          Ítems
+          {o.sin_inventario === true && (
+            <span className="badge warning" style={{ marginLeft: '.5rem', fontWeight: 600 }} title="Al recibir no suma stock: los productos se ingresaron manualmente">
+              📦 Sin inventario
+            </span>
+          )}
+        </h4>
         {/* Editar cantidades antes de aprobar la OC (OP y OC creada sin confirmar). */}
         {canEditarCant && (editandoCant ? (
           <span style={{ display: 'inline-flex', gap: '.4rem' }}>
