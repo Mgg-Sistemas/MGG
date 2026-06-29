@@ -494,6 +494,91 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   if (error) throw error;
 }
 
+export interface EditarSolicitudSalidaInput {
+  /** Detalle multi-producto (manda sobre producto/cantidad de cabecera). */
+  items?: ItemSolicitudSalida[] | null;
+  productoId?: string | null;
+  productoNombre?: string | null;
+  almacenOrigen?: string | null;
+  almacenDestino?: string | null;
+  cantidad?: number | null;
+  precioUnit?: number | null;
+  destino?: string | null;
+  motivo?: string | null;
+  fechaEntrega?: string | null;
+  consumoInterno?: boolean | null;
+  solicitante?: string | null;
+}
+
+/**
+ * Edita una solicitud de salida/traslado mientras está POR APROBAR o APROBADA
+ * (antes de ejecutarse: todavía no tocó stock/saldo). Permite corregir todos los
+ * datos —producto(s), cantidad, almacén origen/destino, precio, destino, motivo,
+ * fecha, consumo interno—. No se edita una vez EJECUTADA (ya movió inventario).
+ */
+export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSolicitudSalidaInput, actor: string): Promise<SolicitudSalida> {
+  if (!['por_aprobar', 'aprobada'].includes(s.estado))
+    throw new Error('Solo se edita una solicitud Por aprobar o Aprobada (antes de ejecutarla).');
+
+  const itemsLimpios = (input.items ?? [])
+    .map((it) => ({
+      producto_id: it.producto_id,
+      producto_nombre: it.producto_nombre ?? null,
+      cantidad: Number(it.cantidad) || 0,
+      precio_unit: it.precio_unit != null ? Number(it.precio_unit) : null,
+      unidad: it.unidad ?? null,
+      almacen: it.almacen ?? null,
+      observacion: it.observacion?.trim() || null,
+    }))
+    .filter((it) => it.producto_id && it.cantidad > 0);
+
+  const almacenOrigenCab = input.almacenOrigen ?? itemsLimpios.find((it) => it.almacen)?.almacen ?? s.almacen_origen ?? null;
+
+  if (s.tipo === 'material') {
+    if (itemsLimpios.length) {
+      if (itemsLimpios.some((it) => it.cantidad <= 0)) throw new Error('Cada material debe tener cantidad mayor que 0.');
+    } else {
+      const cantidad = Number(input.cantidad) || 0;
+      if (cantidad <= 0) throw new Error('La cantidad debe ser mayor que 0.');
+      if (!input.productoId) throw new Error('Elegí el producto.');
+    }
+    if (!almacenOrigenCab) throw new Error('Indicá el almacén de origen.');
+    if (s.scope === 'traslado') {
+      const dest = input.almacenDestino !== undefined ? input.almacenDestino : s.almacen_destino;
+      if (!dest) throw new Error('Indicá el almacén destino.');
+      if ((itemsLimpios.length ? itemsLimpios.some((it) => it.almacen === dest) : almacenOrigenCab === dest))
+        throw new Error('El almacén origen y destino deben ser distintos.');
+    } else if (!(input.destino !== undefined ? input.destino?.trim() : s.destino?.trim())) {
+      throw new Error('Indicá la unidad solicitante / destino.');
+    }
+  } else {
+    const monto = input.cantidad != null ? Number(input.cantidad) : Number(s.monto) || 0;
+    if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+  }
+
+  const cab = itemsLimpios[0] ?? null;
+  const patch: Record<string, unknown> = {
+    producto_id: cab ? cab.producto_id : (input.productoId !== undefined ? input.productoId : s.producto_id),
+    producto_nombre: cab ? cab.producto_nombre : (input.productoNombre !== undefined ? input.productoNombre : s.producto_nombre),
+    almacen_origen: almacenOrigenCab,
+    almacen_destino: input.almacenDestino !== undefined ? input.almacenDestino : s.almacen_destino,
+    cantidad: cab ? cab.cantidad : (input.cantidad != null ? Number(input.cantidad) : s.cantidad),
+    precio_unit: cab ? cab.precio_unit : (input.precioUnit != null ? Number(input.precioUnit) : s.precio_unit),
+    items: itemsLimpios.length ? itemsLimpios : null,
+    destino: input.destino !== undefined ? (input.destino?.trim() || null) : s.destino,
+    motivo: input.motivo !== undefined ? (input.motivo?.trim() || null) : s.motivo,
+    fecha_entrega: input.fechaEntrega !== undefined ? (input.fechaEntrega || null) : s.fecha_entrega,
+    consumo_interno: input.consumoInterno !== undefined ? !!input.consumoInterno : s.consumo_interno,
+    solicitante: (input.solicitante?.trim()) || s.solicitante,
+    historial: appendHistorial(s, 'editada', actor),
+  };
+  const { data, error } = await supabase.from(SOL).update(patch).eq('id', s.id).select('*').single();
+  if (error) throw error;
+  // Mantener sincronizada la unidad solicitante en el catálogo compartido con OP.
+  if (s.tipo === 'material' && s.scope === 'salida' && input.destino) void ensureUnidadSolicitante(input.destino, actor);
+  return data as SolicitudSalida;
+}
+
 export async function cancelarSolicitudSalida(s: SolicitudSalida, actor: string, motivo: string): Promise<void> {
   if (s.estado === 'ejecutada') throw new Error('No se puede cancelar una solicitud ya ejecutada.');
   const { error } = await supabase
