@@ -151,6 +151,8 @@ function eventLabel(ev: string): string {
       cancelada: 'Cancelada por la empresa',
       desistida_proveedor: 'Proveedor desistió',
       proveedor_cambiado: 'Cambio de proveedor',
+      editada: 'Orden editada',
+      cantidades_editadas: 'Cantidades editadas',
       oc_creada: 'OC creada (oferta elegida)',
       oc_editada: 'OC editada',
       oc_reabierta_edicion: 'OC modificada · vuelve a aprobación del Gerente',
@@ -175,6 +177,8 @@ function eventClass(ev: string): string {
       cancelada: 'err',
       desistida_proveedor: 'warn',
       proveedor_cambiado: 'info',
+      editada: 'info',
+      cantidades_editadas: 'info',
       oc_creada: 'info',
       oc_editada: 'info',
       oc_reabierta_edicion: 'warn',
@@ -1977,6 +1981,11 @@ function OrdenDetailModal({
   // compras o el propio solicitante que la creó. Con OC ya creada se usa «Editar OC».
   const canEditar = (isPendiente || o.estado === 'aprobada') && !o.oc_codigo
     && (canManageProcurement || o.solicitante_email === actorEmail);
+  // Editar las CANTIDADES (inline) mientras la OC todavía no fue aprobada por el
+  // Gerente: en la OP (pendiente/aprobada) y también en la OC recién creada sin
+  // confirmar (oc_creada). Al guardar, se re-sincronizan las ofertas pendientes.
+  const canEditarCant = (['pendiente', 'aprobada', 'oc_creada'].includes(o.estado))
+    && (canManageProcurement || o.solicitante_email === actorEmail);
   const isOcCreada = o.estado === 'oc_creada';      // oferta elegida, sin confirmar
   const isConfirmadaMetodo = o.estado === 'confirmada_metodo'; // gerente confirmó → falta método de pago
   const isOcAprobada = o.estado === 'oc_aprobada';  // método indicado → Tesorería
@@ -2500,8 +2509,8 @@ function OrdenDetailModal({
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginTop: '1rem' }}>
         <h4 style={{ margin: 0 }}>Ítems</h4>
-        {/* Editar cantidades en la etapa de selección de proveedores (OP sin OC). */}
-        {canEditar && (editandoCant ? (
+        {/* Editar cantidades antes de aprobar la OC (OP y OC creada sin confirmar). */}
+        {canEditarCant && (editandoCant ? (
           <span style={{ display: 'inline-flex', gap: '.4rem' }}>
             <button className="btn btn-sm btn-ghost" onClick={() => setEditandoCant(false)} disabled={savingCant}>Cancelar</button>
             <button className="btn btn-sm btn-primary" onClick={guardarCantidades} disabled={savingCant}>{savingCant ? 'Guardando…' : '✓ Guardar cantidades'}</button>
