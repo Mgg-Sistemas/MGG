@@ -292,7 +292,20 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   }
 
   // ── Firmas al pie ──
-  const fy = PAGE_H - MARGIN - 50;
+  // Se ubican al pie de la página, pero si la tabla es larga y el contenido
+  // llega hasta abajo, se bajan debajo del contenido o saltan a una nueva página
+  // (evita que la firma/el bloque se solape con los ítems).
+  const needTop = 52;  // espacio sobre la línea (firma)
+  const needBot = 34;  // espacio bajo la línea (etiquetas + nombre)
+  let fy = PAGE_H - MARGIN - needBot;          // posición preferida (pie de página)
+  if (y + needTop > fy) {                       // el contenido invade la zona de firmas
+    if (y + needTop + needBot <= PAGE_H - MARGIN) {
+      fy = y + needTop;                          // cabe justo debajo del contenido
+    } else {
+      doc.addPage();                             // no cabe: nueva página
+      fy = MARGIN + needTop;
+    }
+  }
   const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
   const cxAutoriza = MARGIN + colW + 40 + colW / 2;
   // Firma de Leydis Rengel (Salidas/Traslados) sobre la línea de "Autorizado por",
