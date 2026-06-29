@@ -565,7 +565,9 @@ function SolicitudDetalleModal({
 
         <div className="form-row" style={{ marginTop: '.5rem', marginBottom: '.3rem' }}><label>Materiales</label></div>
         {edLineas.map((l, idx) => {
-          const opcionesAlmacen = Array.from(new Set([...(almacenesProd(l.productoId)), ...(l.almacen ? [l.almacen] : [])]));
+          // Todos los almacenes activos (incluye subalmacenes como Los Pinos), no solo
+          // los que ya tienen stock del producto; el aviso de stock se muestra abajo.
+          const opcionesAlmacen = Array.from(new Set([...almacenesActivos, ...(l.almacen ? [l.almacen] : [])]));
           const stock = stockDe(l.productoId, l.almacen);
           const p = prodById.get(l.productoId);
           const excede = (Number(l.cantidad) || 0) > stock;
@@ -587,9 +589,14 @@ function SolicitudDetalleModal({
                   <label>Almacén origen</label>
                   <select className="select" value={l.almacen} onChange={(e) => setLinea(l.id, { almacen: e.target.value })}>
                     <option value="">— elegí el almacén —</option>
-                    {(opcionesAlmacen.length ? opcionesAlmacen : almacenesActivos).map((a) => <option key={a} value={a}>{a}</option>)}
+                    {(opcionesAlmacen.length ? opcionesAlmacen : almacenesActivos)
+                      .map((a) => ({ a, st: stockDe(l.productoId, a) }))
+                      .sort((x, y) => y.st - x.st || x.a.localeCompare(y.a, 'es'))
+                      .map(({ a, st }) => (
+                        <option key={a} value={a}>{a}{l.productoId ? ` — ${num(st)} ${p?.unidad ?? 'und'}` : ''}</option>
+                      ))}
                   </select>
-                  <small className="muted">{l.productoId && l.almacen ? <>stock <strong className="mono">{num(stock)} {p?.unidad ?? ''}</strong></> : 'Elegí el material primero'}</small>
+                  <small className="muted">{l.productoId && l.almacen ? <>stock en {l.almacen}: <strong className="mono">{num(stock)} {p?.unidad ?? ''}</strong></> : 'Elegí el material primero'}</small>
                 </div>
                 <div className="form-row">
                   <label>Cantidad{p?.unidad ? ` (${p.unidad})` : ''}</label>
