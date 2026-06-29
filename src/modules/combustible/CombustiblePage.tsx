@@ -82,6 +82,9 @@ const SEDES_COMBUSTIBLE: { key: string; tarjeta: string; titulo: string }[] = [
   { key: 'MATANZAS', tarjeta: 'MGG', titulo: 'COMBUSTIBLE MGG - MATANZAS' },
 ];
 const SEDE_POR_DEFECTO = 'MATANZAS'; // los datos legados (sin sede) cuentan acá.
+// Caso particular: en esta sede el movimiento NO lleva equipo/máquina ni horómetro/km
+// (es solo carga/consumo del tanque). El resto de sedes se maneja como siempre.
+const SEDE_SIN_EQUIPO = 'LA GUAIRA COLISEO - DIESEL';
 function sedeDe(x: { sede?: string | null }): string { return (x.sede || '').trim() || SEDE_POR_DEFECTO; }
 // Tipos de movimiento de tanque (suman / restan).
 const TIPOS_MOVIMIENTO: { value: TipoMovimientoTanque; label: string; signo: '+' | '−' }[] = [
@@ -472,7 +475,7 @@ export function CombustiblePage() {
           onClose={() => setModal('none')} onChanged={reload} />
       )}
       {modal === 'movimiento' && (
-        <RegistrarMovimientoModal tanques={tanquesSede} vehiculos={vehiculos} combustibles={combSede} actor={actor} actorName={miNombre}
+        <RegistrarMovimientoModal tanques={tanquesSede} vehiculos={vehiculos} combustibles={combSede} actor={actor} actorName={miNombre} sede={sedeActiva}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
       {modal === 'movimientos' && (
@@ -728,9 +731,11 @@ function SolicitudModal({ combustibles, tanques, vehiculos, actor, defaultSolici
 }
 
 /* ───────────── Registrar Movimiento de tanque (reemplaza "Registrar ingreso") ───────────── */
-function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, actorName, onClose, onSaved }: {
-  tanques: Tanque[]; vehiculos: VehiculoMaquina[]; combustibles: Combustible[]; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, actorName, sede, onClose, onSaved }: {
+  tanques: Tanque[]; vehiculos: VehiculoMaquina[]; combustibles: Combustible[]; actor: string; actorName: string | null; sede: string | null; onClose: () => void; onSaved: () => void;
 }) {
+  // En la sede particular (LA GUAIRA): el equipo/máquina, horómetro y kilometraje no aplican.
+  const ocultarEquipo = sede === SEDE_SIN_EQUIPO;
   const activosTq = useMemo(() => tanques.filter((t) => t.estado === 'activo'), [tanques]);
   const [tanqueId, setTanqueId] = useState(activosTq[0]?.id ?? '');
   const [tipo, setTipo] = useState<TipoMovimientoTanque>('ingreso');
@@ -887,46 +892,57 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
             <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required autoFocus />
           </div>
         )}
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Equipo</label>
-            <ComboBuscador value={equipo} onChange={(v) => void cambiarEquipo(v)}
-              opciones={vehiculosAct.map((v) => ({ value: v.nombre, label: v.nombre }))}
-              placeholder="🔎 Buscá el equipo…" icono="🚜" />
-          </div>
+        {ocultarEquipo ? (
           <div className="form-row">
             <label>Autorizado por</label>
             <ComboBuscador value={autorizado} onChange={setAutorizado}
               opciones={autorizados.map((a) => ({ value: a.nombre, label: a.nombre }))}
               placeholder="🔎 Buscá quién autorizó…" icono="🧑‍⚖️" />
           </div>
-        </div>
-        {/* Horómetro por equipo: el HF queda como HI del próximo movimiento del mismo equipo. */}
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Horómetro inicial (HI){hiBloqueado && ' 🔒'}</label>
-            <input className="input mono" type="number" min={0} step="any" value={hi} onChange={(e) => setHi(e.target.value)}
-              readOnly={hiBloqueado}
-              style={hiBloqueado ? { background: 'rgba(255,255,255,.05)', cursor: 'not-allowed', opacity: .85 } : undefined}
-              placeholder={equipo ? 'Primer HI del equipo' : 'Elegí un equipo'} />
-            {equipo && (hiBloqueado
-              ? <small className="muted">🔒 Encadenado: es el último HF de {equipo} (no se modifica).</small>
-              : <small className="muted">Primera carga de {equipo}: ingresá el HI inicial; de ahí en más se encadena solo.</small>)}
-          </div>
-          <div className="form-row">
-            <label>Horómetro final (HF)</label>
-            <input className="input mono" type="number" min={0} step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
-            {horasEquipo != null && <small className="muted">HRS = HF − HI = <strong className="mono">{num(horasEquipo)} h</strong></small>}
-          </div>
-        </div>
-        {/* Kilometraje (odómetro) del equipo: alimenta la ALERTA POR KILOMETRAJE de Control de Maquinaria. */}
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Kilometraje (odómetro)</label>
-            <input className="input mono" type="number" min={0} step="any" value={km} onChange={(e) => setKm(e.target.value)} placeholder="Km actual del vehículo" />
-            <small className="muted">Para vehículos: se usa en la alerta de mantenimiento por kilometraje (Equipos).</small>
-          </div>
-        </div>
+        ) : (
+          <>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Equipo</label>
+                <ComboBuscador value={equipo} onChange={(v) => void cambiarEquipo(v)}
+                  opciones={vehiculosAct.map((v) => ({ value: v.nombre, label: v.nombre }))}
+                  placeholder="🔎 Buscá el equipo…" icono="🚜" />
+              </div>
+              <div className="form-row">
+                <label>Autorizado por</label>
+                <ComboBuscador value={autorizado} onChange={setAutorizado}
+                  opciones={autorizados.map((a) => ({ value: a.nombre, label: a.nombre }))}
+                  placeholder="🔎 Buscá quién autorizó…" icono="🧑‍⚖️" />
+              </div>
+            </div>
+            {/* Horómetro por equipo: el HF queda como HI del próximo movimiento del mismo equipo. */}
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Horómetro inicial (HI){hiBloqueado && ' 🔒'}</label>
+                <input className="input mono" type="number" min={0} step="any" value={hi} onChange={(e) => setHi(e.target.value)}
+                  readOnly={hiBloqueado}
+                  style={hiBloqueado ? { background: 'rgba(255,255,255,.05)', cursor: 'not-allowed', opacity: .85 } : undefined}
+                  placeholder={equipo ? 'Primer HI del equipo' : 'Elegí un equipo'} />
+                {equipo && (hiBloqueado
+                  ? <small className="muted">🔒 Encadenado: es el último HF de {equipo} (no se modifica).</small>
+                  : <small className="muted">Primera carga de {equipo}: ingresá el HI inicial; de ahí en más se encadena solo.</small>)}
+              </div>
+              <div className="form-row">
+                <label>Horómetro final (HF)</label>
+                <input className="input mono" type="number" min={0} step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
+                {horasEquipo != null && <small className="muted">HRS = HF − HI = <strong className="mono">{num(horasEquipo)} h</strong></small>}
+              </div>
+            </div>
+            {/* Kilometraje (odómetro) del equipo: alimenta la ALERTA POR KILOMETRAJE de Control de Maquinaria. */}
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Kilometraje (odómetro)</label>
+                <input className="input mono" type="number" min={0} step="any" value={km} onChange={(e) => setKm(e.target.value)} placeholder="Km actual del vehículo" />
+                <small className="muted">Para vehículos: se usa en la alerta de mantenimiento por kilometraje (Equipos).</small>
+              </div>
+            </div>
+          </>
+        )}
         {/* Contador global del surtidor (totalizador): el CI se precarga con el último CF del tanque. */}
         <div className="form-grid">
           <div className="form-row">
