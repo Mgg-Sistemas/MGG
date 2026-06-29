@@ -4555,6 +4555,9 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
   const [legMontos, setLegMontos] = useState<Record<string, string>>({});
   const [nota, setNota] = useState('');
+  // Comisión bancaria: egreso EXTRA de la caja (no reduce la deuda). Se descuenta de un saldo concreto.
+  const [comisionMonto, setComisionMonto] = useState('');
+  const [comisionSaldoId, setComisionSaldoId] = useState('');
   const [factura, setFactura] = useState<File | null>(null);
   const [tasa, setTasa] = useState(0);
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
@@ -4587,6 +4590,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
     if (!cajaId) { setSaldosCaja([]); return; }
     saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
     setLegMontos({});
+    setComisionMonto(''); setComisionSaldoId('');
   }, [cajaId]);
   useEffect(() => {
     if (!selId) { setAbonos([]); return; }
@@ -4642,14 +4646,22 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
       .filter((l) => l.monto > 0);
     if (!legs.length) { setError('Indicá cuánto abonar en al menos una moneda.'); return; }
     if (sumUsd > saldo + 0.01) { setError(`El abono (${monto(sumUsd, 'USD')}) supera el saldo pendiente (${monto(saldo, 'USD')}).`); return; }
+    // Comisión bancaria (opcional): egreso extra de un saldo concreto de la caja.
+    const comMontoNum = Number(comisionMonto) || 0;
+    let comision: { cajaId: string; cuenta: CuentaCaja; moneda: string; monto: number } | null = null;
+    if (comMontoNum > 0) {
+      const sc = saldosCaja.find((s) => s.id === comisionSaldoId) ?? saldosCaja[0];
+      if (!sc) { setError('No hay un saldo para descontar la comisión bancaria.'); return; }
+      comision = { cajaId, cuenta: sc.cuenta as CuentaCaja, moneda: sc.moneda, monto: comMontoNum };
+    }
     setSaving(true);
     try {
-      const r = await registrarAbonoMulti({ orden: o, legs, nota: nota.trim() || null, factura, actorEmail: actor, actorName });
+      const r = await registrarAbonoMulti({ orden: o, legs, nota: nota.trim() || null, factura, comision, actorEmail: actor, actorName });
       const saldadoNow = r.orden.estado !== 'cuenta_abierta';
       notify(saldadoNow
         ? `Crédito saldado · ${o.oc_codigo ?? o.codigo} · pasa a recepción/finalización`
         : `Abono ${monto(sumUsd, 'USD')} · ${o.oc_codigo ?? o.codigo}`, 'success');
-      setLegMontos({}); setNota(''); setFactura(null);
+      setLegMontos({}); setNota(''); setFactura(null); setComisionMonto(''); setComisionSaldoId('');
       await onChanged();
       await cargar();
       if (!saldadoNow) await listAbonos(o.id).then(setAbonos);
@@ -4825,6 +4837,27 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                     <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del abono…" />
                   </div>
                 </div>
+                {/* Comisión bancaria: egreso EXTRA de la caja (no reduce la deuda de la OC). */}
+                <div className="form-grid" style={{ marginTop: '.25rem' }}>
+                  <div className="form-row">
+                    <label>Comisión bancaria (opcional)</label>
+                    <input className="input mono" type="number" min={0} step="any" value={comisionMonto}
+                      onChange={(e) => setComisionMonto(dosDecimales(e.target.value))} placeholder="0,00" />
+                    <small className="muted">Se descuenta de la caja como gasto extra; NO abona la deuda.</small>
+                  </div>
+                  {(Number(comisionMonto) || 0) > 0 && (
+                    <div className="form-row">
+                      <label>Descontar comisión de</label>
+                      <select className="select" value={comisionSaldoId || saldosCaja[0]?.id || ''} onChange={(e) => setComisionSaldoId(e.target.value)}>
+                        {!saldosCaja.length && <option value="">— sin saldos —</option>}
+                        {saldosCaja.map((s) => {
+                          const etq = s.cuenta === 'general' ? '' : s.cuenta === 'juridica' ? ' · Jurídica' : ' · Personal';
+                          return <option key={s.id} value={s.id}>{s.moneda}{etq} · disp. {monto(Number(s.saldo), s.moneda)}</option>;
+                        })}
+                      </select>
+                    </div>
+                  )}
+                </div>
                 <div style={{ textAlign: 'right', marginTop: '.5rem' }}>
                   <button className="btn btn-success" disabled={saving || sumUsd <= 0} onClick={() => void handleAbonar()}>{saving ? 'Registrando…' : `💵 Registrar abono · ${monto(sumUsd, 'USD')}`}</button>
                 </div>
@@ -4832,13 +4865,14 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
 
               <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto' }}>
                 <table className="table" style={{ fontSize: '.82rem' }}>
-                  <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Abono (USD)</th><th>Nota</th></tr></thead>
+                  <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Abono (USD)</th><th style={{ textAlign: 'right' }}>Comisión bancaria</th><th>Nota</th></tr></thead>
                   <tbody>
-                    {!abonos.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>Sin abonos todavía.</td></tr>}
+                    {!abonos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin abonos todavía.</td></tr>}
                     {abonos.map((ab) => (
                       <tr key={ab.id}>
                         <td>{dateTime(ab.at)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ab.monto), 'USD')}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{Number(ab.comision_monto) > 0 ? monto(Number(ab.comision_monto), ab.comision_moneda || 'Bs') : '—'}</td>
                         <td className="muted">{ab.nota || '—'}</td>
                       </tr>
                     ))}

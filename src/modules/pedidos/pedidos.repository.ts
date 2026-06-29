@@ -1496,6 +1496,8 @@ export interface RegistrarAbonoMultiInput {
   legs: AbonoLeg[];
   nota?: string | null;
   factura?: File | null;
+  /** Comisión bancaria: egreso EXTRA de la caja (no reduce la deuda de la OC). */
+  comision?: { cajaId: string; cuenta: CuentaCaja; moneda: string; monto: number } | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -1525,6 +1527,16 @@ export async function registrarAbonoMulti(input: RegistrarAbonoMultiInput): Prom
     movIds.push(mov.id);
   }
 
+  // Comisión bancaria (opcional): egreso EXTRA de la caja, NO cuenta para la deuda.
+  const comMonto = input.comision ? Math.round((Number(input.comision.monto) || 0) * 100) / 100 : 0;
+  if (input.comision && comMonto > 0) {
+    await egresarDivisa({
+      cajaId: input.comision.cajaId, cuenta: input.comision.cuenta, moneda: input.comision.moneda, monto: comMonto,
+      concepto: `Comisión bancaria · abono crédito ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
+      actor: input.actorEmail, actorName: input.actorName ?? null,
+    });
+  }
+
   let comprobantePath: string | null = null, comprobanteNombre: string | null = null;
   if (input.factura) { comprobantePath = await subirAdjuntoOc(o.id, input.factura, 'factura'); comprobanteNombre = input.factura.name; }
 
@@ -1541,6 +1553,8 @@ export async function registrarAbonoMulti(input: RegistrarAbonoMultiInput): Prom
       saldo_restante: saldoRestante, actor: input.actorEmail, actor_name: input.actorName ?? null,
       nota: [input.nota?.trim(), `Multipago: ${detalle}`].filter(Boolean).join(' · '),
       comprobante_path: comprobantePath, comprobante_nombre: comprobanteNombre,
+      comision_monto: comMonto > 0 ? comMonto : null,
+      comision_moneda: comMonto > 0 ? (input.comision?.moneda ?? null) : null,
     })
     .select('*')
     .single();

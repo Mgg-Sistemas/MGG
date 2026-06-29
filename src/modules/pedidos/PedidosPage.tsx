@@ -1701,16 +1701,17 @@ function AbonosModal({
       {/* Traza de abonos */}
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
-          <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Monto</th><th>Caja</th><th style={{ textAlign: 'right' }}>Saldo</th><th>Nota</th></tr></thead>
+          <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>Comisión banc.</th><th>Caja</th><th style={{ textAlign: 'right' }}>Saldo</th><th>Nota</th></tr></thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="muted">Cargando…</td></tr>
+              <tr><td colSpan={6} className="muted">Cargando…</td></tr>
             ) : !abonos.length ? (
-              <tr><td colSpan={5}><EmptyState message="Sin abonos todavía." icon="💵" /></td></tr>
+              <tr><td colSpan={6}><EmptyState message="Sin abonos todavía." icon="💵" /></td></tr>
             ) : abonos.map((b) => (
               <tr key={b.id}>
                 <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(b.at)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(Number(b.monto))} {b.moneda}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{Number(b.comision_monto) > 0 ? `${money(Number(b.comision_monto))} ${b.comision_moneda || 'Bs'}` : '—'}</td>
                 <td>{cajas.find((c) => c.id === b.caja_id)?.nombre ?? '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{b.saldo_restante != null ? money(Number(b.saldo_restante)) : '—'}</td>
                 <td className="muted" style={{ fontSize: '.78rem' }}>{b.nota || '—'}</td>

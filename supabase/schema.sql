@@ -1584,6 +1584,9 @@ create table if not exists public.abonos_credito (
   caja_mov_id uuid references public.movimientos_caja(id) on delete set null,
   saldo_restante numeric,            -- total - Σabonos tras este abono
   actor       text not null, actor_name text, nota text,
+  comprobante_path text, comprobante_nombre text,
+  comision_monto numeric,            -- comisión bancaria del abono (egreso extra de caja)
+  comision_moneda text,
   at          timestamptz not null default now()
 );
 create index if not exists idx_abonos_orden on public.abonos_credito(orden_id, at);
