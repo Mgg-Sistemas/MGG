@@ -1,7 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
-import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
+import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import type {
   AbonoCredito,
   CuentaCaja,
@@ -1066,6 +1066,26 @@ export async function listOrdenesEnCredito(): Promise<OrdenPorPagar[]> {
   if (error) throw error;
   const pm = new Map((provs ?? []).map((p) => [p.id as string, p.razon_social as string]));
   return (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
+}
+
+/** Datos del proveedor (identidad + datos de pago guardados por método) para mostrar
+ *  dónde y cómo pagarle (p. ej. al registrar un abono de una compra a crédito). */
+export interface ProveedorPago {
+  proveedor: Proveedor | null;
+  datosPago: Record<string, DatosPago>;
+}
+export async function getProveedorConDatosPago(proveedorId: string): Promise<ProveedorPago> {
+  if (!proveedorId) return { proveedor: null, datosPago: {} };
+  const [{ data: p }, datos] = await Promise.all([
+    supabase.from('proveedores').select('*').eq('id', proveedorId).maybeSingle(),
+    listDatosPago(proveedorId).catch(() => ({} as Record<string, DatosPago>)),
+  ]);
+  return { proveedor: (p as Proveedor) ?? null, datosPago: datos };
+}
+
+/** Guarda/actualiza los datos de pago de un proveedor para un método (reexport práctico). */
+export async function guardarDatosPagoProveedor(proveedorId: string, metodo: string, datos: DatosPago, actor?: string): Promise<void> {
+  await guardarDatosPago(proveedorId, metodo, datos, actor);
 }
 
 export interface PagarOcInput {

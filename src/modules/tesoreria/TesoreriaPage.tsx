@@ -66,10 +66,13 @@ import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMulti, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg,
   getOrdenById, urlAdjuntoOc,
+  getProveedorConDatosPago, guardarDatosPagoProveedor,
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { cargarDirectosPorPagar, PagarDirectoModal, type DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
-import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
+import { resumenDatosPago, DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
+import { METODOS_CON_DATOS, type DatosPago } from '@/modules/pedidos/datosPago.repository';
+import type { Proveedor } from '@/shared/lib/types';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
 // Generadores de PDF/Excel: se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir la página.
 import { type ReporteMeta } from './reportePdf';
@@ -4558,6 +4561,12 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Datos del proveedor de la OC (identidad + datos de pago) para saber dónde/cómo pagarle.
+  const [provData, setProvData] = useState<{ proveedor: Proveedor | null; datosPago: Record<string, DatosPago> }>({ proveedor: null, datosPago: {} });
+  const [editPago, setEditPago] = useState(false);
+  const [metodoEdit, setMetodoEdit] = useState<string>('pago_movil');
+  const [datosEdit, setDatosEdit] = useState<DatosPago>({});
+  const [savingPago, setSavingPago] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -4583,6 +4592,32 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
     if (!selId) { setAbonos([]); return; }
     listAbonos(selId).then(setAbonos).catch(() => setAbonos([]));
   }, [selId]);
+  // Trae los datos del proveedor de la OC seleccionada (se sincroniza al cambiar de cuenta).
+  const provId = ordenes.find((x) => x.orden.id === selId)?.orden.proveedor_id ?? '';
+  useEffect(() => {
+    setEditPago(false);
+    if (!provId) { setProvData({ proveedor: null, datosPago: {} }); return; }
+    let cancel = false;
+    getProveedorConDatosPago(provId)
+      .then((r) => { if (!cancel) setProvData(r); })
+      .catch(() => { if (!cancel) setProvData({ proveedor: null, datosPago: {} }); });
+    return () => { cancel = true; };
+  }, [provId]);
+
+  async function guardarDatosProv() {
+    if (!provId) return;
+    const err = validarDatosPago(metodoEdit, datosEdit);
+    if (err) { setError(err); return; }
+    setSavingPago(true); setError(null);
+    try {
+      await guardarDatosPagoProveedor(provId, metodoEdit, datosEdit, actor);
+      const r = await getProveedorConDatosPago(provId);
+      setProvData(r);
+      setEditPago(false); setDatosEdit({});
+      toast('Datos de pago guardados en el proveedor', 'success');
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudieron guardar los datos de pago'); }
+    finally { setSavingPago(false); }
+  }
 
   const sel = ordenes.find((x) => x.orden.id === selId) ?? null;
   const o = sel?.orden ?? null;
@@ -4671,6 +4706,52 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                 </div>
               </div>
               {o.recibida_en && <div className="badge warning" style={{ marginBottom: '.6rem' }}>📦 Mercancía ya recibida · crédito pendiente</div>}
+
+              {/* Datos del proveedor: identidad + datos de pago (dónde/cómo pagarle). */}
+              <div className="card" style={{ marginBottom: '.75rem' }}>
+                <div className="card-title" style={{ marginBottom: '.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>🏭 Datos del proveedor</span>
+                  {provId && !editPago && (
+                    <button className="btn btn-sm btn-ghost" onClick={() => { setEditPago(true); setDatosEdit(provData.datosPago[metodoEdit] ?? {}); }}>✎ Cargar / editar datos de pago</button>
+                  )}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.3rem .9rem', fontSize: '.84rem' }}>
+                  <div><span className="muted">Proveedor:</span> <strong>{provData.proveedor?.razon_social ?? sel?.proveedorNombre ?? '—'}</strong></div>
+                  {provData.proveedor?.rif && <div><span className="muted">RIF:</span> {provData.proveedor.rif}</div>}
+                  {provData.proveedor?.contacto && <div><span className="muted">Contacto:</span> {provData.proveedor.contacto}</div>}
+                  {provData.proveedor?.telefono && <div><span className="muted">Teléfono:</span> {provData.proveedor.telefono}</div>}
+                  {provData.proveedor?.email && <div><span className="muted">Email:</span> {provData.proveedor.email}</div>}
+                  {provData.proveedor?.direccion && <div style={{ gridColumn: '1 / -1' }}><span className="muted">Dirección:</span> {provData.proveedor.direccion}</div>}
+                </div>
+                {/* Datos de pago guardados por método */}
+                {Object.keys(provData.datosPago).length > 0 ? (
+                  <div style={{ marginTop: '.5rem', display: 'grid', gap: '.25rem' }}>
+                    {Object.entries(provData.datosPago).map(([m, d]) => (
+                      <div key={m} style={{ fontSize: '.82rem' }}>
+                        <span className="badge">{labelMetodoPago(m)}</span> <span className="muted">{resumenDatosPago(m, d)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  !editPago && <div className="muted" style={{ marginTop: '.5rem', fontSize: '.8rem' }}>Sin datos de pago guardados para este proveedor. Cargalos para que queden en su ficha y se reutilicen.</div>
+                )}
+                {/* Editor: guarda los datos en la ficha del proveedor (proveedor_datos_pago). */}
+                {editPago && (
+                  <div className="card" style={{ marginTop: '.6rem', padding: '.6rem .75rem', background: 'var(--bg-2, rgba(255,255,255,.02))' }}>
+                    <div className="form-row" style={{ marginBottom: '.4rem' }}>
+                      <label>Método de pago</label>
+                      <select className="select" value={metodoEdit} onChange={(e) => { setMetodoEdit(e.target.value); setDatosEdit(provData.datosPago[e.target.value] ?? {}); }}>
+                        {METODOS_CON_DATOS.map((m) => <option key={m} value={m}>{labelMetodoPago(m)}</option>)}
+                      </select>
+                    </div>
+                    <DatosPagoFields metodo={metodoEdit} value={datosEdit} onChange={setDatosEdit} />
+                    <div style={{ display: 'flex', gap: '.4rem', justifyContent: 'flex-end', marginTop: '.5rem' }}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => { setEditPago(false); setDatosEdit({}); }} disabled={savingPago}>Cancelar</button>
+                      <button className="btn btn-sm btn-primary" onClick={() => void guardarDatosProv()} disabled={savingPago}>{savingPago ? 'Guardando…' : 'Guardar en el proveedor'}</button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Conversión del saldo a Bs con tasa personalizable (por defecto BCV). */}
               <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
