@@ -314,23 +314,23 @@ export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEm
 }
 
 /**
- * Ajusta SOLO las cantidades de los ítems de una OP mientras está PENDIENTE o
- * APROBADA (antes de elegir la oferta y crear la OC). Pensado para la etapa de
- * selección de proveedores: el analista corrige cuántas unidades pide de cada
- * producto. Recalcula el total de la OP y RE-SINCRONIZA las cotizaciones ya
- * cargadas (estado `pendiente`) con la nueva cantidad, manteniendo los precios
- * unitarios de cada proveedor y recalculando su precio_total / precio_efectivo,
- * para que la comparativa siga siendo coherente. `cantidadPorSku`: SKU → nueva
- * cantidad (mayor que 0).
+ * Ajusta SOLO las cantidades de los ítems de una orden mientras la OC todavía NO
+ * fue aprobada por el Gerente (estados `pendiente`, `aprobada` u `oc_creada`).
+ * Pensado para la etapa de selección de proveedores y para la OC recién creada
+ * sin confirmar: el analista corrige cuántas unidades pide de cada producto.
+ * Recalcula el total y RE-SINCRONIZA las cotizaciones aún cargadas (estado
+ * `pendiente`) con la nueva cantidad, manteniendo los precios unitarios de cada
+ * proveedor y recalculando su precio_total / precio_efectivo, para que la
+ * comparativa siga siendo coherente. Una vez confirmada/aprobada la OC ya no se
+ * edita por esta vía. `cantidadPorSku`: SKU → nueva cantidad (mayor que 0).
  */
 export async function actualizarCantidadesOrden(
   o: Orden,
   cantidadPorSku: Record<string, number>,
   actorEmail: string,
 ): Promise<Orden> {
-  if (!['pendiente', 'aprobada'].includes(o.estado))
-    throw new Error('Solo se editan las cantidades antes de crear la OC (pendiente o aprobada).');
-  if (o.oc_codigo) throw new Error('Esta OP ya tiene una OC: editá la OC, no la OP.');
+  if (!['pendiente', 'aprobada', 'oc_creada'].includes(o.estado))
+    throw new Error('Las cantidades solo se editan antes de aprobar la OC (pendiente, aprobada u OC creada).');
 
   const aplicar = <T extends ItemOrden>(items: T[]): T[] => items.map((it) => {
     const c = cantidadPorSku[it.sku];
