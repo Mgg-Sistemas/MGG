@@ -1257,7 +1257,9 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
   combustibles: Combustible[]; sede: string | null; actor: string; onClose: () => void; onChanged: () => Promise<void>;
 }) {
   const [nombre, setNombre] = useState('');
-  const [almacen, setAlmacen] = useState('');
+  // Por defecto el combustible se registra en el almacén "General" del inventario:
+  // las nuevas sedes/ubicaciones NO crean un almacén nuevo, van al General.
+  const [almacen, setAlmacen] = useState('General');
   const [litros, setLitros] = useState('');
   const [costo, setCosto] = useState('0.50'); // tasa por defecto: 0,50 USD/L
   const [busy, setBusy] = useState(false);
@@ -1270,12 +1272,13 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
   async function crear() {
     setOkMsg(null);
     if (!nombre.trim()) { setError('Escribí el nombre del combustible (ej.: Diésel, Gasolina 95).'); return; }
-    if (!almacen.trim()) { setError('Elegí el almacén donde se registra el combustible.'); return; }
+    // Las nuevas ubicaciones van al almacén General (no se crea un almacén nuevo).
+    const almacenFinal = almacen.trim() || 'General';
     setError(null);
     setBusy(true);
     try {
-      await crearCombustible({ nombre, almacen, sede, litrosIniciales: Number(litros) || 0, costoLitro: Number(costo) || 0, actorEmail: actor });
-      const msg = `Combustible "${nombre.trim()}" registrado en ${almacen}.`;
+      await crearCombustible({ nombre, almacen: almacenFinal, sede, litrosIniciales: Number(litros) || 0, costoLitro: Number(costo) || 0, actorEmail: actor });
+      const msg = `Combustible "${nombre.trim()}" registrado en ${almacenFinal}.`;
       toast(msg, 'success');
       setOkMsg(msg);
       setNombre(''); setLitros(''); setCosto('');
@@ -1320,8 +1323,8 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
           <div className="form-row"><label>Litros iniciales (opcional)</label><input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} /></div>
           <div className="form-row"><label>Costo por litro (opcional)</label><input className="input mono" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} /></div>
         </div>
-        <AlmacenPicker value={almacen} onChange={setAlmacen} />
-        <small className="muted" style={{ display: 'block', margin: '0 0 .6rem' }}>Se registra primero en el inventario (almacén elegido) y se vincula al módulo de Combustible.</small>
+        <AlmacenPicker value={almacen} onChange={setAlmacen} extraOpciones={['General']} />
+        <small className="muted" style={{ display: 'block', margin: '0 0 .6rem' }}>Se registra primero en el inventario y se vincula al módulo de Combustible. Las nuevas ubicaciones no crean un almacén nuevo: van al <strong>General</strong>.</small>
         <button className="btn btn-primary btn-sm" onClick={crear} disabled={busy}>+ Crear combustible</button>
       </div>
       <div className="table-wrap">

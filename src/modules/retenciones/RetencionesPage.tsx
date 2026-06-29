@@ -4,6 +4,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, num, dateTime } from '@/shared/lib/format';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -193,6 +194,13 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
     catch { toast('No se pudo abrir el comprobante', 'error'); }
   }
 
+  async function verComprobante(path: string, nombre?: string | null) {
+    try { await previewFileUrl(await urlRetencion(path), nombre ?? 'comprobante', 'Comprobante de la OC'); }
+    catch { toast('No se pudo abrir el comprobante', 'error'); }
+  }
+
+  const labelComprobante = o.comprobante_tipo === 'nota_entrega' ? 'Nota de entrega' : 'Factura';
+
   async function handleFinalizar(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!algunArchivo) { setError('Cargá al menos un comprobante (IVA, ISLR o Municipal).'); return; }
@@ -239,6 +247,16 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
           </table>
         </div>
       </div>
+
+      {/* Factura / nota de entrega cargada en la OC (comprobante de ingreso) */}
+      {o.factura_path && (
+        <div className="card" style={{ margin: '0 0 .75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
+          <span style={{ fontSize: '.85rem' }}>
+            <span className="badge">{labelComprobante}</span> <span className="muted">{o.factura_nombre}</span>
+          </span>
+          <button className="btn btn-sm btn-ghost" onClick={() => void verComprobante(o.factura_path!, o.factura_nombre)}>👁 Vista previa</button>
+        </div>
+      )}
 
       {/* Comprobantes ya cargados (descarga) */}
       {comprobantes.length > 0 && (

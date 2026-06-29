@@ -984,6 +984,26 @@ export async function urlAdjuntoOc(path: string): Promise<string> {
   return data.signedUrl;
 }
 
+/**
+ * Adjunta (o reemplaza) la FACTURA o la NOTA DE ENTREGA de una OC (típicamente ya
+ * finalizada) y la marca con su tipo de comprobante. Al guardarla, la OC entra a
+ * Retenciones. Acepta PDF o imagen (máx. 10 MB).
+ */
+export async function adjuntarComprobanteOc(
+  ordenId: string, file: File, tipo: 'factura' | 'nota_entrega',
+): Promise<{ path: string; nombre: string }> {
+  if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
+    throw new Error('El comprobante debe ser PDF o imagen.');
+  }
+  if (file.size > 10 * 1024 * 1024) throw new Error('El archivo supera los 10 MB.');
+  const path = await subirAdjuntoOc(ordenId, file, 'factura');
+  const { error } = await supabase.from(TABLE).update({
+    factura_path: path, factura_nombre: file.name, comprobante_tipo: tipo,
+  }).eq('id', ordenId);
+  if (error) throw error;
+  return { path, nombre: file.name };
+}
+
 /** Adjunta (o reemplaza) la imagen de referencia de una OP: la sube al bucket de
  *  adjuntos y guarda su path en `ordenes.imagen_path`. Reusa el storage de la OC. */
 export async function adjuntarImagenOrden(ordenId: string, file: File): Promise<string> {
