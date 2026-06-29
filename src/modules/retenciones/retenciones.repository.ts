@@ -37,11 +37,15 @@ async function mapProveedores(): Promise<Map<string, string>> {
   return new Map((data ?? []).map((p) => [p.id as string, p.razon_social as string]));
 }
 
-/** Retenciones por realizar: OC con soporte Factura aún sin finalizar la retención. */
+// OC que entran a Retenciones: las de soporte Factura, y las Notas de entrega que
+// tengan un comprobante cargado (factura/nota subida desde la OC finalizada).
+const FILTRO_COMPROBANTE = 'comprobante_tipo.eq.factura,and(comprobante_tipo.eq.nota_entrega,factura_path.not.is.null)';
+
+/** Retenciones por realizar: OC con comprobante (factura o nota) sin finalizar la retención. */
 export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
   const [{ data, error }, pm] = await Promise.all([
     supabase.from(TABLE).select('*')
-      .eq('comprobante_tipo', 'factura')
+      .or(FILTRO_COMPROBANTE)
       .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
       .order('metodo_pago_en', { ascending: true }),
     mapProveedores(),
@@ -54,7 +58,7 @@ export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
 export async function listRetencionesHechas(): Promise<RetencionItem[]> {
   const [{ data, error }, pm] = await Promise.all([
     supabase.from(TABLE).select('*')
-      .eq('comprobante_tipo', 'factura')
+      .or(FILTRO_COMPROBANTE)
       .eq('retencion_finalizada', true)
       .order('retencion_finalizada_en', { ascending: false }),
     mapProveedores(),
@@ -66,7 +70,7 @@ export async function listRetencionesHechas(): Promise<RetencionItem[]> {
 export async function contarRetencionesPendientes(): Promise<number> {
   const { count, error } = await supabase.from(TABLE)
     .select('id', { count: 'exact', head: true })
-    .eq('comprobante_tipo', 'factura')
+    .or(FILTRO_COMPROBANTE)
     .or('retencion_finalizada.is.null,retencion_finalizada.eq.false');
   if (error) throw error;
   return count ?? 0;

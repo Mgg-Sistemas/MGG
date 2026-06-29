@@ -55,6 +55,7 @@ import {
   enviarCreditoARecepcion,
   listAbonos,
   urlAdjuntoOc,
+  adjuntarComprobanteOc,
   indicarMetodoPago,
   reasignarProveedorAReaprobacion,
   METODOS_PAGO,
@@ -87,6 +88,7 @@ import { AgregarOfertaModal } from './AgregarOfertaModal';
 // descargarTrazabilidadPdf / descargarOrdenCompraPdf se importan dinámicamente
 // (al generar) para no cargar jsPDF al abrir Pedidos.
 import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
@@ -647,6 +649,7 @@ export function PedidosPage() {
             await refresh();
             setOffersReloadKey((k) => k + 1);
           }}
+          onComprobanteSaved={async () => { await refresh(); }}
           onClose={() => setModal({ kind: 'none' })}
           onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
           onEditar={() => setModal({ kind: 'edit', orden: currentDetail })}
@@ -1956,6 +1959,7 @@ interface OrdenDetailModalProps {
   onSeePriceHistory: (sku: string, nombre: string) => void;
   onAddOffer: () => void;
   onAcceptedOffer: () => void;
+  onComprobanteSaved: () => Promise<void> | void;
   offersReloadKey: number;
   usuarioRole: string | null;
 }
@@ -1988,6 +1992,7 @@ function OrdenDetailModal({
   onSeePriceHistory,
   onAddOffer,
   onAcceptedOffer,
+  onComprobanteSaved,
   offersReloadKey,
   usuarioRole,
 }: OrdenDetailModalProps) {
@@ -2036,6 +2041,7 @@ function OrdenDetailModal({
   const canCerrarSolicitudObrero = finalizableRecibida && usuarioRole === 'obrero';
 
   const [enviarOpen, setEnviarOpen] = useState(false);
+  const [comprobanteOpen, setComprobanteOpen] = useState(false);
 
   // Sub-OC por proveedor (si la OP se repartió entre varios proveedores).
   const [subOcs, setSubOcs] = useState<Orden[]>([]);
@@ -2119,7 +2125,7 @@ function OrdenDetailModal({
     if (!o.factura_path) return;
     try {
       const url = await urlAdjuntoOc(o.factura_path);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      await previewFileUrl(url, o.factura_nombre ?? 'comprobante', 'Comprobante de la OC');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error');
     }
@@ -2145,6 +2151,15 @@ function OrdenDetailModal({
           title="Enviar la trazabilidad por correo"
         >
           📧 Enviar por correo
+        </button>
+      )}
+      {isFinalizada && canManageProcurement && (
+        <button
+          className="btn btn-primary"
+          onClick={() => setComprobanteOpen(true)}
+          title="Cargar la factura o la nota de entrega (PDF o imagen). Al subirla, la OC entra a Retenciones."
+        >
+          📎 {o.factura_path ? 'Reemplazar factura / nota' : 'Cargar factura / nota de entrega'}
         </button>
       )}
       {canCancel && (
@@ -2677,7 +2692,74 @@ function OrdenDetailModal({
         onClose={() => setEnviarOpen(false)}
       />
     )}
+    {comprobanteOpen && (
+      <ComprobanteOcModal
+        orden={o}
+        onClose={() => setComprobanteOpen(false)}
+        onSaved={async () => { setComprobanteOpen(false); await onComprobanteSaved(); }}
+      />
+    )}
     </>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Cargar la factura / nota de entrega de una OC finalizada.
+   Al subirla, la OC queda con su comprobante y entra a Retenciones.
+   ───────────────────────────────────────────── */
+function ComprobanteOcModal({ orden, onClose, onSaved }: {
+  orden: Orden; onClose: () => void; onSaved: () => Promise<void> | void;
+}) {
+  const [tipo, setTipo] = useState<'factura' | 'nota_entrega'>((orden.comprobante_tipo as 'factura' | 'nota_entrega') ?? 'factura');
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    if (!file) { setError('Elegí el archivo (PDF o imagen).'); return; }
+    setSaving(true); setError(null);
+    try {
+      await adjuntarComprobanteOc(orden.id, file, tipo);
+      toast(`${tipo === 'factura' ? 'Factura' : 'Nota de entrega'} cargada · la OC entró a Retenciones`, 'success');
+      await onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo subir el comprobante'); setSaving(false); }
+  }
+
+  async function verActual() {
+    if (!orden.factura_path) return;
+    try {
+      const url = await urlAdjuntoOc(orden.factura_path);
+      await previewFileUrl(url, orden.factura_nombre ?? 'comprobante', 'Comprobante de la OC');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir', 'error'); }
+  }
+
+  return (
+    <Modal title={`📎 Comprobante · OC ${orden.oc_codigo ?? orden.codigo}`} size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving || !file}>{saving ? 'Subiendo…' : 'Subir comprobante'}</button>
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      {orden.factura_path && (
+        <div className="card" style={{ margin: '0 0 .75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
+          <span className="muted" style={{ fontSize: '.85rem' }}>Ya hay un comprobante cargado: <strong>{orden.factura_nombre}</strong></span>
+          <button className="btn btn-sm btn-ghost" onClick={() => void verActual()}>👁 Vista previa</button>
+        </div>
+      )}
+      <div className="form-row">
+        <label>Tipo de comprobante</label>
+        <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as 'factura' | 'nota_entrega')}>
+          <option value="factura">Factura</option>
+          <option value="nota_entrega">Nota de entrega</option>
+        </select>
+      </div>
+      <div className="form-row">
+        <label>Archivo <span className="muted" style={{ fontWeight: 400 }}>(PDF o imagen · máx. 10 MB)</span></label>
+        <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => { setFile(e.target.files?.[0] ?? null); if (error) setError(null); }} />
+      </div>
+      <small className="muted">Al subir el comprobante, la orden aparece en <strong>Retenciones</strong> para cargar los certificados (IVA / ISLR / Municipal).</small>
+    </Modal>
   );
 }
 
