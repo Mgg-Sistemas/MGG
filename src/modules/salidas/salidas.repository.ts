@@ -408,6 +408,29 @@ export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string):
 }
 
 /**
+ * Resuelve el DESTINO de un traslado (que puede ser una SEDE/centro, ej.
+ * "CENTRO DE ACOPIO - LA ESPERANZA" o "LOS PINOS") al nombre de un almacén REAL
+ * para registrar la entrada de stock. Si ya es un almacén, lo deja igual; si es
+ * una sede, toma su almacén PADRE (el que mejor matchea el nombre). Así el PDF
+ * imprime la sede pero el inventario entra a un almacén válido.
+ */
+async function resolverAlmacenDestino(destino: string): Promise<string> {
+  const d = (destino || '').trim();
+  if (!d) return d;
+  const { data: exact } = await supabase.from('almacenes').select('nombre').eq('nombre', d).eq('estado', 'activo').maybeSingle();
+  if (exact) return d;
+  const { data: padres } = await supabase.from('almacenes').select('nombre').eq('sede', d).is('parent_id', null).eq('estado', 'activo').order('nombre');
+  if (padres && padres.length) {
+    const core = d.replace(/^CENTRO DE (ACOPIO|FUNDICION)\s*-\s*/i, '').trim().toLowerCase();
+    const match = padres.find((a) => a.nombre.toLowerCase() === core)
+      ?? padres.find((a) => a.nombre.toLowerCase().includes(core) || core.includes(a.nombre.toLowerCase()))
+      ?? padres[0];
+    return match.nombre;
+  }
+  return d;
+}
+
+/**
  * Ejecuta la solicitud aprobada: realiza el movimiento real reutilizando las
  * funciones inmediatas (que validan stock/saldo) y cierra como 'ejecutada'.
  */
@@ -431,9 +454,13 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     }
     movRef = 'salida_modulo';
   } else if (s.scope === 'traslado' && s.tipo === 'material') {
+    // El destino puede ser una sede/centro: se resuelve a un almacén real para la entrada.
+    const destinoReal = await resolverAlmacenDestino(s.almacen_destino || '');
     for (const it of lineas) {
+      const origen = it.almacen ?? s.almacen_origen!;
+      if (origen === destinoReal) continue; // mismo almacén: nada que mover para ese ítem
       const mov = await trasladoMaterial({
-        productoId: it.producto_id, almacenOrigen: it.almacen ?? s.almacen_origen!, almacenDestino: s.almacen_destino!,
+        productoId: it.producto_id, almacenOrigen: origen, almacenDestino: destinoReal,
         cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
         notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
       });
