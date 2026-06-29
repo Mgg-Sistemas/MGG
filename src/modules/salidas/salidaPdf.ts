@@ -170,8 +170,10 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const firmaSalidas = await pdfLogo.loadFirmaSalidasDataUrl().catch(() => null);
 
   const esTraslado = sol.scope === 'traslado';
+  // Las salidas y traslados los AUTORIZA siempre Leydis Rengel (autorizadora fija):
+  // el documento muestra su nombre y su firma en el bloque "Autorizado por".
+  const AUTORIZA_SALIDAS = 'Leydis Rengel';
   const autorizoEmail = sol.ejecutada_por || sol.aprobada_por;
-  const autorizo = autorizoEmail ? personaDe(autorizoEmail, personas, null) : null;
   const creo = personaDe(sol.actor, personas, sol.actor_name || sol.solicitante);
 
   // Líneas de la "factura": el detalle multi-producto si existe, si no la cabecera.
@@ -218,7 +220,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
     ...(sol.consumo_interno ? [['Consumo interno', 'Sí'] as [string, string]] : []),
     ['Estado', SOL_ESTADO_TXT[sol.estado] ?? sol.estado],
-    ['Autorizado por', autorizo || '— (pendiente de aprobación) —'],
+    ['Autorizado por', autorizoEmail ? AUTORIZA_SALIDAS.toUpperCase() : '— (pendiente de aprobación) —'],
   ];
   let dy = y;
   doc.setFontSize(9);
@@ -293,11 +295,12 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const fy = PAGE_H - MARGIN - 50;
   const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
   const cxAutoriza = MARGIN + colW + 40 + colW / 2;
-  // Firma de Leydi Rengel (Salidas/Traslados) sobre la línea de "Autorizado por".
-  if (firmaSalidas) {
+  // Firma de Leydis Rengel (Salidas/Traslados) sobre la línea de "Autorizado por",
+  // en tamaño mediano. Solo cuando la orden ya está autorizada/ejecutada.
+  if (firmaSalidas && autorizoEmail) {
     try {
-      const sw = 200, sh = 70;
-      doc.addImage(firmaSalidas, 'JPEG', cxAutoriza - sw / 2, fy - sh + 10, sw, sh);
+      const sw = 150, sh = 52;  // mediano (proporción de firma2)
+      doc.addImage(firmaSalidas, 'JPEG', cxAutoriza - sw / 2, fy - sh + 8, sw, sh);
     } catch { /* firma opcional */ }
   }
   doc.setDrawColor(120); doc.setLineWidth(0.7);
@@ -308,7 +311,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.text('Autorizado por', cxAutoriza, fy + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.text(creo || '—', MARGIN + colW / 2, fy + 27, { align: 'center' });
-  doc.text(firmaSalidas ? 'Leydi Rengel' : (autorizo || '—'), cxAutoriza, fy + 27, { align: 'center' });
+  doc.text(autorizoEmail ? AUTORIZA_SALIDAS : '— (pendiente) —', cxAutoriza, fy + 27, { align: 'center' });
 
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
