@@ -3066,6 +3066,10 @@ create table if not exists public.recepcion_conciliaciones (
   kg_faltante numeric,
   kg_no_llego numeric,
   pct_no_llego numeric,
+  tasa numeric,              -- USD/Kg: el TOTAL NETO seco entra al inventario valuado a esta tasa
+  neto_seco numeric,         -- Σ total_neto_seco de los pesajes que entró al inventario
+  almacen_neto text,         -- almacén destino del neto seco
+  neto_seco_mov_id uuid,     -- movimiento de inventario del neto seco (idempotencia)
   nota text,
   actor text, actor_name text,
   created_at timestamptz not null default now(),

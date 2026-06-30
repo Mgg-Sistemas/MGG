@@ -468,6 +468,8 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       )}
       {conciliacionOpen && (
         <ConciliacionModal grupoId={grupoId} conciliaciones={conciliaciones} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
+          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)}
+          pesoRecogidoSum={humFinal.reduce((a, f) => a + Number(f.peso_recogido ?? 0), 0)}
           onReload={reload} onClose={() => setConciliacionOpen(false)} confirmar={setConfirmar} />
       )}
       {totalesOpen && (
@@ -778,8 +780,9 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat,
 /* ───────────── Conciliación de Centros de Acopio (todo dentro del modal) ───────────── */
 const ROJO = 'var(--danger, #e5484d)';
 
-function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, actor, miNombre, onReload, onClose, confirmar }: {
+function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, actor, miNombre, netoSecoSum, pesoRecogidoSum, onReload, onClose, confirmar }: {
   grupoId: string; conciliaciones: RecepcionConciliacion[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
+  netoSecoSum: number; pesoRecogidoSum: number;
   onReload: () => Promise<void>; onClose: () => void;
   confirmar: (c: { message: string; onConfirm: () => void } | null) => void;
 }) {
@@ -789,7 +792,7 @@ function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, act
   if (editor) {
     return (
       <ConciliacionEditorModal grupoId={grupoId} conciliacion={editor === 'nueva' ? null : editor} recepciones={recepciones}
-        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite}
+        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} pesoRecogidoSum={pesoRecogidoSum}
         onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
     );
   }
@@ -854,9 +857,9 @@ function InlineAlmacen({ onCrear, onCancel }: { onCrear: (nombre: string) => voi
   );
 }
 
-function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNumero, actor, miNombre, canWrite, onCancel, onSaved }: {
+function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, pesoRecogidoSum, onCancel, onSaved }: {
   grupoId: string; conciliacion: RecepcionConciliacion | null; recepciones: Recepcion[]; defaultNumero: number;
-  actor: string; miNombre: string; canWrite: boolean; onCancel: () => void; onSaved: () => void;
+  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; pesoRecogidoSum: number; onCancel: () => void; onSaved: () => void;
 }) {
   const [numero, setNumero] = useState(String(conciliacion?.numero ?? defaultNumero));
   const [centros, setCentros] = useState<CentroRow[]>(() =>
@@ -870,10 +873,18 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
           nombre: r.centro_nombre || r.procedencia || '', saldo: r.peso_kg == null ? '' : String(r.peso_kg),
           categoria: '' as const, entra: false, almacen: '', movId: null,
         })));
-  const [pesoTotal, setPesoTotal] = useState(conciliacion?.peso_kg_total == null ? '' : String(conciliacion.peso_kg_total));
+  // Peso Kg Total: en una conciliación NUEVA se sincroniza con Σ Peso (Kg) recogido de Humedad Final.
+  const [pesoTotal, setPesoTotal] = useState(
+    conciliacion?.peso_kg_total != null ? String(conciliacion.peso_kg_total)
+    : pesoRecogidoSum > 0 ? String(round2(pesoRecogidoSum)) : '');
   const [bolsas, setBolsas] = useState(conciliacion?.kg_peso_bolsas == null ? '' : String(conciliacion.kg_peso_bolsas));
   const [muestras, setMuestras] = useState(conciliacion?.muestras_laboratorio == null ? '' : String(conciliacion.muestras_laboratorio));
   const [nota, setNota] = useState(conciliacion?.nota ?? '');
+  // TASA del neto seco que entra al inventario + su almacén.
+  const [tasa, setTasa] = useState(conciliacion?.tasa == null ? '' : String(conciliacion.tasa));
+  const [almacenNeto, setAlmacenNeto] = useState(conciliacion?.almacen_neto ?? '');
+  const [nuevoAlmNeto, setNuevoAlmNeto] = useState(false);
+  const netoYaEntro = !!conciliacion?.neto_seco_mov_id;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -882,6 +893,10 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
   const [nuevoAlm, setNuevoAlm] = useState<number | null>(null);  // índice de fila creando almacén
   const cargarAlmacenes = useCallback(() => { listAlmacenes().then(setAlmacenes).catch(() => { /* RLS/red */ }); }, []);
   useEffect(() => { cargarAlmacenes(); }, [cargarAlmacenes]);
+
+  // Neto seco que entra al inventario: el guardado (si ya entró) o el Σ vivo de los pesajes.
+  const netoSeco = netoYaEntro ? Number(conciliacion?.neto_seco ?? 0) : netoSecoSum;
+  const valorNeto = netoSeco * (parseNum(tasa) ?? 0);
 
   const centrosParsed: CentroConcil[] = centros.map((c) => {
     const esResg = c.categoria === 'resguardo';
@@ -913,6 +928,17 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
       toast(`Almacén «${a.nombre}» creado`, 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear el almacén', 'error'); }
   }
+  async function crearAlmacenNetoInline(nombre: string) {
+    const n = nombre.trim();
+    if (!n) return;
+    try {
+      const a = await crearAlmacen({ nombre: n }, actor);
+      cargarAlmacenes();
+      setAlmacenNeto(a.nombre);
+      setNuevoAlmNeto(false);
+      toast(`Almacén «${a.nombre}» creado`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear el almacén', 'error'); }
+  }
 
   async function guardar() {
     setError(null);
@@ -922,9 +948,13 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
     if (centrosParsed.some((c) => c.categoria === 'resguardo' && c.entra_inventario && !c.almacen)) {
       setError('Elegí el almacén destino de los resguardos que entran al inventario.'); return;
     }
+    // Tasa indicada pero sin almacén para el neto seco.
+    if (!netoYaEntro && (parseNum(tasa) ?? 0) > 0 && !almacenNeto) {
+      setError('Elegí el almacén destino del TOTAL NETO seco (lleva tasa).'); return;
+    }
     setSaving(true);
     try {
-      const input = { grupo_id: grupoId, numero: numN, centros: centrosParsed, peso_kg_total: parseNum(pesoTotal), kg_peso_bolsas: parseNum(bolsas), muestras_laboratorio: parseNum(muestras), nota };
+      const input = { grupo_id: grupoId, numero: numN, centros: centrosParsed, peso_kg_total: parseNum(pesoTotal), kg_peso_bolsas: parseNum(bolsas), muestras_laboratorio: parseNum(muestras), tasa: parseNum(tasa), almacen_neto: almacenNeto || null, nota };
       if (conciliacion) await actualizarConciliacion(conciliacion.id, input, actor, miNombre);
       else await crearConciliacion(input, actor, miNombre);
       toast('Conciliación guardada', 'success');
@@ -1048,6 +1078,41 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      {/* TOTAL NETO seco → inventario, valuado a la tasa de la conciliación */}
+      <div className="card" style={{ marginTop: '.85rem', borderColor: 'rgba(255,138,0,.4)' }}>
+        <div className="card-title" style={{ margin: '0 0 .5rem' }}>🪙 Entrada al inventario · TOTAL NETO seco (Σ pesajes)</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem 1.2rem', alignItems: 'flex-end' }}>
+          <div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>TOTAL NETO seco</div>
+            <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{num(netoSeco)} Kg</div>
+          </div>
+          <div className="form-row" style={{ margin: 0, maxWidth: 150 }}>
+            <label>Tasa (USD/Kg)</label>
+            <input className="input mono" inputMode="decimal" value={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite || netoYaEntro} placeholder="0,00" />
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>Valor (neto seco × tasa)</div>
+            <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary, #ff8a00)' }}>{fmt4(valorNeto)} USD</div>
+          </div>
+          <div className="form-row" style={{ margin: 0, minWidth: 220 }}>
+            <label>Almacén destino</label>
+            {netoYaEntro ? (
+              <span className="badge" style={{ background: 'var(--success)', color: '#fff' }}>✓ Ingresado en {conciliacion?.almacen_neto || '—'}</span>
+            ) : nuevoAlmNeto ? (
+              <InlineAlmacen onCrear={(n) => void crearAlmacenNetoInline(n)} onCancel={() => setNuevoAlmNeto(false)} />
+            ) : (
+              <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+                <AlmacenSelectAgrupado value={almacenNeto} onChange={setAlmacenNeto} almacenes={almacenes} style={{ minWidth: 180 }} disabled={!canWrite} />
+                {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setNuevoAlmNeto(true)} title="Crear almacén">+ nuevo</button>}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
+          {netoYaEntro ? 'Ya entró al inventario; al editar no se reingresa.' : 'Al GUARDAR, este neto seco entra como CASITERITA valuado a la tasa (sin afectar los resguardos).'}
         </div>
       </div>
 

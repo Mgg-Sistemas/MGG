@@ -534,11 +534,23 @@ export interface RecepcionConciliacion {
   kg_faltante: number | null;
   kg_no_llego: number | null;
   pct_no_llego: number | null;
+  /** Tasa USD/Kg con la que el TOTAL NETO seco entra al inventario. */
+  tasa?: number | null;
+  neto_seco?: number | null;        // Σ total_neto_seco de los pesajes que entró
+  almacen_neto?: string | null;     // almacén destino del neto seco
+  neto_seco_mov_id?: string | null; // idempotencia: ya entró
   nota?: string | null;
   actor?: string | null;
   actor_name?: string | null;
   created_at: string;
   updated_at?: string | null;
+}
+
+/** Σ de total_neto_seco de TODOS los pesajes de una tarjeta (lo que entra al inventario). */
+export async function sumaNetoSecoGrupo(grupoId: string): Promise<number> {
+  const { data, error } = await supabase.from('recepcion_pesajes').select('total_neto_seco').eq('grupo_id', grupoId);
+  if (error) throw error;
+  return (data ?? []).reduce((a, r) => a + num((r as { total_neto_seco?: number }).total_neto_seco), 0);
 }
 
 export async function listConciliaciones(grupoId: string): Promise<RecepcionConciliacion[]> {
@@ -576,6 +588,8 @@ export interface ConciliacionInput {
   peso_kg_total?: number | null;
   kg_peso_bolsas?: number | null;
   muestras_laboratorio?: number | null;
+  tasa?: number | null;          // USD/Kg para valuar el TOTAL NETO seco al entrar al inventario
+  almacen_neto?: string | null;  // almacén destino del neto seco
   nota?: string | null;
 }
 
@@ -625,6 +639,30 @@ async function entrarResguardo(cantidadKg: number, almacen: string, refId: strin
   return mov.id;
 }
 
+/** Entrada del TOTAL NETO seco (Σ pesajes) al inventario REAL, valuado a la TASA de la conciliación.
+ *  precio_unitario = tasa → recalcula el PMP del almacén con ese costo. */
+async function entrarNetoSeco(cantidadKg: number, almacen: string, tasa: number, refId: string | null, actor: string, actorName: string | null): Promise<string> {
+  const productoId = await productoResguardoId(almacen);
+  const mov = await registrarMovimiento({
+    producto_id: productoId, tipo: 'entrada', delta: num(cantidadKg), almacen,
+    actor, actor_name: actorName ?? null,
+    ref_tipo: 'recepcion_neto_seco', ref_id: refId,
+    detalle: `Neto seco de conciliación a ${tasa} USD/Kg`,
+    precio_unitario: num(tasa) > 0 ? num(tasa) : null,
+  });
+  return mov.id;
+}
+
+/** Ingresa el neto seco si hay tasa + almacén y aún no entró (idempotente por neto_seco_mov_id).
+ *  Devuelve los campos a persistir, o null si no hubo entrada. */
+async function procesarNetoSeco(refId: string, grupoId: string, tasa: number | null, almacenNeto: string | null, yaEntro: boolean, actor: string, actorName: string | null): Promise<{ neto_seco: number; neto_seco_mov_id: string } | null> {
+  if (yaEntro || !(num(tasa) > 0) || !almacenNeto) return null;
+  const netoSeco = await sumaNetoSecoGrupo(grupoId);
+  if (netoSeco <= 0) return null;
+  const movId = await entrarNetoSeco(netoSeco, almacenNeto, num(tasa), refId, actor, actorName);
+  return { neto_seco: netoSeco, neto_seco_mov_id: movId };
+}
+
 /** Por cada resguardo que entra al inventario y aún no tiene movimiento, lo ingresa
  *  y le estampa el id (idempotente: no se reingresa si ya tiene inventario_mov_id). */
 async function procesarResguardos(refId: string | null, centros: CentroConcil[], actor: string, actorName: string | null): Promise<{ centros: CentroConcil[]; cambio: boolean }> {
@@ -653,6 +691,7 @@ export async function crearConciliacion(input: ConciliacionInput, actor: string,
     kg_peso_bolsas: input.kg_peso_bolsas ?? null,
     muestras_laboratorio: input.muestras_laboratorio ?? null,
     total_reportado: s.totalReportado, kg_faltante: s.kgFaltante, kg_no_llego: s.kgNoLlego, pct_no_llego: s.pctNoLlego,
+    tasa: input.tasa ?? null, almacen_neto: input.almacen_neto?.trim() || null,
     nota: input.nota?.trim() || null, actor, actor_name: actorName ?? null,
   };
   const { data, error } = await supabase.from('recepcion_conciliaciones').insert(row).select('*').single();
@@ -660,9 +699,12 @@ export async function crearConciliacion(input: ConciliacionInput, actor: string,
   const created = data as RecepcionConciliacion;
   // Resguardos → inventario REAL (con el id ya disponible para la trazabilidad).
   const res = await procesarResguardos(created.id, s.centros, actor, actorName ?? null);
-  if (res.cambio) {
-    await supabase.from('recepcion_conciliaciones').update({ centros: res.centros }).eq('id', created.id);
+  // TOTAL NETO seco (Σ pesajes) → inventario a la TASA de la conciliación.
+  const neto = await procesarNetoSeco(created.id, input.grupo_id, input.tasa ?? null, input.almacen_neto ?? null, false, actor, actorName ?? null);
+  if (res.cambio || neto) {
+    await supabase.from('recepcion_conciliaciones').update({ centros: res.centros, ...(neto ?? {}) }).eq('id', created.id);
     created.centros = res.centros;
+    if (neto) { created.neto_seco = neto.neto_seco; created.neto_seco_mov_id = neto.neto_seco_mov_id; }
   }
   return created;
 }
@@ -670,15 +712,21 @@ export async function crearConciliacion(input: ConciliacionInput, actor: string,
 export async function actualizarConciliacion(id: string, input: ConciliacionInput, actor: string, actorName?: string | null): Promise<void> {
   const s = snapshotConcil(input);
   const res = await procesarResguardos(id, s.centros, actor, actorName ?? null);
-  const p = {
+  // ¿Ya entró el neto seco? (idempotencia: no reingresar al editar).
+  const { data: actual } = await supabase.from('recepcion_conciliaciones').select('neto_seco_mov_id').eq('id', id).maybeSingle();
+  const yaEntro = !!(actual as { neto_seco_mov_id?: string | null } | null)?.neto_seco_mov_id;
+  const neto = await procesarNetoSeco(id, input.grupo_id, input.tasa ?? null, input.almacen_neto ?? null, yaEntro, actor, actorName ?? null);
+  const p: Record<string, unknown> = {
     numero: Math.floor(Number(input.numero) || 0),
     centros: res.centros,
     peso_kg_total: input.peso_kg_total ?? null,
     kg_peso_bolsas: input.kg_peso_bolsas ?? null,
     muestras_laboratorio: input.muestras_laboratorio ?? null,
     total_reportado: s.totalReportado, kg_faltante: s.kgFaltante, kg_no_llego: s.kgNoLlego, pct_no_llego: s.pctNoLlego,
+    tasa: input.tasa ?? null, almacen_neto: input.almacen_neto?.trim() || null,
     nota: input.nota?.trim() || null,
     updated_at: new Date().toISOString(),
+    ...(neto ?? {}),
   };
   const { error } = await supabase.from('recepcion_conciliaciones').update(p).eq('id', id);
   if (error) throw error;
