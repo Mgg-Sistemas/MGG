@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -6,7 +6,7 @@ import { num, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
+import { AlmacenSelectAgrupado, AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { listAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
 import type { Almacen } from '@/shared/lib/types';
 import {
@@ -880,11 +880,6 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
   const [bolsas, setBolsas] = useState(conciliacion?.kg_peso_bolsas == null ? '' : String(conciliacion.kg_peso_bolsas));
   const [muestras, setMuestras] = useState(conciliacion?.muestras_laboratorio == null ? '' : String(conciliacion.muestras_laboratorio));
   const [nota, setNota] = useState(conciliacion?.nota ?? '');
-  // TASA del neto seco que entra al inventario + su almacén.
-  const [tasa, setTasa] = useState(conciliacion?.tasa == null ? '' : String(conciliacion.tasa));
-  const [almacenNeto, setAlmacenNeto] = useState(conciliacion?.almacen_neto ?? '');
-  const [nuevoAlmNeto, setNuevoAlmNeto] = useState(false);
-  const netoYaEntro = !!conciliacion?.neto_seco_mov_id;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -894,9 +889,8 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
   const cargarAlmacenes = useCallback(() => { listAlmacenes().then(setAlmacenes).catch(() => { /* RLS/red */ }); }, []);
   useEffect(() => { cargarAlmacenes(); }, [cargarAlmacenes]);
 
-  // Neto seco que entra al inventario: el guardado (si ya entró) o el Σ vivo de los pesajes.
-  const netoSeco = netoYaEntro ? Number(conciliacion?.neto_seco ?? 0) : netoSecoSum;
-  const valorNeto = netoSeco * (parseNum(tasa) ?? 0);
+  // Neto seco (Σ vivo de los pesajes). Entra al inventario al CERRAR la recepción.
+  const netoSeco = netoSecoSum;
 
   const centrosParsed: CentroConcil[] = centros.map((c) => {
     const esResg = c.categoria === 'resguardo';
@@ -928,18 +922,6 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
       toast(`Almacén «${a.nombre}» creado`, 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear el almacén', 'error'); }
   }
-  async function crearAlmacenNetoInline(nombre: string) {
-    const n = nombre.trim();
-    if (!n) return;
-    try {
-      const a = await crearAlmacen({ nombre: n }, actor);
-      cargarAlmacenes();
-      setAlmacenNeto(a.nombre);
-      setNuevoAlmNeto(false);
-      toast(`Almacén «${a.nombre}» creado`, 'success');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear el almacén', 'error'); }
-  }
-
   async function guardar() {
     setError(null);
     const numN = Math.floor(Number(numero) || 0);
@@ -948,13 +930,10 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
     if (centrosParsed.some((c) => c.categoria === 'resguardo' && c.entra_inventario && !c.almacen)) {
       setError('Elegí el almacén destino de los resguardos que entran al inventario.'); return;
     }
-    // Tasa indicada pero sin almacén para el neto seco.
-    if (!netoYaEntro && (parseNum(tasa) ?? 0) > 0 && !almacenNeto) {
-      setError('Elegí el almacén destino del TOTAL NETO seco (lleva tasa).'); return;
-    }
     setSaving(true);
     try {
-      const input = { grupo_id: grupoId, numero: numN, centros: centrosParsed, peso_kg_total: parseNum(pesoTotal), kg_peso_bolsas: parseNum(bolsas), muestras_laboratorio: parseNum(muestras), tasa: parseNum(tasa), almacen_neto: almacenNeto || null, nota };
+      // El neto seco YA NO entra desde la conciliación: entra al CERRAR la recepción.
+      const input = { grupo_id: grupoId, numero: numN, centros: centrosParsed, peso_kg_total: parseNum(pesoTotal), kg_peso_bolsas: parseNum(bolsas), muestras_laboratorio: parseNum(muestras), tasa: null, almacen_neto: null, nota };
       if (conciliacion) await actualizarConciliacion(conciliacion.id, input, actor, miNombre);
       else await crearConciliacion(input, actor, miNombre);
       toast('Conciliación guardada', 'success');
@@ -1081,38 +1060,17 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
         </div>
       </div>
 
-      {/* TOTAL NETO seco → inventario, valuado a la tasa de la conciliación */}
+      {/* TOTAL NETO seco → entra al inventario al CERRAR la recepción (tasa final de Totales) */}
       <div className="card" style={{ marginTop: '.85rem', borderColor: 'rgba(255,138,0,.4)' }}>
-        <div className="card-title" style={{ margin: '0 0 .5rem' }}>🪙 Entrada al inventario · TOTAL NETO seco (Σ pesajes)</div>
+        <div className="card-title" style={{ margin: '0 0 .5rem' }}>🪙 TOTAL NETO seco (Σ pesajes)</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem 1.2rem', alignItems: 'flex-end' }}>
           <div>
             <div className="muted" style={{ fontSize: '.72rem' }}>TOTAL NETO seco</div>
             <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{num(netoSeco)} Kg</div>
           </div>
-          <div className="form-row" style={{ margin: 0, maxWidth: 150 }}>
-            <label>Tasa (USD/Kg)</label>
-            <input className="input mono" inputMode="decimal" value={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite || netoYaEntro} placeholder="0,00" />
-          </div>
-          <div>
-            <div className="muted" style={{ fontSize: '.72rem' }}>Valor (neto seco × tasa)</div>
-            <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary, #ff8a00)' }}>{fmt4(valorNeto)} USD</div>
-          </div>
-          <div className="form-row" style={{ margin: 0, minWidth: 220 }}>
-            <label>Almacén destino</label>
-            {netoYaEntro ? (
-              <span className="badge" style={{ background: 'var(--success)', color: '#fff' }}>✓ Ingresado en {conciliacion?.almacen_neto || '—'}</span>
-            ) : nuevoAlmNeto ? (
-              <InlineAlmacen onCrear={(n) => void crearAlmacenNetoInline(n)} onCancel={() => setNuevoAlmNeto(false)} />
-            ) : (
-              <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
-                <AlmacenSelectAgrupado value={almacenNeto} onChange={setAlmacenNeto} almacenes={almacenes} style={{ minWidth: 180 }} disabled={!canWrite} />
-                {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setNuevoAlmNeto(true)} title="Crear almacén">+ nuevo</button>}
-              </span>
-            )}
-          </div>
         </div>
         <div className="muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
-          {netoYaEntro ? 'Ya entró al inventario; al editar no se reingresa.' : 'Al GUARDAR, este neto seco entra como CASITERITA valuado a la tasa (sin afectar los resguardos).'}
+          Este neto seco entra al inventario como <strong>CASITERITA</strong> al <strong>🔒 Cerrar la recepción</strong>, valuado a la <strong>Tasa final</strong> de Totales y en el <strong>almacén / subalmacén</strong> que asignás en el cierre (los resguardos no se ven afectados).
         </div>
       </div>
 
@@ -1357,8 +1315,20 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onClos
 }) {
   const [cierres, setCierres] = useState<RecepcionCierre[]>([]);
   const [numero, setNumero] = useState('');
+  const [almacenNeto, setAlmacenNeto] = useState('');
   const [ver, setVer] = useState<RecepcionCierre | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // TOTAL NETO seco (Σ pesajes) y TASA FINAL (de los últimos Totales) → entran al inventario al cerrar.
+  const pesajes = (datos.pesajes ?? []) as RecepcionPesaje[];
+  const totales = (datos.totales ?? []) as RecepcionTotales[];
+  const netoSeco = useMemo(() => pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0), [pesajes]);
+  const tasaFinal = useMemo(() => {
+    const conTasa = totales.filter((t) => t.tasa_final != null);
+    const ult = conTasa.sort((a, b) => (b.numero ?? 0) - (a.numero ?? 0))[0];
+    return ult?.tasa_final ?? null;
+  }, [totales]);
+  const valorNeto = netoSeco * Number(tasaFinal ?? 0);
 
   const cargar = useCallback(async () => {
     const [cs, nn] = await Promise.all([listCierres(grupo.id), nextNumeroCierre()]);
@@ -1369,15 +1339,24 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onClos
   async function cerrar() {
     const n = Math.floor(Number(numero) || 0);
     if (n <= 0) { toast('Indicá el número de la recepción', 'error'); return; }
+    // Si hay neto seco con tasa final, exigimos almacén/subalmacén para la entrada al inventario.
+    if (netoSeco > 0 && Number(tasaFinal ?? 0) > 0 && !almacenNeto) {
+      toast('Elegí el almacén / subalmacén donde entra el TOTAL NETO seco', 'error'); return;
+    }
     setSaving(true);
-    try { await crearCierre({ grupoId: grupo.id, grupoNombre: grupo.nombre, numero: n, datos }, actor, miNombre); toast(`Recepción N° ${n} cerrada`, 'success'); await cargar(); }
+    try {
+      await crearCierre({ grupoId: grupo.id, grupoNombre: grupo.nombre, numero: n, datos, tasaFinal, almacenNeto: almacenNeto || null }, actor, miNombre);
+      toast(`Recepción N° ${n} cerrada${netoSeco > 0 && Number(tasaFinal ?? 0) > 0 && almacenNeto ? ` · ${num(netoSeco)} Kg al inventario` : ''}`, 'success');
+      setAlmacenNeto('');
+      await cargar();
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar', 'error'); }
     finally { setSaving(false); }
   }
   function borrar(c: RecepcionCierre) {
-    confirmar({ message: `¿Borrar el cierre N° ${c.numero}?`, onConfirm: async () => {
+    confirmar({ message: `¿Borrar el cierre N° ${c.numero}?${c.neto_seco_mov_id ? ' Se revertirá el neto seco que entró al inventario.' : ''}`, onConfirm: async () => {
       confirmar(null);
-      try { await eliminarCierre(c.id); await cargar(); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
+      try { await eliminarCierre(c.id, actor, miNombre); await cargar(); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
     } });
   }
 
@@ -1394,6 +1373,37 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onClos
             <input className="input mono" type="number" min={1} value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="1" />
           </div>
         </div>
+
+        {/* TOTAL NETO seco → entra al inventario al cerrar, valuado a la tasa final de Totales */}
+        <div className="card" style={{ margin: '.5rem 0 .8rem', borderColor: 'rgba(255,138,0,.4)' }}>
+          <div className="card-title" style={{ margin: '0 0 .5rem' }}>🪙 Entrada al inventario · TOTAL NETO seco</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem 1.4rem', alignItems: 'flex-end' }}>
+            <div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>TOTAL NETO seco (Σ pesajes)</div>
+              <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{num(netoSeco)} Kg</div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Tasa final (de Totales)</div>
+              <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{tasaFinal != null ? `$ ${fmt4(tasaFinal)}` : '— sin Totales —'}</div>
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Valor (neto seco × tasa)</div>
+              <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary, #ff8a00)' }}>{fmt4(valorNeto)} USD</div>
+            </div>
+          </div>
+          {netoSeco > 0 && Number(tasaFinal ?? 0) > 0 ? (
+            <div style={{ marginTop: '.6rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, fontSize: '.82rem', marginBottom: '.3rem' }}>Almacén / subalmacén destino <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <AlmacenPicker value={almacenNeto} onChange={setAlmacenNeto} label="Subalmacén" sedeLabel="Almacén" />
+              <small className="muted" style={{ fontSize: '.74rem' }}>El neto seco entra como CASITERITA a la tasa final, en el almacén → subalmacén elegido.</small>
+            </div>
+          ) : (
+            <div className="muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
+              {netoSeco <= 0 ? 'No hay neto seco para ingresar.' : 'Cargá los Totales (con su Tasa final) para que el neto seco entre al inventario al cerrar.'}
+            </div>
+          )}
+        </div>
+
         <button className="btn btn-warning" onClick={() => void cerrar()} disabled={saving}>{saving ? 'Cerrando…' : '🔒 Cerrar recepción'}</button>
       </div>
 
@@ -1436,6 +1446,18 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
   return (
     <Modal title={`🔒 RECEPCIÓN CERRADA · N° ${cierre.numero}`} size="xl" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       <div className="muted" style={{ marginBottom: '.8rem' }}>{cierre.grupo_nombre} · {dateTime(cierre.fecha)}</div>
+
+      {cierre.neto_seco_mov_id && (
+        <div className="card" style={{ marginBottom: '.8rem', borderColor: 'rgba(255,138,0,.4)' }}>
+          <div className="card-title" style={{ margin: '0 0 .4rem' }}>🪙 Entrada al inventario · TOTAL NETO seco</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem 1.4rem', fontSize: '.86rem' }}>
+            <span>Neto seco: <strong className="mono">{num(cierre.neto_seco ?? 0)} Kg</strong></span>
+            <span>Tasa final: <strong className="mono">$ {fmt4(cierre.tasa_final)}</strong></span>
+            <span>Valor: <strong className="mono">{fmt4(Number(cierre.neto_seco ?? 0) * Number(cierre.tasa_final ?? 0))} USD</strong></span>
+            <span>Almacén: <strong>{cierre.almacen_neto || '—'}</strong></span>
+          </div>
+        </div>
+      )}
 
       <h4 style={{ margin: '.4rem 0' }}>📦 Recepciones</h4>
       <div className="table-wrap">

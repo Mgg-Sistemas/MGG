@@ -3121,6 +3121,12 @@ create table if not exists public.recepcion_cierres (
   numero int not null,
   fecha timestamptz not null default now(),
   datos jsonb not null default '{}'::jsonb,
+  -- Entrada al inventario del TOTAL NETO seco al CERRAR la recepción:
+  -- valuado a la tasa_final de Totales, en el almacén/subalmacén asignado aquí.
+  neto_seco numeric,
+  tasa_final numeric,
+  almacen_neto text,
+  neto_seco_mov_id uuid,
   nota text,
   actor text, actor_name text,
   created_at timestamptz not null default now(),
