@@ -526,7 +526,13 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
       await montarCompraDirecta({ compra, items, file, nota, actor, actorName });
       notify(`Compra enviada a Tesorería · ${montoCaja(total, 'USD')} por pagar`, 'success', { link: '#/app/tesoreria' });
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar la compra a Tesorería.'); setSaving(false); }
+    } catch (err) {
+      // Los errores de Supabase (Postgrest/Storage) no siempre son `Error`: sacamos su .message igual.
+      const msg = err instanceof Error ? err.message
+        : (err && typeof err === 'object' && 'message' in err) ? String((err as { message: unknown }).message)
+        : 'No se pudo enviar la compra a Tesorería.';
+      setError(msg); setSaving(false);
+    }
   }
 
   const footer = (
