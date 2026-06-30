@@ -2905,8 +2905,28 @@ exception when duplicate_object then null; end $$;
 -- configurable (RECEPCIÓN GLOBAL LABORATORIO). El ingreso al inventario
 -- se hará luego (paso posterior).
 -- ============================================================
+-- La vista es por TARJETA de recepción (como Combustible). Hay una GENERAL y
+-- se pueden añadir más; todas las tablas de datos llevan grupo_id.
+create table if not exists public.recepcion_grupos (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  orden int not null default 0,
+  es_general boolean not null default false,
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+alter table public.recepcion_grupos enable row level security;
+create policy "rec_grupos read auth" on public.recepcion_grupos for select using (auth.role()='authenticated');
+create policy "rec_grupos write op"  on public.recepcion_grupos for all using (public.is_operativo()) with check (public.is_operativo());
+insert into public.recepcion_grupos (nombre, orden, es_general)
+select 'RECEPCIÓN GENERAL', 0, true
+where not exists (select 1 from public.recepcion_grupos where es_general);
+
 create table if not exists public.recepciones (
   id uuid primary key default gen_random_uuid(),
+  grupo_id uuid references public.recepcion_grupos(id) on delete cascade,
   item int not null,
   fecha timestamptz not null default now(),
   peso_kg numeric not null default 0,
@@ -2958,6 +2978,7 @@ on conflict (clave) do nothing;
 --   { "<clave>": {a,b,c} }  (modo abc)  ·  { "<clave>": {prom} }  (modo prom)
 create table if not exists public.recepcion_analisis (
   id uuid primary key default gen_random_uuid(),
+  grupo_id uuid references public.recepcion_grupos(id) on delete cascade,
   n_analisis int not null,
   fecha timestamptz not null default now(),
   valores jsonb not null default '{}'::jsonb,
@@ -2975,6 +2996,7 @@ create policy "rec_analisis write op"  on public.recepcion_analisis for all usin
 -- manuales; el pie "Promedio del lote" promedia los % y suma la merma (en el front).
 create table if not exists public.recepcion_humedad_prov (
   id uuid primary key default gen_random_uuid(),
+  grupo_id uuid references public.recepcion_grupos(id) on delete cascade,
   orden int not null default 0,
   peso_humedo numeric,         -- Peso (Gr) Húmedos
   peso_seco numeric,           -- Peso (Gr) seco
@@ -2990,6 +3012,7 @@ create policy "rec_hum_prov write op"  on public.recepcion_humedad_prov for all 
 
 create table if not exists public.recepcion_humedad_final (
   id uuid primary key default gen_random_uuid(),
+  grupo_id uuid references public.recepcion_grupos(id) on delete cascade,
   orden int not null default 0,
   peso_kg numeric,             -- Peso (Kg)
   peso_recogido numeric,       -- Peso (Kg) recogido
@@ -3008,10 +3031,12 @@ create policy "rec_hum_final write op"  on public.recepcion_humedad_final for al
 --   TOTAL NETO = suma de pesos + BIG BAG (permite negativos).
 create table if not exists public.recepcion_pesajes (
   id uuid primary key default gen_random_uuid(),
+  grupo_id uuid references public.recepcion_grupos(id) on delete cascade,
   item int not null default 0,
   fecha timestamptz not null default now(),
   bigbags jsonb not null default '[]'::jsonb,
   factor numeric not null default 1.5,
+  modo text not null default 'bigbag',   -- deducción: bigbag (×1,5) · saco (×0,06) · hielo (×0,05)
   total_neto_humedo numeric,
   total_neto_seco numeric,
   nota text,
@@ -3030,6 +3055,7 @@ create policy "rec_pesajes write op"  on public.recepcion_pesajes for all using 
 --   % no llegó = Kg No Llegó ÷ Total Reportado × 100
 create table if not exists public.recepcion_conciliaciones (
   id uuid primary key default gen_random_uuid(),
+  grupo_id uuid references public.recepcion_grupos(id) on delete cascade,
   numero int not null,
   fecha timestamptz not null default now(),
   centros jsonb not null default '[]'::jsonb,
@@ -3050,6 +3076,57 @@ alter table public.recepcion_conciliaciones enable row level security;
 create policy "rec_concil read auth" on public.recepcion_conciliaciones for select using (auth.role()='authenticated');
 create policy "rec_concil write op"  on public.recepcion_conciliaciones for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Totales (promedio de precio de compra). Histórico editable.
+--   centros: [{nombre, sno2, precio}] · Total Moneda = sno2*precio (+ gastos en el total)
+--   Tasa recepcionada = Total Moneda / Pesos Kg
+--   Costo final: SnO2 = Pesos Kg + Humedad Prov + Humedad Final + Fe esteril
+--                Total Moneda = (Σ 3 filas) ó (si 0) el Total Moneda recepcionado · Tasa = TM/SnO2
+create table if not exists public.recepcion_totales (
+  id uuid primary key default gen_random_uuid(),
+  grupo_id uuid references public.recepcion_grupos(id) on delete cascade,
+  numero int not null,
+  fecha timestamptz not null default now(),
+  centros jsonb not null default '[]'::jsonb,
+  gastos numeric,
+  pesos_kg numeric,
+  humedad_prov numeric,
+  humedad_final numeric,
+  fe_esteril numeric,
+  total_sno2 numeric,
+  total_moneda numeric,
+  tasa_recepcionada numeric,
+  total_sno2_final numeric,
+  total_moneda_final numeric,
+  tasa_final numeric,
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_recepcion_totales_numero on public.recepcion_totales(numero);
+alter table public.recepcion_totales enable row level security;
+create policy "rec_totales read auth" on public.recepcion_totales for select using (auth.role()='authenticated');
+create policy "rec_totales write op"  on public.recepcion_totales for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- CERRAR RECEPCIÓN: snapshot de todos los datos de la tarjeta (histórico).
+create table if not exists public.recepcion_cierres (
+  id uuid primary key default gen_random_uuid(),
+  grupo_id uuid references public.recepcion_grupos(id) on delete cascade,
+  grupo_nombre text,
+  numero int not null,
+  fecha timestamptz not null default now(),
+  datos jsonb not null default '{}'::jsonb,
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_recepcion_cierres_grupo on public.recepcion_cierres(grupo_id);
+create index if not exists idx_recepcion_cierres_numero on public.recepcion_cierres(numero);
+alter table public.recepcion_cierres enable row level security;
+create policy "rec_cierres read auth" on public.recepcion_cierres for select using (auth.role()='authenticated');
+create policy "rec_cierres write op"  on public.recepcion_cierres for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- ============================================================
 -- Realtime en TODOS los módulos: publica las tablas de datos del esquema
 -- public que aún no estén en supabase_realtime (multiusuario en vivo).
@@ -3060,7 +3137,7 @@ declare faltantes text[] := array[
   'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
   'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
   'ofertas_proveedor','produccion','produccion_materiales','proveedor_datos_pago','proveedores',
-  'recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones',
+  'recepcion_grupos','recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones','recepcion_totales','recepcion_cierres',
   'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
 ];
 begin
