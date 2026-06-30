@@ -419,3 +419,116 @@ export async function eliminarPesaje(id: string): Promise<void> {
   const { error } = await supabase.from('recepcion_pesajes').delete().eq('id', id);
   if (error) throw error;
 }
+
+/* ───────────── Conciliación de Centros de Acopio ─────────────
+   Toma los nombres de los centros/aliados y sus Saldos en Kg (del cierre de caja).
+   Total Reportado = Σ saldos · Kg Faltante = Peso KG TOTAL − Total Reportado
+   Kg No Llegó = Faltante + Bolsas + Muestras · % no llegó = No Llegó ÷ Total Reportado × 100. */
+export interface CentroConcil {
+  nombre: string | null;   // ej. "P-MGG04- A LOS PIJIGUAOS" (centro o aliado)
+  saldo_kg: number | null; // Saldo en Kg
+}
+export interface RecepcionConciliacion {
+  id: string;
+  numero: number;
+  fecha: string;
+  centros: CentroConcil[];
+  peso_kg_total: number | null;
+  kg_peso_bolsas: number | null;
+  muestras_laboratorio: number | null;
+  total_reportado: number | null;
+  kg_faltante: number | null;
+  kg_no_llego: number | null;
+  pct_no_llego: number | null;
+  nota?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export async function listConciliaciones(): Promise<RecepcionConciliacion[]> {
+  const { data, error } = await supabase.from('recepcion_conciliaciones').select('*').order('numero', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({ ...(r as RecepcionConciliacion), centros: ((r as RecepcionConciliacion).centros ?? []) as CentroConcil[] }));
+}
+
+/** Siguiente número: último + 1 (arranca en 1; la 1ª vez el usuario puede cambiarlo). */
+export async function nextNumeroConciliacion(): Promise<number> {
+  const { data } = await supabase.from('recepcion_conciliaciones').select('numero').order('numero', { ascending: false }).limit(1).maybeSingle();
+  return (num((data as { numero?: number } | null)?.numero) || 0) + 1;
+}
+
+/* — Cálculos — */
+export function totalReportadoConcil(centros: CentroConcil[]): number {
+  return centros.reduce((a, c) => a + num(c.saldo_kg), 0);
+}
+export function kgFaltanteConcil(pesoKgTotal: number | null, totalReportado: number): number {
+  return num(pesoKgTotal) - totalReportado;
+}
+export function kgNoLlegoConcil(kgFaltante: number, bolsas: number | null, muestras: number | null): number {
+  return kgFaltante + num(bolsas) + num(muestras);
+}
+export function pctNoLlegoConcil(kgNoLlego: number, totalReportado: number): number | null {
+  return totalReportado !== 0 ? (kgNoLlego / totalReportado) * 100 : null;
+}
+
+export interface ConciliacionInput {
+  numero: number;
+  fecha?: string | null;
+  centros: CentroConcil[];
+  peso_kg_total?: number | null;
+  kg_peso_bolsas?: number | null;
+  muestras_laboratorio?: number | null;
+  nota?: string | null;
+}
+
+function snapshotConcil(input: ConciliacionInput) {
+  const centros = input.centros.map((c) => ({
+    nombre: c.nombre?.toString().trim() || null,
+    saldo_kg: c.saldo_kg != null && Number.isFinite(Number(c.saldo_kg)) ? Number(c.saldo_kg) : null,
+  }));
+  const totalReportado = totalReportadoConcil(centros);
+  const kgFaltante = kgFaltanteConcil(input.peso_kg_total ?? null, totalReportado);
+  const kgNoLlego = kgNoLlegoConcil(kgFaltante, input.kg_peso_bolsas ?? null, input.muestras_laboratorio ?? null);
+  const pctNoLlego = pctNoLlegoConcil(kgNoLlego, totalReportado);
+  return { centros, totalReportado, kgFaltante, kgNoLlego, pctNoLlego };
+}
+
+export async function crearConciliacion(input: ConciliacionInput, actor: string, actorName?: string | null): Promise<RecepcionConciliacion> {
+  const s = snapshotConcil(input);
+  const row = {
+    numero: Math.floor(Number(input.numero) || 0),
+    fecha: input.fecha || new Date().toISOString(),
+    centros: s.centros,
+    peso_kg_total: input.peso_kg_total ?? null,
+    kg_peso_bolsas: input.kg_peso_bolsas ?? null,
+    muestras_laboratorio: input.muestras_laboratorio ?? null,
+    total_reportado: s.totalReportado, kg_faltante: s.kgFaltante, kg_no_llego: s.kgNoLlego, pct_no_llego: s.pctNoLlego,
+    nota: input.nota?.trim() || null, actor, actor_name: actorName ?? null,
+  };
+  const { data, error } = await supabase.from('recepcion_conciliaciones').insert(row).select('*').single();
+  if (error) throw error;
+  return data as RecepcionConciliacion;
+}
+
+export async function actualizarConciliacion(id: string, input: ConciliacionInput): Promise<void> {
+  const s = snapshotConcil(input);
+  const p = {
+    numero: Math.floor(Number(input.numero) || 0),
+    centros: s.centros,
+    peso_kg_total: input.peso_kg_total ?? null,
+    kg_peso_bolsas: input.kg_peso_bolsas ?? null,
+    muestras_laboratorio: input.muestras_laboratorio ?? null,
+    total_reportado: s.totalReportado, kg_faltante: s.kgFaltante, kg_no_llego: s.kgNoLlego, pct_no_llego: s.pctNoLlego,
+    nota: input.nota?.trim() || null,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from('recepcion_conciliaciones').update(p).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarConciliacion(id: string): Promise<void> {
+  const { error } = await supabase.from('recepcion_conciliaciones').delete().eq('id', id);
+  if (error) throw error;
+}

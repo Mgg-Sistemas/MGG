@@ -80,5 +80,17 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
+  // Nota para Tesorería (si la cargó el analista).
+  if (compra.nota?.trim()) {
+    let ny = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 18;
+    const pageW = doc.internal.pageSize.getWidth();
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('Nota para Tesorería', MARGIN, ny);
+    ny += 14;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    const lineas = doc.splitTextToSize(compra.nota.trim(), pageW - MARGIN * 2) as string[];
+    doc.text(lineas, MARGIN, ny);
+  }
+
   previewPdfDoc(doc, `compra-directa-${(compra.codigo ?? compra.id.slice(0, 8))}.pdf`);
 }

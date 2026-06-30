@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -15,8 +15,11 @@ import {
   listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal,
   promedioCol, sumaCol,
   listPesajes, crearPesaje, actualizarPesaje, eliminarPesaje, bigBagLado, totalNetoLado,
+  listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion,
+  totalReportadoConcil, kgFaltanteConcil, kgNoLlegoConcil, pctNoLlegoConcil,
   type Recepcion, type RecepcionMineral, type RecepcionAnalisis, type ValorMineral,
   type HumedadProv, type HumedadFinal, type RecepcionPesaje, type PesajeBigbag,
+  type RecepcionConciliacion, type CentroConcil,
 } from './recepciones.repository';
 
 /* es-VE: acepta coma o punto como decimal al tipear. */
@@ -112,6 +115,8 @@ export function RecepcionesPage() {
   const [humFinal, setHumFinal] = useState<HumedadFinal[]>([]);
   const [pesajes, setPesajes] = useState<RecepcionPesaje[]>([]);
   const [pesajeModal, setPesajeModal] = useState<RecepcionPesaje | 'nuevo' | null>(null);
+  const [conciliaciones, setConciliaciones] = useState<RecepcionConciliacion[]>([]);
+  const [conciliacionOpen, setConciliacionOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [recEdit, setRecEdit] = useState<Recepcion | null>(null);
   const [recNueva, setRecNueva] = useState(false);
@@ -119,8 +124,8 @@ export function RecepcionesPage() {
   const [confirmar, setConfirmar] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const reload = useCallback(async () => {
-    const [rs, ms, as, hp, hf, ps] = await Promise.all([listRecepciones(), listMinerales(true), listAnalisis(), listHumedadProv(), listHumedadFinal(), listPesajes()]);
-    setRecepciones(rs); setMinerales(ms); setAnalisis(as); setHumProv(hp); setHumFinal(hf); setPesajes(ps);
+    const [rs, ms, as, hp, hf, ps, cc] = await Promise.all([listRecepciones(), listMinerales(true), listAnalisis(), listHumedadProv(), listHumedadFinal(), listPesajes(), listConciliaciones()]);
+    setRecepciones(rs); setMinerales(ms); setAnalisis(as); setHumProv(hp); setHumFinal(hf); setPesajes(ps); setConciliaciones(cc);
   }, []);
   useEffect(() => {
     let cancel = false;
@@ -129,7 +134,7 @@ export function RecepcionesPage() {
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
-  useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales', 'recepcion_humedad_prov', 'recepcion_humedad_final', 'recepcion_pesajes'], reload);
+  useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales', 'recepcion_humedad_prov', 'recepcion_humedad_final', 'recepcion_pesajes', 'recepcion_conciliaciones'], reload);
 
   // Partir los minerales en dos grupos (mitad arriba, mitad abajo) para evitar el scroll horizontal.
   const mitad = Math.ceil(minerales.length / 2);
@@ -199,6 +204,13 @@ export function RecepcionesPage() {
         </div>
       </div>
 
+      {/* ───────────── Barra de acciones (CONCILIACIÓN · TOTALES · RESÚMENES) ───────────── */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', marginBottom: '1.25rem' }}>
+        <button className="btn btn-primary" onClick={() => setConciliacionOpen(true)}>⚖ Conciliación</button>
+        <button className="btn btn-primary" onClick={() => toast('Totales: próximamente', 'info')}>Σ Totales</button>
+        <button className="btn btn-primary" onClick={() => toast('Resúmenes: próximamente', 'info')}>📊 Resúmenes</button>
+      </div>
+
       {/* ───────────── Tabla de Recepciones ───────────── */}
       <div className="card" style={{ marginBottom: '1.25rem' }}>
         <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -241,7 +253,7 @@ export function RecepcionesPage() {
       </div>
 
       {/* ───────────── Título de la grilla de laboratorio ───────────── */}
-      <div className="card" style={{ textAlign: 'center', fontWeight: 800, fontSize: '1.05rem', letterSpacing: '.04em', background: 'var(--primary-2, rgba(255,138,0,.12))', marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}>
+      <div className="card" style={{ textAlign: 'center', fontWeight: 800, fontSize: '1.05rem', letterSpacing: '.04em', background: 'rgba(255,138,0,.10)', color: 'var(--primary, #ff8a00)', borderBottom: '2px solid rgba(255,138,0,.45)', marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}>
         RECEPCIÓN GLOBAL LABORATORIO
       </div>
 
@@ -302,6 +314,10 @@ export function RecepcionesPage() {
       {pesajeModal && (
         <PesajeModal pesaje={pesajeModal === 'nuevo' ? null : pesajeModal} actor={actor} miNombre={miNombre}
           onClose={() => setPesajeModal(null)} onSaved={async () => { setPesajeModal(null); await reload(); }} />
+      )}
+      {conciliacionOpen && (
+        <ConciliacionModal conciliaciones={conciliaciones} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
+          onReload={reload} onClose={() => setConciliacionOpen(false)} confirmar={setConfirmar} />
       )}
 
       {recNueva && (
@@ -633,8 +649,8 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onRemo
           <tfoot>
             <tr>
               <td></td>
-              <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#c0392b', background: '#cfe3cf' }}>{num(bigBag)}</td>
-              <td style={{ fontWeight: 800, color: '#c0392b' }}>BIG BAG</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: 'var(--danger, #e5484d)' }}>{num(bigBag)}</td>
+              <td style={{ fontWeight: 800, color: 'var(--danger, #e5484d)' }}>BIG BAG</td>
               <td></td>
             </tr>
             <tr>
@@ -647,6 +663,193 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onRemo
         </table>
       </div>
     </div>
+  );
+}
+
+/* ───────────── Conciliación de Centros de Acopio (todo dentro del modal) ───────────── */
+const ROJO = 'var(--danger, #e5484d)';
+
+function ConciliacionModal({ conciliaciones, recepciones, canWrite, actor, miNombre, onReload, onClose, confirmar }: {
+  conciliaciones: RecepcionConciliacion[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
+  onReload: () => Promise<void>; onClose: () => void;
+  confirmar: (c: { message: string; onConfirm: () => void } | null) => void;
+}) {
+  const [editor, setEditor] = useState<RecepcionConciliacion | 'nueva' | null>(null);
+  const nextNum = conciliaciones.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
+
+  if (editor) {
+    return (
+      <ConciliacionEditorModal conciliacion={editor === 'nueva' ? null : editor} recepciones={recepciones}
+        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite}
+        onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
+    );
+  }
+
+  function borrar(c: RecepcionConciliacion) {
+    confirmar({ message: `¿Borrar la conciliación N° ${c.numero}?`, onConfirm: async () => {
+      confirmar(null);
+      try { await eliminarConciliacion(c.id); await onReload(); toast('Conciliación borrada', 'success'); }
+      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
+    } });
+  }
+
+  return (
+    <Modal title="⚖ Conciliación de Centros de Acopio" size="xl" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+        {canWrite && <button className="btn btn-primary" onClick={() => setEditor('nueva')}>+ Nueva conciliación</button>}
+      </>
+    }>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr><th style={{ width: 110 }}>N° Recepción</th><th>Fecha</th><th style={{ textAlign: 'right' }}>Reportado (Kg)</th><th style={{ textAlign: 'right' }}>Kg No Llegó</th><th style={{ textAlign: 'right' }}>% no llegó</th>{canWrite && <th></th>}</tr></thead>
+          <tbody>
+            {!conciliaciones.length ? (
+              <tr><td colSpan={canWrite ? 6 : 5}><EmptyState message="Sin conciliaciones. Usá «+ Nueva conciliación»." icon="⚖" /></td></tr>
+            ) : conciliaciones.map((c) => (
+              <tr key={c.id} style={{ cursor: canWrite ? 'pointer' : undefined }} onClick={canWrite ? () => setEditor(c) : undefined} title={canWrite ? 'Ver / editar' : undefined}>
+                <td className="mono"><strong>N° {c.numero}</strong></td>
+                <td className="muted">{dateTime(c.fecha)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(c.total_reportado ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }}>{num(c.kg_no_llego ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }}>{c.pct_no_llego != null ? `${num(c.pct_no_llego)}%` : '—'}</td>
+                {canWrite && (
+                  <td className="actions" style={{ whiteSpace: 'nowrap', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setEditor(c)} title="Ver / editar">✎</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => borrar(c)} title="Borrar">🗑</button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
+}
+
+function ConciliacionEditorModal({ conciliacion, recepciones, defaultNumero, actor, miNombre, canWrite, onCancel, onSaved }: {
+  conciliacion: RecepcionConciliacion | null; recepciones: Recepcion[]; defaultNumero: number;
+  actor: string; miNombre: string; canWrite: boolean; onCancel: () => void; onSaved: () => void;
+}) {
+  const [numero, setNumero] = useState(String(conciliacion?.numero ?? defaultNumero));
+  const [centros, setCentros] = useState<{ nombre: string; saldo: string }[]>(() =>
+    conciliacion
+      ? conciliacion.centros.map((c) => ({ nombre: c.nombre ?? '', saldo: c.saldo_kg == null ? '' : String(c.saldo_kg) }))
+      : recepciones.map((r) => ({ nombre: r.centro_nombre || r.procedencia || '', saldo: r.peso_kg == null ? '' : String(r.peso_kg) })));
+  const [pesoTotal, setPesoTotal] = useState(conciliacion?.peso_kg_total == null ? '' : String(conciliacion.peso_kg_total));
+  const [bolsas, setBolsas] = useState(conciliacion?.kg_peso_bolsas == null ? '' : String(conciliacion.kg_peso_bolsas));
+  const [muestras, setMuestras] = useState(conciliacion?.muestras_laboratorio == null ? '' : String(conciliacion.muestras_laboratorio));
+  const [nota, setNota] = useState(conciliacion?.nota ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const centrosParsed: CentroConcil[] = centros.map((c) => ({ nombre: c.nombre.trim() || null, saldo_kg: parseNum(c.saldo) }));
+  const totalReportado = totalReportadoConcil(centrosParsed);
+  const kgFaltante = kgFaltanteConcil(parseNum(pesoTotal), totalReportado);
+  const kgNoLlego = kgNoLlegoConcil(kgFaltante, parseNum(bolsas), parseNum(muestras));
+  const pctNoLlego = pctNoLlegoConcil(kgNoLlego, totalReportado);
+
+  const addCentro = () => setCentros((cs) => [...cs, { nombre: '', saldo: '' }]);
+  const removeCentro = (i: number) => setCentros((cs) => cs.filter((_, j) => j !== i));
+  const setCentro = (i: number, key: 'nombre' | 'saldo', val: string) => setCentros((cs) => cs.map((c, j) => (j === i ? { ...c, [key]: val } : c)));
+
+  async function guardar() {
+    setError(null);
+    const numN = Math.floor(Number(numero) || 0);
+    if (numN <= 0) { setError('Indicá el número de la recepción.'); return; }
+    setSaving(true);
+    try {
+      const input = { numero: numN, centros: centrosParsed, peso_kg_total: parseNum(pesoTotal), kg_peso_bolsas: parseNum(bolsas), muestras_laboratorio: parseNum(muestras), nota };
+      if (conciliacion) await actualizarConciliacion(conciliacion.id, input);
+      else await crearConciliacion(input, actor, miNombre);
+      toast('Conciliación guardada', 'success');
+      onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
+  }
+
+  // Fila del resumen (valor a la izquierda, etiqueta a la derecha; como el Excel).
+  const filaResumen = (valor: ReactNode, etiqueta: string, opts?: { rojo?: boolean; bold?: boolean }) => (
+    <tr>
+      <td className="mono" style={{ textAlign: 'right', width: 180, fontWeight: opts?.bold || opts?.rojo ? 800 : 600, color: opts?.rojo ? ROJO : undefined }}>{valor}</td>
+      <td style={{ fontWeight: opts?.bold || opts?.rojo ? 800 : 600, color: opts?.rojo ? ROJO : undefined }}>{etiqueta}</td>
+    </tr>
+  );
+
+  return (
+    <Modal title={conciliacion ? `⚖ Conciliación N° ${conciliacion.numero}` : '⚖ Nueva conciliación'} size="xl" onClose={onCancel} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onCancel} disabled={saving}>← Volver</button>
+        {canWrite && <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'GUARDAR CONCILIACIÓN'}</button>}
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div className="form-grid" style={{ marginBottom: '.8rem' }}>
+        <div className="form-row" style={{ maxWidth: 240 }}>
+          <label>N° de Recepción</label>
+          <input className="input mono" type="number" min={1} value={numero} onChange={(e) => setNumero(e.target.value)} disabled={!canWrite} placeholder="1" />
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem', alignItems: 'start' }}>
+        {/* Centros de Acopio (saldos) */}
+        <div className="card" style={{ padding: 0, overflow: 'hidden', margin: 0 }}>
+          <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '.55rem .7rem', margin: 0 }}>
+            <span>Centros de Acopio</span>
+            {canWrite && <button className="btn btn-sm btn-ghost" onClick={addCentro}>+ Añadir centro</button>}
+          </div>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
+              <thead><tr><th style={{ textAlign: 'right', width: 120 }}>Saldo (Kg)</th><th>Centro de Acopio</th>{canWrite && <th></th>}</tr></thead>
+              <tbody>
+                {!centros.length ? (
+                  <tr><td colSpan={canWrite ? 3 : 2} className="muted" style={{ textAlign: 'center' }}>Sin centros. Usá «+ Añadir centro».</td></tr>
+                ) : centros.map((c, i) => (
+                  <tr key={i}>
+                    <td style={{ padding: 2 }}><input className="input mono" style={{ width: 110, textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={c.saldo} onChange={(e) => setCentro(i, 'saldo', e.target.value)} disabled={!canWrite} placeholder="0,00" /></td>
+                    <td style={{ padding: 2 }}><input className="input" style={{ padding: '.2rem .35rem', textTransform: 'uppercase' }} value={c.nombre} onChange={(e) => setCentro(i, 'nombre', e.target.value)} disabled={!canWrite} placeholder="P-MGG04- A LOS PIJIGUAOS" /></td>
+                    {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => removeCentro(i)} title="Quitar">✕</button></td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Resumen / cálculos */}
+        <div className="card" style={{ padding: 0, overflow: 'hidden', margin: 0 }}>
+          <div className="card-title" style={{ padding: '.55rem .7rem', margin: 0 }}>Resumen</div>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.85rem', margin: 0 }}>
+              <tbody>
+                <tr>
+                  <td style={{ width: 180, padding: 2 }}><input className="input mono" style={{ width: '100%', textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={pesoTotal} onChange={(e) => setPesoTotal(e.target.value)} disabled={!canWrite} placeholder="Peso Kg Total" /></td>
+                  <td style={{ fontWeight: 600 }}>Peso Kg Total <span className="muted" style={{ fontWeight: 400 }}>(lo que llegó / pesado)</span></td>
+                </tr>
+                {filaResumen(num(totalReportado), 'Kg Reportado por Centros de Acopio', { bold: true })}
+                {filaResumen(num(kgFaltante), 'Kg Faltante', { rojo: true })}
+                <tr>
+                  <td style={{ width: 180, padding: 2 }}><input className="input mono" style={{ width: '100%', textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={bolsas} onChange={(e) => setBolsas(e.target.value)} disabled={!canWrite} placeholder="0,00" /></td>
+                  <td style={{ fontWeight: 600 }}>Kg Peso de Bolsas</td>
+                </tr>
+                <tr>
+                  <td style={{ width: 180, padding: 2 }}><input className="input mono" style={{ width: '100%', textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={muestras} onChange={(e) => setMuestras(e.target.value)} disabled={!canWrite} placeholder="0,00" /></td>
+                  <td style={{ fontWeight: 600 }}>Muestras tomadas por Laboratorio MGG</td>
+                </tr>
+                {filaResumen(num(kgNoLlego), 'Kg No Llegó', { rojo: true })}
+                {filaResumen(pctNoLlego != null ? `${num(pctNoLlego)}%` : '—', '% de lo que no llegó (descontando bolsas y muestras)', { rojo: true })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="form-row" style={{ marginTop: '.85rem' }}>
+        <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} disabled={!canWrite} placeholder="Observaciones de la conciliación…" />
+      </div>
+    </Modal>
   );
 }
 

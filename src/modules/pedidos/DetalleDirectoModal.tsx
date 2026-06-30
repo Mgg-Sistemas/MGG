@@ -15,7 +15,7 @@ function montoCaja(n: number | null | undefined, moneda: string): string {
  * Se abre al hacer clic en la fila (lista) o la tarjeta (kanban). Los botones de acción
  * (PDF vista previa, editar, facturas, finalizar…) llegan por `footer`.
  */
-export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, items, moneda, total, facturas, urlFor, footer, onClose }: {
+export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, items, moneda, total, nota, facturas, urlFor, footer, onClose }: {
   title: string;
   estadoLabel: string;
   ficha: Array<[string, string]>;
@@ -23,6 +23,7 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
   items: { nombre: string; cantidad: number; gasto: number | null | undefined }[];
   moneda: string;
   total: number | null | undefined;
+  nota?: string | null;
   facturas: AdjuntoFactura[];
   urlFor: (path: string) => Promise<string>;
   footer: ReactNode;
@@ -72,6 +73,13 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
           </tfoot>
         </table>
       </div>
+
+      {nota?.trim() && (
+        <>
+          <h4 style={{ margin: '.8rem 0 .4rem' }}>Nota para Tesorería</h4>
+          <div className="card" style={{ margin: 0, fontSize: '.86rem', whiteSpace: 'pre-wrap' }}>📝 {nota.trim()}</div>
+        </>
+      )}
 
       <h4 style={{ margin: '.8rem 0 .4rem' }}>Facturas</h4>
       {facturas.length ? (
