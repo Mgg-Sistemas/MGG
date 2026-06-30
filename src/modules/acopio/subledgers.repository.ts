@@ -474,21 +474,37 @@ export async function cerrarYAbrirCajaAliado(input: {
   const hoy = new Date().toISOString().slice(0, 10);
   const fechaInicio = movs[0]?.fecha ?? hoy;
 
-  // 1) Saldo en Kg/gramos → inventario (casiterita u oro) a la tasa del aliado.
+  // 1) Saldo en Kg/gramos al cerrar:
+  //    · CASITERITA (no-oro) → RECEPCIONES (paso intermedio). YA NO entra directo
+  //      al inventario; se crea una recepción con el peso y la procedencia (aliado).
+  //    · ORO (gramos) → sigue entrando al inventario como antes (no aplica a Recepciones).
   let invMovId: string | null = null;
   let almacenDest = oro ? `ORO · ${centro}` : almacenCasiteritaDeCentro(centro);
   let material = oro ? 'oro (AU)' : 'casiterita';
   if (saldoKg > 0) {
-    const d = await destinoInventarioAliado(centro);
-    almacenDest = d.almacen; material = d.material;
-    const mov = await registrarMovimiento({
-      producto_id: d.productoId, tipo: 'entrada', delta: saldoKg, almacen: d.almacen,
-      precio_unitario: tasa > 0 ? tasa : null,
-      actor: input.actor, actor_name: input.actorName ?? null,
-      ref_tipo: 'acopio_aliado_cierre', ref_codigo: `Cierre #${periodo}`,
-      detalle: `Cierre #${periodo} aliado · ${centro} · ${num(saldoKg)} ${unidad}${tasa > 0 ? ` a ${tasa}` : ''}`,
-    });
-    invMovId = mov.id;
+    if (oro) {
+      const d = await destinoInventarioAliado(centro);
+      almacenDest = d.almacen; material = d.material;
+      const mov = await registrarMovimiento({
+        producto_id: d.productoId, tipo: 'entrada', delta: saldoKg, almacen: d.almacen,
+        precio_unitario: tasa > 0 ? tasa : null,
+        actor: input.actor, actor_name: input.actorName ?? null,
+        ref_tipo: 'acopio_aliado_cierre', ref_codigo: `Cierre #${periodo}`,
+        detalle: `Cierre #${periodo} aliado · ${centro} · ${num(saldoKg)} ${unidad}${tasa > 0 ? ` a ${tasa}` : ''}`,
+      });
+      invMovId = mov.id;
+    } else {
+      // Procedencia = nombre del aliado, sin el prefijo "CENTRO ACOPIO -".
+      const { data: ali } = await supabase.from('acopio_aliados').select('nombre').eq('id', input.aliadoId).maybeSingle();
+      const nombreAliado = String((ali as { nombre?: string } | null)?.nombre ?? centro).replace(/^\s*centro\s+de\s+acopio\s*[-·]?\s*/i, '').replace(/^\s*centro\s+acopio\s*[-·]?\s*/i, '').trim() || centro;
+      const { crearRecepcionDesdeCierre } = await import('@/modules/recepciones/recepciones.repository');
+      await crearRecepcionDesdeCierre({
+        pesoKg: saldoKg, procedencia: nombreAliado, centroNombre: centro,
+        origen: 'cierre_aliado', refAliadoId: input.aliadoId,
+        actor: input.actor, actorName: input.actorName ?? null,
+      });
+      invMovId = null; // no hubo movimiento de inventario: pasó a Recepciones
+    }
   }
 
   // 2) Registrar el cierre (historial).

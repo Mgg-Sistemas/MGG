@@ -275,6 +275,7 @@ export function AppShell() {
           {can('ventas') && <NavItem to="/app/ventas" icon="🧾" label="Ventas" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
+          {can('recepciones') && <NavItem to="/app/recepciones" icon="📥" label="Recepciones" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
         </nav>
 
