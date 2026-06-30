@@ -224,3 +224,96 @@ export async function crearRecepcionDesdeCierre(input: {
     origen: input.origen, ref_caja_id: input.refCajaId ?? null, ref_aliado_id: input.refAliadoId ?? null,
   }, input.actor, input.actorName ?? null);
 }
+
+/* ───────────── Humedad (dos tablas bajo la grilla de análisis) ─────────────
+   El cuerpo son entradas manuales; el pie "Promedio del lote" promedia los % y
+   suma la merma. Solo las columnas de humedad se muestran en %. */
+export interface HumedadProv {
+  id: string;
+  orden: number;
+  peso_humedo: number | null;   // Peso (Gr) Húmedos
+  peso_seco: number | null;     // Peso (Gr) seco
+  pct_humedad: number | null;   // % Humedad
+  merma_h2o: number | null;     // Merma peso H2O
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+export interface HumedadFinal {
+  id: string;
+  orden: number;
+  peso_kg: number | null;       // Peso (Kg)
+  peso_recogido: number | null; // Peso (Kg) recogido
+  merma_h2o: number | null;     // Merma peso H2O (calculada: peso_kg - peso_recogido)
+  pct_humedad: number | null;   // % Humedad final
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+/* — Humedad Provisional — */
+export async function listHumedadProv(): Promise<HumedadProv[]> {
+  const { data, error } = await supabase.from('recepcion_humedad_prov').select('*').order('orden', { ascending: true }).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as HumedadProv[];
+}
+export async function crearHumedadProv(actor: string, actorName?: string | null): Promise<HumedadProv> {
+  const { data: last } = await supabase.from('recepcion_humedad_prov').select('orden').order('orden', { ascending: false }).limit(1).maybeSingle();
+  const orden = (num((last as { orden?: number } | null)?.orden) || 0) + 1;
+  const { data, error } = await supabase.from('recepcion_humedad_prov')
+    .insert({ orden, actor, actor_name: actorName ?? null }).select('*').single();
+  if (error) throw error;
+  return data as HumedadProv;
+}
+export async function actualizarHumedadProv(id: string, patch: Partial<Pick<HumedadProv, 'peso_humedo' | 'peso_seco' | 'pct_humedad' | 'merma_h2o'>>): Promise<void> {
+  const p: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  for (const k of ['peso_humedo', 'peso_seco', 'pct_humedad', 'merma_h2o'] as const) {
+    if (patch[k] !== undefined) p[k] = patch[k];
+  }
+  const { error } = await supabase.from('recepcion_humedad_prov').update(p).eq('id', id);
+  if (error) throw error;
+}
+export async function eliminarHumedadProv(id: string): Promise<void> {
+  const { error } = await supabase.from('recepcion_humedad_prov').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* — Humedad Final — */
+export async function listHumedadFinal(): Promise<HumedadFinal[]> {
+  const { data, error } = await supabase.from('recepcion_humedad_final').select('*').order('orden', { ascending: true }).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as HumedadFinal[];
+}
+export async function crearHumedadFinal(actor: string, actorName?: string | null): Promise<HumedadFinal> {
+  const { data: last } = await supabase.from('recepcion_humedad_final').select('orden').order('orden', { ascending: false }).limit(1).maybeSingle();
+  const orden = (num((last as { orden?: number } | null)?.orden) || 0) + 1;
+  const { data, error } = await supabase.from('recepcion_humedad_final')
+    .insert({ orden, actor, actor_name: actorName ?? null }).select('*').single();
+  if (error) throw error;
+  return data as HumedadFinal;
+}
+export async function actualizarHumedadFinal(id: string, patch: Partial<Pick<HumedadFinal, 'peso_kg' | 'peso_recogido' | 'merma_h2o' | 'pct_humedad'>>): Promise<void> {
+  const p: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  for (const k of ['peso_kg', 'peso_recogido', 'merma_h2o', 'pct_humedad'] as const) {
+    if (patch[k] !== undefined) p[k] = patch[k];
+  }
+  const { error } = await supabase.from('recepcion_humedad_final').update(p).eq('id', id);
+  if (error) throw error;
+}
+export async function eliminarHumedadFinal(id: string): Promise<void> {
+  const { error } = await supabase.from('recepcion_humedad_final').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** Promedio (Σ ÷ cantidad) de los valores no nulos. Para los % del pie. */
+export function promedioCol(vals: Array<number | null | undefined>): number | null {
+  const xs = vals.filter((x): x is number => x != null && Number.isFinite(Number(x))).map(Number);
+  if (!xs.length) return null;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+/** Suma de los valores no nulos. Para la Merma peso H2O y el Peso recogido del pie. */
+export function sumaCol(vals: Array<number | null | undefined>): number {
+  return vals.reduce((acc: number, x) => acc + (x != null && Number.isFinite(Number(x)) ? Number(x) : 0), 0);
+}

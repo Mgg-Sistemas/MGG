@@ -2971,6 +2971,38 @@ alter table public.recepcion_analisis enable row level security;
 create policy "rec_analisis read auth" on public.recepcion_analisis for select using (auth.role()='authenticated');
 create policy "rec_analisis write op"  on public.recepcion_analisis for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Humedad bajo la grilla de análisis (dos tablas lado a lado). Cuerpo = entradas
+-- manuales; el pie "Promedio del lote" promedia los % y suma la merma (en el front).
+create table if not exists public.recepcion_humedad_prov (
+  id uuid primary key default gen_random_uuid(),
+  orden int not null default 0,
+  peso_humedo numeric,         -- Peso (Gr) Húmedos
+  peso_seco numeric,           -- Peso (Gr) seco
+  pct_humedad numeric,         -- % Humedad
+  merma_h2o numeric,           -- Merma peso H2O
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+alter table public.recepcion_humedad_prov enable row level security;
+create policy "rec_hum_prov read auth" on public.recepcion_humedad_prov for select using (auth.role()='authenticated');
+create policy "rec_hum_prov write op"  on public.recepcion_humedad_prov for all using (public.is_operativo()) with check (public.is_operativo());
+
+create table if not exists public.recepcion_humedad_final (
+  id uuid primary key default gen_random_uuid(),
+  orden int not null default 0,
+  peso_kg numeric,             -- Peso (Kg)
+  peso_recogido numeric,       -- Peso (Kg) recogido
+  merma_h2o numeric,           -- Merma peso H2O (calculada: peso_kg - peso_recogido)
+  pct_humedad numeric,         -- % Humedad final
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+alter table public.recepcion_humedad_final enable row level security;
+create policy "rec_hum_final read auth" on public.recepcion_humedad_final for select using (auth.role()='authenticated');
+create policy "rec_hum_final write op"  on public.recepcion_humedad_final for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- ============================================================
 -- Realtime en TODOS los módulos: publica las tablas de datos del esquema
 -- public que aún no estén en supabase_realtime (multiusuario en vivo).
@@ -2981,7 +3013,7 @@ declare faltantes text[] := array[
   'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
   'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
   'ofertas_proveedor','produccion','produccion_materiales','proveedor_datos_pago','proveedores',
-  'recepciones','recepcion_analisis','recepcion_minerales',
+  'recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final',
   'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
 ];
 begin

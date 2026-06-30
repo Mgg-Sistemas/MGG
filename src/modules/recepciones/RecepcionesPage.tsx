@@ -11,7 +11,11 @@ import {
   listMinerales, crearMineral, actualizarMineral, setMineralActivo,
   listAnalisis, crearAnalisis, actualizarAnalisis, eliminarAnalisis,
   promMineral, promedioDelLote,
+  listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
+  listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal,
+  promedioCol, sumaCol,
   type Recepcion, type RecepcionMineral, type RecepcionAnalisis, type ValorMineral,
+  type HumedadProv, type HumedadFinal,
 } from './recepciones.repository';
 
 /* es-VE: acepta coma o punto como decimal al tipear. */
@@ -100,6 +104,8 @@ export function RecepcionesPage() {
   const [recepciones, setRecepciones] = useState<Recepcion[]>([]);
   const [minerales, setMinerales] = useState<RecepcionMineral[]>([]);
   const [analisis, setAnalisis] = useState<RecepcionAnalisis[]>([]);
+  const [humProv, setHumProv] = useState<HumedadProv[]>([]);
+  const [humFinal, setHumFinal] = useState<HumedadFinal[]>([]);
   const [loading, setLoading] = useState(true);
   const [recEdit, setRecEdit] = useState<Recepcion | null>(null);
   const [recNueva, setRecNueva] = useState(false);
@@ -107,8 +113,8 @@ export function RecepcionesPage() {
   const [confirmar, setConfirmar] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const reload = useCallback(async () => {
-    const [rs, ms, as] = await Promise.all([listRecepciones(), listMinerales(true), listAnalisis()]);
-    setRecepciones(rs); setMinerales(ms); setAnalisis(as);
+    const [rs, ms, as, hp, hf] = await Promise.all([listRecepciones(), listMinerales(true), listAnalisis(), listHumedadProv(), listHumedadFinal()]);
+    setRecepciones(rs); setMinerales(ms); setAnalisis(as); setHumProv(hp); setHumFinal(hf);
   }, []);
   useEffect(() => {
     let cancel = false;
@@ -117,7 +123,7 @@ export function RecepcionesPage() {
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
-  useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales'], reload);
+  useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales', 'recepcion_humedad_prov', 'recepcion_humedad_final'], reload);
 
   // Partir los minerales en dos grupos (mitad arriba, mitad abajo) para evitar el scroll horizontal.
   const mitad = Math.ceil(minerales.length / 2);
@@ -146,6 +152,26 @@ export function RecepcionesPage() {
         catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
       },
     });
+  }
+  async function agregarHumProv() {
+    try { await crearHumedadProv(actor, miNombre); await reload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
+  }
+  async function agregarHumFinal() {
+    try { await crearHumedadFinal(actor, miNombre); await reload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
+  }
+  function borrarHumProv(h: HumedadProv) {
+    setConfirmar({ message: '¿Borrar esta fila de Humedad Provisional?', onConfirm: async () => {
+      setConfirmar(null);
+      try { await eliminarHumedadProv(h.id); await reload(); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
+    } });
+  }
+  function borrarHumFinal(h: HumedadFinal) {
+    setConfirmar({ message: '¿Borrar esta fila de Humedad Final?', onConfirm: async () => {
+      setConfirmar(null);
+      try { await eliminarHumedadFinal(h.id); await reload(); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
+    } });
   }
 
   return (
@@ -221,6 +247,12 @@ export function RecepcionesPage() {
               showActions={i === grupos.length - 1} onBorrar={borrarAnalisis} onReload={reload} />
           ))}
         </div>
+      </div>
+
+      {/* ───────────── Humedad (Provisional + Final, lado a lado) ───────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem', marginTop: '1.25rem' }}>
+        <HumedadProvCard filas={humProv} canWrite={canWrite} onAgregar={agregarHumProv} onBorrar={borrarHumProv} onReload={reload} />
+        <HumedadFinalCard filas={humFinal} canWrite={canWrite} onAgregar={agregarHumFinal} onBorrar={borrarHumFinal} onReload={reload} />
       </div>
 
       {recNueva && (
@@ -303,6 +335,161 @@ function AnalisisRow({ analisis, minerales, canWrite, showActions, onBorrar, onR
         )];
       })}
       {canWrite && showActions && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar análisis">🗑</button></td>}
+    </tr>
+  );
+}
+
+/* ───────────── Celda numérica editable (guarda al salir del campo) ───────────── */
+function NumCell({ value, suffix, canWrite, onSave }: {
+  value: number | null; suffix?: string; canWrite: boolean; onSave: (n: number | null) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft != null ? draft : (value == null ? '' : String(value));
+  return (
+    <td style={{ padding: 2, textAlign: 'center' }}>
+      {canWrite ? (
+        <input className="input mono" style={{ width: 96, textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal"
+          value={shown} onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => { if (draft != null) { onSave(parseNum(draft)); setDraft(null); } }} />
+      ) : <span className="mono">{value != null ? `${num(value)}${suffix ?? ''}` : '—'}</span>}
+    </td>
+  );
+}
+
+/* ───────────── Humedad Provisional ─────────────
+   % Humedad   = 100 − (Peso seco ÷ Peso Húmedos) × 4   (calculada, no se escribe)
+   Merma peso H2O = Peso (Gr) Húmedos × % Humedad ÷ 100 (calculada, no se escribe). */
+const pctHumProv = (humedo: number | null, seco: number | null): number | null => {
+  const h = Number(humedo) || 0;
+  if (h === 0) return null;
+  return 100 - (Number(seco) || 0) / h * 4;
+};
+const mermaProv = (humedo: number | null, seco: number | null) => {
+  const pct = pctHumProv(humedo, seco);
+  return pct == null ? 0 : (Number(humedo) || 0) * pct / 100;
+};
+function HumedadProvCard({ filas, canWrite, onAgregar, onBorrar, onReload }: {
+  filas: HumedadProv[]; canWrite: boolean; onAgregar: () => void; onBorrar: (h: HumedadProv) => void; onReload: () => Promise<void>;
+}) {
+  const promPct = promedioCol(filas.map((f) => pctHumProv(f.peso_humedo, f.peso_seco)));
+  const sumMerma = filas.reduce((a, f) => a + mermaProv(f.peso_humedo, f.peso_seco), 0);
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ background: '#9db8e0', color: '#13294b', fontWeight: 800, textAlign: 'center', padding: '.6rem', fontSize: '1rem', letterSpacing: '.02em' }}>Humedad Provisional</div>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
+          <thead>
+            <tr>
+              <th>Peso (Gr) Húmedos</th><th>Peso (Gr) seco</th>
+              <th style={{ textAlign: 'center' }}>% Humedad</th><th style={{ textAlign: 'center' }}>Merma peso H2O</th>
+              {canWrite && <th></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {!filas.length ? (
+              <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>Sin filas. Agregá con “+ Agregar Humedad Provisional”.</td></tr>
+            ) : filas.map((f) => <HumedadProvRow key={f.id} fila={f} canWrite={canWrite} onBorrar={() => onBorrar(f)} onReload={onReload} />)}
+          </tbody>
+          {filas.length > 0 && (
+            <tfoot>
+              <tr>
+                <td colSpan={2} style={{ fontWeight: 800 }}>Promedio del lote</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{promPct != null ? `${num(promPct)}%` : '0,00%'}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{num(sumMerma)}</td>
+                {canWrite && <td></td>}
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      {canWrite && <div style={{ padding: '.6rem', textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={onAgregar}>+ Agregar Humedad Provisional</button></div>}
+    </div>
+  );
+}
+function HumedadProvRow({ fila, canWrite, onBorrar, onReload }: {
+  fila: HumedadProv; canWrite: boolean; onBorrar: () => void; onReload: () => Promise<void>;
+}) {
+  const save = async (patch: Partial<Pick<HumedadProv, 'peso_humedo' | 'peso_seco'>>) => {
+    try { await actualizarHumedadProv(fila.id, patch); await onReload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+  };
+  const pct = pctHumProv(fila.peso_humedo, fila.peso_seco);
+  return (
+    <tr>
+      <NumCell value={fila.peso_humedo} canWrite={canWrite} onSave={(n) => void save({ peso_humedo: n })} />
+      <NumCell value={fila.peso_seco} canWrite={canWrite} onSave={(n) => void save({ peso_seco: n })} />
+      <td className="mono" style={{ textAlign: 'center' }} title="100 − (Peso seco ÷ Peso Húmedos) × 4">{pct != null ? `${num(pct)}%` : '—'}</td>
+      <td className="mono" style={{ textAlign: 'center' }} title="Peso Húmedos × % Humedad">{num(mermaProv(fila.peso_humedo, fila.peso_seco))}</td>
+      {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar fila">🗑</button></td>}
+    </tr>
+  );
+}
+
+/* ───────────── Humedad Final ─────────────
+   Merma peso H2O   = Peso (Kg) − Peso (Kg) recogido          (calculada, no se escribe)
+   % Humedad final  = Merma peso H2O ÷ Peso (Kg) × 100        (calculada, no se escribe). */
+const mermaFinal = (pesoKg: number | null, recogido: number | null) => (Number(pesoKg) || 0) - (Number(recogido) || 0);
+const pctHumFinal = (pesoKg: number | null, recogido: number | null): number | null => {
+  const h = Number(pesoKg) || 0;
+  if (h === 0) return null;
+  return mermaFinal(pesoKg, recogido) / h * 100;
+};
+function HumedadFinalCard({ filas, canWrite, onAgregar, onBorrar, onReload }: {
+  filas: HumedadFinal[]; canWrite: boolean; onAgregar: () => void; onBorrar: (h: HumedadFinal) => void; onReload: () => Promise<void>;
+}) {
+  const sumPesoKg = sumaCol(filas.map((f) => f.peso_kg));
+  const sumRecogido = sumaCol(filas.map((f) => f.peso_recogido));
+  const sumMerma = filas.reduce((a, f) => a + mermaFinal(f.peso_kg, f.peso_recogido), 0);
+  const promPct = promedioCol(filas.map((f) => pctHumFinal(f.peso_kg, f.peso_recogido)));
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ background: '#cdddf3', color: '#13294b', fontWeight: 800, textAlign: 'center', padding: '.6rem', fontSize: '1rem', letterSpacing: '.02em' }}>Humedad Final</div>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
+          <thead>
+            <tr>
+              <th>Peso (Kg)</th><th>Peso (Kg) recogido</th>
+              <th style={{ textAlign: 'center' }}>Merma peso H2O</th><th style={{ textAlign: 'center' }}>% Humedad final</th>
+              {canWrite && <th></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {!filas.length ? (
+              <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>Sin filas. Agregá con “+ Agregar Humedad Final”.</td></tr>
+            ) : filas.map((f) => <HumedadFinalRow key={f.id} fila={f} canWrite={canWrite} onBorrar={() => onBorrar(f)} onReload={onReload} />)}
+          </tbody>
+          {filas.length > 0 && (
+            <tfoot>
+              <tr>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(sumPesoKg)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(sumRecogido)}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{num(sumMerma)}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{promPct != null ? `${num(promPct)}%` : '0,00%'}</td>
+                {canWrite && <td></td>}
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      {canWrite && <div style={{ padding: '.6rem', textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={onAgregar}>+ Agregar Humedad Final</button></div>}
+    </div>
+  );
+}
+function HumedadFinalRow({ fila, canWrite, onBorrar, onReload }: {
+  fila: HumedadFinal; canWrite: boolean; onBorrar: () => void; onReload: () => Promise<void>;
+}) {
+  const save = async (patch: Partial<Pick<HumedadFinal, 'peso_kg' | 'peso_recogido'>>) => {
+    try { await actualizarHumedadFinal(fila.id, patch); await onReload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+  };
+  const pct = pctHumFinal(fila.peso_kg, fila.peso_recogido);
+  return (
+    <tr>
+      <NumCell value={fila.peso_kg} canWrite={canWrite} onSave={(n) => void save({ peso_kg: n })} />
+      <NumCell value={fila.peso_recogido} canWrite={canWrite} onSave={(n) => void save({ peso_recogido: n })} />
+      <td className="mono" style={{ textAlign: 'center' }} title="Peso (Kg) − Peso (Kg) recogido">{num(mermaFinal(fila.peso_kg, fila.peso_recogido))}</td>
+      <td className="mono" style={{ textAlign: 'center' }} title="Merma ÷ Peso (Kg) × 100">{pct != null ? `${num(pct)}%` : '—'}</td>
+      {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar fila">🗑</button></td>}
     </tr>
   );
 }
