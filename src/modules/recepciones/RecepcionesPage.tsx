@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -13,7 +13,6 @@ import {
   listRecepciones, crearRecepcion, actualizarRecepcion, eliminarRecepcion,
   listMinerales, crearMineral, actualizarMineral, setMineralActivo,
   listAnalisis, crearAnalisis, actualizarAnalisis, eliminarAnalisis,
-  promMineral, promedioDelLote,
   listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
   listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal,
   promedioCol, sumaCol,
@@ -38,73 +37,148 @@ function parseNum(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// Columnas de la grilla por mineral: abc = A/B/C/Prom (4) · prom = solo Prom (1).
-const colsPorMineral = (m: RecepcionMineral) => (m.modo === 'abc' ? 4 : 1);
-
 // Fecha (día) en formato es-VE: 30/06/2026.
 const diaVE = (iso: string) => new Date(iso).toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
-/* ───────────── Una tabla del laboratorio (subconjunto de minerales) ─────────────
-   El grid completo se parte en dos tablas apiladas (5 minerales arriba, 5 abajo)
-   para no tener scroll horizontal: ambas comparten las mismas filas de análisis. */
-function LabTable({ minerales, analisis, canWrite, showActions, onBorrar, onReload }: {
-  minerales: RecepcionMineral[]; analisis: RecepcionAnalisis[]; canWrite: boolean;
-  showActions: boolean; onBorrar: (a: RecepcionAnalisis) => void; onReload: () => Promise<void>;
+/* ───────────── Grilla de laboratorio (metales en filas, lecturas en columnas) ─────────────
+   Cada metal es una FILA (5 a la izquierda, 5 a la derecha). Las lecturas A, B, C, D… son
+   COLUMNAS que se agregan con un botón. PROM de cada metal = promedio de sus lecturas con dato
+   (2 decimales, redondeo). Un botón GUARDAR persiste todo. */
+
+/** Etiqueta de columna de lectura: 0→A, 25→Z, 26→AA… */
+function colLetra(i: number): string {
+  let s = ''; let n = i + 1;
+  while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+/** 2 decimales con redondeo (si el 3er decimal es ≥5 sube). */
+function round2(n: number): number { return Math.round((n + Number.EPSILON) * 100) / 100; }
+/** Lee una lectura tolerando datos viejos {a,b,c,prom}. */
+function lecturaNum(v: unknown): number | null {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'object') {
+    const o = v as ValorMineral;
+    if (o.prom != null && Number.isFinite(Number(o.prom))) return Number(o.prom);
+    const xs = [o.a, o.b, o.c].filter((x) => x != null && Number.isFinite(Number(x))).map(Number);
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+  }
+  return null;
+}
+
+/** Una lectura = una columna (un registro de recepcion_analisis). id null = nueva (sin guardar). */
+type LecturaCol = { id: string | null; vals: Record<string, string> };
+function buildCols(analisis: RecepcionAnalisis[]): LecturaCol[] {
+  return [...analisis].sort((a, b) => a.n_analisis - b.n_analisis).map((a) => {
+    const vals: Record<string, string> = {};
+    for (const [clave, v] of Object.entries(a.valores ?? {})) { const n = lecturaNum(v); if (n != null) vals[clave] = String(n); }
+    return { id: a.id, vals };
+  });
+}
+
+function LabGrid({ grupoId, minerales, analisis, canWrite, actor, miNombre, onReload, onConfig }: {
+  grupoId: string; minerales: RecepcionMineral[]; analisis: RecepcionAnalisis[]; canWrite: boolean;
+  actor: string; miNombre: string; onReload: () => Promise<void>; onConfig?: () => void;
 }) {
-  if (!minerales.length) return null;
-  const accion = canWrite && showActions;
-  const totalCols = 1 + minerales.reduce((a, m) => a + colsPorMineral(m), 0) + (accion ? 1 : 0);
-  return (
-    <div className="table-wrap" style={{ overflowX: 'auto' }}>
-      <table className="table" style={{ fontSize: '.82rem' }}>
+  const [cols, setCols] = useState<LecturaCol[]>(() => buildCols(analisis));
+  const [delIds, setDelIds] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  // Re-sincroniza al cambiar el set de IDs guardados (alta/baja/recarga); preserva ediciones locales si no cambió.
+  const idsKey = analisis.map((a) => a.id).join(',');
+  const lastIds = useRef(idsKey);
+  useEffect(() => {
+    if (lastIds.current !== idsKey) { lastIds.current = idsKey; setCols(buildCols(analisis)); setDelIds([]); }
+  }, [idsKey, analisis]);
+
+  if (!minerales.length) return <EmptyState message="Sin minerales configurados. Usá «⚙ Configurar minerales»." icon="🧪" />;
+
+  const mitad = Math.ceil(minerales.length / 2);
+  const bloques = minerales.length > mitad ? [minerales.slice(0, mitad), minerales.slice(mitad)] : [minerales];
+
+  const setCell = (ci: number, clave: string, val: string) => setCols((cs) => cs.map((c, j) => (j === ci ? { ...c, vals: { ...c.vals, [clave]: val } } : c)));
+  const addCol = () => setCols((cs) => [...cs, { id: null, vals: {} }]);
+  const removeCol = (ci: number) => setCols((cs) => { const c = cs[ci]; if (c?.id) setDelIds((d) => [...d, c.id!]); return cs.filter((_, j) => j !== ci); });
+
+  const promMetal = (clave: string): number | null => {
+    const xs = cols.map((c) => parseNum(c.vals[clave])).filter((x): x is number => x != null);
+    return xs.length ? round2(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
+  };
+
+  async function guardar() {
+    setSaving(true);
+    try {
+      for (const id of delIds) await eliminarAnalisis(id);
+      let n = analisis.reduce((m, a) => Math.max(m, a.n_analisis), 0);
+      for (const c of cols) {
+        const vacia = minerales.every((m) => parseNum(c.vals[m.clave]) == null);
+        if (!c.id && vacia) continue; // no creamos lecturas vacías
+        const valores: Record<string, ValorMineral> = {};
+        for (const m of minerales) valores[m.clave] = { prom: parseNum(c.vals[m.clave]) };
+        if (c.id) await actualizarAnalisis(c.id, { valores });
+        else { n += 1; await crearAnalisis(grupoId, { n_analisis: n, valores }, actor, miNombre); }
+      }
+      setDelIds([]);
+      toast('Análisis químicos guardados', 'success');
+      await onReload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+    finally { setSaving(false); }
+  }
+
+  const tabla = (bloque: RecepcionMineral[], key: number) => (
+    <div className="table-wrap" key={key} style={{ overflowX: 'auto' }}>
+      <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
         <thead>
-          {/* Fila 1: nombre del mineral (agrupado) */}
           <tr>
-            <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>N° Análisis</th>
-            {minerales.map((m) => (
-              <th key={m.id} colSpan={colsPorMineral(m)} style={{ textAlign: 'center', background: m.color ?? undefined, color: m.color ? '#1a1a1a' : undefined, borderLeft: '2px solid var(--border-strong, #888)' }}>
-                {m.nombre}{m.subtitulo ? <div style={{ fontSize: '.72rem', fontWeight: 500 }}>{m.subtitulo}</div> : null}
+            <th style={{ minWidth: 150 }}>Metal</th>
+            {cols.map((_c, ci) => (
+              <th key={ci} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                {colLetra(ci)}{canWrite && <button className="btn btn-sm btn-ghost" style={{ padding: '0 .25rem', marginLeft: '.15rem' }} onClick={() => removeCol(ci)} title="Quitar lectura">✕</button>}
               </th>
             ))}
-            {accion && <th rowSpan={2}></th>}
-          </tr>
-          {/* Fila 2: A / B / C / Prom (o solo Prom) */}
-          <tr>
-            {minerales.flatMap((m) => (
-              m.modo === 'abc'
-                ? ['A', 'B', 'C', 'Prom.'].map((h, i) => (
-                    <th key={`${m.id}-${h}`} style={{ textAlign: 'center', background: m.color ? `${m.color}99` : undefined, color: m.color ? '#1a1a1a' : undefined, borderLeft: i === 0 ? '2px solid var(--border-strong, #888)' : undefined }}>{h}</th>
-                  ))
-                : [<th key={`${m.id}-prom`} style={{ textAlign: 'center', background: m.color ? `${m.color}99` : undefined, color: m.color ? '#1a1a1a' : undefined, borderLeft: '2px solid var(--border-strong, #888)' }}>Prom.</th>]
-            ))}
+            <th style={{ textAlign: 'center' }}>PROM.</th>
           </tr>
         </thead>
         <tbody>
-          {!analisis.length ? (
-            <tr><td colSpan={totalCols} className="muted" style={{ textAlign: 'center' }}>Sin análisis. Agregá uno con “+ Nuevo análisis”.</td></tr>
-          ) : analisis.map((a) => (
-            <AnalisisRow key={a.id} analisis={a} minerales={minerales} canWrite={canWrite} showActions={showActions} onBorrar={() => void onBorrar(a)} onReload={onReload} />
-          ))}
+          {bloque.map((m) => {
+            const prom = promMetal(m.clave);
+            return (
+              <tr key={m.id}>
+                <td style={{ fontWeight: 700, background: m.color ?? undefined, color: m.color ? '#1a1a1a' : undefined }}>
+                  {m.nombre}{m.subtitulo ? <span style={{ fontSize: '.72rem', fontWeight: 500 }}> · {m.subtitulo}</span> : null}
+                </td>
+                {cols.map((c, ci) => (
+                  <td key={ci} style={{ padding: 2 }}>
+                    {canWrite ? (
+                      <input className="input mono" style={{ width: 64, textAlign: 'center', padding: '.2rem .25rem' }} inputMode="decimal"
+                        value={c.vals[m.clave] ?? ''} onChange={(e) => setCell(ci, m.clave, e.target.value)} placeholder="—" />
+                    ) : <span className="mono">{c.vals[m.clave] || '—'}</span>}
+                  </td>
+                ))}
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800, background: m.color ? `${m.color}33` : undefined }}>{prom != null ? `${num(prom)}%` : '—'}</td>
+              </tr>
+            );
+          })}
         </tbody>
-        {analisis.length > 0 && (
-          <tfoot>
-            <tr>
-              <td style={{ fontWeight: 800 }}>Promedio del lote</td>
-              {minerales.flatMap((m) => {
-                const prom = promedioDelLote(m.modo, m.clave, analisis);
-                if (m.modo === 'abc') {
-                  return [
-                    <td key={`${m.id}-pad`} colSpan={3} style={{ borderLeft: '2px solid var(--border-strong, #888)' }}></td>,
-                    <td key={`${m.id}-prom`} className="mono" style={{ textAlign: 'center', fontWeight: 800, background: m.color ? `${m.color}55` : undefined }}>{prom != null ? `${num(prom)}%` : '—'}</td>,
-                  ];
-                }
-                return [<td key={`${m.id}-prom`} className="mono" style={{ textAlign: 'center', fontWeight: 800, background: m.color ? `${m.color}55` : undefined, borderLeft: '2px solid var(--border-strong, #888)' }}>{prom != null ? `${num(prom)}%` : '—'}</td>];
-              })}
-              {accion && <td></td>}
-            </tr>
-          </tfoot>
-        )}
       </table>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', marginBottom: '.6rem' }}>
+        <span className="muted" style={{ fontSize: '.78rem' }}>Valores en <strong>%</strong>. Cada metal es una fila; las lecturas (A, B, C…) son columnas. <strong>PROM</strong> = promedio de las lecturas con dato (2 decimales).</span>
+        {canWrite && (
+          <span style={{ display: 'flex', gap: '.5rem' }}>
+            {onConfig && <button className="btn btn-sm btn-ghost" onClick={onConfig}>⚙ Configurar minerales</button>}
+            <button className="btn btn-sm btn-ghost" onClick={addCol}>+ Añadir lectura</button>
+            <button className="btn btn-sm btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : '💾 Guardar análisis'}</button>
+          </span>
+        )}
+      </div>
+      {!cols.length && <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .6rem' }}>Sin lecturas. {canWrite ? 'Agregá una con «+ Añadir lectura».' : '—'}</p>}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', alignItems: 'start' }}>
+        {bloques.map((b, i) => tabla(b, i))}
+      </div>
     </div>
   );
 }
@@ -240,30 +314,12 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
   }, [reload]);
   useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales', 'recepcion_humedad_prov', 'recepcion_humedad_final', 'recepcion_pesajes', 'recepcion_conciliaciones', 'recepcion_totales'], reload);
 
-  // Partir los minerales en dos grupos (mitad arriba, mitad abajo) para evitar el scroll horizontal.
-  const mitad = Math.ceil(minerales.length / 2);
-  const grupos = minerales.length > mitad ? [minerales.slice(0, mitad), minerales.slice(mitad)] : [minerales];
-
   function borrarRecepcion(r: Recepcion) {
     setConfirmar({
       message: `¿Borrar la recepción #${r.item} (${num(r.peso_kg)} Kg · ${r.procedencia})?`,
       onConfirm: async () => {
         setConfirmar(null);
         try { await eliminarRecepcion(r.id); await reload(); toast('Recepción borrada', 'success'); }
-        catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
-      },
-    });
-  }
-  async function nuevoAnalisis() {
-    try { await crearAnalisis(grupoId, {}, actor, miNombre); await reload(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear el análisis', 'error'); }
-  }
-  function borrarAnalisis(a: RecepcionAnalisis) {
-    setConfirmar({
-      message: `¿Borrar el análisis N° ${a.n_analisis}?`,
-      onConfirm: async () => {
-        setConfirmar(null);
-        try { await eliminarAnalisis(a.id); await reload(); toast('Análisis borrado', 'success'); }
         catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
       },
     });
@@ -363,21 +419,10 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
         RECEPCIÓN GLOBAL LABORATORIO
       </div>
 
-      {/* ───────────── Grilla de Laboratorio (análisis × minerales) ───────────── */}
+      {/* ───────────── Grilla de Laboratorio (metales en filas, lecturas en columnas) ───────────── */}
       <div className="card" style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', marginBottom: '.6rem' }}>
-          <span className="muted" style={{ fontSize: '.78rem' }}>Todos los valores están en <strong>porcentaje (%)</strong>. Prom. = (A + B + C) ÷ 3. Promedio del lote = Σ Prom. ÷ N° de análisis.</span>
-          <span style={{ display: 'flex', gap: '.5rem' }}>
-            {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setConfigOpen(true)}>⚙ Configurar minerales</button>}
-            {canWrite && <button className="btn btn-sm btn-primary" onClick={() => void nuevoAnalisis()}>+ Nuevo análisis</button>}
-          </span>
-        </div>
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          {grupos.map((grupo, i) => (
-            <LabTable key={i} minerales={grupo} analisis={analisis} canWrite={canWrite}
-              showActions={i === grupos.length - 1} onBorrar={borrarAnalisis} onReload={reload} />
-          ))}
-        </div>
+        <LabGrid grupoId={grupoId} minerales={minerales} analisis={analisis} canWrite={canWrite}
+          actor={actor} miNombre={miNombre} onReload={reload} onConfig={() => setConfigOpen(true)} />
       </div>
 
       {/* ───────────── Humedad (Provisional + Final, lado a lado) ───────────── */}
@@ -453,72 +498,6 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
 }
 
 /* ───────────── Fila de análisis (edición inline, guarda al salir del campo) ───────────── */
-function AnalisisRow({ analisis, minerales, canWrite, showActions, onBorrar, onReload }: {
-  analisis: RecepcionAnalisis; minerales: RecepcionMineral[]; canWrite: boolean; showActions: boolean; onBorrar: () => void; onReload: () => Promise<void>;
-}) {
-  // Borrador local por campo: `${clave}:${campo}` → string.
-  const [draft, setDraft] = useState<Record<string, string>>({});
-  const valor = (clave: string): ValorMineral => analisis.valores?.[clave] ?? {};
-  const cellVal = (clave: string, campo: 'a' | 'b' | 'c' | 'prom'): string => {
-    const k = `${clave}:${campo}`;
-    if (k in draft) return draft[k];
-    const v = valor(clave)[campo];
-    return v == null ? '' : String(v);
-  };
-
-  async function guardarCampo(clave: string, campo: 'a' | 'b' | 'c' | 'prom') {
-    const k = `${clave}:${campo}`;
-    if (!(k in draft)) return;
-    const nuevoVal = parseNum(draft[k]);
-    const valores: Record<string, ValorMineral> = { ...(analisis.valores ?? {}) };
-    valores[clave] = { ...(valores[clave] ?? {}), [campo]: nuevoVal };
-    try { await actualizarAnalisis(analisis.id, { valores }); setDraft((d) => { const n = { ...d }; delete n[k]; return n; }); await onReload(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
-  }
-
-  const cell = (clave: string, campo: 'a' | 'b' | 'c', primero: boolean) => (
-    <td key={`${clave}-${campo}`} style={{ padding: 2, borderLeft: primero ? '2px solid var(--border-strong, #888)' : undefined }}>
-      {canWrite ? (
-        <input className="input mono" style={{ width: 64, textAlign: 'center', padding: '.2rem .25rem' }}
-          value={cellVal(clave, campo)} inputMode="decimal"
-          onChange={(e) => setDraft((d) => ({ ...d, [`${clave}:${campo}`]: e.target.value }))}
-          onBlur={() => void guardarCampo(clave, campo)} />
-      ) : <span className="mono">{cellVal(clave, campo) || '—'}</span>}
-    </td>
-  );
-
-  return (
-    <tr>
-      <td className="mono" style={{ fontWeight: 700 }}>{analisis.n_analisis}</td>
-      {minerales.flatMap((m) => {
-        if (m.modo === 'abc') {
-          const prom = promMineral('abc', {
-            a: parseNum(cellVal(m.clave, 'a')), b: parseNum(cellVal(m.clave, 'b')), c: parseNum(cellVal(m.clave, 'c')),
-          });
-          return [
-            cell(m.clave, 'a', true),
-            cell(m.clave, 'b', false),
-            cell(m.clave, 'c', false),
-            <td key={`${m.clave}-prom`} className="mono" style={{ textAlign: 'center', fontWeight: 700, background: m.color ? `${m.color}33` : undefined }}>{prom != null ? `${num(prom)}%` : '—'}</td>,
-          ];
-        }
-        // modo prom: una sola celda editable
-        return [(
-          <td key={`${m.clave}-prom`} style={{ padding: 2, borderLeft: '2px solid var(--border-strong, #888)' }}>
-            {canWrite ? (
-              <input className="input mono" style={{ width: 64, textAlign: 'center', padding: '.2rem .25rem' }}
-                value={cellVal(m.clave, 'prom')} inputMode="decimal"
-                onChange={(e) => setDraft((d) => ({ ...d, [`${m.clave}:prom`]: e.target.value }))}
-                onBlur={() => void guardarCampo(m.clave, 'prom')} />
-            ) : <span className="mono">{cellVal(m.clave, 'prom') || '—'}</span>}
-          </td>
-        )];
-      })}
-      {canWrite && showActions && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar análisis">🗑</button></td>}
-    </tr>
-  );
-}
-
 /* ───────────── Celda numérica editable (guarda al salir del campo) ───────────── */
 function NumCell({ value, suffix, canWrite, onSave }: {
   value: number | null; suffix?: string; canWrite: boolean; onSave: (n: number | null) => void;
@@ -1386,8 +1365,6 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
   const minerales = d.minerales ?? [];
   const analisis = d.analisis ?? [];
   const recepciones = d.recepciones ?? [];
-  const mitad = Math.ceil(minerales.length / 2);
-  const gruposMin = minerales.length > mitad ? [minerales.slice(0, mitad), minerales.slice(mitad)] : [minerales];
   const noop = () => {};
   const noopReload = async () => {};
 
@@ -1411,9 +1388,7 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
       </div>
 
       <h4 style={{ margin: '1rem 0 .4rem', textAlign: 'center', color: 'var(--primary, #ff8a00)' }}>RECEPCIÓN GLOBAL LABORATORIO</h4>
-      <div style={{ display: 'grid', gap: '1rem' }}>
-        {gruposMin.map((g, i) => <LabTable key={i} minerales={g} analisis={analisis} canWrite={false} showActions={false} onBorrar={noop} onReload={noopReload} />)}
-      </div>
+      <LabGrid grupoId={cierre.grupo_id ?? ''} minerales={minerales} analisis={analisis} canWrite={false} actor="" miNombre="" onReload={noopReload} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
         <HumedadProvCard filas={d.humProv ?? []} canWrite={false} onAgregar={noop} onBorrar={noop} onReload={noopReload} />
