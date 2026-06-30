@@ -1671,6 +1671,12 @@ function AbonosModal({
   const abonado = Number(orden.abonado_total) || abonos.reduce((a, b) => a + Number(b.monto), 0);
   const saldo = Math.round((Number(orden.total) - abonado) * 100) / 100;
 
+  async function verComprobante(b: AbonoCredito) {
+    if (!b.comprobante_path) return;
+    try { await previewFileUrl(await urlAdjuntoOc(b.comprobante_path), b.comprobante_nombre ?? 'comprobante', 'Comprobante del abono'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error'); }
+  }
+
   return (
     <Modal title={`Crédito · OC ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
@@ -1701,12 +1707,12 @@ function AbonosModal({
       {/* Traza de abonos */}
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
-          <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>Comisión banc.</th><th>Caja</th><th style={{ textAlign: 'right' }}>Saldo</th><th>Nota</th></tr></thead>
+          <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>Comisión banc.</th><th>Caja</th><th style={{ textAlign: 'right' }}>Saldo</th><th>Comprobante</th><th>Nota</th></tr></thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="muted">Cargando…</td></tr>
+              <tr><td colSpan={7} className="muted">Cargando…</td></tr>
             ) : !abonos.length ? (
-              <tr><td colSpan={6}><EmptyState message="Sin abonos todavía." icon="💵" /></td></tr>
+              <tr><td colSpan={7}><EmptyState message="Sin abonos todavía." icon="💵" /></td></tr>
             ) : abonos.map((b) => (
               <tr key={b.id}>
                 <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(b.at)}</td>
@@ -1714,6 +1720,9 @@ function AbonosModal({
                 <td className="mono" style={{ textAlign: 'right' }}>{Number(b.comision_monto) > 0 ? `${money(Number(b.comision_monto))} ${b.comision_moneda || 'Bs'}` : '—'}</td>
                 <td>{cajas.find((c) => c.id === b.caja_id)?.nombre ?? '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{b.saldo_restante != null ? money(Number(b.saldo_restante)) : '—'}</td>
+                <td>{b.comprobante_path
+                  ? <button className="btn btn-sm btn-ghost" onClick={() => void verComprobante(b)} title="Ver comprobante (vista previa)" style={{ padding: 0 }}>📎 Ver</button>
+                  : <span className="muted">—</span>}</td>
                 <td className="muted" style={{ fontSize: '.78rem' }}>{b.nota || '—'}</td>
               </tr>
             ))}

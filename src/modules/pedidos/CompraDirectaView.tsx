@@ -226,6 +226,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           items={detalle.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: it.gasto }))}
           moneda={cajas.find((c) => c.id === detalle.caja_id)?.moneda ?? 'USD'}
           total={detalle.gasto}
+          nota={detalle.nota}
           facturas={detalle.facturas}
           urlFor={urlAdjuntoCompra}
           footer={

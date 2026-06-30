@@ -3003,6 +3003,53 @@ alter table public.recepcion_humedad_final enable row level security;
 create policy "rec_hum_final read auth" on public.recepcion_humedad_final for select using (auth.role()='authenticated');
 create policy "rec_hum_final write op"  on public.recepcion_humedad_final for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Pesajes de bigbags (Pesos Húmedos / Pesos Secos). Histórico modificable.
+--   bigbags: [{proc_h, peso_h, proc_s, peso_s}] · BIG BAG = -(bigbags con peso) * factor
+--   TOTAL NETO = suma de pesos + BIG BAG (permite negativos).
+create table if not exists public.recepcion_pesajes (
+  id uuid primary key default gen_random_uuid(),
+  item int not null default 0,
+  fecha timestamptz not null default now(),
+  bigbags jsonb not null default '[]'::jsonb,
+  factor numeric not null default 1.5,
+  total_neto_humedo numeric,
+  total_neto_seco numeric,
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_recepcion_pesajes_item on public.recepcion_pesajes(item);
+alter table public.recepcion_pesajes enable row level security;
+create policy "rec_pesajes read auth" on public.recepcion_pesajes for select using (auth.role()='authenticated');
+create policy "rec_pesajes write op"  on public.recepcion_pesajes for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Conciliación de Centros de Acopio. Histórico editable.
+--   centros: [{nombre, saldo_kg}] (centros + aliados, tomados del cierre de caja)
+--   Kg Faltante = Peso KG TOTAL − Σ saldos · Kg No Llegó = Faltante + Bolsas + Muestras
+--   % no llegó = Kg No Llegó ÷ Total Reportado × 100
+create table if not exists public.recepcion_conciliaciones (
+  id uuid primary key default gen_random_uuid(),
+  numero int not null,
+  fecha timestamptz not null default now(),
+  centros jsonb not null default '[]'::jsonb,
+  peso_kg_total numeric,
+  kg_peso_bolsas numeric,
+  muestras_laboratorio numeric,
+  total_reportado numeric,
+  kg_faltante numeric,
+  kg_no_llego numeric,
+  pct_no_llego numeric,
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_recepcion_concil_numero on public.recepcion_conciliaciones(numero);
+alter table public.recepcion_conciliaciones enable row level security;
+create policy "rec_concil read auth" on public.recepcion_conciliaciones for select using (auth.role()='authenticated');
+create policy "rec_concil write op"  on public.recepcion_conciliaciones for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- ============================================================
 -- Realtime en TODOS los módulos: publica las tablas de datos del esquema
 -- public que aún no estén en supabase_realtime (multiusuario en vivo).
@@ -3013,7 +3060,7 @@ declare faltantes text[] := array[
   'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
   'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
   'ofertas_proveedor','produccion','produccion_materiales','proveedor_datos_pago','proveedores',
-  'recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final',
+  'recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones',
   'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
 ];
 begin
