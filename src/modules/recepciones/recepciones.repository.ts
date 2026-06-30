@@ -642,7 +642,8 @@ async function entrarResguardo(cantidadKg: number, almacen: string, refId: strin
   return mov.id;
 }
 
-/** Entrada del TOTAL NETO seco (Σ pesajes) al inventario REAL, valuado a la TASA de la conciliación.
+/** Entrada del TOTAL NETO seco (Σ pesajes) al inventario REAL, valuado a la TASA FINAL de Totales.
+ *  Se dispara al CERRAR la recepción, en el almacén/subalmacén asignado en el cierre.
  *  precio_unitario = tasa → recalcula el PMP del almacén con ese costo. */
 async function entrarNetoSeco(cantidadKg: number, almacen: string, tasa: number, refId: string | null, actor: string, actorName: string | null): Promise<string> {
   const productoId = await productoResguardoId(almacen);
@@ -650,20 +651,10 @@ async function entrarNetoSeco(cantidadKg: number, almacen: string, tasa: number,
     producto_id: productoId, tipo: 'entrada', delta: num(cantidadKg), almacen,
     actor, actor_name: actorName ?? null,
     ref_tipo: 'recepcion_neto_seco', ref_id: refId,
-    detalle: `Neto seco de conciliación a ${tasa} USD/Kg`,
+    detalle: `Neto seco al cerrar la recepción a ${tasa} USD/Kg`,
     precio_unitario: num(tasa) > 0 ? num(tasa) : null,
   });
   return mov.id;
-}
-
-/** Ingresa el neto seco si hay tasa + almacén y aún no entró (idempotente por neto_seco_mov_id).
- *  Devuelve los campos a persistir, o null si no hubo entrada. */
-async function procesarNetoSeco(refId: string, grupoId: string, tasa: number | null, almacenNeto: string | null, yaEntro: boolean, actor: string, actorName: string | null): Promise<{ neto_seco: number; neto_seco_mov_id: string } | null> {
-  if (yaEntro || !(num(tasa) > 0) || !almacenNeto) return null;
-  const netoSeco = await sumaNetoSecoGrupo(grupoId);
-  if (netoSeco <= 0) return null;
-  const movId = await entrarNetoSeco(netoSeco, almacenNeto, num(tasa), refId, actor, actorName);
-  return { neto_seco: netoSeco, neto_seco_mov_id: movId };
 }
 
 /** Por cada resguardo que entra al inventario y aún no tiene movimiento, lo ingresa
@@ -701,13 +692,12 @@ export async function crearConciliacion(input: ConciliacionInput, actor: string,
   if (error) throw error;
   const created = data as RecepcionConciliacion;
   // Resguardos → inventario REAL (con el id ya disponible para la trazabilidad).
+  // El TOTAL NETO seco YA NO entra aquí: entra al CERRAR la recepción, valuado a
+  // la tasa_final de Totales y en el almacén/subalmacén que se asigna en el cierre.
   const res = await procesarResguardos(created.id, s.centros, actor, actorName ?? null);
-  // TOTAL NETO seco (Σ pesajes) → inventario a la TASA de la conciliación.
-  const neto = await procesarNetoSeco(created.id, input.grupo_id, input.tasa ?? null, input.almacen_neto ?? null, false, actor, actorName ?? null);
-  if (res.cambio || neto) {
-    await supabase.from('recepcion_conciliaciones').update({ centros: res.centros, ...(neto ?? {}) }).eq('id', created.id);
+  if (res.cambio) {
+    await supabase.from('recepcion_conciliaciones').update({ centros: res.centros }).eq('id', created.id);
     created.centros = res.centros;
-    if (neto) { created.neto_seco = neto.neto_seco; created.neto_seco_mov_id = neto.neto_seco_mov_id; }
   }
   return created;
 }
@@ -715,10 +705,7 @@ export async function crearConciliacion(input: ConciliacionInput, actor: string,
 export async function actualizarConciliacion(id: string, input: ConciliacionInput, actor: string, actorName?: string | null): Promise<void> {
   const s = snapshotConcil(input);
   const res = await procesarResguardos(id, s.centros, actor, actorName ?? null);
-  // ¿Ya entró el neto seco? (idempotencia: no reingresar al editar).
-  const { data: actual } = await supabase.from('recepcion_conciliaciones').select('neto_seco_mov_id').eq('id', id).maybeSingle();
-  const yaEntro = !!(actual as { neto_seco_mov_id?: string | null } | null)?.neto_seco_mov_id;
-  const neto = await procesarNetoSeco(id, input.grupo_id, input.tasa ?? null, input.almacen_neto ?? null, yaEntro, actor, actorName ?? null);
+  // El neto seco ya no entra desde la conciliación (entra al cerrar la recepción).
   const p: Record<string, unknown> = {
     numero: Math.floor(Number(input.numero) || 0),
     centros: res.centros,
@@ -729,7 +716,6 @@ export async function actualizarConciliacion(id: string, input: ConciliacionInpu
     tasa: input.tasa ?? null, almacen_neto: input.almacen_neto?.trim() || null,
     nota: input.nota?.trim() || null,
     updated_at: new Date().toISOString(),
-    ...(neto ?? {}),
   };
   const { error } = await supabase.from('recepcion_conciliaciones').update(p).eq('id', id);
   if (error) throw error;
@@ -865,6 +851,11 @@ export interface RecepcionCierre {
   numero: number;
   fecha: string;
   datos: Record<string, unknown>;
+  // TOTAL NETO seco que entró al inventario al cerrar (valuado a tasa_final).
+  neto_seco?: number | null;
+  tasa_final?: number | null;
+  almacen_neto?: string | null;
+  neto_seco_mov_id?: string | null;
   nota?: string | null;
   actor?: string | null;
   actor_name?: string | null;
@@ -884,12 +875,33 @@ export async function nextNumeroCierre(): Promise<number> {
   return (num((data as { numero?: number } | null)?.numero) || 0) + 1;
 }
 
-export async function crearCierre(input: { grupoId: string; grupoNombre: string; numero: number; datos: Record<string, unknown>; nota?: string | null }, actor: string, actorName?: string | null): Promise<RecepcionCierre> {
+export async function crearCierre(
+  input: {
+    grupoId: string; grupoNombre: string; numero: number; datos: Record<string, unknown>; nota?: string | null;
+    // Al cerrar: el TOTAL NETO seco (Σ pesajes) entra al inventario valuado a la
+    // tasa_final de Totales, en el almacén/subalmacén asignado en el cierre.
+    tasaFinal?: number | null; almacenNeto?: string | null;
+  },
+  actor: string, actorName?: string | null,
+): Promise<RecepcionCierre> {
+  // 1) Entrada al inventario del neto seco (si hay tasa final + almacén y hay Kg).
+  const netoSeco = await sumaNetoSecoGrupo(input.grupoId);
+  let netoSecoMovId: string | null = null;
+  const tasaFinal = num(input.tasaFinal);
+  const almacenNeto = input.almacenNeto?.trim() || null;
+  if (netoSeco > 0 && tasaFinal > 0 && almacenNeto) {
+    netoSecoMovId = await entrarNetoSeco(netoSeco, almacenNeto, tasaFinal, null, actor, actorName ?? null);
+  }
+  // 2) Snapshot del cierre (con la trazabilidad de la entrada al inventario).
   const row = {
     grupo_id: input.grupoId, grupo_nombre: input.grupoNombre,
     numero: Math.floor(Number(input.numero) || 0),
     fecha: new Date().toISOString(),
     datos: input.datos ?? {},
+    neto_seco: netoSeco > 0 ? netoSeco : null,
+    tasa_final: tasaFinal > 0 ? tasaFinal : null,
+    almacen_neto: netoSecoMovId ? almacenNeto : null,
+    neto_seco_mov_id: netoSecoMovId,
     nota: input.nota?.trim() || null, actor, actor_name: actorName ?? null,
   };
   const { data, error } = await supabase.from('recepcion_cierres').insert(row).select('*').single();
@@ -897,7 +909,24 @@ export async function crearCierre(input: { grupoId: string; grupoNombre: string;
   return data as RecepcionCierre;
 }
 
-export async function eliminarCierre(id: string): Promise<void> {
+export async function eliminarCierre(id: string, actor?: string, actorName?: string | null): Promise<void> {
+  // Si el cierre entró neto seco al inventario, lo revertimos (salida) para no dejar stock fantasma.
+  const { data: row } = await supabase
+    .from('recepcion_cierres')
+    .select('numero, neto_seco, almacen_neto, neto_seco_mov_id')
+    .eq('id', id)
+    .maybeSingle();
+  const c = row as { numero?: number; neto_seco?: number | null; almacen_neto?: string | null; neto_seco_mov_id?: string | null } | null;
+  if (c?.neto_seco_mov_id && c.almacen_neto && num(c.neto_seco) > 0) {
+    const productoId = await productoResguardoId(c.almacen_neto);
+    await registrarMovimiento({
+      producto_id: productoId, tipo: 'salida', delta: -num(c.neto_seco), almacen: c.almacen_neto,
+      actor: actor ?? 'sistema', actor_name: actorName ?? null,
+      ref_tipo: 'recepcion_neto_seco_reversa', ref_id: id,
+      detalle: `Reversa de neto seco · cierre N° ${c.numero ?? ''} eliminado`,
+      precio_unitario: null,
+    });
+  }
   const { error } = await supabase.from('recepcion_cierres').delete().eq('id', id);
   if (error) throw error;
 }
