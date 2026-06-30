@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormE
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
-import { num, dateTime } from '@/shared/lib/format';
+import { dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -53,6 +53,11 @@ function colLetra(i: number): string {
 }
 /** 2 decimales con redondeo (si el 3er decimal es ≥5 sube). */
 function round2(n: number): number { return Math.round((n + Number.EPSILON) * 100) / 100; }
+/** Formatea SIEMPRE a 2 decimales (es-VE) con redondeo half-up. Para todo RECEPCIONES. */
+function n2(n: number | null | undefined): string {
+  if (n == null || isNaN(n as number)) return '—';
+  return round2(Number(n)).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 /** Lee una lectura tolerando datos viejos {a,b,c,prom}. */
 function lecturaNum(v: unknown): number | null {
   if (v == null) return null;
@@ -154,7 +159,7 @@ function LabGrid({ grupoId, minerales, analisis, canWrite, actor, miNombre, onRe
                     ) : <span className="mono">{c.vals[m.clave] || '—'}</span>}
                   </td>
                 ))}
-                <td className="mono" style={{ textAlign: 'center', fontWeight: 800, background: m.color ? `${m.color}33` : undefined }}>{prom != null ? `${num(prom)}%` : '—'}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800, background: m.color ? `${m.color}33` : undefined }}>{prom != null ? `${n2(prom)}%` : '—'}</td>
               </tr>
             );
           })}
@@ -316,7 +321,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
 
   function borrarRecepcion(r: Recepcion) {
     setConfirmar({
-      message: `¿Borrar la recepción #${r.item} (${num(r.peso_kg)} Kg · ${r.procedencia})?`,
+      message: `¿Borrar la recepción #${r.item} (${n2(r.peso_kg)} Kg · ${r.procedencia})?`,
       onConfirm: async () => {
         setConfirmar(null);
         try { await eliminarRecepcion(r.id); await reload(); toast('Recepción borrada', 'success'); }
@@ -391,7 +396,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
                 <tr key={r.id}>
                   <td className="mono">{r.item}</td>
                   <td className="muted" style={{ fontSize: '.85rem' }}>{dateTime(r.fecha)}</td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(r.peso_kg)}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(r.peso_kg)}</td>
                   <td><strong>{r.procedencia}</strong></td>
                   <td>{r.centro_nombre ? `Centro de Acopio ${r.centro_nombre}` : '—'}</td>
                   {canWrite && (
@@ -406,7 +411,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
             {recepciones.length > 0 && (
               <tfoot>
                 <tr><td colSpan={2} style={{ fontWeight: 700 }}>Total recibido</td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(recepciones.reduce((a, r) => a + Number(r.peso_kg), 0))} Kg</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(recepciones.reduce((a, r) => a + Number(r.peso_kg), 0))} Kg</td>
                   <td colSpan={canWrite ? 3 : 2}></td></tr>
               </tfoot>
             )}
@@ -447,8 +452,8 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
                 <tr key={p.id} style={{ cursor: canWrite ? 'pointer' : undefined }} onClick={canWrite ? () => setPesajeModal(p) : undefined} title={canWrite ? 'Ver / editar el detalle de ese día' : undefined}>
                   <td><strong>📅 PESOS GUARDADOS DÍA {diaVE(p.fecha)}</strong> <span className="muted" style={{ fontSize: '.8rem' }}>· {dateTime(p.fecha)}</span></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{p.bigbags.length}</td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.total_neto_humedo ?? totalNetoLado(p.bigbags, 'h'))}</td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.total_neto_seco ?? totalNetoLado(p.bigbags, 's'))}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(p.total_neto_humedo ?? totalNetoLado(p.bigbags, 'h'))}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(p.total_neto_seco ?? totalNetoLado(p.bigbags, 's'))}</td>
                   {canWrite && (
                     <td className="actions" style={{ whiteSpace: 'nowrap', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                       <button className="btn btn-sm btn-ghost" onClick={() => setPesajeModal(p)} title="Ver / editar">✎</button>
@@ -512,7 +517,7 @@ function NumCell({ value, suffix, canWrite, onSave }: {
         <input className="input mono" style={{ width: 96, textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal"
           value={shown} onChange={(e) => setDraft(e.target.value)}
           onBlur={() => { if (draft != null) { onSave(parseNum(draft)); setDraft(null); } }} />
-      ) : <span className="mono">{value != null ? `${num(value)}${suffix ?? ''}` : '—'}</span>}
+      ) : <span className="mono">{value != null ? `${n2(value)}${suffix ?? ''}` : '—'}</span>}
     </td>
   );
 }
@@ -555,8 +560,8 @@ function HumedadProvCard({ filas, canWrite, onAgregar, onBorrar, onReload }: {
             <tfoot>
               <tr>
                 <td colSpan={2} style={{ fontWeight: 800 }}>Promedio del lote</td>
-                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{promPct != null ? `${num(promPct)}%` : '0,00%'}</td>
-                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{num(sumMerma)}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{promPct != null ? `${n2(promPct)}%` : '0,00%'}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{n2(sumMerma)}</td>
                 {canWrite && <td></td>}
               </tr>
             </tfoot>
@@ -579,8 +584,8 @@ function HumedadProvRow({ fila, canWrite, onBorrar, onReload }: {
     <tr>
       <NumCell value={fila.peso_humedo} canWrite={canWrite} onSave={(n) => void save({ peso_humedo: n })} />
       <NumCell value={fila.peso_seco} canWrite={canWrite} onSave={(n) => void save({ peso_seco: n })} />
-      <td className="mono" style={{ textAlign: 'center' }} title="100 − (Peso seco ÷ Peso Húmedos) × 4">{pct != null ? `${num(pct)}%` : '—'}</td>
-      <td className="mono" style={{ textAlign: 'center' }} title="Peso Húmedos × % Humedad">{num(mermaProv(fila.peso_humedo, fila.peso_seco))}</td>
+      <td className="mono" style={{ textAlign: 'center' }} title="100 − (Peso seco ÷ Peso Húmedos) × 4">{pct != null ? `${n2(pct)}%` : '—'}</td>
+      <td className="mono" style={{ textAlign: 'center' }} title="Peso Húmedos × % Humedad">{n2(mermaProv(fila.peso_humedo, fila.peso_seco))}</td>
       {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar fila">🗑</button></td>}
     </tr>
   );
@@ -622,10 +627,10 @@ function HumedadFinalCard({ filas, canWrite, onAgregar, onBorrar, onReload }: {
           {filas.length > 0 && (
             <tfoot>
               <tr>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(sumPesoKg)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(sumRecogido)}</td>
-                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{num(sumMerma)}</td>
-                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{promPct != null ? `${num(promPct)}%` : '0,00%'}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(sumPesoKg)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(sumRecogido)}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{n2(sumMerma)}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{promPct != null ? `${n2(promPct)}%` : '0,00%'}</td>
                 {canWrite && <td></td>}
               </tr>
             </tfoot>
@@ -648,8 +653,8 @@ function HumedadFinalRow({ fila, canWrite, onBorrar, onReload }: {
     <tr>
       <NumCell value={fila.peso_kg} canWrite={canWrite} onSave={(n) => void save({ peso_kg: n })} />
       <NumCell value={fila.peso_recogido} canWrite={canWrite} onSave={(n) => void save({ peso_recogido: n })} />
-      <td className="mono" style={{ textAlign: 'center' }} title="Peso (Kg) − Peso (Kg) recogido">{num(mermaFinal(fila.peso_kg, fila.peso_recogido))}</td>
-      <td className="mono" style={{ textAlign: 'center' }} title="Merma ÷ Peso (Kg) × 100">{pct != null ? `${num(pct)}%` : '—'}</td>
+      <td className="mono" style={{ textAlign: 'center' }} title="Peso (Kg) − Peso (Kg) recogido">{n2(mermaFinal(fila.peso_kg, fila.peso_recogido))}</td>
+      <td className="mono" style={{ textAlign: 'center' }} title="Merma ÷ Peso (Kg) × 100">{pct != null ? `${n2(pct)}%` : '—'}</td>
       {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar fila">🗑</button></td>}
     </tr>
   );
@@ -760,13 +765,13 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat,
           <tfoot>
             <tr>
               <td></td>
-              <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: 'var(--danger, #e5484d)' }}>{num(bigBag)}</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: 'var(--danger, #e5484d)' }}>{n2(bigBag)}</td>
               <td style={{ fontWeight: 800, color: 'var(--danger, #e5484d)' }}>DESCUENTO</td>
               <td></td>
             </tr>
             <tr>
               <td></td>
-              <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(totalNeto)}</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(totalNeto)}</td>
               <td style={{ fontWeight: 800 }}>TOTAL NETO</td>
               <td></td>
             </tr>
@@ -822,9 +827,9 @@ function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, act
               <tr key={c.id} style={{ cursor: canWrite ? 'pointer' : undefined }} onClick={canWrite ? () => setEditor(c) : undefined} title={canWrite ? 'Ver / editar' : undefined}>
                 <td className="mono"><strong>N° {c.numero}</strong></td>
                 <td className="muted">{dateTime(c.fecha)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(c.total_reportado ?? 0)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }}>{num(c.kg_no_llego ?? 0)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }}>{c.pct_no_llego != null ? `${num(c.pct_no_llego)}%` : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(c.total_reportado ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }}>{n2(c.kg_no_llego ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }}>{c.pct_no_llego != null ? `${n2(c.pct_no_llego)}%` : '—'}</td>
                 {canWrite && (
                   <td className="actions" style={{ whiteSpace: 'nowrap', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => setEditor(c)} title="Ver / editar">✎</button>
@@ -1042,8 +1047,8 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
                   <td style={{ width: 180, padding: 2 }}><input className="input mono" style={{ width: '100%', textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={pesoTotal} onChange={(e) => setPesoTotal(e.target.value)} disabled={!canWrite} placeholder="Peso Kg Total" /></td>
                   <td style={{ fontWeight: 600 }}>Peso Kg Total <span className="muted" style={{ fontWeight: 400 }}>(lo que llegó / pesado)</span></td>
                 </tr>
-                {filaResumen(num(totalReportado), 'Kg Reportado por Centros de Acopio', { bold: true })}
-                {filaResumen(num(kgFaltante), 'Kg Faltante', { rojo: true })}
+                {filaResumen(n2(totalReportado), 'Kg Reportado por Centros de Acopio', { bold: true })}
+                {filaResumen(n2(kgFaltante), 'Kg Faltante', { rojo: true })}
                 <tr>
                   <td style={{ width: 180, padding: 2 }}><input className="input mono" style={{ width: '100%', textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={bolsas} onChange={(e) => setBolsas(e.target.value)} disabled={!canWrite} placeholder="0,00" /></td>
                   <td style={{ fontWeight: 600 }}>Kg Peso de Bolsas</td>
@@ -1052,8 +1057,8 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
                   <td style={{ width: 180, padding: 2 }}><input className="input mono" style={{ width: '100%', textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={muestras} onChange={(e) => setMuestras(e.target.value)} disabled={!canWrite} placeholder="0,00" /></td>
                   <td style={{ fontWeight: 600 }}>Muestras tomadas por Laboratorio MGG</td>
                 </tr>
-                {filaResumen(num(kgNoLlego), 'Kg No Llegó', { rojo: true })}
-                {filaResumen(pctNoLlego != null ? `${num(pctNoLlego)}%` : '—', '% de lo que no llegó (descontando bolsas y muestras)', { rojo: true })}
+                {filaResumen(n2(kgNoLlego), 'Kg No Llegó', { rojo: true })}
+                {filaResumen(pctNoLlego != null ? `${n2(pctNoLlego)}%` : '—', '% de lo que no llegó (descontando bolsas y muestras)', { rojo: true })}
               </tbody>
             </table>
           </div>
@@ -1066,7 +1071,7 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem 1.2rem', alignItems: 'flex-end' }}>
           <div>
             <div className="muted" style={{ fontSize: '.72rem' }}>TOTAL NETO seco</div>
-            <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{num(netoSeco)} Kg</div>
+            <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{n2(netoSeco)} Kg</div>
           </div>
         </div>
         <div className="muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
@@ -1083,7 +1088,6 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
 }
 
 /* ───────────── Totales · PROMEDIO DE PRECIO DE COMPRA (todo dentro del modal) ───────────── */
-const fmt4 = (x: number | null | undefined) => (x == null ? '—' : Number(x).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 }));
 
 function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, onReload, onClose, confirmar }: {
   grupoId: string; totales: RecepcionTotales[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
@@ -1126,9 +1130,9 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
               <tr key={t.id} style={{ cursor: canWrite ? 'pointer' : undefined }} onClick={canWrite ? () => setEditor(t) : undefined} title={canWrite ? 'Ver / editar' : undefined}>
                 <td className="mono"><strong>N° {t.numero}</strong></td>
                 <td className="muted">{dateTime(t.fecha)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(t.total_sno2 ?? 0)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>$ {fmt4(t.tasa_recepcionada)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(t.total_moneda ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(t.total_sno2 ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>$ {n2(t.tasa_recepcionada)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(t.total_moneda ?? 0)}</td>
                 {canWrite && (
                   <td className="actions" style={{ whiteSpace: 'nowrap', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => setEditor(t)} title="Ver / editar">✎</button>
@@ -1228,7 +1232,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
                 <tr key={i}>
                   <td style={{ padding: 2 }}>{inputCell(r.sno2, (v) => setCell(i, 'sno2', v))}</td>
                   <td style={{ padding: 2 }}>{inputCell(r.precio, (v) => setCell(i, 'precio', v), { ph: '$ 0,00' })}</td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{num(totalMonedaCentro(centrosParsed[i]))}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{n2(totalMonedaCentro(centrosParsed[i]))}</td>
                   <td style={{ padding: 2 }}><input className="input" style={{ padding: '.2rem .35rem', textTransform: 'uppercase' }} value={r.nombre} onChange={(e) => setCell(i, 'nombre', e.target.value)} disabled={!canWrite} placeholder="LOS PIJIGUAOS" /></td>
                   {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => removeRow(i)} title="Quitar">✕</button></td>}
                 </tr>
@@ -1244,9 +1248,9 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
             </tbody>
             <tfoot>
               <tr>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(totalSnO2)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(totalSnO2)}</td>
                 <td></td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(totalMoneda)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(totalMoneda)}</td>
                 <td style={{ fontWeight: 800 }}>TOTALES</td>
                 {canWrite && <td></td>}
               </tr>
@@ -1263,8 +1267,8 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
             <tbody>
               <tr style={{ background: 'rgba(255,138,0,.08)' }}>
                 <td style={{ padding: 2 }}>{inputCell(pesosKg, setPesosKg, { ph: 'Pesos Kg' })}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>$ {fmt4(tasaRec)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(totalMoneda)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>$ {n2(tasaRec)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(totalMoneda)}</td>
                 <td style={{ fontWeight: 800 }}>PROMEDIO DE PRECIO DE COMPRA RECEPCIONADA</td>
               </tr>
               <tr>
@@ -1283,9 +1287,9 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
                 <td>Fe esteril</td>
               </tr>
               <tr style={{ borderTop: '2px solid var(--border-strong, #888)' }}>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(totalSnO2Final)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>$ {fmt4(tasaFinal)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(totalMonedaFinal)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(totalSnO2Final)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>$ {n2(tasaFinal)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(totalMonedaFinal)}</td>
                 <td style={{ fontWeight: 800 }}>PROMEDIO DE PRECIO DE COSTO FINAL</td>
               </tr>
             </tbody>
@@ -1346,7 +1350,7 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onClos
     setSaving(true);
     try {
       await crearCierre({ grupoId: grupo.id, grupoNombre: grupo.nombre, numero: n, datos, tasaFinal, almacenNeto: almacenNeto || null }, actor, miNombre);
-      toast(`Recepción N° ${n} cerrada${netoSeco > 0 && Number(tasaFinal ?? 0) > 0 && almacenNeto ? ` · ${num(netoSeco)} Kg al inventario` : ''}`, 'success');
+      toast(`Recepción N° ${n} cerrada${netoSeco > 0 && Number(tasaFinal ?? 0) > 0 && almacenNeto ? ` · ${n2(netoSeco)} Kg al inventario` : ''}`, 'success');
       setAlmacenNeto('');
       await cargar();
     }
@@ -1380,15 +1384,15 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onClos
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem 1.4rem', alignItems: 'flex-end' }}>
             <div>
               <div className="muted" style={{ fontSize: '.72rem' }}>TOTAL NETO seco (Σ pesajes)</div>
-              <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{num(netoSeco)} Kg</div>
+              <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{n2(netoSeco)} Kg</div>
             </div>
             <div>
               <div className="muted" style={{ fontSize: '.72rem' }}>Tasa final (de Totales)</div>
-              <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{tasaFinal != null ? `$ ${fmt4(tasaFinal)}` : '— sin Totales —'}</div>
+              <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{tasaFinal != null ? `$ ${n2(tasaFinal)}` : '— sin Totales —'}</div>
             </div>
             <div>
               <div className="muted" style={{ fontSize: '.72rem' }}>Valor (neto seco × tasa)</div>
-              <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary, #ff8a00)' }}>{fmt4(valorNeto)} USD</div>
+              <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary, #ff8a00)' }}>{n2(valorNeto)} USD</div>
             </div>
           </div>
           {netoSeco > 0 && Number(tasaFinal ?? 0) > 0 ? (
@@ -1451,9 +1455,9 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
         <div className="card" style={{ marginBottom: '.8rem', borderColor: 'rgba(255,138,0,.4)' }}>
           <div className="card-title" style={{ margin: '0 0 .4rem' }}>🪙 Entrada al inventario · TOTAL NETO seco</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem 1.4rem', fontSize: '.86rem' }}>
-            <span>Neto seco: <strong className="mono">{num(cierre.neto_seco ?? 0)} Kg</strong></span>
-            <span>Tasa final: <strong className="mono">$ {fmt4(cierre.tasa_final)}</strong></span>
-            <span>Valor: <strong className="mono">{fmt4(Number(cierre.neto_seco ?? 0) * Number(cierre.tasa_final ?? 0))} USD</strong></span>
+            <span>Neto seco: <strong className="mono">{n2(cierre.neto_seco ?? 0)} Kg</strong></span>
+            <span>Tasa final: <strong className="mono">$ {n2(cierre.tasa_final)}</strong></span>
+            <span>Valor: <strong className="mono">{n2(Number(cierre.neto_seco ?? 0) * Number(cierre.tasa_final ?? 0))} USD</strong></span>
             <span>Almacén: <strong>{cierre.almacen_neto || '—'}</strong></span>
           </div>
         </div>
@@ -1467,7 +1471,7 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
             {!recepciones.length ? <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin recepciones.</td></tr>
             : recepciones.map((r) => (
               <tr key={r.id}><td className="mono">{r.item}</td><td className="muted" style={{ fontSize: '.8rem' }}>{dateTime(r.fecha)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(r.peso_kg)}</td><td><strong>{r.procedencia}</strong></td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(r.peso_kg)}</td><td><strong>{r.procedencia}</strong></td>
                 <td>{r.centro_nombre ? `Centro de Acopio ${r.centro_nombre}` : '—'}</td></tr>
             ))}
           </tbody>
@@ -1491,8 +1495,8 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
             : (d.pesajes ?? []).map((p) => (
               <tr key={p.id}><td className="mono">{p.item}</td><td className="muted" style={{ fontSize: '.8rem' }}>{dateTime(p.fecha)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{p.bigbags.length}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.total_neto_humedo ?? 0)}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.total_neto_seco ?? 0)}</td></tr>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(p.total_neto_humedo ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(p.total_neto_seco ?? 0)}</td></tr>
             ))}
           </tbody>
         </table>
@@ -1506,9 +1510,9 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
             {!(d.conciliaciones ?? []).length ? <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin conciliaciones.</td></tr>
             : (d.conciliaciones ?? []).map((c) => (
               <tr key={c.id}><td className="mono"><strong>N° {c.numero}</strong></td>
-                <td className="mono" style={{ textAlign: 'right' }}>{num(c.total_reportado ?? 0)}</td>
-                <td className="mono" style={{ textAlign: 'right', color: ROJO }}>{num(c.kg_no_llego ?? 0)}</td>
-                <td className="mono" style={{ textAlign: 'right', color: ROJO }}>{c.pct_no_llego != null ? `${num(c.pct_no_llego)}%` : '—'}</td></tr>
+                <td className="mono" style={{ textAlign: 'right' }}>{n2(c.total_reportado ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', color: ROJO }}>{n2(c.kg_no_llego ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', color: ROJO }}>{c.pct_no_llego != null ? `${n2(c.pct_no_llego)}%` : '—'}</td></tr>
             ))}
           </tbody>
         </table>
@@ -1522,9 +1526,9 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
             {!(d.totales ?? []).length ? <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin totales.</td></tr>
             : (d.totales ?? []).map((t) => (
               <tr key={t.id}><td className="mono"><strong>N° {t.numero}</strong></td>
-                <td className="mono" style={{ textAlign: 'right' }}>{num(t.total_sno2 ?? 0)}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>$ {fmt4(t.tasa_recepcionada)}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{num(t.total_moneda ?? 0)}</td></tr>
+                <td className="mono" style={{ textAlign: 'right' }}>{n2(t.total_sno2 ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>$ {n2(t.tasa_recepcionada)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{n2(t.total_moneda ?? 0)}</td></tr>
             ))}
           </tbody>
         </table>
