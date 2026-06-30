@@ -317,3 +317,105 @@ export function promedioCol(vals: Array<number | null | undefined>): number | nu
 export function sumaCol(vals: Array<number | null | undefined>): number {
   return vals.reduce((acc: number, x) => acc + (x != null && Number.isFinite(Number(x)) ? Number(x) : 0), 0);
 }
+
+/* ───────────── Pesajes de bigbags (Pesos Húmedos / Pesos Secos) ─────────────
+   Histórico modificable. Cada bigbag tiene procedencia + peso de cada lado.
+   BIG BAG  = −(bigbags con peso) × factor (1,5)
+   TOTAL NETO = Σ pesos + BIG BAG (permite negativos). */
+export interface PesajeBigbag {
+  proc_h: string | null;   // procedencia (húmedo): A, B, Ali, ...
+  peso_h: number | null;   // peso húmedo
+  proc_s: string | null;   // procedencia (seco)
+  peso_s: number | null;   // peso seco
+}
+export interface RecepcionPesaje {
+  id: string;
+  item: number;
+  fecha: string;
+  bigbags: PesajeBigbag[];
+  factor: number;
+  total_neto_humedo: number | null;
+  total_neto_seco: number | null;
+  nota?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export async function listPesajes(): Promise<RecepcionPesaje[]> {
+  const { data, error } = await supabase.from('recepcion_pesajes').select('*').order('item', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({ ...(r as RecepcionPesaje), bigbags: ((r as RecepcionPesaje).bigbags ?? []) as PesajeBigbag[] }));
+}
+
+export async function nextItemPesaje(): Promise<number> {
+  const { data } = await supabase.from('recepcion_pesajes').select('item').order('item', { ascending: false }).limit(1).maybeSingle();
+  return (num((data as { item?: number } | null)?.item) || 0) + 1;
+}
+
+/** −(cantidad de bigbags con peso > 0) × factor. */
+export function bigBagLado(bigbags: PesajeBigbag[], lado: 'h' | 's', factor = 1.5): number {
+  const conPeso = bigbags.filter((b) => num(lado === 'h' ? b.peso_h : b.peso_s) > 0).length;
+  return -conPeso * factor;
+}
+/** Σ pesos del lado + BIG BAG (puede ser negativo). */
+export function totalNetoLado(bigbags: PesajeBigbag[], lado: 'h' | 's', factor = 1.5): number {
+  const suma = bigbags.reduce((a, b) => a + num(lado === 'h' ? b.peso_h : b.peso_s), 0);
+  return suma + bigBagLado(bigbags, lado, factor);
+}
+
+export interface PesajeInput {
+  item?: number | null;
+  fecha?: string | null;
+  bigbags: PesajeBigbag[];
+  factor?: number;
+  nota?: string | null;
+}
+
+function limpiarBigbags(bigbags: PesajeBigbag[]): PesajeBigbag[] {
+  return bigbags.map((b) => ({
+    proc_h: b.proc_h?.toString().trim() || null,
+    peso_h: b.peso_h != null && Number.isFinite(Number(b.peso_h)) ? Number(b.peso_h) : null,
+    proc_s: b.proc_s?.toString().trim() || null,
+    peso_s: b.peso_s != null && Number.isFinite(Number(b.peso_s)) ? Number(b.peso_s) : null,
+  }));
+}
+
+export async function crearPesaje(input: PesajeInput, actor: string, actorName?: string | null): Promise<RecepcionPesaje> {
+  const item = input.item != null && Number(input.item) > 0 ? Math.floor(Number(input.item)) : await nextItemPesaje();
+  const factor = input.factor != null && Number.isFinite(Number(input.factor)) ? Number(input.factor) : 1.5;
+  const bigbags = limpiarBigbags(input.bigbags);
+  const row = {
+    item, fecha: input.fecha || new Date().toISOString(), bigbags, factor,
+    total_neto_humedo: totalNetoLado(bigbags, 'h', factor),
+    total_neto_seco: totalNetoLado(bigbags, 's', factor),
+    nota: input.nota?.trim() || null, actor, actor_name: actorName ?? null,
+  };
+  const { data, error } = await supabase.from('recepcion_pesajes').insert(row).select('*').single();
+  if (error) throw error;
+  return data as RecepcionPesaje;
+}
+
+export async function actualizarPesaje(id: string, patch: Partial<PesajeInput>): Promise<void> {
+  const p: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.item !== undefined) p.item = Math.floor(Number(patch.item) || 0);
+  if (patch.fecha !== undefined) p.fecha = patch.fecha;
+  if (patch.nota !== undefined) p.nota = patch.nota?.trim() || null;
+  const factor = patch.factor != null && Number.isFinite(Number(patch.factor)) ? Number(patch.factor) : undefined;
+  if (factor !== undefined) p.factor = factor;
+  if (patch.bigbags !== undefined) {
+    const bigbags = limpiarBigbags(patch.bigbags);
+    const f = factor ?? 1.5;
+    p.bigbags = bigbags;
+    p.total_neto_humedo = totalNetoLado(bigbags, 'h', f);
+    p.total_neto_seco = totalNetoLado(bigbags, 's', f);
+  }
+  const { error } = await supabase.from('recepcion_pesajes').update(p).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarPesaje(id: string): Promise<void> {
+  const { error } = await supabase.from('recepcion_pesajes').delete().eq('id', id);
+  if (error) throw error;
+}

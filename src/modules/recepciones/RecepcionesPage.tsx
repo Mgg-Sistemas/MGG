@@ -14,8 +14,9 @@ import {
   listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
   listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal,
   promedioCol, sumaCol,
+  listPesajes, crearPesaje, actualizarPesaje, eliminarPesaje, bigBagLado, totalNetoLado,
   type Recepcion, type RecepcionMineral, type RecepcionAnalisis, type ValorMineral,
-  type HumedadProv, type HumedadFinal,
+  type HumedadProv, type HumedadFinal, type RecepcionPesaje, type PesajeBigbag,
 } from './recepciones.repository';
 
 /* es-VE: acepta coma o punto como decimal al tipear. */
@@ -28,6 +29,9 @@ function parseNum(s: string): number | null {
 
 // Columnas de la grilla por mineral: abc = A/B/C/Prom (4) · prom = solo Prom (1).
 const colsPorMineral = (m: RecepcionMineral) => (m.modo === 'abc' ? 4 : 1);
+
+// Fecha (día) en formato es-VE: 30/06/2026.
+const diaVE = (iso: string) => new Date(iso).toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
 /* ───────────── Una tabla del laboratorio (subconjunto de minerales) ─────────────
    El grid completo se parte en dos tablas apiladas (5 minerales arriba, 5 abajo)
@@ -106,6 +110,8 @@ export function RecepcionesPage() {
   const [analisis, setAnalisis] = useState<RecepcionAnalisis[]>([]);
   const [humProv, setHumProv] = useState<HumedadProv[]>([]);
   const [humFinal, setHumFinal] = useState<HumedadFinal[]>([]);
+  const [pesajes, setPesajes] = useState<RecepcionPesaje[]>([]);
+  const [pesajeModal, setPesajeModal] = useState<RecepcionPesaje | 'nuevo' | null>(null);
   const [loading, setLoading] = useState(true);
   const [recEdit, setRecEdit] = useState<Recepcion | null>(null);
   const [recNueva, setRecNueva] = useState(false);
@@ -113,8 +119,8 @@ export function RecepcionesPage() {
   const [confirmar, setConfirmar] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const reload = useCallback(async () => {
-    const [rs, ms, as, hp, hf] = await Promise.all([listRecepciones(), listMinerales(true), listAnalisis(), listHumedadProv(), listHumedadFinal()]);
-    setRecepciones(rs); setMinerales(ms); setAnalisis(as); setHumProv(hp); setHumFinal(hf);
+    const [rs, ms, as, hp, hf, ps] = await Promise.all([listRecepciones(), listMinerales(true), listAnalisis(), listHumedadProv(), listHumedadFinal(), listPesajes()]);
+    setRecepciones(rs); setMinerales(ms); setAnalisis(as); setHumProv(hp); setHumFinal(hf); setPesajes(ps);
   }, []);
   useEffect(() => {
     let cancel = false;
@@ -123,7 +129,7 @@ export function RecepcionesPage() {
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
-  useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales', 'recepcion_humedad_prov', 'recepcion_humedad_final'], reload);
+  useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales', 'recepcion_humedad_prov', 'recepcion_humedad_final', 'recepcion_pesajes'], reload);
 
   // Partir los minerales en dos grupos (mitad arriba, mitad abajo) para evitar el scroll horizontal.
   const mitad = Math.ceil(minerales.length / 2);
@@ -171,6 +177,13 @@ export function RecepcionesPage() {
     setConfirmar({ message: '¿Borrar esta fila de Humedad Final?', onConfirm: async () => {
       setConfirmar(null);
       try { await eliminarHumedadFinal(h.id); await reload(); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
+    } });
+  }
+  function borrarPesaje(p: RecepcionPesaje) {
+    setConfirmar({ message: `¿Borrar el pesaje #${p.item} (${p.bigbags.length} bigbag/s)?`, onConfirm: async () => {
+      setConfirmar(null);
+      try { await eliminarPesaje(p.id); await reload(); toast('Pesaje borrado', 'success'); }
+      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
     } });
   }
 
@@ -254,6 +267,42 @@ export function RecepcionesPage() {
         <HumedadProvCard filas={humProv} canWrite={canWrite} onAgregar={agregarHumProv} onBorrar={borrarHumProv} onReload={reload} />
         <HumedadFinalCard filas={humFinal} canWrite={canWrite} onAgregar={agregarHumFinal} onBorrar={borrarHumFinal} onReload={reload} />
       </div>
+
+      {/* ───────────── Pesos (Bigbags) · histórico ───────────── */}
+      <div className="card" style={{ marginTop: '1.25rem' }}>
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>⚖ Pesos (Bigbags)</span>
+          {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setPesajeModal('nuevo')}>+ Añadir pesos</button>}
+        </div>
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.85rem' }}>
+            <thead><tr><th>Pesos guardados</th><th style={{ textAlign: 'right' }}>Bigbags</th><th style={{ textAlign: 'right' }}>Total neto húmedo</th><th style={{ textAlign: 'right' }}>Total neto seco</th>{canWrite && <th></th>}</tr></thead>
+            <tbody>
+              {!pesajes.length ? (
+                <tr><td colSpan={canWrite ? 5 : 4}><EmptyState message="Sin pesos guardados. Usá «+ Añadir pesos»." icon="⚖" /></td></tr>
+              ) : pesajes.map((p) => (
+                <tr key={p.id} style={{ cursor: canWrite ? 'pointer' : undefined }} onClick={canWrite ? () => setPesajeModal(p) : undefined} title={canWrite ? 'Ver / editar el detalle de ese día' : undefined}>
+                  <td><strong>📅 PESOS GUARDADOS DÍA {diaVE(p.fecha)}</strong> <span className="muted" style={{ fontSize: '.8rem' }}>· {dateTime(p.fecha)}</span></td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{p.bigbags.length}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.total_neto_humedo ?? totalNetoLado(p.bigbags, 'h', p.factor))}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.total_neto_seco ?? totalNetoLado(p.bigbags, 's', p.factor))}</td>
+                  {canWrite && (
+                    <td className="actions" style={{ whiteSpace: 'nowrap', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setPesajeModal(p)} title="Ver / editar">✎</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => void borrarPesaje(p)} title="Borrar">🗑</button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {pesajeModal && (
+        <PesajeModal pesaje={pesajeModal === 'nuevo' ? null : pesajeModal} actor={actor} miNombre={miNombre}
+          onClose={() => setPesajeModal(null)} onSaved={async () => { setPesajeModal(null); await reload(); }} />
+      )}
 
       {recNueva && (
         <RecepcionFormModal actor={actor} miNombre={miNombre} onClose={() => setRecNueva(false)} onSaved={async () => { setRecNueva(false); await reload(); }} />
@@ -491,6 +540,113 @@ function HumedadFinalRow({ fila, canWrite, onBorrar, onReload }: {
       <td className="mono" style={{ textAlign: 'center' }} title="Merma ÷ Peso (Kg) × 100">{pct != null ? `${num(pct)}%` : '—'}</td>
       {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar fila">🗑</button></td>}
     </tr>
+  );
+}
+
+/* ───────────── Pesos (Bigbags): modal con dos tablas (húmedos / secos) ───────────── */
+type RowDraft = { proc_h: string; peso_h: string; proc_s: string; peso_s: string };
+const FACTOR_BIGBAG = 1.5;
+
+function PesajeModal({ pesaje, actor, miNombre, onClose, onSaved }: {
+  pesaje: RecepcionPesaje | null; actor: string; miNombre: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [rows, setRows] = useState<RowDraft[]>(() => (pesaje?.bigbags ?? []).map((b) => ({
+    proc_h: b.proc_h ?? '', peso_h: b.peso_h == null ? '' : String(b.peso_h),
+    proc_s: b.proc_s ?? '', peso_s: b.peso_s == null ? '' : String(b.peso_s),
+  })));
+  const [nota, setNota] = useState(pesaje?.nota ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const bigbags: PesajeBigbag[] = rows.map((r) => ({
+    proc_h: r.proc_h.trim() || null, peso_h: parseNum(r.peso_h),
+    proc_s: r.proc_s.trim() || null, peso_s: parseNum(r.peso_s),
+  }));
+
+  const addBigbag = () => setRows((rs) => [...rs, { proc_h: '', peso_h: '', proc_s: '', peso_s: '' }]);
+  const removeRow = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i));
+  const setCell = (i: number, key: keyof RowDraft, val: string) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [key]: val } : r)));
+
+  async function guardar() {
+    setError(null); setSaving(true);
+    try {
+      const dia = diaVE(pesaje?.fecha ?? new Date().toISOString());
+      if (pesaje) await actualizarPesaje(pesaje.id, { bigbags, factor: FACTOR_BIGBAG, nota });
+      else await crearPesaje({ bigbags, factor: FACTOR_BIGBAG, nota }, actor, miNombre);
+      toast(`PESOS GUARDADOS DÍA ${dia}`, 'success');
+      onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+      <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'GUARDAR PESOS'}</button>
+    </>
+  );
+
+  return (
+    <Modal title={pesaje ? `⚖ PESOS GUARDADOS DÍA ${diaVE(pesaje.fecha)}` : '⚖ Añadir pesos — Bigbags'} size="xl" onClose={onClose} footer={footer}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', marginBottom: '.7rem' }}>
+        <span className="muted" style={{ fontSize: '.8rem' }}>BIG BAG = −(cantidad de bigbags con peso) × {num(FACTOR_BIGBAG)} · TOTAL NETO = suma de pesos + BIG BAG (permite negativos).</span>
+        <button className="btn btn-sm btn-primary" onClick={addBigbag}>+ Añadir BIGBAG</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1rem' }}>
+        <PesajeTabla titulo="PESOS HÚMEDOS" bg="#9db8e0" rows={rows} lado="h"
+          bigBag={bigBagLado(bigbags, 'h', FACTOR_BIGBAG)} totalNeto={totalNetoLado(bigbags, 'h', FACTOR_BIGBAG)} onCell={setCell} onRemove={removeRow} />
+        <PesajeTabla titulo="PESOS SECOS" bg="#cdddf3" rows={rows} lado="s"
+          bigBag={bigBagLado(bigbags, 's', FACTOR_BIGBAG)} totalNeto={totalNetoLado(bigbags, 's', FACTOR_BIGBAG)} onCell={setCell} onRemove={removeRow} />
+      </div>
+      <div className="form-row" style={{ marginTop: '.85rem' }}>
+        <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Observaciones del pesaje…" />
+      </div>
+    </Modal>
+  );
+}
+
+function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onRemove }: {
+  titulo: string; bg: string; rows: RowDraft[]; lado: 'h' | 's';
+  bigBag: number; totalNeto: number; onCell: (i: number, key: keyof RowDraft, val: string) => void; onRemove: (i: number) => void;
+}) {
+  const procKey: keyof RowDraft = lado === 'h' ? 'proc_h' : 'proc_s';
+  const pesoKey: keyof RowDraft = lado === 'h' ? 'peso_h' : 'peso_s';
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ background: bg, color: '#13294b', fontWeight: 800, textAlign: 'center', padding: '.55rem', letterSpacing: '.04em' }}>{titulo}</div>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
+          <thead><tr><th>PROCEDENCIA</th><th style={{ textAlign: 'right' }}>PESO</th><th style={{ textAlign: 'center' }}>BIGBAG</th><th></th></tr></thead>
+          <tbody>
+            {!rows.length ? (
+              <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin bigbags. Usá «+ Añadir BIGBAG».</td></tr>
+            ) : rows.map((r, i) => (
+              <tr key={i}>
+                <td style={{ padding: 2 }}><input className="input" style={{ padding: '.2rem .35rem', textTransform: 'uppercase' }} value={r[procKey]} onChange={(e) => onCell(i, procKey, e.target.value)} placeholder="A / B / Ali" /></td>
+                <td style={{ padding: 2 }}><input className="input mono" style={{ width: 96, textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={r[pesoKey]} onChange={(e) => onCell(i, pesoKey, e.target.value)} placeholder="0,00" /></td>
+                <td className="mono" style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>Bigbag {i + 1}</td>
+                <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => onRemove(i)} title="Quitar bigbag">✕</button></td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td></td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#c0392b', background: '#cfe3cf' }}>{num(bigBag)}</td>
+              <td style={{ fontWeight: 800, color: '#c0392b' }}>BIG BAG</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td></td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(totalNeto)}</td>
+              <td style={{ fontWeight: 800 }}>TOTAL NETO</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
   );
 }
 
