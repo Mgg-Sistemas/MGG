@@ -2930,6 +2930,7 @@ create table if not exists public.recepciones (
   item int not null,
   fecha timestamptz not null default now(),
   peso_kg numeric not null default 0,
+  tasa numeric,                                   -- tasa del cierre (USD/Kg) para precargar Totales
   procedencia text not null default '',           -- centro o aliado, en MAYÚSCULAS (editable)
   centro_nombre text,
   origen text not null default 'manual' check (origen in ('cierre_caja','cierre_aliado','manual')),

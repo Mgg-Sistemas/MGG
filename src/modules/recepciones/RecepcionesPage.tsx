@@ -1194,7 +1194,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
   const [rows, setRows] = useState<{ nombre: string; sno2: string; precio: string }[]>(() =>
     totales
       ? totales.centros.map((c) => ({ nombre: c.nombre ?? '', sno2: c.sno2 == null ? '' : String(c.sno2), precio: c.precio == null ? '' : String(c.precio) }))
-      : recepciones.map((r) => ({ nombre: r.centro_nombre || r.procedencia || '', sno2: r.peso_kg == null ? '' : String(r.peso_kg), precio: '' })));
+      : recepciones.map((r) => ({ nombre: r.centro_nombre || r.procedencia || '', sno2: r.peso_kg == null ? '' : String(r.peso_kg), precio: r.tasa == null ? '' : String(r.tasa) })));
   const [gastos, setGastos] = useState(totales?.gastos == null ? '' : String(totales.gastos));
   const [pesosKg, setPesosKg] = useState(totales?.pesos_kg == null ? '' : String(totales.pesos_kg));
   const [hProv, setHProv] = useState(totales?.humedad_prov == null ? '' : String(totales.humedad_prov));

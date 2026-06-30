@@ -714,7 +714,7 @@ export async function cerrarYAbrirCaja(input: { centro: string; actor: string; a
   if (saldoKg > 0) {
     const { crearRecepcionDesdeCierre } = await import('@/modules/recepciones/recepciones.repository');
     await crearRecepcionDesdeCierre({
-      pesoKg: saldoKg, procedencia: centro, centroNombre: centro,
+      pesoKg: saldoKg, tasa: tasa > 0 ? tasa : null, procedencia: centro, centroNombre: centro,
       origen: 'cierre_caja', refCajaId: abierta.id,
       actor: input.actor, actorName: input.actorName ?? null,
     });
