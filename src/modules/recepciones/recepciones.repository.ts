@@ -83,6 +83,7 @@ export interface Recepcion {
   item: number;
   fecha: string;
   peso_kg: number;
+  tasa?: number | null;   // tasa del cierre (USD/Kg) → precarga el Precio/Tasa en Totales
   procedencia: string;
   centro_nombre?: string | null;
   origen: 'cierre_caja' | 'cierre_aliado' | 'manual';
@@ -111,6 +112,7 @@ export interface RecepcionInput {
   item?: number | null;
   fecha?: string | null;
   peso_kg: number;
+  tasa?: number | null;
   procedencia: string;
   centro_nombre?: string | null;
   origen?: Recepcion['origen'];
@@ -127,6 +129,7 @@ export async function crearRecepcion(input: RecepcionInput, actor: string, actor
     item,
     fecha: input.fecha || new Date().toISOString(),
     peso_kg: num(input.peso_kg),
+    tasa: input.tasa != null && Number.isFinite(Number(input.tasa)) ? Number(input.tasa) : null,
     procedencia: (input.procedencia || '').trim().toUpperCase(),
     centro_nombre: input.centro_nombre?.trim() || null,
     origen: input.origen ?? 'manual',
@@ -284,7 +287,7 @@ export function promedioDelLote(modo: 'abc' | 'prom', clave: string, analisis: R
 /* ───────────── Alta de recepción desde el cierre de caja (acopio) ───────────── */
 /** La usa el cierre de caja/aliado: crea la recepción con el saldo de Kg de casiterita. */
 export async function crearRecepcionDesdeCierre(input: {
-  pesoKg: number; procedencia: string; centroNombre?: string | null;
+  pesoKg: number; tasa?: number | null; procedencia: string; centroNombre?: string | null;
   origen: 'cierre_caja' | 'cierre_aliado'; refCajaId?: string | null; refAliadoId?: string | null;
   actor: string; actorName?: string | null;
 }): Promise<Recepcion | null> {
@@ -294,7 +297,7 @@ export async function crearRecepcionDesdeCierre(input: {
   const grupoId = await grupoParaCentro(nombreCentro, input.actor, input.actorName ?? null);
   return crearRecepcion({
     grupo_id: grupoId,
-    peso_kg: num(input.pesoKg), procedencia: input.procedencia, centro_nombre: input.centroNombre ?? null,
+    peso_kg: num(input.pesoKg), tasa: input.tasa ?? null, procedencia: input.procedencia, centro_nombre: input.centroNombre ?? null,
     origen: input.origen, ref_caja_id: input.refCajaId ?? null, ref_aliado_id: input.refAliadoId ?? null,
   }, input.actor, input.actorName ?? null);
 }

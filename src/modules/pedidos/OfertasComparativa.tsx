@@ -10,6 +10,7 @@ import type {
   Proveedor,
 } from '@/shared/lib/types';
 import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta } from './ofertas.repository';
+import { urlAdjuntoOc } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
@@ -94,6 +95,16 @@ export function OfertasComparativa({
       toast(e instanceof Error ? e.message : 'No se pudo abrir el PDF', 'error');
     }
   }
+  // Imagen de referencia de la SOLICITUD (SP): convive con las fotos de las ofertas, no se borra.
+  async function abrirImagenSp() {
+    if (!orden.imagen_path) return;
+    try {
+      const url = await urlAdjuntoOc(orden.imagen_path);
+      window.open(url, '_blank', 'noopener');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir la imagen', 'error');
+    }
+  }
 
   async function confirmarAceptacion(s: ScoredOferta) {
     // Si todos los productos de la oferta están en $0 (ni BCV ni USD), no se puede crear la OC.
@@ -162,6 +173,13 @@ export function OfertasComparativa({
   return (
     <div className="card" style={{ marginTop: '1rem' }}>
       {headLine}
+      {orden.imagen_path && (
+        <div className="card" style={{ margin: '0 0 .6rem', padding: '.45rem .7rem', background: 'var(--bg-1)', display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 600 }}>📷 Imagen de referencia de la solicitud (SP)</span>
+          <button className="btn btn-sm btn-ghost" onClick={abrirImagenSp}>Ver imagen</button>
+          <span className="muted" style={{ fontSize: '.74rem' }}>Convive con las fotos de cada oferta (columna PDF/foto) — no se reemplaza.</span>
+        </div>
+      )}
       <div className="table-wrap">
         <table className="table">
           <thead>

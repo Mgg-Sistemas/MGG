@@ -499,7 +499,7 @@ export async function cerrarYAbrirCajaAliado(input: {
       const nombreAliado = String((ali as { nombre?: string } | null)?.nombre ?? centro).replace(/^\s*centro\s+de\s+acopio\s*[-·]?\s*/i, '').replace(/^\s*centro\s+acopio\s*[-·]?\s*/i, '').trim() || centro;
       const { crearRecepcionDesdeCierre } = await import('@/modules/recepciones/recepciones.repository');
       await crearRecepcionDesdeCierre({
-        pesoKg: saldoKg, procedencia: nombreAliado, centroNombre: centro,
+        pesoKg: saldoKg, tasa: tasa > 0 ? tasa : null, procedencia: nombreAliado, centroNombre: centro,
         origen: 'cierre_aliado', refAliadoId: input.aliadoId,
         actor: input.actor, actorName: input.actorName ?? null,
       });
