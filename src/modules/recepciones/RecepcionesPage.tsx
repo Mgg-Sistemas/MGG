@@ -516,16 +516,16 @@ function NumCell({ value, suffix, canWrite, onSave }: {
 }
 
 /* ───────────── Humedad Provisional ─────────────
-   % Humedad   = 100 − (Peso seco ÷ Peso Húmedos) × 4   (calculada, no se escribe)
-   Merma peso H2O = Peso (Gr) Húmedos × % Humedad ÷ 100 (calculada, no se escribe). */
+   % Humedad   = 100 − (Peso seco ÷ Peso Húmedos) × 100   (calculada, no se escribe; 2 dec, redondeo)
+   Merma peso H2O = Peso (Gr) Húmedos × % Humedad ÷ 100   (calculada, no se escribe). */
 const pctHumProv = (humedo: number | null, seco: number | null): number | null => {
   const h = Number(humedo) || 0;
   if (h === 0) return null;
-  return 100 - (Number(seco) || 0) / h * 4;
+  return round2(100 - (Number(seco) || 0) / h * 100);
 };
 const mermaProv = (humedo: number | null, seco: number | null) => {
   const pct = pctHumProv(humedo, seco);
-  return pct == null ? 0 : (Number(humedo) || 0) * pct / 100;
+  return pct == null ? 0 : round2((Number(humedo) || 0) * pct / 100);
 };
 function HumedadProvCard({ filas, canWrite, onAgregar, onBorrar, onReload }: {
   filas: HumedadProv[]; canWrite: boolean; onAgregar: () => void; onBorrar: (h: HumedadProv) => void; onReload: () => Promise<void>;
