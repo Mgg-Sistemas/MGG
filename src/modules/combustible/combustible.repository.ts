@@ -567,13 +567,18 @@ export async function crearTanque(input: {
   const litros = Math.max(0, Number(input.litrosIniciales) || 0);
   if (litros > capacidad) throw new Error('Los litros actuales no pueden superar la capacidad del tanque.');
 
+  // Si arranca con litros y está vinculado a un combustible, esos litros se SIEMBRAN
+  // vía registrarIngreso (entran al inventario + combustible + tanque), para que el
+  // tanque quede VINCULADO al inventario y se pueda consumir. Si no, se insertan tal cual.
+  const sembrar = litros > 0 && !!input.combustibleId;
+
   const { data, error } = await supabase
     .from('combustible_tanques')
     .insert({
       nombre,
       combustible_id: input.combustibleId || null,
       capacidad_litros: capacidad,
-      litros,
+      litros: sembrar ? 0 : litros,
       ubicacion: input.ubicacion?.trim() || null,
       sede: input.sede?.trim() || null,
       tasa: input.tasa ?? null,
@@ -588,7 +593,23 @@ export async function crearTanque(input: {
     .select('*')
     .single();
   if (error) throw error;
-  return data as Tanque;
+  const tanque = data as Tanque;
+
+  if (sembrar) {
+    const almacen = await almacenCasaCombustible(input.combustibleId!);
+    let costo = input.tasa != null ? Math.max(0, Number(input.tasa) || 0) : 0;
+    if (input.tasa == null) {
+      const { data: comb } = await supabase.from('combustibles').select('costo_litro').eq('id', input.combustibleId!).maybeSingle();
+      costo = Math.max(0, Number((comb as { costo_litro?: number } | null)?.costo_litro) || 0);
+    }
+    await registrarIngreso({
+      combustibleId: input.combustibleId!, almacen, tanqueId: tanque.id, litros,
+      costoLitro: costo, actor: input.actorEmail ?? 'sistema', actorName: null,
+      detalle: `Carga inicial del tanque ${nombre}`,
+    });
+    tanque.litros = litros;
+  }
+  return tanque;
 }
 
 export async function actualizarTanque(id: string, input: {
