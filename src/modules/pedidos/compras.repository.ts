@@ -281,11 +281,13 @@ export async function montarCompraDirecta(input: MontarCompraInput): Promise<voi
     facturas.push({ path, filename: input.file.name, at: new Date().toISOString() });
   }
   const primera = facturas[0] ?? null;
+  // La cantidad del encabezado sigue la suma de los renglones (puede cambiar al montar).
+  const cantidadTotal = Math.round(items.reduce((a, i) => a + (Number(i.cantidad) || 0), 0) * 1e6) / 1e6;
 
   const { error } = await supabase
     .from('compras_directas')
     .update({
-      estado: 'por_pagar', gasto: total, items,
+      estado: 'por_pagar', gasto: total, items, cantidad: cantidadTotal,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
       nota: input.nota?.trim() || null,
       adjunto_path: primera?.path ?? null, adjunto_nombre: primera?.filename ?? null, facturas,

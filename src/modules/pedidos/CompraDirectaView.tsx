@@ -5,7 +5,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
-import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
+import { dateTime, money, num } from '@/shared/lib/format';
 // descargarCompraDirectaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir la vista.
 import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
@@ -499,29 +499,49 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
 
 /* ───────── Modal: montar (analista carga factura + precios → POR PAGAR) ───────── */
 
+/** Línea editable del montaje: cantidad y costo unitario modificables; se puede quitar.
+ *  El monto del renglón = cantidad × costo unit. (se recalcula al cambiar la cantidad). */
+type MontarLinea = { key: number; producto_id: string; producto_nombre: string; producto_sku: string | null; cantidad: string; costoUnit: string };
+
 function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
   compra: CompraDirecta; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const [gastos, setGastos] = useState<Record<number, string>>(() => {
-    const init: Record<number, string> = {};
-    compra.items.forEach((it, i) => { if (it.gasto != null && Number(it.gasto) > 0) init[i] = String(it.gasto); });
-    return init;
-  });
+  // Líneas editables: la cantidad de cada material se puede cambiar y los materiales se
+  // pueden eliminar (la mercancía aún no entró al inventario, entra recién al pagar).
+  const [lineas, setLineas] = useState<MontarLinea[]>(() => compra.items.map((it, i) => {
+    const cant = Number(it.cantidad) || 0;
+    const g = Number(it.gasto) || 0;
+    const cu = cant > 0 && g > 0 ? g / cant : 0;
+    return {
+      key: i, producto_id: it.producto_id, producto_nombre: it.producto_nombre, producto_sku: it.producto_sku,
+      cantidad: String(it.cantidad ?? ''), costoUnit: cu > 0 ? String(Math.round(cu * 1e4) / 1e4) : '',
+    };
+  }));
   const [file, setFile] = useState<File | null>(null);
   const [nota, setNota] = useState(compra.nota ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const setLinea = (key: number, patch: Partial<MontarLinea>) => setLineas((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const removeLinea = (key: number) => setLineas((ls) => ls.filter((l) => l.key !== key));
+
+  // Monto del renglón = cantidad × costo unit. (redondeado a centavos).
+  const montoLinea = (l: MontarLinea) => Math.round((Number(l.cantidad) || 0) * (Number(l.costoUnit) || 0) * 100) / 100;
   const total = useMemo(
-    () => Math.round(compra.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100,
-    [gastos, compra.items],
+    () => Math.round(lineas.reduce((a, l) => a + montoLinea(l), 0) * 100) / 100,
+    [lineas],
   );
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
+    if (!lineas.length) { setError('Dejá al menos un material en la compra.'); return; }
+    if (lineas.some((l) => (Number(l.cantidad) || 0) <= 0)) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
+    if (total <= 0) { setError('Indicá el costo unitario de cada material.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
-    const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
+    const items: CompraDirectaItem[] = lineas.map((l) => ({
+      producto_id: l.producto_id, producto_nombre: l.producto_nombre, producto_sku: l.producto_sku,
+      cantidad: Number(l.cantidad) || 0, gasto: montoLinea(l),
+    }));
     setSaving(true);
     try {
       await montarCompraDirecta({ compra, items, file, nota, actor, actorName });
@@ -549,25 +569,24 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
-          Cargá los <strong>precios por material</strong> y la <strong>factura</strong>. La compra queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el gasto sale de la caja y los materiales <strong>entran al inventario</strong> ({compra.almacen}). La <strong>categoría de gasto la elige Tesorería al pagar</strong>.
+          Cargá los <strong>precios por material</strong> y la <strong>factura</strong>. Podés <strong>ajustar la cantidad</strong> o <strong>quitar materiales</strong>. La compra queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el gasto sale de la caja y los materiales <strong>entran al inventario</strong> ({compra.almacen}). La <strong>categoría de gasto la elige Tesorería al pagar</strong>.
         </p>
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ width: 160 }}>Precio</th><th style={{ textAlign: 'right' }}>Costo unit.</th></tr></thead>
+            <thead><tr><th>Material</th><th style={{ width: 110, textAlign: 'right' }}>Cantidad</th><th style={{ width: 150 }}>Costo unit.</th><th style={{ textAlign: 'right' }}>Monto</th><th></th></tr></thead>
             <tbody>
-              {compra.items.map((it, i) => {
-                const g = Number(gastos[i]) || 0;
-                const cu = it.cantidad > 0 && g > 0 ? g / it.cantidad : 0;
-                return (
-                  <tr key={i}>
-                    <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
-                    <td><input className="input mono" type="number" min={0} step="any" value={gastos[i] ?? ''} onChange={(e) => setGastos((m) => ({ ...m, [i]: dosDecimales(e.target.value) }))} placeholder="0,00" /></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, 'USD')}</td>
-                  </tr>
-                );
-              })}
+              {!lineas.length ? (
+                <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>No quedan materiales. Cancelá o agregá de nuevo.</td></tr>
+              ) : lineas.map((l) => (
+                <tr key={l.key}>
+                  <td>{l.producto_nombre}{l.producto_sku ? <span className="muted"> · {l.producto_sku}</span> : null}</td>
+                  <td><input className="input mono" type="number" min={0} step="any" style={{ textAlign: 'right' }} value={l.cantidad} onChange={(e) => setLinea(l.key, { cantidad: e.target.value })} placeholder="0" /></td>
+                  <td><input className="input mono" type="number" min={0} step="any" value={l.costoUnit} onChange={(e) => setLinea(l.key, { costoUnit: e.target.value })} placeholder="0,00" /></td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{montoCaja(montoLinea(l), 'USD')}</td>
+                  <td style={{ textAlign: 'right' }}><button type="button" className="btn btn-sm btn-ghost" onClick={() => removeLinea(l.key)} title="Quitar material">✕</button></td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
