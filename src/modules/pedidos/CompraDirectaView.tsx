@@ -12,7 +12,6 @@ import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import type { Caja, Producto, Proveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos, updateProducto, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
-import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
   crearCompraDirecta, montarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
   urlAdjuntoCompra, gestionarFacturasCompra, editarCompraDirectaFinalizada, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
@@ -508,29 +507,9 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     return init;
   });
   const [file, setFile] = useState<File | null>(null);
+  const [nota, setNota] = useState(compra.nota ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Categoría → subcategoría de gasto (las mismas de Tesorería); etiqueta el egreso al pagar.
-  const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
-  const [catId, setCatId] = useState('');
-  const [subId, setSubId] = useState('');
-  useEffect(() => { listCategoriasGasto(true).then(setCatRows).catch(() => setCatRows([])); }, []);
-  const categorias = useMemo(() => soloCategorias(catRows), [catRows]);
-  const subcategorias = useMemo(() => (catId ? subcategoriasDe(catRows, catId) : []), [catRows, catId]);
-  // Pre-carga la categoría/subcategoría si la compra ya estaba montada (por_pagar).
-  useEffect(() => {
-    if (!catRows.length || !compra.gasto_categoria) return;
-    const c = soloCategorias(catRows).find((x) => x.nombre === compra.gasto_categoria);
-    if (c) setCatId(c.id);
-  }, [catRows, compra.gasto_categoria]);
-  useEffect(() => {
-    if (!catId || !compra.gasto_subcategoria) return;
-    const s = subcategoriasDe(catRows, catId).find((x) => x.nombre === compra.gasto_subcategoria);
-    if (s) setSubId(s.id);
-  }, [catId, catRows, compra.gasto_subcategoria]);
-  const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
-  const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
 
   const total = useMemo(
     () => Math.round(compra.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100,
@@ -539,14 +518,12 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!catId) { setError('Elegí la categoría de gasto.'); return; }
-    if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
     if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
     const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await montarCompraDirecta({ compra, items, file, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
+      await montarCompraDirecta({ compra, items, file, nota, actor, actorName });
       notify(`Compra enviada a Tesorería · ${montoCaja(total, 'USD')} por pagar`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar la compra a Tesorería.'); setSaving(false); }
@@ -565,26 +542,8 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
-          Cargá los <strong>precios por material</strong> y la <strong>factura</strong>. La compra queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el gasto sale de la caja y los materiales <strong>entran al inventario</strong> ({compra.almacen}).
+          Cargá los <strong>precios por material</strong> y la <strong>factura</strong>. La compra queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el gasto sale de la caja y los materiales <strong>entran al inventario</strong> ({compra.almacen}). La <strong>categoría de gasto la elige Tesorería al pagar</strong>.
         </p>
-
-        {/* Categoría → subcategoría de gasto (las mismas de Tesorería): etiqueta el egreso. */}
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Categoría de gasto <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <SearchSelect value={catId} onChange={setCatId}
-              options={categorias.map((c) => ({ value: c.id, label: c.nombre }))}
-              placeholder="Buscar categoría…" emptyText="Cargá categorías en Tesorería → 🗂️ Categorías de gasto" />
-          </div>
-          <div className="form-row">
-            <label>Subcategoría <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <SearchSelect value={subId} onChange={setSubId}
-              options={subcategorias.map((s) => ({ value: s.id, label: s.nombre }))}
-              placeholder={catId ? 'Buscar subcategoría…' : 'Elegí primero la categoría'}
-              emptyText={catId ? 'Esta categoría no tiene subcategorías.' : 'Elegí una categoría'} />
-          </div>
-        </div>
-        <small className="muted" style={{ display: 'block', marginBottom: '.6rem' }}>El gasto queda etiquetado por <strong>categoría → subcategoría</strong> y se reflejará así en el movimiento de Tesorería al pagarse.</small>
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
@@ -611,6 +570,12 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
           <label>Adjuntar FACTURA de la compra · PDF o imagen</label>
           <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           {file ? <small className="muted">{file.name}</small> : (compra.facturas?.length ? <small className="muted">Ya hay {compra.facturas.length} factura(s) cargada(s).</small> : null)}
+        </div>
+
+        <div className="form-row">
+          <label>Nota para Tesorería <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej.: Pago realizado por Equis persona, se le debe reembolsar." />
+          <small className="muted">Tesorería la lee al momento de pagar (y elige ahí la categoría de gasto).</small>
         </div>
       </form>
     </Modal>

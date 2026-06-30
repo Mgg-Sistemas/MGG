@@ -2898,6 +2898,112 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- ============================================================
+-- RECEPCIONES · paso intermedio acopio → inventario
+-- Al cerrar la caja de un centro/aliado de acopio, el saldo en Kg de
+-- casiterita NO entra directo al inventario: se crea una RECEPCIÓN
+-- (peso + procedencia). El laboratorio carga sus análisis por mineral
+-- configurable (RECEPCIÓN GLOBAL LABORATORIO). El ingreso al inventario
+-- se hará luego (paso posterior).
+-- ============================================================
+create table if not exists public.recepciones (
+  id uuid primary key default gen_random_uuid(),
+  item int not null,
+  fecha timestamptz not null default now(),
+  peso_kg numeric not null default 0,
+  procedencia text not null default '',           -- centro o aliado, en MAYÚSCULAS (editable)
+  centro_nombre text,
+  origen text not null default 'manual' check (origen in ('cierre_caja','cierre_aliado','manual')),
+  ref_caja_id uuid,
+  ref_aliado_id uuid,
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_recepciones_item on public.recepciones(item);
+alter table public.recepciones enable row level security;
+create policy "recepciones read auth" on public.recepciones for select using (auth.role()='authenticated');
+create policy "recepciones write op"  on public.recepciones for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Minerales configurables (columnas del laboratorio). modo: abc=A/B/C/Prom · prom=solo Prom (ej. UCV)
+create table if not exists public.recepcion_minerales (
+  id uuid primary key default gen_random_uuid(),
+  clave text not null unique,
+  nombre text not null,
+  subtitulo text,
+  modo text not null default 'abc' check (modo in ('abc','prom')),
+  color text,
+  orden int not null default 0,
+  activo boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.recepcion_minerales enable row level security;
+create policy "rec_min read auth" on public.recepcion_minerales for select using (auth.role()='authenticated');
+create policy "rec_min write op"  on public.recepcion_minerales for all using (public.is_operativo()) with check (public.is_operativo());
+insert into public.recepcion_minerales (clave, nombre, subtitulo, modo, color, orden) values
+  ('sn','Sn (Estaño)','Laboratorio Mineral Group','abc','#f5c542',1),
+  ('ucv','UCV',null,'prom','#e0a92e',2),
+  ('fe','Fe (Hierro)',null,'abc','#fbe0c3',3),
+  ('ti','Ti (Titanio)',null,'abc','#bcdcf2',4),
+  ('ta','Ta (Tántalo)',null,'abc','#d8cce8',5),
+  ('nb','Nb (Niobio)',null,'abc','#bfe0bf',6),
+  ('v','V (Vanadio)',null,'abc','#d9a7bd',7),
+  ('zr','Zr (Circonio)',null,'abc','#7fa7b0',8),
+  ('bal','Bal (estéril)',null,'abc','#f0a868',9),
+  ('mn','Mn (Manganeso)',null,'abc','#f0c419',10),
+  ('hf','Hf (hafnio)',null,'abc','#6aa9d8',11)
+on conflict (clave) do nothing;
+
+-- Análisis de laboratorio (RECEPCIÓN GLOBAL LABORATORIO). valores jsonb por mineral:
+--   { "<clave>": {a,b,c} }  (modo abc)  ·  { "<clave>": {prom} }  (modo prom)
+create table if not exists public.recepcion_analisis (
+  id uuid primary key default gen_random_uuid(),
+  n_analisis int not null,
+  fecha timestamptz not null default now(),
+  valores jsonb not null default '{}'::jsonb,
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_rec_analisis_n on public.recepcion_analisis(n_analisis);
+alter table public.recepcion_analisis enable row level security;
+create policy "rec_analisis read auth" on public.recepcion_analisis for select using (auth.role()='authenticated');
+create policy "rec_analisis write op"  on public.recepcion_analisis for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Humedad bajo la grilla de análisis (dos tablas lado a lado). Cuerpo = entradas
+-- manuales; el pie "Promedio del lote" promedia los % y suma la merma (en el front).
+create table if not exists public.recepcion_humedad_prov (
+  id uuid primary key default gen_random_uuid(),
+  orden int not null default 0,
+  peso_humedo numeric,         -- Peso (Gr) Húmedos
+  peso_seco numeric,           -- Peso (Gr) seco
+  pct_humedad numeric,         -- % Humedad
+  merma_h2o numeric,           -- Merma peso H2O
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+alter table public.recepcion_humedad_prov enable row level security;
+create policy "rec_hum_prov read auth" on public.recepcion_humedad_prov for select using (auth.role()='authenticated');
+create policy "rec_hum_prov write op"  on public.recepcion_humedad_prov for all using (public.is_operativo()) with check (public.is_operativo());
+
+create table if not exists public.recepcion_humedad_final (
+  id uuid primary key default gen_random_uuid(),
+  orden int not null default 0,
+  peso_kg numeric,             -- Peso (Kg)
+  peso_recogido numeric,       -- Peso (Kg) recogido
+  merma_h2o numeric,           -- Merma peso H2O (calculada: peso_kg - peso_recogido)
+  pct_humedad numeric,         -- % Humedad final
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+alter table public.recepcion_humedad_final enable row level security;
+create policy "rec_hum_final read auth" on public.recepcion_humedad_final for select using (auth.role()='authenticated');
+create policy "rec_hum_final write op"  on public.recepcion_humedad_final for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- ============================================================
 -- Realtime en TODOS los módulos: publica las tablas de datos del esquema
 -- public que aún no estén en supabase_realtime (multiusuario en vivo).
 -- ============================================================
@@ -2907,6 +3013,7 @@ declare faltantes text[] := array[
   'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
   'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
   'ofertas_proveedor','produccion','produccion_materiales','proveedor_datos_pago','proveedores',
+  'recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final',
   'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
 ];
 begin

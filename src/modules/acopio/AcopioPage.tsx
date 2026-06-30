@@ -23,7 +23,7 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, cerrarYAbrirCaja, almacenCasiteritaDeCentro, listCajaMovimientos, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, cerrarYAbrirCaja, listCajaMovimientos, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
 import type { GrupoClasificacion, CajaMovimiento } from '@/shared/lib/types';
 import { listVehiculos } from '@/modules/combustible/combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
@@ -632,8 +632,6 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
   const saldoUsd = Math.round((Number(resumen.saldoUsd) || 0) * 100) / 100;
   const saldoKg = Math.round((Number(resumen.saldoKg) || 0) * 100) / 100;
   const tasa = Number(resumen.tasa) || 0;
-  const valorKg = saldoKg > 0 ? saldoKg * tasa : 0;
-  const almacen = almacenCasiteritaDeCentro(centro);
 
   async function confirmar() {
     setSaving(true); setError(null);
@@ -669,14 +667,13 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: saldoUsd < 0 ? 'var(--danger)' : 'var(--primary-3)' }}>{money(saldoUsd)}</td>
                 </tr>
                 <tr>
-                  <td style={{ fontWeight: 600 }}>Saldo en Kg → inventario (casiterita)</td>
+                  <td style={{ fontWeight: 600 }}>Saldo en Kg → Recepciones (casiterita)</td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(saldoKg)} Kg</td>
                 </tr>
                 {saldoKg > 0 && (
                   <>
-                    <tr><td className="muted">Almacén destino</td><td className="mono" style={{ textAlign: 'right' }}>{almacen}</td></tr>
+                    <tr><td className="muted">Procedencia</td><td className="mono" style={{ textAlign: 'right' }}>{centro.toUpperCase()}</td></tr>
                     <tr><td className="muted">Tasa del material</td><td className="mono" style={{ textAlign: 'right' }}>{money(tasa)}/Kg</td></tr>
-                    <tr><td className="muted">Valor que entra al inventario</td><td className="mono" style={{ textAlign: 'right' }}>{money(valorKg)}</td></tr>
                   </>
                 )}
               </tbody>
@@ -684,8 +681,8 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
           </div>
           <p className="muted" style={{ fontSize: '.76rem', marginBottom: 0 }}>
             {saldoKg > 0
-              ? `Los ${num(saldoKg)} Kg pasan a CASITERITA en «${almacen}» a la tasa del material. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.`
-              : 'No hay saldo de Kg para enviar al inventario. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.'}
+              ? `Los ${num(saldoKg)} Kg pasan al módulo RECEPCIONES (procedencia «${centro.toUpperCase()}»); NO entran al inventario todavía. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.`
+              : 'No hay saldo de Kg para enviar a Recepciones. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.'}
           </p>
         </>
       )}

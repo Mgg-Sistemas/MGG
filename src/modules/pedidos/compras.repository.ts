@@ -50,9 +50,11 @@ export interface CompraDirecta {
   items: CompraDirectaItem[];
   estado: EstadoCompraDirecta;
   gasto: number | null;
-  /** Etiquetas de gasto (se eligen al montar; Tesorería las usa al pagar). */
+  /** Etiquetas de gasto: las elige TESORERÍA al pagar (ya no en el montaje). */
   gasto_categoria: string | null;
   gasto_subcategoria: string | null;
+  /** Nota libre del analista para que Tesorería la lea al pagar (ej. reembolso). */
+  nota: string | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   adjunto_path: string | null;
@@ -250,9 +252,11 @@ export interface MontarCompraInput {
   compra: CompraDirecta;
   /** Gasto (precio) por material (alineado con compra.items). */
   items: CompraDirectaItem[];
-  /** Categoría → subcategoría de gasto (se persiste; Tesorería la usa al pagar). */
+  /** Categoría → subcategoría de gasto: ahora las pone TESORERÍA al pagar (opcionales acá). */
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Nota libre del analista para que Tesorería la lea al pagar (ej. reembolso). */
+  nota?: string | null;
   file?: File | null;
   actor: string;
   actorName?: string | null;
@@ -283,6 +287,7 @@ export async function montarCompraDirecta(input: MontarCompraInput): Promise<voi
     .update({
       estado: 'por_pagar', gasto: total, items,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
+      nota: input.nota?.trim() || null,
       adjunto_path: primera?.path ?? null, adjunto_nombre: primera?.filename ?? null, facturas,
       updated_at: new Date().toISOString(),
     })
@@ -298,6 +303,9 @@ export interface PagarCompraInput {
   cajaId: string;
   /** Si la caja es Multimoneda: cuánto sale de cada moneda/cuenta (en su moneda). */
   legs?: PagoLeg[];
+  /** Categoría → subcategoría de gasto: las elige TESORERÍA al pagar. */
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
   /** Quién paga (usuario de Tesorería). */
   actor: string;
   actorName?: string | null;
@@ -316,6 +324,10 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
   if (total <= 0) throw new Error('La compra no tiene montos cargados.');
 
+  // Categoría de gasto: la que eligió Tesorería al pagar (override) o la guardada.
+  const gcat = input.gastoCategoria !== undefined ? input.gastoCategoria : compra.gasto_categoria;
+  const gsub = input.gastoSubcategoria !== undefined ? input.gastoSubcategoria : compra.gasto_subcategoria;
+
   // 1) Egreso de la caja (valida saldo) → pasa por Tesorería.
   const concepto = `Compra directa · ${compra.producto_nombre}`;
   const legs = (input.legs ?? []).filter((l) => Number(l.monto) > 0);
@@ -326,7 +338,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
       const r = await egresarDivisa({
         cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'compra_directa',
-        gastoCategoria: compra.gasto_categoria ?? null, gastoSubcategoria: compra.gasto_subcategoria ?? null,
+        gastoCategoria: gcat ?? null, gastoSubcategoria: gsub ?? null,
         actor: input.actor, actorName: input.actorName ?? null,
       });
       if (!primero) primero = r.id;
@@ -337,7 +349,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     const movCaja = await registrarGasto({
       cajaId: input.cajaId, monto: total,
       concepto, categoria: 'compra_directa',
-      gastoCategoria: compra.gasto_categoria ?? null, gastoSubcategoria: compra.gasto_subcategoria ?? null,
+      gastoCategoria: gcat ?? null, gastoSubcategoria: gsub ?? null,
       actor: input.actor, actorName: input.actorName ?? null,
     });
     movCajaId = movCaja.id;
@@ -363,6 +375,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     .from('compras_directas')
     .update({
       estado: 'finalizada', gasto: total, items,
+      gasto_categoria: gcat ?? null, gasto_subcategoria: gsub ?? null,
       caja_id: input.cajaId, caja_mov_id: movCajaId, mov_id: primerMov,
       pagada_por: input.actorName || input.actor,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),

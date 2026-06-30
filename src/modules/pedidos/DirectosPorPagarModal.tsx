@@ -4,7 +4,9 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { num, dosDecimales, dateTime } from '@/shared/lib/format';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import type { Caja, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
+import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import {
@@ -67,6 +69,28 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const total = fila.total;
+  const esCompra = fila.kind === 'compra';
+
+  // Categoría → subcategoría de gasto: la elige Tesorería al pagar (compra directa).
+  const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
+  const [catId, setCatId] = useState('');
+  const [subId, setSubId] = useState('');
+  useEffect(() => { if (esCompra) listCategoriasGasto(true).then(setCatRows).catch(() => setCatRows([])); }, [esCompra]);
+  const categorias = soloCategorias(catRows);
+  const subcategorias = catId ? subcategoriasDe(catRows, catId) : [];
+  // Pre-carga si la compra ya traía categoría.
+  useEffect(() => {
+    if (!catRows.length || !fila.compra?.gasto_categoria) return;
+    const c = soloCategorias(catRows).find((x) => x.nombre === fila.compra?.gasto_categoria);
+    if (c) setCatId(c.id);
+  }, [catRows, fila.compra?.gasto_categoria]);
+  useEffect(() => {
+    if (!catId || !fila.compra?.gasto_subcategoria) return;
+    const s = subcategoriasDe(catRows, catId).find((x) => x.nombre === fila.compra?.gasto_subcategoria);
+    if (s) setSubId(s.id);
+  }, [catId, catRows, fila.compra?.gasto_subcategoria]);
+  const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
+  const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
 
   // Saldo real por caja (para el desplegable).
   const [saldoReal, setSaldoReal] = useState<Map<string, { saldo: number; moneda: string }>>(new Map());
@@ -116,6 +140,10 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (total <= 0) { setError('Este directo no tiene monto.'); return; }
+    if (esCompra) {
+      if (!catId) { setError('Elegí la categoría de gasto.'); return; }
+      if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
+    }
     let legs: PagoLeg[] | undefined;
     if (esMultimoneda) {
       legs = saldosCaja.map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 })).filter((l) => l.monto > 0);
@@ -126,7 +154,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
     setSaving(true);
     try {
       if (fila.kind === 'compra' && fila.compra) {
-        await pagarCompraDirecta({ compra: fila.compra, cajaId, legs, actor, actorName });
+        await pagarCompraDirecta({ compra: fila.compra, cajaId, legs, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
       } else if (fila.kind === 'servicio' && fila.servicio) {
         await pagarServicioDirecto({ servicio: fila.servicio, cajaId, legs, actor, actorName });
       }
@@ -151,6 +179,11 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           <div><strong>{fila.titulo}</strong>{fila.detalle ? <span className="muted"> · {fila.detalle}</span> : null}</div>
           {fila.categoria && <div className="muted" style={{ fontSize: '.78rem' }}>{fila.categoria}</div>}
           <div className="muted" style={{ fontSize: '.78rem' }}>Montó: {fila.generoPor}</div>
+          {esCompra && fila.compra?.nota && (
+            <div style={{ marginTop: '.4rem', padding: '.4rem .6rem', borderLeft: '3px solid var(--brand, #ff8a00)', background: 'rgba(255,138,0,.08)', fontSize: '.82rem' }}>
+              📝 <strong>Nota del analista:</strong> {fila.compra.nota}
+            </div>
+          )}
           <div style={{ marginTop: '.3rem', display: 'flex', alignItems: 'center', gap: '.6rem' }}>
             <span>Total: <strong className="mono">{montoCaja(total, 'USD')}</strong></span>
             {fila.adjuntoPath && (
@@ -163,6 +196,24 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
             )}
           </div>
         </div>
+
+        {esCompra && (
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Categoría de gasto <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <SearchSelect value={catId} onChange={(v) => { setCatId(v); setSubId(''); }}
+                options={categorias.map((c) => ({ value: c.id, label: c.nombre }))}
+                placeholder="Buscar categoría…" emptyText="Cargá categorías en 🗂️ Categorías de gasto" />
+            </div>
+            <div className="form-row">
+              <label>Subcategoría <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <SearchSelect value={subId} onChange={setSubId}
+                options={subcategorias.map((s) => ({ value: s.id, label: s.nombre }))}
+                placeholder={catId ? 'Buscar subcategoría…' : 'Elegí primero la categoría'}
+                emptyText={catId ? 'Esta categoría no tiene subcategorías.' : 'Elegí una categoría'} />
+            </div>
+          </div>
+        )}
 
         <div className="form-row">
           <label>Caja (de dónde sale el dinero)</label>

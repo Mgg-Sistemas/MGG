@@ -672,28 +672,6 @@ export function almacenCasiteritaDeCentro(centro: string): string {
   return c === 'LA ESPERANZA' ? 'CASITERITA' : `CASITERITA · ${c}`;
 }
 
-/** Producto «CASITERITA» del inventario (por SKU SNO2, con respaldo por nombre). */
-async function productoCasiteritaId(): Promise<string | null> {
-  const { findBySku, listProductos } = await import('@/modules/inventario/inventario.repository');
-  const porSku = await findBySku('SNO2').catch(() => null);
-  if (porSku) return porSku.id;
-  const todos = await listProductos().catch(() => []);
-  const p = todos.find((x) => (x.nombre || '').trim().toUpperCase() === 'CASITERITA');
-  return p?.id ?? null;
-}
-
-/** Asegura que exista el almacén de casiterita del centro (lo crea si falta). */
-async function ensureAlmacenCasiterita(centro: string): Promise<string> {
-  const nombre = almacenCasiteritaDeCentro(centro);
-  const { listAlmacenes, crearAlmacen } = await import('@/modules/inventario/almacenes.repository');
-  const todos = await listAlmacenes().catch(() => []);
-  if (!todos.some((a) => a.nombre === nombre)) {
-    // 23505 si otra pestaña lo creó a la vez → se ignora (ya existe).
-    await crearAlmacen({ nombre, sede: centro }).catch(() => { /* ya existe */ });
-  }
-  return nombre;
-}
-
 /** Siguiente «Caja #N» del centro (correlativo por el mayor número ya usado). */
 async function nextNumeroCaja(centro: string): Promise<string> {
   const cajas = await listCajas(centro);
@@ -729,22 +707,18 @@ export async function cerrarYAbrirCaja(input: { centro: string; actor: string; a
   const tasa = Math.round(r.tasa * 10000) / 10000;
   const hoy = new Date().toISOString().slice(0, 10);
 
-  // 1) SALDO EN KG → INVENTARIO (entrada de casiterita a la tasa). Se hace primero:
-  //    si fallara, no se cierra nada. Solo cuando hay Kg positivos para enviar.
+  // 1) SALDO EN KG → RECEPCIONES (paso intermedio). YA NO entra directo al inventario:
+  //    se crea una recepción con el peso y la procedencia (centro). El ingreso al
+  //    inventario se hará luego desde el módulo Recepciones. Solo si hay Kg positivos.
   let kgAInventario = false;
   if (saldoKg > 0) {
-    const prodId = await productoCasiteritaId();
-    if (!prodId) throw new Error('No se encontró el producto CASITERITA en inventario. Creálo antes de cerrar la caja.');
-    const almacen = await ensureAlmacenCasiterita(centro);
-    const { registrarMovimiento } = await import('@/modules/inventario/movimientos.repository');
-    await registrarMovimiento({
-      producto_id: prodId, tipo: 'entrada', delta: saldoKg, almacen,
-      precio_unitario: tasa > 0 ? tasa : null,
-      actor: input.actor, actor_name: input.actorName ?? null,
-      ref_tipo: 'acopio_cierre_caja', ref_id: abierta.id, ref_codigo: abierta.numero,
-      detalle: `Cierre ${abierta.numero} · ${centro} · ${num(saldoKg)} Kg${tasa > 0 ? ` a ${tasa}/Kg` : ''}`,
+    const { crearRecepcionDesdeCierre } = await import('@/modules/recepciones/recepciones.repository');
+    await crearRecepcionDesdeCierre({
+      pesoKg: saldoKg, procedencia: centro, centroNombre: centro,
+      origen: 'cierre_caja', refCajaId: abierta.id,
+      actor: input.actor, actorName: input.actorName ?? null,
     });
-    kgAInventario = true;
+    kgAInventario = true; // (se mantiene el flag para el resumen del cierre: hubo Kg que pasaron a Recepciones)
   }
 
   // 2) Cerrar la caja actual con su saldo final.

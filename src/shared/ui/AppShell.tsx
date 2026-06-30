@@ -272,6 +272,7 @@ export function AppShell() {
               {can('acopio_pijiguaos') && <NavItem to="/app/acopio/los-pijiguaos" icon="🏭" label="Los Pijiguaos" />}
             </NavGroup>
           )}
+          {can('recepciones') && <NavItem to="/app/recepciones" icon="📥" label="Recepciones" />}
           {can('ventas') && <NavItem to="/app/ventas" icon="🧾" label="Ventas" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
