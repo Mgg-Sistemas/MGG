@@ -3050,6 +3050,37 @@ alter table public.recepcion_conciliaciones enable row level security;
 create policy "rec_concil read auth" on public.recepcion_conciliaciones for select using (auth.role()='authenticated');
 create policy "rec_concil write op"  on public.recepcion_conciliaciones for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Totales (promedio de precio de compra). Histórico editable.
+--   centros: [{nombre, sno2, precio}] · Total Moneda = sno2*precio (+ gastos en el total)
+--   Tasa recepcionada = Total Moneda / Pesos Kg
+--   Costo final: SnO2 = Pesos Kg + Humedad Prov + Humedad Final + Fe esteril
+--                Total Moneda = (Σ 3 filas) ó (si 0) el Total Moneda recepcionado · Tasa = TM/SnO2
+create table if not exists public.recepcion_totales (
+  id uuid primary key default gen_random_uuid(),
+  numero int not null,
+  fecha timestamptz not null default now(),
+  centros jsonb not null default '[]'::jsonb,
+  gastos numeric,
+  pesos_kg numeric,
+  humedad_prov numeric,
+  humedad_final numeric,
+  fe_esteril numeric,
+  total_sno2 numeric,
+  total_moneda numeric,
+  tasa_recepcionada numeric,
+  total_sno2_final numeric,
+  total_moneda_final numeric,
+  tasa_final numeric,
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_recepcion_totales_numero on public.recepcion_totales(numero);
+alter table public.recepcion_totales enable row level security;
+create policy "rec_totales read auth" on public.recepcion_totales for select using (auth.role()='authenticated');
+create policy "rec_totales write op"  on public.recepcion_totales for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- ============================================================
 -- Realtime en TODOS los módulos: publica las tablas de datos del esquema
 -- public que aún no estén en supabase_realtime (multiusuario en vivo).
@@ -3060,7 +3091,7 @@ declare faltantes text[] := array[
   'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
   'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
   'ofertas_proveedor','produccion','produccion_materiales','proveedor_datos_pago','proveedores',
-  'recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones',
+  'recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones','recepcion_totales',
   'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
 ];
 begin

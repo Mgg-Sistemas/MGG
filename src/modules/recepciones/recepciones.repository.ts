@@ -532,3 +532,118 @@ export async function eliminarConciliacion(id: string): Promise<void> {
   const { error } = await supabase.from('recepcion_conciliaciones').delete().eq('id', id);
   if (error) throw error;
 }
+
+/* ───────────── Totales (PROMEDIO DE PRECIO DE COMPRA) ─────────────
+   Por centro: Total Moneda = Total SnO2 × Precio/Tasa.
+   PROMEDIO RECEPCIONADA: Tasa = Total Moneda ÷ Total Pesos Kg.
+   PROMEDIO COSTO FINAL:  SnO2 = Pesos Kg + Humedad Prov + Humedad Final + Fe esteril
+                          Total Moneda = (Σ 3 filas) ó, si es 0, el Total Moneda recepcionado
+                          Tasa = Total Moneda ÷ SnO2. */
+export interface CentroTotal {
+  nombre: string | null;   // nombre del centro de costo
+  sno2: number | null;     // Total SnO2 (saldo de Kg del cierre)
+  precio: number | null;   // Precio / Tasa
+}
+export interface RecepcionTotales {
+  id: string;
+  numero: number;
+  fecha: string;
+  centros: CentroTotal[];
+  gastos: number | null;
+  pesos_kg: number | null;
+  humedad_prov: number | null;
+  humedad_final: number | null;
+  fe_esteril: number | null;
+  total_sno2: number | null;
+  total_moneda: number | null;
+  tasa_recepcionada: number | null;
+  total_sno2_final: number | null;
+  total_moneda_final: number | null;
+  tasa_final: number | null;
+  nota?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export async function listTotales(): Promise<RecepcionTotales[]> {
+  const { data, error } = await supabase.from('recepcion_totales').select('*').order('numero', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({ ...(r as RecepcionTotales), centros: ((r as RecepcionTotales).centros ?? []) as CentroTotal[] }));
+}
+
+/* — Cálculos — */
+export const totalMonedaCentro = (c: CentroTotal): number => num(c.sno2) * num(c.precio);
+export const sumSnO2 = (centros: CentroTotal[]): number => centros.reduce((a, c) => a + num(c.sno2), 0);
+export const sumMonedaCentros = (centros: CentroTotal[]): number => centros.reduce((a, c) => a + totalMonedaCentro(c), 0);
+/** Total Moneda = Σ(sno2×precio) + gastos. */
+export const totalMonedaTotal = (centros: CentroTotal[], gastos: number | null): number => sumMonedaCentros(centros) + num(gastos);
+/** Tasa recepcionada = Total Moneda ÷ Total Pesos Kg. */
+export const tasaRecepcionada = (totalMoneda: number, pesosKg: number | null): number | null => (num(pesosKg) !== 0 ? totalMoneda / num(pesosKg) : null);
+
+export interface TotalesInput {
+  numero: number;
+  fecha?: string | null;
+  centros: CentroTotal[];
+  gastos?: number | null;
+  pesos_kg?: number | null;
+  humedad_prov?: number | null;
+  humedad_final?: number | null;
+  fe_esteril?: number | null;
+  nota?: string | null;
+}
+
+function snapshotTotales(input: TotalesInput) {
+  const centros = input.centros.map((c) => ({
+    nombre: c.nombre?.toString().trim() || null,
+    sno2: c.sno2 != null && Number.isFinite(Number(c.sno2)) ? Number(c.sno2) : null,
+    precio: c.precio != null && Number.isFinite(Number(c.precio)) ? Number(c.precio) : null,
+  }));
+  const totalSnO2 = sumSnO2(centros);
+  const totalMoneda = totalMonedaTotal(centros, input.gastos ?? null);
+  const pesosKg = num(input.pesos_kg);
+  const tasaRec = tasaRecepcionada(totalMoneda, input.pesos_kg ?? null);
+  const sum3 = num(input.humedad_prov) + num(input.humedad_final) + num(input.fe_esteril);
+  const totalSnO2Final = pesosKg + sum3;
+  const totalMonedaFinal = sum3 !== 0 ? sum3 : totalMoneda;
+  const tasaFinal = totalSnO2Final !== 0 ? totalMonedaFinal / totalSnO2Final : null;
+  return { centros, totalSnO2, totalMoneda, tasaRec, totalSnO2Final, totalMonedaFinal, tasaFinal };
+}
+
+export async function crearTotales(input: TotalesInput, actor: string, actorName?: string | null): Promise<RecepcionTotales> {
+  const s = snapshotTotales(input);
+  const row = {
+    numero: Math.floor(Number(input.numero) || 0),
+    fecha: input.fecha || new Date().toISOString(),
+    centros: s.centros,
+    gastos: input.gastos ?? null, pesos_kg: input.pesos_kg ?? null,
+    humedad_prov: input.humedad_prov ?? null, humedad_final: input.humedad_final ?? null, fe_esteril: input.fe_esteril ?? null,
+    total_sno2: s.totalSnO2, total_moneda: s.totalMoneda, tasa_recepcionada: s.tasaRec,
+    total_sno2_final: s.totalSnO2Final, total_moneda_final: s.totalMonedaFinal, tasa_final: s.tasaFinal,
+    nota: input.nota?.trim() || null, actor, actor_name: actorName ?? null,
+  };
+  const { data, error } = await supabase.from('recepcion_totales').insert(row).select('*').single();
+  if (error) throw error;
+  return data as RecepcionTotales;
+}
+
+export async function actualizarTotales(id: string, input: TotalesInput): Promise<void> {
+  const s = snapshotTotales(input);
+  const p = {
+    numero: Math.floor(Number(input.numero) || 0),
+    centros: s.centros,
+    gastos: input.gastos ?? null, pesos_kg: input.pesos_kg ?? null,
+    humedad_prov: input.humedad_prov ?? null, humedad_final: input.humedad_final ?? null, fe_esteril: input.fe_esteril ?? null,
+    total_sno2: s.totalSnO2, total_moneda: s.totalMoneda, tasa_recepcionada: s.tasaRec,
+    total_sno2_final: s.totalSnO2Final, total_moneda_final: s.totalMonedaFinal, tasa_final: s.tasaFinal,
+    nota: input.nota?.trim() || null, updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from('recepcion_totales').update(p).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarTotales(id: string): Promise<void> {
+  const { error } = await supabase.from('recepcion_totales').delete().eq('id', id);
+  if (error) throw error;
+}
