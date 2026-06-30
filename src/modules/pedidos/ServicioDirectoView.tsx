@@ -10,7 +10,7 @@ import { list as listProveedores, crearProveedorRapido } from '@/modules/proveed
 import type { Caja, Proveedor } from '@/shared/lib/types';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
-import { listCatalogoPedido, type CatalogoPedido } from './pedidos.repository';
+import { listCatalogoPedido, crearCatalogoPedido, ensureUnidadSolicitante, type CatalogoPedido } from './pedidos.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import {
   crearServicioDirecto, montarServicioDirecto, listServiciosDirectos, eliminarServicioDirecto,
@@ -329,6 +329,31 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
   const [error, setError] = useState<string | null>(null);
   const [seq, setSeq] = useState(2);
 
+  // Unidad solicitante: desplegable desde el catálogo + alta al vuelo (igual que en Servicio/OP).
+  const [unidadesSol, setUnidadesSol] = useState<string[]>([]);
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [addingUnidad, setAddingUnidad] = useState(false);
+  useEffect(() => {
+    listCatalogoPedido('unidad_solicitante', true)
+      .then((rows) => setUnidadesSol(rows.map((r) => r.nombre)))
+      .catch(() => setUnidadesSol([]));
+  }, []);
+  async function handleAddUnidad() {
+    const n = nuevaUnidad.trim();
+    if (!n) { toast('Escribí el nombre de la unidad', 'error'); return; }
+    const existente = unidadesSol.find((u) => u.toLowerCase() === n.toLowerCase());
+    if (existente) { setSolicitante(existente); setNuevaUnidad(''); toast(`La unidad "${existente}" ya existe — se seleccionó`, 'warning'); return; }
+    setAddingUnidad(true);
+    try {
+      await crearCatalogoPedido('unidad_solicitante', n, actor);
+      setUnidadesSol((prev) => [...prev, n].sort((a, b) => a.localeCompare(b, 'es')));
+      setSolicitante(n);
+      setNuevaUnidad('');
+      toast(`Unidad "${n}" agregada al catálogo`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar la unidad', 'error'); }
+    finally { setAddingUnidad(false); }
+  }
+
   const tipoOptions = useMemo(() => [
     ...TIPOS_SERVICIO,
     ...tipos.filter((t) => !TIPOS_SERVICIO.some((x) => x.value === t.nombre.trim().toUpperCase())).map((t) => ({ value: t.nombre.toUpperCase(), label: t.nombre })),
@@ -361,6 +386,7 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
       } else if (provModo === 'existente' && proveedorId) {
         proveedorId2 = proveedorId; proveedorNombre = proveedores.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
+      if (solicitante.trim()) { try { await ensureUnidadSolicitante(solicitante, actor); } catch { /* ya existe */ } }
       await crearServicioDirecto({ lineas: payload, proveedorId: proveedorId2, proveedorNombre, solicitante: solicitante || null, solicitantePersona: solicitantePersona || null, actor, actorName });
       notify(`Servicio directo creado · ${payload.length} servicio(s)${proveedorNombre ? ` · ${proveedorNombre}` : ''}`, 'success', { link: '#/app/pedidos' });
       onSaved();
@@ -400,7 +426,31 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
 
         {/* Quién solicita */}
         <div className="form-grid">
-          <div className="form-row"><label>Unidad solicitante (opcional)</label><input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value.toUpperCase())} placeholder="Ej. TRANSPORTE" /></div>
+          <div className="form-row">
+            <label>Unidad solicitante (opcional)</label>
+            <SearchSelect
+              value={solicitante}
+              onChange={setSolicitante}
+              options={unidadesSol.map((u) => ({ value: u, label: u }))}
+              placeholder="Departamento / unidad que solicita"
+              emptyText="Sin unidades en el catálogo. Agregá una abajo."
+            />
+            <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+              <input
+                className="input"
+                style={{ flex: 1 }}
+                placeholder="¿No está? Escribí la unidad nueva…"
+                value={nuevaUnidad}
+                onChange={(e) => setNuevaUnidad(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddUnidad(); } }}
+                maxLength={60}
+              />
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => void handleAddUnidad()} disabled={addingUnidad}>
+                {addingUnidad ? 'Añadiendo…' : '+ Añadir'}
+              </button>
+            </div>
+            <small className="muted" style={{ fontSize: '.72rem' }}>La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
+          </div>
           <div className="form-row"><label>Quién lo solicita (opcional)</label><input className="input" value={solicitantePersona} onChange={(e) => setSolicitantePersona(e.target.value)} placeholder="Nombre de la persona" /></div>
         </div>
 
