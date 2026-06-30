@@ -113,6 +113,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
 
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
   const [legMontos, setLegMontos] = useState<Record<string, string>>({});
+  const [cuentaSel, setCuentaSel] = useState<string>(''); // id del saldo elegido, o '__split__'
   const [tasa, setTasa] = useState<number>(0);
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
   useEffect(() => {
@@ -120,6 +121,12 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
     saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
     setLegMontos({});
   }, [cajaId]);
+  // Por defecto, la cuenta/billetera que coincide con la moneda de la caja (o la primera).
+  useEffect(() => {
+    if (!saldosCaja.length) { setCuentaSel(''); return; }
+    const pref = saldosCaja.find((s) => s.moneda === caja?.moneda) ?? saldosCaja[0];
+    setCuentaSel(pref.id);
+  }, [saldosCaja, caja?.moneda]);
   useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
 
@@ -131,10 +138,23 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
     if (monedaLeg === 'COP') return mercado?.copUsd ? round2(n / mercado.copUsd) : 0;
     return round2(n);
   }
+  // USD → moneda de la cuenta (para pagar el total desde una sola cuenta/billetera).
+  function montoEnMoneda(monedaLeg: string, usd: number): number {
+    if (!usd || usd <= 0) return 0;
+    if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(usd);
+    if (monedaLeg === 'Bs') return tasa > 0 ? round2(usd * tasa) : 0;
+    if (monedaLeg === 'COP') return mercado?.copUsd ? round2(usd * mercado.copUsd) : 0;
+    return round2(usd);
+  }
+  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
+
+  // Modo de pago: una sola cuenta/billetera (default) o repartir entre varias monedas.
+  const esSplit = cuentaSel === '__split__';
+  const saldoSel = saldosCaja.find((s) => s.id === cuentaSel) ?? null;
+  const montoCuenta = saldoSel ? montoEnMoneda(saldoSel.moneda, total) : total;
   const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
   const cubreTotalMulti = sumUsdMulti >= total - 0.01;
-  const excedeTotalMulti = esMultimoneda && sumUsdMulti > total + 0.01;
-  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
+  const excedeTotalMulti = esSplit && sumUsdMulti > total + 0.01;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -145,11 +165,17 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
       if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
     }
     let legs: PagoLeg[] | undefined;
-    if (esMultimoneda) {
+    if (esSplit) {
       legs = saldosCaja.map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 })).filter((l) => l.monto > 0);
       if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
       if (excedeTotalMulti) { setError(`No podés pagar más que el total (${montoCaja(total, 'USD')}).`); return; }
       if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(total, 'USD')}).`); return; }
+    } else if (saldoSel) {
+      // Pago completo desde la cuenta/billetera elegida (convierte el total a su moneda si hace falta).
+      const m = montoEnMoneda(saldoSel.moneda, total);
+      if (m <= 0) { setError(`No hay tasa para convertir el total a ${saldoSel.moneda}.`); return; }
+      if (m > Number(saldoSel.saldo) + 0.01) { setError(`La cuenta ${saldoSel.moneda}${cuentaLabel(saldoSel.cuenta)} no tiene saldo suficiente (${montoCaja(Number(saldoSel.saldo), saldoSel.moneda)}).`); return; }
+      legs = [{ cuenta: saldoSel.cuenta as CuentaCaja, moneda: saldoSel.moneda, monto: m }];
     }
     setSaving(true);
     try {
@@ -221,10 +247,26 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
             {!cajas.length && <option value="">— sin cajas —</option>}
             {cajas.map((c) => { const sr = saldoReal.get(c.id); return <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(sr?.saldo ?? c.saldo, sr?.moneda ?? c.moneda)}</option>; })}
           </select>
-          <small className="muted">El monto se descuenta de esta caja (egreso en Tesorería).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
+          <small className="muted">El monto se descuenta de la cuenta/billetera que elijas abajo (egreso en Tesorería).</small>
         </div>
 
-        {esMultimoneda && (
+        {saldosCaja.length > 0 && (
+          <div className="form-row">
+            <label>Cuenta / Billetera (de dónde sale)</label>
+            <select className="select" value={cuentaSel} onChange={(e) => setCuentaSel(e.target.value)} style={{ maxWidth: 320 }}>
+              {saldosCaja.map((s) => <option key={s.id} value={s.id}>{s.moneda}{cuentaLabel(s.cuenta)} · {montoCaja(Number(s.saldo), s.moneda)}</option>)}
+              {esMultimoneda && <option value="__split__">↔ Repartir entre varias monedas…</option>}
+            </select>
+            {!esSplit && saldoSel && (
+              <small className="muted">
+                Sale <strong>{montoCaja(montoCuenta, saldoSel.moneda)}</strong> de esta cuenta
+                {saldoSel.moneda !== 'USD' && saldoSel.moneda !== 'USDT' ? ` (≈ ${montoCaja(total, 'USD')}${tasa > 0 && saldoSel.moneda === 'Bs' ? ` · tasa ${montoCaja(tasa, 'Bs')}` : ''})` : ''}.
+              </small>
+            )}
+          </div>
+        )}
+
+        {esSplit && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
             <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda · ¿cuánto sale de cada una?</div>
             <div className="table-wrap">
