@@ -3,13 +3,17 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { notify } from '@/shared/lib/notify';
+import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
+import { recibirCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { AlmacenPicker } from './AlmacenPicker';
 import type { Almacen, Orden } from '@/shared/lib/types';
 
 interface RecepcionesPendientesProps {
   ordenes: Orden[];
+  /** Compras directas pagadas por Tesorería, pendientes de que el almacenista las reciba. */
+  compras?: CompraDirecta[];
   almacenes: Almacen[];
   actor: string;
   actorName?: string | null;
@@ -20,11 +24,15 @@ interface RecepcionesPendientesProps {
  * Recepciones por recibir: cada orden con mercancía en camino se recibe desde acá,
  * asignando el almacén destino (principal → subalmacén) y la cantidad recibida por
  * ítem. Al confirmar, la mercancía entra al inventario (recibirOrdenParcial).
+ * Debajo, las COMPRAS DIRECTAS ya pagadas por Tesorería: el almacenista les da
+ * entrada eligiendo el almacén/subalmacén (recibirCompraDirecta).
  */
-export function RecepcionesPendientes({ ordenes, almacenes, actor, actorName, onRecibida }: RecepcionesPendientesProps) {
+export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor, actorName, onRecibida }: RecepcionesPendientesProps) {
   const [recibir, setRecibir] = useState<Orden | null>(null);
+  const [recibirCompra, setRecibirCompra] = useState<CompraDirecta | null>(null);
 
   return (
+    <>
     <div className="card">
       <div className="card-title">
         <span>Recepciones por recibir</span>
@@ -74,6 +82,136 @@ export function RecepcionesPendientes({ ordenes, almacenes, actor, actorName, on
         />
       )}
     </div>
+
+    {/* Compras directas ya pagadas: el almacenista les da entrada eligiendo el almacén. */}
+    <div className="card" style={{ marginTop: '1rem' }}>
+      <div className="card-title">
+        <span>🛒 Compras directas por recibir</span>
+        <span className="muted mono">{num(compras.length)} compras</span>
+      </div>
+
+      {!compras.length ? (
+        <EmptyState message="No hay compras directas por recibir. Cuando Tesorería pague una, aparecerá acá para darle entrada al inventario." icon="🛒" />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.75rem' }}>
+          {compras.map((c) => {
+            const itemsCount = c.items.length;
+            const totalUnidades = c.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
+            return (
+              <div key={c.id} className="card" style={{ margin: 0, padding: '.85rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
+                  <div>
+                    <div className="mono" style={{ fontWeight: 700 }}>{c.codigo ?? '—'}</div>
+                    <div className="muted" style={{ fontSize: '.75rem' }}>{date(c.created_at)}</div>
+                  </div>
+                  <span className="badge warning">🛒 Directo</span>
+                </div>
+                <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
+                  <div><strong>{c.producto_nombre}</strong>{itemsCount > 1 ? <span className="muted"> · {num(itemsCount)} materiales</span> : null}</div>
+                  <div className="muted">{num(totalUnidades)} und.{c.pagada_por ? ` · pagó ${c.pagada_por}` : ''}</div>
+                  <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(c.gasto)}</div>
+                </div>
+                {c.almacen && (
+                  <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 📦 {c.almacen}</div>
+                )}
+                <button className="btn btn-sm btn-primary" style={{ marginTop: '.6rem', width: '100%' }} onClick={() => setRecibirCompra(c)}>
+                  📦 Recibir / asignar almacén
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {recibirCompra && (
+        <RecibirCompraModal
+          compra={recibirCompra}
+          almacenes={almacenes}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setRecibirCompra(null)}
+          onSaved={async () => { setRecibirCompra(null); await onRecibida(); }}
+        />
+      )}
+    </div>
+    </>
+  );
+}
+
+/* ───────── Modal: recibir una COMPRA DIRECTA (ver detalle + elegir almacén) ───────── */
+function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSaved }: {
+  compra: CompraDirecta; almacenes: Almacen[]; actor: string; actorName?: string | null;
+  onClose: () => void; onSaved: () => void;
+}) {
+  const items = compra.items ?? [];
+  // Almacén destino (Sede → Almacén): se precarga el sugerido de la compra.
+  const [almacenFinal, setAlmacenFinal] = useState(compra.almacen ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!almacenFinal) { setError('Elegí la sede y el almacén destino.'); return; }
+    setSaving(true);
+    try {
+      await recibirCompraDirecta({ compra, almacen: almacenFinal, actor, actorName });
+      notify(`Compra directa ${compra.codigo ?? ''} recibida → 📦 ${almacenFinal}`, 'success', { link: '#/app/inventario' });
+      toast('Materiales ingresados al inventario', 'success');
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo recibir la compra directa.');
+    } finally { setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="recibir-compra-form" className="btn btn-primary" disabled={saving || !almacenFinal}>
+        {saving ? 'Recibiendo…' : 'Confirmar entrada al inventario'}
+      </button>
+    </>
+  );
+
+  return (
+    <Modal title={`Recibir compra directa · ${compra.codigo ?? ''}`} size="lg" onClose={onClose} footer={footer}>
+      <form id="recibir-compra-form" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        <div className="card" style={{ marginBottom: '.6rem', fontSize: '.86rem' }}>
+          <div><strong>{compra.producto_nombre}</strong>{compra.proveedor_nombre ? <span className="muted"> · {compra.proveedor_nombre}</span> : null}</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>
+            Total: <strong className="mono">{money(compra.gasto)}</strong>{compra.pagada_por ? ` · pagó ${compra.pagada_por}` : ''}
+          </div>
+        </div>
+
+        {/* Asignación de almacén: Sede → Almacén (subalmacén) */}
+        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required />
+        {almacenFinal && <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .75rem' }}>Los materiales entrarán a: <strong>📦 {almacenFinal}</strong></p>}
+
+        {/* Detalle de la compra: materiales, cantidad y costo unitario */}
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.85rem' }}>
+            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Costo unit.</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+            <tbody>
+              {items.map((it, i) => {
+                const cant = Number(it.cantidad) || 0;
+                const monto = Number(it.gasto) || 0;
+                const cu = cant > 0 ? monto / cant : 0;
+                return (
+                  <tr key={i}>
+                    <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(cant)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(cu)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(monto)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

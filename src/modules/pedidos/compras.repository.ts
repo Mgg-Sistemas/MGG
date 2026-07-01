@@ -19,7 +19,7 @@ export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
 
 const BUCKET = 'compras-directas';
 
-export type EstadoCompraDirecta = 'en_proceso' | 'por_pagar' | 'finalizada';
+export type EstadoCompraDirecta = 'en_proceso' | 'por_pagar' | 'por_recibir' | 'finalizada';
 
 export interface CompraDirectaItem {
   producto_id: string;
@@ -69,6 +69,9 @@ export interface CompraDirecta {
   aprobada_por: string | null;
   /** Quién pagó desde Tesorería (en el flujo montar → pagar). */
   pagada_por: string | null;
+  /** Quién recibió y le dio entrada al inventario (almacenista) + cuándo. */
+  recibida_por: string | null;
+  recibida_at: string | null;
   finalizada_at: string | null;
   updated_at: string;
 }
@@ -315,8 +318,9 @@ export interface PagarCompraInput {
 
 /**
  * Paga una compra directa POR PAGAR (lo hace Tesorería): descuenta el gasto de la caja
- * (egreso en el Libro Mayor con la categoría que eligió el analista), registra la ENTRADA
- * de cada material al inventario (PMP) y la marca FINALIZADA con quién pagó.
+ * (egreso en el Libro Mayor con la categoría que eligió Tesorería) y la deja EN
+ * 'por_recibir'. La mercancía NO entra al inventario todavía: el almacenista le da
+ * entrada desde Inventario → Recepciones (recibirCompraDirecta), eligiendo el almacén.
  */
 export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void> {
   const { compra } = input;
@@ -357,14 +361,51 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     movCajaId = movCaja.id;
   }
 
-  // 2) Entrada al inventario por cada material (costo = gasto / cantidad).
+  // 2) La compra queda POR RECIBIR (la mercancía entra al inventario cuando el
+  //    almacenista la reciba desde Inventario, eligiendo el almacén/subalmacén).
+  const { error } = await supabase
+    .from('compras_directas')
+    .update({
+      estado: 'por_recibir', gasto: total, items,
+      gasto_categoria: gcat ?? null, gasto_subcategoria: gsub ?? null,
+      caja_id: input.cajaId, caja_mov_id: movCajaId,
+      pagada_por: input.actorName || input.actor,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', compra.id);
+  if (error) throw error;
+}
+
+/* ───────── Recibir (Inventario: almacenista → ENTRADA al inventario → FINALIZADA) ───────── */
+
+export interface RecibirCompraInput {
+  compra: CompraDirecta;
+  /** Almacén/subalmacén destino (elegido con el picker Sede → Almacén). */
+  almacen: string;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * El almacenista RECIBE una compra directa POR RECIBIR: registra la ENTRADA de cada
+ * material al inventario (PMP, costo = gasto / cantidad) en el almacén elegido y la
+ * marca FINALIZADA con quién la recibió. El pago ya lo hizo Tesorería.
+ */
+export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<void> {
+  const { compra } = input;
+  if (compra.estado !== 'por_recibir') throw new Error('Solo se recibe una compra que esté POR RECIBIR.');
+  const almacen = input.almacen.trim();
+  if (!almacen) throw new Error('Elegí el almacén / subalmacén donde entran los materiales.');
+  const items = compra.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
+
+  // Entrada al inventario por cada material (costo = gasto / cantidad).
   let primerMov: string | null = null;
   for (const it of items) {
     const cantidad = Number(it.cantidad) || 0;
     if (cantidad <= 0 || !it.producto_id) continue;
     const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 100) / 100 : 0;
     const mov = await registrarMovimiento({
-      producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
+      producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
       ref_tipo: 'compra_directa', ref_id: compra.id,
       detalle: `Compra directa · ${it.producto_nombre}`, precio_unitario: costoUnit,
@@ -372,18 +413,25 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     if (!primerMov) primerMov = mov.id;
   }
 
-  // 3) Cerrar la OCD (pagada).
+  const nowIso = new Date().toISOString();
   const { error } = await supabase
     .from('compras_directas')
     .update({
-      estado: 'finalizada', gasto: total, items,
-      gasto_categoria: gcat ?? null, gasto_subcategoria: gsub ?? null,
-      caja_id: input.cajaId, caja_mov_id: movCajaId, mov_id: primerMov,
-      pagada_por: input.actorName || input.actor,
-      finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      estado: 'finalizada', almacen, mov_id: primerMov,
+      recibida_por: input.actorName || input.actor, recibida_at: nowIso,
+      finalizada_at: nowIso, updated_at: nowIso,
     })
     .eq('id', compra.id);
   if (error) throw error;
+}
+
+/** Compras directas POR RECIBIR (pagadas por Tesorería; el almacenista les da entrada). */
+export async function listComprasPorRecibir(): Promise<CompraDirecta[]> {
+  const { data, error } = await supabase
+    .from('compras_directas').select('*').eq('estado', 'por_recibir')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
 /** Compras directas POR PAGAR (las monta el analista; Tesorería las paga). */
