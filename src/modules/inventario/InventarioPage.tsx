@@ -29,6 +29,7 @@ import {
   type ProductoInput,
 } from './inventario.repository';
 import { contarProduccionEnProceso } from '@/modules/produccion/produccion.repository';
+import { listComprasPorRecibir, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import {
   registrarMovimiento,
@@ -138,6 +139,7 @@ export function InventarioPage() {
   const canWrite = can('inventario', 'escritura');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [recepciones, setRecepciones] = useState<Orden[]>([]);
+  const [comprasRecibir, setComprasRecibir] = useState<CompraDirecta[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [almacenSel, setAlmacenSel] = useState<string | null>(null);
@@ -169,7 +171,7 @@ export function InventarioPage() {
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
-  useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes'], () => { void reload(); });
+  useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes', 'compras_directas'], () => { void reload(); });
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -190,15 +192,17 @@ export function InventarioPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prods, ords, alms, exs, nEnProduccion] = await Promise.all([
+      const [prods, ords, comprasRec, alms, exs, nEnProduccion] = await Promise.all([
         listProductos(),
         listRecepcionesPendientes().catch(() => [] as Orden[]),
+        listComprasPorRecibir().catch(() => [] as CompraDirecta[]),
         listAlmacenes().catch(() => [] as Almacen[]),
         listExistencias().catch(() => [] as Existencia[]),
         contarProduccionEnProceso().catch(() => 0),
       ]);
       setProductos(prods);
       setRecepciones(ords);
+      setComprasRecibir(comprasRec);
       setAlmacenes(alms);
       setExistencias(exs);
       setEnProduccion(nEnProduccion);
@@ -557,7 +561,7 @@ export function InventarioPage() {
             className={`btn ${ui.view === 'recepciones' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setUi((prev) => ({ ...prev, view: 'recepciones' }))}
           >
-            Recepciones {recepciones.length > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepciones.length}</span>}
+            Recepciones {recepciones.length + comprasRecibir.length > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepciones.length + comprasRecibir.length}</span>}
           </button>
           {canWrite && (
             <button
@@ -658,7 +662,7 @@ export function InventarioPage() {
       )}
 
       {ui.view === 'recepciones' ? (
-        <RecepcionesPendientes ordenes={recepciones} almacenes={almacenes} actor={productoActor} actorName={actorName} onRecibida={reload} />
+        <RecepcionesPendientes ordenes={recepciones} compras={comprasRecibir} almacenes={almacenes} actor={productoActor} actorName={actorName} onRecibida={reload} />
       ) : ui.view === 'almacenes' ? (
         almacenSel ? (
           <>

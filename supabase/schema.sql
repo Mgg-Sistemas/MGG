@@ -463,7 +463,9 @@ create table if not exists public.compras_directas (
   producto_sku    text,
   almacen         text not null,
   cantidad        numeric not null check (cantidad > 0),
-  estado          text not null default 'en_proceso' check (estado in ('en_proceso','por_pagar','finalizada')),
+  -- en_proceso → por_pagar (analista monta) → por_recibir (Tesorería paga, sin tocar
+  -- inventario) → finalizada (el almacenista recibe y elige el almacén/subalmacén).
+  estado          text not null default 'en_proceso' check (estado in ('en_proceso','por_pagar','por_recibir','finalizada')),
   gasto           numeric,
   adjunto_path    text,
   adjunto_nombre  text,
@@ -485,6 +487,10 @@ alter table public.compras_directas add column if not exists facturas jsonb not 
 alter table public.compras_directas add column if not exists gasto_categoria    text;
 alter table public.compras_directas add column if not exists gasto_subcategoria text;
 alter table public.compras_directas add column if not exists pagada_por         text;
+-- Recepción por el almacenista: al pagar queda 'por_recibir'; el almacenista le da
+-- entrada al inventario eligiendo el almacén/subalmacén → 'finalizada'.
+alter table public.compras_directas add column if not exists recibida_por       text;
+alter table public.compras_directas add column if not exists recibida_at        timestamptz;
 -- RLS: lectura para autenticados, escritura para operativo (admin/analista/obrero).
 -- Bucket privado 'compras-directas' (storage) con políticas para autenticados.
 -- (Ver migración aplicada; políticas: compra_directa read/write + cd_obj_* en storage.objects.)

@@ -184,7 +184,13 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
       } else if (fila.kind === 'servicio' && fila.servicio) {
         await pagarServicioDirecto({ servicio: fila.servicio, cajaId, legs, actor, actorName });
       }
-      notify(`${fila.kind === 'compra' ? 'Compra' : 'Servicio'} directo ${fila.codigo} pagado · ${montoCaja(total, moneda)} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/tesoreria' });
+      notify(
+        fila.kind === 'compra'
+          ? `Compra directa ${fila.codigo} pagada · ${montoCaja(total, moneda)} · queda POR RECIBIR en Inventario`
+          : `Servicio directo ${fila.codigo} pagado · ${montoCaja(total, moneda)} desde ${caja?.nombre ?? ''}`,
+        'success',
+        { link: fila.kind === 'compra' ? '#/app/inventario' : '#/app/tesoreria' },
+      );
       onPaid();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar.'); setSaving(false); }
   }
@@ -303,7 +309,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
         )}
 
         {fila.kind === 'compra' && fila.compra && (
-          <small className="muted" style={{ display: 'block' }}>Al pagar, los materiales entran al inventario en <strong>{fila.compra.almacen}</strong>.</small>
+          <small className="muted" style={{ display: 'block' }}>Al pagar, los materiales quedan <strong>POR RECIBIR en Inventario</strong>: el almacenista les da entrada y elige el almacén / subalmacén.</small>
         )}
         {fila.servicio?.items?.length ? (
           <ul className="muted" style={{ fontSize: '.76rem', margin: '.4rem 0 0', paddingLeft: '1rem' }}>

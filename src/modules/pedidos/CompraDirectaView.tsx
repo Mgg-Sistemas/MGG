@@ -26,9 +26,10 @@ type Vista = 'kanban' | 'lista';
 const COLS: { key: CompraDirecta['estado']; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
   { key: 'por_pagar', label: 'Por pagar' },
+  { key: 'por_recibir', label: 'Por recibir' },
   { key: 'finalizada', label: 'Finalizada' },
 ];
-const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', por_pagar: '💸 Por pagar', finalizada: '🏁 Finalizada' };
+const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', por_pagar: '💸 Por pagar', por_recibir: '📦 Por recibir', finalizada: '🏁 Finalizada' };
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
