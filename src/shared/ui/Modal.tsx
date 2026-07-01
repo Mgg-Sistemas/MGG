@@ -35,11 +35,13 @@ interface ConfirmDialogProps {
   message: string;
   confirmText?: string;
   danger?: boolean;
+  success?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Confirmar', danger, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Confirmar', danger, success, onConfirm, onCancel }: ConfirmDialogProps) {
+  const confirmClass = danger ? 'btn-danger' : success ? 'btn-success' : 'btn-primary';
   return (
     <Modal
       title={title}
@@ -48,7 +50,7 @@ export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Con
       footer={
         <>
           <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
-          <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={() => { onConfirm(); }}>{confirmText}</button>
+          <button className={`btn ${confirmClass}`} onClick={() => { onConfirm(); }}>{confirmText}</button>
         </>
       }
     >
