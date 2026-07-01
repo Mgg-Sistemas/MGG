@@ -802,6 +802,22 @@ alter table public.cocina_comidas enable row level security;
 create policy "cocina read auth"      on public.cocina_comidas for select using (auth.role()='authenticated');
 create policy "cocina write operativo" on public.cocina_comidas for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Cocinas: cada cocina se vincula a un almacén/subalmacén (de ahí toma sus víveres y
+-- descuenta su stock). Se pueden crear más cocinas vinculadas a otros almacenes.
+create table if not exists public.cocinas (
+  id         uuid primary key default gen_random_uuid(),
+  nombre     text not null,
+  almacen_id uuid references public.almacenes(id) on delete set null,
+  activa     boolean not null default true,
+  created_at timestamptz not null default now(),
+  created_by text
+);
+alter table public.cocinas enable row level security;
+create policy "cocinas read auth" on public.cocinas for select using (auth.role()='authenticated');
+create policy "cocinas write op"  on public.cocinas for all using (public.is_operativo()) with check (public.is_operativo());
+-- La comida queda marcada con la cocina en la que se preparó (null = legado).
+alter table public.cocina_comidas add column if not exists cocina_id uuid references public.cocinas(id) on delete set null;
+
 -- Alerta "a restablecer el mercado": la cocina avisa que hay que reponer víveres; la
 -- alerta aparece como tarjeta en Pedidos/Compras para que el analista monte el MERCADO.
 create table if not exists public.alertas_mercado (

@@ -10,6 +10,8 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+/** Redondeo a 2 decimales, half-up (el 3.º decimal ≥ 5 sube). Se aplica en Totales. */
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /* ───────────── Grupos (tarjetas de recepción) ─────────────
    La vista es por tarjeta (como Combustible). Hay una GENERAL y se pueden añadir más;
@@ -778,8 +780,8 @@ export const sumSnO2 = (centros: CentroTotal[]): number => centros.reduce((a, c)
 export const sumMonedaCentros = (centros: CentroTotal[]): number => centros.reduce((a, c) => a + totalMonedaCentro(c), 0);
 /** Total Moneda = Σ(sno2×precio) + gastos. */
 export const totalMonedaTotal = (centros: CentroTotal[], gastos: number | null): number => sumMonedaCentros(centros) + num(gastos);
-/** Tasa recepcionada = Total Moneda ÷ Total Pesos Kg. */
-export const tasaRecepcionada = (totalMoneda: number, pesosKg: number | null): number | null => (num(pesosKg) !== 0 ? totalMoneda / num(pesosKg) : null);
+/** Tasa recepcionada (promedio de precio de compra) = Total Moneda ÷ Total SnO2. */
+export const tasaRecepcionada = (totalMoneda: number, divisor: number | null): number | null => (num(divisor) !== 0 ? totalMoneda / num(divisor) : null);
 
 export interface TotalesInput {
   grupo_id: string;
@@ -800,14 +802,17 @@ function snapshotTotales(input: TotalesInput) {
     sno2: c.sno2 != null && Number.isFinite(Number(c.sno2)) ? Number(c.sno2) : null,
     precio: c.precio != null && Number.isFinite(Number(c.precio)) ? Number(c.precio) : null,
   }));
-  const totalSnO2 = sumSnO2(centros);
-  const totalMoneda = totalMonedaTotal(centros, input.gastos ?? null);
-  const pesosKg = num(input.pesos_kg);
-  const tasaRec = tasaRecepcionada(totalMoneda, input.pesos_kg ?? null);
-  const sum3 = num(input.humedad_prov) + num(input.humedad_final) + num(input.fe_esteril);
-  const totalSnO2Final = pesosKg + sum3;
+  // Todo a 2 decimales con redondeo half-up (el 3.º decimal ≥ 5 sube).
+  const totalSnO2 = round2(sumSnO2(centros));
+  const totalMoneda = round2(totalMonedaTotal(centros, input.gastos ?? null));
+  const pesosKg = round2(num(input.pesos_kg));
+  // Promedio de precio de compra recepcionada = Total Moneda ÷ Pesos Kg (neto seco de la fila).
+  const tasaRecRaw = tasaRecepcionada(totalMoneda, pesosKg);
+  const tasaRec = tasaRecRaw == null ? null : round2(tasaRecRaw);
+  const sum3 = round2(num(input.humedad_prov) + num(input.humedad_final) + num(input.fe_esteril));
+  const totalSnO2Final = round2(pesosKg + sum3);
   const totalMonedaFinal = sum3 !== 0 ? sum3 : totalMoneda;
-  const tasaFinal = totalSnO2Final !== 0 ? totalMonedaFinal / totalSnO2Final : null;
+  const tasaFinal = totalSnO2Final !== 0 ? round2(totalMonedaFinal / totalSnO2Final) : null;
   return { centros, totalSnO2, totalMoneda, tasaRec, totalSnO2Final, totalMonedaFinal, tasaFinal };
 }
 
