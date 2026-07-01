@@ -5,7 +5,7 @@
    - Tabla filtrable + reporte PDF con vista previa.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -14,21 +14,163 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { dateTime, money, num } from '@/shared/lib/format';
-import type { CocinaComida, TipoComida } from '@/shared/lib/types';
+import type { CocinaComida, TipoComida, Cocina, Almacen } from '@/shared/lib/types';
+import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import {
   listComidas, crearComida, listViveres, resumirComidas,
-  TIPOS_COMIDA, labelTipoComida, type ViverDisponible, type ResumenCocina,
+  listCocinas, crearCocina, actualizarCocina, eliminarCocina, listAlmacenesParaCocina,
+  TIPOS_COMIDA, labelTipoComida, type ViverDisponible, type ResumenCocina, type CocinaConInfo,
 } from './cocina.repository';
 // descargarReporteCocinaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { crearAlertaMercado, listAlertasMercadoPendientes } from './alertasMercado.repository';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+/* ───────────── Página: tarjetas de cocinas ───────────── */
 export function CocinaPage() {
   const { user } = useSession();
   const { can } = usePermissions();
   const canWrite = can('cocina', 'escritura');
   const actor = user?.email ?? 'sistema';
+
+  const [cocinas, setCocinas] = useState<CocinaConInfo[]>([]);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sel, setSel] = useState<string | null>(null);        // cocina abierta
+  const [form, setForm] = useState<'nueva' | Cocina | null>(null);
+  const [borrar, setBorrar] = useState<CocinaConInfo | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try { setCocinas(await listCocinas()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las cocinas', 'error'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => { listAlmacenesParaCocina().then(setAlmacenes).catch(() => setAlmacenes([])); }, []);
+  useRealtime(['cocinas', 'cocina_comidas'], () => { void reload(); });
+
+  const selInfo = cocinas.find((c) => c.cocina.id === sel) ?? null;
+  if (selInfo) {
+    return <CocinaDetalle info={selInfo} canWrite={canWrite} actor={actor} userEmail={user?.email ?? null} onBack={() => setSel(null)} />;
+  }
+
+  async function confirmarBorrar() {
+    const c = borrar; if (!c) return; setBorrar(null);
+    try { await eliminarCocina(c.cocina.id); toast('Cocina inhabilitada', 'success'); await reload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ margin: 0 }}>🍽 Cocinas</h1>
+          <p className="muted" style={{ margin: '.25rem 0 0' }}>Cada cocina toma sus víveres del almacén al que está vinculada. Entrá a una para registrar comidas.</p>
+        </div>
+        {canWrite && <button className="btn btn-primary" onClick={() => setForm('nueva')}>＋ Nueva cocina</button>}
+      </div>
+
+      {loading ? (
+        <EmptyState message="Cargando cocinas…" icon="◔" />
+      ) : !cocinas.length ? (
+        <div className="card" style={{ marginTop: '1rem' }}><EmptyState message="No hay cocinas. Creá la primera con “＋ Nueva cocina”." icon="🍳" /></div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+          {cocinas.map((info) => (
+            <div key={info.cocina.id} className="card" style={{ margin: 0, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '.35rem' }}
+              onClick={() => setSel(info.cocina.id)} title="Entrar a la cocina">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
+                <strong style={{ fontSize: '1.05rem' }}>🍳 {info.cocina.nombre}</strong>
+                <span className="badge">Entrar →</span>
+              </div>
+              <div className="muted" style={{ fontSize: '.82rem' }}>📦 {info.almacenNombre ?? <span style={{ color: 'var(--warning)' }}>Sin almacén vinculado</span>}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.82rem', marginTop: '.2rem' }}>
+                <span className="muted">Víveres con stock</span><strong className="mono">{num(info.viveres)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.82rem' }}>
+                <span className="muted">Valor del stock</span><strong className="mono">{money(info.valorStock)}</strong>
+              </div>
+              {canWrite && (
+                <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem' }} onClick={(e) => e.stopPropagation()}>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setForm(info.cocina)} title="Editar cocina">✎ Editar</button>
+                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(info)} title="Inhabilitar cocina">🗑</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {form && (
+        <CocinaFormModal cocina={form === 'nueva' ? null : form} almacenes={almacenes} actor={actor}
+          onClose={() => setForm(null)} onSaved={async () => { setForm(null); await reload(); }} />
+      )}
+      {borrar && (
+        <ConfirmDialog title="Inhabilitar cocina"
+          message={`¿Inhabilitar la cocina "${borrar.cocina.nombre}"? Sus comidas quedan en el histórico; podés volver a crearla luego.`}
+          confirmText="Inhabilitar" danger onConfirm={confirmarBorrar} onCancel={() => setBorrar(null)} />
+      )}
+    </div>
+  );
+}
+
+/* ───────────── Alta / edición de una cocina ───────────── */
+function CocinaFormModal({ cocina, almacenes, actor, onClose, onSaved }: {
+  cocina: Cocina | null; almacenes: Almacen[]; actor: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [nombre, setNombre] = useState(cocina?.nombre ?? '');
+  const [almacenId, setAlmacenId] = useState(cocina?.almacen_id ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Opciones de almacén ordenadas por sede, mostrando el nombre corto del subalmacén.
+  const opciones = useMemo(() => [...almacenes]
+    .sort((a, b) => `${a.sede ?? ''} ${a.nombre}`.localeCompare(`${b.sede ?? ''} ${b.nombre}`, 'es'))
+    .map((a) => ({ value: a.id, label: `${a.sede ? `${a.sede} · ` : ''}${nombreCortoAlmacen(a, almacenes)}` })), [almacenes]);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (!nombre.trim()) { setError('Indicá el nombre de la cocina.'); return; }
+    if (!almacenId) { setError('Vinculá la cocina a un almacén / subalmacén.'); return; }
+    setSaving(true);
+    try {
+      if (cocina) await actualizarCocina(cocina.id, { nombre, almacenId });
+      else await crearCocina({ nombre, almacenId, actor });
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
+  }
+
+  return (
+    <Modal title={cocina ? 'Editar cocina' : 'Nueva cocina'} size="md" onClose={() => !saving && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button type="submit" form="cocina-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : (cocina ? 'Guardar' : 'Crear cocina')}</button>
+      </>
+    }>
+      <form id="cocina-form" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        <div className="form-row">
+          <label>Nombre de la cocina</label>
+          <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: La Esperanza" autoFocus />
+        </div>
+        <div className="form-row">
+          <label>Almacén / subalmacén vinculado</label>
+          <SearchSelect value={almacenId} onChange={setAlmacenId} options={opciones}
+            placeholder="🔎 Buscá el almacén…" emptyText="No hay almacenes." />
+          <small className="muted">De este almacén salen los víveres y se descuenta el stock de esta cocina.</small>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/* ───────────── Página de UNA cocina (comidas + resumen) ───────────── */
+function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
+  info: CocinaConInfo; canWrite: boolean; actor: string; userEmail: string | null; onBack: () => void;
+}) {
+  const cocinaId = info.cocina.id;
+  const almacen = info.almacenNombre;
 
   const [comidas, setComidas] = useState<CocinaComida[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,10 +199,10 @@ export function CocinaPage() {
 
   const reload = useCallback(async () => {
     setLoading(true);
-    try { setComidas(await listComidas()); }
+    try { setComidas(await listComidas({ cocinaId })); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
     finally { setLoading(false); }
-  }, []);
+  }, [cocinaId]);
   useEffect(() => { void reload(); }, [reload]);
   useRealtime(['cocina_comidas'], () => { void reload(); });
 
@@ -97,10 +239,12 @@ export function CocinaPage() {
 
   return (
     <div>
+      <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: '.5rem' }}>← Volver a cocinas</button>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.3rem' }}>
-        <h1 style={{ margin: 0 }}>🍽 Control de Alimentación (Cocina)</h1>
+        <h1 style={{ margin: 0 }}>🍳 {info.cocina.nombre}</h1>
       </div>
-      <p className="muted" style={{ marginTop: 0 }}>Consumo de víveres por comida. Toma precios y stock del inventario.</p>
+      <p className="muted" style={{ marginTop: 0 }}>Toma precios y descuenta stock del almacén <strong>{almacen ?? '— sin almacén vinculado —'}</strong>.</p>
+      {!almacen && <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem' }}>Esta cocina no tiene un almacén vinculado. Volvé y editála para asignarle uno.</div>}
 
       <div className="filterbar" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -172,17 +316,17 @@ export function CocinaPage() {
       )}
 
       {modal === 'add' && (
-        <AnadirMovimientoModal actor={actor} actorName={user?.email ?? null}
+        <AnadirMovimientoModal cocinaId={cocinaId} almacen={almacen} actor={actor} actorName={userEmail}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
       )}
-      {modal === 'resumen' && <ResumenModal onClose={() => setModal('none')} />}
+      {modal === 'resumen' && <ResumenModal cocinaId={cocinaId} almacen={almacen} onClose={() => setModal('none')} />}
     </div>
   );
 }
 
 /* ───────────── Añadir movimiento (consumo de víveres) ───────────── */
-function AnadirMovimientoModal({ actor, actorName, onClose, onSaved }: {
-  actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, onSaved }: {
+  cocinaId: string; almacen: string | null; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const [viveres, setViveres] = useState<ViverDisponible[]>([]);
   const [tipo, setTipo] = useState<TipoComida>('almuerzo');
@@ -193,7 +337,7 @@ function AnadirMovimientoModal({ actor, actorName, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { listViveres().then(setViveres).catch(() => setViveres([])); }, []);
+  useEffect(() => { listViveres(almacen).then(setViveres).catch(() => setViveres([])); }, [almacen]);
   const mapV = useMemo(() => new Map(viveres.map((v) => [v.producto.id, v])), [viveres]);
 
   const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '' }]); setSeq((s) => s + 1); };
@@ -215,7 +359,7 @@ function AnadirMovimientoModal({ actor, actorName, onClose, onSaved }: {
     if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
     setSaving(true);
     try {
-      await crearComida({ tipoComida: tipo, platos: nPlatos, items, nota: nota.trim() || null, actor, actorName });
+      await crearComida({ tipoComida: tipo, platos: nPlatos, items, nota: nota.trim() || null, cocinaId, almacen, actor, actorName });
       notify(`Comida registrada · ${labelTipoComida(tipo)} · ${money(total)}`, 'success', { link: '#/app/cocina' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
@@ -298,7 +442,7 @@ function AnadirMovimientoModal({ actor, actorName, onClose, onSaved }: {
 
 /* ───────────── Resumen / consumo (barras + stock) ───────────── */
 type Preset = 'hoy' | 'semana' | 'mes' | 'rango';
-function ResumenModal({ onClose }: { onClose: () => void }) {
+function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almacen: string | null; onClose: () => void }) {
   const [preset, setPreset] = useState<Preset>('semana');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -323,10 +467,10 @@ function ResumenModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      listComidas({ desde: rango.desde.toISOString(), hasta: rango.hasta.toISOString() }),
-      listViveres(),
+      listComidas({ cocinaId, desde: rango.desde.toISOString(), hasta: rango.hasta.toISOString() }),
+      listViveres(almacen),
     ]).then(([cs, vs]) => { setComidas(cs); setViveres(vs); }).catch(() => { /* */ }).finally(() => setLoading(false));
-  }, [rango]);
+  }, [rango, cocinaId, almacen]);
 
   const resumen: ResumenCocina = useMemo(() => resumirComidas(comidas), [comidas]);
   const maxViver = Math.max(1, ...resumen.topViveres.map((v) => v.valor));

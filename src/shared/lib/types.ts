@@ -1504,8 +1504,20 @@ export interface CocinaComida {
   items: ItemCocina[];
   valor_total: number;
   nota?: string | null;
+  /** Cocina donde se preparó (null = legado, antes de tener cocinas). */
+  cocina_id?: string | null;
   actor?: string | null;
   actor_name?: string | null;
   at: string;
   created_at?: string | null;
+}
+
+/** Una cocina: se vincula a un almacén/subalmacén de donde toma sus víveres. */
+export interface Cocina {
+  id: string;
+  nombre: string;
+  almacen_id?: string | null;
+  activa: boolean;
+  created_at: string;
+  created_by?: string | null;
 }

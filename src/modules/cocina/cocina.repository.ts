@@ -5,14 +5,76 @@
    de los víveres consumidos (salida en el kardex) y guarda el detalle.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { CocinaComida, ItemCocina, TipoComida, Producto, Existencia } from '@/shared/lib/types';
+import type { CocinaComida, ItemCocina, TipoComida, Producto, Existencia, Cocina, Almacen } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
-import { listExistencias } from '@/modules/inventario/almacenes.repository';
+import { listExistencias, listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 
 const TABLE = 'cocina_comidas';
 /** Categoría del inventario que surte la cocina. */
 export const CATEGORIA_VIVERES = 'VIVERES';
+
+/* ───────── Cocinas (cada una vinculada a un almacén/subalmacén) ───────── */
+
+/** Una cocina con el nombre de su almacén vinculado y un resumen de su stock de víveres. */
+export interface CocinaConInfo {
+  cocina: Cocina;
+  almacenNombre: string | null;   // nombre actual del almacén vinculado
+  viveres: number;                // nº de víveres con stock en ese almacén
+  valorStock: number;             // Σ stock × precio de esos víveres
+}
+
+/** Lista las cocinas activas con su almacén vinculado y un resumen de stock. */
+export async function listCocinas(): Promise<CocinaConInfo[]> {
+  const [{ data, error }, almacenes, viveres] = await Promise.all([
+    supabase.from('cocinas').select('*').eq('activa', true).order('nombre', { ascending: true }),
+    listAlmacenes(),
+    listViveresConStock(),
+  ]);
+  if (error) throw error;
+  const almById = new Map(almacenes.map((a) => [a.id, a] as const));
+  return (data ?? []).map((row) => {
+    const c = row as Cocina;
+    const alm = c.almacen_id ? almById.get(c.almacen_id) ?? null : null;
+    const nombre = alm?.nombre ?? null;
+    const delAlmacen = nombre ? viveres.filter((v) => v.almacen === nombre) : [];
+    return {
+      cocina: c,
+      almacenNombre: nombre,
+      viveres: delAlmacen.length,
+      valorStock: Math.round(delAlmacen.reduce((a, v) => a + v.stock * v.precio, 0) * 100) / 100,
+    };
+  });
+}
+
+export async function crearCocina(input: { nombre: string; almacenId: string | null; actor?: string | null }): Promise<Cocina> {
+  const nombre = input.nombre.trim();
+  if (!nombre) throw new Error('Indicá el nombre de la cocina.');
+  const { data, error } = await supabase.from('cocinas')
+    .insert({ nombre, almacen_id: input.almacenId, created_by: input.actor ?? null })
+    .select('*').single();
+  if (error) throw error;
+  return data as Cocina;
+}
+
+export async function actualizarCocina(id: string, patch: { nombre?: string; almacenId?: string | null }): Promise<void> {
+  const payload: Record<string, unknown> = {};
+  if (patch.nombre !== undefined) { const n = patch.nombre.trim(); if (!n) throw new Error('El nombre no puede quedar vacío.'); payload.nombre = n; }
+  if (patch.almacenId !== undefined) payload.almacen_id = patch.almacenId;
+  const { error } = await supabase.from('cocinas').update(payload).eq('id', id);
+  if (error) throw error;
+}
+
+/** Inhabilita la cocina (soft delete). Sus comidas quedan en el histórico. */
+export async function eliminarCocina(id: string): Promise<void> {
+  const { error } = await supabase.from('cocinas').update({ activa: false }).eq('id', id);
+  if (error) throw error;
+}
+
+/** Almacenes elegibles para vincular a una cocina (todos, principal y subalmacenes). */
+export async function listAlmacenesParaCocina(): Promise<Almacen[]> {
+  return listAlmacenes();
+}
 
 export const TIPOS_COMIDA: { value: TipoComida; label: string; icon: string }[] = [
   { value: 'desayuno', label: 'Desayuno', icon: '🍳' },
@@ -32,28 +94,47 @@ export interface ViverDisponible {
   almacenMasStock: string | null; // almacén con más stock (de donde se descuenta)
 }
 
-/** Trae SOLO los artículos de la categoría VÍVERES desde el inventario, con su stock. */
-export async function listViveres(): Promise<ViverDisponible[]> {
+/**
+ * Trae los artículos de la categoría VÍVERES con su stock. Si se indica un `almacen`
+ * (el vinculado a la cocina), el stock y el descuento salen SOLO de ese almacén y se
+ * listan únicamente los víveres que existen ahí (cada cocina ve su propio inventario).
+ * Sin `almacen` (legado) agrega el stock de todos los almacenes.
+ */
+export async function listViveres(almacen?: string | null): Promise<ViverDisponible[]> {
   const [productos, existencias] = await Promise.all([listProductos(), listExistencias()]);
   const porProducto = new Map<string, Existencia[]>();
   for (const e of existencias) {
     const arr = porProducto.get(e.producto_id) ?? [];
     arr.push(e); porProducto.set(e.producto_id, arr);
   }
-  return productos
-    .filter((p) => (p.categoria ?? '').trim().toUpperCase() === CATEGORIA_VIVERES && p.estado === 'activo')
-    .map((p) => {
-      const exs = porProducto.get(p.id) ?? [];
+  const out: ViverDisponible[] = [];
+  for (const p of productos) {
+    if ((p.categoria ?? '').trim().toUpperCase() !== CATEGORIA_VIVERES || p.estado !== 'activo') continue;
+    const exs = porProducto.get(p.id) ?? [];
+    if (almacen) {
+      const row = exs.find((e) => e.almacen === almacen);
+      if (!row) continue;   // este víver no pertenece al almacén de esta cocina
+      out.push({ producto: p, stock: Math.round((Number(row.stock) || 0) * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: almacen });
+    } else {
       const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
       const mejor = exs.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock))[0];
-      return {
-        producto: p,
-        stock: Math.round(stock * 100) / 100,
-        precio: Number(p.precio) || 0,
-        almacenMasStock: mejor?.almacen ?? p.almacen ?? null,
-      };
-    })
-    .sort((a, b) => a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
+      out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
+    }
+  }
+  return out.sort((a, b) => a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
+}
+
+/** Víveres CON stock desglosados por almacén (para el resumen de cada tarjeta de cocina). */
+interface ViverEnAlmacen { producto_id: string; almacen: string; stock: number; precio: number }
+async function listViveresConStock(): Promise<ViverEnAlmacen[]> {
+  const [productos, existencias] = await Promise.all([listProductos(), listExistencias()]);
+  const precioViver = new Map<string, number>();
+  for (const p of productos) {
+    if ((p.categoria ?? '').trim().toUpperCase() === CATEGORIA_VIVERES && p.estado === 'activo') precioViver.set(p.id, Number(p.precio) || 0);
+  }
+  return existencias
+    .filter((e) => precioViver.has(e.producto_id) && Number(e.stock) > 0)
+    .map((e) => ({ producto_id: e.producto_id, almacen: e.almacen, stock: Number(e.stock) || 0, precio: precioViver.get(e.producto_id) ?? 0 }));
 }
 
 /* ───────── Listado / filtros ───────── */
@@ -62,11 +143,13 @@ export interface FiltrosCocina {
   desde?: string | null;   // ISO
   hasta?: string | null;   // ISO
   tipo?: TipoComida | null;
+  cocinaId?: string | null;   // filtra las comidas de una cocina
 }
 
 export async function listComidas(filtros?: FiltrosCocina): Promise<CocinaComida[]> {
   let q = supabase.from(TABLE).select('*').order('at', { ascending: false });
   if (filtros?.tipo) q = q.eq('tipo_comida', filtros.tipo);
+  if (filtros?.cocinaId) q = q.eq('cocina_id', filtros.cocinaId);
   if (filtros?.desde) q = q.gte('at', filtros.desde);
   if (filtros?.hasta) q = q.lte('at', filtros.hasta);
   const { data, error } = await q;
@@ -94,6 +177,10 @@ export interface CrearComidaInput {
   platos: number;
   items: { producto_id: string; cantidad: number }[];
   nota?: string | null;
+  /** Cocina donde se preparó (marca la comida y su almacén surte/descuenta los víveres). */
+  cocinaId?: string | null;
+  /** Almacén vinculado a la cocina (de ahí salen los precios y el descuento de stock). */
+  almacen?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -101,13 +188,14 @@ export interface CrearComidaInput {
 /**
  * Registra una comida: arma el detalle con los precios del inventario, descuenta
  * el stock de cada víver (salida en el kardex) y guarda la comida con su correlativo.
+ * Si la comida es de una cocina, los víveres y el descuento salen de SU almacén.
  */
 export async function crearComida(input: CrearComidaInput): Promise<CocinaComida> {
   const lineas = (input.items ?? []).filter((it) => it.producto_id && (Number(it.cantidad) || 0) > 0);
   if (!lineas.length) throw new Error('Agregá al menos un víver con cantidad.');
   if ((Number(input.platos) || 0) <= 0) throw new Error('Indicá cuántos platos se realizaron.');
 
-  const viveres = await listViveres();
+  const viveres = await listViveres(input.almacen ?? null);
   const mapV = new Map(viveres.map((v) => [v.producto.id, v]));
 
   const items: ItemCocina[] = [];
@@ -132,6 +220,7 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
     items,
     valor_total: valorTotal,
     nota: input.nota?.trim() || null,
+    cocina_id: input.cocinaId ?? null,
     actor: input.actor,
     actor_name: input.actorName ?? null,
   }).select('*').single();
