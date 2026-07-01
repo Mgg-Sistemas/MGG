@@ -495,6 +495,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       )}
       {totalesOpen && (
         <TotalesModal grupoId={grupoId} totales={totales} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
+          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)}
           onReload={reload} onClose={() => setTotalesOpen(false)} confirmar={setConfirmar} />
       )}
       {cerrarOpen && (
@@ -1122,8 +1123,9 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
 
 /* ───────────── Totales · PROMEDIO DE PRECIO DE COMPRA (todo dentro del modal) ───────────── */
 
-function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, onReload, onClose, confirmar }: {
+function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, netoSecoSum, onReload, onClose, confirmar }: {
   grupoId: string; totales: RecepcionTotales[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
+  netoSecoSum: number;
   onReload: () => Promise<void>; onClose: () => void;
   confirmar: (c: { message: string; onConfirm: () => void } | null) => void;
 }) {
@@ -1133,7 +1135,7 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
   if (editor) {
     return (
       <TotalesEditorModal grupoId={grupoId} totales={editor === 'nuevo' ? null : editor} recepciones={recepciones}
-        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite}
+        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum}
         onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
     );
   }
@@ -1181,9 +1183,9 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
   );
 }
 
-function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, onCancel, onSaved }: {
+function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, onCancel, onSaved }: {
   grupoId: string; totales: RecepcionTotales | null; recepciones: Recepcion[]; defaultNumero: number;
-  actor: string; miNombre: string; canWrite: boolean; onCancel: () => void; onSaved: () => void;
+  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; onCancel: () => void; onSaved: () => void;
 }) {
   const [numero, setNumero] = useState(String(totales?.numero ?? defaultNumero));
   const [rows, setRows] = useState<{ nombre: string; sno2: string; precio: string }[]>(() =>
@@ -1191,7 +1193,11 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
       ? totales.centros.map((c) => ({ nombre: c.nombre ?? '', sno2: c.sno2 == null ? '' : String(c.sno2), precio: c.precio == null ? '' : String(c.precio) }))
       : recepciones.map((r) => ({ nombre: r.centro_nombre || r.procedencia || '', sno2: r.peso_kg == null ? '' : String(r.peso_kg), precio: r.tasa == null ? '' : String(r.tasa) })));
   const [gastos, setGastos] = useState(totales?.gastos == null ? '' : String(totales.gastos));
-  const [pesosKg, setPesosKg] = useState(totales?.pesos_kg == null ? '' : String(totales.pesos_kg));
+  // Pesos Kg (PROMEDIO DE PRECIO DE COMPRA RECEPCIONADA): en unos totales NUEVOS toma el
+  // PESO (KG) de Humedad Final = total neto seco de los pesajes.
+  const [pesosKg, setPesosKg] = useState(
+    totales?.pesos_kg != null ? String(totales.pesos_kg)
+    : netoSecoSum > 0 ? String(round2(netoSecoSum)) : '');
   const [hProv, setHProv] = useState(totales?.humedad_prov == null ? '' : String(totales.humedad_prov));
   const [hFinal, setHFinal] = useState(totales?.humedad_final == null ? '' : String(totales.humedad_final));
   const [fe, setFe] = useState(totales?.fe_esteril == null ? '' : String(totales.fe_esteril));
@@ -1203,6 +1209,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
   const totalSnO2 = sumSnO2(centrosParsed);
   const totalMoneda = totalMonedaTotal(centrosParsed, parseNum(gastos));
   const pesosKgN = parseNum(pesosKg);
+  // Promedio de precio de compra recepcionada = Total Moneda ÷ Pesos Kg (neto seco de la fila).
   const tasaRec = tasaRecepcionada(totalMoneda, pesosKgN);
   const hp = parseNum(hProv) ?? 0, hf = parseNum(hFinal) ?? 0, fe2 = parseNum(fe) ?? 0;
   const sum3 = hp + hf + fe2;
@@ -1331,7 +1338,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
       </div>
 
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
-        Total Moneda = Total SnO2 × Precio/Tasa (+ Gastos). Tasa recepcionada = Total Moneda ÷ Pesos Kg.
+        Total Moneda = Total SnO2 × Precio/Tasa (+ Gastos). Tasa recepcionada (promedio de precio de compra) = Total Moneda ÷ Pesos Kg (neto seco).
         Costo final: SnO2 = Pesos Kg + Humedad Prov. + Humedad Final + Fe estéril; Total Moneda = la suma de esas 3 filas
         (si es 0, se toma el Total Moneda recepcionado); Tasa = Total Moneda ÷ SnO2.
       </small>
