@@ -491,7 +491,6 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       {conciliacionOpen && (
         <ConciliacionModal grupoId={grupoId} conciliaciones={conciliaciones} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
           netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)}
-          pesoRecogidoSum={humFinal.reduce((a, f) => a + Number(f.peso_recogido ?? 0), 0)}
           onReload={reload} onClose={() => setConciliacionOpen(false)} confirmar={setConfirmar} />
       )}
       {totalesOpen && (
@@ -637,18 +636,22 @@ function HumedadFinalCard({ filas, netoSeco, canWrite, onAgregar, onBorrar, onRe
           <thead>
             <tr>
               <th>Peso (Kg) recogido</th>
+              <th style={{ textAlign: 'center' }}>Merma peso H2O</th>
+              <th style={{ textAlign: 'center' }}>% Humedad final</th>
               {canWrite && <th></th>}
             </tr>
           </thead>
           <tbody>
             {!filas.length ? (
-              <tr><td colSpan={canWrite ? 2 : 1} className="muted" style={{ textAlign: 'center' }}>Sin filas. Agregá con “+ Agregar Humedad Final”.</td></tr>
-            ) : filas.map((f) => <HumedadFinalRow key={f.id} fila={f} canWrite={canWrite} onBorrar={() => onBorrar(f)} onReload={onReload} />)}
+              <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin filas. Agregá con “+ Agregar Humedad Final”.</td></tr>
+            ) : filas.map((f) => <HumedadFinalRow key={f.id} fila={f} pesoKg={pesoKg} canWrite={canWrite} onBorrar={() => onBorrar(f)} onReload={onReload} />)}
           </tbody>
           {filas.length > 0 && (
             <tfoot>
               <tr>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(sumRecogido)}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{n2(merma)}</td>
+                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{pctFinal != null ? `${n2(pctFinal)}%` : '0,00%'}</td>
                 {canWrite && <td></td>}
               </tr>
             </tfoot>
@@ -663,16 +666,21 @@ function HumedadFinalCard({ filas, netoSeco, canWrite, onAgregar, onBorrar, onRe
     </div>
   );
 }
-function HumedadFinalRow({ fila, canWrite, onBorrar, onReload }: {
-  fila: HumedadFinal; canWrite: boolean; onBorrar: () => void; onReload: () => Promise<void>;
+function HumedadFinalRow({ fila, pesoKg, canWrite, onBorrar, onReload }: {
+  fila: HumedadFinal; pesoKg: number; canWrite: boolean; onBorrar: () => void; onReload: () => Promise<void>;
 }) {
   const save = async (patch: Partial<Pick<HumedadFinal, 'peso_recogido'>>) => {
     try { await actualizarHumedadFinal(fila.id, patch); await onReload(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
   };
+  // Merma y % por renglón, contra el PESO (KG) = total neto seco de la tarjeta.
+  const merma = mermaFinal(pesoKg, fila.peso_recogido);
+  const pct = pctHumFinal(pesoKg, fila.peso_recogido);
   return (
     <tr>
       <NumCell value={fila.peso_recogido} canWrite={canWrite} onSave={(n) => void save({ peso_recogido: n })} />
+      <td className="mono" style={{ textAlign: 'center' }} title="PESO (KG) − Peso recogido">{n2(merma)}</td>
+      <td className="mono" style={{ textAlign: 'center' }} title="Merma ÷ PESO (KG) × 100">{pct != null ? `${n2(pct)}%` : '—'}</td>
       {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar fila">🗑</button></td>}
     </tr>
   );
@@ -809,9 +817,9 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat,
 /* ───────────── Conciliación de Centros de Acopio (todo dentro del modal) ───────────── */
 const ROJO = 'var(--danger, #e5484d)';
 
-function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, actor, miNombre, netoSecoSum, pesoRecogidoSum, onReload, onClose, confirmar }: {
+function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, actor, miNombre, netoSecoSum, onReload, onClose, confirmar }: {
   grupoId: string; conciliaciones: RecepcionConciliacion[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
-  netoSecoSum: number; pesoRecogidoSum: number;
+  netoSecoSum: number;
   onReload: () => Promise<void>; onClose: () => void;
   confirmar: (c: { message: string; onConfirm: () => void } | null) => void;
 }) {
@@ -821,7 +829,7 @@ function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, act
   if (editor) {
     return (
       <ConciliacionEditorModal grupoId={grupoId} conciliacion={editor === 'nueva' ? null : editor} recepciones={recepciones}
-        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} pesoRecogidoSum={pesoRecogidoSum}
+        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum}
         onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
     );
   }
@@ -886,9 +894,9 @@ function InlineAlmacen({ onCrear, onCancel }: { onCrear: (nombre: string) => voi
   );
 }
 
-function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, pesoRecogidoSum, onCancel, onSaved }: {
+function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, onCancel, onSaved }: {
   grupoId: string; conciliacion: RecepcionConciliacion | null; recepciones: Recepcion[]; defaultNumero: number;
-  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; pesoRecogidoSum: number; onCancel: () => void; onSaved: () => void;
+  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; onCancel: () => void; onSaved: () => void;
 }) {
   const [numero, setNumero] = useState(String(conciliacion?.numero ?? defaultNumero));
   const [centros, setCentros] = useState<CentroRow[]>(() =>
@@ -902,10 +910,11 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
           nombre: r.centro_nombre || r.procedencia || '', saldo: r.peso_kg == null ? '' : String(r.peso_kg),
           categoria: '' as const, entra: false, almacen: '', movId: null,
         })));
-  // Peso Kg Total: en una conciliación NUEVA se sincroniza con Σ Peso (Kg) recogido de Humedad Final.
+  // Peso Kg Total: en una conciliación NUEVA se sincroniza con el NETO de Humedad Final
+  // (PESO (KG) = total neto seco de los pesajes).
   const [pesoTotal, setPesoTotal] = useState(
     conciliacion?.peso_kg_total != null ? String(conciliacion.peso_kg_total)
-    : pesoRecogidoSum > 0 ? String(round2(pesoRecogidoSum)) : '');
+    : netoSecoSum > 0 ? String(round2(netoSecoSum)) : '');
   const [bolsas, setBolsas] = useState(conciliacion?.kg_peso_bolsas == null ? '' : String(conciliacion.kg_peso_bolsas));
   const [muestras, setMuestras] = useState(conciliacion?.muestras_laboratorio == null ? '' : String(conciliacion.muestras_laboratorio));
   const [nota, setNota] = useState(conciliacion?.nota ?? '');
