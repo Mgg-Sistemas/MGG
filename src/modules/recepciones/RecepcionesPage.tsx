@@ -450,7 +450,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       {/* ───────────── Humedad (Provisional + Final, lado a lado) ───────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem', marginTop: '1.25rem' }}>
         <HumedadProvCard filas={humProv} canWrite={canWrite} onAgregar={agregarHumProv} onBorrar={borrarHumProv} onReload={reload} />
-        <HumedadFinalCard filas={humFinal} canWrite={canWrite} onAgregar={agregarHumFinal} onBorrar={borrarHumFinal} onReload={reload} />
+        <HumedadFinalCard filas={humFinal} netoSeco={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)} canWrite={canWrite} onAgregar={agregarHumFinal} onBorrar={borrarHumFinal} onReload={reload} />
       </div>
 
       {/* ───────────── Pesos (Bigbags) · histórico ───────────── */}
@@ -617,42 +617,47 @@ const pctHumFinal = (pesoKg: number | null, recogido: number | null): number | n
   if (h === 0) return null;
   return mermaFinal(pesoKg, recogido) / h * 100;
 };
-function HumedadFinalCard({ filas, canWrite, onAgregar, onBorrar, onReload }: {
-  filas: HumedadFinal[]; canWrite: boolean; onAgregar: () => void; onBorrar: (h: HumedadFinal) => void; onReload: () => Promise<void>;
+function HumedadFinalCard({ filas, netoSeco, canWrite, onAgregar, onBorrar, onReload }: {
+  filas: HumedadFinal[]; netoSeco: number; canWrite: boolean; onAgregar: () => void; onBorrar: (h: HumedadFinal) => void; onReload: () => Promise<void>;
 }) {
-  const sumPesoKg = sumaCol(filas.map((f) => f.peso_kg));
+  // PESO (KG) = TOTAL NETO SECO de los pesajes (no se escribe). Merma = PESO KG − Σ recogido.
+  const pesoKg = round2(netoSeco);
   const sumRecogido = sumaCol(filas.map((f) => f.peso_recogido));
-  const sumMerma = filas.reduce((a, f) => a + mermaFinal(f.peso_kg, f.peso_recogido), 0);
-  const promPct = promedioCol(filas.map((f) => pctHumFinal(f.peso_kg, f.peso_recogido)));
+  const merma = mermaFinal(pesoKg, sumRecogido);
+  const pctFinal = pctHumFinal(pesoKg, sumRecogido);
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ background: '#cdddf3', color: '#13294b', fontWeight: 800, textAlign: 'center', padding: '.6rem', fontSize: '1rem', letterSpacing: '.02em' }}>Humedad Final</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '.5rem .8rem', borderBottom: '1px solid var(--border, #2a2a2a)' }}>
+        <span style={{ fontWeight: 700 }}>PESO (KG) <span className="muted" style={{ fontWeight: 400, fontSize: '.72rem' }}>(TOTAL NETO SECO)</span></span>
+        <strong className="mono" style={{ fontSize: '1.05rem' }}>{n2(pesoKg)}</strong>
+      </div>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
           <thead>
             <tr>
-              <th>Peso (Kg)</th><th>Peso (Kg) recogido</th>
-              <th style={{ textAlign: 'center' }}>Merma peso H2O</th><th style={{ textAlign: 'center' }}>% Humedad final</th>
+              <th>Peso (Kg) recogido</th>
               {canWrite && <th></th>}
             </tr>
           </thead>
           <tbody>
             {!filas.length ? (
-              <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>Sin filas. Agregá con “+ Agregar Humedad Final”.</td></tr>
+              <tr><td colSpan={canWrite ? 2 : 1} className="muted" style={{ textAlign: 'center' }}>Sin filas. Agregá con “+ Agregar Humedad Final”.</td></tr>
             ) : filas.map((f) => <HumedadFinalRow key={f.id} fila={f} canWrite={canWrite} onBorrar={() => onBorrar(f)} onReload={onReload} />)}
           </tbody>
           {filas.length > 0 && (
             <tfoot>
               <tr>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(sumPesoKg)}</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(sumRecogido)}</td>
-                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{n2(sumMerma)}</td>
-                <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{promPct != null ? `${n2(promPct)}%` : '0,00%'}</td>
                 {canWrite && <td></td>}
               </tr>
             </tfoot>
           )}
         </table>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-around', gap: '.5rem', padding: '.55rem .8rem', borderTop: '1px solid var(--border, #2a2a2a)', fontSize: '.85rem' }}>
+        <span>Merma peso H2O: <strong className="mono">{n2(merma)}</strong></span>
+        <span>% Humedad final: <strong className="mono">{pctFinal != null ? `${n2(pctFinal)}%` : '0,00%'}</strong></span>
       </div>
       {canWrite && <div style={{ padding: '.6rem', textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={onAgregar}>+ Agregar Humedad Final</button></div>}
     </div>
@@ -661,17 +666,13 @@ function HumedadFinalCard({ filas, canWrite, onAgregar, onBorrar, onReload }: {
 function HumedadFinalRow({ fila, canWrite, onBorrar, onReload }: {
   fila: HumedadFinal; canWrite: boolean; onBorrar: () => void; onReload: () => Promise<void>;
 }) {
-  const save = async (patch: Partial<Pick<HumedadFinal, 'peso_kg' | 'peso_recogido'>>) => {
+  const save = async (patch: Partial<Pick<HumedadFinal, 'peso_recogido'>>) => {
     try { await actualizarHumedadFinal(fila.id, patch); await onReload(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
   };
-  const pct = pctHumFinal(fila.peso_kg, fila.peso_recogido);
   return (
     <tr>
-      <NumCell value={fila.peso_kg} canWrite={canWrite} onSave={(n) => void save({ peso_kg: n })} />
       <NumCell value={fila.peso_recogido} canWrite={canWrite} onSave={(n) => void save({ peso_recogido: n })} />
-      <td className="mono" style={{ textAlign: 'center' }} title="Peso (Kg) − Peso (Kg) recogido">{n2(mermaFinal(fila.peso_kg, fila.peso_recogido))}</td>
-      <td className="mono" style={{ textAlign: 'center' }} title="Merma ÷ Peso (Kg) × 100">{pct != null ? `${n2(pct)}%` : '—'}</td>
       {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar fila">🗑</button></td>}
     </tr>
   );
@@ -1513,7 +1514,7 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
         <HumedadProvCard filas={d.humProv ?? []} canWrite={false} onAgregar={noop} onBorrar={noop} onReload={noopReload} />
-        <HumedadFinalCard filas={d.humFinal ?? []} canWrite={false} onAgregar={noop} onBorrar={noop} onReload={noopReload} />
+        <HumedadFinalCard filas={d.humFinal ?? []} netoSeco={(d.pesajes ?? []).reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)} canWrite={false} onAgregar={noop} onBorrar={noop} onReload={noopReload} />
       </div>
 
       <h4 style={{ margin: '1rem 0 .4rem' }}>⚖ Pesos (Bigbags)</h4>
