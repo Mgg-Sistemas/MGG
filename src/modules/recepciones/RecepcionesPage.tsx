@@ -391,7 +391,9 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', marginBottom: '1.25rem' }}>
         <button className="btn btn-primary" onClick={() => setConciliacionOpen(true)}>⚖ Conciliación</button>
         <button className="btn btn-primary" onClick={() => setTotalesOpen(true)}>Σ Totales</button>
-        <button className="btn btn-primary" onClick={() => toast('Resúmenes: próximamente', 'info')}>📊 Resúmenes</button>
+        <button className="btn btn-primary" onClick={() => void import('./recepcionResumenPdf')
+          .then(({ descargarResumenRecepcionPdf }) => descargarResumenRecepcionPdf({ grupo, recepciones, pesajes, analisis, minerales, conciliaciones, totales }))
+          .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el resumen', 'error'))}>📊 Resúmenes</button>
         {canWrite && <button className="btn btn-warning" onClick={() => setCerrarOpen(true)} style={{ marginLeft: 'auto' }}>🔒 Cerrar recepción</button>}
       </div>
 
