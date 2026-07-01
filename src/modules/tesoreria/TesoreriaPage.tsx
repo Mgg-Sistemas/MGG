@@ -3975,11 +3975,17 @@ function ResumenMovimientosModal({ monedas, defaultMoneda, defaultDesde, default
  * la OC). Es solo lectura: la carga de comprobantes vive en el módulo Retenciones.
  */
 function RetencionesTesoreriaModal({ items, onClose }: { items: RetencionItem[]; onClose: () => void }) {
+  // Esta vista de Tesorería es sólo para OC (la retención de compra directa no tiene
+  // pago aparte en Tesorería): se filtran las filas que traen orden.
+  const ocItems = useMemo(
+    () => items.filter((it): it is RetencionItem & { orden: NonNullable<RetencionItem['orden']> } => !!it.orden),
+    [items],
+  );
   // Sin auto-selección: el detalle aparece al tocar "Ver" (toggle). Con un solo
   // ítem se abre directo; con varios, cada "Ver" abre el suyo.
-  const [selId, setSelId] = useState<string>(items.length === 1 ? (items[0]?.orden.id ?? '') : '');
+  const [selId, setSelId] = useState<string>(ocItems.length === 1 ? (ocItems[0]?.orden.id ?? '') : '');
   const toggle = (id: string) => setSelId((prev) => prev === id ? '' : id);
-  const sel = items.find((it) => it.orden.id === selId) ?? null;
+  const sel = ocItems.find((it) => it.orden.id === selId) ?? null;
   const o = sel?.orden ?? null;
   const comprobantes = useMemo(() => (o ? comprobantesDeOrden(o) : []), [o]);
 
@@ -3997,7 +4003,7 @@ function RetencionesTesoreriaModal({ items, onClose }: { items: RetencionItem[];
         detalle, el comprobante y la OC a la que pertenecen, y si <strong>ya fueron pagadas</strong>.
       </p>
 
-      {!items.length ? (
+      {!ocItems.length ? (
         <EmptyState icon="🧾" message="No hay retenciones listas." />
       ) : (
         <>
@@ -4006,7 +4012,7 @@ function RetencionesTesoreriaModal({ items, onClose }: { items: RetencionItem[];
             <table className="table" style={{ fontSize: '.82rem' }}>
               <thead><tr><th>N°OC</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>Total</th><th>Tesorería</th><th></th></tr></thead>
               <tbody>
-                {items.map(({ orden, proveedorNombre }) => (
+                {ocItems.map(({ orden, proveedorNombre }) => (
                   <tr key={orden.id} style={{ background: orden.id === selId ? 'var(--bg-1)' : undefined, cursor: 'pointer' }} onClick={() => toggle(orden.id)}>
                     <td className="mono">{orden.oc_codigo ?? orden.codigo}</td>
                     <td>{proveedorNombre}</td>

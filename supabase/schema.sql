@@ -491,6 +491,22 @@ alter table public.compras_directas add column if not exists pagada_por         
 -- entrada al inventario eligiendo el almacén/subalmacén → 'finalizada'.
 alter table public.compras_directas add column if not exists recibida_por       text;
 alter table public.compras_directas add column if not exists recibida_at        timestamptz;
+-- Moneda (Bs/$), IVA (16% cuando es Bs; se suma al total) y retención de IVA
+-- (% aplicado sobre el IVA + monto retenido). La retención vincula la compra
+-- directa al módulo de Retenciones (aparece en la misma lista que las OC).
+alter table public.compras_directas add column if not exists moneda text not null default 'USD';
+alter table public.compras_directas add column if not exists iva numeric not null default 0;
+-- Descuento (en % o en monto, sincronizados): baja el total (base = subtotal − descuento; total = base + IVA).
+alter table public.compras_directas add column if not exists descuento_pct   numeric not null default 0;
+alter table public.compras_directas add column if not exists descuento_monto numeric not null default 0;
+alter table public.compras_directas add column if not exists retencion_pct   numeric not null default 0;
+alter table public.compras_directas add column if not exists retencion_monto numeric not null default 0;
+-- Finalización de la retención (espejo de ordenes; sólo comprobante de IVA para compra directa).
+alter table public.compras_directas add column if not exists retencion_iva_path       text;
+alter table public.compras_directas add column if not exists retencion_iva_nombre     text;
+alter table public.compras_directas add column if not exists retencion_finalizada     boolean not null default false;
+alter table public.compras_directas add column if not exists retencion_finalizada_por text;
+alter table public.compras_directas add column if not exists retencion_finalizada_en  timestamptz;
 -- RLS: lectura para autenticados, escritura para operativo (admin/analista/obrero).
 -- Bucket privado 'compras-directas' (storage) con políticas para autenticados.
 -- (Ver migración aplicada; políticas: compra_directa read/write + cd_obj_* en storage.objects.)

@@ -9,6 +9,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
+import { urlAdjuntoCompra, finalizarRetencionCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import {
   listRetencionesPendientes, listRetencionesHechas, finalizarRetencion,
   urlRetencion, comprobantesDeOrden, labelRetencionModo,
@@ -16,6 +17,12 @@ import {
 } from './retenciones.repository';
 
 type Vista = 'pendientes' | 'hechas';
+
+/** Formatea un monto según la moneda de la fila (compra directa puede ser Bs). */
+function fmtMonto(n: number | null | undefined, moneda: string): string {
+  const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return moneda === 'Bs' ? `Bs ${v}` : `$ ${v}`;
+}
 
 export function RetencionesPage() {
   const { user } = useSession();
@@ -53,19 +60,19 @@ export function RetencionesPage() {
   }, [reload]);
 
   // Realtime multiusuario: lo que registra otro (o paga Tesorería) se refleja al instante.
-  useRealtime(['ordenes'], () => { void reload(); });
+  useRealtime(['ordenes', 'compras_directas'], () => { void reload(); });
 
   // Historial filtrado (solo aplica a la vista Realizadas).
   const hechasFiltradas = useMemo(() => {
     const txt = fTexto.trim().toLowerCase();
-    return hechas.filter(({ orden: o, proveedorNombre }) => {
-      const fin = (o.retencion_finalizada_en ?? '').slice(0, 10);
+    return hechas.filter((it) => {
+      const fin = (it.finalizadaEn ?? '').slice(0, 10);
       if (fDesde && fin && fin < fDesde) return false;
       if (fHasta && fin && fin > fHasta) return false;
       if (fDesde && !fin) return false;
-      if (fTipo && !comprobantesDeOrden(o).some((c) => c.tipo === fTipo)) return false;
+      if (fTipo && !it.tiposComprobante.includes(fTipo)) return false;
       if (txt) {
-        const hay = `${o.oc_codigo ?? ''} ${o.codigo} ${proveedorNombre}`.toLowerCase();
+        const hay = `${it.ocCodigo ?? ''} ${it.opCodigo ?? ''} ${it.proveedorNombre}`.toLowerCase();
         if (!hay.includes(txt)) return false;
       }
       return true;
@@ -142,18 +149,18 @@ export function RetencionesPage() {
               {!loading && !filas.length && (
                 <tr><td colSpan={vista === 'hechas' ? 9 : 8}><EmptyState icon={vista === 'pendientes' ? '✅' : '🧾'} message={vista === 'pendientes' ? 'No hay retenciones pendientes' : 'Sin retenciones en el historial con esos filtros'} /></td></tr>
               )}
-              {!loading && filas.map(({ orden: o, proveedorNombre }) => (
-                <tr key={o.id}>
-                  <td className="mono">{o.oc_codigo ?? '—'}</td>
-                  <td className="mono">{o.codigo}</td>
-                  <td>{proveedorNombre}</td>
-                  <td>{labelCondicionPago(o.condiciones_pago)}</td>
-                  <td>{labelRetencionModo(o.retencion_modo)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
-                  <td>{o.retencion_pagada ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span> : <span className="muted">Por pagar</span>}</td>
-                  {vista === 'hechas' && <td className="muted">{o.retencion_finalizada_en ? dateTime(o.retencion_finalizada_en) : '—'}</td>}
+              {!loading && filas.map((it) => (
+                <tr key={`${it.kind}-${it.id}`}>
+                  <td className="mono">{it.ocCodigo ?? '—'}{it.kind === 'compra_directa' && <span className="badge" style={{ marginLeft: '.35rem' }} title="Compra directa">CD</span>}</td>
+                  <td className="mono">{it.opCodigo ?? '—'}</td>
+                  <td>{it.proveedorNombre}</td>
+                  <td>{it.condicionLabel}</td>
+                  <td>{it.retencionLabel}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{fmtMonto(it.total, it.moneda)}</td>
+                  <td>{it.tesoreria === 'pagada' ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span> : it.tesoreria === 'por_pagar' ? <span className="muted">Por pagar</span> : <span className="muted">—</span>}</td>
+                  {vista === 'hechas' && <td className="muted">{it.finalizadaEn ? dateTime(it.finalizadaEn) : '—'}</td>}
                   <td style={{ textAlign: 'right' }}>
-                    <button className="btn btn-sm btn-primary" onClick={() => setSel({ orden: o, proveedorNombre })}>Ver</button>
+                    <button className="btn btn-sm btn-primary" onClick={() => setSel(it)}>Ver</button>
                   </td>
                 </tr>
               ))}
@@ -162,9 +169,16 @@ export function RetencionesPage() {
         </div>
       </div>
 
-      {sel && (
+      {sel && sel.kind === 'oc' && sel.orden && (
         <RetencionModal
           item={sel} canWrite={canWrite} actor={actor} actorName={actorName}
+          onClose={() => setSel(null)}
+          onSaved={async () => { setSel(null); await reload(); }}
+        />
+      )}
+      {sel && sel.kind === 'compra_directa' && sel.compra && (
+        <RetencionCompraModal
+          compra={sel.compra} canWrite={canWrite} actor={actor}
           onClose={() => setSel(null)}
           onSaved={async () => { setSel(null); await reload(); }}
         />
@@ -176,7 +190,7 @@ export function RetencionesPage() {
 function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: {
   item: RetencionItem; canWrite: boolean; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const o = item.orden;
+  const o = item.orden!;
   const yaFinalizada = !!o.retencion_finalizada;
   const comprobantes = useMemo(() => comprobantesDeOrden(o), [o]);
   const [archivos, setArchivos] = useState<Partial<Record<TipoRetencion, File>>>({});
@@ -290,6 +304,113 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
       )}
       {yaFinalizada && (
         <div className="muted" style={{ fontSize: '.84rem' }}>✓ Retención finalizada{o.retencion_finalizada_en ? ` el ${dateTime(o.retencion_finalizada_en)}` : ''}.</div>
+      )}
+    </Modal>
+  );
+}
+
+/* ───────── Modal: retención de una COMPRA DIRECTA (retención de IVA) ───────── */
+
+function RetencionCompraModal({ compra, canWrite, actor, onClose, onSaved }: {
+  compra: CompraDirecta; canWrite: boolean; actor: string; onClose: () => void; onSaved: () => void;
+}) {
+  const m = compra.moneda || 'Bs';
+  const yaFinalizada = !!compra.retencion_finalizada;
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function verFactura(path: string, nombre?: string | null) {
+    try { await previewFileUrl(await urlAdjuntoCompra(path), nombre ?? 'comprobante', 'Comprobante de la compra directa'); }
+    catch { toast('No se pudo abrir el comprobante', 'error'); }
+  }
+
+  async function handleFinalizar(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (!file) { setError('Cargá el comprobante de la retención de IVA (PDF o imagen).'); return; }
+    setSaving(true);
+    try {
+      await finalizarRetencionCompraDirecta({ compra, file, actor });
+      notify(`Retención registrada · Compra directa ${compra.codigo ?? ''}`, 'success', { link: '#/app/retenciones' });
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo finalizar la retención.'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+      {!yaFinalizada && canWrite && (
+        <button type="submit" form="ret-cd-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Finalizar retención'}</button>
+      )}
+    </>
+  );
+
+  return (
+    <Modal title={`Retención · Compra directa ${compra.codigo ?? ''}`} size="lg" onClose={onClose} footer={footer}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+      {/* Detalle de la compra directa */}
+      <div className="card" style={{ margin: '0 0 .75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle de la compra directa</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
+          <div><span className="muted">Proveedor:</span> <strong>{compra.proveedor_nombre || '—'}</strong></div>
+          <div><span className="muted">Moneda:</span> {m === 'Bs' ? 'Bolívares (Bs)' : 'Dólares ($)'}</div>
+          {compra.descuento_monto > 0 && <div><span className="muted">Descuento:</span> {compra.descuento_pct ? `${compra.descuento_pct}% · ` : ''}{fmtMonto(compra.descuento_monto, m)}</div>}
+          <div><span className="muted">IVA:</span> <strong className="mono">{fmtMonto(compra.iva, m)}</strong></div>
+          <div><span className="muted">Retención IVA:</span> <strong className="mono">{compra.retencion_pct}% · {fmtMonto(compra.retencion_monto, m)}</strong></div>
+          <div><span className="muted">Total:</span> <strong className="mono">{fmtMonto(compra.gasto, m)}</strong></div>
+          <div><span className="muted">Tesorería:</span> {compra.estado === 'por_pagar' ? 'Por pagar' : <strong style={{ color: 'var(--success)' }}>✓ Pagada</strong>}</div>
+        </div>
+        <div className="table-wrap" style={{ marginTop: '.5rem' }}>
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
+            <tbody>
+              {(compra.items ?? []).map((it, i) => (
+                <tr key={i}><td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{fmtMonto(it.gasto, m)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Facturas cargadas en la compra */}
+      {(compra.facturas?.length ?? 0) > 0 && (
+        <div className="card" style={{ margin: '0 0 .75rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>Facturas de la compra</div>
+          <div style={{ display: 'grid', gap: '.3rem' }}>
+            {compra.facturas.map((a) => (
+              <div key={a.path} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', fontSize: '.85rem' }}>
+                <span className="muted">📎 {a.filename}</span>
+                <button className="btn btn-sm btn-ghost" onClick={() => void verFactura(a.path, a.filename)}>👁 Vista previa</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Comprobante de retención ya cargado */}
+      {compra.retencion_iva_path && (
+        <div className="card" style={{ margin: '0 0 .75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
+          <span style={{ fontSize: '.85rem' }}><span className="badge">Retención IVA</span> <span className="muted">{compra.retencion_iva_nombre}</span></span>
+          <button className="btn btn-sm btn-ghost" onClick={() => void verFactura(compra.retencion_iva_path!, compra.retencion_iva_nombre)}>👁 Vista previa</button>
+        </div>
+      )}
+
+      {/* Carga del comprobante de retención de IVA */}
+      {!yaFinalizada && canWrite && (
+        <form id="ret-cd-form" onSubmit={handleFinalizar}>
+          <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.5rem' }}>
+            Cargá el <strong>comprobante de la retención de IVA</strong> (PDF o imagen). Al finalizar, la retención queda registrada.
+          </div>
+          <div className="form-row">
+            <label>Comprobante de retención de IVA</label>
+            <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            {file && <small className="muted">{file.name}</small>}
+          </div>
+        </form>
+      )}
+      {yaFinalizada && (
+        <div className="muted" style={{ fontSize: '.84rem' }}>✓ Retención finalizada{compra.retencion_finalizada_en ? ` el ${dateTime(compra.retencion_finalizada_en)}` : ''}.</div>
       )}
     </Modal>
   );

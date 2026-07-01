@@ -73,6 +73,8 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   const [comisionSaldoId, setComisionSaldoId] = useState('');
   const total = fila.total;
   const esCompra = fila.kind === 'compra';
+  // Moneda de la compra ($ o Bs): el total está en ESTA moneda. Los servicios son en $.
+  const monedaBase = fila.compra?.moneda === 'Bs' ? 'Bs' : 'USD';
 
   // Categoría → subcategoría de gasto: la elige Tesorería al pagar (compra directa).
   const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
@@ -112,12 +114,13 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   }, [cajas]);
 
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
-  const moneda = caja?.moneda ?? 'USD';
 
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
   const [legMontos, setLegMontos] = useState<Record<string, string>>({});
   const [cuentaSel, setCuentaSel] = useState<string>(''); // id del saldo elegido, o '__split__'
   const [tasa, setTasa] = useState<number>(0);
+  // Tasa manual para este pago (Bs por $): si se coloca, prevalece sobre la tasa BCV.
+  const [tasaManualStr, setTasaManualStr] = useState('');
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
   useEffect(() => {
     if (!cajaId) { setSaldosCaja([]); return; }
@@ -133,11 +136,14 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
 
+  // Tasa efectiva Bs/$: la manual (si la colocan) prevalece sobre la BCV auto.
+  const tasaEff = (Number(tasaManualStr) || 0) > 0 ? Number(tasaManualStr) : tasa;
+
   const esMultimoneda = saldosCaja.length >= 2;
   function legUsd(monedaLeg: string, n: number): number {
     if (!n || n <= 0) return 0;
     if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(n);
-    if (monedaLeg === 'Bs') return tasa > 0 ? round2(n / tasa) : 0;
+    if (monedaLeg === 'Bs') return tasaEff > 0 ? round2(n / tasaEff) : 0;
     if (monedaLeg === 'COP') return mercado?.copUsd ? round2(n / mercado.copUsd) : 0;
     return round2(n);
   }
@@ -145,24 +151,33 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   function montoEnMoneda(monedaLeg: string, usd: number): number {
     if (!usd || usd <= 0) return 0;
     if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(usd);
-    if (monedaLeg === 'Bs') return tasa > 0 ? round2(usd * tasa) : 0;
+    if (monedaLeg === 'Bs') return tasaEff > 0 ? round2(usd * tasaEff) : 0;
     if (monedaLeg === 'COP') return mercado?.copUsd ? round2(usd * mercado.copUsd) : 0;
     return round2(usd);
   }
   const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : c === 'personal' ? ' · Personal' : ` · ${c}`;
 
+  // El total está en la moneda base de la compra ($ o Bs). Para reusar el motor de
+  // conversión (pivota en USD), llevamos el total a USD-equivalente con la tasa.
+  const totalUsd = monedaBase === 'Bs' ? (tasaEff > 0 ? round2(total / tasaEff) : 0) : total;
+
   // Modo de pago: una sola cuenta/billetera (default) o repartir entre varias monedas.
   const esSplit = cuentaSel === '__split__';
   const saldoSel = saldosCaja.find((s) => s.id === cuentaSel) ?? null;
-  const montoCuenta = saldoSel ? montoEnMoneda(saldoSel.moneda, total) : total;
+  const montoCuenta = saldoSel ? montoEnMoneda(saldoSel.moneda, totalUsd) : totalUsd;
   const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
-  const cubreTotalMulti = sumUsdMulti >= total - 0.01;
-  const excedeTotalMulti = esSplit && sumUsdMulti > total + 0.01;
+  const cubreTotalMulti = sumUsdMulti >= totalUsd - 0.01;
+  const excedeTotalMulti = esSplit && sumUsdMulti > totalUsd + 0.01;
+  // ¿Este pago cruza Bs↔$ (hace falta tasa)? Para mostrar el campo de tasa manual.
+  const cruzaBsUsd = !esSplit
+    ? (!!saldoSel && saldoSel.moneda !== monedaBase && (saldoSel.moneda === 'Bs' || monedaBase === 'Bs'))
+    : (monedaBase !== 'Bs' && saldosCaja.some((s) => s.moneda === 'Bs')) || (monedaBase === 'Bs' && saldosCaja.some((s) => s.moneda === 'USD' || s.moneda === 'USDT'));
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (total <= 0) { setError('Este directo no tiene monto.'); return; }
+    if (cruzaBsUsd && tasaEff <= 0) { setError('Colocá la tasa (Bs por $) para convertir el monto.'); return; }
     if (esCompra) {
       if (!catId) { setError('Elegí la categoría de gasto.'); return; }
       if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
@@ -171,11 +186,11 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
     if (esSplit) {
       legs = saldosCaja.map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 })).filter((l) => l.monto > 0);
       if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
-      if (excedeTotalMulti) { setError(`No podés pagar más que el total (${montoCaja(total, 'USD')}).`); return; }
-      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(total, 'USD')}).`); return; }
+      if (excedeTotalMulti) { setError(`No podés pagar más que el total (${montoCaja(totalUsd, 'USD')}).`); return; }
+      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(totalUsd, 'USD')}).`); return; }
     } else if (saldoSel) {
       // Pago completo desde la cuenta/billetera elegida (convierte el total a su moneda si hace falta).
-      const m = montoEnMoneda(saldoSel.moneda, total);
+      const m = montoEnMoneda(saldoSel.moneda, totalUsd);
       if (m <= 0) { setError(`No hay tasa para convertir el total a ${saldoSel.moneda}.`); return; }
       if (m > Number(saldoSel.saldo) + 0.01) { setError(`La cuenta ${saldoSel.moneda}${cuentaLabel(saldoSel.cuenta)} no tiene saldo suficiente (${montoCaja(Number(saldoSel.saldo), saldoSel.moneda)}).`); return; }
       legs = [{ cuenta: saldoSel.cuenta as CuentaCaja, moneda: saldoSel.moneda, monto: m }];
@@ -197,8 +212,8 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
       }
       notify(
         fila.kind === 'compra'
-          ? `Compra directa ${fila.codigo} pagada · ${montoCaja(total, moneda)} · queda POR RECIBIR en Inventario`
-          : `Servicio directo ${fila.codigo} pagado · ${montoCaja(total, moneda)} desde ${caja?.nombre ?? ''}`,
+          ? `Compra directa ${fila.codigo} pagada · ${montoCaja(total, monedaBase)} · queda POR RECIBIR en Inventario`
+          : `Servicio directo ${fila.codigo} pagado · ${montoCaja(total, monedaBase)} desde ${caja?.nombre ?? ''}`,
         'success',
         { link: fila.kind === 'compra' ? '#/app/inventario' : '#/app/tesoreria' },
       );
@@ -209,7 +224,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="dir-pay-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Pagando…' : excedeTotalMulti ? 'Excede el total' : `Pagar · ${montoCaja(total, moneda)}`}</button>
+      <button type="submit" form="dir-pay-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Pagando…' : excedeTotalMulti ? 'Excede el total' : `Pagar · ${montoCaja(total, monedaBase)}`}</button>
     </>
   );
 
@@ -228,7 +243,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
             </div>
           )}
           <div style={{ marginTop: '.3rem', display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-            <span>Total: <strong className="mono">{montoCaja(total, 'USD')}</strong></span>
+            <span>Total: <strong className="mono">{montoCaja(total, monedaBase)}</strong>{monedaBase === 'Bs' && tasaEff > 0 ? <span className="muted"> · ≈ {montoCaja(totalUsd, 'USD')}</span> : null}</span>
             {fila.adjuntoPath && (
               <button type="button" className="btn btn-sm btn-ghost" onClick={async () => {
                 try {
@@ -275,11 +290,32 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
               {esMultimoneda && <option value="__split__">↔ Repartir entre varias monedas…</option>}
             </select>
             {!esSplit && saldoSel && (
-              <small className="muted">
-                Sale <strong>{montoCaja(montoCuenta, saldoSel.moneda)}</strong> de esta cuenta
-                {saldoSel.moneda !== 'USD' && saldoSel.moneda !== 'USDT' ? ` (≈ ${montoCaja(total, 'USD')}${tasa > 0 && saldoSel.moneda === 'Bs' ? ` · tasa ${montoCaja(tasa, 'Bs')}` : ''})` : ''}.
-              </small>
+              <div className="card" style={{ margin: '.45rem 0 0', padding: '.5rem .7rem', fontSize: '.86rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                <span>Pagás en <span className="badge">{saldoSel.moneda}</span>{cuentaLabel(saldoSel.cuenta)}</span>
+                <span style={{ textAlign: 'right' }}>
+                  Se descuenta <strong className="mono">{montoCaja(montoCuenta, saldoSel.moneda)}</strong>
+                  {saldoSel.moneda !== monedaBase && (
+                    <span className="muted"> · equivale a {montoCaja(total, monedaBase)}{tasaEff > 0 && (saldoSel.moneda === 'Bs' || monedaBase === 'Bs') ? ` · tasa ${montoCaja(tasaEff, 'Bs')}` : ''}</span>
+                  )}
+                </span>
+              </div>
             )}
+          </div>
+        )}
+
+        {/* Tasa manual (Bs/$) para este pago: aparece cuando el pago cruza Bs↔$. */}
+        {cruzaBsUsd && (
+          <div className="form-row">
+            <label>Tasa de pago (Bs por $) {tasa > 0 && <span className="muted" style={{ fontWeight: 400 }}>· BCV {montoCaja(tasa, 'Bs')}</span>}</label>
+            <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 200 }}
+              value={tasaManualStr} placeholder={tasa > 0 ? String(tasa) : '0,00'}
+              onChange={(e) => setTasaManualStr(dosDecimales(e.target.value))} />
+            <small className="muted">
+              {monedaBase === 'USD'
+                ? `El total ${montoCaja(total, 'USD')} equivale a ${montoCaja(montoEnMoneda('Bs', totalUsd), 'Bs')} a la tasa ${tasaEff > 0 ? montoCaja(tasaEff, 'Bs') : '—'}.`
+                : `El total ${montoCaja(total, 'Bs')} equivale a ${montoCaja(totalUsd, 'USD')} a la tasa ${tasaEff > 0 ? montoCaja(tasaEff, 'Bs') : '—'}.`}
+              {' '}Si la dejás vacía se usa la tasa BCV.
+            </small>
           </div>
         )}
 
@@ -310,12 +346,12 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
                 <tfoot>
                   <tr>
                     <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>{montoCaja(sumUsdMulti, 'USD')} / {montoCaja(total, 'USD')}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>{montoCaja(sumUsdMulti, 'USD')} / {montoCaja(totalUsd, 'USD')}</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
-            {tasa > 0 && <small className="muted">Bs↔$ usa la tasa BCV {montoCaja(tasa, 'Bs')}.</small>}
+            {tasaEff > 0 && <small className="muted">Bs↔$ usa la tasa {montoCaja(tasaEff, 'Bs')}{(Number(tasaManualStr) || 0) > 0 ? ' (manual)' : ' (BCV)'}.</small>}
           </div>
         )}
 
@@ -332,7 +368,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
               )}
             </div>
             {(Number(comisionMonto) || 0) > 0 && (
-              <small className="muted">Se registra como un egreso aparte (Comisión bancaria) en Tesorería. El pago de la factura sigue siendo {montoCaja(total, 'USD')}.</small>
+              <small className="muted">Se registra como un egreso aparte (Comisión bancaria) en Tesorería. El pago de la factura sigue siendo {montoCaja(total, monedaBase)}.</small>
             )}
           </div>
         )}

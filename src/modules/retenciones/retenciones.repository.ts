@@ -10,9 +10,16 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Orden } from '@/shared/lib/types';
+import { listComprasConRetencion, type CompraDirecta } from '@/modules/pedidos/compras.repository';
+import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 
 const TABLE = 'ordenes';
 const BUCKET = 'compras-oc';
+
+function fmtMonto(n: number | null | undefined, moneda: string): string {
+  const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return moneda === 'Bs' ? `Bs ${v}` : `$ ${v}`;
+}
 
 export type TipoRetencion = 'iva' | 'islr' | 'municipal';
 export const TIPOS_RETENCION: { key: TipoRetencion; label: string }[] = [
@@ -27,9 +34,27 @@ export function labelRetencionModo(v?: string | null): string {
     : '—';
 }
 
+/**
+ * Fila unificada del módulo Retenciones: puede ser una OC o una compra directa.
+ * Los campos de display quedan pre-calculados para que la página no ramifique.
+ */
 export interface RetencionItem {
-  orden: Orden;
+  kind: 'oc' | 'compra_directa';
+  id: string;
+  ocCodigo: string | null;      // N°OC (OC) o código CD (compra directa)
+  opCodigo: string | null;      // OP (OC) o null (compra directa)
   proveedorNombre: string;
+  condicionLabel: string;       // condición de pago (OC) o "Compra directa"
+  retencionLabel: string;       // modo de retención (OC) o "16% IVA · Bs X" (compra directa)
+  moneda: string;
+  total: number;
+  tesoreria: 'pagada' | 'por_pagar' | 'na';
+  finalizada: boolean;
+  finalizadaEn: string | null;
+  tiposComprobante: TipoRetencion[];   // comprobantes cargados (para el filtro por tipo)
+  // Registro subyacente según el tipo (lo usa el modal de detalle).
+  orden?: Orden;
+  compra?: CompraDirecta;
 }
 
 async function mapProveedores(): Promise<Map<string, string>> {
@@ -41,39 +66,77 @@ async function mapProveedores(): Promise<Map<string, string>> {
 // tengan un comprobante cargado (factura/nota subida desde la OC finalizada).
 const FILTRO_COMPROBANTE = 'comprobante_tipo.eq.factura,and(comprobante_tipo.eq.nota_entrega,factura_path.not.is.null)';
 
-/** Retenciones por realizar: OC con comprobante (factura o nota) sin finalizar la retención. */
+function ocToItem(o: Orden, pm: Map<string, string>): RetencionItem {
+  return {
+    kind: 'oc', id: o.id,
+    ocCodigo: o.oc_codigo ?? null, opCodigo: o.codigo,
+    proveedorNombre: (o.proveedor_id && pm.get(o.proveedor_id as string)) || '—',
+    condicionLabel: labelCondicionPago(o.condiciones_pago),
+    retencionLabel: labelRetencionModo(o.retencion_modo),
+    moneda: 'USD', total: Number(o.total) || 0,
+    tesoreria: o.retencion_pagada ? 'pagada' : 'por_pagar',
+    finalizada: !!o.retencion_finalizada, finalizadaEn: o.retencion_finalizada_en ?? null,
+    tiposComprobante: comprobantesDeOrden(o).map((c) => c.tipo),
+    orden: o,
+  };
+}
+
+function compraToItem(c: CompraDirecta): RetencionItem {
+  return {
+    kind: 'compra_directa', id: c.id,
+    ocCodigo: c.codigo, opCodigo: null,
+    proveedorNombre: c.proveedor_nombre || '—',
+    condicionLabel: 'Compra directa',
+    retencionLabel: `${c.retencion_pct}% IVA · ${fmtMonto(c.retencion_monto, c.moneda)}`,
+    moneda: c.moneda || 'Bs', total: Number(c.gasto) || 0,
+    tesoreria: c.estado === 'por_pagar' ? 'por_pagar' : 'pagada',
+    finalizada: !!c.retencion_finalizada, finalizadaEn: c.retencion_finalizada_en ?? null,
+    tiposComprobante: c.retencion_iva_path ? ['iva'] : [],
+    compra: c,
+  };
+}
+
+/** Retenciones por realizar: OC con comprobante + compras directas con retención, sin finalizar. */
 export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
-  const [{ data, error }, pm] = await Promise.all([
+  const [{ data, error }, pm, compras] = await Promise.all([
     supabase.from(TABLE).select('*')
       .or(FILTRO_COMPROBANTE)
       .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
       .order('metodo_pago_en', { ascending: true }),
     mapProveedores(),
+    listComprasConRetencion(false).catch(() => [] as CompraDirecta[]),
   ]);
   if (error) throw error;
-  return (data ?? []).map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
+  const ocs = (data ?? []).map((o) => ocToItem(o as Orden, pm));
+  return [...ocs, ...compras.map(compraToItem)];
 }
 
 /** Retenciones ya finalizadas (comprobantes cargados). */
 export async function listRetencionesHechas(): Promise<RetencionItem[]> {
-  const [{ data, error }, pm] = await Promise.all([
+  const [{ data, error }, pm, compras] = await Promise.all([
     supabase.from(TABLE).select('*')
       .or(FILTRO_COMPROBANTE)
       .eq('retencion_finalizada', true)
       .order('retencion_finalizada_en', { ascending: false }),
     mapProveedores(),
+    listComprasConRetencion(true).catch(() => [] as CompraDirecta[]),
   ]);
   if (error) throw error;
-  return (data ?? []).map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
+  const items = [...(data ?? []).map((o) => ocToItem(o as Orden, pm)), ...compras.map(compraToItem)];
+  // Historial ordenado por fecha de finalización (desc).
+  return items.sort((a, b) => (b.finalizadaEn ?? '').localeCompare(a.finalizadaEn ?? ''));
 }
 
 export async function contarRetencionesPendientes(): Promise<number> {
-  const { count, error } = await supabase.from(TABLE)
-    .select('id', { count: 'exact', head: true })
-    .or(FILTRO_COMPROBANTE)
-    .or('retencion_finalizada.is.null,retencion_finalizada.eq.false');
+  const [{ count, error }, compras] = await Promise.all([
+    supabase.from(TABLE)
+      .select('id', { count: 'exact', head: true })
+      .or(FILTRO_COMPROBANTE)
+      .or('retencion_finalizada.is.null,retencion_finalizada.eq.false'),
+    listComprasConRetencion(false).catch(() => [] as CompraDirecta[]),
+  ]);
   if (error) throw error;
-  return count ?? 0;
+  return (count ?? 0) + compras.length;
 }
 
 async function subirComprobante(ordenId: string, tipo: TipoRetencion, file: File): Promise<{ path: string; nombre: string }> {
