@@ -21,7 +21,7 @@ type RecetaFiltro = '' | 'con_receta' | 'sin_receta' | 'en_proceso' | RecetaFund
 
 export function ExportInventarioModal({ productos, onClose }: Props) {
   const [f, setF] = useState<ExportFiltros>({
-    categoria: '',
+    categorias: [],
     estado: 'activo',
     bajoMinimo: false,
     receta: '',
@@ -46,6 +46,14 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
 
   function update<K extends keyof ExportFiltros>(key: K, value: ExportFiltros[K]) {
     setF((prev) => ({ ...prev, [key]: value }));
+  }
+
+  const catsSel = f.categorias ?? [];
+  function toggleCategoria(c: string) {
+    setF((prev) => {
+      const cur = prev.categorias ?? [];
+      return { ...prev, categorias: cur.includes(c) ? cur.filter((x) => x !== c) : [...cur, c] };
+    });
   }
 
   async function handleExportar(formato: 'xlsx' | 'pdf') {
@@ -102,11 +110,27 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
           />
         </div>
         <div className="form-row">
-          <label>Categoría</label>
-          <select className="select" value={f.categoria ?? ''} onChange={(e) => update('categoria', e.target.value)}>
-            <option value="">Todas</option>
-            {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Categoría {catsSel.length > 0 && <span className="muted">· {catsSel.length} seleccionada(s)</span>}</span>
+            {catsSel.length > 0 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => update('categorias', [])}>Limpiar</button>}
+          </label>
+          <div className="card" style={{ margin: 0, padding: '.4rem .6rem', maxHeight: 190, overflowY: 'auto' }}>
+            {!categorias.length ? (
+              <span className="muted" style={{ fontSize: '.82rem' }}>Sin categorías.</span>
+            ) : (
+              <>
+                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.35rem' }}>
+                  {catsSel.length === 0 ? 'Marcá una o varias. Sin marcar = todas las categorías.' : 'Solo saldrán las categorías marcadas.'}
+                </div>
+                {categorias.map((c) => (
+                  <label key={c} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.15rem 0', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={catsSel.includes(c)} onChange={() => toggleCategoria(c)} />
+                    <span>{c}</span>
+                  </label>
+                ))}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
