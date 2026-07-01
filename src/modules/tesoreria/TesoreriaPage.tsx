@@ -5735,6 +5735,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   const gSubNombre = gSubcats.find((s) => s.id === gSubId)?.nombre ?? null;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura.
+  const [comisionMonto, setComisionMonto] = useState('');
+  const [comisionSaldoId, setComisionSaldoId] = useState('');
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
   const moneda = caja?.moneda ?? 'USD';
 
@@ -5894,6 +5897,13 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
       setError('El comprobante debe ser un PDF o una imagen.'); return;
     }
+    // Comisión bancaria (opcional): sale del saldo elegido de la MISMA caja.
+    const comMontoNum = round2(Number(comisionMonto) || 0);
+    let comision: { cajaId: string; cuenta: CuentaCaja; moneda: string; monto: number } | null = null;
+    if (comMontoNum > 0 && saldosCaja.length) {
+      const sc = saldosCaja.find((s) => s.id === comisionSaldoId) ?? saldosCaja[0];
+      comision = { cajaId, cuenta: sc.cuenta as CuentaCaja, moneda: sc.moneda, monto: comMontoNum };
+    }
     setSaving(true);
     try {
       if (esMultimoneda) {
@@ -5908,7 +5918,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); setSaving(false); return; }
         if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(sumUsdMulti, 'USD')}, total ${monto(totalUsd, 'USD')} (te pasaste por ${monto(round2(sumUsdMulti - totalUsd), 'USD')}).`); setSaving(false); return; }
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
-        await pagarOrdenCompraMulti({ orden: o, cajaId, legs, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, actorEmail: actor, actorName });
+        await pagarOrdenCompraMulti({ orden: o, cajaId, legs, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName });
         notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(sumUsdMulti, 'USD')}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
@@ -5917,7 +5927,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       await pagarOrdenCompra({
         orden: o, cajaId, monto: Number(montoStr) || 0,
         factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null,
-        gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, actorEmail: actor, actorName,
+        gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName,
       });
       notify(`OC ${o.oc_codigo ?? o.codigo} pagada · ${monto(Number(montoStr) || 0, moneda)}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
@@ -6288,6 +6298,25 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             <small className="muted">Se suma al motivo de la OP en el registro de movimientos.</small>
           </div>
         </div>
+
+        {/* Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura. */}
+        {saldosCaja.length > 0 && (
+          <div className="form-row">
+            <label>Comisión bancaria <span className="muted" style={{ fontWeight: 400 }}>(opcional · se descuenta de la caja, no suma a la factura)</span></label>
+            <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input className="input mono" type="number" min={0} step="any" value={comisionMonto} placeholder="0,00"
+                onChange={(e) => setComisionMonto(dosDecimales(e.target.value))} style={{ maxWidth: 140, textAlign: 'right' }} />
+              {(Number(comisionMonto) || 0) > 0 && (
+                <select className="select" style={{ maxWidth: 260 }} value={comisionSaldoId || saldosCaja[0]?.id || ''} onChange={(e) => setComisionSaldoId(e.target.value)}>
+                  {saldosCaja.map((s) => <option key={s.id} value={s.id}>{s.moneda}{s.cuenta ? ` · ${s.cuenta}` : ''} · disp. {monto(Number(s.saldo), s.moneda)}</option>)}
+                </select>
+              )}
+            </div>
+            {(Number(comisionMonto) || 0) > 0 && (
+              <small className="muted">Se registra como un egreso aparte (Comisión bancaria) en el Libro Mayor. El pago de la factura no cambia.</small>
+            )}
+          </div>
+        )}
 
         {/* Anclaje opcional a un gasto: categoría → subcategoría (buscables). */}
         <div className="card" style={{ marginTop: '.25rem' }}>

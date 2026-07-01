@@ -68,6 +68,9 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Comisión bancaria (opcional, solo compra directa): egreso extra de la caja, NO suma a la factura.
+  const [comisionMonto, setComisionMonto] = useState('');
+  const [comisionSaldoId, setComisionSaldoId] = useState('');
   const total = fila.total;
   const esCompra = fila.kind === 'compra';
 
@@ -177,10 +180,18 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
       if (m > Number(saldoSel.saldo) + 0.01) { setError(`La cuenta ${saldoSel.moneda}${cuentaLabel(saldoSel.cuenta)} no tiene saldo suficiente (${montoCaja(Number(saldoSel.saldo), saldoSel.moneda)}).`); return; }
       legs = [{ cuenta: saldoSel.cuenta as CuentaCaja, moneda: saldoSel.moneda, monto: m }];
     }
+    // Comisión bancaria (solo compra directa): sale del saldo elegido (o el del pago).
+    const comMontoNum = round2(Number(comisionMonto) || 0);
+    let comision: { cuenta: CuentaCaja; moneda: string; monto: number } | null = null;
+    if (esCompra && comMontoNum > 0) {
+      const sc = saldosCaja.find((s) => s.id === comisionSaldoId) ?? saldoSel ?? saldosCaja[0];
+      if (!sc) { setError('No hay saldo para descontar la comisión.'); return; }
+      comision = { cuenta: sc.cuenta as CuentaCaja, moneda: sc.moneda, monto: comMontoNum };
+    }
     setSaving(true);
     try {
       if (fila.kind === 'compra' && fila.compra) {
-        await pagarCompraDirecta({ compra: fila.compra, cajaId, legs, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
+        await pagarCompraDirecta({ compra: fila.compra, cajaId, legs, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision, actor, actorName });
       } else if (fila.kind === 'servicio' && fila.servicio) {
         await pagarServicioDirecto({ servicio: fila.servicio, cajaId, legs, actor, actorName });
       }
@@ -308,6 +319,23 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           </div>
         )}
 
+        {esCompra && (
+          <div className="form-row" style={{ marginTop: '.4rem' }}>
+            <label>Comisión bancaria <span className="muted" style={{ fontWeight: 400 }}>(opcional · se descuenta de la caja, no suma a la factura)</span></label>
+            <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input className="input mono" type="number" min={0} step="any" value={comisionMonto} placeholder="0,00"
+                onChange={(e) => setComisionMonto(dosDecimales(e.target.value))} style={{ maxWidth: 140, textAlign: 'right' }} />
+              {(Number(comisionMonto) || 0) > 0 && saldosCaja.length > 0 && (
+                <select className="select" style={{ maxWidth: 240 }} value={comisionSaldoId || saldoSel?.id || saldosCaja[0]?.id || ''} onChange={(e) => setComisionSaldoId(e.target.value)}>
+                  {saldosCaja.map((s) => <option key={s.id} value={s.id}>{s.moneda}{cuentaLabel(s.cuenta)} · {montoCaja(Number(s.saldo), s.moneda)}</option>)}
+                </select>
+              )}
+            </div>
+            {(Number(comisionMonto) || 0) > 0 && (
+              <small className="muted">Se registra como un egreso aparte (Comisión bancaria) en Tesorería. El pago de la factura sigue siendo {montoCaja(total, 'USD')}.</small>
+            )}
+          </div>
+        )}
         {fila.kind === 'compra' && fila.compra && (
           <small className="muted" style={{ display: 'block' }}>Al pagar, los materiales quedan <strong>POR RECIBIR en Inventario</strong>: el almacenista les da entrada y elige el almacén / subalmacén.</small>
         )}

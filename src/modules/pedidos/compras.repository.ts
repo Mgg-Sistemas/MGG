@@ -311,6 +311,8 @@ export interface PagarCompraInput {
   /** Categoría → subcategoría de gasto: las elige TESORERÍA al pagar. */
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura. */
+  comision?: { cuenta: CuentaCaja; moneda: string; monto: number } | null;
   /** Quién paga (usuario de Tesorería). */
   actor: string;
   actorName?: string | null;
@@ -359,6 +361,17 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
       actor: input.actor, actorName: input.actorName ?? null,
     });
     movCajaId = movCaja.id;
+  }
+
+  // 1b) Comisión bancaria (opcional): egreso extra de la MISMA caja, NO suma a la factura.
+  const comMonto = input.comision ? Math.round((Number(input.comision.monto) || 0) * 100) / 100 : 0;
+  if (input.comision && comMonto > 0) {
+    await egresarDivisa({
+      cajaId: input.cajaId, cuenta: input.comision.cuenta, moneda: input.comision.moneda, monto: comMonto,
+      concepto: `Comisión bancaria · compra directa ${compra.codigo ?? compra.producto_nombre}`, categoria: 'comision_bancaria',
+      gastoCategoria: gcat ?? null, gastoSubcategoria: gsub ?? null,
+      actor: input.actor, actorName: input.actorName ?? null,
+    });
   }
 
   // 2) La compra queda POR RECIBIR (la mercancía entra al inventario cuando el

@@ -1099,6 +1099,8 @@ export interface PagarOcInput {
   /** Anclaje opcional a una categoría/subcategoría de gasto (clasifica el egreso). */
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura. */
+  comision?: ComisionBancaria | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -1122,6 +1124,27 @@ function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string, s
     ser.length ? `billetes: ${ser.join(', ')}` : '',
   ].filter(Boolean).join(' · ');
   return `Pago OC ${o.oc_codigo ?? o.codigo}${extra ? ` · ${extra}` : ''}${sufijo ? ` · ${sufijo}` : ''}`;
+}
+
+/** Comisión bancaria: egreso EXTRA de la caja al pagar. NO suma al monto de la factura. */
+export interface ComisionBancaria {
+  cajaId: string;
+  cuenta: CuentaCaja;
+  moneda: string;
+  monto: number;
+}
+
+/** Registra la comisión bancaria como un egreso aparte (categoría 'comision_bancaria',
+ *  casado con la orden). Devuelve el monto aplicado (0 si no hubo). */
+async function egresarComisionOc(o: Orden, comision: ComisionBancaria | null | undefined, actorEmail: string, actorName?: string | null): Promise<number> {
+  const m = Math.round((Number(comision?.monto) || 0) * 100) / 100;
+  if (!comision || m <= 0) return 0;
+  await egresarDivisa({
+    cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: m,
+    concepto: `Comisión bancaria · pago OC ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
+    actor: actorEmail, actorName: actorName ?? null,
+  });
+  return m;
 }
 
 /**
@@ -1148,6 +1171,9 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     actor: input.actorEmail, actorName: input.actorName ?? null,
   });
 
+  // 1b) Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura.
+  const comMonto = await egresarComisionOc(o, input.comision, input.actorEmail, input.actorName ?? null);
+
   // 2) Adjuntos (factura obligatoria por flujo; retención opcional).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
   let retencionPath: string | null = null, retencionNombre: string | null = null;
@@ -1166,7 +1192,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     // Si la OC es por Factura, al pagar se marca automáticamente en Retenciones.
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
-    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...(seriales.length ? { seriales } : {}) }),
+    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}), ...(seriales.length ? { seriales } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1192,6 +1218,8 @@ export interface PagarOcMultiInput {
   /** Anclaje opcional a una categoría/subcategoría de gasto (clasifica los egresos). */
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura. */
+  comision?: ComisionBancaria | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -1226,6 +1254,9 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
     movIds.push(mov.id);
   }
 
+  // Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura.
+  const comMonto = await egresarComisionOc(o, input.comision, input.actorEmail, input.actorName ?? null);
+
   let facturaPath: string | null = null, facturaNombre: string | null = null;
   if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
 
@@ -1241,6 +1272,7 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
     historial: appendHistorial(o, 'pagada', input.actorEmail, {
       oc_codigo: o.oc_codigo,
       multipago: legs.map((l) => ({ moneda: l.moneda, cuenta: l.cuenta, monto: l.monto })),
+      ...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}),
       ...(seriales.length ? { seriales } : {}),
     }),
   };
