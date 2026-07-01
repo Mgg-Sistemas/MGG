@@ -484,7 +484,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       {cerrarOpen && (
         <CerrarRecepcionModal grupo={grupo} actor={actor} miNombre={miNombre} confirmar={setConfirmar}
           datos={{ recepciones, minerales, analisis, humProv, humFinal, pesajes, conciliaciones, totales }}
-          onClose={() => setCerrarOpen(false)} />
+          onCerrado={reload} onClose={() => setCerrarOpen(false)} />
       )}
 
       {recNueva && (
@@ -1312,10 +1312,11 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
 }
 
 /* ───────────── CERRAR RECEPCIÓN · snapshot + histórico ───────────── */
-function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onClose }: {
+function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onCerrado, onClose }: {
   grupo: RecepcionGrupo; actor: string; miNombre: string;
   datos: Record<string, unknown>;
-  confirmar: (c: { message: string; onConfirm: () => void } | null) => void; onClose: () => void;
+  confirmar: (c: { message: string; onConfirm: () => void } | null) => void;
+  onCerrado: () => Promise<void>; onClose: () => void;
 }) {
   const [cierres, setCierres] = useState<RecepcionCierre[]>([]);
   const [numero, setNumero] = useState('');
@@ -1340,22 +1341,28 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onClos
   }, [grupo.id]);
   useEffect(() => { void cargar(); }, [cargar]);
 
-  async function cerrar() {
+  function cerrar() {
     const n = Math.floor(Number(numero) || 0);
     if (n <= 0) { toast('Indicá el número de la recepción', 'error'); return; }
     // Si hay neto seco con tasa final, exigimos almacén/subalmacén para la entrada al inventario.
     if (netoSeco > 0 && Number(tasaFinal ?? 0) > 0 && !almacenNeto) {
       toast('Elegí el almacén / subalmacén donde entra el TOTAL NETO seco', 'error'); return;
     }
-    setSaving(true);
-    try {
-      await crearCierre({ grupoId: grupo.id, grupoNombre: grupo.nombre, numero: n, datos, tasaFinal, almacenNeto: almacenNeto || null }, actor, miNombre);
-      toast(`Recepción N° ${n} cerrada${netoSeco > 0 && Number(tasaFinal ?? 0) > 0 && almacenNeto ? ` · ${n2(netoSeco)} Kg al inventario` : ''}`, 'success');
-      setAlmacenNeto('');
-      await cargar();
-    }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar', 'error'); }
-    finally { setSaving(false); }
+    // Cerrar VACÍA la tarjeta (queda copia en el histórico): confirmamos porque es irreversible.
+    confirmar({
+      message: `Al cerrar la Recepción N° ${n} se guarda una copia de TODO en el histórico y la tarjeta «${grupo.nombre}» queda EN BLANCO (se borran recepciones, laboratorio, humedad, pesajes, conciliación y totales de esta tarjeta). ¿Continuar?`,
+      onConfirm: async () => {
+        confirmar(null);
+        setSaving(true);
+        try {
+          await crearCierre({ grupoId: grupo.id, grupoNombre: grupo.nombre, numero: n, datos, tasaFinal, almacenNeto: almacenNeto || null }, actor, miNombre);
+          toast(`Recepción N° ${n} cerrada${netoSeco > 0 && Number(tasaFinal ?? 0) > 0 && almacenNeto ? ` · ${n2(netoSeco)} Kg al inventario` : ''}`, 'success');
+          await onCerrado();   // refresca la tarjeta (ahora vacía)
+          onClose();           // cierra el modal: los datos ya se vaciaron, evita doble cierre
+        }
+        catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar', 'error'); setSaving(false); }
+      },
+    });
   }
   function borrar(c: RecepcionCierre) {
     confirmar({ message: `¿Borrar el cierre N° ${c.numero}?${c.neto_seco_mov_id ? ' Se revertirá el neto seco que entró al inventario.' : ''}`, onConfirm: async () => {
@@ -1370,7 +1377,7 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onClos
     <Modal title={`🔒 Cerrar recepción · ${grupo.nombre}`} size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <div className="card" style={{ marginBottom: '.9rem' }}>
         <div className="card-title"><span>Cerrar la recepción actual</span></div>
-        <p className="muted" style={{ fontSize: '.84rem', marginTop: 0 }}>Guarda un snapshot con <strong>TODOS los datos</strong> de esta tarjeta (recepciones, laboratorio, humedad, pesos, conciliación y totales) en el histórico.</p>
+        <p className="muted" style={{ fontSize: '.84rem', marginTop: 0 }}>Guarda un snapshot con <strong>TODOS los datos</strong> de esta tarjeta (recepciones, laboratorio, humedad prov/final, pesajes, conciliación y totales) en el histórico y <strong>deja la tarjeta EN BLANCO</strong> para la próxima recepción. La configuración de columnas del laboratorio (minerales) se conserva.</p>
         <div className="form-grid">
           <div className="form-row" style={{ maxWidth: 200 }}>
             <label>N° de Recepción</label>

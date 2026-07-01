@@ -906,7 +906,25 @@ export async function crearCierre(
   };
   const { data, error } = await supabase.from('recepcion_cierres').insert(row).select('*').single();
   if (error) throw error;
+  // 3) Vaciar la tarjeta: el cierre ya guardó copia de TODO en el histórico (datos jsonb).
+  //    Se borran solo las tablas por-tarjeta (grupo_id). NO se toca recepcion_minerales
+  //    (config global de columnas de laboratorio, compartida por todas las tarjetas).
+  await limpiarDatosGrupo(input.grupoId);
   return data as RecepcionCierre;
+}
+
+/** Borra TODOS los datos por-tarjeta de un grupo (recepciones, laboratorio·lecturas,
+ *  humedad prov/final, pesajes, conciliaciones, totales). Deja la tarjeta en blanco.
+ *  La config global de minerales (columnas) y los cierres (histórico) se conservan. */
+async function limpiarDatosGrupo(grupoId: string): Promise<void> {
+  const tablas = [
+    'recepciones', 'recepcion_analisis', 'recepcion_humedad_prov',
+    'recepcion_humedad_final', 'recepcion_pesajes', 'recepcion_conciliaciones', 'recepcion_totales',
+  ] as const;
+  for (const t of tablas) {
+    const { error } = await supabase.from(t).delete().eq('grupo_id', grupoId);
+    if (error) throw error;
+  }
 }
 
 export async function eliminarCierre(id: string, actor?: string, actorName?: string | null): Promise<void> {
