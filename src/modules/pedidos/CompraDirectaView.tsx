@@ -535,9 +535,17 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
   const [nota, setNota] = useState(compra.nota ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Tasa BCV (Bs/$) para mostrar el equivalente en $ cuando la compra es en Bs.
-  const [tasaUsd, setTasaUsd] = useState(0);
-  useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasaUsd(Number(t.usd) || 0); }).catch(() => { /* sin tasa */ }); }, []);
+  // Tasa BCV (Bs/$) para el equivalente en $ cuando la compra es en Bs. Se precarga
+  // con la del día pero es MODIFICABLE.
+  const [tasaStr, setTasaStr] = useState('');
+  const [tasaBcv, setTasaBcv] = useState(0);
+  useEffect(() => {
+    getTasaHoy().then((t) => {
+      const v = Number(t.usd) || 0;
+      if (v > 0) { setTasaBcv(v); setTasaStr((prev) => prev || String(v)); }
+    }).catch(() => { /* sin tasa */ });
+  }, []);
+  const tasaUsd = Number(tasaStr) || 0;
 
   const setLinea = (key: number, patch: Partial<MontarLinea>) => setLineas((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const removeLinea = (key: number) => setLineas((ls) => ls.filter((l) => l.key !== key));
@@ -650,6 +658,20 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
           </div>
           {moneda === 'Bs' && <small className="muted">En Bs se suma el IVA (16%) al total y podés registrar la retención de IVA.</small>}
         </div>
+
+        {moneda === 'Bs' && (
+          <div className="form-row">
+            <label>Tasa BCV (Bs por $) {tasaBcv > 0 && <span className="muted" style={{ fontWeight: 400 }}>· hoy {montoCaja(tasaBcv, 'Bs')}</span>}</label>
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 180 }}
+                value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} placeholder="0,00" />
+              {tasaBcv > 0 && Number(tasaStr) !== tasaBcv && (
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaStr(String(tasaBcv))}>↻ Usar BCV ({montoCaja(tasaBcv, 'Bs')})</button>
+              )}
+            </div>
+            <small className="muted">Se usa para mostrar el equivalente en $. Es modificable.</small>
+          </div>
+        )}
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
