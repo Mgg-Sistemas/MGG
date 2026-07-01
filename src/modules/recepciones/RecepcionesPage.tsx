@@ -218,7 +218,7 @@ export function RecepcionesPage() {
   const [loading, setLoading] = useState(true);
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [nombreNuevo, setNombreNuevo] = useState('');
-  const [confirmar, setConfirmar] = useState<{ message: string; onConfirm: () => void } | null>(null);
+  const [confirmar, setConfirmar] = useState<{ message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null>(null);
 
   const cargar = useCallback(async () => { setGrupos(await listGrupos()); }, []);
   useEffect(() => {
@@ -321,7 +321,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
   const [recEdit, setRecEdit] = useState<Recepcion | null>(null);
   const [recNueva, setRecNueva] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
-  const [confirmar, setConfirmar] = useState<{ message: string; onConfirm: () => void } | null>(null);
+  const [confirmar, setConfirmar] = useState<{ message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null>(null);
 
   const reload = useCallback(async () => {
     const [rs, ms, as, hp, hf, ps, cc, tt] = await Promise.all([listRecepciones(grupoId), listMinerales(true), listAnalisis(grupoId), listHumedadProv(grupoId), listHumedadFinal(grupoId), listPesajes(grupoId), listConciliaciones(grupoId), listTotales(grupoId)]);
@@ -516,7 +516,8 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
         <ConfigMineralesModal onClose={() => setConfigOpen(false)} onChanged={reload} />
       )}
       {confirmar && (
-        <ConfirmDialog title="Confirmar" message={confirmar.message} confirmText="Borrar" danger
+        <ConfirmDialog title="Confirmar" message={confirmar.message}
+          confirmText={confirmar.confirmText ?? 'Borrar'} danger={confirmar.danger ?? !confirmar.success} success={confirmar.success}
           onConfirm={confirmar.onConfirm} onCancel={() => setConfirmar(null)} />
       )}
     </div>
@@ -824,7 +825,7 @@ function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, act
   grupoId: string; conciliaciones: RecepcionConciliacion[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
   netoSecoSum: number;
   onReload: () => Promise<void>; onClose: () => void;
-  confirmar: (c: { message: string; onConfirm: () => void } | null) => void;
+  confirmar: (c: { message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null) => void;
 }) {
   const [editor, setEditor] = useState<RecepcionConciliacion | 'nueva' | null>(null);
   const nextNum = conciliaciones.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
@@ -1129,7 +1130,7 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
   grupoId: string; totales: RecepcionTotales[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
   netoSecoSum: number;
   onReload: () => Promise<void>; onClose: () => void;
-  confirmar: (c: { message: string; onConfirm: () => void } | null) => void;
+  confirmar: (c: { message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null) => void;
 }) {
   const [editor, setEditor] = useState<RecepcionTotales | 'nuevo' | null>(null);
   const nextNum = totales.reduce((m, t) => Math.max(m, t.numero), 0) + 1;
@@ -1357,7 +1358,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
 function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onCerrado, onClose }: {
   grupo: RecepcionGrupo; actor: string; miNombre: string;
   datos: Record<string, unknown>;
-  confirmar: (c: { message: string; onConfirm: () => void } | null) => void;
+  confirmar: (c: { message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null) => void;
   onCerrado: () => Promise<void>; onClose: () => void;
 }) {
   const [cierres, setCierres] = useState<RecepcionCierre[]>([]);
@@ -1393,6 +1394,7 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onCerr
     // Cerrar VACÍA la tarjeta (queda copia en el histórico): confirmamos porque es irreversible.
     confirmar({
       message: `Al cerrar la Recepción N° ${n} se guarda una copia de TODO en el histórico y la tarjeta «${grupo.nombre}» queda EN BLANCO (se borran recepciones, laboratorio, humedad, pesajes, conciliación y totales de esta tarjeta). ¿Continuar?`,
+      confirmText: 'Continuar', success: true,
       onConfirm: async () => {
         confirmar(null);
         setSaving(true);
