@@ -3034,8 +3034,10 @@ create policy "rec_hum_final read auth" on public.recepcion_humedad_final for se
 create policy "rec_hum_final write op"  on public.recepcion_humedad_final for all using (public.is_operativo()) with check (public.is_operativo());
 
 -- Pesajes de bigbags (Pesos Húmedos / Pesos Secos). Histórico modificable.
---   bigbags: [{proc_h, peso_h, proc_s, peso_s}] · BIG BAG = -(bigbags con peso) * factor
---   TOTAL NETO = suma de pesos + BIG BAG (permite negativos).
+--   bigbags: [{proc_h, peso_h, proc_s, peso_s, categoria, cant}]
+--   categoria: bigbag(×1,5) · saco(×0,06) · hielo(×0,05); cant = cantidad de la categoría
+--   DESCUENTO = -Σ (factor × cant) de cada fila con peso (ej. 7 big bags → -1,5×7)
+--   TOTAL NETO = suma de pesos + DESCUENTO (permite negativos).
 create table if not exists public.recepcion_pesajes (
   id uuid primary key default gen_random_uuid(),
   grupo_id uuid references public.recepcion_grupos(id) on delete cascade,

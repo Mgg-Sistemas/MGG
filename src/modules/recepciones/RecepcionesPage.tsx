@@ -678,7 +678,7 @@ function HumedadFinalRow({ fila, canWrite, onBorrar, onReload }: {
 }
 
 /* ───────────── Pesos (Pesaje): modal con dos tablas (húmedos / secos) ───────────── */
-type RowDraft = { proc_h: string; peso_h: string; proc_s: string; peso_s: string; categoria: PesoModo };
+type RowDraft = { proc_h: string; peso_h: string; proc_s: string; peso_s: string; categoria: PesoModo; cant: string };
 /** Categorías por fila: en una misma corrida pueden convivir las 3. */
 const PESO_MODES: Record<PesoModo, { label: string; factor: number }> = {
   bigbag: { label: 'BIG BAG', factor: 1.5 },
@@ -694,6 +694,7 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, onClose, onSaved }: {
     proc_h: b.proc_h ?? '', peso_h: b.peso_h == null ? '' : String(b.peso_h),
     proc_s: b.proc_s ?? '', peso_s: b.peso_s == null ? '' : String(b.peso_s),
     categoria: (b.categoria ?? 'bigbag') as PesoModo,
+    cant: b.cant == null ? '1' : String(b.cant),
   })));
   const [nota, setNota] = useState(pesaje?.nota ?? '');
   const [saving, setSaving] = useState(false);
@@ -703,12 +704,14 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, onClose, onSaved }: {
     proc_h: r.proc_h.trim() || null, peso_h: parseNum(r.peso_h),
     proc_s: r.proc_s.trim() || null, peso_s: parseNum(r.peso_s),
     categoria: r.categoria,
+    cant: (parseNum(r.cant) ?? 0) > 0 ? (parseNum(r.cant) as number) : 1,
   }));
 
-  const addBigbag = () => setRows((rs) => [...rs, { proc_h: '', peso_h: '', proc_s: '', peso_s: '', categoria: 'bigbag' }]);
+  const addBigbag = () => setRows((rs) => [...rs, { proc_h: '', peso_h: '', proc_s: '', peso_s: '', categoria: 'bigbag', cant: '1' }]);
   const removeRow = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i));
   const setCell = (i: number, key: 'proc_h' | 'peso_h' | 'proc_s' | 'peso_s', val: string) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [key]: val } : r)));
   const setCat = (i: number, cat: PesoModo) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, categoria: cat } : r)));
+  const setCant = (i: number, val: string) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, cant: val } : r)));
 
   async function guardar() {
     setError(null); setSaving(true);
@@ -732,14 +735,14 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, onClose, onSaved }: {
     <Modal title={pesaje ? `⚖ PESOS GUARDADOS DÍA ${diaVE(pesaje.fecha)}` : '⚖ Añadir pesos — Pesaje'} size="xl" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', marginBottom: '.6rem' }}>
-        <span className="muted" style={{ fontSize: '.8rem' }}>Cada fila lleva su <strong>categoría</strong> (BIG BAG ×1,5 · SACO ×0,06 · BOLSA DE HIELO ×0,05). DESCUENTO = −Σ del factor de cada fila con peso · TOTAL NETO = suma de pesos + DESCUENTO.</span>
+        <span className="muted" style={{ fontSize: '.8rem' }}>Cada fila lleva su <strong>categoría</strong> (BIG BAG ×1,5 · SACO ×0,06 · BOLSA DE HIELO ×0,05) y su <strong>cantidad</strong>. DESCUENTO = −Σ (factor × cantidad) de cada fila con peso (ej. 7 big bags → −1,5×7) · TOTAL NETO = suma de pesos + DESCUENTO.</span>
         <button className="btn btn-sm btn-primary" onClick={addBigbag}>+ Añadir peso</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem' }}>
         <PesajeTabla titulo="PESOS HÚMEDOS" bg="#9db8e0" rows={rows} lado="h"
-          bigBag={bigBagLado(bigbags, 'h')} totalNeto={totalNetoLado(bigbags, 'h')} onCell={setCell} onCat={setCat} onRemove={removeRow} />
+          bigBag={bigBagLado(bigbags, 'h')} totalNeto={totalNetoLado(bigbags, 'h')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
         <PesajeTabla titulo="PESOS SECOS" bg="#cdddf3" rows={rows} lado="s"
-          bigBag={bigBagLado(bigbags, 's')} totalNeto={totalNetoLado(bigbags, 's')} onCell={setCell} onCat={setCat} onRemove={removeRow} />
+          bigBag={bigBagLado(bigbags, 's')} totalNeto={totalNetoLado(bigbags, 's')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
       </div>
       <div className="form-row" style={{ marginTop: '.85rem' }}>
         <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
@@ -749,11 +752,11 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, onClose, onSaved }: {
   );
 }
 
-function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat, onRemove }: {
+function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat, onCant, onRemove }: {
   titulo: string; bg: string; rows: RowDraft[]; lado: 'h' | 's';
   bigBag: number; totalNeto: number;
   onCell: (i: number, key: 'proc_h' | 'peso_h' | 'proc_s' | 'peso_s', val: string) => void;
-  onCat: (i: number, cat: PesoModo) => void; onRemove: (i: number) => void;
+  onCat: (i: number, cat: PesoModo) => void; onCant: (i: number, val: string) => void; onRemove: (i: number) => void;
 }) {
   const procKey = lado === 'h' ? 'proc_h' as const : 'proc_s' as const;
   const pesoKey = lado === 'h' ? 'peso_h' as const : 'peso_s' as const;
@@ -762,10 +765,10 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat,
       <div style={{ background: bg, color: '#13294b', fontWeight: 800, textAlign: 'center', padding: '.55rem', letterSpacing: '.04em' }}>{titulo}</div>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
-          <thead><tr><th>PROCEDENCIA</th><th style={{ textAlign: 'right' }}>PESO</th><th style={{ textAlign: 'center' }}>CATEGORÍA</th><th></th></tr></thead>
+          <thead><tr><th>PROCEDENCIA</th><th style={{ textAlign: 'right' }}>PESO</th><th style={{ textAlign: 'center' }}>CATEGORÍA</th><th style={{ textAlign: 'center' }}>CANT.</th><th></th></tr></thead>
           <tbody>
             {!rows.length ? (
-              <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin pesos. Usá «+ Añadir peso».</td></tr>
+              <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin pesos. Usá «+ Añadir peso».</td></tr>
             ) : rows.map((r, i) => (
               <tr key={i}>
                 <td style={{ padding: 2 }}><input className="input" style={{ padding: '.2rem .35rem', textTransform: 'uppercase' }} value={r[procKey]} onChange={(e) => onCell(i, procKey, e.target.value)} placeholder="A / B / Ali" /></td>
@@ -775,6 +778,7 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat,
                     {PESO_MODOS_ORDEN.map((m) => <option key={m} value={m}>{PESO_MODES[m].label}</option>)}
                   </select>
                 </td>
+                <td style={{ padding: 2 }}><input className="input mono" style={{ width: 56, textAlign: 'center', padding: '.2rem .3rem' }} inputMode="numeric" value={r.cant} onChange={(e) => onCant(i, e.target.value)} placeholder="1" title="Cantidad de la categoría (ej. 7 big bags)" /></td>
                 <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => onRemove(i)} title="Quitar peso">✕</button></td>
               </tr>
             ))}
@@ -785,11 +789,13 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat,
               <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: 'var(--danger, #e5484d)' }}>{n2(bigBag)}</td>
               <td style={{ fontWeight: 800, color: 'var(--danger, #e5484d)' }}>DESCUENTO</td>
               <td></td>
+              <td></td>
             </tr>
             <tr>
               <td></td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(totalNeto)}</td>
               <td style={{ fontWeight: 800 }}>TOTAL NETO</td>
+              <td></td>
               <td></td>
             </tr>
           </tfoot>

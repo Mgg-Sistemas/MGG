@@ -396,9 +396,10 @@ export function sumaCol(vals: Array<number | null | undefined>): number {
 }
 
 /* ───────────── Pesajes de bigbags (Pesos Húmedos / Pesos Secos) ─────────────
-   Histórico modificable. Cada bigbag tiene procedencia + peso de cada lado.
-   BIG BAG  = −(bigbags con peso) × factor (1,5)
-   TOTAL NETO = Σ pesos + BIG BAG (permite negativos). */
+   Histórico modificable. Cada fila tiene procedencia + peso de cada lado, su
+   categoría (big bag ×1,5 · saco ×0,06 · hielo ×0,05) y su cantidad.
+   DESCUENTO = −Σ (factor × cantidad) de cada fila con peso (ej. 7 big bags → −1,5×7)
+   TOTAL NETO = Σ pesos + DESCUENTO (permite negativos). */
 /** Categoría (deducción) de cada fila del pesaje. En una misma corrida pueden convivir
  *  las 3: big bag (×1,5), saco (×0,06) y bolsa de hielo (×0,05). */
 export type PesoModo = 'bigbag' | 'saco' | 'hielo';
@@ -409,6 +410,7 @@ export interface PesajeBigbag {
   proc_s: string | null;   // procedencia (seco)
   peso_s: number | null;   // peso seco
   categoria?: PesoModo;    // bigbag (def.) · saco · hielo — su factor define la deducción de la fila
+  cant?: number;           // cantidad de la categoría (ej. 7 bigbags) → deducción = factor × cant (def. 1)
 }
 export interface RecepcionPesaje {
   id: string;
@@ -437,13 +439,16 @@ export async function nextItemPesaje(grupoId: string): Promise<number> {
   return (num((data as { item?: number } | null)?.item) || 0) + 1;
 }
 
-/** Deducción del lado = −Σ del factor de cada fila CON peso (según su categoría).
- *  Filas sin categoría (datos viejos) cuentan como big bag (×1,5). */
+/** Deducción del lado = −Σ (factor × cantidad) de cada fila CON peso (según su categoría).
+ *  Ej.: 7 big bags → −1,5 × 7. Filas sin categoría (datos viejos) cuentan como big bag (×1,5);
+ *  sin cantidad, cuentan como 1. */
 export function bigBagLado(bigbags: PesajeBigbag[], lado: 'h' | 's'): number {
   return -bigbags.reduce((a, b) => {
     const peso = num(lado === 'h' ? b.peso_h : b.peso_s);
     if (peso <= 0) return a;
-    return a + (PESO_FACTOR[(b.categoria ?? 'bigbag') as PesoModo] ?? PESO_FACTOR.bigbag);
+    const factor = PESO_FACTOR[(b.categoria ?? 'bigbag') as PesoModo] ?? PESO_FACTOR.bigbag;
+    const cant = num(b.cant) > 0 ? num(b.cant) : 1;
+    return a + factor * cant;
   }, 0);
 }
 /** Σ pesos del lado + deducción (puede ser negativo). */
@@ -469,6 +474,7 @@ function limpiarBigbags(bigbags: PesajeBigbag[]): PesajeBigbag[] {
     proc_s: b.proc_s?.toString().trim() || null,
     peso_s: b.peso_s != null && Number.isFinite(Number(b.peso_s)) ? Number(b.peso_s) : null,
     categoria: (b.categoria ?? 'bigbag') as PesoModo,
+    cant: b.cant != null && Number.isFinite(Number(b.cant)) && Number(b.cant) > 0 ? Number(b.cant) : 1,
   }));
 }
 

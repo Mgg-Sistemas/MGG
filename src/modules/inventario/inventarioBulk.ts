@@ -479,7 +479,8 @@ export async function descargarPlantillaExcel(): Promise<void> {
 /* ──────────── Export filtrado ──────────── */
 
 export interface ExportFiltros {
-  categoria?: string;
+  categoria?: string;          // (legado) una sola categoría
+  categorias?: string[];       // multi-selección: si trae categorías, el reporte incluye SOLO esas
   estado?: 'activo' | 'inactivo' | '';
   bajoMinimo?: boolean;
   receta?: '' | 'con_receta' | 'sin_receta' | 'en_proceso' | RecetaFundicion;
@@ -491,7 +492,7 @@ export interface ExportFiltros {
 export function filtrarParaExport(productos: Producto[], f: ExportFiltros): Producto[] {
   const q = f.texto?.trim().toLowerCase() ?? '';
   return productos.filter((p) => {
-    if (f.categoria && p.categoria !== f.categoria) return false;
+    if (f.categorias?.length ? !f.categorias.includes(p.categoria) : (f.categoria && p.categoria !== f.categoria)) return false;
     if (f.estado && p.estado !== f.estado) return false;
     if (f.bajoMinimo && (p.stock ?? 0) > (p.stock_min ?? 0)) return false;
     if (f.almacen && p.almacen !== f.almacen) return false;
