@@ -37,6 +37,23 @@ function parseNum(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Parser de las casillas del LABORATORIO (leyes/%: valores chicos, nunca miles).
+ * Acá el punto Y la coma son separador DECIMAL: `0.48` y `0,48` valen ambos 0,48
+ * (a diferencia de los pesos en Kg, donde `1.500` = 1500). El ÚLTIMO separador es
+ * el decimal; cualquier otro punto/coma se ignora.
+ */
+function parseNumCell(s: string): number | null {
+  const raw = String(s ?? '').trim().replace(/\s/g, '');
+  if (raw === '') return null;
+  const sep = Math.max(raw.lastIndexOf(','), raw.lastIndexOf('.'));
+  const t = sep >= 0
+    ? raw.slice(0, sep).replace(/[.,]/g, '') + '.' + raw.slice(sep + 1).replace(/[.,]/g, '')
+    : raw;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
 // Fecha (día) en formato es-VE: 30/06/2026.
 const diaVE = (iso: string) => new Date(iso).toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -105,7 +122,7 @@ function LabGrid({ grupoId, minerales, analisis, canWrite, actor, miNombre, onRe
   const removeCol = (ci: number) => setCols((cs) => { const c = cs[ci]; if (c?.id) setDelIds((d) => [...d, c.id!]); return cs.filter((_, j) => j !== ci); });
 
   const promMetal = (clave: string): number | null => {
-    const xs = cols.map((c) => parseNum(c.vals[clave])).filter((x): x is number => x != null);
+    const xs = cols.map((c) => parseNumCell(c.vals[clave])).filter((x): x is number => x != null);
     return xs.length ? round2(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
   };
 
@@ -115,10 +132,10 @@ function LabGrid({ grupoId, minerales, analisis, canWrite, actor, miNombre, onRe
       for (const id of delIds) await eliminarAnalisis(id);
       let n = analisis.reduce((m, a) => Math.max(m, a.n_analisis), 0);
       for (const c of cols) {
-        const vacia = minerales.every((m) => parseNum(c.vals[m.clave]) == null);
+        const vacia = minerales.every((m) => parseNumCell(c.vals[m.clave]) == null);
         if (!c.id && vacia) continue; // no creamos lecturas vacías
         const valores: Record<string, ValorMineral> = {};
-        for (const m of minerales) valores[m.clave] = { prom: parseNum(c.vals[m.clave]) };
+        for (const m of minerales) valores[m.clave] = { prom: parseNumCell(c.vals[m.clave]) };
         if (c.id) await actualizarAnalisis(c.id, { valores });
         else { n += 1; await crearAnalisis(grupoId, { n_analisis: n, valores }, actor, miNombre); }
       }

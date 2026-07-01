@@ -650,7 +650,7 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
   );
 
   return (
-    <Modal title={`🔒 Cerrar caja · ${centro}`} size="sm" onClose={onClose} footer={footer}>
+    <Modal title={`🔒 Cerrar caja · ${centro}`} size="md" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
       {!cajaActual ? (
         <p className="muted" style={{ margin: 0 }}>No hay una caja abierta para cerrar.</p>

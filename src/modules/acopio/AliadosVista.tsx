@@ -300,7 +300,7 @@ function CerrarCajaAliadoModal({ aliado, resumen, esOro, unidad, actor, actorNam
   }
 
   return (
-    <Modal title={`🔒 Cerrar caja · ${aliado.nombre}`} size="sm" onClose={onClose} footer={
+    <Modal title={`🔒 Cerrar caja · ${aliado.nombre}`} size="md" onClose={onClose} footer={
       <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving}>{saving ? 'Cerrando…' : '🔒 Cerrar y abrir nuevo'}</button></>
     }>
