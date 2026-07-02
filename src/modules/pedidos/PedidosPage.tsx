@@ -76,7 +76,8 @@ import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
-import { createProducto, getUnidades, siguienteSku } from '@/modules/inventario/inventario.repository';
+import { createProducto, getUnidades, siguienteSku, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
+import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
@@ -820,7 +821,25 @@ export function PedidosPage() {
           onClose={() => setModal({ kind: 'none' })}
           onConfirm={async (motivo) => {
             try {
-              await cancelarOrden(modal.orden, usuario?.email ?? user?.email ?? 'sistema', motivo);
+              const cancelada = modal.orden;
+              await cancelarOrden(cancelada, usuario?.email ?? user?.email ?? 'sistema', motivo);
+              // Servicio con repuestos del inventario: se restituye el stock que se había descontado al crear.
+              if (cancelada.clase === 'servicio') {
+                for (const it of (Array.isArray(cancelada.items) ? cancelada.items : [])) {
+                  const qty = Number(it.repuesto_cantidad) || 0;
+                  if (!it.repuesto_producto_id || qty <= 0) continue;
+                  try {
+                    await registrarMovimiento({
+                      producto_id: it.repuesto_producto_id, tipo: 'entrada', delta: qty,
+                      almacen: it.repuesto_almacen ?? undefined,
+                      actor: usuario?.email ?? user?.email ?? 'sistema', actor_name: usuario?.nombre ?? null,
+                      ref_tipo: 'servicio_reversa', ref_id: cancelada.id, ref_codigo: cancelada.codigo ?? undefined,
+                      detalle: `Reversa de repuesto · servicio ${cancelada.codigo ?? ''} cancelado`,
+                      precio_unitario: null,
+                    });
+                  } catch { /* la reversa no bloquea la cancelación */ }
+                }
+              }
               notify(`Orden cancelada: ${modal.orden.codigo}`, 'warning', { link: '#/app/pedidos' });
               setModal({ kind: 'none' });
               await refresh();
@@ -3085,7 +3104,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 }
 
 /* ───────────── Nuevo Servicio (clase='servicio') ───────────── */
-interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; precio: string; bombonas: string; kg: string; }
+interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; precio: string; bombonas: string; kg: string; repuestoId: string; repuestoCant: string; }
 
 /** ¿La categoría es de recarga (gas / oxígeno / extintores)? → pide bombonas + KG. */
 function esRecargaGas(cat: string): boolean {
@@ -3164,9 +3183,9 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           tipo = it.nombre ?? '';
         }
       }
-      return { id: i + 1, categoria: cat, tipo, equipoId: it.equipo_id ?? '', cantidad: String(it.cantidad ?? 1), precio: String(it.precio ?? ''), bombonas: String(it.bombonas ?? ''), kg: String(it.kg_recarga ?? '') };
+      return { id: i + 1, categoria: cat, tipo, equipoId: it.equipo_id ?? '', cantidad: String(it.cantidad ?? 1), precio: String(it.precio ?? ''), bombonas: String(it.bombonas ?? ''), kg: String(it.kg_recarga ?? ''), repuestoId: it.repuesto_producto_id ?? '', repuestoCant: it.repuesto_cantidad != null ? String(it.repuesto_cantidad) : '1' };
     });
-    return out.length ? out : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '' }];
+    return out.length ? out : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }];
   };
 
   const [codigo, setCodigo] = useState(orden?.codigo ?? 'SV-…');
@@ -3178,7 +3197,9 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
   const [nuevaUnidad, setNuevaUnidad] = useState('');
   const [solicitantePersona, setSolicitantePersona] = useState(esEdicion ? (orden!.solicitante_persona ?? '') : '');
   const [nota, setNota] = useState(esEdicion ? (orden!.notas ?? '') : '');
-  const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '' }]);
+  const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]);
+  const [productosStock, setProductosStock] = useState<ProductoConStock[]>([]);
+  useEffect(() => { listProductosConStock().then(setProductosStock).catch(() => setProductosStock([])); }, []);
   const [seq, setSeq] = useState(() => (esEdicion ? lineasDeOrden(orden!).length + 1 : 2));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3191,7 +3212,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
     listCatalogoPedido('unidad_solicitante', true).then((u) => setUnidades(u.map((x) => x.nombre))).catch(() => { /* sin catálogo */ });
   }, [esEdicion]);
 
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]); setSeq((s) => s + 1); };
   const setLinea = (id: number, patch: Partial<Omit<LineaServicio, 'id'>>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const delLinea = (id: number) => setLineas((ls) => ls.filter((l) => l.id !== id));
 
@@ -3223,8 +3244,13 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
         const eq = equipos.find((x) => x.id === l.equipoId);
         if (!eq) { setError(`Elegí el equipo de "${cat}".`); return; }
         const desc = l.tipo.trim();
+        // Repuesto del inventario (opcional): si el repuesto sale del stock, se valida y se descuenta.
+        const prod = l.repuestoId ? productosStock.find((p) => p.id === l.repuestoId) ?? null : null;
+        const prodCant = prod ? (Number(l.repuestoCant) || 0) : 0;
+        if (prod && prodCant <= 0) { setError(`Indicá cuántas unidades de "${prod.nombre}" se toman del inventario.`); return; }
+        if (prod && prodCant > prod.stock) { setError(`Solo hay ${prod.stock} ${prod.unidad} de "${prod.nombre}" en el inventario.`); return; }
         // equipo_id mantiene el vínculo con Control de Maquinaria (aparece en su módulo de mantenimiento).
-        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${eq.equipo}${desc ? ` · ${desc}` : ''}${recargaSuf}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: desc.toUpperCase() || null, equipo_id: eq.id, equipo_nombre: eq.equipo, ...recarga, comprar: true });
+        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${eq.equipo}${desc ? ` · ${desc}` : ''}${recargaSuf}${prod && prodCant ? ` · ${prodCant} ${prod.nombre} (inventario)` : ''}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: desc.toUpperCase() || null, equipo_id: eq.id, equipo_nombre: eq.equipo, ...recarga, comprar: true, repuesto_producto_id: prod?.id ?? null, repuesto_nombre: prod?.nombre ?? null, repuesto_cantidad: prod ? prodCant : null, repuesto_almacen: prod?.almacen ?? null });
         // El tipo de servicio elegido/escrito acá también alimenta el catálogo compartido.
         if (desc && !tipos.some((t) => t.nombre.toLowerCase() === desc.toLowerCase())) tiposNuevos.push(desc.toUpperCase());
       } else {
@@ -3253,7 +3279,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
         }, authEmail);
         toast(`Servicio ${codigo} actualizado`, 'success');
       } else {
-        await crearOrden({
+        const nueva = await crearOrden({
           clase: 'servicio',
           proveedor_id: null,
           items,
@@ -3264,6 +3290,21 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           notas: nota.trim() || null,
           clasificacion: ['Servicios'],
         });
+        // Repuestos tomados del inventario: se descuentan del stock (salida en el kardex).
+        for (const it of items) {
+          const qty = Number(it.repuesto_cantidad) || 0;
+          if (!it.repuesto_producto_id || qty <= 0) continue;
+          try {
+            await registrarMovimiento({
+              producto_id: it.repuesto_producto_id, tipo: 'salida', delta: -qty,
+              almacen: it.repuesto_almacen ?? undefined,
+              actor: authEmail, actor_name: usuario?.nombre ?? null,
+              ref_tipo: 'servicio', ref_id: nueva.id, ref_codigo: nueva.codigo ?? undefined,
+              detalle: `Servicio · repuesto de mantenimiento · ${nueva.codigo ?? codigo}`,
+              precio_unitario: null,
+            });
+          } catch { /* el descuento no bloquea la creación del servicio */ }
+        }
         toast(`Servicio ${codigo} creado`, 'success');
       }
       await onCreated();
@@ -3354,6 +3395,27 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                     <small className="muted" style={{ fontSize: '.72rem' }}>Lista base + catálogo. Si escribís uno nuevo, queda guardado.</small>
                   </div>
                 )}
+                {mant && (() => {
+                  const prod = l.repuestoId ? productosStock.find((p) => p.id === l.repuestoId) ?? null : null;
+                  return (
+                    <div className="form-grid" style={{ marginTop: '.4rem' }}>
+                      <div className="form-row" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '.74rem' }}>Repuesto del inventario</label>
+                        <SearchSelect value={l.repuestoId} onChange={(v) => setLinea(l.id, { repuestoId: v })}
+                          options={productosStock.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku} · stock ${num(p.stock)} ${p.unidad}${p.almacen ? ` · ${p.almacen}` : ''}` }))}
+                          placeholder="🔎 Buscá el repuesto (caucho, filtro…) si sale del inventario" emptyText="Sin productos con stock." />
+                        <small className="muted" style={{ fontSize: '.72rem' }}>Si el repuesto está en el inventario, se descuenta del stock al crear el servicio. Dejalo en blanco si no aplica.</small>
+                      </div>
+                      {prod && (
+                        <div className="form-row" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '.74rem' }}>Cantidad a tomar del inventario</label>
+                          <input className="input mono" type="number" min={1} step="any" max={prod.stock} value={l.repuestoCant} onChange={(e) => setLinea(l.id, { repuestoCant: e.target.value })} />
+                          <small className="muted" style={{ fontSize: '.72rem' }}>Disponible: {num(prod.stock)} {prod.unidad}{prod.almacen ? ` · ${prod.almacen}` : ''}.</small>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 {esRecargaGas(l.categoria) ? (
                   <>
                     <div className="form-grid" style={{ marginTop: '.4rem' }}>

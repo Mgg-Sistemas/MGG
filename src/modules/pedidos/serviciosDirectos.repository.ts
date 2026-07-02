@@ -11,6 +11,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import type { PagoLeg, AdjuntoFactura } from './compras.repository';
 
 export type { AdjuntoFactura } from './compras.repository';
@@ -31,6 +32,12 @@ export interface ServicioDirectoItem {
   kg_recarga?: number | null;
   /** Monto del renglón (se carga al finalizar). */
   gasto?: number | null;
+  /** Repuesto tomado del inventario para este mantenimiento (si aplica): se descuenta
+   *  del stock al crear el servicio y se restituye si el servicio se elimina. */
+  producto_id?: string | null;
+  producto_nombre?: string | null;
+  producto_cantidad?: number | null;
+  producto_almacen?: string | null;
 }
 
 /** ¿La categoría es de recarga (gas / oxígeno / extintores)? → pide bombonas + KG. */
@@ -111,6 +118,11 @@ export interface LineaServicioInput {
   cantidad: number;
   bombonas?: number | null;
   kgRecarga?: number | null;
+  /** Repuesto del inventario (opcional): se descuenta al crear el servicio. */
+  productoId?: string | null;
+  productoNombre?: string | null;
+  productoCantidad?: number | null;
+  productoAlmacen?: string | null;
 }
 
 export interface CrearServicioDirectoInput {
@@ -136,12 +148,20 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
     const kg = recarga ? (l.kgRecarga ?? null) : null;
     // La descripción incluye bombonas/KG para que se vea en tarjetas, Tesorería y PDF.
     const extra = recarga ? [bombonas != null ? `${bombonas} bombona(s)` : '', kg != null ? `${kg} KG` : ''].filter(Boolean).join(' · ') : '';
-    const desc = [cat, eq, tipo].filter(Boolean).join(' · ') + (extra ? ` · ${extra}` : '');
+    // Repuesto del inventario (solo en mantenimiento, nunca en recarga de gas).
+    const prodId = !recarga ? (l.productoId?.trim() || null) : null;
+    const prodCant = prodId ? Math.max(0, Number(l.productoCantidad) || 0) : null;
+    const prodNombre = prodId ? (l.productoNombre?.trim() || null) : null;
+    const prodAlmacen = prodId ? (l.productoAlmacen?.trim() || null) : null;
+    const desc = [cat, eq, tipo].filter(Boolean).join(' · ') + (extra ? ` · ${extra}` : '')
+      + (prodId && prodCant ? ` · ${prodCant} ${prodNombre ?? 'repuesto'} del inventario` : '');
     return {
       servicio_categoria: cat, servicio_tipo: tipo,
       equipo_id: l.equipoId ?? null, equipo_nombre: eq,
       descripcion: desc, cantidad: Number(l.cantidad) || 0,
       bombonas, kg_recarga: kg,
+      producto_id: prodId, producto_nombre: prodNombre,
+      producto_cantidad: prodCant && prodCant > 0 ? prodCant : null, producto_almacen: prodAlmacen,
     };
   });
 
@@ -167,7 +187,47 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
     })
     .select('*').single();
   if (error) throw error;
-  return normalizar(data as Record<string, unknown>);
+  const servicio = normalizar(data as Record<string, unknown>);
+
+  // Descuento de inventario: los repuestos tomados del stock salen del almacén elegido.
+  await descontarRepuestos(servicio);
+  return servicio;
+}
+
+/** Descuenta del inventario los repuestos de un servicio (salida por cada ítem con producto). */
+async function descontarRepuestos(servicio: ServicioDirecto): Promise<void> {
+  for (const it of servicio.items) {
+    const qty = Number(it.producto_cantidad) || 0;
+    if (!it.producto_id || qty <= 0) continue;
+    try {
+      await registrarMovimiento({
+        producto_id: it.producto_id, tipo: 'salida', delta: -qty,
+        almacen: it.producto_almacen ?? undefined,
+        actor: servicio.actor ?? 'sistema', actor_name: servicio.actor_name ?? null,
+        ref_tipo: 'servicio_directo', ref_id: servicio.id, ref_codigo: servicio.codigo ?? undefined,
+        detalle: `Servicio directo · repuesto de mantenimiento · ${servicio.codigo ?? servicio.descripcion}`,
+        precio_unitario: null,
+      });
+    } catch { /* el descuento no bloquea la creación del servicio (queda en el kardex si se reintenta) */ }
+  }
+}
+
+/** Restituye al inventario los repuestos de un servicio (entrada por cada ítem con producto). */
+async function restituirRepuestos(servicio: ServicioDirecto): Promise<void> {
+  for (const it of servicio.items) {
+    const qty = Number(it.producto_cantidad) || 0;
+    if (!it.producto_id || qty <= 0) continue;
+    try {
+      await registrarMovimiento({
+        producto_id: it.producto_id, tipo: 'entrada', delta: qty,
+        almacen: it.producto_almacen ?? undefined,
+        actor: servicio.actor ?? 'sistema', actor_name: servicio.actor_name ?? null,
+        ref_tipo: 'servicio_directo_reversa', ref_id: servicio.id, ref_codigo: servicio.codigo ?? undefined,
+        detalle: `Reversa de repuesto · servicio ${servicio.codigo ?? servicio.descripcion} eliminado`,
+        precio_unitario: null,
+      });
+    } catch { /* la reversa no bloquea el borrado del servicio */ }
+  }
 }
 
 /* ───────── Adjunto (factura) ───────── */
@@ -383,6 +443,8 @@ export async function editarServicioDirectoFinalizado(input: EditarServicioFinal
 export async function eliminarServicioDirecto(servicio: ServicioDirecto): Promise<void> {
   if (servicio.estado !== 'en_proceso')
     throw new Error('Solo se puede eliminar un servicio EN PROCESO (los finalizados ya afectaron la caja).');
+  // Devuelve al inventario los repuestos que se habían descontado al crear el servicio.
+  await restituirRepuestos(servicio);
   if (servicio.adjunto_path) {
     try { await supabase.storage.from(BUCKET).remove([servicio.adjunto_path]); } catch { /* el adjunto no bloquea el borrado */ }
   }
