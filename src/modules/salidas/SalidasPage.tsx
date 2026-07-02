@@ -143,7 +143,7 @@ export function SalidasPage() {
       <div className="page-head">
         <div>
           <h1>Salidas / Traslados</h1>
-          <p className="muted">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, un analista, un jefe o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
+          <p className="hint muted">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, un analista, un jefe o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
         </div>
         <div className="actions">
           {canWrite && <button className="btn btn-ghost" onClick={() => setModal({ kind: 'choferes-vehiculos' })}>🚚 Choferes / Vehículos</button>}
@@ -251,11 +251,37 @@ function Historial({
   onVerMaterial: (mov: Movimiento, esTraslado: boolean) => void;
   onVerDinero: (mov: MovimientoCaja, esTraslado: boolean) => void;
 }) {
+  // Filtro del historial: texto (producto/motivo/destino…) + rango de fechas.
+  const [q, setQ] = useState('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const enRango = (iso: string) => {
+    const t = iso ? iso.slice(0, 10) : '';
+    if (desde && t < desde) return false;
+    if (hasta && t > hasta) return false;
+    return true;
+  };
+  const matchTxt = (...campos: (string | null | undefined)[]) => {
+    const s = q.trim().toLowerCase();
+    if (!s) return true;
+    return campos.some((c) => (c ?? '').toLowerCase().includes(s));
+  };
+  const FilterBar = (
+    <div className="filterbar" style={{ gap: '.5rem', marginBottom: '.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+      <input className="input" placeholder="🔎 Buscar (producto, motivo, destino…)" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 300 }} />
+      <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>Desde <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
+      <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>Hasta <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
+      {(q || desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setQ(''); setDesde(''); setHasta(''); }}>✕ Limpiar</button>}
+    </div>
+  );
+
   // Material
   if (tipo === 'material') {
-    const rows = scope === 'salidas' ? salMat : trasMat;
+    const rows = (scope === 'salidas' ? salMat : trasMat).filter((m) => enRango(m.at) && matchTxt(m.producto?.nombre, m.producto?.sku, m.almacen, m.destino, m.solicitante, m.actor_name, m.actor, m.detalle));
     const esTraslado = scope === 'traslados';
     return (
+      <>
+      {FilterBar}
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead>
@@ -292,13 +318,16 @@ function Historial({
           </tbody>
         </table>
       </div>
+      </>
     );
   }
 
   // Dinero
-  const rows = scope === 'salidas' ? salDin : trasDin;
+  const rows = (scope === 'salidas' ? salDin : trasDin).filter((m) => enRango(m.at) && matchTxt(m.caja?.nombre, m.destino, m.motivo, m.moneda));
   const esTraslado = scope === 'traslados';
   return (
+    <>
+    {FilterBar}
     <div className="table-wrap">
       <table className="table" style={{ fontSize: '.85rem' }}>
         <thead>
@@ -339,6 +368,7 @@ function Historial({
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 

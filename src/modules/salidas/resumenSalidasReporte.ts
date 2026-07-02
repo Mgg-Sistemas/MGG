@@ -6,7 +6,7 @@
    PDF, Excel y por correo (Edge Function `enviar-reporte`), solo
    a pedido del usuario (nunca automático).
    ============================================================ */
-import { previewWorkbook } from '@/shared/lib/reportPreview';
+import { previewWorkbook, previewPdfDoc } from '@/shared/lib/reportPreview';
 import { supabase } from '@/shared/lib/supabase';
 
 export interface SalidaResumenRow {
@@ -119,7 +119,7 @@ const NOMBRE_PDF = 'resumen-salidas-por-unidad.pdf';
 
 export async function descargarResumenSalidasPdf(grupos: SalidaResumenGrupo[], rows: SalidaResumenRow[], meta: ResumenSalidasMeta): Promise<void> {
   const doc = await construirDoc(grupos, rows, meta);
-  doc.save(NOMBRE_PDF);
+  previewPdfDoc(doc, NOMBRE_PDF);
 }
 
 async function obtenerResumenSalidasBase64(grupos: SalidaResumenGrupo[], rows: SalidaResumenRow[], meta: ResumenSalidasMeta): Promise<{ base64: string; nombre: string }> {
