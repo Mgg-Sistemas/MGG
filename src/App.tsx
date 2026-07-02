@@ -1,4 +1,4 @@
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { LandingPage } from './modules/landing/LandingPage';
 import { LoginPage } from './modules/auth/LoginPage';
@@ -41,6 +41,35 @@ function PageLoader() {
   return <div className="p-8 muted">Cargando…</div>;
 }
 
+/**
+ * Precarga en SEGUNDO PLANO (cuando el navegador está ocioso) los chunks de las
+ * páginas más usadas, después del primer render. Así, al hacer clic en un módulo,
+ * su código ya está descargado y abre al instante. No bloquea la carga inicial
+ * (usa requestIdleCallback) y el navegador deduplica con el import lazy real.
+ */
+function useRoutePrefetch() {
+  useEffect(() => {
+    const prefetch = () => {
+      void import('./modules/inventario/InventarioPage');
+      void import('./modules/pedidos/PedidosPage');
+      void import('./modules/tesoreria/TesoreriaPage');
+      void import('./modules/salidas/SalidasPage');
+      void import('./modules/acopio/AcopioPage');
+      void import('./modules/recepciones/RecepcionesPage');
+    };
+    const w = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(prefetch, { timeout: 4000 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(prefetch, 2500);
+    return () => window.clearTimeout(id);
+  }, []);
+}
+
 function SinAccesoPage() {
   return (
     <div className="card" style={{ padding: '2rem', maxWidth: 520, margin: '2rem auto', textAlign: 'center' }}>
@@ -54,6 +83,7 @@ function SinAccesoPage() {
 }
 
 export function App() {
+  useRoutePrefetch();
   return (
     <ChunkErrorBoundary>
       <Routes>
