@@ -111,7 +111,7 @@ export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalP
           style={{ width: 60, height: 36, padding: 0, border: '1px solid var(--border)', borderRadius: 8 }}
         />
       </div>
-      <p className="muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
+      <p className="hint muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
         El rol queda persistido en Supabase y disponible en próximas sesiones. Podrás
         eliminarlo siempre que no tenga usuarios asignados.
       </p>
@@ -213,7 +213,7 @@ export function GestionarRolesModal({
       onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}
     >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Corregí el nombre, descripción o color de los roles. Los roles del sistema
         (admin / analista / obrero) no pueden eliminarse, pero sí re-etiquetarse.
       </p>
@@ -331,7 +331,7 @@ export function GestionarRolesModal({
         </table>
       </div>
 
-      <p className="muted" style={{ fontSize: '.74rem', marginTop: '.75rem' }}>
+      <p className="hint muted" style={{ fontSize: '.74rem', marginTop: '.75rem' }}>
         {actorEmail ? `Acciones registradas como ${actorEmail}.` : 'Las acciones se registran en Supabase.'}
       </p>
 

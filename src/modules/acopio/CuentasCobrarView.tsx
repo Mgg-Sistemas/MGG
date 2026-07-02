@@ -50,7 +50,7 @@ export function CuentasCobrarView({ canWrite, actor, actorName, centro = 'LA ESP
         <div className="page-head">
           <div>
             <h1>📥 Cuentas por Cobrar · Centro de Costo {centro}</h1>
-            <p className="muted">Deuda en $ que se cobra con mineral: cada abono (en Kg × $/Kg) baja la deuda y, opcional, suma los Kg al stock de casiterita.</p>
+            <p className="hint muted">Deuda en $ que se cobra con mineral: cada abono (en Kg × $/Kg) baja la deuda y, opcional, suma los Kg al stock de casiterita.</p>
           </div>
           <button className="btn btn-ghost" onClick={onVolver}>← Volver a Acopio</button>
         </div>
@@ -247,7 +247,7 @@ function AgregarAbonoModal({ cuenta, actor, actorName, onClose, onSaved }: {
           <div className="form-row"><label>Kg entregados</label><input className="input mono" type="number" min={0} step="any" value={kg} onChange={(e) => setKg(e.target.value)} placeholder="0" autoFocus /></div>
           <div className="form-row"><label>Precio $/Kg</label><input className="input mono" type="number" min={0} step="0.0001" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="0" /></div>
         </div>
-        <p className="muted" style={{ fontSize: '.8rem', marginTop: 0 }}>Baja la deuda en (Kg × $/Kg): <strong className="mono">{money(totalUsd)}</strong></p>
+        <p className="hint muted" style={{ fontSize: '.8rem', marginTop: 0 }}>Baja la deuda en (Kg × $/Kg): <strong className="mono">{money(totalUsd)}</strong></p>
         <div className="form-row"><label>Descripción (opcional)</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="ABONO" /></div>
         <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.85rem' }}>
           <input type="checkbox" checked={sumar} onChange={(e) => setSumar(e.target.checked)} />

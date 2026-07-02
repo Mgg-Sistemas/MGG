@@ -262,7 +262,7 @@ function MartilloFormModal({ actor, actorName, precioVigente, editar, onClose, o
             </div>
             <div />
           </div>
-          <p className="muted" style={{ fontSize: '.8rem', margin: '.4rem 0 0' }}>
+          <p className="hint muted" style={{ fontSize: '.8rem', margin: '.4rem 0 0' }}>
             El consumo <strong>descuenta</strong> los martillos del inventario y registra el gasto <strong>«USO DE MARTILLOS»</strong> en la caja de Acopio.
           </p>
         </>

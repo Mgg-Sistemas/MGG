@@ -271,7 +271,7 @@ export function TesoreriaPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>🏦 Tesorería</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>Flujo de dinero, registro de movimientos y pagos.</p>
+          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>Flujo de dinero, registro de movimientos y pagos.</p>
         </div>
         <div className="view-toggle" role="tablist" aria-label="Vista de tesorería">
           <button className={vista === 'tesoreria' ? 'active' : ''} onClick={() => setVista('tesoreria')}>🏦 Tesorería</button>
@@ -684,7 +684,7 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
         <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--primary-3, #ff8a00)' }}>
           <div className="card-title" style={{ marginBottom: '.4rem' }}>✎ Editar movimiento</div>
           {vinculado && (
-            <p className="muted" style={{ fontSize: '.78rem', marginTop: 0, color: 'var(--warning)' }}>
+            <p className="hint muted" style={{ fontSize: '.78rem', marginTop: 0, color: 'var(--warning)' }}>
               ⚠ Este movimiento está vinculado a otro módulo (compra, nómina o traslado). Al editarlo se recalcula el saldo de la caja, pero el módulo vinculado NO se entera del cambio.
             </p>
           )}
@@ -893,7 +893,7 @@ function DetalleCorreoModal({ mov, orden, defaultEmail, onClose }: {
         <button className="btn btn-primary" onClick={handleEnviar} disabled={enviando}>{enviando ? 'Enviando…' : '📧 Enviar'}</button>
       </>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Se enviará el <strong>PDF del detalle</strong>{orden ? ' (con la orden pagada, seriales y comprobante)' : ''} a los destinatarios seleccionados.
       </p>
       <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', padding: '.7rem .85rem', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: incluirPropio ? 'rgba(255,138,0,0.06)' : 'transparent', cursor: propio ? 'pointer' : 'not-allowed', marginBottom: '.6rem' }}>
@@ -1957,7 +1957,7 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
 
   return (
     <Modal title="🗂️ Categorías de gasto" size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
         Categorías y subcategorías que el <strong>registro de gasto</strong> exige. Tip: usá <strong>📋 Pegado masivo</strong> para cargar una columna del sheet (categoría + sus subcategorías) de una vez.
       </p>
 
@@ -2007,7 +2007,7 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
         {/* Subcategorías */}
         <div>
           <strong style={{ fontSize: '.84rem' }}>Subcategorías {catSel ? `de "${catSel.nombre}" (${subs.length})` : ''}</strong>
-          {!selCat ? <p className="muted" style={{ fontSize: '.8rem' }}>Elegí una categoría a la izquierda.</p> : (
+          {!selCat ? <p className="hint muted" style={{ fontSize: '.8rem' }}>Elegí una categoría a la izquierda.</p> : (
             <>
               <div style={{ display: 'flex', gap: '.3rem', margin: '.4rem 0' }}>
                 <input className="input" style={{ flex: 1 }} value={nuevaSub} onChange={(e) => setNuevaSub(e.target.value)}
@@ -2181,9 +2181,9 @@ function CierreMesModal({ actor, actorName, onClose, onChanged }: {
             </div>
           )}
 
-          {cargando ? <p className="muted">Calculando…</p> : rep && (
+          {cargando ? <p className="hint muted">Calculando…</p> : rep && (
             <div style={{ marginTop: '.5rem' }}>
-              <p className="muted" style={{ margin: '0 0 .4rem', fontSize: '.8rem' }}>
+              <p className="hint muted" style={{ margin: '0 0 .4rem', fontSize: '.8rem' }}>
                 Período {rep.desde} a {rep.hasta} · {rep.movimientos} movimiento(s) {yaCerrado ? '(archivados)' : 'abiertos'}.
               </p>
               <CierreReporteView rep={rep} />
@@ -2193,7 +2193,7 @@ function CierreMesModal({ actor, actorName, onClose, onChanged }: {
           {confirmar && !yaCerrado && (
             <div className="card" style={{ borderColor: 'var(--warning,#f5a623)', marginTop: '.6rem', padding: '.6rem .7rem' }}>
               <strong>¿Cerrar {periodoLargo(periodo)}?</strong>
-              <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.83rem' }}>
+              <p className="hint muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.83rem' }}>
                 Se guarda el reporte y los {rep?.movimientos ?? 0} movimiento(s) del mes se <strong>archivan</strong> (salen de la vista actual; el mes nuevo arranca limpio). No se borra nada, no toca inventario ni saldos, y es <strong>reversible</strong> (podés reabrirlo).
               </p>
               <div style={{ display: 'flex', gap: '.4rem' }}>
@@ -2590,7 +2590,7 @@ function LibroMayorPanel({ movs, saldos, cxp, cxc, monedas, onVerMov }: {
           </table>
         </div>
       )}
-      <p className="muted" style={{ fontSize: '.74rem', marginTop: '.4rem', marginBottom: 0 }}>
+      <p className="hint muted" style={{ fontSize: '.74rem', marginTop: '.4rem', marginBottom: 0 }}>
         Debe = entradas · Haber = salidas (filtran por el rango de fechas) · Saldo, Cuentas por pagar y por cobrar son saldos vigentes (a hoy).
         Tocá una moneda (🔍) para ver el detalle de sus movimientos.
       </p>
@@ -2620,7 +2620,7 @@ function LibroMayorMonedaModal({ moneda, movs, rango, onVerMov, onClose }: {
 
   return (
     <Modal title={`📒 Libro Mayor · ${moneda}`} size="lg" onClose={onClose}>
-      <p className="muted" style={{ fontSize: '.78rem', marginTop: 0 }}>
+      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: 0 }}>
         {rango} · {ordenados.length} movimiento(s). Tocá una fila para ver todos los detalles (motivo, beneficiario, autorización, fecha y hora).
       </p>
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '.6rem', alignItems: 'center' }}>
@@ -2821,7 +2821,7 @@ function EnviarReporteModal({ movs, meta, defaultEmail, onClose }: {
         <button className="btn btn-primary" onClick={handleEnviar} disabled={enviando}>{enviando ? 'Enviando…' : '📧 Enviar'}</button>
       </>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Se enviará el PDF del reporte ({meta.subtitulo || 'todos los movimientos'}) a los destinatarios seleccionados.
       </p>
       <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', padding: '.7rem .85rem', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: incluirPropio ? 'rgba(255,138,0,0.06)' : 'transparent', cursor: propio ? 'pointer' : 'not-allowed', marginBottom: '.6rem' }}>
@@ -3248,7 +3248,7 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
         </button>
       </>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Convierte un <strong>saldo existente</strong> de una moneda a otra: descuenta de la caja
         origen y acredita el equivalente en la caja destino. La tasa sugerida toma el dólar
         de <strong>Binance (USDT/VES)</strong> y la TRM del COP (la <strong>BCV</strong> queda en la barra superior); es editable y se redondea a 2 decimales.
@@ -3998,7 +3998,7 @@ function RetencionesTesoreriaModal({ items, onClose }: { items: RetencionItem[];
     <Modal title="Retenciones listas" size="lg" onClose={onClose} footer={
       <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Retenciones <strong>finalizadas</strong> (comprobantes cargados desde el módulo de Retenciones). Acá ves el
         detalle, el comprobante y la OC a la que pertenecen, y si <strong>ya fueron pagadas</strong>.
       </p>
@@ -4206,7 +4206,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
     <Modal title="Órdenes pendientes por pagar" size="xl" onClose={onClose} footer={
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Órdenes de compra aprobadas por el Gerente. Marcá varias del <strong>mismo proveedor</strong> para pagarlas juntas
         (un egreso por OC). Se pueden incluir las que están <strong>⏳ Esperando método de pago</strong>: Tesorería las paga
         directo eligiendo la caja, aunque el analista todavía no haya indicado el método.
@@ -4692,8 +4692,8 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
           ↓ Resumen PDF
         </button>
       </div>
-      {loading && <p className="muted">Cargando…</p>}
-      {!loading && !ordenes.length && <p className="muted" style={{ textAlign: 'center' }}>No hay compras a crédito con cuenta abierta. 🎉</p>}
+      {loading && <p className="hint muted">Cargando…</p>}
+      {!loading && !ordenes.length && <p className="hint muted" style={{ textAlign: 'center' }}>No hay compras a crédito con cuenta abierta. 🎉</p>}
       {!loading && ordenes.length > 0 && (
         <>
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
@@ -5008,7 +5008,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
     finally { setCreando(false); }
   }
 
-  if (loading) return <p className="muted">Cargando…</p>;
+  if (loading) return <p className="hint muted">Cargando…</p>;
 
   return (
     <>
@@ -5053,7 +5053,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
       </div>
 
       {!lista.length ? (
-        <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar abiertas. Creá una arriba. 🎉</p>
+        <p className="hint muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar abiertas. Creá una arriba. 🎉</p>
       ) : (
       <SelectorBuscable
         label="Cuenta por pagar"
@@ -5253,7 +5253,7 @@ function EnviarCuentaPorPagarModal({ cuenta, abonos, ingresos, defaultEmail, onC
         <button className="btn btn-primary" onClick={handleEnviar} disabled={enviando}>{enviando ? 'Enviando…' : '📧 Enviar'}</button>
       </>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Se enviará el PDF de la cuenta por pagar de <strong>{cuenta.contraparte}</strong> (con su historial de abonos) a los destinatarios seleccionados.
       </p>
       <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', padding: '.7rem .85rem', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: incluirPropio ? 'rgba(255,138,0,0.06)' : 'transparent', cursor: propio ? 'pointer' : 'not-allowed', marginBottom: '.6rem' }}>
@@ -5477,7 +5477,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
 
   return (
     <Modal title="📥 Cuentas por cobrar" size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
         Deudas hacia la empresa (clientes, proveedores y <strong>centros de costo</strong>; cada <strong>traspaso de dinero</strong> a un centro genera una cuenta por cobrar <strong>incremental</strong>). Se saldan con <strong>abonos en dinero</strong> (entran a la caja) o <strong>en producto al cambio</strong> (entra al inventario y su valor abona la deuda).
       </p>
 
@@ -5567,7 +5567,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                 <div className="card"><div className="muted" style={{ fontSize: '.7rem' }}>COBRADO</div><strong className="mono" style={{ color: 'var(--success, #16c784)' }}>{monto(Number(sel.abonado), sel.moneda)}</strong></div>
                 <div className="card" style={{ borderColor: 'var(--primary)' }}><div className="muted" style={{ fontSize: '.7rem' }}>NOS DEBEN</div><strong className="mono" style={{ color: saldo > 0 ? 'var(--danger)' : 'var(--success)' }}>{monto(saldo, sel.moneda)}</strong></div>
               </div>
-              {sel.nota && <p className="muted" style={{ fontSize: '.78rem', marginTop: 0 }}>Nota: {sel.nota}</p>}
+              {sel.nota && <p className="hint muted" style={{ fontSize: '.78rem', marginTop: 0 }}>Nota: {sel.nota}</p>}
 
               {/* Forma de cobro: dinero (entra a caja) o producto al cambio (entra a inventario). */}
               <div className="view-toggle" role="tablist" aria-label="Forma de cobro" style={{ marginBottom: '.6rem' }}>
@@ -5607,7 +5607,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                 </>
               ) : (
                 <>
-                  <p className="muted" style={{ fontSize: '.78rem', marginTop: 0 }}>
+                  <p className="hint muted" style={{ fontSize: '.78rem', marginTop: 0 }}>
                     La contraparte salda entregando producto: <strong>entra al inventario</strong> y su <strong>valor al cambio</strong> ({sel.moneda}) abona la deuda. No entra dinero a caja.
                   </p>
                   <div className="form-row">

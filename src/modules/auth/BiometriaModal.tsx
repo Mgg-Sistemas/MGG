@@ -70,7 +70,7 @@ export function BiometriaModal({ onClose }: { onClose: () => void }) {
     <Modal title="🔒 Acceso con huella" size="md" onClose={onClose} footer={
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Activá el ingreso con <strong>huella dactilar</strong> (o Windows Hello / Face ID) en este equipo.
         La huella <strong>nunca sale de tu dispositivo</strong>: el sistema solo guarda una llave de
         seguridad. La clave de siempre sigue funcionando como respaldo.
@@ -103,9 +103,9 @@ export function BiometriaModal({ onClose }: { onClose: () => void }) {
       <div style={{ marginTop: '1.2rem' }}>
         <div className="card-title" style={{ marginBottom: '.5rem' }}>Dispositivos activos</div>
         {cargando ? (
-          <p className="muted" style={{ fontSize: '.82rem' }}>Cargando…</p>
+          <p className="hint muted" style={{ fontSize: '.82rem' }}>Cargando…</p>
         ) : creds.length === 0 ? (
-          <p className="muted" style={{ fontSize: '.82rem' }}>Todavía no activaste la huella en ningún dispositivo.</p>
+          <p className="hint muted" style={{ fontSize: '.82rem' }}>Todavía no activaste la huella en ningún dispositivo.</p>
         ) : (
           <>
             {credsDominio.map((c) => (

@@ -68,7 +68,7 @@ export function CocinaPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: 0 }}>🍽 Cocinas</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>Cada cocina toma sus víveres del almacén al que está vinculada. Entrá a una para registrar comidas.</p>
+          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>Cada cocina toma sus víveres del almacén al que está vinculada. Entrá a una para registrar comidas.</p>
         </div>
         {canWrite && <button className="btn btn-primary" onClick={() => setForm('nueva')}>＋ Nueva cocina</button>}
       </div>
@@ -541,7 +541,7 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
           {/* Víveres más consumidos (barras) */}
           <div className="card" style={{ marginBottom: '.9rem' }}>
             <div className="card-title" style={{ marginBottom: '.5rem' }}>Víveres que más se consumen</div>
-            {!resumen.topViveres.length ? <p className="muted" style={{ margin: 0 }}>Sin consumo en el período.</p> : (
+            {!resumen.topViveres.length ? <p className="hint muted" style={{ margin: 0 }}>Sin consumo en el período.</p> : (
               <div style={{ display: 'grid', gap: '.4rem' }}>
                 {resumen.topViveres.slice(0, 12).map((v) => (
                   <div key={v.sku} style={{ display: 'flex', alignItems: 'center', gap: '.6rem', fontSize: '.82rem' }}>

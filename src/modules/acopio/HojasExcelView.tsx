@@ -56,7 +56,7 @@ export function HojasExcelView() {
       <div className="page-head" style={{ marginBottom: '.75rem' }}>
         <div>
           <h2 style={{ margin: 0 }}>{cfg.titulo}</h2>
-          {cfg.subtitulo && <p className="muted" style={{ margin: '.2rem 0 0' }}>{cfg.subtitulo}</p>}
+          {cfg.subtitulo && <p className="hint muted" style={{ margin: '.2rem 0 0' }}>{cfg.subtitulo}</p>}
         </div>
       </div>
 
@@ -110,7 +110,7 @@ function TablaView({ hoja, headerRow, dataStart }: { hoja: HojaExcel; headerRow:
           ))}
         </tbody>
       </table>
-      <p className="muted" style={{ fontSize: '.75rem', marginTop: '.4rem' }}>{filas.length} registros</p>
+      <p className="hint muted" style={{ fontSize: '.75rem', marginTop: '.4rem' }}>{filas.length} registros</p>
     </div>
   );
 }

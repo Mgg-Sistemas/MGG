@@ -156,7 +156,7 @@ export function OfertasComparativa({
     return (
       <div className="card" style={{ marginTop: '1rem' }}>
         {headLine}
-        <p className="muted" style={{ margin: 0 }}>Cargando ofertas…</p>
+        <p className="hint muted" style={{ margin: 0 }}>Cargando ofertas…</p>
       </div>
     );
   }
@@ -398,12 +398,12 @@ export function OfertasComparativa({
       </div>
 
       {enEtapaOc && canDecidir && !minOk && (
-        <p className="muted" style={{ marginTop: '.6rem', fontSize: '.82rem' }}>
+        <p className="hint muted" style={{ marginTop: '.6rem', fontSize: '.82rem' }}>
           Cargá al menos {MIN_OFERTAS} cotizaciones (máximo {MAX_OFERTAS}) para poder elegir la oferta ganadora.
         </p>
       )}
       {enEtapaOc && !canDecidir && (
-        <p className="muted" style={{ marginTop: '.6rem', fontSize: '.82rem' }}>
+        <p className="hint muted" style={{ marginTop: '.6rem', fontSize: '.82rem' }}>
           La oferta del proveedor
         </p>
       )}

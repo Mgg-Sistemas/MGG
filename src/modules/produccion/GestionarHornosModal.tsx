@@ -119,7 +119,7 @@ export function GestionarHornosModal({
       onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}
     >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Administrá los hornos disponibles para fundición. Podés agregar, renombrar y
         deshabilitar (indicando el motivo). Los hornos deshabilitados no aparecen en el
         formulario de fundición.

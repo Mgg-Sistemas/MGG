@@ -64,7 +64,7 @@ export function CuentaPerdidaAliView({ centro = 'LA ESMERALDA ALI', canWrite = f
       <div className="page-head">
         <div>
           <h1>📉 Cuenta de Pérdida con Alí · {centro}</h1>
-          <p className="muted">Deuda con el comercializador Alí: cada efectivo enviado sube la deuda; los Kg de casiterita recibidos (valorizados a $/Kg) la abonan. El saldo final es la pérdida reflejada en efectivo.</p>
+          <p className="hint muted">Deuda con el comercializador Alí: cada efectivo enviado sube la deuda; los Kg de casiterita recibidos (valorizados a $/Kg) la abonan. El saldo final es la pérdida reflejada en efectivo.</p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem' }}>
           {canWrite && <button className="btn btn-primary" onClick={() => setAgregar(true)}>+ Agregar movimiento</button>}
@@ -271,7 +271,7 @@ export function CuadroResumenPerdidaView({ centro = 'LA ESMERALDA ALI', canWrite
       <div className="page-head">
         <div>
           <h1>🧾 Cuadro Resumen del Valor de la Pérdida Total · {centro}</h1>
-          <p className="muted">Descompone la pérdida: del total enviado se restan las compras de casiterita y los gastos; el saldo que no devolvió Alí más el mineral faltante y el contaminado con hierro dan el valor total de la pérdida.</p>
+          <p className="hint muted">Descompone la pérdida: del total enviado se restan las compras de casiterita y los gastos; el saldo que no devolvió Alí más el mineral faltante y el contaminado con hierro dan el valor total de la pérdida.</p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem' }}>
           {canWrite && <button className="btn btn-primary" onClick={() => setAgregar(true)}>+ Agregar movimiento</button>}

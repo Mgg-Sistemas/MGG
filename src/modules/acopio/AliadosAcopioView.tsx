@@ -179,7 +179,7 @@ function LibroAliadoModal({ aliado, canWrite, actor, actorName, onClose, onChang
               </tr>
             </tfoot>
           </table>
-          <p className="muted" style={{ fontSize: '.74rem', marginTop: '.5rem' }}>
+          <p className="hint muted" style={{ fontSize: '.74rem', marginTop: '.5rem' }}>
             <strong>Saldo en Kg</strong> = saldo anterior + Kg Cerrados − Kg Recibidos (lo que el aliado aún debe en mineral). Cada <strong>cierre</strong> refleja un traslado en la caja general.
           </p>
         </div>
@@ -276,7 +276,7 @@ function CierreModal({ aliado, sugCorte, actor, actorName, onClose, onSaved }: {
           <div className="form-row"><label>Precio $/Kg</label><input className="input mono" type="number" min={0} step="0.0001" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="0" /></div>
           <div className="form-row"><label>$ Gastos (opcional)</label><input className="input mono" type="number" min={0} step="0.01" value={gastos} onChange={(e) => setGastos(e.target.value)} placeholder="0.00" /></div>
         </div>
-        <p className="muted" style={{ fontSize: '.8rem', marginTop: 0 }}>Facturado (Kg × $/Kg): <strong className="mono">{money(facturado)}</strong></p>
+        <p className="hint muted" style={{ fontSize: '.8rem', marginTop: 0 }}>Facturado (Kg × $/Kg): <strong className="mono">{money(facturado)}</strong></p>
         <div className="form-row"><label>Descripción (opcional)</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder={`CENTRO DE ACOPIO ${aliado.nombre}`} /></div>
         <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.85rem' }}>
           <input type="checkbox" checked={reflejar} onChange={(e) => setReflejar(e.target.checked)} />

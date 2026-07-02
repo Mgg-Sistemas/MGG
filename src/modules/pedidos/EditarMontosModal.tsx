@@ -47,7 +47,7 @@ export function EditarMontosModal({ title, moneda, rows, onSave, onClose }: {
 
   return (
     <Modal title={title} size="md" onClose={onClose} footer={footer}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
         Corregí el monto por renglón. El cambio <strong>reajusta el egreso en Tesorería</strong> (saldo + Libro Mayor) y, en compras, el <strong>costo del inventario</strong>. La cantidad no cambia.
       </p>
       <div className="table-wrap">

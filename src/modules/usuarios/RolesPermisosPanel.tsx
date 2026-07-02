@@ -146,7 +146,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '.75rem' }}>
         <div>
           <h2 style={{ margin: 0 }}>Roles y Permiso</h2>
-          <p className="muted" style={{ margin: '.25rem 0 0', fontSize: '.88rem' }}>
+          <p className="hint muted" style={{ margin: '.25rem 0 0', fontSize: '.88rem' }}>
             Definí qué acciones puede realizar cada rol sobre cada módulo. Podés crear roles
             nuevos y eliminar los que no tengan usuarios asignados.
           </p>
@@ -173,7 +173,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
 
       {loading ? (
         <div className="card" style={{ padding: '1.25rem' }}>
-          <p className="muted" style={{ margin: 0 }}>Cargando matriz de permisos…</p>
+          <p className="hint muted" style={{ margin: 0 }}>Cargando matriz de permisos…</p>
         </div>
       ) : (
         <div
@@ -197,8 +197,8 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                       <span>{rc.label}</span>
                       {rc.sistema && <span className="badge" style={{ marginLeft: '.4rem', fontSize: '.65rem' }}>SISTEMA</span>}
                     </div>
-                    <p className="muted" style={{ margin: 0, fontSize: '.78rem' }}>{rc.descripcion ?? '—'}</p>
-                    <p className="muted" style={{ margin: '.25rem 0 0', fontSize: '.72rem' }}>
+                    <p className="hint muted" style={{ margin: 0, fontSize: '.78rem' }}>{rc.descripcion ?? '—'}</p>
+                    <p className="hint muted" style={{ margin: '.25rem 0 0', fontSize: '.72rem' }}>
                       {enUso === 0 ? 'Sin usuarios asignados' : `${enUso} usuario(s) asignado(s)`}
                     </p>
                   </div>

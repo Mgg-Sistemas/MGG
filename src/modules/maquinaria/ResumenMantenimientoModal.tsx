@@ -122,7 +122,7 @@ export function ResumenMantenimientoModal({ grupo, equipos, infoEquipo, onClose 
           </tbody>
         </table>
       </div>
-      <p className="muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>
+      <p className="hint muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>
         Los consumos (aceite / gasoil / refrigerante / filtros) se suman de la bitácora de cada equipo en el período elegido.
         Tocá una fila para ver <strong>todos los movimientos</strong> del equipo y descargar su PDF.
       </p>
@@ -186,7 +186,7 @@ function MovimientosEquipoModal({ equipo, desde, hasta, onClose }: {
         <button className="btn btn-primary" disabled={!enRango.length} onClick={() => void pdf()}>↓ PDF de movimientos</button>
       </>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
         Todo lo que se le hizo a <strong>{equipo.equipo}</strong>{desde || hasta ? <> en el período <strong>{desde ? fmtDate(desde) : '…'} — {hasta ? fmtDate(hasta) : 'hoy'}</strong></> : ' (histórico completo)'}.
       </p>
       <div className="table-wrap" style={{ maxHeight: 460, overflow: 'auto' }}>

@@ -87,7 +87,7 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
       }
     >
       {loading ? (
-        <p className="muted" style={{ margin: 0 }}>Cargando…</p>
+        <p className="hint muted" style={{ margin: 0 }}>Cargando…</p>
       ) : items.length === 0 ? (
         <EmptyState message="Sin notificaciones." />
       ) : (

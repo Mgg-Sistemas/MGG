@@ -81,7 +81,7 @@ function AliadosLista({ canWrite, actor, centro, onVolverAcopio, onAbrir }: {
       <div className="page-head">
         <div>
           <h1>{centro === 'PERAMANAL ENDER MEJIAS' ? '🪙 Compra de ORO · Centro de Costo' : '🤝 Aliados · Centro de Costo'}</h1>
-          <p className="muted">Cada aliado lleva su propio libro con la misma estructura del acopio (entregado, Kg cerrados, $/Kg, facturado, Kg recibidos y saldos corridos).</p>
+          <p className="hint muted">Cada aliado lleva su propio libro con la misma estructura del acopio (entregado, Kg cerrados, $/Kg, facturado, Kg recibidos y saldos corridos).</p>
         </div>
       </div>
 
@@ -176,7 +176,7 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, centro, onVolver }:
       <div className="page-head">
         <div>
           <h1>{esOro ? '🪙' : '🤝'} {aliado.nombre}</h1>
-          <p className="muted">Libro del aliado · misma estructura del acopio. El <strong>Saldo en {U}</strong> = saldo anterior + {U} Cerrados − {U} Recibidos.</p>
+          <p className="hint muted">Libro del aliado · misma estructura del acopio. El <strong>Saldo en {U}</strong> = saldo anterior + {U} Cerrados − {U} Recibidos.</p>
         </div>
       </div>
 
@@ -305,7 +305,7 @@ function CerrarCajaAliadoModal({ aliado, resumen, esOro, unidad, actor, actorNam
       <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving}>{saving ? 'Cerrando…' : '🔒 Cerrar y abrir nuevo'}</button></>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
-      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>Se cierra el periodo actual y se abre uno nuevo automáticamente.</p>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>Se cierra el periodo actual y se abre uno nuevo automáticamente.</p>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.84rem' }}>
           <tbody>
@@ -327,7 +327,7 @@ function CerrarCajaAliadoModal({ aliado, resumen, esOro, unidad, actor, actorNam
           </tbody>
         </table>
       </div>
-      <p className="muted" style={{ fontSize: '.76rem', marginBottom: 0 }}>
+      <p className="hint muted" style={{ fontSize: '.76rem', marginBottom: 0 }}>
         {saldoKg > 0
           ? `Los ${num(saldoKg)} ${unidad} pasan a ${material} en «${almacen}» a la tasa del aliado. El saldo en $ arranca el periodo nuevo como «$ entregado»; lo demás se reinicia.`
           : 'No hay saldo para enviar al inventario. El saldo en $ arranca el periodo nuevo como «$ entregado»; lo demás se reinicia.'}
@@ -368,10 +368,10 @@ function CierresAliadoModal({ aliado, periodoActual, unidad, onClose }: {
     <Modal title={`🗂 Cierres de caja · ${aliado.nombre}`} size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       {!sel ? (
         <>
-          <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>Periodo en curso: <strong>#{periodoActual}</strong> (no cerrado). Los cierres anteriores se listan abajo.</p>
+          <p className="hint muted" style={{ marginTop: 0, fontSize: '.82rem' }}>Periodo en curso: <strong>#{periodoActual}</strong> (no cerrado). Los cierres anteriores se listan abajo.</p>
           <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Buscar cierre (fecha, número…)" style={{ marginBottom: '.6rem' }} />
           {!filtradas.length ? (
-            <p className="muted" style={{ margin: 0 }}>Sin cierres registrados todavía.</p>
+            <p className="hint muted" style={{ margin: 0 }}>Sin cierres registrados todavía.</p>
           ) : (
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.84rem' }}>
@@ -397,9 +397,9 @@ function CierresAliadoModal({ aliado, periodoActual, unidad, onClose }: {
             <button className="btn btn-sm btn-ghost" onClick={() => { setSel(null); setMovs([]); }}>← Volver al listado</button>
           </div>
           {cargandoMovs ? (
-            <p className="muted" style={{ margin: 0 }}>Cargando movimientos…</p>
+            <p className="hint muted" style={{ margin: 0 }}>Cargando movimientos…</p>
           ) : !movs.length ? (
-            <p className="muted" style={{ margin: 0 }}>Sin movimientos en este período.</p>
+            <p className="hint muted" style={{ margin: 0 }}>Sin movimientos en este período.</p>
           ) : (
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.8rem' }}>
@@ -540,7 +540,7 @@ function MovimientoAliadoModal({ aliado, sugCorte, actor, actorName, centro, onC
           <div className="form-row"><label>Kg Recibidos por MGG</label><input className="input mono" type="number" min={0} step="any" value={kgRecibidos} onChange={(e) => setKgRecibidos(e.target.value)} placeholder="0" /></div>
           <div className="form-row"><label>$ Gastos (opcional)</label><input className="input mono" type="number" min={0} step="0.01" value={gastos} onChange={(e) => setGastos(e.target.value)} placeholder="0.00" /></div>
         </div>
-        <p className="muted" style={{ fontSize: '.8rem', marginTop: 0 }}>$Usd Facturados (Kg × $/Kg): <strong className="mono">{money(facturado)}</strong></p>
+        <p className="hint muted" style={{ fontSize: '.8rem', marginTop: 0 }}>$Usd Facturados (Kg × $/Kg): <strong className="mono">{money(facturado)}</strong></p>
         <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.85rem' }}>
           <input type="checkbox" checked={reflejar} onChange={(e) => setReflejar(e.target.checked)} />
           Reflejar el $ entregado como <strong>traslado en la caja general</strong>

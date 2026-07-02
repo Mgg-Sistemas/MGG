@@ -547,7 +547,7 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
         ))}
 
         <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar servicio</button>
-        <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan montos al crear. La factura, el monto y la caja se indican al finalizar.</p>
+        <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan montos al crear. La factura, el monto y la caja se indican al finalizar.</p>
       </form>
     </Modal>
   );
@@ -615,7 +615,7 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
       <form id="sd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-        <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+        <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
           Cargá los <strong>montos por servicio</strong> y la <strong>factura</strong>. El servicio queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el monto sale de la caja y se finaliza (queda casado al equipo en Control de Mantenimiento).
         </p>
 

@@ -197,7 +197,7 @@ function LabGrid({ grupoId, minerales, analisis, canWrite, actor, miNombre, onRe
           </span>
         )}
       </div>
-      {!cols.length && <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .6rem' }}>Sin lecturas. {canWrite ? 'Agregá una con «+ Añadir lectura».' : '—'}</p>}
+      {!cols.length && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .6rem' }}>Sin lecturas. {canWrite ? 'Agregá una con «+ Añadir lectura».' : '—'}</p>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', alignItems: 'start' }}>
         {bloques.map((b, i) => tabla(b, i))}
       </div>
@@ -248,7 +248,7 @@ export function RecepcionesPage() {
       <div className="page-head">
         <div>
           <h1>📥 Recepciones</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="hint muted" style={{ margin: 0 }}>
             Cada centro tiene su <strong>tarjeta</strong> (se crea sola al cerrar su caja). Entrá a una para cargar sus análisis,
             humedad, pesos, conciliación y totales.
           </p>
@@ -256,7 +256,7 @@ export function RecepcionesPage() {
         {canWrite && <button className="btn btn-primary" onClick={() => setNuevoOpen(true)}>+ Añadir recepción</button>}
       </div>
 
-      {loading ? <p className="muted">Cargando…</p> : !grupos.length ? (
+      {loading ? <p className="hint muted">Cargando…</p> : !grupos.length ? (
         <EmptyState message="Sin recepciones todavía. Se crean al cerrar una caja del acopio (o agregá una manual)." icon="📥" />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1rem' }}>
@@ -380,7 +380,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
         <div>
           <button className="btn btn-sm btn-ghost" onClick={onBack} style={{ marginBottom: '.4rem' }}>← Volver a recepciones</button>
           <h1 style={{ margin: 0 }}>📥 {grupo.nombre}</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="hint muted" style={{ margin: 0 }}>
             Paso intermedio del acopio: al cerrar la caja de un centro, su <strong>saldo de Kg de casiterita</strong> entra acá como recepción
             (no al inventario todavía). El laboratorio carga sus análisis por mineral.
           </p>
@@ -1421,7 +1421,7 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onCerr
     <Modal title={`🔒 Cerrar recepción · ${grupo.nombre}`} size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <div className="card" style={{ marginBottom: '.9rem' }}>
         <div className="card-title"><span>Cerrar la recepción actual</span></div>
-        <p className="muted" style={{ fontSize: '.84rem', marginTop: 0 }}>Guarda un snapshot con <strong>TODOS los datos</strong> de esta tarjeta (recepciones, laboratorio, humedad prov/final, pesajes, conciliación y totales) en el histórico y <strong>deja la tarjeta EN BLANCO</strong> para la próxima recepción. La configuración de columnas del laboratorio (minerales) se conserva.</p>
+        <p className="hint muted" style={{ fontSize: '.84rem', marginTop: 0 }}>Guarda un snapshot con <strong>TODOS los datos</strong> de esta tarjeta (recepciones, laboratorio, humedad prov/final, pesajes, conciliación y totales) en el histórico y <strong>deja la tarjeta EN BLANCO</strong> para la próxima recepción. La configuración de columnas del laboratorio (minerales) se conserva.</p>
         <div className="form-grid">
           <div className="form-row" style={{ maxWidth: 200 }}>
             <label>N° de Recepción</label>

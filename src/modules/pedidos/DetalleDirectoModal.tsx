@@ -92,7 +92,7 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
           ))}
         </div>
       ) : (
-        <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin facturas cargadas.</p>
+        <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin facturas cargadas.</p>
       )}
     </Modal>
   );

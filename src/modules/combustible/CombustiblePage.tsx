@@ -256,7 +256,7 @@ export function CombustiblePage() {
       <div className="page-head">
         <div>
           <h1>⛽ {sedeActiva ? sedes.find((s) => s.clave === sedeActiva)?.titulo ?? 'Combustible' : 'Combustible'}</h1>
-          <p className="muted">
+          <p className="hint muted">
             {sedeActiva
               ? <>← <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => { setSedeActiva(null); setModal('none'); }}>Volver a las sedes</span> · Por aprobar → Aprobada → Finalizada (descuenta litros).</>
               : 'Elegí una sede para ver y gestionar su combustible, tanques y solicitudes.'}
@@ -362,7 +362,7 @@ export function CombustiblePage() {
           </div>
         )}
         {!combSede.length && !loading && (
-          <div className="card"><p className="muted" style={{ margin: 0 }}>Sin combustibles en esta sede. Creá uno con "⛽ Combustibles".</p></div>
+          <div className="card"><p className="hint muted" style={{ margin: 0 }}>Sin combustibles en esta sede. Creá uno con "⛽ Combustibles".</p></div>
         )}
       </div>
 
@@ -1262,7 +1262,7 @@ function EditarTanqueMovModal({ mov, tanques, vehiculos, actor, actorName, onClo
         <div className="form-row"><label>Destino</label><input className="input" value={destino} onChange={(e) => setDestino(e.target.value)} /></div>
       </div>
       <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} /></div>
-      <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
+      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
         Si cambiás el <strong>tanque</strong>, el <strong>tipo</strong> o los <strong>litros</strong>, el sistema ajusta solo los balances en el tanque, el combustible y el inventario para que todo quede cuadrado.
       </p>
     </Modal>
@@ -2007,7 +2007,7 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
             <button className="btn btn-primary" onClick={guardarTelemetria} disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</button>
           </>
         }>
-          <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Cargá o corregí los horómetros e indicadores de esta solicitud finalizada (no cambia litros). Se sincroniza con la cadena de combustible.</p>
+          <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Cargá o corregí los horómetros e indicadores de esta solicitud finalizada (no cambia litros). Se sincroniza con la cadena de combustible.</p>
           {telemetriaFields}
         </Modal>
       )}

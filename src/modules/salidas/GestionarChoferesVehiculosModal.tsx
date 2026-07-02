@@ -112,7 +112,7 @@ export function GestionarChoferesVehiculosModal({
   return (
     <Modal title="Choferes / Vehículos" size="lg" onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Catálogos del despacho. Lo que <strong>deshabilités</strong> deja de aparecer en el selector al crear
         una salida o traslado, pero las solicitudes ya creadas conservan sus datos.
       </p>

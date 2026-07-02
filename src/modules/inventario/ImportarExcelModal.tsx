@@ -184,7 +184,7 @@ export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
         </table>
       </div>
 
-      <p className="muted" style={{ fontSize: '.75rem', marginTop: '.75rem' }}>
+      <p className="hint muted" style={{ fontSize: '.75rem', marginTop: '.75rem' }}>
         Las filas con error nunca se importan, ni siquiera cuando se sube el archivo. Si necesitás
         forzar la importación de un registro problemático, corregí los datos en el Excel y volvé a subirlo.
       </p>

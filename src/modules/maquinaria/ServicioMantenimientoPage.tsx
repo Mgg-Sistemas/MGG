@@ -152,7 +152,7 @@ export function ServicioMantenimientoPage() {
       <div className="page-head">
         <div>
           <h1>🔧 Servicio de Mantenimiento</h1>
-          <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.85rem' }}>
+          <p className="hint muted" style={{ margin: '.2rem 0 0', fontSize: '.85rem' }}>
             Equipos de Control de Maquinaria agrupados por flota, con su estado de mantenimiento.
           </p>
         </div>
@@ -307,7 +307,7 @@ function SolicitudesServicioModal({ equipo, solicitudes, onClose, onBitacora }: 
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
         <button className="btn btn-primary" onClick={onBitacora} title="Registrar el seguimiento (consumos, repuestos) en la bitácora del equipo">🔧 Seguimiento en bitácora</button>
       </>}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Servicios pedidos para este equipo desde <strong>Pedidos → 🛠 Servicios</strong>. {abiertas > 0
           ? <>Hay <strong>{abiertas}</strong> en curso.</>
           : 'No hay servicios en curso.'} Se piden y cotizan en <a href="#/app/pedidos">la pestaña Servicios</a>; el seguimiento del consumo (litros, cauchos, repuestos…) se lleva en la <strong>bitácora</strong> de este equipo.

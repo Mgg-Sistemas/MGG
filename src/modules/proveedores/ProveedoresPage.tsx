@@ -193,7 +193,7 @@ export function ProveedoresPage() {
       >
         <div>
           <h1 style={{ margin: 0 }}>Proveedores</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>
+          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
             Base de proveedores que participan en órdenes y licitaciones.
           </p>
         </div>
@@ -254,7 +254,7 @@ export function ProveedoresPage() {
 
       {loading ? (
         <div className="card">
-          <p className="muted" style={{ margin: 0 }}>Cargando proveedores…</p>
+          <p className="hint muted" style={{ margin: 0 }}>Cargando proveedores…</p>
         </div>
       ) : errorMsg ? (
         <div className="card">
@@ -743,7 +743,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         Histórico de órdenes
       </h3>
       {loading ? (
-        <p className="muted" style={{ margin: 0 }}>Cargando histórico…</p>
+        <p className="hint muted" style={{ margin: 0 }}>Cargando histórico…</p>
       ) : error ? (
         <EmptyState message={error} icon="!" />
       ) : ordenes.length === 0 ? (

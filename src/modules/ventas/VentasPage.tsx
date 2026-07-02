@@ -105,7 +105,7 @@ export function VentasPage() {
       <div className="page-head">
         <div>
           <h1>🧾 Ventas</h1>
-          <p className="muted">Facturación de productos: clientes, precio, tenor (ley), costo y ganancia. Al emitir una factura se descuenta el stock del inventario.</p>
+          <p className="hint muted">Facturación de productos: clientes, precio, tenor (ley), costo y ganancia. Al emitir una factura se descuenta el stock del inventario.</p>
         </div>
       </div>
 

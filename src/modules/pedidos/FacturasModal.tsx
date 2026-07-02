@@ -84,7 +84,7 @@ export function FacturasModal({ title, facturas, urlFor, onSave, onClose }: {
             ))}
           </div>
         ) : (
-          <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin facturas. Cargá una abajo.</p>
+          <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin facturas. Cargá una abajo.</p>
         )}
       </div>
 

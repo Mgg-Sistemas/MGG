@@ -102,7 +102,7 @@ export function ProduccionPage() {
       <div className="page-head">
         <div>
           <h1>Fundición</h1>
-          <p className="muted">Órdenes de fundición: consumen insumos del inventario y, al finalizar, el producto terminado entra como existencia.</p>
+          <p className="hint muted">Órdenes de fundición: consumen insumos del inventario y, al finalizar, el producto terminado entra como existencia.</p>
         </div>
         <div className="actions">
           <div className="view-toggle" role="tablist" aria-label="Vista de fundición">

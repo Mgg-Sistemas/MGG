@@ -114,7 +114,7 @@ export function AjustesPage() {
       <div className="page-head">
         <div>
           <h1>Ajustes</h1>
-          <p className="muted">Configura tu perfil y preferencias del sistema.</p>
+          <p className="hint muted">Configura tu perfil y preferencias del sistema.</p>
         </div>
       </div>
 
@@ -291,7 +291,7 @@ export function AjustesPage() {
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Seguridad</span>
           </div>
-          <p className="muted" style={{ fontSize: '.85rem', marginBottom: '1rem' }}>
+          <p className="hint muted" style={{ fontSize: '.85rem', marginBottom: '1rem' }}>
             Cambia tu clave de acceso al sistema. Vas a ser redirigido al login después de actualizarla.
           </p>
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -302,7 +302,7 @@ export function AjustesPage() {
               🔒 Acceso con huella
             </button>
           </div>
-          <p className="muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>
+          <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>
             El acceso con huella se activa por dispositivo. Lo podés configurar acá cuando quieras.
           </p>
         </div>
@@ -312,7 +312,7 @@ export function AjustesPage() {
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Vista preferida (Pedidos)</span>
           </div>
-          <p className="muted" style={{ fontSize: '.85rem', marginBottom: '.75rem' }}>
+          <p className="hint muted" style={{ fontSize: '.85rem', marginBottom: '.75rem' }}>
             Modo por defecto del módulo Pedidos/Compras. Igualmente puedes alternar dentro del módulo.
           </p>
 

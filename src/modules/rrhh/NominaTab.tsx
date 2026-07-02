@@ -347,7 +347,7 @@ function LiquidacionModal({ actor, actorName, onClose, onSaved }: {
       </>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
-      <p className="muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
         Pago único (renuncia, despido, bono especial). Se carga como nómina de una persona y <strong>Tesorería lo paga</strong> igual que el resto.
       </p>
       <div className="form-grid">

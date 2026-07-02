@@ -437,7 +437,7 @@ export function AgregarOfertaModal({
               )}
             </>
           ) : (
-            <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>
+            <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>
               No quedan proveedores activos sin oferta. Marca <strong>"Proveedor no registrado"</strong> arriba para crear uno nuevo.
             </p>
           )}
@@ -446,7 +446,7 @@ export function AgregarOfertaModal({
 
       <div className="form-row">
         <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y/o en USD efectivo — completá al menos una columna)</span></label>
-        <p className="muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.4rem' }}>
+        <p className="hint muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.4rem' }}>
           💡 Si el proveedor ofrece el mismo producto en <strong>varias marcas/modelos</strong>, usá <strong>＋ marca</strong> para agregar otra variante con su propio precio.
         </p>
         <div className="table-wrap">

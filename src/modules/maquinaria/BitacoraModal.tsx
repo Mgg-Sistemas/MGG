@@ -427,7 +427,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
           </tbody>
         </table>
       </div>
-      <p className="muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>
+      <p className="hint muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>
         HRS. = horómetro de este registro − el del registro anterior. Lts/h = gasoil ÷ HRS. {equipo.combustible_equipo ? `Horómetro y gasoil ⛽ vinculados a Combustible (${equipo.combustible_equipo}).` : 'Equipo sin vincular a Combustible.'}
       </p>
 

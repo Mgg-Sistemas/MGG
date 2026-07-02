@@ -322,7 +322,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
               </tr>
             </tfoot>
           </table>
-          <p className="muted" style={{ fontSize: '.74rem', marginTop: '.5rem' }}>
+          <p className="hint muted" style={{ fontSize: '.74rem', marginTop: '.5rem' }}>
             <strong>Saldo en Kg de casiterita</strong> = saldo anterior + Kg Cerrados − Kg Recibidos por MGG (acumulado corrido; admite negativo).
           </p>
         </div>
