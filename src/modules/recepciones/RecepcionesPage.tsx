@@ -14,9 +14,10 @@ import {
   listMinerales, crearMineral, actualizarMineral, setMineralActivo,
   listAnalisis, crearAnalisis, actualizarAnalisis, eliminarAnalisis,
   listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
-  listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal,
+  listHumedadFinal, eliminarHumedadFinal,
+  sincronizarHumedadFinalPorProcedencia,
   promedioCol, sumaCol,
-  listPesajes, crearPesaje, actualizarPesaje, eliminarPesaje, bigBagLado, totalNetoLado,
+  listPesajes, crearPesaje, actualizarPesaje, eliminarPesaje, bigBagLado, totalNetoLado, netoPorProcedencia,
   listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion,
   totalReportadoConcil, kgFaltanteConcil, kgNoLlegoConcil, pctNoLlegoConcil,
   listTotales, crearTotales, actualizarTotales, eliminarTotales,
@@ -336,6 +337,17 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
   }, [reload]);
   useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales', 'recepcion_humedad_prov', 'recepcion_humedad_final', 'recepcion_pesajes', 'recepcion_conciliaciones', 'recepcion_totales'], reload);
 
+  // Procedencias ya usadas (recepciones + pesajes) para el desplegable de la tabla de PESOS.
+  const procedenciasSugeridas = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of recepciones) { const p = (r.procedencia ?? '').trim().toUpperCase(); if (p) set.add(p); }
+    for (const pj of pesajes) for (const b of pj.bigbags ?? []) {
+      const h = (b.proc_h ?? '').trim().toUpperCase(); if (h) set.add(h);
+      const s = (b.proc_s ?? '').trim().toUpperCase(); if (s) set.add(s);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [recepciones, pesajes]);
+
   function borrarRecepcion(r: Recepcion) {
     setConfirmar({
       message: `¿Borrar la recepción #${r.item} (${n2(r.peso_kg)} Kg · ${r.procedencia})?`,
@@ -350,9 +362,19 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
     try { await crearHumedadProv(grupoId, actor, miNombre); await reload(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
   }
+  // Humedad Final = UNA fila por procedencia, con su neto seco. Se sincroniza desde
+  // los pesos (y también automáticamente al guardar/borrar un pesaje).
   async function agregarHumFinal() {
-    try { await crearHumedadFinal(grupoId, actor, miNombre); await reload(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
+    try {
+      const procs = await sincronizarHumedadFinalPorProcedencia(grupoId, actor, miNombre);
+      await reload();
+      toast(procs.length ? `Humedad Final sincronizada · ${procs.length} procedencia(s)` : 'No hay procedencias con peso en los pesajes.', procs.length ? 'success' : 'info');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo sincronizar', 'error'); }
+  }
+  // Sincroniza la Humedad Final por procedencia sin bloquear el flujo (tras un pesaje).
+  async function syncHumFinalSilencioso() {
+    try { await sincronizarHumedadFinalPorProcedencia(grupoId, actor, miNombre); }
+    catch { /* no bloquea el guardado del pesaje */ }
   }
   function borrarHumProv(h: HumedadProv) {
     setConfirmar({ message: '¿Borrar esta fila de Humedad Provisional?', onConfirm: async () => {
@@ -369,7 +391,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
   function borrarPesaje(p: RecepcionPesaje) {
     setConfirmar({ message: `¿Borrar el pesaje #${p.item} (${p.bigbags.length} bigbag/s)?`, onConfirm: async () => {
       setConfirmar(null);
-      try { await eliminarPesaje(p.id); await reload(); toast('Pesaje borrado', 'success'); }
+      try { await eliminarPesaje(p.id); await syncHumFinalSilencioso(); await reload(); toast('Pesaje borrado', 'success'); }
       catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
     } });
   }
@@ -488,7 +510,8 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
 
       {pesajeModal && (
         <PesajeModal grupoId={grupoId} pesaje={pesajeModal === 'nuevo' ? null : pesajeModal} actor={actor} miNombre={miNombre}
-          onClose={() => setPesajeModal(null)} onSaved={async () => { setPesajeModal(null); await reload(); }} />
+          procedenciasSugeridas={procedenciasSugeridas}
+          onClose={() => setPesajeModal(null)} onSaved={async () => { setPesajeModal(null); await syncHumFinalSilencioso(); await reload(); }} />
       )}
       {conciliacionOpen && (
         <ConciliacionModal grupoId={grupoId} conciliaciones={conciliaciones} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
@@ -620,26 +643,31 @@ const pctHumFinal = (pesoKg: number | null, recogido: number | null): number | n
   if (h === 0) return null;
   return mermaFinal(pesoKg, recogido) / h * 100;
 };
-function HumedadFinalCard({ filas, netoSeco, canWrite, onAgregar, onBorrar, onReload }: {
+function HumedadFinalCard({ filas, netoSeco, canWrite, onAgregar, onBorrar }: {
   filas: HumedadFinal[]; netoSeco: number; canWrite: boolean; onAgregar: () => void; onBorrar: (h: HumedadFinal) => void; onReload: () => Promise<void>;
 }) {
-  // PESO (KG) = TOTAL NETO SECO de los pesajes (no se escribe). Merma = PESO KG − Σ recogido.
-  const pesoKg = round2(netoSeco);
-  const sumRecogido = sumaCol(filas.map((f) => f.peso_recogido));
-  const merma = mermaFinal(pesoKg, sumRecogido);
-  const pctFinal = pctHumFinal(pesoKg, sumRecogido);
+  // UNA fila por procedencia (sync desde los pesos). Por procedencia:
+  //   Peso (Kg) = neto HÚMEDO · Peso recogido = neto SECO · Merma = húmedo − seco.
+  const pesoKgTotal = round2(netoSeco);                          // total neto seco (lo que entra a inventario)
+  const sumHumedo = round2(sumaCol(filas.map((f) => f.peso_kg)));
+  const sumRecogido = round2(sumaCol(filas.map((f) => f.peso_recogido)));
+  const merma = mermaFinal(sumHumedo, sumRecogido);
+  const pctFinal = pctHumFinal(sumHumedo, sumRecogido);
+  const cols = canWrite ? 6 : 5;
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ background: '#cdddf3', color: '#13294b', fontWeight: 800, textAlign: 'center', padding: '.6rem', fontSize: '1rem', letterSpacing: '.02em' }}>Humedad Final</div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '.5rem .8rem', borderBottom: '1px solid var(--border, #2a2a2a)' }}>
         <span style={{ fontWeight: 700 }}>PESO (KG) <span className="muted" style={{ fontWeight: 400, fontSize: '.72rem' }}>(TOTAL NETO SECO)</span></span>
-        <strong className="mono" style={{ fontSize: '1.05rem' }}>{n2(pesoKg)}</strong>
+        <strong className="mono" style={{ fontSize: '1.05rem' }}>{n2(pesoKgTotal)}</strong>
       </div>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
           <thead>
             <tr>
-              <th>Peso (Kg) recogido</th>
+              <th>Procedencia</th>
+              <th style={{ textAlign: 'right' }}>Peso (Kg) <span className="muted" style={{ fontWeight: 400, fontSize: '.68rem' }}>(neto húmedo)</span></th>
+              <th style={{ textAlign: 'right' }}>Peso (Kg) recogido <span className="muted" style={{ fontWeight: 400, fontSize: '.68rem' }}>(seco)</span></th>
               <th style={{ textAlign: 'center' }}>Merma peso H2O</th>
               <th style={{ textAlign: 'center' }}>% Humedad final</th>
               {canWrite && <th></th>}
@@ -647,12 +675,14 @@ function HumedadFinalCard({ filas, netoSeco, canWrite, onAgregar, onBorrar, onRe
           </thead>
           <tbody>
             {!filas.length ? (
-              <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin filas. Agregá con “+ Agregar Humedad Final”.</td></tr>
-            ) : filas.map((f) => <HumedadFinalRow key={f.id} fila={f} pesoKg={pesoKg} canWrite={canWrite} onBorrar={() => onBorrar(f)} onReload={onReload} />)}
+              <tr><td colSpan={cols} className="muted" style={{ textAlign: 'center' }}>Sin datos. Cargá los pesos y usá «↻ Sincronizar desde pesos».</td></tr>
+            ) : filas.map((f) => <HumedadFinalRow key={f.id} fila={f} canWrite={canWrite} onBorrar={() => onBorrar(f)} />)}
           </tbody>
           {filas.length > 0 && (
             <tfoot>
               <tr>
+                <td style={{ fontWeight: 800 }}>TOTAL</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(sumHumedo)}</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(sumRecogido)}</td>
                 <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{n2(merma)}</td>
                 <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{pctFinal != null ? `${n2(pctFinal)}%` : '0,00%'}</td>
@@ -666,26 +696,24 @@ function HumedadFinalCard({ filas, netoSeco, canWrite, onAgregar, onBorrar, onRe
         <span>Merma peso H2O: <strong className="mono">{n2(merma)}</strong></span>
         <span>% Humedad final: <strong className="mono">{pctFinal != null ? `${n2(pctFinal)}%` : '0,00%'}</strong></span>
       </div>
-      {canWrite && <div style={{ padding: '.6rem', textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={onAgregar}>+ Agregar Humedad Final</button></div>}
+      {canWrite && <div style={{ padding: '.6rem', textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={onAgregar} title="Genera una fila por procedencia con su neto húmedo y seco">↻ Sincronizar desde pesos</button></div>}
     </div>
   );
 }
-function HumedadFinalRow({ fila, pesoKg, canWrite, onBorrar, onReload }: {
-  fila: HumedadFinal; pesoKg: number; canWrite: boolean; onBorrar: () => void; onReload: () => Promise<void>;
+function HumedadFinalRow({ fila, canWrite, onBorrar }: {
+  fila: HumedadFinal; canWrite: boolean; onBorrar: () => void;
 }) {
-  const save = async (patch: Partial<Pick<HumedadFinal, 'peso_recogido'>>) => {
-    try { await actualizarHumedadFinal(fila.id, patch); await onReload(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
-  };
-  // Merma y % por renglón, contra el PESO (KG) = total neto seco de la tarjeta.
-  const merma = mermaFinal(pesoKg, fila.peso_recogido);
-  const pct = pctHumFinal(pesoKg, fila.peso_recogido);
+  // Por procedencia: Merma = neto húmedo − neto seco · % = Merma ÷ húmedo × 100.
+  const merma = mermaFinal(fila.peso_kg, fila.peso_recogido);
+  const pct = pctHumFinal(fila.peso_kg, fila.peso_recogido);
   return (
     <tr>
-      <NumCell value={fila.peso_recogido} canWrite={canWrite} onSave={(n) => void save({ peso_recogido: n })} />
-      <td className="mono" style={{ textAlign: 'center' }} title="PESO (KG) − Peso recogido">{n2(merma)}</td>
-      <td className="mono" style={{ textAlign: 'center' }} title="Merma ÷ PESO (KG) × 100">{pct != null ? `${n2(pct)}%` : '—'}</td>
-      {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar fila">🗑</button></td>}
+      <td style={{ fontWeight: 700, textTransform: 'uppercase' }}>{fila.procedencia || '—'}</td>
+      <td className="mono" style={{ textAlign: 'right' }}>{n2(fila.peso_kg)}</td>
+      <td className="mono" style={{ textAlign: 'right' }}>{n2(fila.peso_recogido)}</td>
+      <td className="mono" style={{ textAlign: 'center' }} title="Neto húmedo − Peso recogido (seco)">{n2(merma)}</td>
+      <td className="mono" style={{ textAlign: 'center' }} title="Merma ÷ neto húmedo × 100">{pct != null ? `${n2(pct)}%` : '—'}</td>
+      {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={onBorrar} title="Borrar fila (se regenera al sincronizar)">🗑</button></td>}
     </tr>
   );
 }
@@ -700,8 +728,8 @@ const PESO_MODES: Record<PesoModo, { label: string; factor: number }> = {
 };
 const PESO_MODOS_ORDEN: PesoModo[] = ['bigbag', 'saco', 'hielo'];
 
-function PesajeModal({ grupoId, pesaje, actor, miNombre, onClose, onSaved }: {
-  grupoId: string; pesaje: RecepcionPesaje | null; actor: string; miNombre: string; onClose: () => void; onSaved: () => void;
+function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas = [], onClose, onSaved }: {
+  grupoId: string; pesaje: RecepcionPesaje | null; actor: string; miNombre: string; procedenciasSugeridas?: string[]; onClose: () => void; onSaved: () => void;
 }) {
   const [rows, setRows] = useState<RowDraft[]>(() => (pesaje?.bigbags ?? []).map((b) => ({
     proc_h: b.proc_h ?? '', peso_h: b.peso_h == null ? '' : String(b.peso_h),
@@ -751,11 +779,18 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, onClose, onSaved }: {
         <span className="muted" style={{ fontSize: '.8rem' }}>Cada fila lleva su <strong>categoría</strong> (BIG BAG ×1,5 · SACO ×0,06 · BOLSA DE HIELO ×0,05) y su <strong>cantidad</strong>. DESCUENTO = −Σ (factor × cantidad) de cada fila con peso (ej. 7 big bags → −1,5×7) · TOTAL NETO = suma de pesos + DESCUENTO.</span>
         <button className="btn btn-sm btn-primary" onClick={addBigbag}>+ Añadir peso</button>
       </div>
+      {/* Desplegable libre recordado: procedencias ya usadas + las tipeadas en este pesaje. */}
+      <datalist id="pesaje-procedencias-list">
+        {Array.from(new Set([
+          ...procedenciasSugeridas,
+          ...rows.flatMap((r) => [r.proc_h.trim().toUpperCase(), r.proc_s.trim().toUpperCase()]),
+        ].filter(Boolean))).sort((a, b) => a.localeCompare(b)).map((p) => <option key={p} value={p} />)}
+      </datalist>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem' }}>
-        <PesajeTabla titulo="PESOS HÚMEDOS" bg="#9db8e0" rows={rows} lado="h"
-          bigBag={bigBagLado(bigbags, 'h')} totalNeto={totalNetoLado(bigbags, 'h')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
-        <PesajeTabla titulo="PESOS SECOS" bg="#cdddf3" rows={rows} lado="s"
-          bigBag={bigBagLado(bigbags, 's')} totalNeto={totalNetoLado(bigbags, 's')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
+        <PesajeTabla titulo="PESOS HÚMEDOS" bg="#9db8e0" rows={rows} lado="h" listId="pesaje-procedencias-list"
+          bigBag={bigBagLado(bigbags, 'h')} totalNeto={totalNetoLado(bigbags, 'h')} subtotales={netoPorProcedencia(bigbags, 'h')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
+        <PesajeTabla titulo="PESOS SECOS" bg="#cdddf3" rows={rows} lado="s" listId="pesaje-procedencias-list"
+          bigBag={bigBagLado(bigbags, 's')} totalNeto={totalNetoLado(bigbags, 's')} subtotales={netoPorProcedencia(bigbags, 's')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
       </div>
       <div className="form-row" style={{ marginTop: '.85rem' }}>
         <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
@@ -765,14 +800,19 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, onClose, onSaved }: {
   );
 }
 
-function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat, onCant, onRemove }: {
+function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, subtotales, listId, onCell, onCat, onCant, onRemove }: {
   titulo: string; bg: string; rows: RowDraft[]; lado: 'h' | 's';
   bigBag: number; totalNeto: number;
+  /** Peso final neto por procedencia (A, B, …) para mostrar el subtotal. */
+  subtotales?: Map<string, number>;
+  /** id del <datalist> con las procedencias sugeridas (desplegable libre recordado). */
+  listId?: string;
   onCell: (i: number, key: 'proc_h' | 'peso_h' | 'proc_s' | 'peso_s', val: string) => void;
   onCat: (i: number, cat: PesoModo) => void; onCant: (i: number, val: string) => void; onRemove: (i: number) => void;
 }) {
   const procKey = lado === 'h' ? 'proc_h' as const : 'proc_s' as const;
   const pesoKey = lado === 'h' ? 'peso_h' as const : 'peso_s' as const;
+  const subs = Array.from(subtotales?.entries() ?? []).sort((a, b) => a[0].localeCompare(b[0]));
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ background: bg, color: '#13294b', fontWeight: 800, textAlign: 'center', padding: '.55rem', letterSpacing: '.04em' }}>{titulo}</div>
@@ -784,7 +824,7 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat,
               <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin pesos. Usá «+ Añadir peso».</td></tr>
             ) : rows.map((r, i) => (
               <tr key={i}>
-                <td style={{ padding: 2 }}><input className="input" style={{ padding: '.2rem .35rem', textTransform: 'uppercase' }} value={r[procKey]} onChange={(e) => onCell(i, procKey, e.target.value)} placeholder="A / B / Ali" /></td>
+                <td style={{ padding: 2 }}><input className="input" list={listId} style={{ padding: '.2rem .35rem', textTransform: 'uppercase' }} value={r[procKey]} onChange={(e) => onCell(i, procKey, e.target.value)} placeholder="Elegí o escribí (A / B / Ali)" /></td>
                 <td style={{ padding: 2 }}><input className="input mono" style={{ width: 96, textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={r[pesoKey]} onChange={(e) => onCell(i, pesoKey, e.target.value)} placeholder="0,00" /></td>
                 <td style={{ padding: 2 }}>
                   <select className="select" style={{ padding: '.2rem .3rem', fontSize: '.78rem' }} value={r.categoria} onChange={(e) => onCat(i, e.target.value as PesoModo)}>
@@ -797,6 +837,16 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, onCell, onCat,
             ))}
           </tbody>
           <tfoot>
+            {/* Peso FINAL por procedencia (misma fórmula: Σ peso − factor×cant de esa procedencia). */}
+            {subs.map(([proc, neto]) => (
+              <tr key={`sub-${proc}`} style={{ background: 'rgba(148,163,184,0.08)' }}>
+                <td style={{ fontWeight: 700, textTransform: 'uppercase' }} title="Peso final neto de esta procedencia">{proc}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(neto)}</td>
+                <td className="muted" style={{ fontSize: '.72rem' }}>final procedencia</td>
+                <td></td>
+                <td></td>
+              </tr>
+            ))}
             <tr>
               <td></td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: 'var(--danger, #e5484d)' }}>{n2(bigBag)}</td>

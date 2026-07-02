@@ -322,8 +322,9 @@ export interface HumedadProv {
 export interface HumedadFinal {
   id: string;
   orden: number;
-  peso_kg: number | null;       // Peso (Kg)
-  peso_recogido: number | null; // Peso (Kg) recogido
+  procedencia?: string | null;  // procedencia (A, B, …): una fila por procedencia (sync desde pesos)
+  peso_kg: number | null;       // Peso (Kg) = neto húmedo de la procedencia
+  peso_recogido: number | null; // Peso (Kg) recogido = neto SECO de la procedencia
   merma_h2o: number | null;     // Merma peso H2O (calculada: peso_kg - peso_recogido)
   pct_humedad: number | null;   // % Humedad final
   actor?: string | null;
@@ -373,9 +374,9 @@ export async function crearHumedadFinal(grupoId: string, actor: string, actorNam
   if (error) throw error;
   return data as HumedadFinal;
 }
-export async function actualizarHumedadFinal(id: string, patch: Partial<Pick<HumedadFinal, 'peso_kg' | 'peso_recogido' | 'merma_h2o' | 'pct_humedad'>>): Promise<void> {
+export async function actualizarHumedadFinal(id: string, patch: Partial<Pick<HumedadFinal, 'procedencia' | 'peso_kg' | 'peso_recogido' | 'merma_h2o' | 'pct_humedad'>>): Promise<void> {
   const p: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  for (const k of ['peso_kg', 'peso_recogido', 'merma_h2o', 'pct_humedad'] as const) {
+  for (const k of ['procedencia', 'peso_kg', 'peso_recogido', 'merma_h2o', 'pct_humedad'] as const) {
     if (patch[k] !== undefined) p[k] = patch[k];
   }
   const { error } = await supabase.from('recepcion_humedad_final').update(p).eq('id', id);
@@ -384,6 +385,38 @@ export async function actualizarHumedadFinal(id: string, patch: Partial<Pick<Hum
 export async function eliminarHumedadFinal(id: string): Promise<void> {
   const { error } = await supabase.from('recepcion_humedad_final').delete().eq('id', id);
   if (error) throw error;
+}
+
+/**
+ * Sincroniza la Humedad Final a UNA FILA POR PROCEDENCIA desde los pesos: cada fila
+ * lleva la procedencia, su `peso_kg` = neto HÚMEDO final y su `peso_recogido` = neto
+ * SECO final (Σ pesos − factor×cant de esa procedencia). Merma = húmedo − seco y
+ * % = merma ÷ húmedo. Reemplaza las filas previas (auto). Devuelve las procedencias sincronizadas.
+ */
+export async function sincronizarHumedadFinalPorProcedencia(grupoId: string, actor: string, actorName?: string | null): Promise<string[]> {
+  const pesajes = await listPesajes(grupoId);
+  const humedo = netoPorProcedenciaGrupo(pesajes, 'h');
+  const seco = netoPorProcedenciaGrupo(pesajes, 's');
+  // Universo de procedencias con datos en cualquiera de los dos lados.
+  const procs = Array.from(new Set([...humedo.keys(), ...seco.keys()])).sort((a, b) => a.localeCompare(b));
+  // Reemplaza: borra las filas actuales del grupo y crea una por procedencia.
+  const { error: delErr } = await supabase.from('recepcion_humedad_final').delete().eq('grupo_id', grupoId);
+  if (delErr) throw delErr;
+  if (!procs.length) return [];
+  const rows = procs.map((proc, i) => {
+    const pesoKg = round2(humedo.get(proc) ?? 0);        // neto húmedo
+    const recogido = round2(seco.get(proc) ?? 0);        // neto seco
+    const merma = round2(pesoKg - recogido);
+    const pct = pesoKg !== 0 ? round2((merma / pesoKg) * 100) : null;
+    return {
+      grupo_id: grupoId, orden: i + 1, procedencia: proc,
+      peso_kg: pesoKg, peso_recogido: recogido, merma_h2o: merma, pct_humedad: pct,
+      actor, actor_name: actorName ?? null,
+    };
+  });
+  const { error } = await supabase.from('recepcion_humedad_final').insert(rows);
+  if (error) throw error;
+  return procs;
 }
 
 /** Promedio (Σ ÷ cantidad) de los valores no nulos. Para los % del pie. */
@@ -457,6 +490,39 @@ export function bigBagLado(bigbags: PesajeBigbag[], lado: 'h' | 's'): number {
 export function totalNetoLado(bigbags: PesajeBigbag[], lado: 'h' | 's'): number {
   const suma = bigbags.reduce((a, b) => a + num(lado === 'h' ? b.peso_h : b.peso_s), 0);
   return suma + bigBagLado(bigbags, lado);
+}
+
+/**
+ * Peso final NETO por procedencia (misma fórmula): para cada procedencia,
+ * neto = Σ pesos − Σ(factor × cantidad) de sus filas CON peso. `lado` = 'h' (húmedo)
+ * o 's' (seco). Devuelve Map<procedenciaMAYUS, neto>. Las filas sin procedencia se ignoran.
+ */
+export function netoPorProcedencia(bigbags: PesajeBigbag[], lado: 'h' | 's'): Map<string, number> {
+  const acc = new Map<string, number>();
+  for (const b of bigbags) {
+    const proc = ((lado === 'h' ? b.proc_h : b.proc_s) ?? '').toString().trim().toUpperCase();
+    if (!proc) continue;
+    const peso = num(lado === 'h' ? b.peso_h : b.peso_s);
+    let neto = peso;
+    if (peso > 0) {
+      const factor = PESO_FACTOR[(b.categoria ?? 'bigbag') as PesoModo] ?? PESO_FACTOR.bigbag;
+      const cant = num(b.cant) > 0 ? num(b.cant) : 1;
+      neto = peso - factor * cant;
+    }
+    acc.set(proc, (acc.get(proc) ?? 0) + neto);
+  }
+  return acc;
+}
+
+/** Igual que `netoPorProcedencia` pero sobre TODOS los pesajes de un grupo (acumula). */
+export function netoPorProcedenciaGrupo(pesajes: RecepcionPesaje[], lado: 'h' | 's'): Map<string, number> {
+  const acc = new Map<string, number>();
+  for (const p of pesajes) {
+    for (const [proc, neto] of netoPorProcedencia(p.bigbags ?? [], lado)) {
+      acc.set(proc, (acc.get(proc) ?? 0) + neto);
+    }
+  }
+  return acc;
 }
 
 export interface PesajeInput {

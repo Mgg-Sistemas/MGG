@@ -3061,8 +3061,9 @@ create table if not exists public.recepcion_humedad_final (
   id uuid primary key default gen_random_uuid(),
   grupo_id uuid references public.recepcion_grupos(id) on delete cascade,
   orden int not null default 0,
-  peso_kg numeric,             -- Peso (Kg)
-  peso_recogido numeric,       -- Peso (Kg) recogido
+  procedencia text,            -- procedencia (A, B, …); una fila por procedencia, sync desde los pesos
+  peso_kg numeric,             -- Peso (Kg) = neto húmedo de la procedencia
+  peso_recogido numeric,       -- Peso (Kg) recogido = neto SECO de la procedencia
   merma_h2o numeric,           -- Merma peso H2O (calculada: peso_kg - peso_recogido)
   pct_humedad numeric,         -- % Humedad final
   actor text, actor_name text,
