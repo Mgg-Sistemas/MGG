@@ -218,6 +218,47 @@ export async function setMineralActivo(id: string, activo: boolean): Promise<voi
   if (error) throw error;
 }
 
+/* ───────────── Catálogo de PROCEDENCIAS (editable / borrable) ───────────── */
+export interface RecepcionProcedencia {
+  id: string;
+  nombre: string;
+  color?: string | null;
+  orden: number;
+  activo: boolean;
+  created_at: string;
+}
+export async function listProcedencias(soloActivas = true): Promise<RecepcionProcedencia[]> {
+  let q = supabase.from('recepcion_procedencias').select('*').order('orden', { ascending: true });
+  if (soloActivas) q = q.eq('activo', true);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as RecepcionProcedencia[];
+}
+export async function crearProcedencia(input: { nombre: string; color?: string | null }): Promise<RecepcionProcedencia> {
+  const nombre = input.nombre.trim().toUpperCase();
+  if (!nombre) throw new Error('Indicá el nombre de la procedencia.');
+  const { data: ex } = await supabase.from('recepcion_procedencias').select('nombre, orden');
+  if ((ex ?? []).some((p) => String((p as { nombre: string }).nombre).trim().toUpperCase() === nombre)) throw new Error('Ya existe esa procedencia.');
+  const orden = ((ex ?? []).reduce((mx, p) => Math.max(mx, num((p as { orden: number }).orden)), 0)) + 1;
+  const { data, error } = await supabase.from('recepcion_procedencias')
+    .insert({ nombre, color: input.color || null, orden }).select('*').single();
+  if (error) throw error;
+  return data as RecepcionProcedencia;
+}
+export async function actualizarProcedencia(id: string, patch: { nombre?: string; color?: string | null; activo?: boolean; orden?: number }): Promise<void> {
+  const p: Record<string, unknown> = {};
+  if (patch.nombre !== undefined) { const n = patch.nombre.trim().toUpperCase(); if (!n) throw new Error('El nombre no puede estar vacío.'); p.nombre = n; }
+  if (patch.color !== undefined) p.color = patch.color || null;
+  if (patch.activo !== undefined) p.activo = patch.activo;
+  if (patch.orden !== undefined) p.orden = Math.floor(Number(patch.orden) || 0);
+  const { error } = await supabase.from('recepcion_procedencias').update(p).eq('id', id);
+  if (error) throw error;
+}
+export async function eliminarProcedencia(id: string): Promise<void> {
+  const { error } = await supabase.from('recepcion_procedencias').delete().eq('id', id);
+  if (error) throw error;
+}
+
 /* ───────────── Análisis de laboratorio (tabla de abajo) ───────────── */
 /** Valores por mineral: { a, b, c } (modo abc) o { prom } (modo prom). */
 export type ValorMineral = { a?: number | null; b?: number | null; c?: number | null; prom?: number | null };

@@ -12,6 +12,7 @@ import type { Almacen } from '@/shared/lib/types';
 import {
   listRecepciones, crearRecepcion, actualizarRecepcion, eliminarRecepcion,
   listMinerales, crearMineral, actualizarMineral, setMineralActivo,
+  listProcedencias, crearProcedencia, actualizarProcedencia, eliminarProcedencia,
   listAnalisis, crearAnalisis, actualizarAnalisis, eliminarAnalisis,
   listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
   listHumedadFinal, eliminarHumedadFinal,
@@ -24,7 +25,7 @@ import {
   totalMonedaCentro, sumSnO2, totalMonedaTotal, tasaRecepcionada,
   listGrupos, crearGrupo, eliminarGrupo,
   listCierres, nextNumeroCierre, crearCierre, eliminarCierre,
-  type Recepcion, type RecepcionMineral, type RecepcionAnalisis, type ValorMineral,
+  type Recepcion, type RecepcionMineral, type RecepcionProcedencia, type RecepcionAnalisis, type ValorMineral,
   type HumedadProv, type HumedadFinal, type RecepcionPesaje, type PesajeBigbag, type PesoModo,
   type RecepcionConciliacion, type CentroConcil, type RecepcionTotales, type CentroTotal,
   type RecepcionGrupo, type RecepcionCierre,
@@ -54,6 +55,14 @@ function parseNumCell(s: string): number | null {
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * Número → texto para inputs de PESOS (Kg): el punto decimal de JS pasa a coma, así
+ * `parseNum` (que trata el punto como separador de MILES en es-VE) lo lee correcto.
+ * Sin esto, `String(1038.7)`="1038.7" → parseNum borra el punto → 10387 (bug ×10).
+ */
+const numInput = (n: number | null | undefined): string =>
+  (n == null || !Number.isFinite(Number(n))) ? '' : String(n).replace('.', ',');
 
 // Fecha (día) en formato es-VE: 30/06/2026.
 const diaVE = (iso: string) => new Date(iso).toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -308,6 +317,8 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
 
   const [recepciones, setRecepciones] = useState<Recepcion[]>([]);
   const [minerales, setMinerales] = useState<RecepcionMineral[]>([]);
+  const [procedenciasCat, setProcedenciasCat] = useState<RecepcionProcedencia[]>([]);
+  const [configProcOpen, setConfigProcOpen] = useState(false);
   const [analisis, setAnalisis] = useState<RecepcionAnalisis[]>([]);
   const [humProv, setHumProv] = useState<HumedadProv[]>([]);
   const [humFinal, setHumFinal] = useState<HumedadFinal[]>([]);
@@ -325,8 +336,8 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
   const [confirmar, setConfirmar] = useState<{ message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null>(null);
 
   const reload = useCallback(async () => {
-    const [rs, ms, as, hp, hf, ps, cc, tt] = await Promise.all([listRecepciones(grupoId), listMinerales(true), listAnalisis(grupoId), listHumedadProv(grupoId), listHumedadFinal(grupoId), listPesajes(grupoId), listConciliaciones(grupoId), listTotales(grupoId)]);
-    setRecepciones(rs); setMinerales(ms); setAnalisis(as); setHumProv(hp); setHumFinal(hf); setPesajes(ps); setConciliaciones(cc); setTotales(tt);
+    const [rs, ms, pc, as, hp, hf, ps, cc, tt] = await Promise.all([listRecepciones(grupoId), listMinerales(true), listProcedencias(true), listAnalisis(grupoId), listHumedadProv(grupoId), listHumedadFinal(grupoId), listPesajes(grupoId), listConciliaciones(grupoId), listTotales(grupoId)]);
+    setRecepciones(rs); setMinerales(ms); setProcedenciasCat(pc); setAnalisis(as); setHumProv(hp); setHumFinal(hf); setPesajes(ps); setConciliaciones(cc); setTotales(tt);
   }, [grupoId]);
   useEffect(() => {
     let cancel = false;
@@ -335,7 +346,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
-  useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales', 'recepcion_humedad_prov', 'recepcion_humedad_final', 'recepcion_pesajes', 'recepcion_conciliaciones', 'recepcion_totales'], reload);
+  useRealtime(['recepciones', 'recepcion_analisis', 'recepcion_minerales', 'recepcion_procedencias', 'recepcion_humedad_prov', 'recepcion_humedad_final', 'recepcion_pesajes', 'recepcion_conciliaciones', 'recepcion_totales'], reload);
 
   // Procedencias ya usadas (recepciones + pesajes) para el desplegable de la tabla de PESOS.
   const procedenciasSugeridas = useMemo(() => {
@@ -479,9 +490,12 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
 
       {/* ───────────── Pesos (Bigbags) · histórico ───────────── */}
       <div className="card" style={{ marginTop: '1.25rem' }}>
-        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
           <span>⚖ Pesos (Bigbags)</span>
-          {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setPesajeModal('nuevo')}>+ Añadir pesos</button>}
+          <div style={{ display: 'flex', gap: '.4rem' }}>
+            {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setConfigProcOpen(true)}>⚙ Configurar procedencias</button>}
+            {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setPesajeModal('nuevo')}>+ Añadir pesos</button>}
+          </div>
         </div>
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
@@ -510,7 +524,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
 
       {pesajeModal && (
         <PesajeModal grupoId={grupoId} pesaje={pesajeModal === 'nuevo' ? null : pesajeModal} actor={actor} miNombre={miNombre}
-          procedenciasSugeridas={procedenciasSugeridas}
+          procedenciasSugeridas={procedenciasSugeridas} procedenciasCat={procedenciasCat}
           onClose={() => setPesajeModal(null)} onSaved={async () => { setPesajeModal(null); await syncHumFinalSilencioso(); await reload(); }} />
       )}
       {conciliacionOpen && (
@@ -537,6 +551,9 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       )}
       {configOpen && (
         <ConfigMineralesModal onClose={() => setConfigOpen(false)} onChanged={reload} />
+      )}
+      {configProcOpen && (
+        <ConfigProcedenciasModal onClose={() => setConfigProcOpen(false)} onChanged={reload} />
       )}
       {confirmar && (
         <ConfirmDialog title="Confirmar" message={confirmar.message}
@@ -728,12 +745,12 @@ const PESO_MODES: Record<PesoModo, { label: string; factor: number }> = {
 };
 const PESO_MODOS_ORDEN: PesoModo[] = ['bigbag', 'saco', 'hielo'];
 
-function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas = [], onClose, onSaved }: {
-  grupoId: string; pesaje: RecepcionPesaje | null; actor: string; miNombre: string; procedenciasSugeridas?: string[]; onClose: () => void; onSaved: () => void;
+function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas = [], procedenciasCat = [], onClose, onSaved }: {
+  grupoId: string; pesaje: RecepcionPesaje | null; actor: string; miNombre: string; procedenciasSugeridas?: string[]; procedenciasCat?: RecepcionProcedencia[]; onClose: () => void; onSaved: () => void;
 }) {
   const [rows, setRows] = useState<RowDraft[]>(() => (pesaje?.bigbags ?? []).map((b) => ({
-    proc_h: b.proc_h ?? '', peso_h: b.peso_h == null ? '' : String(b.peso_h),
-    proc_s: b.proc_s ?? '', peso_s: b.peso_s == null ? '' : String(b.peso_s),
+    proc_h: b.proc_h ?? '', peso_h: numInput(b.peso_h),
+    proc_s: b.proc_s ?? '', peso_s: numInput(b.peso_s),
     categoria: (b.categoria ?? 'bigbag') as PesoModo,
     cant: b.cant == null ? '1' : String(b.cant),
   })));
@@ -747,6 +764,18 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
     categoria: r.categoria,
     cant: (parseNum(r.cant) ?? 0) > 0 ? (parseNum(r.cant) as number) : 1,
   }));
+
+  // Opciones del desplegable de PROCEDENCIA: catálogo + las ya usadas en este pesaje que
+  // aún no estén en el catálogo (para no perder procedencias previas de datos viejos).
+  const procOpciones: Array<{ nombre: string; color: string | null }> = (() => {
+    const cat = procedenciasCat.map((p) => ({ nombre: p.nombre.trim().toUpperCase(), color: p.color ?? null }));
+    const catNames = new Set(cat.map((c) => c.nombre));
+    const extras = Array.from(new Set([
+      ...procedenciasSugeridas,
+      ...rows.flatMap((r) => [r.proc_h.trim().toUpperCase(), r.proc_s.trim().toUpperCase()]),
+    ].filter(Boolean))).filter((n) => !catNames.has(n)).map((nombre) => ({ nombre, color: null as string | null }));
+    return [...cat, ...extras];
+  })();
 
   const addBigbag = () => setRows((rs) => [...rs, { proc_h: '', peso_h: '', proc_s: '', peso_s: '', categoria: 'bigbag', cant: '1' }]);
   const removeRow = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i));
@@ -779,17 +808,10 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
         <span className="muted" style={{ fontSize: '.8rem' }}>Cada fila lleva su <strong>categoría</strong> (BIG BAG ×1,5 · SACO ×0,06 · BOLSA DE HIELO ×0,05) y su <strong>cantidad</strong>. DESCUENTO = −Σ (factor × cantidad) de cada fila con peso (ej. 7 big bags → −1,5×7) · TOTAL NETO = suma de pesos + DESCUENTO.</span>
         <button className="btn btn-sm btn-primary" onClick={addBigbag}>+ Añadir peso</button>
       </div>
-      {/* Desplegable libre recordado: procedencias ya usadas + las tipeadas en este pesaje. */}
-      <datalist id="pesaje-procedencias-list">
-        {Array.from(new Set([
-          ...procedenciasSugeridas,
-          ...rows.flatMap((r) => [r.proc_h.trim().toUpperCase(), r.proc_s.trim().toUpperCase()]),
-        ].filter(Boolean))).sort((a, b) => a.localeCompare(b)).map((p) => <option key={p} value={p} />)}
-      </datalist>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem' }}>
-        <PesajeTabla titulo="PESOS HÚMEDOS" bg="#9db8e0" rows={rows} lado="h" listId="pesaje-procedencias-list"
+        <PesajeTabla titulo="PESOS HÚMEDOS" bg="#9db8e0" rows={rows} lado="h" opciones={procOpciones}
           bigBag={bigBagLado(bigbags, 'h')} totalNeto={totalNetoLado(bigbags, 'h')} subtotales={netoPorProcedencia(bigbags, 'h')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
-        <PesajeTabla titulo="PESOS SECOS" bg="#cdddf3" rows={rows} lado="s" listId="pesaje-procedencias-list"
+        <PesajeTabla titulo="PESOS SECOS" bg="#cdddf3" rows={rows} lado="s" opciones={procOpciones}
           bigBag={bigBagLado(bigbags, 's')} totalNeto={totalNetoLado(bigbags, 's')} subtotales={netoPorProcedencia(bigbags, 's')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
       </div>
       <div className="form-row" style={{ marginTop: '.85rem' }}>
@@ -800,19 +822,20 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
   );
 }
 
-function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, subtotales, listId, onCell, onCat, onCant, onRemove }: {
+function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, subtotales, opciones, onCell, onCat, onCant, onRemove }: {
   titulo: string; bg: string; rows: RowDraft[]; lado: 'h' | 's';
   bigBag: number; totalNeto: number;
   /** Peso final neto por procedencia (A, B, …) para mostrar el subtotal. */
   subtotales?: Map<string, number>;
-  /** id del <datalist> con las procedencias sugeridas (desplegable libre recordado). */
-  listId?: string;
+  /** Opciones del desplegable de procedencia (catálogo + usadas), con color. */
+  opciones?: Array<{ nombre: string; color: string | null }>;
   onCell: (i: number, key: 'proc_h' | 'peso_h' | 'proc_s' | 'peso_s', val: string) => void;
   onCat: (i: number, cat: PesoModo) => void; onCant: (i: number, val: string) => void; onRemove: (i: number) => void;
 }) {
   const procKey = lado === 'h' ? 'proc_h' as const : 'proc_s' as const;
   const pesoKey = lado === 'h' ? 'peso_h' as const : 'peso_s' as const;
   const subs = Array.from(subtotales?.entries() ?? []).sort((a, b) => a[0].localeCompare(b[0]));
+  const colorDe = (n: string) => opciones?.find((o) => o.nombre === n)?.color ?? null;
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ background: bg, color: '#13294b', fontWeight: 800, textAlign: 'center', padding: '.55rem', letterSpacing: '.04em' }}>{titulo}</div>
@@ -824,7 +847,16 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, subtotales, li
               <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin pesos. Usá «+ Añadir peso».</td></tr>
             ) : rows.map((r, i) => (
               <tr key={i}>
-                <td style={{ padding: 2 }}><input className="input" list={listId} style={{ padding: '.2rem .35rem', textTransform: 'uppercase' }} value={r[procKey]} onChange={(e) => onCell(i, procKey, e.target.value)} placeholder="Elegí o escribí (A / B / Ali)" /></td>
+                <td style={{ padding: 2 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, flexShrink: 0, background: colorDe(r[procKey]) ?? 'transparent', border: colorDe(r[procKey]) ? 'none' : '1px dashed var(--border,#3a3a3a)' }} />
+                    <select className="select" style={{ padding: '.2rem .3rem', fontSize: '.8rem', textTransform: 'uppercase', width: '100%' }} value={r[procKey]} onChange={(e) => onCell(i, procKey, e.target.value)}>
+                      <option value="">— procedencia —</option>
+                      {opciones?.map((o) => <option key={o.nombre} value={o.nombre}>{o.nombre}</option>)}
+                      {r[procKey] && !opciones?.some((o) => o.nombre === r[procKey].trim().toUpperCase()) && <option value={r[procKey]}>{r[procKey]}</option>}
+                    </select>
+                  </div>
+                </td>
                 <td style={{ padding: 2 }}><input className="input mono" style={{ width: 96, textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={r[pesoKey]} onChange={(e) => onCell(i, pesoKey, e.target.value)} placeholder="0,00" /></td>
                 <td style={{ padding: 2 }}>
                   <select className="select" style={{ padding: '.2rem .3rem', fontSize: '.78rem' }} value={r.categoria} onChange={(e) => onCat(i, e.target.value as PesoModo)}>
@@ -956,21 +988,21 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
   const [centros, setCentros] = useState<CentroRow[]>(() =>
     conciliacion
       ? conciliacion.centros.map((c) => ({
-          nombre: c.nombre ?? '', saldo: c.saldo_kg == null ? '' : String(c.saldo_kg),
+          nombre: c.nombre ?? '', saldo: numInput(c.saldo_kg),
           categoria: c.categoria === 'resguardo' ? 'resguardo' : '',
           entra: !!c.entra_inventario, almacen: c.almacen ?? '', movId: c.inventario_mov_id ?? null,
         }))
       : recepciones.map((r) => ({
-          nombre: r.centro_nombre || r.procedencia || '', saldo: r.peso_kg == null ? '' : String(r.peso_kg),
+          nombre: r.centro_nombre || r.procedencia || '', saldo: numInput(r.peso_kg),
           categoria: '' as const, entra: false, almacen: '', movId: null,
         })));
   // Peso Kg Total: en una conciliación NUEVA se sincroniza con el NETO de Humedad Final
   // (PESO (KG) = total neto seco de los pesajes).
   const [pesoTotal, setPesoTotal] = useState(
-    conciliacion?.peso_kg_total != null ? String(conciliacion.peso_kg_total)
-    : netoSecoSum > 0 ? String(round2(netoSecoSum)) : '');
-  const [bolsas, setBolsas] = useState(conciliacion?.kg_peso_bolsas == null ? '' : String(conciliacion.kg_peso_bolsas));
-  const [muestras, setMuestras] = useState(conciliacion?.muestras_laboratorio == null ? '' : String(conciliacion.muestras_laboratorio));
+    conciliacion?.peso_kg_total != null ? numInput(conciliacion.peso_kg_total)
+    : netoSecoSum > 0 ? numInput(round2(netoSecoSum)) : '');
+  const [bolsas, setBolsas] = useState(numInput(conciliacion?.kg_peso_bolsas));
+  const [muestras, setMuestras] = useState(numInput(conciliacion?.muestras_laboratorio));
   const [nota, setNota] = useState(conciliacion?.nota ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1243,17 +1275,17 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
   const [numero, setNumero] = useState(String(totales?.numero ?? defaultNumero));
   const [rows, setRows] = useState<{ nombre: string; sno2: string; precio: string }[]>(() =>
     totales
-      ? totales.centros.map((c) => ({ nombre: c.nombre ?? '', sno2: c.sno2 == null ? '' : String(c.sno2), precio: c.precio == null ? '' : String(c.precio) }))
-      : recepciones.map((r) => ({ nombre: r.centro_nombre || r.procedencia || '', sno2: r.peso_kg == null ? '' : String(r.peso_kg), precio: r.tasa == null ? '' : String(r.tasa) })));
-  const [gastos, setGastos] = useState(totales?.gastos == null ? '' : String(totales.gastos));
+      ? totales.centros.map((c) => ({ nombre: c.nombre ?? '', sno2: numInput(c.sno2), precio: numInput(c.precio) }))
+      : recepciones.map((r) => ({ nombre: r.centro_nombre || r.procedencia || '', sno2: numInput(r.peso_kg), precio: numInput(r.tasa) })));
+  const [gastos, setGastos] = useState(numInput(totales?.gastos));
   // Pesos Kg (PROMEDIO DE PRECIO DE COMPRA RECEPCIONADA): en unos totales NUEVOS toma el
   // PESO (KG) de Humedad Final = total neto seco de los pesajes.
   const [pesosKg, setPesosKg] = useState(
-    totales?.pesos_kg != null ? String(totales.pesos_kg)
-    : netoSecoSum > 0 ? String(round2(netoSecoSum)) : '');
-  const [hProv, setHProv] = useState(totales?.humedad_prov == null ? '' : String(totales.humedad_prov));
-  const [hFinal, setHFinal] = useState(totales?.humedad_final == null ? '' : String(totales.humedad_final));
-  const [fe, setFe] = useState(totales?.fe_esteril == null ? '' : String(totales.fe_esteril));
+    totales?.pesos_kg != null ? numInput(totales.pesos_kg)
+    : netoSecoSum > 0 ? numInput(round2(netoSecoSum)) : '');
+  const [hProv, setHProv] = useState(numInput(totales?.humedad_prov));
+  const [hFinal, setHFinal] = useState(numInput(totales?.humedad_final));
+  const [fe, setFe] = useState(numInput(totales?.fe_esteril));
   const [nota, setNota] = useState(totales?.nota ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1645,7 +1677,7 @@ function RecepcionFormModal({ grupoId, recepcion, actor, miNombre, onClose, onSa
   const esEdicion = !!recepcion;
   const [item, setItem] = useState(recepcion ? String(recepcion.item) : '');
   const [fecha, setFecha] = useState(recepcion ? recepcion.fecha.slice(0, 16) : new Date().toISOString().slice(0, 16));
-  const [peso, setPeso] = useState(recepcion ? String(recepcion.peso_kg) : '');
+  const [peso, setPeso] = useState(recepcion ? numInput(recepcion.peso_kg) : '');
   const [procedencia, setProcedencia] = useState(recepcion?.procedencia ?? '');
   const [centro, setCentro] = useState(recepcion?.centro_nombre ?? '');
   const [saving, setSaving] = useState(false);
@@ -1688,6 +1720,93 @@ function RecepcionFormModal({ grupoId, recepcion, actor, miNombre, onClose, onSa
         <div className="form-row"><label>Centro de Acopio <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label><input className="input" value={centro} onChange={(e) => setCentro(e.target.value)} placeholder="LA ESPERANZA" /></div>
         <small className="muted">La procedencia se guarda en MAYÚSCULAS. Para las recepciones creadas desde el cierre de caja, la procedencia (centro o aliado) y el Centro de Acopio se completan solos.</small>
       </form>
+    </Modal>
+  );
+}
+
+/* ───────────── Configurar procedencias (catálogo editable / borrable) ───────────── */
+function ConfigProcedenciasModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => Promise<void> }) {
+  const [items, setItems] = useState<RecepcionProcedencia[]>([]);
+  const [nombre, setNombre] = useState('');
+  const [color, setColor] = useState('#7fa7b0');
+  const [busy, setBusy] = useState(false);
+  const [editando, setEditando] = useState<RecepcionProcedencia | null>(null);
+  const [edNombre, setEdNombre] = useState('');
+  const [edColor, setEdColor] = useState('#7fa7b0');
+  const [borrar, setBorrar] = useState<RecepcionProcedencia | null>(null);
+
+  const cargar = useCallback(async () => { setItems(await listProcedencias(false)); }, []);
+  useEffect(() => { void cargar(); }, [cargar]);
+
+  async function agregar() {
+    if (!nombre.trim()) { toast('Indicá el nombre de la procedencia', 'error'); return; }
+    setBusy(true);
+    try { await crearProcedencia({ nombre, color }); setNombre(''); await cargar(); await onChanged(); toast('Procedencia agregada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
+    finally { setBusy(false); }
+  }
+  function abrirEditar(p: RecepcionProcedencia) { setEditando(p); setEdNombre(p.nombre); setEdColor(p.color ?? '#7fa7b0'); }
+  async function guardarEditar() {
+    if (!editando) return;
+    const n = edNombre.trim();
+    if (!n) { toast('Indicá el nombre', 'error'); return; }
+    try { await actualizarProcedencia(editando.id, { nombre: n, color: edColor }); setEditando(null); await cargar(); await onChanged(); toast('Procedencia actualizada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+  }
+  async function confirmarBorrar() {
+    if (!borrar) return;
+    try { await eliminarProcedencia(borrar.id); setBorrar(null); await cargar(); await onChanged(); toast('Procedencia borrada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
+  }
+  async function toggle(p: RecepcionProcedencia) {
+    try { await actualizarProcedencia(p.id, { activo: !p.activo }); await cargar(); await onChanged(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
+  }
+
+  return (
+    <Modal title="⚙ Configurar procedencias" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div className="card-title"><span>Nueva procedencia</span></div>
+        <div className="form-grid">
+          <div className="form-row"><label>Nombre</label><input className="input" style={{ textTransform: 'uppercase' }} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="COMERCIALIZACION EDINSON" /></div>
+          <div className="form-row"><label>Color</label><input className="input" type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ height: 38, padding: 2 }} /></div>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => void agregar()} disabled={busy}>+ Agregar procedencia</button>
+      </div>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr><th style={{ width: 60 }}>Orden</th><th>Procedencia</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            {!items.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin procedencias. Agregá una arriba.</td></tr>}
+            {items.map((p) => (
+              <tr key={p.id} style={{ opacity: p.activo ? 1 : .5 }}>
+                <td className="mono">{p.orden}</td>
+                <td><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, background: p.color ?? '#ccc', marginRight: 6 }} /><strong>{p.nombre}</strong></td>
+                <td>{p.activo ? '🟢 Activo' : '⚪ Oculto'}</td>
+                <td className="actions" style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                  <button className="btn btn-sm btn-ghost" onClick={() => abrirEditar(p)} title="Editar">✎</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => void toggle(p)}>{p.activo ? 'Ocultar' : 'Mostrar'}</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setBorrar(p)} title="Borrar">🗑</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <small className="muted">El desplegable de la tabla de pesos usa estas procedencias. Borrar una NO afecta los pesos ya guardados.</small>
+
+      {editando && (
+        <Modal title="✎ Editar procedencia" size="sm" onClose={() => setEditando(null)} footer={
+          <><button className="btn btn-ghost" onClick={() => setEditando(null)}>Cancelar</button><button className="btn btn-primary" onClick={() => void guardarEditar()}>Guardar</button></>
+        }>
+          <div className="form-row"><label>Nombre</label><input className="input" style={{ textTransform: 'uppercase' }} value={edNombre} onChange={(e) => setEdNombre(e.target.value)} /></div>
+          <div className="form-row" style={{ marginTop: '.5rem' }}><label>Color</label><input className="input" type="color" value={edColor} onChange={(e) => setEdColor(e.target.value)} style={{ height: 38, padding: 2 }} /></div>
+        </Modal>
+      )}
+      {borrar && (
+        <ConfirmDialog title="Borrar procedencia" message={`¿Borrar la procedencia "${borrar.nombre}"? No afecta los pesos ya guardados.`} confirmText="Borrar" danger
+          onConfirm={() => void confirmarBorrar()} onCancel={() => setBorrar(null)} />
+      )}
     </Modal>
   );
 }

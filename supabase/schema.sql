@@ -3021,6 +3021,20 @@ insert into public.recepcion_minerales (clave, nombre, subtitulo, modo, color, o
   ('hf','Hf (hafnio)',null,'abc','#6aa9d8',11)
 on conflict (clave) do nothing;
 
+-- Catálogo de PROCEDENCIAS (editable/borrable): alimenta el desplegable de la tabla
+-- de pesos y el resto de secciones por procedencia (análisis, humedad, totales…).
+create table if not exists public.recepcion_procedencias (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  color text,
+  orden int not null default 0,
+  activo boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.recepcion_procedencias enable row level security;
+create policy "rec_proc read auth" on public.recepcion_procedencias for select using (auth.role()='authenticated');
+create policy "rec_proc write op"  on public.recepcion_procedencias for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- Análisis de laboratorio (RECEPCIÓN GLOBAL LABORATORIO). valores jsonb por mineral:
 --   { "<clave>": {a,b,c} }  (modo abc)  ·  { "<clave>": {prom} }  (modo prom)
 create table if not exists public.recepcion_analisis (
