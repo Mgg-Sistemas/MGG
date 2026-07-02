@@ -467,3 +467,6 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
 @media (prefers-reduced-motion: reduce) {
   .alert-pulse, .alert-pulse::after { animation: none; }
 }
+
+/* ── Ayudas (textos explicativos) ── El botón "?" del topbar oculta los .hint. */
+.ayudas-ocultas .hint { display: none !important; }

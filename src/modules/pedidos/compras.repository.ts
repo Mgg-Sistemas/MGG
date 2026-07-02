@@ -19,7 +19,10 @@ export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
 
 const BUCKET = 'compras-directas';
 
-export type EstadoCompraDirecta = 'en_proceso' | 'por_pagar' | 'por_recibir' | 'finalizada';
+// Flujo nuevo: 'abierta' = pago y recepción PENDIENTES en paralelo (Tesorería paga y
+// el almacenista recibe en cualquier orden). 'por_pagar'/'por_recibir' quedan por
+// compatibilidad con compras del flujo secuencial anterior.
+export type EstadoCompraDirecta = 'en_proceso' | 'abierta' | 'por_pagar' | 'por_recibir' | 'finalizada';
 
 export interface CompraDirectaItem {
   producto_id: string;
@@ -341,7 +344,11 @@ export async function montarCompraDirecta(input: MontarCompraInput): Promise<voi
   const { error } = await supabase
     .from('compras_directas')
     .update({
-      estado: 'por_pagar', gasto: total, items, cantidad: cantidadTotal,
+      // Cargar factura y precios deja la compra ABIERTA: pendiente por pagar (Tesorería)
+      // Y pendiente por recibir (Inventario) al mismo tiempo (el guard de arriba ya
+      // descarta las finalizadas).
+      estado: 'abierta',
+      gasto: total, items, cantidad: cantidadTotal,
       moneda, descuento_pct: descuentoPct, descuento_monto: descuentoMonto,
       iva, retencion_pct: retencionPct, retencion_monto: retencionMonto,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
@@ -379,7 +386,9 @@ export interface PagarCompraInput {
  */
 export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void> {
   const { compra } = input;
-  if (compra.estado !== 'por_pagar') throw new Error('Solo se paga una compra que esté POR PAGAR.');
+  // Se paga una compra ABIERTA (flujo nuevo) o POR PAGAR (legado). Nunca dos veces.
+  if (!['abierta', 'por_pagar'].includes(compra.estado)) throw new Error('Solo se paga una compra que esté pendiente de pago.');
+  if (compra.caja_mov_id) throw new Error('Esta compra ya fue pagada.');
   if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
   const items = compra.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   const iva = Math.round((Number(compra.iva) || 0) * 100) / 100;             // IVA suma al total (Bs)
@@ -429,16 +438,20 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     });
   }
 
-  // 2) La compra queda POR RECIBIR (la mercancía entra al inventario cuando el
-  //    almacenista la reciba desde Inventario, eligiendo el almacén/subalmacén).
+  // 2) Pago hecho. Si la mercancía YA se recibió (entró al inventario), la compra queda
+  //    FINALIZADA; si no, sigue ABIERTA esperando la recepción (pago y recepción son
+  //    independientes: pueden ocurrir en cualquier orden).
+  const yaRecibida = !!compra.recibida_at || !!compra.mov_id;
+  const nowIso = new Date().toISOString();
   const { error } = await supabase
     .from('compras_directas')
     .update({
-      estado: 'por_recibir', gasto: total, items,
+      estado: yaRecibida ? 'finalizada' : 'abierta', gasto: total, items,
       gasto_categoria: gcat ?? null, gasto_subcategoria: gsub ?? null,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
       pagada_por: input.actorName || input.actor,
-      updated_at: new Date().toISOString(),
+      finalizada_at: yaRecibida ? nowIso : null,
+      updated_at: nowIso,
     })
     .eq('id', compra.id);
   if (error) throw error;
@@ -461,7 +474,10 @@ export interface RecibirCompraInput {
  */
 export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<void> {
   const { compra } = input;
-  if (compra.estado !== 'por_recibir') throw new Error('Solo se recibe una compra que esté POR RECIBIR.');
+  // Se recibe una compra ABIERTA (flujo nuevo: puede llegar la mercancía antes de pagar)
+  // o POR RECIBIR (legado). Nunca dos veces.
+  if (!['abierta', 'por_recibir'].includes(compra.estado)) throw new Error('Solo se recibe una compra que esté pendiente de recepción.');
+  if (compra.recibida_at || compra.mov_id) throw new Error('Esta compra ya fue recibida en el inventario.');
   const almacen = input.almacen.trim();
   if (!almacen) throw new Error('Elegí el almacén / subalmacén donde entran los materiales.');
   const items = compra.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
@@ -481,31 +497,40 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
     if (!primerMov) primerMov = mov.id;
   }
 
+  // Recepción hecha. Si la compra YA está pagada, queda FINALIZADA; si no, sigue ABIERTA
+  // esperando el pago de Tesorería (la mercancía ya está en inventario).
+  const yaPagada = !!compra.caja_mov_id;
   const nowIso = new Date().toISOString();
   const { error } = await supabase
     .from('compras_directas')
     .update({
-      estado: 'finalizada', almacen, mov_id: primerMov,
+      estado: yaPagada ? 'finalizada' : 'abierta', almacen, mov_id: primerMov,
       recibida_por: input.actorName || input.actor, recibida_at: nowIso,
-      finalizada_at: nowIso, updated_at: nowIso,
+      finalizada_at: yaPagada ? nowIso : null, updated_at: nowIso,
     })
     .eq('id', compra.id);
   if (error) throw error;
 }
 
-/** Compras directas POR RECIBIR (pagadas por Tesorería; el almacenista les da entrada). */
+/** Compras directas PENDIENTES DE RECEPCIÓN: abiertas (flujo nuevo) o legado 'por_recibir',
+ *  que todavía no entraron al inventario (puede llegar la mercancía antes de pagar). */
 export async function listComprasPorRecibir(): Promise<CompraDirecta[]> {
   const { data, error } = await supabase
-    .from('compras_directas').select('*').eq('estado', 'por_recibir')
+    .from('compras_directas').select('*')
+    .in('estado', ['abierta', 'por_recibir'])
+    .is('recibida_at', null)
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
-/** Compras directas POR PAGAR (las monta el analista; Tesorería las paga). */
+/** Compras directas PENDIENTES DE PAGO: abiertas (flujo nuevo) o legado 'por_pagar',
+ *  que todavía no se pagaron (Tesorería las paga en cualquier momento). */
 export async function listComprasPorPagar(): Promise<CompraDirecta[]> {
   const { data, error } = await supabase
-    .from('compras_directas').select('*').eq('estado', 'por_pagar')
+    .from('compras_directas').select('*')
+    .in('estado', ['abierta', 'por_pagar'])
+    .is('caja_mov_id', null)
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));

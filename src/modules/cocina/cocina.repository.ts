@@ -95,10 +95,11 @@ export interface ViverDisponible {
 }
 
 /**
- * Trae los artículos de la categoría VÍVERES con su stock. Si se indica un `almacen`
- * (el vinculado a la cocina), el stock y el descuento salen SOLO de ese almacén y se
- * listan únicamente los víveres que existen ahí (cada cocina ve su propio inventario).
- * Sin `almacen` (legado) agrega el stock de todos los almacenes.
+ * Trae los artículos disponibles para la cocina con su stock. Con `almacen` (el
+ * vinculado a la cocina) la cocina refleja EXACTAMENTE el inventario de ese almacén:
+ * todos los productos activos que existan ahí (sin filtrar por categoría), y el
+ * descuento sale de ese almacén. Sin `almacen` (legado) usa solo la categoría VÍVERES
+ * agregando todos los almacenes.
  */
 export async function listViveres(almacen?: string | null): Promise<ViverDisponible[]> {
   const [productos, existencias] = await Promise.all([listProductos(), listExistencias()]);
@@ -109,13 +110,17 @@ export async function listViveres(almacen?: string | null): Promise<ViverDisponi
   }
   const out: ViverDisponible[] = [];
   for (const p of productos) {
-    if ((p.categoria ?? '').trim().toUpperCase() !== CATEGORIA_VIVERES || p.estado !== 'activo') continue;
+    if (p.estado !== 'activo') continue;
     const exs = porProducto.get(p.id) ?? [];
     if (almacen) {
+      // Cocina vinculada a un almacén: se sincroniza con la lista de ESE almacén
+      // (cualquier producto que exista ahí, sin importar la categoría).
       const row = exs.find((e) => e.almacen === almacen);
-      if (!row) continue;   // este víver no pertenece al almacén de esta cocina
+      if (!row) continue;
       out.push({ producto: p, stock: Math.round((Number(row.stock) || 0) * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: almacen });
     } else {
+      // Legado (sin almacén vinculado): solo VÍVERES, agregando todos los almacenes.
+      if ((p.categoria ?? '').trim().toUpperCase() !== CATEGORIA_VIVERES) continue;
       const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
       const mejor = exs.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock))[0];
       out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
@@ -124,17 +129,18 @@ export async function listViveres(almacen?: string | null): Promise<ViverDisponi
   return out.sort((a, b) => a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
 }
 
-/** Víveres CON stock desglosados por almacén (para el resumen de cada tarjeta de cocina). */
+/** Productos CON stock desglosados por almacén (para el resumen de cada tarjeta de
+ *  cocina): refleja el inventario real del almacén vinculado, no una sola categoría. */
 interface ViverEnAlmacen { producto_id: string; almacen: string; stock: number; precio: number }
 async function listViveresConStock(): Promise<ViverEnAlmacen[]> {
   const [productos, existencias] = await Promise.all([listProductos(), listExistencias()]);
-  const precioViver = new Map<string, number>();
+  const precioProd = new Map<string, number>();
   for (const p of productos) {
-    if ((p.categoria ?? '').trim().toUpperCase() === CATEGORIA_VIVERES && p.estado === 'activo') precioViver.set(p.id, Number(p.precio) || 0);
+    if (p.estado === 'activo') precioProd.set(p.id, Number(p.precio) || 0);
   }
   return existencias
-    .filter((e) => precioViver.has(e.producto_id) && Number(e.stock) > 0)
-    .map((e) => ({ producto_id: e.producto_id, almacen: e.almacen, stock: Number(e.stock) || 0, precio: precioViver.get(e.producto_id) ?? 0 }));
+    .filter((e) => precioProd.has(e.producto_id) && Number(e.stock) > 0)
+    .map((e) => ({ producto_id: e.producto_id, almacen: e.almacen, stock: Number(e.stock) || 0, precio: precioProd.get(e.producto_id) ?? 0 }));
 }
 
 /* ───────── Listado / filtros ───────── */

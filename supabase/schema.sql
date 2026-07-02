@@ -465,7 +465,7 @@ create table if not exists public.compras_directas (
   cantidad        numeric not null check (cantidad > 0),
   -- en_proceso → por_pagar (analista monta) → por_recibir (Tesorería paga, sin tocar
   -- inventario) → finalizada (el almacenista recibe y elige el almacén/subalmacén).
-  estado          text not null default 'en_proceso' check (estado in ('en_proceso','por_pagar','por_recibir','finalizada')),
+  estado          text not null default 'en_proceso' check (estado in ('en_proceso','abierta','por_pagar','por_recibir','finalizada')),
   gasto           numeric,
   adjunto_path    text,
   adjunto_nombre  text,

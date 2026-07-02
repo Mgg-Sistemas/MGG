@@ -48,7 +48,9 @@ export function CocinaPage() {
   }, []);
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => { listAlmacenesParaCocina().then(setAlmacenes).catch(() => setAlmacenes([])); }, []);
-  useRealtime(['cocinas', 'cocina_comidas'], () => { void reload(); });
+  // Incluye inventario (productos/existencias/movimientos): la cocina refleja en vivo
+  // el stock del almacén vinculado.
+  useRealtime(['cocinas', 'cocina_comidas', 'productos', 'existencias', 'movimientos'], () => { void reload(); });
 
   const selInfo = cocinas.find((c) => c.cocina.id === sel) ?? null;
   if (selInfo) {
@@ -204,7 +206,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
     finally { setLoading(false); }
   }, [cocinaId]);
   useEffect(() => { void reload(); }, [reload]);
-  useRealtime(['cocina_comidas'], () => { void reload(); });
+  useRealtime(['cocina_comidas', 'productos', 'existencias', 'movimientos'], () => { void reload(); });
 
   const horasPresentes = useMemo(() => {
     const set = new Set<string>();
@@ -243,7 +245,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.3rem' }}>
         <h1 style={{ margin: 0 }}>🍳 {info.cocina.nombre}</h1>
       </div>
-      <p className="muted" style={{ marginTop: 0 }}>Toma precios y descuenta stock del almacén <strong>{almacen ?? '— sin almacén vinculado —'}</strong>.</p>
+      <p className="hint muted" style={{ marginTop: 0 }}>Toma precios y descuenta stock del almacén <strong>{almacen ?? '— sin almacén vinculado —'}</strong>.</p>
       {!almacen && <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem' }}>Esta cocina no tiene un almacén vinculado. Volvé y editála para asignarle uno.</div>}
 
       <div className="filterbar" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
