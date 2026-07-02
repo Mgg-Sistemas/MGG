@@ -14,7 +14,8 @@ interface BaseProps {
   emptyMessage?: string;
 }
 
-const PAD = { top: 14, right: 12, bottom: 36, left: 64 };
+// left amplio para que las etiquetas del eje Y (ej. "$ 250.000,00") no se corten.
+const PAD = { top: 14, right: 12, bottom: 36, left: 96 };
 
 /** Devuelve los ticks redondeados para el eje Y. */
 function buildTicks(max: number, count = 4): number[] {
@@ -69,7 +70,7 @@ export function LineChart({ data, height = 220, color = '#ff8a00', yFormatter = 
         return (
           <g key={t}>
             <line x1={PAD.left} y1={y} x2={width - PAD.right} y2={y} stroke="rgba(226,232,240,0.18)" strokeDasharray="3,3" />
-            <text x={PAD.left - 8} y={y + 4} fontSize="11" fontWeight="600" textAnchor="end" fill="#e2e8f0">{yFormatter(t)}</text>
+            <text x={PAD.left - 8} y={y + 4} fontSize="10" fontWeight="600" textAnchor="end" fill="#e2e8f0">{yFormatter(t)}</text>
           </g>
         );
       })}
@@ -187,7 +188,7 @@ export function BarChart({ data, height = 220, color = '#10b981', yFormatter = S
         return (
           <g key={t}>
             <line x1={PAD.left} y1={y} x2={width - PAD.right} y2={y} stroke="rgba(226,232,240,0.18)" strokeDasharray="3,3" />
-            <text x={PAD.left - 8} y={y + 4} fontSize="11" fontWeight="600" textAnchor="end" fill="#e2e8f0">{yFormatter(t)}</text>
+            <text x={PAD.left - 8} y={y + 4} fontSize="10" fontWeight="600" textAnchor="end" fill="#e2e8f0">{yFormatter(t)}</text>
           </g>
         );
       })}
