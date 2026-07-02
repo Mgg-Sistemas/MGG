@@ -17,6 +17,7 @@ import { onNotifRefresh } from '@/shared/lib/notify';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { prefetchRoute } from '@/shared/lib/routePrefetch';
 import { ensureSession, heartbeat, endSession } from '@/modules/usuarios/userSessions.repository';
+import { ayudasOcultas, aplicarAyudas } from '@/shared/lib/ayudas';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -63,6 +64,10 @@ export function AppShell() {
       return next;
     });
   }
+
+  // Ayudas (textos explicativos): mostrar/ocultar global con persistencia.
+  const [ayudasOff, setAyudasOff] = useState<boolean>(() => ayudasOcultas());
+  useEffect(() => { aplicarAyudas(ayudasOff); }, [ayudasOff]);
 
   // En móvil (≤768px) el sidebar es un drawer deslizable; en desktop, colapsa a íconos.
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -362,6 +367,17 @@ export function AppShell() {
         <div className="top-actions">
           <TasaChip />
           <GlobalSearch />
+          <button
+            type="button"
+            className="btn btn-icon btn-ghost"
+            onClick={() => setAyudasOff((v) => !v)}
+            title={ayudasOff ? 'Mostrar las ayudas (textos explicativos)' : 'Ocultar las ayudas (textos explicativos)'}
+            aria-label={ayudasOff ? 'Mostrar ayudas' : 'Ocultar ayudas'}
+            aria-pressed={!ayudasOff}
+            style={{ fontSize: '1rem', lineHeight: 1, opacity: ayudasOff ? 0.55 : 1 }}
+          >
+            (?)
+          </button>
           <button
             type="button"
             className="notif-btn"
