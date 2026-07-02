@@ -267,6 +267,8 @@ export interface RecepcionAnalisis {
   n_analisis: number;
   fecha: string;
   valores: Record<string, ValorMineral>;
+  numeros?: string | null;
+  procedencia?: string | null;
   nota?: string | null;
   actor?: string | null;
   actor_name?: string | null;
@@ -285,20 +287,22 @@ export async function nextNAnalisis(grupoId: string): Promise<number> {
   return (num((data as { n_analisis?: number } | null)?.n_analisis) || 0) + 1;
 }
 
-export async function crearAnalisis(grupoId: string, input: { n_analisis?: number | null; fecha?: string | null; valores?: Record<string, ValorMineral>; nota?: string | null }, actor: string, actorName?: string | null): Promise<RecepcionAnalisis> {
+export async function crearAnalisis(grupoId: string, input: { n_analisis?: number | null; fecha?: string | null; valores?: Record<string, ValorMineral>; numeros?: string | null; procedencia?: string | null; nota?: string | null }, actor: string, actorName?: string | null): Promise<RecepcionAnalisis> {
   const n = input.n_analisis != null && Number(input.n_analisis) > 0 ? Math.floor(Number(input.n_analisis)) : await nextNAnalisis(grupoId);
   const { data, error } = await supabase.from('recepcion_analisis')
-    .insert({ grupo_id: grupoId, n_analisis: n, fecha: input.fecha || new Date().toISOString(), valores: input.valores ?? {}, nota: input.nota?.trim() || null, actor, actor_name: actorName ?? null })
+    .insert({ grupo_id: grupoId, n_analisis: n, fecha: input.fecha || new Date().toISOString(), valores: input.valores ?? {}, numeros: input.numeros?.trim() || null, procedencia: input.procedencia?.trim().toUpperCase() || null, nota: input.nota?.trim() || null, actor, actor_name: actorName ?? null })
     .select('*').single();
   if (error) throw error;
   return data as RecepcionAnalisis;
 }
 
-export async function actualizarAnalisis(id: string, patch: { n_analisis?: number; fecha?: string; valores?: Record<string, ValorMineral>; nota?: string | null }): Promise<void> {
+export async function actualizarAnalisis(id: string, patch: { n_analisis?: number; fecha?: string; valores?: Record<string, ValorMineral>; numeros?: string | null; procedencia?: string | null; nota?: string | null }): Promise<void> {
   const p: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.n_analisis !== undefined) p.n_analisis = Math.floor(Number(patch.n_analisis) || 0);
   if (patch.fecha !== undefined) p.fecha = patch.fecha;
   if (patch.valores !== undefined) p.valores = patch.valores;
+  if (patch.numeros !== undefined) p.numeros = patch.numeros?.trim() || null;
+  if (patch.procedencia !== undefined) p.procedencia = patch.procedencia?.trim().toUpperCase() || null;
   if (patch.nota !== undefined) p.nota = patch.nota?.trim() || null;
   const { error } = await supabase.from('recepcion_analisis').update(p).eq('id', id);
   if (error) throw error;
@@ -691,8 +695,9 @@ export function totalReportadoConcil(centros: CentroConcil[]): number {
 export function kgFaltanteConcil(pesoKgTotal: number | null, totalReportado: number): number {
   return num(pesoKgTotal) - totalReportado;
 }
+/** Kg No Llegó = |kg que llegaron o faltaron| (la magnitud de la fila Kg a favor / Kg Faltante) + Peso de Bolsas + Muestras de laboratorio. */
 export function kgNoLlegoConcil(kgFaltante: number, bolsas: number | null, muestras: number | null): number {
-  return kgFaltante + num(bolsas) + num(muestras);
+  return Math.abs(kgFaltante) + num(bolsas) + num(muestras);
 }
 export function pctNoLlegoConcil(kgNoLlego: number, totalReportado: number): number | null {
   return totalReportado !== 0 ? (kgNoLlego / totalReportado) * 100 : null;
