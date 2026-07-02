@@ -76,6 +76,9 @@ export interface CompraDirecta {
   nota: string | null;
   caja_id: string | null;
   caja_mov_id: string | null;
+  /** Si la compra se maneja A CRÉDITO: apunta a la cuenta por pagar (Tesorería) que
+   *  representa la deuda. Con esto la compra sale de "por pagar" (se salda con abonos). */
+  credito_cxp_id: string | null;
   adjunto_path: string | null;
   adjunto_nombre: string | null;
   /** Facturas adjuntas (PDF o imagen). La primera se refleja en adjunto_path/nombre. */
@@ -112,6 +115,7 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
   }
   return {
     ...r, items, facturas,
+    credito_cxp_id: r.credito_cxp_id ?? null,
     moneda: r.moneda ?? 'USD',
     descuento_pct: Number(r.descuento_pct) || 0,
     descuento_monto: Number(r.descuento_monto) || 0,
@@ -389,6 +393,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   // Se paga una compra ABIERTA (flujo nuevo) o POR PAGAR (legado). Nunca dos veces.
   if (!['abierta', 'por_pagar'].includes(compra.estado)) throw new Error('Solo se paga una compra que esté pendiente de pago.');
   if (compra.caja_mov_id) throw new Error('Esta compra ya fue pagada.');
+  if (compra.credito_cxp_id) throw new Error('Esta compra está a crédito: se salda desde Cuentas por pagar (Tesorería).');
   if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
   const items = compra.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   const iva = Math.round((Number(compra.iva) || 0) * 100) / 100;             // IVA suma al total (Bs)
@@ -497,9 +502,9 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
     if (!primerMov) primerMov = mov.id;
   }
 
-  // Recepción hecha. Si la compra YA está pagada, queda FINALIZADA; si no, sigue ABIERTA
-  // esperando el pago de Tesorería (la mercancía ya está en inventario).
-  const yaPagada = !!compra.caja_mov_id;
+  // Recepción hecha. Si la compra YA está pagada (o se maneja a crédito), queda
+  // FINALIZADA; si no, sigue ABIERTA esperando el pago (la mercancía ya está en inventario).
+  const yaPagada = !!compra.caja_mov_id || !!compra.credito_cxp_id;
   const nowIso = new Date().toISOString();
   const { error } = await supabase
     .from('compras_directas')
@@ -531,6 +536,7 @@ export async function listComprasPorPagar(): Promise<CompraDirecta[]> {
     .from('compras_directas').select('*')
     .in('estado', ['abierta', 'por_pagar'])
     .is('caja_mov_id', null)
+    .is('credito_cxp_id', null)   // las que están a crédito no se pagan desde acá (van por cuentas por pagar)
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
