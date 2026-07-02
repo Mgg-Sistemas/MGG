@@ -24,13 +24,22 @@ import { previewFileUrl } from '@/shared/lib/reportPreview';
 
 type Vista = 'kanban' | 'lista';
 
-const COLS: { key: CompraDirecta['estado']; label: string }[] = [
+// Flujo nuevo: tras "Cargar factura y precios" la compra queda ABIERTA (pendiente por
+// pagar en Tesorería Y por recibir en Inventario, en paralelo). Se finaliza con las dos.
+const COLS: { key: string; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
-  { key: 'por_pagar', label: 'Por pagar' },
-  { key: 'por_recibir', label: 'Por recibir' },
+  { key: 'abierta', label: 'Pendiente (pago + recepción)' },
   { key: 'finalizada', label: 'Finalizada' },
 ];
-const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', por_pagar: '💸 Por pagar', por_recibir: '📦 Por recibir', finalizada: '🏁 Finalizada' };
+const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', abierta: '⏳ Pendiente', por_pagar: '💸 Por pagar', por_recibir: '📦 Por recibir', finalizada: '🏁 Finalizada' };
+/** Columna del kanban para una compra: los estados legados caen en "abierta". */
+function colDe(c: CompraDirecta): string {
+  if (c.estado === 'en_proceso' || c.estado === 'finalizada') return c.estado;
+  return 'abierta'; // abierta + legado por_pagar / por_recibir
+}
+/** ¿La compra ya está pagada / ya se recibió? (para los chips de estado en paralelo). */
+const estaPagada = (c: CompraDirecta) => !!c.caja_mov_id;
+const estaRecibida = (c: CompraDirecta) => !!c.recibida_at || !!c.mov_id;
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -86,8 +95,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   useRealtime(['productos', 'proveedores'], () => { void reloadCatalogos(); });
 
   const porEstado = useMemo(() => {
-    const m: Record<string, CompraDirecta[]> = { en_proceso: [], finalizada: [] };
-    compras.forEach((c) => { (m[c.estado] ??= []).push(c); });
+    const m: Record<string, CompraDirecta[]> = { en_proceso: [], abierta: [], finalizada: [] };
+    compras.forEach((c) => { (m[colDe(c)] ??= []).push(c); });
     return m;
   }, [compras]);
 
@@ -158,7 +167,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                     {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setEditarMontos(c)} title="Editar montos (sincroniza Tesorería e inventario)">✎ Editar</button>}
                     {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(c)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
-                    {c.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(c)} title="Editar factura/precios (en Tesorería para pagar)">✎ Factura/precios</button>}
+                    {colDe(c) === 'abierta' && !estaPagada(c) && !estaRecibida(c) && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(c)} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑</button>}
                   </td>
                 </tr>
@@ -242,7 +251,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               {detalle.estado === 'finalizada' && <button className="btn btn-ghost" onClick={() => { setFacturas(detalle); setDetalle(null); }}>🧾 Facturas</button>}
               {detalle.estado === 'finalizada' && <button className="btn btn-primary" onClick={() => { setEditarMontos(detalle); setDetalle(null); }}>✎ Editar montos</button>}
               {detalle.estado === 'en_proceso' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>Cargar factura y precios</button>}
-              {detalle.estado === 'por_pagar' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>✎ Editar factura/precios</button>}
+              {colDe(detalle) === 'abierta' && !estaPagada(detalle) && !estaRecibida(detalle) && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>✎ Editar factura/precios</button>}
             </>
           }
           onClose={() => setDetalle(null)}
@@ -274,10 +283,15 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMon
         <div>Creada: {dateTime(compra.created_at)}</div>
         {compra.estado === 'finalizada' && <div>Comprada: {compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'}</div>}
       </div>
-      {compra.estado === 'por_pagar' && (
+      {colDe(compra) === 'abierta' && (
         <div style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
-          <div>Por pagar: <strong className="mono">{compra.gasto != null ? montoCaja(compra.gasto, compra.moneda) : '—'}</strong></div>
-          <div className="muted" style={{ fontSize: '.72rem' }}>💸 En Tesorería para pagar</div>
+          <div>Monto: <strong className="mono">{compra.gasto != null ? montoCaja(compra.gasto, compra.moneda) : '—'}</strong></div>
+          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>
+            {estaPagada(compra) ? '✅ Pagada' : '💸 Pendiente de pago (Tesorería)'}
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>
+            {estaRecibida(compra) ? '✅ Recibida en inventario' : '📦 Pendiente de recepción (Inventario)'}
+          </div>
           <div className="muted"><AdjuntoLink compra={compra} /></div>
         </div>
       )}
@@ -293,7 +307,7 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMon
         {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onEditarMontos} title="Editar montos (sincroniza Tesorería e inventario)">✎ Editar</button>}
         {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
-        {compra.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/precios (en Tesorería para pagar)">✎ Factura/precios</button>}
+        {colDe(compra) === 'abierta' && !estaPagada(compra) && !estaRecibida(compra) && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>
     </div>
