@@ -6,6 +6,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import {
+  netoPorProcedenciaGrupo,
   type RecepcionGrupo, type Recepcion, type RecepcionPesaje, type RecepcionAnalisis, type RecepcionMineral,
   type RecepcionConciliacion, type RecepcionTotales,
 } from './recepciones.repository';
@@ -144,6 +145,45 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = doc.lastAutoTable.finalY + 18;
+
+  // ── Desglose POR PROCEDENCIA (neto húmedo/seco + merma H2O + tenor + Kg Sn) ──
+  const procNetoH = netoPorProcedenciaGrupo(pesajes, 'h');
+  const procNetoS = netoPorProcedenciaGrupo(pesajes, 's');
+  const procs = Array.from(new Set([...procNetoH.keys(), ...procNetoS.keys()])).sort((a, b) => a.localeCompare(b));
+  // Tenor promedio del mineral principal SÓLO sobre las lecturas de esa procedencia.
+  const tenorDeProc = (proc: string): number | null => {
+    if (!mineralSn) return null;
+    const ls = analisisOrd
+      .filter((a) => (a.procedencia ?? '').trim().toUpperCase() === proc)
+      .map((a) => lecturaNum(a.valores?.[mineralSn.clave]))
+      .filter((x): x is number => x != null);
+    return ls.length ? round2(ls.reduce((a, b) => a + b, 0) / ls.length) : null;
+  };
+  if (procs.length) {
+    const bodyProc = procs.map((p) => {
+      const h = round2(N(procNetoH.get(p)));
+      const s = round2(N(procNetoS.get(p)));
+      const merma = round2(h - s);
+      const tn = tenorDeProc(p);
+      const kgSn = tn != null ? round2((s * tn) / 100) : null;
+      return [p, n2(h), n2(s), n2(merma), tn != null ? `${n2(tn)} %` : '—', kgSn != null ? n2(kgSn) : '—'];
+    });
+    const tH = round2(procs.reduce((a, p) => a + N(procNetoH.get(p)), 0));
+    const tS = round2(procs.reduce((a, p) => a + N(procNetoS.get(p)), 0));
+    autoTable(doc, {
+      startY: y,
+      head: [['PROCEDENCIA', 'NETO HÚMEDO', 'NETO SECO', 'MERMA H₂O', `TENOR ${tenorNombre.toUpperCase()}`, `KG ${tenorNombre.toUpperCase()}`]],
+      body: bodyProc,
+      foot: [['TOTAL', n2(tH), n2(tS), n2(round2(tH - tS)), '', '']],
+      styles: { fontSize: 9, cellPadding: 4, halign: 'right', valign: 'middle' },
+      headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 8 },
+      footStyles: { fillColor: [255, 244, 214], textColor: [20, 20, 20], fontStyle: 'bold' },
+      columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: 120 } },
+      margin: { left: MARGIN, right: MARGIN },
+    });
+    // @ts-expect-error lastAutoTable lo agrega el plugin
+    y = doc.lastAutoTable.finalY + 18;
+  }
 
   // Tenor + Kg Neto de Sn.
   autoTable(doc, {

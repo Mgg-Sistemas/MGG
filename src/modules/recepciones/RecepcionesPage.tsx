@@ -18,7 +18,7 @@ import {
   listHumedadFinal, eliminarHumedadFinal,
   sincronizarHumedadFinalPorProcedencia,
   promedioCol, sumaCol,
-  listPesajes, crearPesaje, actualizarPesaje, eliminarPesaje, bigBagLado, totalNetoLado, netoPorProcedencia,
+  listPesajes, crearPesaje, actualizarPesaje, eliminarPesaje, bigBagLado, totalNetoLado, netoPorProcedencia, netoPorProcedenciaGrupo,
   listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion,
   totalReportadoConcil, kgFaltanteConcil, kgNoLlegoConcil, pctNoLlegoConcil,
   listTotales, crearTotales, actualizarTotales, eliminarTotales,
@@ -458,6 +458,13 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
     return [...cat, ...extras];
   }, [procedenciasCat, procedenciasSugeridas, analisis]);
 
+  // Subtotales de NETO SECO por procedencia (Σ sobre todos los pesajes) para Conciliación y Totales.
+  const subtotalesProcSeco = useMemo<Array<{ proc: string; kg: number }>>(() =>
+    Array.from(netoPorProcedenciaGrupo(pesajes, 's').entries())
+      .map(([proc, kg]) => ({ proc, kg }))
+      .sort((a, b) => a.proc.localeCompare(b.proc)),
+  [pesajes]);
+
   function borrarRecepcion(r: Recepcion) {
     setConfirmar({
       message: `¿Borrar la recepción #${r.item} (${n2(r.peso_kg)} Kg · ${r.procedencia})?`,
@@ -628,12 +635,12 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       )}
       {conciliacionOpen && (
         <ConciliacionModal grupoId={grupoId} conciliaciones={conciliaciones} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
-          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)}
+          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)} subtotalesProc={subtotalesProcSeco}
           onReload={reload} onClose={() => setConciliacionOpen(false)} confirmar={setConfirmar} />
       )}
       {totalesOpen && (
         <TotalesModal grupoId={grupoId} totales={totales} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
-          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)}
+          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)} subtotalesProc={subtotalesProcSeco}
           onReload={reload} onClose={() => setTotalesOpen(false)} confirmar={setConfirmar} />
       )}
       {cerrarOpen && (
@@ -1003,9 +1010,9 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, subtotales, op
 const ROJO = 'var(--danger, #e5484d)';
 const VERDE = 'var(--success, #30a46c)';
 
-function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, actor, miNombre, netoSecoSum, onReload, onClose, confirmar }: {
+function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, actor, miNombre, netoSecoSum, subtotalesProc, onReload, onClose, confirmar }: {
   grupoId: string; conciliaciones: RecepcionConciliacion[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
-  netoSecoSum: number;
+  netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
   onReload: () => Promise<void>; onClose: () => void;
   confirmar: (c: { message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null) => void;
 }) {
@@ -1015,7 +1022,7 @@ function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, act
   if (editor) {
     return (
       <ConciliacionEditorModal grupoId={grupoId} conciliacion={editor === 'nueva' ? null : editor} recepciones={recepciones}
-        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum}
+        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} subtotalesProc={subtotalesProc}
         onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
     );
   }
@@ -1080,9 +1087,9 @@ function InlineAlmacen({ onCrear, onCancel }: { onCrear: (nombre: string) => voi
   );
 }
 
-function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, onCancel, onSaved }: {
+function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, subtotalesProc, onCancel, onSaved }: {
   grupoId: string; conciliacion: RecepcionConciliacion | null; recepciones: Recepcion[]; defaultNumero: number;
-  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; onCancel: () => void; onSaved: () => void;
+  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>; onCancel: () => void; onSaved: () => void;
 }) {
   const [numero, setNumero] = useState(String(conciliacion?.numero ?? defaultNumero));
   const [centros, setCentros] = useState<CentroRow[]>(() =>
@@ -1299,6 +1306,15 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
             <div className="muted" style={{ fontSize: '.72rem' }}>TOTAL NETO seco</div>
             <div className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{n2(netoSeco)} Kg</div>
           </div>
+          {subtotalesProc.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', alignItems: 'flex-end' }}>
+              {subtotalesProc.map((s) => (
+                <div key={s.proc} className="mono" style={{ fontSize: '.78rem', border: '1px solid var(--border,#3a3a3a)', borderRadius: 6, padding: '.15rem .5rem' }}>
+                  <span className="muted" style={{ fontWeight: 600 }}>{s.proc}</span> · <strong>{n2(s.kg)} Kg</strong>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
           Este neto seco entra al inventario como <strong>CASITERITA</strong> al <strong>🔒 Cerrar la recepción</strong>, valuado a la <strong>Tasa final</strong> de Totales y en el <strong>almacén / subalmacén</strong> que asignás en el cierre (los resguardos no se ven afectados).
@@ -1315,9 +1331,9 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
 
 /* ───────────── Totales · PROMEDIO DE PRECIO DE COMPRA (todo dentro del modal) ───────────── */
 
-function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, netoSecoSum, onReload, onClose, confirmar }: {
+function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, netoSecoSum, subtotalesProc, onReload, onClose, confirmar }: {
   grupoId: string; totales: RecepcionTotales[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
-  netoSecoSum: number;
+  netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
   onReload: () => Promise<void>; onClose: () => void;
   confirmar: (c: { message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null) => void;
 }) {
@@ -1327,7 +1343,7 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
   if (editor) {
     return (
       <TotalesEditorModal grupoId={grupoId} totales={editor === 'nuevo' ? null : editor} recepciones={recepciones}
-        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum}
+        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} subtotalesProc={subtotalesProc}
         onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
     );
   }
@@ -1375,9 +1391,9 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
   );
 }
 
-function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, onCancel, onSaved }: {
+function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, subtotalesProc, onCancel, onSaved }: {
   grupoId: string; totales: RecepcionTotales | null; recepciones: Recepcion[]; defaultNumero: number;
-  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; onCancel: () => void; onSaved: () => void;
+  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>; onCancel: () => void; onSaved: () => void;
 }) {
   const [numero, setNumero] = useState(String(totales?.numero ?? defaultNumero));
   const [rows, setRows] = useState<{ nombre: string; sno2: string; precio: string }[]>(() =>
@@ -1490,6 +1506,21 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
           </table>
         </div>
       </div>
+
+      {/* Neto seco por procedencia (Σ pesajes) */}
+      {subtotalesProc.length > 0 && (
+        <div className="card" style={{ padding: '.5rem .7rem', margin: '0 0 1rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem .8rem', alignItems: 'center' }}>
+            <span className="muted" style={{ fontSize: '.76rem', fontWeight: 600 }}>Neto seco por procedencia:</span>
+            {subtotalesProc.map((s) => (
+              <span key={s.proc} className="mono" style={{ fontSize: '.78rem', border: '1px solid var(--border,#3a3a3a)', borderRadius: 6, padding: '.15rem .5rem' }}>
+                <span className="muted" style={{ fontWeight: 600 }}>{s.proc}</span> · <strong>{n2(s.kg)} Kg</strong>
+              </span>
+            ))}
+            <span className="mono" style={{ fontSize: '.78rem', marginLeft: 'auto' }}>Σ <strong>{n2(subtotalesProc.reduce((a, s) => a + s.kg, 0))} Kg</strong></span>
+          </div>
+        </div>
+      )}
 
       {/* Resumen (recepcionada + costo final) */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', margin: 0 }}>
