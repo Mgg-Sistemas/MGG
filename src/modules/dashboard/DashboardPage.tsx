@@ -187,8 +187,17 @@ function Kpi({ icon, label, value, deltaClassName, deltaText, onClick }: KpiProp
   );
 }
 
+const REABASTECER_PAGE_SIZES = [10, 25, 50] as const;
+
 function CriticosTable({ criticos }: { criticos: Producto[] }) {
   const navigate = useNavigate();
+  const [pageSize, setPageSize] = useState<number>(REABASTECER_PAGE_SIZES[0]);
+  const [page, setPage] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(criticos.length / pageSize));
+  const pageSafe = Math.min(page, totalPages - 1);
+  const visibles = criticos.slice(pageSafe * pageSize, pageSafe * pageSize + pageSize);
+  const desde = criticos.length ? pageSafe * pageSize + 1 : 0;
+  const hasta = Math.min(criticos.length, (pageSafe + 1) * pageSize);
 
   if (!criticos.length) {
     return (
@@ -205,7 +214,16 @@ function CriticosTable({ criticos }: { criticos: Producto[] }) {
     <>
       <div className="card-title">
         <span>Productos a reabastecer</span>
-        <span className="muted mono">{num(criticos.length)} en alerta · click para abrir el detalle</span>
+        <span className="muted mono" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+          {num(criticos.length)} en alerta · click para abrir el detalle
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', textTransform: 'none' }}>
+            Mostrar
+            <select className="input" style={{ padding: '.1rem .3rem', width: 'auto' }} value={pageSize}
+              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }}>
+              {REABASTECER_PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        </span>
       </div>
       <div className="table-wrap">
         <table className="table">
@@ -221,7 +239,7 @@ function CriticosTable({ criticos }: { criticos: Producto[] }) {
             </tr>
           </thead>
           <tbody>
-            {criticos.map((p) => {
+            {visibles.map((p) => {
               const stock = p.stock ?? 0;
               const min = p.stock_min ?? 0;
               const critical = stock < min;
@@ -266,6 +284,16 @@ function CriticosTable({ criticos }: { criticos: Producto[] }) {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.5rem .2rem 0', flexWrap: 'wrap' }}>
+          <span className="muted mono" style={{ fontSize: '.78rem' }}>{desde}–{hasta} de {num(criticos.length)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+            <button className="btn btn-sm btn-ghost" disabled={pageSafe <= 0} onClick={() => setPage(pageSafe - 1)}>← Anterior</button>
+            <span className="muted mono" style={{ fontSize: '.78rem' }}>{pageSafe + 1} / {totalPages}</span>
+            <button className="btn btn-sm btn-ghost" disabled={pageSafe >= totalPages - 1} onClick={() => setPage(pageSafe + 1)}>Siguiente →</button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
