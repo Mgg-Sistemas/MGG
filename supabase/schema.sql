@@ -3043,6 +3043,8 @@ create table if not exists public.recepcion_analisis (
   n_analisis int not null,
   fecha timestamptz not null default now(),
   valores jsonb not null default '{}'::jsonb,
+  numeros text,               -- lista libre de #s de la lectura (ej. "34, 34, 645")
+  procedencia text,           -- procedencia de la lectura (agrupa el análisis por procedencia)
   nota text,
   actor text, actor_name text,
   created_at timestamptz not null default now(),
