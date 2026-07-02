@@ -153,6 +153,47 @@ export async function listComprasDirectas(): Promise<CompraDirecta[]> {
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
+/** Trae la compra directa cuyo pago generó un movimiento de caja concreto (por su
+ *  `caja_mov_id`). Lo usa el Detalle del movimiento en Tesorería para mostrar qué
+ *  se compró y el requerimiento. Devuelve null si el movimiento no es de una compra. */
+export async function getCompraDirectaByCajaMov(movId: string): Promise<CompraDirecta | null> {
+  if (!movId) return null;
+  const { data, error } = await supabase
+    .from('compras_directas')
+    .select('*')
+    .eq('caja_mov_id', movId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? normalizar(data as Record<string, unknown>) : null;
+}
+
+/** Vínculo compra directa a crédito → cuenta por pagar (Tesorería). Identifica qué
+ *  cuenta por pagar respalda a cada compra directa a crédito, para poder mostrarla
+ *  en "Compras a crédito" además de en "Cliente / Proveedor". */
+export interface CompraDirectaCredito {
+  compraId: string;
+  codigo: string | null;
+  proveedorNombre: string | null;
+  cxpId: string;
+}
+
+/** Compras directas que se manejan A CRÉDITO (tienen `credito_cxp_id`): devuelve el
+ *  código de la compra y el id de la cuenta por pagar que la respalda. */
+export async function listComprasDirectasCredito(): Promise<CompraDirectaCredito[]> {
+  const { data, error } = await supabase
+    .from('compras_directas')
+    .select('id, codigo, proveedor_nombre, credito_cxp_id')
+    .not('credito_cxp_id', 'is', null)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    compraId: String((r as Record<string, unknown>).id),
+    codigo: ((r as Record<string, unknown>).codigo as string) ?? null,
+    proveedorNombre: ((r as Record<string, unknown>).proveedor_nombre as string) ?? null,
+    cxpId: String((r as Record<string, unknown>).credito_cxp_id),
+  }));
+}
+
 /* ───────── Alta (varios materiales) ───────── */
 
 export interface LineaExistente { modo: 'existente'; productoId: string; cantidad: number }
