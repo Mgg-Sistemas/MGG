@@ -162,6 +162,10 @@ create table if not exists public.movimientos (
 
 create index if not exists idx_mov_producto on public.movimientos(producto_id, at desc);
 create index if not exists idx_mov_at       on public.movimientos(at desc);
+-- Historial de Salidas/Traslados filtra por ref_tipo y ordena por fecha; el detalle
+-- de un movimiento busca por ref_codigo. Índices para no escanear toda la tabla.
+create index if not exists idx_mov_reftipo_at on public.movimientos(ref_tipo, at desc);
+create index if not exists idx_mov_refcodigo  on public.movimientos(ref_codigo);
 
 -- ─────────────────────────────────────────────────────────────
 -- 5.1 almacenes (depósitos físicos). productos.almacen referencia nombre (texto).
@@ -356,6 +360,7 @@ create table if not exists public.movimientos_caja (
 );
 create index if not exists idx_movcaja_caja on public.movimientos_caja(caja_id, at desc);
 create index if not exists idx_movcaja_at on public.movimientos_caja(at desc);
+create index if not exists idx_movcaja_categoria on public.movimientos_caja(categoria);
 create index if not exists idx_movcaja_pendiente on public.movimientos_caja(estado_mineral) where estado_mineral = 'pendiente';
 
 -- ============================================================
