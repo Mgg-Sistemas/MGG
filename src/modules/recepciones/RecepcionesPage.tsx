@@ -902,6 +902,7 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, subtotales, op
 
 /* ───────────── Conciliación de Centros de Acopio (todo dentro del modal) ───────────── */
 const ROJO = 'var(--danger, #e5484d)';
+const VERDE = 'var(--success, #30a46c)';
 
 function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, actor, miNombre, netoSecoSum, onReload, onClose, confirmar }: {
   grupoId: string; conciliaciones: RecepcionConciliacion[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
@@ -1066,12 +1067,16 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
   }
 
   // Fila del resumen (valor a la izquierda, etiqueta a la derecha; como el Excel).
-  const filaResumen = (valor: ReactNode, etiqueta: string, opts?: { rojo?: boolean; bold?: boolean }) => (
-    <tr>
-      <td className="mono" style={{ textAlign: 'right', width: 180, fontWeight: opts?.bold || opts?.rojo ? 800 : 600, color: opts?.rojo ? ROJO : undefined }}>{valor}</td>
-      <td style={{ fontWeight: opts?.bold || opts?.rojo ? 800 : 600, color: opts?.rojo ? ROJO : undefined }}>{etiqueta}</td>
-    </tr>
-  );
+  const filaResumen = (valor: ReactNode, etiqueta: string, opts?: { rojo?: boolean; verde?: boolean; bold?: boolean }) => {
+    const color = opts?.rojo ? ROJO : opts?.verde ? VERDE : undefined;
+    const fuerte = opts?.bold || opts?.rojo || opts?.verde;
+    return (
+      <tr>
+        <td className="mono" style={{ textAlign: 'right', width: 180, fontWeight: fuerte ? 800 : 600, color }}>{valor}</td>
+        <td style={{ fontWeight: fuerte ? 800 : 600, color }}>{etiqueta}</td>
+      </tr>
+    );
+  };
 
   return (
     <Modal title={conciliacion ? `⚖ Conciliación N° ${conciliacion.numero}` : '⚖ Nueva conciliación'} size="xl" onClose={onCancel} footer={
@@ -1167,7 +1172,10 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
                   <td style={{ fontWeight: 600 }}>Peso Kg Total <span className="muted" style={{ fontWeight: 400 }}>(lo que llegó / pesado)</span></td>
                 </tr>
                 {filaResumen(n2(totalReportado), 'Kg Reportado por Centros de Acopio', { bold: true })}
-                {filaResumen(n2(kgFaltante), 'Kg Faltante', { rojo: true })}
+                {/* Positivo = falta (rojo · Kg Faltante) · Negativo = sobra (verde · Kg a favor). */}
+                {kgFaltante < 0
+                  ? filaResumen(n2(Math.abs(kgFaltante)), 'Kg a favor', { verde: true })
+                  : filaResumen(n2(kgFaltante), 'Kg Faltante', { rojo: true })}
                 <tr>
                   <td style={{ width: 180, padding: 2 }}><input className="input mono" style={{ width: '100%', textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={bolsas} onChange={(e) => setBolsas(e.target.value)} disabled={!canWrite} placeholder="0,00" /></td>
                   <td style={{ fontWeight: 600 }}>Kg Peso de Bolsas</td>
