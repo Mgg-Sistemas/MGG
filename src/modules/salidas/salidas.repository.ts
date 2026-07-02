@@ -443,6 +443,38 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   const lineas: ItemSolicitudSalida[] = (s.items && s.items.length)
     ? s.items
     : [{ producto_id: s.producto_id!, producto_nombre: s.producto_nombre, cantidad: Number(s.cantidad) || 0, precio_unit: s.precio_unit, almacen: s.almacen_origen }];
+
+  // Pre-validación ATÓMICA (material): antes de descontar NADA, se simula el gasto de
+  // stock de TODAS las líneas (agregando las que repiten producto+almacén). Si a alguna
+  // le falta existencia, se lanza un solo error con TODOS los faltantes y no se toca el
+  // inventario. Evita el descuento parcial que dejaba la solicitud a medias (se tomaba
+  // stock de las primeras líneas y el error seguía apareciendo al reintentar).
+  if (s.tipo === 'material') {
+    const destinoReal = s.scope === 'traslado' ? await resolverAlmacenDestino(s.almacen_destino || '') : null;
+    const disp = new Map<string, number>();
+    const faltan: string[] = [];
+    for (const it of lineas) {
+      const cant = Number(it.cantidad) || 0;
+      if (cant <= 0) continue;
+      const alm = it.almacen ?? s.almacen_origen ?? '';
+      if (destinoReal && alm === destinoReal) continue; // traslado a sí mismo: no mueve stock
+      const key = `${it.producto_id}|${alm}`;
+      if (!disp.has(key)) {
+        const ex = await getExistencia(it.producto_id, alm);
+        disp.set(key, Number(ex?.stock) || 0);
+      }
+      const restante = disp.get(key)!;
+      if (restante < cant) {
+        faltan.push(`${it.producto_nombre ?? 'Producto'}: pide ${cant}, hay ${restante} en ${alm || '—'}`);
+      } else {
+        disp.set(key, restante - cant);
+      }
+    }
+    if (faltan.length) {
+      throw new Error(`No se ejecutó nada (no se descontó stock): faltan existencias en ${faltan.length} material(es).\n• ${faltan.join('\n• ')}`);
+    }
+  }
+
   if (s.scope === 'salida' && s.tipo === 'material') {
     for (const it of lineas) {
       const mov = await salidaMaterial({
