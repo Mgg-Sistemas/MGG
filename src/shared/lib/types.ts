@@ -698,6 +698,12 @@ export interface ItemOrden {
   /** Servicios de recarga (gas / oxígeno / extintores): nº de bombonas y KG a recargar. */
   bombonas?: number | null;
   kg_recarga?: number | null;
+  /** Servicios · mantenimiento: repuesto tomado del inventario para este renglón (si aplica).
+   *  Se descuenta del stock al crear el servicio y se restituye si el servicio se cancela. */
+  repuesto_producto_id?: string | null;
+  repuesto_nombre?: string | null;
+  repuesto_cantidad?: number | null;
+  repuesto_almacen?: string | null;
 }
 
 export interface EventoHistorial {

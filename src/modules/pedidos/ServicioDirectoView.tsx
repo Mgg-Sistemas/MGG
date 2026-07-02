@@ -12,6 +12,7 @@ import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listCatalogoPedido, crearCatalogoPedido, ensureUnidadSolicitante, type CatalogoPedido } from './pedidos.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+import { listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import {
   crearServicioDirecto, montarServicioDirecto, listServiciosDirectos, eliminarServicioDirecto,
   urlAdjuntoServicio, gestionarFacturasServicio, editarServicioDirectoFinalizado, esRecargaGas, type ServicioDirecto, type ServicioDirectoItem, type LineaServicioInput,
@@ -311,14 +312,16 @@ function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
 
 /* ───────── Modal: nuevo servicio directo (varios servicios) ───────── */
 
-interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; bombonas: string; kg: string }
+interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; bombonas: string; kg: string; productoId: string; productoCant: string }
 
 function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, actorName, onClose, onSaved }: {
   categorias: CatalogoPedido[]; tipos: CatalogoPedido[]; equipos: MaquinariaEquipo[]; proveedores: Proveedor[];
   actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '' });
+  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '', productoId: '', productoCant: '1' });
   const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
+  const [productos, setProductos] = useState<ProductoConStock[]>([]);
+  useEffect(() => { listProductosConStock().then(setProductos).catch(() => setProductos([])); }, []);
   const [provModo, setProvModo] = useState<'existente' | 'nuevo'>('existente');
   const [proveedorId, setProveedorId] = useState('');
   const [provNombre, setProvNombre] = useState('');
@@ -374,7 +377,17 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
       const cant = recargaCat ? bombonas : (Number(l.cantidad) || 0);
       if (cant <= 0) { setError(recargaCat ? 'Indicá la cantidad de bombonas.' : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
       const eq = equipos.find((x) => x.id === l.equipoId) ?? null;
-      payload.push({ servicioCategoria: l.categoria, servicioTipo: l.tipo || null, equipoId: l.equipoId || null, equipoNombre: eq?.equipo ?? null, cantidad: cant, bombonas: recargaCat ? bombonas : null, kgRecarga: kgTotal });
+      // Repuesto del inventario (solo mantenimiento): si eligió producto, se valida y descuenta.
+      const prod = !recargaCat && l.productoId ? productos.find((p) => p.id === l.productoId) ?? null : null;
+      const prodCant = prod ? (Number(l.productoCant) || 0) : 0;
+      if (prod && prodCant <= 0) { setError(`Indicá cuántas unidades de "${prod.nombre}" se toman del inventario.`); return; }
+      if (prod && prodCant > prod.stock) { setError(`Solo hay ${prod.stock} ${prod.unidad} de "${prod.nombre}" en el inventario.`); return; }
+      payload.push({
+        servicioCategoria: l.categoria, servicioTipo: l.tipo || null, equipoId: l.equipoId || null, equipoNombre: eq?.equipo ?? null,
+        cantidad: cant, bombonas: recargaCat ? bombonas : null, kgRecarga: kgTotal,
+        productoId: prod?.id ?? null, productoNombre: prod?.nombre ?? null,
+        productoCantidad: prod ? prodCant : null, productoAlmacen: prod?.almacen ?? null,
+      });
     }
     setSaving(true);
     try {
@@ -508,6 +521,28 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                 <div className="form-row"><label>Cantidad</label><input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
               </div>
             )}
+            {/* Repuesto del inventario (mantenimiento): si el repuesto está en stock, se toma de ahí. */}
+            {!esRecargaGas(l.categoria) && (() => {
+              const prod = l.productoId ? productos.find((p) => p.id === l.productoId) ?? null : null;
+              return (
+                <div className="form-grid">
+                  <div className="form-row">
+                    <label>Repuesto del inventario</label>
+                    <SearchSelect value={l.productoId} onChange={(v) => set(l.id, { productoId: v })}
+                      options={productos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku} · stock ${num(p.stock)} ${p.unidad}${p.almacen ? ` · ${p.almacen}` : ''}` }))}
+                      placeholder="🔎 Buscá el repuesto (caucho, filtro…) si sale del inventario" emptyText="Sin productos con stock." />
+                    <small className="muted" style={{ fontSize: '.72rem' }}>Si el repuesto está en el inventario, se descuenta del stock al crear el servicio. Dejalo en blanco si no aplica.</small>
+                  </div>
+                  {prod && (
+                    <div className="form-row">
+                      <label>Cantidad a tomar del inventario</label>
+                      <input className="input mono" type="number" min={1} step="any" max={prod.stock} value={l.productoCant} onChange={(e) => set(l.id, { productoCant: e.target.value })} />
+                      <small className="muted" style={{ fontSize: '.72rem' }}>Disponible: {num(prod.stock)} {prod.unidad}{prod.almacen ? ` · ${prod.almacen}` : ''}.</small>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         ))}
 

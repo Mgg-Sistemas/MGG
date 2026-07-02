@@ -260,6 +260,41 @@ export async function findProducto(id: string): Promise<Producto | null> {
   return (data ?? null) as Producto | null;
 }
 
+/** Producto ACTIVO con stock disponible y el almacén del que conviene descontar. */
+export interface ProductoConStock {
+  id: string; sku: string; nombre: string; unidad: string;
+  stock: number; almacen: string | null;
+}
+
+/** Productos ACTIVOS con stock (>0), con el almacén que más stock tiene (para descontar).
+ *  Lo usan los servicios de mantenimiento para tomar un repuesto del inventario. */
+export async function listProductosConStock(): Promise<ProductoConStock[]> {
+  const [productos, exRes] = await Promise.all([
+    listProductos(),
+    supabase.from('existencias').select('producto_id, almacen, stock'),
+  ]);
+  if (exRes.error) throw exRes.error;
+  const porProducto = new Map<string, { almacen: string; stock: number }[]>();
+  for (const e of (exRes.data ?? []) as { producto_id: string; almacen: string; stock: number }[]) {
+    const arr = porProducto.get(e.producto_id) ?? [];
+    arr.push({ almacen: e.almacen, stock: Number(e.stock) || 0 });
+    porProducto.set(e.producto_id, arr);
+  }
+  const out: ProductoConStock[] = [];
+  for (const p of productos) {
+    if (p.estado !== 'activo') continue;
+    const exs = porProducto.get(p.id) ?? [];
+    const stock = exs.reduce((a, e) => a + e.stock, 0);
+    if (stock <= 0) continue;
+    const mejor = exs.filter((e) => e.stock > 0).sort((a, b) => b.stock - a.stock)[0];
+    out.push({
+      id: p.id, sku: p.sku, nombre: p.nombre, unidad: p.unidad,
+      stock: Math.round(stock * 100) / 100, almacen: mejor?.almacen ?? p.almacen ?? null,
+    });
+  }
+  return out.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
 export async function findBySku(sku: string): Promise<Producto | null> {
   const { data, error } = await supabase
     .from('productos')
