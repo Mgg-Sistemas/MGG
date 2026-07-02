@@ -428,7 +428,7 @@ export function PedidosPage() {
       <div className="page-head">
         <div>
           <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'servicio_directo' ? 'Servicio Directo' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicio' ? 'Servicios' : 'Órdenes'}</h1>
-          <p className="muted">
+          <p className="hint muted">
             {scope === 'oc'
               ? 'Seguimiento del ciclo de compras: emisión de OC, recepción y finalización del pedido.'
               : scope === 'oc_lote'
@@ -1158,7 +1158,7 @@ function FinalizarPedidoModal({
         </>
       }
     >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Confirmá que recibiste todo correctamente y evaluá la recepción
         {orden.proveedor_id ? ' del proveedor' : ''}. Esta evaluación queda en la
         <strong> trazabilidad PDF</strong> y en el correo.
@@ -1362,7 +1362,7 @@ function MetodoPagoModal({
         </>
       }
     >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Indicá <strong>con qué método(s)</strong> se va a pagar la OC ({orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null
           ? <>recibido <strong>{money(orden.recibido_total)}</strong></>
           : <>total <strong>{money(orden.total)}</strong></>}). Podés combinar
@@ -1578,7 +1578,7 @@ function RecepcionParcialModal({
         </>
       }
     >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Confirmá cuánto entró realmente al almacén por ítem. Solo lo recibido se suma al inventario.
         Si llegó menos de lo pedido, dejá una <strong>nota</strong>; la orden cierra sin saldo pendiente.
       </p>
@@ -2539,7 +2539,7 @@ function OrdenDetailModal({
               </tbody>
             </table>
           </div>
-          <p className="muted" style={{ fontSize: '.76rem', margin: '.4rem 0 0' }}>Cada sub-OC se confirma, paga y recibe por separado (método de pago por proveedor).</p>
+          <p className="hint muted" style={{ fontSize: '.76rem', margin: '.4rem 0 0' }}>Cada sub-OC se confirma, paga y recibe por separado (método de pago por proveedor).</p>
           {itemsPendientesAsignar.length > 0 && (
             <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginTop: '.6rem', padding: '.55rem .8rem' }}>
               <div style={{ fontWeight: 600, marginBottom: '.25rem' }}>⚠️ {itemsPendientesAsignar.length} ítem(s) sin asignar — la SP sigue en «Pendiente (cargar ofertas)»</div>
@@ -2860,7 +2860,7 @@ function EnviarPorCorreoModal({
         </>
       }
     >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Se enviará el PDF de trazabilidad de la orden a los destinatarios seleccionados.
       </p>
 
@@ -2920,7 +2920,7 @@ function Timeline({
   proveedorMap: Map<string, Proveedor>;
   personaMap: Map<string, string>;
 }) {
-  if (!historial.length) return <p className="muted">Sin eventos registrados.</p>;
+  if (!historial.length) return <p className="hint muted">Sin eventos registrados.</p>;
   // Mostrar en orden cronológico inverso (más reciente arriba).
   const items = [...historial].reverse();
   return (
@@ -3028,7 +3028,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
       <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>Ajustá el proveedor, cantidades, precios y la condición de pago. El total se recalcula solo. Si cambiás algo, la OC vuelve a aprobación del Gerente General.</p>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>Ajustá el proveedor, cantidades, precios y la condición de pago. El total se recalcula solo. Si cambiás algo, la OC vuelve a aprobación del Gerente General.</p>
       {proveedoresSel.length > 0 && (
         <div className="form-row" style={{ marginBottom: '.6rem' }}>
           <label>Proveedor</label>
@@ -3322,7 +3322,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
         </button>
       </>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Mismo flujo que una Solicitud de Pedido pero para <strong>servicios</strong> (recarga de gas, oxígeno,
         mantenimiento de maquinaria, recarga de extintores…). Correlativo <strong className="mono">{codigo}</strong>. Luego se aprueba,
         se cotiza y se paga como cualquier OC. <strong>Mantenimiento de maquinaria</strong> lista los equipos de Maquinaria y Plantas Eléctricas; <strong>mantenimiento de vehículos</strong> lista los vehículos. En ambos se casa con el equipo de Control de Maquinaria/Vehículos.
@@ -3597,12 +3597,10 @@ function CrearOrdenModal({
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
     setCreandoNuevo(true);
     try {
-      const base = nombre.replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 14) || 'PROD';
-      const sufijo = Math.floor(performance.now() % 100000).toString(36).toUpperCase();
-      // En una SP de MERCADO, los productos nuevos entran como VÍVERES y con su SKU
-      // correlativo definitivo (VIV-NNN), ya sincronizado con el inventario.
+      // SKU correlativo por categoría: 3 primeras letras (o el prefijo ya usado en esa
+      // categoría) + secuencia. Ej.: PROTEINA → PRO-001. (Antes usaba NEW-<slug>-<rand>.)
       const categoria = mercado ? 'VIVERES' : (nuevoCategoria.trim().toUpperCase() || 'GENERAL');
-      const sku = mercado ? siguienteSku('VIVERES', allProductos) : `NEW-${base}-${sufijo}`;
+      const sku = siguienteSku(categoria, allProductos);
       const creado = await createProducto({
         sku,
         nombre,
@@ -3847,7 +3845,7 @@ function CrearOrdenModal({
                   </div>
                   <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.3rem' }} onClick={agregarSeleccionMercado} disabled={!selMercado.size}>➕ Agregar seleccionados ({selMercado.size})</button>
                 </>
-              ) : <p className="muted" style={{ fontSize: '.8rem', marginTop: '.4rem' }}>No hay una compra anterior para mostrar. Agregá los productos abajo.</p>}
+              ) : <p className="hint muted" style={{ fontSize: '.8rem', marginTop: '.4rem' }}>No hay una compra anterior para mostrar. Agregá los productos abajo.</p>}
             </div>
           )}
         </div>
@@ -4031,7 +4029,7 @@ function CrearOrdenModal({
         <small className="muted">Foto del repuesto/modelo a comprar. Se adjunta a la orden y queda en su trazabilidad.</small>
       </div>
 
-      <p className="muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>
+      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>
         El precio lo fijará el proveedor al cargar su oferta. La solicitud queda sin monto hasta entonces.
       </p>
     </Modal>
@@ -4237,7 +4235,7 @@ function MotivoModal({
         </>
       }
     >
-      {intro && <p className="muted">{intro}</p>}
+      {intro && <p className="hint muted">{intro}</p>}
       <div className="form-row">
         <label>{label}</label>
         <textarea
@@ -4312,7 +4310,7 @@ function HistoricoPreciosModal({ sku, nombre, onClose }: HistoricoPreciosModalPr
       onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}
     >
-      <p className="muted">{nombre}</p>
+      <p className="hint muted">{nombre}</p>
       {err && (
         <div className="card" style={{ borderColor: 'var(--danger)' }}>
           <strong>Error:</strong> {err}
