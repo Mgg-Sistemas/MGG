@@ -127,7 +127,7 @@ export function CajaView({ movimientos, clasificaciones, cajas, costoClases, can
       </div>
 
       {!movs.length ? (
-        <div className="card"><p className="muted" style={{ margin: 0 }}>Sin movimientos en esta caja.</p></div>
+        <div className="card"><p className="hint muted" style={{ margin: 0 }}>Sin movimientos en esta caja.</p></div>
       ) : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.8rem' }}>

@@ -86,7 +86,7 @@ export function RetencionesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>🧾 Retenciones</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>Retenciones fiscales de las OC con soporte de factura.</p>
+          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>Retenciones fiscales de las OC con soporte de factura.</p>
         </div>
         <div className="view-toggle" role="tablist" aria-label="Vista de retenciones">
           <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}</button>

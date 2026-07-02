@@ -212,7 +212,7 @@ function EnviarProduccionModal({
         </>
       }
     >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Se enviará el PDF del reporte de fundición a los destinatarios seleccionados.
       </p>
 

@@ -132,7 +132,7 @@ export function UsuariosPage() {
         <h1 style={{ textAlign: 'center', marginBottom: '.5rem' }}>
           {view === 'creacion' ? 'Creación de Usuario' : 'Roles y Permiso'}
         </h1>
-        <p className="muted" style={{ textAlign: 'center' }}>
+        <p className="hint muted" style={{ textAlign: 'center' }}>
           {view === 'creacion'
             ? 'Gestión de usuarios del sistema. Crea cuentas con clave por defecto, edita datos, resetea claves olvidadas y habilita/deshabilita accesos.'
             : 'Configurá la matriz de permisos por rol y por módulo del sistema.'}
@@ -695,7 +695,7 @@ function UsuarioFormModal({
       )}
 
       <div className="card" style={{ marginTop: '1rem', background: 'var(--bg-2)' }}>
-        <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>
+        <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>
           🔑 El usuario se creará con la clave inicial <strong className="mono">123456</strong>.
           En su primer inicio de sesión deberá cambiarla obligatoriamente.
         </p>
@@ -926,7 +926,7 @@ function UsuarioEditModal({
         </div>
       </div>
 
-      <p className="muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
+      <p className="hint muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
         El correo no es editable. Si necesitás cambiarlo, deshabilitá este usuario y creá uno nuevo.
       </p>
 
@@ -1000,7 +1000,7 @@ function NuevaTaxonomiaModal({ titulo, placeholder, onClose, onCrear }: NuevaTax
           }}
         />
       </div>
-      <p className="muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
+      <p className="hint muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
         Queda persistido en Supabase y disponible para próximas sesiones. Podrás
         eliminarlo siempre que no esté en uso.
       </p>

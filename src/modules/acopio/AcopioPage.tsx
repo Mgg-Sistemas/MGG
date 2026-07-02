@@ -150,7 +150,7 @@ function AcopioModulo({ centro }: { centro: string }) {
       <div className="page-head">
         <div>
           <h1>🏭 Centro de Costo {centro}</h1>
-          <p className="muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
+          <p className="hint muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
         </div>
       </div>
 
@@ -379,7 +379,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
   return (
     <Modal title="Agregar movimiento" size="md" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
         Caja: <strong>{cajaActual ? `${cajaActual.numero}${cajaActual.nombre ? ` · ${cajaActual.nombre}` : ''}` : '—'}</strong>. Completá los campos que apliquen; cada concepto se registra como un movimiento.
       </p>
 
@@ -514,10 +514,10 @@ function DestinosTrasladoModal({ actor, centro, onClose, onChanged }: {
       <><button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       <button className="btn btn-primary" onClick={() => setEdit('nuevo')}>+ Nuevo destino</button></>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
         A dónde puede ir el dinero de un «Traslado de caja». Interno = entra como $Usd entregado en un aliado de este sistema. Externo = se envía por el puente a otro sistema (lo confirman allá).
       </p>
-      {!destinos.length ? <p className="muted">Sin destinos.</p> : (
+      {!destinos.length ? <p className="hint muted">Sin destinos.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.82rem' }}>
             <thead><tr><th>Nombre</th><th>Tipo</th><th>Vinculado a</th><th></th></tr></thead>
@@ -653,10 +653,10 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
     <Modal title={`🔒 Cerrar caja · ${centro}`} size="md" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
       {!cajaActual ? (
-        <p className="muted" style={{ margin: 0 }}>No hay una caja abierta para cerrar.</p>
+        <p className="hint muted" style={{ margin: 0 }}>No hay una caja abierta para cerrar.</p>
       ) : (
         <>
-          <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+          <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
             Se cerrará <strong>{cajaActual.numero}</strong> ({date(cajaActual.fecha_inicio)} → hoy) y se abrirá una nueva automáticamente.
           </p>
           <div className="table-wrap">
@@ -679,7 +679,7 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
               </tbody>
             </table>
           </div>
-          <p className="muted" style={{ fontSize: '.76rem', marginBottom: 0 }}>
+          <p className="hint muted" style={{ fontSize: '.76rem', marginBottom: 0 }}>
             {saldoKg > 0
               ? `Los ${num(saldoKg)} Kg pasan al módulo RECEPCIONES (procedencia «${centro.toUpperCase()}»); NO entran al inventario todavía. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.`
               : 'No hay saldo de Kg para enviar a Recepciones. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.'}
@@ -723,7 +723,7 @@ function CierresCajaModal({ centro, cajaActualId, onClose }: { centro: string; c
         <>
           <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Buscar cierre (fecha, número, recepción…)" style={{ marginBottom: '.6rem' }} />
           {!filtradas.length ? (
-            <p className="muted" style={{ margin: 0 }}>Sin cierres registrados.</p>
+            <p className="hint muted" style={{ margin: 0 }}>Sin cierres registrados.</p>
           ) : (
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.84rem' }}>
@@ -749,9 +749,9 @@ function CierresCajaModal({ centro, cajaActualId, onClose }: { centro: string; c
             <button className="btn btn-sm btn-ghost" onClick={() => { setSel(null); setMovs([]); }}>← Volver al listado</button>
           </div>
           {cargandoMovs ? (
-            <p className="muted" style={{ margin: 0 }}>Cargando movimientos…</p>
+            <p className="hint muted" style={{ margin: 0 }}>Cargando movimientos…</p>
           ) : !movs.length ? (
-            <p className="muted" style={{ margin: 0 }}>Sin movimientos en este período.</p>
+            <p className="hint muted" style={{ margin: 0 }}>Sin movimientos en este período.</p>
           ) : (
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.8rem' }}>
@@ -843,7 +843,7 @@ function ResumenCajaModal({ defaultEmail, centro, cajaId, onClose }: { defaultEm
     return (
     <>
       <div className="card-title" style={{ marginTop: '1rem' }}><span style={{ color }}>{titulo}</span></div>
-      {!filas.length ? <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin registros.</p> : (
+      {!filas.length ? <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin registros.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.8rem' }}>
             <thead><tr><th>Categoría</th><th style={{ width: '40%' }}></th><th style={{ textAlign: 'right', width: 150, whiteSpace: 'nowrap' }}>{montoLabel}</th><th style={{ textAlign: 'right', width: 120, whiteSpace: 'nowrap' }}>{pctLabel}</th></tr></thead>
@@ -893,7 +893,7 @@ function ResumenCajaModal({ defaultEmail, centro, cajaId, onClose }: { defaultEm
       {error ? (
         <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>
       ) : !r ? (
-        <p className="muted" style={{ margin: 0 }}>Cargando resumen…</p>
+        <p className="hint muted" style={{ margin: 0 }}>Cargando resumen…</p>
       ) : (
         <>
           {/* Filtro por rango de fechas: recalcula el resumen solo con los movimientos del rango. */}
@@ -980,7 +980,7 @@ function ResumenCajaModal({ defaultEmail, centro, cajaId, onClose }: { defaultEm
           )}
 
           <TablaCat titulo="Gastos por categoría (incluye nómina)" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastado} totalPct={1} color="#ef4444" grupo="gastos_caja" onVerVehiculo={setConsumoCat} />
-          <p className="muted" style={{ fontSize: '.74rem', marginTop: '.3rem' }}>💡 Tocá una <strong>categoría</strong> para ver el <strong>detalle de sus movimientos</strong>. En las de <strong>repuestos · reparaciones · servicios</strong>, el botón <strong>📊</strong> muestra el consumo en $ por vehículo. La <strong>nómina</strong> va incluida como una categoría más.</p>
+          <p className="hint muted" style={{ fontSize: '.74rem', marginTop: '.3rem' }}>💡 Tocá una <strong>categoría</strong> para ver el <strong>detalle de sus movimientos</strong>. En las de <strong>repuestos · reparaciones · servicios</strong>, el botón <strong>📊</strong> muestra el consumo en $ por vehículo. La <strong>nómina</strong> va incluida como una categoría más.</p>
           {/* MOVIMIENTOS DE CAJA por categoría: dinero entregado que entra a la caja */}
           <TablaCat titulo="Movimientos de caja por categoría" filas={r.movimientosPorCategoria} totalLabel="Total entregado" totalMonto={r.totalEntregado} totalPct={1} color="#3b82f6" grupo="movimientos_caja" montoLabel="Dinero entregado $" pctLabel="% del total entregado" />
         </>
@@ -1039,15 +1039,15 @@ function DetalleCategoriaModal({ grupo, valor, desde, hasta, centro, onClose }: 
     : 'gastos';
   return (
     <Modal title={`🧾 Detalle · ${valor}`} size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
         Movimientos de {concepto} en la categoría «{valor}»{(desde || hasta) ? ` · ${desde || '—'} → ${hasta || '—'}` : ''}.
       </p>
       {error ? (
         <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>
       ) : !movs ? (
-        <p className="muted">Cargando…</p>
+        <p className="hint muted">Cargando…</p>
       ) : !movs.length ? (
-        <p className="muted" style={{ margin: 0 }}>Sin movimientos en esta categoría.</p>
+        <p className="hint muted" style={{ margin: 0 }}>Sin movimientos en esta categoría.</p>
       ) : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.82rem' }}>
@@ -1395,7 +1395,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
 
       {tab === 'editor' ? (
         <>
-          <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+          <p className="hint muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
             Cargá por fila los <strong>Kg por Cobrar</strong> y <strong>Kg Disponibles Acopiados</strong>. Las 4 columnas de la derecha van
             <strong> combinadas por bloque</strong>: <strong>Acopiados por Sector MGG</strong> se autosuma de los disponibles del bloque; <strong>Resguardos GT</strong>, <strong>Precio Promedio</strong> y <strong>Saldo $USD</strong> se cargan una vez por bloque. Al terminar, <strong>archivá a histórico</strong>.
           </p>
@@ -1525,7 +1525,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
       ) : (
         /* Histórico */
         !historico.length ? (
-          <p className="muted" style={{ margin: 0 }}>Todavía no archivaste ningún resumen semanal. Armá uno en el editor y tocá «Archivar a histórico».</p>
+          <p className="hint muted" style={{ margin: 0 }}>Todavía no archivaste ningún resumen semanal. Armá uno en el editor y tocá «Archivar a histórico».</p>
         ) : (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.82rem' }}>
@@ -1568,7 +1568,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
         <div className="page-head">
           <div>
             <h1>📅 Reporte Preliminar</h1>
-            <p className="muted">Resumen Semanal de Casiterita (REPORTE PRELIMINAR DE CENTROS DE ACOPIOS). Cargá los Kg por sector, vinculá datos en vivo y archivá el reporte a histórico.</p>
+            <p className="hint muted">Resumen Semanal de Casiterita (REPORTE PRELIMINAR DE CENTROS DE ACOPIOS). Cargá los Kg por sector, vinculá datos en vivo y archivá el reporte a histórico.</p>
           </div>
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>{acciones}</div>
         </div>
@@ -1899,7 +1899,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, cent
         </div>
       )}
       {editable && (
-        <p className="muted" style={{ fontSize: '.8rem', marginTop: '.6rem' }}>
+        <p className="hint muted" style={{ fontSize: '.8rem', marginTop: '.6rem' }}>
           Al cerrar se sumarán <strong className="mono">{num(cantidadStock)} {unidad}</strong> al stock de <strong>{productoSel?.nombre ?? '(elegí producto)'}</strong> en <strong>{almacen || '(elegí almacén)'}</strong>
           {totales.recepcionado <= 0 && totales.neto > 0 && ' · se usa el peso neto porque no hay peso recepcionado.'}
         </p>

@@ -67,7 +67,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
         ))}
       </div>
 
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Categorías de <strong>{tabActual.label}</strong>. Agregá, editá o activá/desactivá según necesites.</p>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Categorías de <strong>{tabActual.label}</strong>. Agregá, editá o activá/desactivá según necesites.</p>
 
       {canWrite && (
         <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.6rem' }}>

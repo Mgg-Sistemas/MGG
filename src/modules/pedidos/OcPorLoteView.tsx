@@ -228,7 +228,7 @@ export function OcPorLoteView() {
             </>
           }
         >
-          <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+          <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
             Las {porConfirmar(rows).length} OC seleccionadas pasan a estado <strong>ANULADA</strong>. No mueven inventario ni caja.
           </p>
           <div className="form-row">

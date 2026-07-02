@@ -141,12 +141,12 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     <Modal title={`Asignar proveedores por producto · ${orden.codigo}`} size="xl" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
       {loading ? (
-        <p className="muted" style={{ margin: 0 }}>Cargando ofertas…</p>
+        <p className="hint muted" style={{ margin: 0 }}>Cargando ofertas…</p>
       ) : !ofertas.length ? (
-        <p className="muted" style={{ margin: 0 }}>No hay ofertas cargadas para esta orden.</p>
+        <p className="hint muted" style={{ margin: 0 }}>No hay ofertas cargadas para esta orden.</p>
       ) : (
         <>
-          <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+          <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
             Elegí un proveedor y marcá los productos que le comprás (a su precio). Un producto ya asignado a otro proveedor queda bloqueado. Cada proveedor genera su propia OC con su método de pago. Lo que dejes sin asignar queda pendiente.
           </p>
 
@@ -213,7 +213,7 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
           <div className="card" style={{ marginTop: '.7rem' }}>
             <div className="card-title"><span>Resumen de la asignación</span></div>
             {!resumen.size ? (
-              <p className="muted" style={{ margin: 0, fontSize: '.84rem' }}>Todavía no asignaste productos en esta sesión.</p>
+              <p className="hint muted" style={{ margin: 0, fontSize: '.84rem' }}>Todavía no asignaste productos en esta sesión.</p>
             ) : (
               <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '.85rem' }}>
                 {Array.from(resumen.entries()).map(([prov, r]) => (
@@ -222,7 +222,7 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
               </ul>
             )}
             {sinAsignar.length > 0 && (
-              <p className="muted" style={{ marginBottom: 0, marginTop: '.4rem', fontSize: '.8rem' }}>
+              <p className="hint muted" style={{ marginBottom: 0, marginTop: '.4rem', fontSize: '.8rem' }}>
                 Quedan <strong>{sinAsignar.length}</strong> producto(s) sin asignar — se podrán asignar después (la OP queda pendiente).
               </p>
             )}

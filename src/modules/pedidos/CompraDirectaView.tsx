@@ -511,7 +511,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
         ))}
 
         <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar material</button>
-        <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan precios. El gasto por material y la caja se indican al finalizar.</p>
+        <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan precios. El gasto por material y la caja se indican al finalizar.</p>
       </form>
     </Modal>
   );
@@ -659,7 +659,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
       <form id="cd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-        <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+        <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
           Cargá los <strong>precios por material</strong> y la <strong>factura</strong>. Podés <strong>ajustar la cantidad</strong> o <strong>quitar materiales</strong>. La compra queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el gasto sale de la caja y los materiales <strong>entran al inventario</strong> ({compra.almacen}). La <strong>categoría de gasto la elige Tesorería al pagar</strong>.
         </p>
 

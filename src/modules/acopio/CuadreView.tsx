@@ -23,7 +23,7 @@ export function CuadreView({ cuadres, canWrite, actor, actorName, onReload }: {
       </div>
 
       {!cuadres.length ? (
-        <div className="card"><p className="muted" style={{ margin: 0 }}>Sin cuadres. Creá el primero con “+ Nuevo cuadre”.</p></div>
+        <div className="card"><p className="hint muted" style={{ margin: 0 }}>Sin cuadres. Creá el primero con “+ Nuevo cuadre”.</p></div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
           {cuadres.map((c) => {
@@ -196,9 +196,9 @@ function CuadreEditor({ cuadre, canWrite, actor, actorName, onClose, onSaved, on
           {!esNuevo && editable && <button className="btn btn-sm btn-primary" onClick={() => setMovModal('nuevo')}>+ Movimiento</button>}
         </div>
         {esNuevo ? (
-          <p className="muted" style={{ margin: 0 }}>Creá el cuadre para empezar a cargar movimientos.</p>
+          <p className="hint muted" style={{ margin: 0 }}>Creá el cuadre para empezar a cargar movimientos.</p>
         ) : !movs.length ? (
-          <p className="muted" style={{ margin: 0 }}>Sin movimientos.</p>
+          <p className="hint muted" style={{ margin: 0 }}>Sin movimientos.</p>
         ) : (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.8rem' }}>

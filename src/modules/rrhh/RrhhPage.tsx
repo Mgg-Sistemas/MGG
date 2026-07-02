@@ -30,7 +30,7 @@ export function RrhhPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>👥 RRHH / Nómina</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>Personal, nómina quincenal y administrativo. La nómina se paga desde Tesorería.</p>
+          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>Personal, nómina quincenal y administrativo. La nómina se paga desde Tesorería.</p>
         </div>
       </div>
 

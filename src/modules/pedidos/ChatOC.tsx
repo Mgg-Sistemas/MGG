@@ -85,7 +85,7 @@ export function ChatOC({
       }}
     >
       <h4 style={{ marginTop: 0, marginBottom: '.5rem', color: 'var(--brand, #ff8a00)' }}>💬 Chat interno · {ordenCodigo}</h4>
-      <p className="muted" style={{ fontSize: '.78rem', marginTop: 0, marginBottom: '.5rem' }}>
+      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: 0, marginBottom: '.5rem' }}>
         Hilo de seguimiento interno de esta orden (no se envía al proveedor). Lo ven Compras y Tesorería.
       </p>
       <div
@@ -97,9 +97,9 @@ export function ChatOC({
         }}
       >
         {cargando ? (
-          <p className="muted" style={{ margin: 'auto', fontSize: '.85rem' }}>Cargando…</p>
+          <p className="hint muted" style={{ margin: 'auto', fontSize: '.85rem' }}>Cargando…</p>
         ) : mensajes.length === 0 ? (
-          <p className="muted" style={{ margin: 'auto', fontSize: '.85rem' }}>Sin mensajes. Iniciá la conversación.</p>
+          <p className="hint muted" style={{ margin: 'auto', fontSize: '.85rem' }}>Sin mensajes. Iniciá la conversación.</p>
         ) : (
           mensajes.map((m) => {
             const mio = esMio(m);

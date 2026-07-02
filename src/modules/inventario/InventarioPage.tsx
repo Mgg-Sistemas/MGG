@@ -907,7 +907,7 @@ export function InventarioPage() {
             }
           >
             {!rows.length ? (
-              <p className="muted" style={{ margin: 0 }}>Este almacén no tiene productos con existencia. Si tiene subalmacenes, generá el reporte de cada uno.</p>
+              <p className="hint muted" style={{ margin: 0 }}>Este almacén no tiene productos con existencia. Si tiene subalmacenes, generá el reporte de cada uno.</p>
             ) : (
               <p style={{ margin: 0 }}>
                 <strong>{num(rows.length)}</strong> producto(s) · valor total <strong className="mono">{money(valor)}</strong>.<br />
@@ -1085,7 +1085,7 @@ function SedeRenameModal({ sede, onClose, onSaved }: {
       </>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         {esSinSede
           ? 'Se asignará esta sede a todos los almacenes que hoy no tienen una.'
           : 'El nuevo nombre se aplica a todos los almacenes de esta sede.'}

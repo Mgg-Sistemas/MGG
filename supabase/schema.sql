@@ -480,6 +480,9 @@ create index if not exists idx_compra_directa_estado on public.compras_directas(
 -- Proveedor de la compra directa (opcional; si es nuevo, se da de alta en `proveedores`).
 alter table public.compras_directas add column if not exists proveedor_id uuid references public.proveedores(id) on delete set null;
 alter table public.compras_directas add column if not exists proveedor_nombre text;
+-- Compra A CRÉDITO: enlaza a la cuenta por pagar (Tesorería) que representa la deuda;
+-- con esto la compra sale de "por pagar" y se salda con abonos.
+alter table public.compras_directas add column if not exists credito_cxp_id uuid references public.cuentas_por_pagar(id) on delete set null;
 -- Facturas (varias, PDF o imagen): [{path, filename, at}]. adjunto_path/nombre siguen apuntando a la primera (compatibilidad).
 alter table public.compras_directas add column if not exists facturas jsonb not null default '[]'::jsonb;
 -- Flujo nuevo: el analista MONTA (factura + montos) -> por_pagar (aparece en Tesorería);

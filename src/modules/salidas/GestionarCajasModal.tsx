@@ -135,7 +135,7 @@ export function GestionarCajasModal({
   return (
     <Modal title="Cajas (tesorería)" size="lg" onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Cuentas de dinero con saldo. Una salida de dinero descuenta el saldo; un traslado
         lo mueve entre cajas de la misma moneda.
       </p>
@@ -170,7 +170,7 @@ export function GestionarCajasModal({
         </div>
       </div>
       {ES_DIVISA(moneda) && (
-        <p className="muted" style={{ marginTop: '-.4rem', marginBottom: '.85rem', fontSize: '.8rem' }}>
+        <p className="hint muted" style={{ marginTop: '-.4rem', marginBottom: '.85rem', fontSize: '.8rem' }}>
           La caja USDT registra en cada ingreso la <strong>tasa Binance</strong> con la que entró el dinero,
           y muestra el <strong>promedio ponderado</strong> de todas las entradas.
         </p>

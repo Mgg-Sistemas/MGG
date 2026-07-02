@@ -95,7 +95,7 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
         </>
       }
     >
-      <p className="muted" style={{ fontSize: '.85rem', marginTop: 0 }}>
+      <p className="hint muted" style={{ fontSize: '.85rem', marginTop: 0 }}>
         Aplicá los filtros que querés que aparezcan en el reporte. La vista previa muestra cuántos productos quedan.
       </p>
 

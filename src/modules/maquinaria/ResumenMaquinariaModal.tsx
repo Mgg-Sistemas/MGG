@@ -111,7 +111,7 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
       {/* Mantenimiento preventivo */}
       <div className="card-title" style={{ margin: '1rem 0 .4rem' }}><span>Mantenimiento preventivo</span></div>
       {!preventivo.length ? (
-        <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Ningún equipo tiene definida una frecuencia de mantenimiento (campo «Mantenimiento cada hrs»).</p>
+        <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>Ningún equipo tiene definida una frecuencia de mantenimiento (campo «Mantenimiento cada hrs»).</p>
       ) : (
         <div className="table-wrap" style={{ maxHeight: 240, overflow: 'auto' }}>
           <table className="table" style={{ fontSize: '.82rem' }}>
@@ -177,7 +177,7 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
               </tbody>
             </table>
           ) : (
-            <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>
+            <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>
               Este equipo de Combustible no está vinculado a una ficha de maquinaria. Vinculalo desde el botón ✎ Editar del equipo (campo «⛽ Equipo de Combustible vinculado»).
             </p>
           )}
@@ -190,7 +190,7 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
           <Modal title={`🚜 Status: ${statusSel} · ${lista.length} equipo(s)`} size="lg" onClose={() => setStatusSel(null)}
             footer={<button className="btn btn-primary" onClick={() => setStatusSel(null)}>Cerrar</button>}>
             {!lista.length ? (
-              <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin equipos en este status.</p>
+              <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin equipos en este status.</p>
             ) : (
               <div className="table-wrap" style={{ maxHeight: 420, overflow: 'auto' }}>
                 <table className="table" style={{ fontSize: '.82rem' }}>

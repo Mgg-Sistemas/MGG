@@ -116,7 +116,7 @@ export function CambiarClavePage() {
             🔑
           </div>
           <h2 style={{ margin: 0 }}>Cambio de clave</h2>
-          <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.9rem' }}>
+          <p className="hint muted" style={{ margin: '.4rem 0 0', fontSize: '.9rem' }}>
             Ingresa una nueva clave para tu cuenta <strong>{user.email}</strong>.
           </p>
         </div>

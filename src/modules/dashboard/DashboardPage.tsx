@@ -80,7 +80,7 @@ export function DashboardPage() {
       <div className="page-head">
         <div>
           <h1>Dashboard</h1>
-          <p className="muted">Resumen operativo del sistema MGG al {date(new Date().toISOString())}.</p>
+          <p className="hint muted">Resumen operativo del sistema MGG al {date(new Date().toISOString())}.</p>
         </div>
       </div>
 
@@ -96,7 +96,7 @@ export function DashboardPage() {
         <>
           <KpiGrid kpis={kpis} />
 
-          <Suspense fallback={<div className="card" style={{ padding: '1.25rem' }}><p className="muted">Cargando gráficas…</p></div>}>
+          <Suspense fallback={<div className="card" style={{ padding: '1.25rem' }}><p className="hint muted">Cargando gráficas…</p></div>}>
             <DashboardCharts />
           </Suspense>
 
