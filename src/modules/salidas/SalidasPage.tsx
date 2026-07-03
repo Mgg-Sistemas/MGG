@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal as ModalUI } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, num, dateTime } from '@/shared/lib/format';
@@ -18,7 +19,7 @@ import {
 import {
   listSalidasMaterial, listTrasladosMaterial,
   listSolicitudesSalida, aprobarSolicitudSalida, ejecutarSolicitudSalida, cancelarSolicitudSalida,
-  editarSolicitudSalida,
+  editarSolicitudSalida, editarNotaSolicitudSalida,
 } from './salidas.repository';
 // descargarSalidaDineroPdf, descargarTrasladoDineroPdf y descargarOrdenSalidaPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { SalidaMaterialForm } from './SalidaMaterialForm';
@@ -472,6 +473,23 @@ function SolicitudDetalleModal({
   const [edConsumo, setEdConsumo] = useState(!!sol.consumo_interno);
   const [edSolicitante, setEdSolicitante] = useState(sol.solicitante ?? '');
 
+  // Edición SOLO de la nota/motivo (disponible incluso FINALIZADA: no toca stock ni estado).
+  const [editandoNota, setEditandoNota] = useState(false);
+  const [notaMotivo, setNotaMotivo] = useState(sol.motivo ?? '');
+  const [notaEntrega, setNotaEntrega] = useState(sol.nota_entrega ?? '');
+  async function guardarNota() {
+    setBusy(true);
+    try {
+      await editarNotaSolicitudSalida(sol, { motivo: notaMotivo, notaEntrega }, actor);
+      notify(`Nota de ${sol.codigo} actualizada`, 'success');
+      setEditandoNota(false);
+      onChanged();
+      onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo guardar la nota', 'error');
+    } finally { setBusy(false); }
+  }
+
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
   const prodById = useMemo(() => new Map(productos.map((p) => [p.id, p])), [productos]);
   const stockDe = (productoId: string, almacen: string) => Number(existencias.find((e) => e.producto_id === productoId && e.almacen === almacen)?.stock) || 0;
@@ -564,6 +582,13 @@ function SolicitudDetalleModal({
           ✎ Editar solicitud
         </button>
       )}
+      {sol.estado === 'ejecutada' && (
+        <button className="btn btn-ghost" disabled={busy} style={{ marginRight: 'auto' }}
+          onClick={() => { setNotaMotivo(sol.motivo ?? ''); setNotaEntrega(sol.nota_entrega ?? ''); setEditandoNota(true); }}
+          title="Agregar o corregir la nota/motivo (no cambia lo despachado ni el estado)">
+          ✎ Editar nota
+        </button>
+      )}
       {puedeAprobar && sol.estado === 'por_aprobar' && (
         <button className="btn btn-primary" disabled={busy}
           onClick={() => run(() => aprobarSolicitudSalida(sol, actor), `Solicitud ${sol.codigo} aprobada`)}>
@@ -582,6 +607,31 @@ function SolicitudDetalleModal({
       <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cerrar</button>
     </div>
   );
+
+  if (editandoNota) {
+    const notaFooter = (
+      <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end', width: '100%' }}>
+        <button className="btn btn-ghost" onClick={() => setEditandoNota(false)} disabled={busy}>Cancelar</button>
+        <button className="btn btn-primary" onClick={guardarNota} disabled={busy}>{busy ? 'Guardando…' : '✓ Guardar nota'}</button>
+      </div>
+    );
+    return (
+      <ModalUI title={`Editar nota · ${sol.codigo}`} size="md" onClose={() => setEditandoNota(false)} footer={notaFooter}>
+        <div className="card" style={{ marginBottom: '.7rem', fontSize: '.82rem' }}>
+          Esta solicitud ya está <strong>ejecutada</strong>. Solo se edita la <strong>nota / motivo</strong> (una anotación adicional);
+          <strong> no cambia</strong> lo despachado, el stock ni el estado.
+        </div>
+        <div className="form-row">
+          <label>Motivo / detalle</label>
+          <textarea className="input" rows={2} value={notaMotivo} onChange={(e) => setNotaMotivo(e.target.value)} placeholder="Motivo del despacho…" />
+        </div>
+        <div className="form-row">
+          <label>Nota adicional</label>
+          <textarea className="input" rows={3} value={notaEntrega} onChange={(e) => setNotaEntrega(e.target.value)} placeholder="Nota / observación adicional…" />
+        </div>
+      </ModalUI>
+    );
+  }
 
   if (editando) {
     return (
@@ -626,10 +676,10 @@ function SolicitudDetalleModal({
               <div className="form-grid">
                 <div className="form-row">
                   <label>Producto</label>
-                  <select className="select" value={l.productoId} onChange={(e) => { const id = e.target.value; const alms = almacenesProd(id); setLinea(l.id, { productoId: id, almacen: alms[0] ?? '' }); }}>
-                    <option value="">— elegí el material —</option>
-                    {activos.map((pr) => <option key={pr.id} value={pr.id}>{pr.nombre} · {pr.sku}</option>)}
-                  </select>
+                  <SearchSelect value={l.productoId}
+                    onChange={(id) => { const alms = almacenesProd(id); setLinea(l.id, { productoId: id, almacen: alms[0] ?? '' }); }}
+                    options={activos.map((pr) => ({ value: pr.id, label: `${pr.nombre} · ${pr.sku}` }))}
+                    placeholder="🔎 Buscá el material (nombre o SKU)…" emptyText="Sin productos." />
                 </div>
                 {sol.scope === 'traslado' ? (
                   <div className="form-row">

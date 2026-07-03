@@ -9,7 +9,7 @@
    (aparece en Control de Mantenimiento / bitácora del equipo).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId } from '@/modules/tesoreria/tesoreria.repository';
+import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId, eliminarMovimientoCaja } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import type { PagoLeg, AdjuntoFactura } from './compras.repository';
@@ -331,14 +331,16 @@ export interface PagarServicioDirectoInput {
   servicio: ServicioDirecto;
   cajaId: string;
   legs?: PagoLeg[];               // multimoneda
+  gastoCategoria?: string | null; // categoría de gasto: la elige Tesorería al pagar
+  gastoSubcategoria?: string | null;
   actor: string;                  // quién paga (Tesorería)
   actorName?: string | null;
 }
 
 /**
  * Paga un servicio directo POR PAGAR (lo hace Tesorería): descuenta el monto de la caja
- * (egreso en el Libro Mayor con la categoría que eligió el analista) y lo marca FINALIZADO.
- * NO toca inventario (es un servicio). Queda casado al equipo (Control de Mantenimiento).
+ * (egreso en el Libro Mayor con la categoría de gasto que elige TESORERÍA al pagar) y lo
+ * marca FINALIZADO. NO toca inventario (es un servicio). Queda casado al equipo.
  */
 export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Promise<void> {
   const { servicio } = input;
@@ -346,6 +348,10 @@ export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Pr
   if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
   const total = Math.round(servicio.items.reduce((a, i) => a + (Number(i.gasto) || 0), 0) * 100) / 100;
   if (total <= 0) throw new Error('El servicio no tiene montos cargados.');
+
+  // La categoría/subcategoría de gasto la fija Tesorería al pagar (fallback: lo que trajera el servicio).
+  const gCat = input.gastoCategoria ?? servicio.gasto_categoria ?? null;
+  const gSub = input.gastoSubcategoria ?? servicio.gasto_subcategoria ?? null;
 
   const concepto = `Servicio directo · ${servicio.descripcion}`;
   const legs = (input.legs ?? []).filter((l) => Number(l.monto) > 0);
@@ -356,7 +362,7 @@ export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Pr
       const r = await egresarDivisa({
         cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'servicio_directo',
-        gastoCategoria: servicio.gasto_categoria ?? null, gastoSubcategoria: servicio.gasto_subcategoria ?? null,
+        gastoCategoria: gCat, gastoSubcategoria: gSub,
         actor: input.actor, actorName: input.actorName ?? null,
       });
       if (!primero) primero = r.id;
@@ -367,7 +373,7 @@ export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Pr
     const movCaja = await registrarGasto({
       cajaId: input.cajaId, monto: total,
       concepto, categoria: 'servicio_directo',
-      gastoCategoria: servicio.gasto_categoria ?? null, gastoSubcategoria: servicio.gasto_subcategoria ?? null,
+      gastoCategoria: gCat, gastoSubcategoria: gSub,
       actor: input.actor, actorName: input.actorName ?? null,
     });
     movCajaId = movCaja.id;
@@ -377,6 +383,7 @@ export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Pr
     .from('servicios_directos')
     .update({
       estado: 'finalizada', gasto: total,
+      gasto_categoria: gCat, gasto_subcategoria: gSub,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
       pagada_por: input.actorName || input.actor,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
@@ -439,10 +446,24 @@ export async function editarServicioDirectoFinalizado(input: EditarServicioFinal
   if (error) throw error;
 }
 
-/** Elimina un servicio directo EN PROCESO (todavía no tocó caja). */
+/**
+ * Elimina un servicio directo en CUALQUIER estado y deja todo consistente:
+ *  · FINALIZADO: reversa el egreso de caja (devuelve el dinero a la caja y recomputa la cadena).
+ *    Si se pagó con multimoneda (varios movimientos), pide reversarlo antes desde Tesorería.
+ *  · POR PAGAR / EN PROCESO: no tocaron caja, solo se borra.
+ *  En todos los casos devuelve al inventario los repuestos que se habían descontado al crear.
+ */
 export async function eliminarServicioDirecto(servicio: ServicioDirecto): Promise<void> {
-  if (servicio.estado !== 'en_proceso')
-    throw new Error('Solo se puede eliminar un servicio EN PROCESO (los finalizados ya afectaron la caja).');
+  if (servicio.estado === 'finalizada' && servicio.caja_mov_id) {
+    const mov = await getMovimientoCajaPorId(servicio.caja_mov_id);
+    if (mov) {
+      const total = Math.round(Number(servicio.gasto || 0) * 100) / 100;
+      if (Math.round(Number(mov.monto) * 100) / 100 !== total) {
+        throw new Error('Este servicio se pagó con multimoneda (varias monedas). Reversá el egreso desde Tesorería y luego eliminá.');
+      }
+      await eliminarMovimientoCaja(mov);   // devuelve el dinero a la caja + recomputa saldos
+    }
+  }
   // Devuelve al inventario los repuestos que se habían descontado al crear el servicio.
   await restituirRepuestos(servicio);
   if (servicio.adjunto_path) {

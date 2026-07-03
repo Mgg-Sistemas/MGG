@@ -638,6 +638,24 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
   return data as SolicitudSalida;
 }
 
+/**
+ * Edita SOLO la nota / motivo / detalle de una solicitud (cualquier estado, incluida
+ * EJECUTADA). No toca stock, caja, ítems ni el estado: es una anotación adicional del
+ * usuario. Se refleja en el detalle y en el PDF de la orden.
+ */
+export async function editarNotaSolicitudSalida(
+  s: SolicitudSalida,
+  input: { motivo?: string | null; notaEntrega?: string | null },
+  actor: string,
+): Promise<SolicitudSalida> {
+  const patch: Record<string, unknown> = { historial: appendHistorial(s, 'nota editada', actor) };
+  if (input.motivo !== undefined) patch.motivo = input.motivo?.trim() || null;
+  if (input.notaEntrega !== undefined) patch.nota_entrega = input.notaEntrega?.trim() || null;
+  const { data, error } = await supabase.from(SOL).update(patch).eq('id', s.id).select('*').single();
+  if (error) throw error;
+  return data as SolicitudSalida;
+}
+
 export async function cancelarSolicitudSalida(s: SolicitudSalida, actor: string, motivo: string): Promise<void> {
   if (s.estado === 'ejecutada') throw new Error('No se puede cancelar una solicitud ya ejecutada.');
   const { error } = await supabase
