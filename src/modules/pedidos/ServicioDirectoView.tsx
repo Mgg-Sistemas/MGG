@@ -42,6 +42,31 @@ const TIPOS_SERVICIO: { value: string; label: string }[] = [
   { value: 'OTRO', label: '• Otro' },
 ];
 
+/** ¿La categoría es mantenimiento de electrodomésticos? → elige un artículo de la lista. */
+function esMantenimientoElectrodomestico(cat: string): boolean {
+  return /electrodom/i.test(cat);
+}
+/** Lista base de electrodomésticos (con íconos). El usuario puede escribir uno nuevo (allowCreate). */
+const ELECTRODOMESTICOS: { value: string; label: string }[] = [
+  { value: 'COCINA', label: '🍳 Cocina' },
+  { value: 'NEVERA', label: '🧊 Nevera' },
+  { value: 'CONGELADOR', label: '🧊 Congelador' },
+  { value: 'LAVADORA', label: '🧺 Lavadora' },
+  { value: 'SECADORA', label: '🌀 Secadora' },
+  { value: 'MICROONDAS', label: '📡 Microondas' },
+  { value: 'AIRE ACONDICIONADO', label: '❄️ Aire acondicionado' },
+  { value: 'VENTILADOR', label: '💨 Ventilador' },
+  { value: 'TELEVISOR', label: '📺 Televisor' },
+  { value: 'LICUADORA', label: '🥤 Licuadora' },
+  { value: 'CAFETERA', label: '☕ Cafetera' },
+  { value: 'FREIDORA', label: '🍟 Freidora' },
+  { value: 'CALENTADOR / TERMO', label: '🚿 Calentador / termo' },
+  { value: 'CAMPANA EXTRACTORA', label: '🌫️ Campana extractora' },
+  { value: 'LAVAPLATOS', label: '🍽️ Lavaplatos' },
+  { value: 'PLANCHA', label: '👕 Plancha' },
+  { value: 'OTRO', label: '• Otro electrodoméstico' },
+];
+
 const COLS: { key: ServicioDirecto['estado']; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
   { key: 'por_pagar', label: 'Por pagar' },
@@ -312,13 +337,13 @@ function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
 
 /* ───────── Modal: nuevo servicio directo (varios servicios) ───────── */
 
-interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; bombonas: string; kg: string; productoId: string; productoCant: string }
+interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; electro: string; cantidad: string; bombonas: string; kg: string; productoId: string; productoCant: string }
 
 function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, actorName, onClose, onSaved }: {
   categorias: CatalogoPedido[]; tipos: CatalogoPedido[]; equipos: MaquinariaEquipo[]; proveedores: Proveedor[];
   actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '', productoId: '', productoCant: '1' });
+  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', bombonas: '', kg: '', productoId: '', productoCant: '1' });
   const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
   const [productos, setProductos] = useState<ProductoConStock[]>([]);
   useEffect(() => { listProductosConStock().then(setProductos).catch(() => setProductos([])); }, []);
@@ -376,14 +401,18 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
       const kgTotal = recargaCat ? Math.round(bombonas * (Number(l.kg) || 0) * 100) / 100 : null;
       const cant = recargaCat ? bombonas : (Number(l.cantidad) || 0);
       if (cant <= 0) { setError(recargaCat ? 'Indicá la cantidad de bombonas.' : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
-      const eq = equipos.find((x) => x.id === l.equipoId) ?? null;
+      const esElectro = esMantenimientoElectrodomestico(l.categoria);
+      const eq = !esElectro ? (equipos.find((x) => x.id === l.equipoId) ?? null) : null;
+      // Electrodoméstico: se guarda como nombre del "equipo" servido, sin equipoId (no es del Control de Maquinaria).
+      const electroNombre = esElectro ? l.electro.trim() : '';
+      if (esElectro && !electroNombre) { setError('Elegí el electrodoméstico al que se le hace el mantenimiento.'); return; }
       // Repuesto del inventario (solo mantenimiento): si eligió producto, se valida y descuenta.
       const prod = !recargaCat && l.productoId ? productos.find((p) => p.id === l.productoId) ?? null : null;
       const prodCant = prod ? (Number(l.productoCant) || 0) : 0;
       if (prod && prodCant <= 0) { setError(`Indicá cuántas unidades de "${prod.nombre}" se toman del inventario.`); return; }
       if (prod && prodCant > prod.stock) { setError(`Solo hay ${prod.stock} ${prod.unidad} de "${prod.nombre}" en el inventario.`); return; }
       payload.push({
-        servicioCategoria: l.categoria, servicioTipo: l.tipo || null, equipoId: l.equipoId || null, equipoNombre: eq?.equipo ?? null,
+        servicioCategoria: l.categoria, servicioTipo: l.tipo || null, equipoId: esElectro ? null : (l.equipoId || null), equipoNombre: esElectro ? electroNombre : (eq?.equipo ?? null),
         cantidad: cant, bombonas: recargaCat ? bombonas : null, kgRecarga: kgTotal,
         productoId: prod?.id ?? null, productoNombre: prod?.nombre ?? null,
         productoCantidad: prod ? prodCant : null, productoAlmacen: prod?.almacen ?? null,
@@ -511,13 +540,23 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
               </div>
             ) : (
               <div className="form-grid">
-                <div className="form-row">
-                  <label>Equipo (Control de Maquinaria)</label>
-                  <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })}
-                    options={equipos.map((e) => ({ value: e.id, label: `${e.equipo}${e.placa ? ` · ${e.placa}` : ''}` }))}
-                    placeholder="🔎 Buscá el equipo / vehículo…" emptyText="Sin equipos." />
-                  <small className="muted" style={{ fontSize: '.72rem' }}>Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
-                </div>
+                {esMantenimientoElectrodomestico(l.categoria) ? (
+                  <div className="form-row">
+                    <label>Electrodoméstico</label>
+                    <SearchSelect allowCreate value={l.electro} onChange={(v) => set(l.id, { electro: v.toUpperCase() })}
+                      options={ELECTRODOMESTICOS}
+                      placeholder="🔎 Elegí (cocina, nevera, lavadora, microondas…)" emptyText="Escribí uno nuevo." />
+                    <small className="muted" style={{ fontSize: '.72rem' }}>Artículo electrodoméstico al que se le hace el mantenimiento.</small>
+                  </div>
+                ) : (
+                  <div className="form-row">
+                    <label>Equipo (Control de Maquinaria)</label>
+                    <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })}
+                      options={equipos.map((e) => ({ value: e.id, label: `${e.equipo}${e.placa ? ` · ${e.placa}` : ''}` }))}
+                      placeholder="🔎 Buscá el equipo / vehículo…" emptyText="Sin equipos." />
+                    <small className="muted" style={{ fontSize: '.72rem' }}>Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
+                  </div>
+                )}
                 <div className="form-row"><label>Cantidad</label><input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
               </div>
             )}

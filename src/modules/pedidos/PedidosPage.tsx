@@ -76,7 +76,7 @@ import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
-import { createProducto, getUnidades, siguienteSku, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
+import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSku, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
@@ -3104,7 +3104,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 }
 
 /* ───────────── Nuevo Servicio (clase='servicio') ───────────── */
-interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; precio: string; bombonas: string; kg: string; repuestoId: string; repuestoCant: string; }
+interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; electro: string; cantidad: string; precio: string; bombonas: string; kg: string; repuestoId: string; repuestoCant: string; }
 
 /** ¿La categoría es de recarga (gas / oxígeno / extintores)? → pide bombonas + KG. */
 function esRecargaGas(cat: string): boolean {
@@ -3132,6 +3132,32 @@ function tipoMantenimiento(cat: string): 'maquinaria' | 'vehiculos' | null {
 function esMantenimientoEquipo(cat: string): boolean {
   return tipoMantenimiento(cat) !== null;
 }
+
+/** ¿La categoría es mantenimiento de electrodomésticos? → elige un artículo de la lista. */
+function esMantenimientoElectrodomestico(cat: string): boolean {
+  return /electrodom/i.test(cat);
+}
+
+/** Lista base de electrodomésticos (con íconos). El usuario puede escribir uno nuevo (allowCreate). */
+const ELECTRODOMESTICOS: { value: string; label: string }[] = [
+  { value: 'COCINA', label: '🍳 Cocina' },
+  { value: 'NEVERA', label: '🧊 Nevera' },
+  { value: 'CONGELADOR', label: '🧊 Congelador' },
+  { value: 'LAVADORA', label: '🧺 Lavadora' },
+  { value: 'SECADORA', label: '🌀 Secadora' },
+  { value: 'MICROONDAS', label: '📡 Microondas' },
+  { value: 'AIRE ACONDICIONADO', label: '❄️ Aire acondicionado' },
+  { value: 'VENTILADOR', label: '💨 Ventilador' },
+  { value: 'TELEVISOR', label: '📺 Televisor' },
+  { value: 'LICUADORA', label: '🥤 Licuadora' },
+  { value: 'CAFETERA', label: '☕ Cafetera' },
+  { value: 'FREIDORA', label: '🍟 Freidora' },
+  { value: 'CALENTADOR / TERMO', label: '🚿 Calentador / termo' },
+  { value: 'CAMPANA EXTRACTORA', label: '🌫️ Campana extractora' },
+  { value: 'LAVAPLATOS', label: '🍽️ Lavaplatos' },
+  { value: 'PLANCHA', label: '👕 Plancha' },
+  { value: 'OTRO', label: '• Otro electrodoméstico' },
+];
 
 /** Filtra los equipos según el tipo de mantenimiento de la categoría (por el tipo del equipo). */
 function equiposDeTipo(equipos: MaquinariaEquipo[], tipo: 'maquinaria' | 'vehiculos' | null): MaquinariaEquipo[] {
@@ -3183,9 +3209,16 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           tipo = it.nombre ?? '';
         }
       }
-      return { id: i + 1, categoria: cat, tipo, equipoId: it.equipo_id ?? '', cantidad: String(it.cantidad ?? 1), precio: String(it.precio ?? ''), bombonas: String(it.bombonas ?? ''), kg: String(it.kg_recarga ?? ''), repuestoId: it.repuesto_producto_id ?? '', repuestoCant: it.repuesto_cantidad != null ? String(it.repuesto_cantidad) : '1' };
+      // tipo para electrodomésticos (ítems viejos): el nombre sin el prefijo "CAT · ARTÍCULO".
+      if (!it.servicio_tipo && esMantenimientoElectrodomestico(cat) && it.equipo_nombre) {
+        const pref = `${cat} · ${it.equipo_nombre}`.toUpperCase();
+        const full = String(it.nombre ?? '').toUpperCase();
+        tipo = full.startsWith(pref) ? full.slice(pref.length).replace(/^\s*·\s*/, '') : tipo;
+      }
+      const electro = esMantenimientoElectrodomestico(cat) ? (it.equipo_nombre ?? '') : '';
+      return { id: i + 1, categoria: cat, tipo, equipoId: it.equipo_id ?? '', electro, cantidad: String(it.cantidad ?? 1), precio: String(it.precio ?? ''), bombonas: String(it.bombonas ?? ''), kg: String(it.kg_recarga ?? ''), repuestoId: it.repuesto_producto_id ?? '', repuestoCant: it.repuesto_cantidad != null ? String(it.repuesto_cantidad) : '1' };
     });
-    return out.length ? out : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }];
+    return out.length ? out : [{ id: 1, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }];
   };
 
   const [codigo, setCodigo] = useState(orden?.codigo ?? 'SV-…');
@@ -3197,7 +3230,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
   const [nuevaUnidad, setNuevaUnidad] = useState('');
   const [solicitantePersona, setSolicitantePersona] = useState(esEdicion ? (orden!.solicitante_persona ?? '') : '');
   const [nota, setNota] = useState(esEdicion ? (orden!.notas ?? '') : '');
-  const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]);
+  const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]);
   const [productosStock, setProductosStock] = useState<ProductoConStock[]>([]);
   useEffect(() => { listProductosConStock().then(setProductosStock).catch(() => setProductosStock([])); }, []);
   const [seq, setSeq] = useState(() => (esEdicion ? lineasDeOrden(orden!).length + 1 : 2));
@@ -3212,7 +3245,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
     listCatalogoPedido('unidad_solicitante', true).then((u) => setUnidades(u.map((x) => x.nombre))).catch(() => { /* sin catálogo */ });
   }, [esEdicion]);
 
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]); setSeq((s) => s + 1); };
   const setLinea = (id: number, patch: Partial<Omit<LineaServicio, 'id'>>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const delLinea = (id: number) => setLineas((ls) => ls.filter((l) => l.id !== id));
 
@@ -3240,17 +3273,26 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
       const recarga = recargaCat ? { bombonas, kg_recarga: kgTotal } : {};
       // Sufijo visible (tablero + PDF): "· 2 BOMBONA(S) · 86 KG".
       const recargaSuf = recargaCat ? ` · ${bombonas} BOMBONA(S) · ${kgTotal} KG` : '';
-      if (esMantenimientoEquipo(cat)) {
-        const eq = equipos.find((x) => x.id === l.equipoId);
-        if (!eq) { setError(`Elegí el equipo de "${cat}".`); return; }
+      if (esMantenimientoEquipo(cat) || esMantenimientoElectrodomestico(cat)) {
+        const esElectro = esMantenimientoElectrodomestico(cat);
+        let equipoId: string | null = null;
+        let equipoNombre: string;
+        if (esElectro) {
+          equipoNombre = l.electro.trim();
+          if (!equipoNombre) { setError(`Elegí el electrodoméstico de "${cat}".`); return; }
+        } else {
+          const eq = equipos.find((x) => x.id === l.equipoId);
+          if (!eq) { setError(`Elegí el equipo de "${cat}".`); return; }
+          equipoId = eq.id; equipoNombre = eq.equipo;
+        }
         const desc = l.tipo.trim();
         // Repuesto del inventario (opcional): si el repuesto sale del stock, se valida y se descuenta.
         const prod = l.repuestoId ? productosStock.find((p) => p.id === l.repuestoId) ?? null : null;
         const prodCant = prod ? (Number(l.repuestoCant) || 0) : 0;
         if (prod && prodCant <= 0) { setError(`Indicá cuántas unidades de "${prod.nombre}" se toman del inventario.`); return; }
         if (prod && prodCant > prod.stock) { setError(`Solo hay ${prod.stock} ${prod.unidad} de "${prod.nombre}" en el inventario.`); return; }
-        // equipo_id mantiene el vínculo con Control de Maquinaria (aparece en su módulo de mantenimiento).
-        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${eq.equipo}${desc ? ` · ${desc}` : ''}${recargaSuf}${prod && prodCant ? ` · ${prodCant} ${prod.nombre} (inventario)` : ''}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: desc.toUpperCase() || null, equipo_id: eq.id, equipo_nombre: eq.equipo, ...recarga, comprar: true, repuesto_producto_id: prod?.id ?? null, repuesto_nombre: prod?.nombre ?? null, repuesto_cantidad: prod ? prodCant : null, repuesto_almacen: prod?.almacen ?? null });
+        // equipo_id mantiene el vínculo con Control de Maquinaria (null en electrodomésticos: no son equipos del módulo).
+        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${equipoNombre}${desc ? ` · ${desc}` : ''}${recargaSuf}${prod && prodCant ? ` · ${prodCant} ${prod.nombre} (inventario)` : ''}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: desc.toUpperCase() || null, equipo_id: equipoId, equipo_nombre: equipoNombre, ...recarga, comprar: true, repuesto_producto_id: prod?.id ?? null, repuesto_nombre: prod?.nombre ?? null, repuesto_cantidad: prod ? prodCant : null, repuesto_almacen: prod?.almacen ?? null });
         // El tipo de servicio elegido/escrito acá también alimenta el catálogo compartido.
         if (desc && !tipos.some((t) => t.nombre.toLowerCase() === desc.toLowerCase())) tiposNuevos.push(desc.toUpperCase());
       } else {
@@ -3353,6 +3395,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           {lineas.map((l) => {
             const mantTipo = tipoMantenimiento(l.categoria);
             const mant = mantTipo !== null;
+            const electro = esMantenimientoElectrodomestico(l.categoria);
             const equiposLista = equiposDeTipo(equipos, mantTipo);
             return (
               <div key={l.id} className="card" style={{ margin: 0, padding: '.6rem' }}>
@@ -3371,6 +3414,13 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                         placeholder={mantTipo === 'vehiculos' ? '🔎 Elegí o buscá el vehículo…' : '🔎 Elegí o buscá el equipo…'}
                         emptyText={mantTipo === 'vehiculos' ? 'Sin vehículos en ese grupo.' : 'Sin equipos.'} />
                     </div>
+                  ) : electro ? (
+                    <div className="form-row" style={{ margin: 0 }}>
+                      <label style={{ fontSize: '.74rem' }}>Electrodoméstico</label>
+                      <SearchSelect allowCreate value={l.electro} onChange={(v) => setLinea(l.id, { electro: v.toUpperCase() })}
+                        options={ELECTRODOMESTICOS}
+                        placeholder="🔎 Elegí (cocina, nevera, lavadora, microondas…)" emptyText="Escribí uno nuevo." />
+                    </div>
                   ) : (
                     <div className="form-row" style={{ margin: 0 }}>
                       <label style={{ fontSize: '.74rem' }}>Servicio</label>
@@ -3383,7 +3433,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                     </div>
                   )}
                 </div>
-                {mant && (
+                {(mant || electro) && (
                   <div className="form-row" style={{ marginTop: '.4rem' }}>
                     <label style={{ fontSize: '.74rem' }}>Tipo de servicio</label>
                     <SearchSelect value={l.tipo} onChange={(v) => setLinea(l.id, { tipo: v.toUpperCase() })}
@@ -3395,7 +3445,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                     <small className="muted" style={{ fontSize: '.72rem' }}>Lista base + catálogo. Si escribís uno nuevo, queda guardado.</small>
                   </div>
                 )}
-                {mant && (() => {
+                {(mant || electro) && (() => {
                   const prod = l.repuestoId ? productosStock.find((p) => p.id === l.repuestoId) ?? null : null;
                   return (
                     <div className="form-grid" style={{ marginTop: '.4rem' }}>
@@ -3585,11 +3635,15 @@ function CrearOrdenModal({
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
   const [medidas, setMedidas] = useState<string[]>([]);
+  const [categoriasInv, setCategoriasInv] = useState<string[]>([]);
   const [creandoNuevo, setCreandoNuevo] = useState(false);
 
-  // Lista de medidas (unidades) del inventario para el desplegable de "Producto nuevo".
+  // Lista de medidas (unidades) y de CATEGORÍAS del inventario para el "Producto nuevo".
+  // Las categorías se comparten con el inventario (misma taxonomía): al crear una nueva
+  // acá queda guardada y sincronizada con el módulo de inventario.
   useEffect(() => {
     getUnidades(productos).then(setMedidas).catch(() => { /* usa defaults del repo */ });
+    getCategorias(productos).then(setCategoriasInv).catch(() => setCategoriasInv([]));
   }, [productos]);
 
   async function crearProductoNuevo() {
@@ -3600,6 +3654,10 @@ function CrearOrdenModal({
       // SKU correlativo por categoría: 3 primeras letras (o el prefijo ya usado en esa
       // categoría) + secuencia. Ej.: PROTEINA → PRO-001. (Antes usaba NEW-<slug>-<rand>.)
       const categoria = mercado ? 'VIVERES' : (nuevoCategoria.trim().toUpperCase() || 'GENERAL');
+      // Si la categoría es nueva, se registra en la taxonomía del inventario (sincroniza la lista).
+      if (categoria && !categoriasInv.some((c) => c.toLowerCase() === categoria.toLowerCase())) {
+        try { await addCategoria(categoria, authEmail); setCategoriasInv((prev) => [...prev, categoria]); } catch { /* duplicado/red: no bloquea */ }
+      }
       const sku = siguienteSku(categoria, allProductos);
       const creado = await createProducto({
         sku,
@@ -3983,7 +4041,13 @@ function CrearOrdenModal({
                 onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
               />
               <div className="form-grid">
-                <input className="input" placeholder="Categoría" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value)} />
+                <div>
+                  <input className="input" list="nuevo-prod-categorias" placeholder="Categoría (elegí o escribí una nueva)"
+                    value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+                  <datalist id="nuevo-prod-categorias">
+                    {categoriasInv.map((c) => <option key={c} value={c} />)}
+                  </datalist>
+                </div>
                 <select className="select" value={nuevoUnidad} onChange={(e) => setNuevoUnidad(e.target.value)}>
                   {!medidas.includes(nuevoUnidad) && nuevoUnidad && <option value={nuevoUnidad}>{nuevoUnidad}</option>}
                   {medidas.map((u) => <option key={u} value={u}>{u}</option>)}
