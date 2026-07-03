@@ -784,6 +784,7 @@ function SolicitudDetalleModal({
             </>
           )}
           {sol.motivo && <tr><td className="muted">Motivo</td><td>{sol.motivo}</td></tr>}
+          {sol.nota_entrega && <tr><td className="muted">Nota</td><td>{sol.nota_entrega}</td></tr>}
           <tr><td className="muted">Creada</td><td>{dateTime(sol.created_at)}</td></tr>
           {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {sol.aprobada_por ?? ''}</td></tr>}
           {sol.ejecutada_en && <tr><td className="muted">Ejecutada</td><td>{dateTime(sol.ejecutada_en)} · {sol.ejecutada_por ?? ''}</td></tr>}
