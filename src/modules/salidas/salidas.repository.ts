@@ -648,11 +648,36 @@ export async function editarNotaSolicitudSalida(
   input: { motivo?: string | null; notaEntrega?: string | null },
   actor: string,
 ): Promise<SolicitudSalida> {
+  const motivo = input.motivo !== undefined ? (input.motivo?.trim() || null) : undefined;
+  const nota = input.notaEntrega !== undefined ? (input.notaEntrega?.trim() || null) : undefined;
+
   const patch: Record<string, unknown> = { historial: appendHistorial(s, 'nota editada', actor) };
-  if (input.motivo !== undefined) patch.motivo = input.motivo?.trim() || null;
-  if (input.notaEntrega !== undefined) patch.nota_entrega = input.notaEntrega?.trim() || null;
+  if (motivo !== undefined) patch.motivo = motivo;
+  if (nota !== undefined) patch.nota_entrega = nota;
   const { data, error } = await supabase.from(SOL).update(patch).eq('id', s.id).select('*').single();
   if (error) throw error;
+
+  // Propaga la nota al MOVIMIENTO ya generado (para que se vea en el comprobante/kardex
+  // y en el PDF de dinero, que no tiene "orden"). Best-effort: no bloquea la edición.
+  if (s.mov_id && s.mov_ref) {
+    try {
+      if (s.mov_ref === 'salida_dinero' || s.mov_ref === 'traslado_dinero') {
+        const p: Record<string, unknown> = {};
+        if (motivo !== undefined) p.motivo = motivo;
+        if (nota !== undefined) p.nota_entrega = nota;
+        if (Object.keys(p).length) await supabase.from('movimientos_caja').update(p).eq('id', s.mov_id);
+      } else if (s.mov_ref === 'salida_modulo') {
+        // En una salida de material, detalle = motivo (texto plano).
+        const p: Record<string, unknown> = {};
+        if (motivo !== undefined) p.detalle = motivo;
+        if (nota !== undefined) p.nota_entrega = nota;
+        if (Object.keys(p).length) await supabase.from('movimientos').update(p).eq('id', s.mov_id);
+      } else if (s.mov_ref === 'traslado_modulo') {
+        // El detalle del traslado es compuesto ("Traslado a X · motivo"): solo la nota.
+        if (nota !== undefined) await supabase.from('movimientos').update({ nota_entrega: nota }).eq('id', s.mov_id);
+      }
+    } catch { /* la nota en el movimiento es best-effort */ }
+  }
   return data as SolicitudSalida;
 }
 
