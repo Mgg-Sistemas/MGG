@@ -76,24 +76,26 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   // Moneda de la compra ($ o Bs): el total está en ESTA moneda. Los servicios son en $.
   const monedaBase = fila.compra?.moneda === 'Bs' ? 'Bs' : 'USD';
 
-  // Categoría → subcategoría de gasto: la elige Tesorería al pagar (compra directa).
+  // Categoría → subcategoría de gasto: la elige Tesorería al pagar (compra Y servicio directo).
   const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
   const [catId, setCatId] = useState('');
   const [subId, setSubId] = useState('');
-  useEffect(() => { if (esCompra) listCategoriasGasto(true).then(setCatRows).catch(() => setCatRows([])); }, [esCompra]);
+  useEffect(() => { listCategoriasGasto(true).then(setCatRows).catch(() => setCatRows([])); }, []);
   const categorias = soloCategorias(catRows);
   const subcategorias = catId ? subcategoriasDe(catRows, catId) : [];
-  // Pre-carga si la compra ya traía categoría.
+  // Pre-carga si el directo ya traía categoría (compra o servicio).
+  const gastoCatPrevia = fila.compra?.gasto_categoria ?? fila.servicio?.gasto_categoria ?? null;
+  const gastoSubPrevia = fila.compra?.gasto_subcategoria ?? fila.servicio?.gasto_subcategoria ?? null;
   useEffect(() => {
-    if (!catRows.length || !fila.compra?.gasto_categoria) return;
-    const c = soloCategorias(catRows).find((x) => x.nombre === fila.compra?.gasto_categoria);
+    if (!catRows.length || !gastoCatPrevia) return;
+    const c = soloCategorias(catRows).find((x) => x.nombre === gastoCatPrevia);
     if (c) setCatId(c.id);
-  }, [catRows, fila.compra?.gasto_categoria]);
+  }, [catRows, gastoCatPrevia]);
   useEffect(() => {
-    if (!catId || !fila.compra?.gasto_subcategoria) return;
-    const s = subcategoriasDe(catRows, catId).find((x) => x.nombre === fila.compra?.gasto_subcategoria);
+    if (!catId || !gastoSubPrevia) return;
+    const s = subcategoriasDe(catRows, catId).find((x) => x.nombre === gastoSubPrevia);
     if (s) setSubId(s.id);
-  }, [catId, catRows, fila.compra?.gasto_subcategoria]);
+  }, [catId, catRows, gastoSubPrevia]);
   const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
   const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
 
@@ -178,10 +180,9 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (total <= 0) { setError('Este directo no tiene monto.'); return; }
     if (cruzaBsUsd && tasaEff <= 0) { setError('Colocá la tasa (Bs por $) para convertir el monto.'); return; }
-    if (esCompra) {
-      if (!catId) { setError('Elegí la categoría de gasto.'); return; }
-      if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
-    }
+    // La categoría de gasto la fija Tesorería al pagar (compra Y servicio directo).
+    if (!catId) { setError('Elegí la categoría de gasto.'); return; }
+    if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
     let legs: PagoLeg[] | undefined;
     if (esSplit) {
       legs = saldosCaja.map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 })).filter((l) => l.monto > 0);
@@ -208,7 +209,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
       if (fila.kind === 'compra' && fila.compra) {
         await pagarCompraDirecta({ compra: fila.compra, cajaId, legs, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision, actor, actorName });
       } else if (fila.kind === 'servicio' && fila.servicio) {
-        await pagarServicioDirecto({ servicio: fila.servicio, cajaId, legs, actor, actorName });
+        await pagarServicioDirecto({ servicio: fila.servicio, cajaId, legs, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
       }
       notify(
         fila.kind === 'compra'
@@ -255,23 +256,21 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           </div>
         </div>
 
-        {esCompra && (
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Categoría de gasto <span style={{ color: 'var(--danger)' }}>*</span></label>
-              <SearchSelect value={catId} onChange={(v) => { setCatId(v); setSubId(''); }}
-                options={categorias.map((c) => ({ value: c.id, label: c.nombre }))}
-                placeholder="Buscar categoría…" emptyText="Cargá categorías en 🗂️ Categorías de gasto" />
-            </div>
-            <div className="form-row">
-              <label>Subcategoría <span style={{ color: 'var(--danger)' }}>*</span></label>
-              <SearchSelect value={subId} onChange={setSubId}
-                options={subcategorias.map((s) => ({ value: s.id, label: s.nombre }))}
-                placeholder={catId ? 'Buscar subcategoría…' : 'Elegí primero la categoría'}
-                emptyText={catId ? 'Esta categoría no tiene subcategorías.' : 'Elegí una categoría'} />
-            </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Categoría de gasto <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <SearchSelect value={catId} onChange={(v) => { setCatId(v); setSubId(''); }}
+              options={categorias.map((c) => ({ value: c.id, label: c.nombre }))}
+              placeholder="Buscar categoría…" emptyText="Cargá categorías en 🗂️ Categorías de gasto" />
           </div>
-        )}
+          <div className="form-row">
+            <label>Subcategoría <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <SearchSelect value={subId} onChange={setSubId}
+              options={subcategorias.map((s) => ({ value: s.id, label: s.nombre }))}
+              placeholder={catId ? 'Buscar subcategoría…' : 'Elegí primero la categoría'}
+              emptyText={catId ? 'Esta categoría no tiene subcategorías.' : 'Elegí una categoría'} />
+          </div>
+        </div>
 
         <div className="form-row">
           <label>Caja (de dónde sale el dinero)</label>

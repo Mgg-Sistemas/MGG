@@ -420,37 +420,6 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
 
         <AlmacenPicker value={almacen} onChange={setAlmacen} sedeLabel="Sede destino" label="Almacén destino" />
 
-        {/* Proveedor: existente (buscable) o alta rápida de uno nuevo (pasa a la BD). */}
-        <div className="form-row">
-          <label>Proveedor (opcional)</label>
-          <div className="view-toggle" role="tablist" style={{ margin: '0 0 .4rem' }}>
-            <button type="button" className={provModo === 'existente' ? 'active' : ''} onClick={() => setProvModo('existente')}>🔎 Existente</button>
-            <button type="button" className={provModo === 'nuevo' ? 'active' : ''} onClick={() => setProvModo('nuevo')}>＋ Nuevo proveedor</button>
-          </div>
-          {provModo === 'existente' ? (
-            <SearchSelect
-              value={proveedorId}
-              onChange={setProveedorId}
-              options={proveedores.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ` · ${p.rif}` : ''}` }))}
-              placeholder="🔎 Buscá el proveedor…"
-              emptyText="Sin proveedores. Usá ＋ Nuevo proveedor."
-              style={{ maxWidth: 420 }}
-            />
-          ) : (
-            <div className="form-grid">
-              <div className="form-row" style={{ margin: 0 }}>
-                <label>Razón social del nuevo proveedor</label>
-                <input className="input" value={provNombre} onChange={(e) => setProvNombre(e.target.value)} placeholder="Nombre / razón social" />
-              </div>
-              <div className="form-row" style={{ margin: 0 }}>
-                <label>RIF</label>
-                <input className="input" value={provRif} onChange={(e) => setProvRif(e.target.value.toUpperCase())} placeholder="J-12345678-9" />
-              </div>
-              <small className="muted" style={{ gridColumn: '1 / -1' }}>Se da de alta en el módulo Proveedores (razón social + RIF). Lo demás se completa luego.</small>
-            </div>
-          )}
-        </div>
-
         {/* El modo se elige POR RENGLÓN: podés mezclar inventario + materiales nuevos. */}
         <div className="form-row" style={{ marginBottom: '.3rem' }}>
           <label>Materiales</label>
@@ -511,6 +480,39 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
         ))}
 
         <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar material</button>
+
+        {/* Proveedor: se ingresa DESPUÉS de cargar los materiales y cantidades. Existente
+            (buscable) o alta rápida de uno nuevo (pasa a la BD). Opcional. */}
+        <div className="form-row" style={{ marginTop: '1rem', borderTop: '1px solid var(--border,#3a3a3a)', paddingTop: '.8rem' }}>
+          <label>Proveedor (opcional)</label>
+          <div className="view-toggle" role="tablist" style={{ margin: '0 0 .4rem' }}>
+            <button type="button" className={provModo === 'existente' ? 'active' : ''} onClick={() => setProvModo('existente')}>🔎 Existente</button>
+            <button type="button" className={provModo === 'nuevo' ? 'active' : ''} onClick={() => setProvModo('nuevo')}>＋ Nuevo proveedor</button>
+          </div>
+          {provModo === 'existente' ? (
+            <SearchSelect
+              value={proveedorId}
+              onChange={setProveedorId}
+              options={proveedores.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ` · ${p.rif}` : ''}` }))}
+              placeholder="🔎 Buscá el proveedor…"
+              emptyText="Sin proveedores. Usá ＋ Nuevo proveedor."
+              style={{ maxWidth: 420 }}
+            />
+          ) : (
+            <div className="form-grid">
+              <div className="form-row" style={{ margin: 0 }}>
+                <label>Razón social del nuevo proveedor</label>
+                <input className="input" value={provNombre} onChange={(e) => setProvNombre(e.target.value)} placeholder="Nombre / razón social" />
+              </div>
+              <div className="form-row" style={{ margin: 0 }}>
+                <label>RIF</label>
+                <input className="input" value={provRif} onChange={(e) => setProvRif(e.target.value.toUpperCase())} placeholder="J-12345678-9" />
+              </div>
+              <small className="muted" style={{ gridColumn: '1 / -1' }}>Se da de alta en el módulo Proveedores (razón social + RIF). Lo demás se completa luego.</small>
+            </div>
+          )}
+        </div>
+
         <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan precios. El gasto por material y la caja se indican al finalizar.</p>
       </form>
     </Modal>

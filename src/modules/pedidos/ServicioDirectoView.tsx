@@ -9,7 +9,6 @@ import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
 import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
 import type { Caja, Proveedor } from '@/shared/lib/types';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
-import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listCatalogoPedido, crearCatalogoPedido, ensureUnidadSolicitante, type CatalogoPedido } from './pedidos.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
@@ -197,7 +196,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                     {s.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(s)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
                     {s.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(s)} title="Editar factura/monto (en Tesorería para pagar)">✎ Factura/monto</button>}
-                    {s.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑</button>}
+                    <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑</button>
                     {(s.estado === 'finalizada' || s.estado === 'por_pagar') && <AdjuntoLink servicio={s} />}
                   </td>
                 </tr>
@@ -217,7 +216,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
       )}
       {eliminar && (
         <ConfirmDialog title="Eliminar servicio directo"
-          message={`¿Eliminar el servicio directo ${eliminar.codigo ? `${eliminar.codigo} · ` : ''}"${eliminar.descripcion}"? Esta acción no se puede deshacer.`}
+          message={`¿Eliminar el servicio directo ${eliminar.codigo ? `${eliminar.codigo} · ` : ''}"${eliminar.descripcion}"?${eliminar.estado === 'finalizada' ? ' Ya está PAGADO: se reversará el egreso (el dinero vuelve a la caja).' : ''} Los repuestos tomados del inventario se devuelven. Esta acción no se puede deshacer.`}
           confirmText="Eliminar" danger onConfirm={confirmarEliminar} onCancel={() => setEliminar(null)} />
       )}
       {facturas && (
@@ -320,7 +319,7 @@ function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEdita
         {servicio.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>}
         {servicio.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/monto (en Tesorería para pagar)">✎ Factura/monto</button>}
-        {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar">🗑 Eliminar</button>}
+        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar">🗑 Eliminar</button>
       </div>
     </div>
   );
@@ -606,37 +605,16 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
-  const [catId, setCatId] = useState('');
-  const [subId, setSubId] = useState('');
-  useEffect(() => { listCategoriasGasto(true).then(setCatRows).catch(() => setCatRows([])); }, []);
-  const categorias = useMemo(() => soloCategorias(catRows), [catRows]);
-  const subcategorias = useMemo(() => (catId ? subcategoriasDe(catRows, catId) : []), [catRows, catId]);
-  useEffect(() => {
-    if (!catRows.length || !servicio.gasto_categoria) return;
-    const c = soloCategorias(catRows).find((x) => x.nombre === servicio.gasto_categoria);
-    if (c) setCatId(c.id);
-  }, [catRows, servicio.gasto_categoria]);
-  useEffect(() => {
-    if (!catId || !servicio.gasto_subcategoria) return;
-    const s = subcategoriasDe(catRows, catId).find((x) => x.nombre === servicio.gasto_subcategoria);
-    if (s) setSubId(s.id);
-  }, [catId, catRows, servicio.gasto_subcategoria]);
-  const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
-  const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
-
   const total = useMemo(() => Math.round(servicio.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100, [gastos, servicio.items]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!catId) { setError('Elegí la categoría de gasto.'); return; }
-    if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
     if (total <= 0) { setError('Indicá cuánto costó cada servicio.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('La factura debe ser un PDF o una imagen.'); return; }
     const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await montarServicioDirecto({ servicio, items, file, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName });
+      await montarServicioDirecto({ servicio, items, file, actor, actorName });
       notify(`Servicio enviado a Tesorería · ${montoCaja(total, 'USD')} por pagar`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar el servicio a Tesorería.'); setSaving(false); }
@@ -655,22 +633,8 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
-          Cargá los <strong>montos por servicio</strong> y la <strong>factura</strong>. El servicio queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el monto sale de la caja y se finaliza (queda casado al equipo en Control de Mantenimiento).
+          Cargá los <strong>montos por servicio</strong> y la <strong>factura</strong>. El servicio queda <strong>Por pagar</strong> y aparece en <strong>Tesorería</strong>; cuando ahí se pague, el monto sale de la caja y se finaliza (queda casado al equipo en Control de Mantenimiento). La <strong>categoría de gasto la elige Tesorería al pagar</strong>.
         </p>
-
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Categoría de gasto <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <SearchSelect value={catId} onChange={setCatId} options={categorias.map((c) => ({ value: c.id, label: c.nombre }))}
-              placeholder="Buscar categoría…" emptyText="Cargá categorías en Tesorería → 🗂️ Categorías de gasto" />
-          </div>
-          <div className="form-row">
-            <label>Subcategoría <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <SearchSelect value={subId} onChange={setSubId} options={subcategorias.map((s) => ({ value: s.id, label: s.nombre }))}
-              placeholder={catId ? 'Buscar subcategoría…' : 'Elegí primero la categoría'} emptyText={catId ? 'Sin subcategorías.' : 'Elegí una categoría'} />
-          </div>
-        </div>
-        <small className="muted" style={{ display: 'block', marginBottom: '.6rem' }}>El gasto queda etiquetado por <strong>categoría → subcategoría</strong> y se reflejará así en Tesorería al pagarse.</small>
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
