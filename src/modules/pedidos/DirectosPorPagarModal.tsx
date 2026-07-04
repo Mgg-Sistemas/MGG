@@ -31,6 +31,9 @@ export interface DirectoFila {
   total: number;
   generoPor: string;
   categoria: string;
+  /** Pago a externo: lo pagó una persona externa; el pago reintegra el dinero a esa persona. */
+  pagoExterno: boolean;
+  pagoExternoDatos: string | null;
   adjuntoPath: string | null;
   adjuntoNombre: string | null;
   compra?: CompraDirecta;
@@ -48,6 +51,7 @@ export async function cargarDirectosPorPagar(): Promise<DirectoFila[]> {
     detalle: c.items.length > 1 ? `${c.items.length} materiales` : (c.producto_sku ?? ''),
     total: Number(c.gasto) || 0, generoPor: c.actor_name || c.actor || '—',
     categoria: [c.gasto_categoria, c.gasto_subcategoria].filter(Boolean).join(' → '),
+    pagoExterno: !!c.pago_externo, pagoExternoDatos: c.pago_externo_datos,
     adjuntoPath: c.adjunto_path, adjuntoNombre: c.adjunto_nombre, compra: c,
   }));
   const fs: DirectoFila[] = servicios.map((s) => ({
@@ -55,6 +59,7 @@ export async function cargarDirectosPorPagar(): Promise<DirectoFila[]> {
     detalle: s.equipo_nombre || (s.items.length > 1 ? `${s.items.length} servicios` : ''),
     total: Number(s.gasto) || 0, generoPor: s.actor_name || s.actor || '—',
     categoria: [s.gasto_categoria, s.gasto_subcategoria].filter(Boolean).join(' → '),
+    pagoExterno: !!s.pago_externo, pagoExternoDatos: s.pago_externo_datos,
     adjuntoPath: s.adjunto_path, adjuntoNombre: s.adjunto_nombre, servicio: s,
   }));
   return [...fc, ...fs];
@@ -238,6 +243,12 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           <div><strong>{fila.titulo}</strong>{fila.detalle ? <span className="muted"> · {fila.detalle}</span> : null}</div>
           {fila.categoria && <div className="muted" style={{ fontSize: '.78rem' }}>{fila.categoria}</div>}
           <div className="muted" style={{ fontSize: '.78rem' }}>Montó: {fila.generoPor}</div>
+          {fila.pagoExterno && (
+            <div style={{ marginTop: '.4rem', padding: '.5rem .6rem', borderLeft: '3px solid var(--danger, #e5484d)', background: 'rgba(229,72,77,.1)', fontSize: '.82rem' }}>
+              💳 <strong>Pago a externo — este pago REINTEGRA el dinero a la persona externa que ya pagó.</strong>
+              {fila.pagoExternoDatos?.trim() && <div style={{ marginTop: '.2rem', whiteSpace: 'pre-wrap' }}>👤 {fila.pagoExternoDatos.trim()}</div>}
+            </div>
+          )}
           {esCompra && fila.compra?.nota && (
             <div style={{ marginTop: '.4rem', padding: '.4rem .6rem', borderLeft: '3px solid var(--brand, #ff8a00)', background: 'rgba(255,138,0,.08)', fontSize: '.82rem' }}>
               📝 <strong>Nota del analista:</strong> {fila.compra.nota}

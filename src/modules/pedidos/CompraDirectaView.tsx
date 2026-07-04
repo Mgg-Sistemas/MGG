@@ -242,6 +242,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           moneda={detalle.moneda || 'USD'}
           total={detalle.gasto}
           nota={detalle.nota}
+          pagoExterno={detalle.pago_externo ? (detalle.pago_externo_datos ?? '') : null}
           facturas={detalle.facturas}
           urlFor={urlAdjuntoCompra}
           footer={
@@ -549,6 +550,9 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
   const [retPctStr, setRetPctStr] = useState(compra.retencion_pct ? String(compra.retencion_pct) : '');
   const [file, setFile] = useState<File | null>(null);
   const [nota, setNota] = useState(compra.nota ?? '');
+  // Pago a externo: una persona externa YA pagó la compra; Tesorería le reintegra al pagar.
+  const [pagoExterno, setPagoExterno] = useState(!!compra.pago_externo);
+  const [pagoExternoDatos, setPagoExternoDatos] = useState(compra.pago_externo_datos ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Tasa BCV (Bs/$) para el equivalente en $ cuando la compra es en Bs. Se precarga
@@ -628,6 +632,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     if (subtotal <= 0) { setError('Indicá el costo unitario de cada material.'); return; }
     if (total <= 0) { setError('El total no puede quedar en 0 (revisá el descuento).'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
+    if (pagoExterno && !pagoExternoDatos.trim()) { setError('Ingresá los datos de la persona externa que pagó (para reintegrarle).'); return; }
     const items: CompraDirectaItem[] = lineas.map((l) => ({
       producto_id: l.producto_id, producto_nombre: l.producto_nombre, producto_sku: l.producto_sku,
       cantidad: Number(l.cantidad) || 0, gasto: montoLinea(l),
@@ -637,6 +642,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
       await montarCompraDirecta({
         compra, items, file, nota, actor, actorName,
         moneda, descuentoMonto: descMonto, iva, retencionPct: retPct,
+        pagoExterno, pagoExternoDatos,
       });
       notify(`Compra enviada a Tesorería · ${montoCaja(total, monedaLbl)} por pagar`, 'success', { link: '#/app/tesoreria' });
       onSaved();
@@ -775,6 +781,22 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
           <label>Nota para Tesorería <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
           <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej.: Pago realizado por Equis persona, se le debe reembolsar." />
           <small className="muted">Tesorería la lee al momento de pagar (y elige ahí la categoría de gasto).</small>
+        </div>
+
+        {/* Pago a externo: una persona externa YA pagó; MGG debe reintegrarle. Lo ve Tesorería al pagar. */}
+        <div className="form-row" style={{ borderTop: '1px solid var(--border,#3a3a3a)', paddingTop: '.8rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={pagoExterno} onChange={(e) => setPagoExterno(e.target.checked)} />
+            <span>💳 Pago a externo <span className="muted" style={{ fontWeight: 400 }}>(lo pagó otra persona; hay que reintegrarle)</span></span>
+          </label>
+          {pagoExterno && (
+            <div style={{ marginTop: '.5rem' }}>
+              <label>Datos de la persona externa que pagó <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <textarea className="input" rows={2} value={pagoExternoDatos} onChange={(e) => setPagoExternoDatos(e.target.value)}
+                placeholder="Nombre, C.I. / RIF, teléfono, y cómo reintegrarle (cuenta / pago móvil)…" />
+              <small className="muted">Aparece en el detalle y en Tesorería: al pagar, el egreso reintegra el dinero a esta persona.</small>
+            </div>
+          )}
         </div>
       </form>
     </Modal>

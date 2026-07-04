@@ -74,6 +74,10 @@ export interface CompraDirecta {
   gasto_subcategoria: string | null;
   /** Nota libre del analista para que Tesorería la lea al pagar (ej. reembolso). */
   nota: string | null;
+  /** Pago a externo: una persona externa YA pagó la compra; MGG debe reintegrarle. */
+  pago_externo: boolean;
+  /** Datos de la persona externa que pagó (nombre, contacto, CI…). */
+  pago_externo_datos: string | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   /** Si la compra se maneja A CRÉDITO: apunta a la cuenta por pagar (Tesorería) que
@@ -123,6 +127,8 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
     retencion_pct: Number(r.retencion_pct) || 0,
     retencion_monto: Number(r.retencion_monto) || 0,
     retencion_finalizada: !!r.retencion_finalizada,
+    pago_externo: !!r.pago_externo,
+    pago_externo_datos: r.pago_externo_datos ?? null,
   };
 }
 
@@ -343,6 +349,9 @@ export interface MontarCompraInput {
   gastoSubcategoria?: string | null;
   /** Nota libre del analista para que Tesorería la lea al pagar (ej. reembolso). */
   nota?: string | null;
+  /** Pago a externo: una persona externa YA pagó; MGG debe reintegrarle (Tesorería lo ve al pagar). */
+  pagoExterno?: boolean;
+  pagoExternoDatos?: string | null;
   file?: File | null;
   actor: string;
   actorName?: string | null;
@@ -398,6 +407,8 @@ export async function montarCompraDirecta(input: MontarCompraInput): Promise<voi
       iva, retencion_pct: retencionPct, retencion_monto: retencionMonto,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
       nota: input.nota?.trim() || null,
+      pago_externo: !!input.pagoExterno,
+      pago_externo_datos: input.pagoExterno ? (input.pagoExternoDatos?.trim() || null) : null,
       adjunto_path: primera?.path ?? null, adjunto_nombre: primera?.filename ?? null, facturas,
       updated_at: new Date().toISOString(),
     })

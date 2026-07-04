@@ -260,6 +260,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           items={detalle.items.map((it) => ({ nombre: it.descripcion, cantidad: it.cantidad, gasto: it.gasto }))}
           moneda={cajas.find((c) => c.id === detalle.caja_id)?.moneda ?? 'USD'}
           total={detalle.gasto}
+          pagoExterno={detalle.pago_externo ? (detalle.pago_externo_datos ?? '') : null}
           facturas={detalle.facturas}
           urlFor={urlAdjuntoServicio}
           footer={
@@ -602,6 +603,9 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
     return init;
   });
   const [file, setFile] = useState<File | null>(null);
+  // Pago a externo: una persona externa YA pagó el servicio; Tesorería le reintegra al pagar.
+  const [pagoExterno, setPagoExterno] = useState(!!servicio.pago_externo);
+  const [pagoExternoDatos, setPagoExternoDatos] = useState(servicio.pago_externo_datos ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -611,10 +615,11 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
     e.preventDefault(); setError(null);
     if (total <= 0) { setError('Indicá cuánto costó cada servicio.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('La factura debe ser un PDF o una imagen.'); return; }
+    if (pagoExterno && !pagoExternoDatos.trim()) { setError('Ingresá los datos de la persona externa que pagó (para reintegrarle).'); return; }
     const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await montarServicioDirecto({ servicio, items, file, actor, actorName });
+      await montarServicioDirecto({ servicio, items, file, actor, actorName, pagoExterno, pagoExternoDatos });
       notify(`Servicio enviado a Tesorería · ${montoCaja(total, 'USD')} por pagar`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar el servicio a Tesorería.'); setSaving(false); }
@@ -661,6 +666,22 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
           <label>Adjuntar FACTURA del servicio · PDF o imagen</label>
           <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           {file ? <small className="muted">{file.name}</small> : (servicio.facturas?.length ? <small className="muted">Ya hay {servicio.facturas.length} factura(s) cargada(s).</small> : null)}
+        </div>
+
+        {/* Pago a externo: una persona externa YA pagó; MGG debe reintegrarle. Lo ve Tesorería al pagar. */}
+        <div className="form-row" style={{ borderTop: '1px solid var(--border,#3a3a3a)', paddingTop: '.8rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={pagoExterno} onChange={(e) => setPagoExterno(e.target.checked)} />
+            <span>💳 Pago a externo <span className="muted" style={{ fontWeight: 400 }}>(lo pagó otra persona; hay que reintegrarle)</span></span>
+          </label>
+          {pagoExterno && (
+            <div style={{ marginTop: '.5rem' }}>
+              <label>Datos de la persona externa que pagó <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <textarea className="input" rows={2} value={pagoExternoDatos} onChange={(e) => setPagoExternoDatos(e.target.value)}
+                placeholder="Nombre, C.I. / RIF, teléfono, y cómo reintegrarle (cuenta / pago móvil)…" />
+              <small className="muted">Aparece en el detalle y en Tesorería: al pagar, el egreso reintegra el dinero a esta persona.</small>
+            </div>
+          )}
         </div>
       </form>
     </Modal>

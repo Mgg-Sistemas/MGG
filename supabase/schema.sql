@@ -515,6 +515,10 @@ alter table public.compras_directas add column if not exists retencion_iva_nombr
 alter table public.compras_directas add column if not exists retencion_finalizada     boolean not null default false;
 alter table public.compras_directas add column if not exists retencion_finalizada_por text;
 alter table public.compras_directas add column if not exists retencion_finalizada_en  timestamptz;
+-- Pago a externo: una persona externa YA pagó la compra; MGG debe reintegrarle el dinero.
+-- Se marca al montar (factura + precios) y lo ve Tesorería al pagar (el egreso reintegra a la persona).
+alter table public.compras_directas add column if not exists pago_externo       boolean not null default false;
+alter table public.compras_directas add column if not exists pago_externo_datos text;
 -- RLS: lectura para autenticados, escritura para operativo (admin/analista/obrero).
 -- Bucket privado 'compras-directas' (storage) con políticas para autenticados.
 -- (Ver migración aplicada; políticas: compra_directa read/write + cd_obj_* en storage.objects.)
@@ -552,6 +556,9 @@ alter table public.servicios_directos add column if not exists facturas jsonb no
 alter table public.servicios_directos add column if not exists gasto_categoria    text;
 alter table public.servicios_directos add column if not exists gasto_subcategoria text;
 alter table public.servicios_directos add column if not exists pagada_por         text;
+-- Pago a externo: una persona externa YA pagó el servicio; MGG debe reintegrarle el dinero.
+alter table public.servicios_directos add column if not exists pago_externo       boolean not null default false;
+alter table public.servicios_directos add column if not exists pago_externo_datos text;
 alter table public.servicios_directos enable row level security;
 create policy "serv_directo read auth" on public.servicios_directos for select using (auth.role()='authenticated');
 create policy "serv_directo write op" on public.servicios_directos for all using (public.is_operativo()) with check (public.is_operativo());

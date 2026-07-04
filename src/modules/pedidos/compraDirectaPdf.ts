@@ -39,6 +39,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     ['Proveedor', compra.proveedor_nombre || '—'],
     ['Estado', compra.estado === 'finalizada' ? 'Finalizada (ingresó a inventario)' : 'En proceso'],
     ['Gasto total', totalGasto > 0 ? fmt.money(totalGasto) : '—'],
+    ...(compra.pago_externo ? [['Pago a externo', 'Sí — reintegrar a la persona externa'] as [string, string]] : []),
     ['Generó', personaDe(compra.actor, personas, compra.actor_name)],
     ['Fecha de creación', fmt.dateTime(compra.created_at)],
     ['Fecha de compra', compra.finalizada_at ? fmt.dateTime(compra.finalizada_at) : '—'],
@@ -80,17 +81,29 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
-  // Nota para Tesorería (si la cargó el analista).
-  if (compra.nota?.trim()) {
-    let ny = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 18;
-    const pageW = doc.internal.pageSize.getWidth();
+  const pageW = doc.internal.pageSize.getWidth();
+  let blockY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+
+  // Bloque de texto con título (reintegro / nota). Avanza el cursor `blockY`.
+  const bloqueTexto = (titulo: string, texto: string) => {
+    blockY += 18;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Nota para Tesorería', MARGIN, ny);
-    ny += 14;
+    doc.text(titulo, MARGIN, blockY);
+    blockY += 14;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    const lineas = doc.splitTextToSize(compra.nota.trim(), pageW - MARGIN * 2) as string[];
-    doc.text(lineas, MARGIN, ny);
+    const lineas = doc.splitTextToSize(texto, pageW - MARGIN * 2) as string[];
+    doc.text(lineas, MARGIN, blockY);
+    blockY += lineas.length * 12;
+  };
+
+  // Pago a externo (si aplica): lo pagó una persona externa y MGG debe reintegrarle.
+  if (compra.pago_externo) {
+    bloqueTexto('Pago a externo — reintegrar el dinero',
+      compra.pago_externo_datos?.trim() || 'Lo pagó una persona externa; Tesorería le reintegra al pagar.');
   }
+
+  // Nota para Tesorería (si la cargó el analista).
+  if (compra.nota?.trim()) bloqueTexto('Nota para Tesorería', compra.nota.trim());
 
   previewPdfDoc(doc, `compra-directa-${(compra.codigo ?? compra.id.slice(0, 8))}.pdf`);
 }
