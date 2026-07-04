@@ -15,7 +15,7 @@ function montoCaja(n: number | null | undefined, moneda: string): string {
  * Se abre al hacer clic en la fila (lista) o la tarjeta (kanban). Los botones de acción
  * (PDF vista previa, editar, facturas, finalizar…) llegan por `footer`.
  */
-export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, items, moneda, total, nota, facturas, urlFor, footer, onClose }: {
+export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, items, moneda, total, nota, pagoExterno, facturas, urlFor, footer, onClose }: {
   title: string;
   estadoLabel: string;
   ficha: Array<[string, string]>;
@@ -24,6 +24,8 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
   moneda: string;
   total: number | null | undefined;
   nota?: string | null;
+  /** Pago a externo: datos de la persona externa que pagó (MGG debe reintegrarle). */
+  pagoExterno?: string | null;
   facturas: AdjuntoFactura[];
   urlFor: (path: string) => Promise<string>;
   footer: ReactNode;
@@ -37,6 +39,14 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
   return (
     <Modal title={title} size="lg" onClose={onClose} footer={footer}>
       <div style={{ marginBottom: '.6rem' }}><span className="badge">{estadoLabel}</span></div>
+
+      {pagoExterno != null && (
+        <div className="card" style={{ margin: '0 0 .8rem', borderLeft: '3px solid var(--brand, #ff8a00)', background: 'rgba(255,138,0,.08)', fontSize: '.86rem' }}>
+          💳 <strong>Pago a externo — reintegrar el dinero</strong>
+          <div className="muted" style={{ fontSize: '.82rem', marginTop: '.15rem' }}>Lo pagó una persona externa; Tesorería le reintegra al pagar.</div>
+          {pagoExterno.trim() && <div style={{ marginTop: '.25rem', whiteSpace: 'pre-wrap' }}>👤 {pagoExterno.trim()}</div>}
+        </div>
+      )}
 
       <div className="form-grid" style={{ gap: '.3rem 1rem', marginBottom: '.8rem' }}>
         {ficha.map(([k, v]) => (

@@ -40,6 +40,7 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     ...(servicio.solicitante_persona ? [['Quién lo solicita', servicio.solicitante_persona] as [string, string]] : []),
     ['Estado', servicio.estado === 'finalizada' ? 'Finalizada (pagada)' : 'En proceso'],
     ['Gasto total', totalGasto > 0 ? fmt.money(totalGasto) : '—'],
+    ...(servicio.pago_externo ? [['Pago a externo', 'Sí — reintegrar a la persona externa'] as [string, string]] : []),
     ['Generó', personaDe(servicio.actor, personas, servicio.actor_name)],
     ['Fecha de creación', fmt.dateTime(servicio.created_at)],
     ['Fecha de pago', servicio.finalizada_at ? fmt.dateTime(servicio.finalizada_at) : '—'],
@@ -81,6 +82,19 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
+
+  // Pago a externo (si aplica): lo pagó una persona externa y MGG debe reintegrarle.
+  if (servicio.pago_externo) {
+    const pageW = doc.internal.pageSize.getWidth();
+    let py = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 18;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('Pago a externo — reintegrar el dinero', MARGIN, py);
+    py += 14;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    const txt = servicio.pago_externo_datos?.trim() || 'Lo pagó una persona externa; Tesorería le reintegra al pagar.';
+    const lineas = doc.splitTextToSize(txt, pageW - MARGIN * 2) as string[];
+    doc.text(lineas, MARGIN, py);
+  }
 
   previewPdfDoc(doc, `servicio-directo-${(servicio.codigo ?? servicio.id.slice(0, 8))}.pdf`);
 }
