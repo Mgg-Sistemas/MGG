@@ -155,6 +155,13 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
   const { data: existentes } = await supabase.from('productos').select('sku, nombre, categoria');
   const skuSetBd = new Set<string>((existentes ?? []).map((p) => String(p.sku).toUpperCase()));
   const nombreSetBd = new Set<string>((existentes ?? []).map((p) => String(p.nombre).toUpperCase()));
+  // Nombre → SKU existente: si el material YA EXISTE por nombre, se reusa su SKU (así el
+  // cotejo lo reconoce como el mismo producto y NO se crea un duplicado con SKU nuevo).
+  const nombreToSkuBd = new Map<string, string>();
+  (existentes ?? []).forEach((p) => {
+    const nm = String(p.nombre).toUpperCase();
+    if (nm && !nombreToSkuBd.has(nm)) nombreToSkuBd.set(nm, String(p.sku).toUpperCase());
+  });
 
   // SKU correlativo automático: ya NO se ingresa en la plantilla. Se deriva del
   // prefijo de la CATEGORÍA y se asigna el siguiente número por prefijo (sembrado
@@ -197,10 +204,11 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     const sumCol = (col: string) => { errorPorColumna[col] = (errorPorColumna[col] ?? 0) + 1; };
 
     if (!nombre) { errores.push('Nombre vacío'); sumCol('nombre'); }
-    // SKU: si la plantilla no lo trae (lo normal ahora), se genera por categoría.
-    // Si por compatibilidad viniera en el archivo, se respeta.
+    // SKU: 1) el del archivo (compatibilidad); 2) si el NOMBRE ya existe en el inventario,
+    // el SKU de ese producto (para reconocerlo como el mismo y no duplicarlo); 3) uno nuevo
+    // por categoría. Así un material ya existente no entra con un SKU nuevo.
     const sku = nombre
-      ? (toStr(norm.sku).toUpperCase() || genSku(toStr(norm.categoria)))
+      ? (toStr(norm.sku).toUpperCase() || nombreToSkuBd.get(nombre) || genSku(toStr(norm.categoria)))
       : toStr(norm.sku).toUpperCase();
 
     const precio = toNum(norm.precio);
@@ -282,6 +290,8 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
 export interface ImportResult {
   insertados: number;
   actualizados: number;
+  /** Materiales que ya existían en el inventario (o repetidos en el archivo) y NO se ingresaron. */
+  omitidos: Array<{ fila: number; sku: string; nombre: string; motivo: string }>;
   errores: Array<{ fila: number; sku: string; motivo: string }>;
 }
 
@@ -291,16 +301,31 @@ export interface ImportResult {
  * error de datos. Esto evita que la importación se "cuelgue" con archivos grandes.
  */
 export async function aplicarImportacion(analisis: AnalisisImport): Promise<ImportResult> {
-  const result: ImportResult = { insertados: 0, actualizados: 0, errores: [] };
+  const result: ImportResult = { insertados: 0, actualizados: 0, omitidos: [], errores: [] };
 
   // 1) Construir los payloads válidos (las filas con error nunca se importan).
   interface Preparada { fila: number; sku: string; almacen: string; stock: number; precio: number; payload: Record<string, unknown>; }
   const preparadas: Preparada[] = [];
+  // Cotejo contra el inventario: nombres ya ingresados en ESTE lote (evita crear dos
+  // productos con el mismo nombre desde el mismo archivo).
+  const nombresEnLote = new Set<string>();
   for (const f of analisis.filas) {
     if (f.estado === 'error') {
       result.errores.push({ fila: f.fila, sku: f.sku, motivo: f.errores.join(' · ') });
       continue;
     }
+    // El material YA EXISTE en el inventario (coincide por nombre): NO se re-ingresa, para
+    // no duplicarlo. (Coincidir solo por SKU explícito sí se toma como actualización.)
+    if (f.duplicadoEnBd === 'nombre' || f.duplicadoEnBd === 'ambos') {
+      result.omitidos.push({ fila: f.fila, sku: f.sku, nombre: f.nombre, motivo: 'Ya existe en el inventario' });
+      continue;
+    }
+    // El material se repite dentro del archivo: se ingresa una sola vez (la primera).
+    if (f.nombre && nombresEnLote.has(f.nombre)) {
+      result.omitidos.push({ fila: f.fila, sku: f.sku, nombre: f.nombre, motivo: 'Repetido en el archivo' });
+      continue;
+    }
+    if (f.nombre) nombresEnLote.add(f.nombre);
     const r = f.raw;
     const recetaRaw = toStr(r.receta_fundicion).toUpperCase();
     const recetaFund = (RECETAS_FUNDICION as readonly string[]).includes(recetaRaw)
@@ -415,11 +440,11 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     ['❌ Precio, stock o stock mínimo con letras → ERROR (no se importa).'],
     ['❌ Estado distinto de "activo" / "inactivo" → ERROR.'],
     ['❌ Nombre vacío → ERROR.'],
-    ['⚠ Nombre repetido dentro del archivo o ya presente en el sistema → DUPLICADO.'],
+    ['⚠ Nombre repetido en el archivo o que YA EXISTE en el inventario → DUPLICADO (no se re-ingresa).'],
     [''],
     ['4. RESULTADO DE LA IMPORTACIÓN'],
     ['• VALIDADO: todas las filas pasan, importación directa.'],
-    ['• DUPLICADOS: el sistema te muestra qué filas son duplicadas y te pregunta si querés continuar. Los SKU existentes se actualizan; los nuevos se insertan.'],
+    ['• DUPLICADOS: el sistema COTEJA contra el inventario. Los materiales que YA EXISTEN (por nombre) NO se vuelven a ingresar; se importan solo los nuevos. Te muestra cuáles se omiten.'],
     ['• ERROR: existen filas con datos inválidos. La importación queda bloqueada hasta corregirlas. Las filas con error nunca se importan, ni siquiera si confirmás.'],
     [''],
     ['5. RECOMENDACIONES'],

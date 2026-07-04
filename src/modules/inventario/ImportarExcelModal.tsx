@@ -54,8 +54,9 @@ export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
       const partes: string[] = [];
       if (res.insertados) partes.push(`${res.insertados} nuevos`);
       if (res.actualizados) partes.push(`${res.actualizados} actualizados`);
+      if (res.omitidos.length) partes.push(`${res.omitidos.length} ya existían (omitidos)`);
       if (res.errores.length) partes.push(`${res.errores.length} con error`);
-      notify(`Importación: ${partes.join(' · ') || '0 cambios'}`, res.errores.length ? 'warning' : 'success', { link: '#/app/inventario' });
+      notify(`Importación: ${partes.join(' · ') || '0 cambios'}`, (res.errores.length || res.omitidos.length) ? 'warning' : 'success', { link: '#/app/inventario' });
       onImportado();
       onClose();
     } catch (e) {
@@ -106,23 +107,24 @@ export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
             analisis.estado === 'Validado'
               ? 'Todos los registros son válidos y nuevos. Importación directa.'
               : analisis.estado === 'Duplicados'
-                ? 'El archivo trae duplicados. Confirmá si querés continuar.'
+                ? 'Hay materiales que ya existen: NO se re-ingresan, solo se importan los nuevos.'
                 : 'El archivo trae errores de datos. Corregilos antes de subir.'
           }
         />
         <EstadoCard icono="∑" color="#64748b" titulo="Total filas" subtitulo={String(analisis.total)} />
         <EstadoCard icono="✓" color="#10b981" titulo="Válidas" subtitulo={String(analisis.validas)} />
-        <EstadoCard icono="⚠" color="#f59e0b" titulo="Duplicadas" subtitulo={String(analisis.duplicadas)} />
+        <EstadoCard icono="⚠" color="#f59e0b" titulo="Ya existen / duplicadas" subtitulo={String(analisis.duplicadas)} />
         <EstadoCard icono="❌" color="#ef4444" titulo="Con error" subtitulo={String(analisis.conError)} />
       </div>
 
       {confirmando && necesitaConfirmar && (
         <div className="card" style={{ borderLeft: '3px solid #f59e0b', padding: '.85rem 1rem', marginBottom: '1rem' }}>
-          <strong>⚠ Existen datos duplicados</strong>
+          <strong>⚠ Hay materiales que ya existen</strong>
           <p style={{ margin: '.35rem 0 0' }}>
-            {analisis.duplicadas} fila(s) coinciden por SKU o nombre con otras del archivo o con productos
-            existentes en el sistema. ¿Está seguro que desea subir el archivo? Los productos
-            existentes se actualizarán con los nuevos valores.
+            {analisis.duplicadas} fila(s) coinciden por nombre (o SKU) con otras del archivo o con
+            materiales que <strong>ya están en el inventario</strong>. Al subir, esos materiales
+            <strong> NO se vuelven a ingresar</strong> (para no duplicarlos): se importan solo los
+            <strong> nuevos</strong>. ¿Querés continuar?
           </p>
         </div>
       )}
@@ -227,8 +229,9 @@ function FilaTr({ fila }: { fila: FilaAnalizada }) {
 
   const detalles: string[] = [];
   if (fila.errores.length) detalles.push(...fila.errores);
-  if (fila.duplicadoEnArchivo) detalles.push(`Duplicado en archivo (${fila.duplicadoEnArchivo})`);
-  if (fila.duplicadoEnBd) detalles.push(`Ya existe en sistema (${fila.duplicadoEnBd})`);
+  // Los materiales ya existentes por nombre (o repetidos en el archivo) NO se re-ingresan.
+  if (fila.duplicadoEnBd) detalles.push(`Ya existe en el inventario (${fila.duplicadoEnBd})${(fila.duplicadoEnBd === 'nombre' || fila.duplicadoEnBd === 'ambos') ? ' — no se importa' : ''}`);
+  if (fila.duplicadoEnArchivo) detalles.push(`Repetido en el archivo (${fila.duplicadoEnArchivo})${(fila.duplicadoEnArchivo === 'nombre' || fila.duplicadoEnArchivo === 'ambos') ? ' — se importa una vez' : ''}`);
 
   return (
     <tr>
