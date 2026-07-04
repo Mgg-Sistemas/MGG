@@ -158,6 +158,8 @@ export interface CrearOrdenInput {
   urgente?: boolean;
   /** 'servicio' usa correlativo SV y no toca inventario al recibir. Falta = 'producto'. */
   clase?: 'producto' | 'servicio';
+  /** Moneda de la orden (la usan los Servicios: 'USD' o 'Bs'). Por defecto 'USD'. */
+  moneda?: string;
 }
 
 /**
@@ -227,6 +229,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     finalidad: input.finalidad?.trim() || null,
     clasificacion: input.clasificacion?.length ? input.clasificacion : null,
     clase: esServicio ? 'servicio' : 'producto',
+    moneda: input.moneda === 'Bs' ? 'Bs' : 'USD',
     urgente,
     historial,
   };
@@ -283,6 +286,8 @@ export interface EditarOrdenInput {
   solicitante_persona?: string | null;
   ci_solicitante?: string | null;
   urgente?: boolean;
+  /** Moneda de la orden (Servicios: 'USD' o 'Bs'). Si se omite, no se cambia. */
+  moneda?: string;
 }
 
 /**
@@ -306,6 +311,7 @@ export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEm
     solicitante_persona: input.solicitante_persona?.trim() || null,
     ci_solicitante: input.ci_solicitante?.trim() || null,
     urgente: !!input.urgente,
+    ...(input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {}),
     historial: appendHistorial(o, 'editada', actorEmail),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();

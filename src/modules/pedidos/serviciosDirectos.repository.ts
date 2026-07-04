@@ -56,6 +56,8 @@ export interface ServicioDirecto {
   cantidad: number;
   items: ServicioDirectoItem[];
   estado: EstadoServicioDirecto;
+  /** Moneda del servicio: 'USD' ($) o 'Bs'. */
+  moneda: string;
   gasto: number | null;
   /** Etiquetas de gasto (se eligen al montar; Tesorería las usa al pagar). */
   gasto_categoria: string | null;
@@ -93,7 +95,7 @@ function normalizar(row: Record<string, unknown>): ServicioDirecto {
   return {
     ...r, items: Array.isArray(r.items) ? r.items : [], facturas,
     pago_externo: !!r.pago_externo, pago_externo_datos: r.pago_externo_datos ?? null,
-    nota: r.nota ?? null,
+    nota: r.nota ?? null, moneda: r.moneda ?? 'USD',
   };
 }
 
@@ -297,6 +299,8 @@ export async function gestionarFacturasServicio(
 export interface MontarServicioDirectoInput {
   servicio: ServicioDirecto;
   items: ServicioDirectoItem[];   // con el monto (gasto) por renglón
+  /** Moneda del servicio: 'USD' o 'Bs'. */
+  moneda?: string;
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
   /** Pago a externo: una persona externa YA pagó; MGG debe reintegrarle (Tesorería lo ve al pagar). */
@@ -332,6 +336,7 @@ export async function montarServicioDirecto(input: MontarServicioDirectoInput): 
     .from('servicios_directos')
     .update({
       estado: 'por_pagar', gasto: total, items,
+      moneda: input.moneda === 'Bs' ? 'Bs' : 'USD',
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
       pago_externo: !!input.pagoExterno,
       pago_externo_datos: input.pagoExterno ? (input.pagoExternoDatos?.trim() || null) : null,
@@ -423,6 +428,8 @@ export interface EditarServicioFinalizadoInput {
   servicio: ServicioDirecto;
   /** Ítems con el nuevo monto (gasto) por renglón. */
   items: ServicioDirectoItem[];
+  /** Moneda del servicio (editable al corregir montos): 'USD' o 'Bs'. */
+  moneda?: string;
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
   /** Pago a externo (editable al corregir montos). */
@@ -466,9 +473,10 @@ export async function editarServicioDirectoFinalizado(input: EditarServicioFinal
     ? { pago_externo: !!input.pagoExterno, pago_externo_datos: input.pagoExterno ? (input.pagoExternoDatos?.trim() || null) : null }
     : {};
   const updateNota = input.nota !== undefined ? { nota: input.nota?.trim() || null } : {};
+  const updateMoneda = input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {};
   const { error } = await supabase
     .from('servicios_directos')
-    .update({ items, gasto: nuevoTotal, ...updatePago, ...updateNota, updated_at: new Date().toISOString() })
+    .update({ items, gasto: nuevoTotal, ...updatePago, ...updateNota, ...updateMoneda, updated_at: new Date().toISOString() })
     .eq('id', servicio.id);
   if (error) throw error;
 }
