@@ -761,7 +761,9 @@ tr.row-selectable:active { transform: scale(0.998); }
   :root { --sidebar-w: 56px; }
   .kpi-grid { grid-template-columns: 1fr; }
   .page-head .actions { flex-wrap: wrap; }
-  .page-head .actions .btn { flex: 1; min-width: 0; }
+  /* Cada botón conserva el ancho de su etiqueta (min-width: max-content): así los
+     botones ENVUELVEN en varias filas en vez de aplastarse a basis 0 y encimarse. */
+  .page-head .actions .btn { flex: 1 1 auto; min-width: max-content; white-space: nowrap; }
   .kanban-col { flex: 0 0 86vw; }
 }
 
