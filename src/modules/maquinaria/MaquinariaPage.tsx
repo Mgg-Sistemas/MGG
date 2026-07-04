@@ -219,7 +219,7 @@ export function MaquinariaPage() {
 
       {/* ── Landing tipo Combustible: dos tarjetas grandes ── */}
       {seccion === 'landing' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', marginTop: '.5rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '1rem', marginTop: '.5rem' }}>
           <button type="button" className="card" onClick={() => setSeccion('equipos')}
             style={{ textAlign: 'left', cursor: 'pointer', margin: 0, padding: '1.1rem 1.3rem', borderColor: 'var(--success)', borderWidth: 2, borderStyle: 'solid' }}>
             <div className="muted" style={{ fontSize: '.8rem', textTransform: 'uppercase', letterSpacing: '.03em', display: 'flex', justifyContent: 'space-between' }}>

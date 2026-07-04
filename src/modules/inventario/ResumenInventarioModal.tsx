@@ -216,6 +216,7 @@ export function ResumenInventarioModal({ productos, existencias, almacenes, onCl
           {productosDeAlmacen.length === 0 ? (
             <div className="muted">Sin productos con stock en este almacén.</div>
           ) : (
+            <div className="table-wrap">
             <table className="table" style={{ fontSize: '.82rem' }}>
               <thead><tr><th>SKU</th><th>Producto</th><th style={{ textAlign: 'right' }}>Stock</th><th style={{ textAlign: 'right' }}>Costo</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>
               <tbody>
@@ -230,6 +231,7 @@ export function ResumenInventarioModal({ productos, existencias, almacenes, onCl
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </Modal>
       )}

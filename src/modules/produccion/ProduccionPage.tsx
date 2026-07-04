@@ -146,7 +146,7 @@ export function ProduccionPage() {
       {loading ? (
         <EmptyState message="Cargando fundición…" icon="◔" />
       ) : layout === 'kanban' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '1rem' }}>
           {/* En fundición */}
           <div>
             <div className="sidebar-section" style={{ paddingLeft: 0 }}>Productos en fundición · {num(enProduccion.length)}</div>

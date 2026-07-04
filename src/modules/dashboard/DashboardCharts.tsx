@@ -197,7 +197,7 @@ export function GraficaProduccion() {
 /** Componente combinado lazy. */
 export default function DashboardCharts() {
   return (
-    <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', marginTop: '1rem' }}>
+    <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', marginTop: '1rem' }}>
       <GraficaValorInventario />
       <GraficaProduccion />
     </div>

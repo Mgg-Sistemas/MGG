@@ -390,7 +390,7 @@ function resumenSolicitud(s: SolicitudSalida): string {
 function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s: SolicitudSalida) => void }) {
   if (!sols.length) return <EmptyState message="No hay solicitudes en esta vista. Creá una con el botón de arriba." icon="🗂" />;
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '.75rem' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '.75rem' }}>
       {SOL_COLS.map((col) => {
         const items = sols.filter((s) => s.estado === col.key);
         return (
