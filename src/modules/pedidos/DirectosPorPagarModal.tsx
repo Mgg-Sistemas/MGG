@@ -249,9 +249,9 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
               {fila.pagoExternoDatos?.trim() && <div style={{ marginTop: '.2rem', whiteSpace: 'pre-wrap' }}>👤 {fila.pagoExternoDatos.trim()}</div>}
             </div>
           )}
-          {esCompra && fila.compra?.nota && (
+          {(fila.compra?.nota ?? fila.servicio?.nota) && (
             <div style={{ marginTop: '.4rem', padding: '.4rem .6rem', borderLeft: '3px solid var(--brand, #ff8a00)', background: 'rgba(255,138,0,.08)', fontSize: '.82rem' }}>
-              📝 <strong>Nota del analista:</strong> {fila.compra.nota}
+              📝 <strong>Nota del analista:</strong> {fila.compra?.nota ?? fila.servicio?.nota}
             </div>
           )}
           <div style={{ marginTop: '.3rem', display: 'flex', alignItems: 'center', gap: '.6rem' }}>

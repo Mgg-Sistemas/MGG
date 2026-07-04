@@ -13,19 +13,23 @@ function montoCaja(n: number, moneda: string): string {
  * La cantidad no cambia. Al guardar, el módulo correspondiente reajusta Tesorería
  * (y el inventario en compras). `onSave` recibe los nuevos gastos por renglón.
  */
-export function EditarMontosModal({ title, moneda, rows, pagoExterno: pagoExternoInicial, pagoExternoDatos: pagoExternoDatosInicial, onSave, onClose }: {
+export function EditarMontosModal({ title, moneda, rows, pagoExterno: pagoExternoInicial, pagoExternoDatos: pagoExternoDatosInicial, nota: notaInicial, onSave, onClose }: {
   title: string;
   moneda: string;
   rows: { nombre: string; cantidad: number; gasto: number }[];
   /** Pago a externo (editable): estado y datos actuales de la persona externa que pagó. */
   pagoExterno?: boolean;
   pagoExternoDatos?: string | null;
-  onSave: (gastos: number[], extra: { pagoExterno: boolean; pagoExternoDatos: string }) => Promise<void>;
+  /** Nota / motivo (editable): si se pasa (aunque sea ''), se muestra el campo. */
+  nota?: string | null;
+  onSave: (gastos: number[], extra: { pagoExterno: boolean; pagoExternoDatos: string; nota: string }) => Promise<void>;
   onClose: () => void;
 }) {
   const [gastos, setGastos] = useState<string[]>(rows.map((r) => (r.gasto ? String(r.gasto) : '')));
   const [pagoExterno, setPagoExterno] = useState(!!pagoExternoInicial);
   const [pagoExternoDatos, setPagoExternoDatos] = useState(pagoExternoDatosInicial ?? '');
+  const [nota, setNota] = useState(notaInicial ?? '');
+  const mostrarNota = notaInicial !== undefined;
   const [saving, setSaving] = useState(false);
 
   const total = useMemo(
@@ -38,7 +42,7 @@ export function EditarMontosModal({ title, moneda, rows, pagoExterno: pagoExtern
     if (pagoExterno && !pagoExternoDatos.trim()) { toast('Ingresá los datos de la persona externa que pagó.', 'error'); return; }
     setSaving(true);
     try {
-      await onSave(gastos.map((g) => Number(g) || 0), { pagoExterno, pagoExternoDatos });
+      await onSave(gastos.map((g) => Number(g) || 0), { pagoExterno, pagoExternoDatos, nota });
       toast('Montos actualizados · sincronizado con Tesorería', 'success');
       onClose();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo actualizar', 'error'); setSaving(false); }
@@ -76,6 +80,16 @@ export function EditarMontosModal({ title, moneda, rows, pagoExterno: pagoExtern
         </table>
       </div>
       <div className="card" style={{ margin: '.5rem 0' }}>Nuevo total: <strong className="mono">{montoCaja(total, moneda)}</strong></div>
+
+      {/* Nota / motivo: editable acá (aparece en el detalle, en Tesorería y en el PDF). */}
+      {mostrarNota && (
+        <div className="form-row">
+          <label>Nota / motivo <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
+            placeholder="Motivo o detalle del servicio…" />
+          <small className="muted">Aparece en el detalle, en Tesorería y en el PDF.</small>
+        </div>
+      )}
 
       {/* Pago a externo: editable acá (lo pagó una persona externa; hay que reintegrarle). */}
       <div className="form-row" style={{ borderTop: '1px solid var(--border,#3a3a3a)', paddingTop: '.7rem' }}>

@@ -64,6 +64,8 @@ export interface ServicioDirecto {
   pago_externo: boolean;
   /** Datos de la persona externa que pagó (nombre, contacto, CI…). */
   pago_externo_datos: string | null;
+  /** Nota / motivo libre del servicio (se ve en el detalle, en Tesorería y en el PDF). */
+  nota: string | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   adjunto_path: string | null;
@@ -91,6 +93,7 @@ function normalizar(row: Record<string, unknown>): ServicioDirecto {
   return {
     ...r, items: Array.isArray(r.items) ? r.items : [], facturas,
     pago_externo: !!r.pago_externo, pago_externo_datos: r.pago_externo_datos ?? null,
+    nota: r.nota ?? null,
   };
 }
 
@@ -299,6 +302,8 @@ export interface MontarServicioDirectoInput {
   /** Pago a externo: una persona externa YA pagó; MGG debe reintegrarle (Tesorería lo ve al pagar). */
   pagoExterno?: boolean;
   pagoExternoDatos?: string | null;
+  /** Nota / motivo libre (se ve en el detalle, en Tesorería y en el PDF). */
+  nota?: string | null;
   file?: File | null;
   actor: string;
   actorName?: string | null;
@@ -330,6 +335,7 @@ export async function montarServicioDirecto(input: MontarServicioDirectoInput): 
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
       pago_externo: !!input.pagoExterno,
       pago_externo_datos: input.pagoExterno ? (input.pagoExternoDatos?.trim() || null) : null,
+      nota: input.nota?.trim() || null,
       adjunto_path: primera?.path ?? null, adjunto_nombre: primera?.filename ?? null, facturas,
       updated_at: new Date().toISOString(),
     })
@@ -422,6 +428,8 @@ export interface EditarServicioFinalizadoInput {
   /** Pago a externo (editable al corregir montos). */
   pagoExterno?: boolean;
   pagoExternoDatos?: string | null;
+  /** Nota / motivo (editable al corregir montos). */
+  nota?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -457,9 +465,10 @@ export async function editarServicioDirectoFinalizado(input: EditarServicioFinal
   const updatePago = input.pagoExterno !== undefined
     ? { pago_externo: !!input.pagoExterno, pago_externo_datos: input.pagoExterno ? (input.pagoExternoDatos?.trim() || null) : null }
     : {};
+  const updateNota = input.nota !== undefined ? { nota: input.nota?.trim() || null } : {};
   const { error } = await supabase
     .from('servicios_directos')
-    .update({ items, gasto: nuevoTotal, ...updatePago, updated_at: new Date().toISOString() })
+    .update({ items, gasto: nuevoTotal, ...updatePago, ...updateNota, updated_at: new Date().toISOString() })
     .eq('id', servicio.id);
   if (error) throw error;
 }

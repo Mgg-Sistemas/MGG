@@ -236,9 +236,10 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           rows={editarMontos.items.map((it) => ({ nombre: it.descripcion, cantidad: it.cantidad, gasto: Number(it.gasto) || 0 }))}
           pagoExterno={editarMontos.pago_externo}
           pagoExternoDatos={editarMontos.pago_externo_datos}
+          nota={editarMontos.nota ?? ''}
           onSave={async (gastos, extra) => {
             const items = editarMontos.items.map((it, i) => ({ ...it, gasto: gastos[i] ?? 0 }));
-            await editarServicioDirectoFinalizado({ servicio: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos });
+            await editarServicioDirectoFinalizado({ servicio: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos, nota: extra.nota });
             await reloadLista();
           }}
           onClose={() => setEditarMontos(null)}
@@ -262,6 +263,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           items={detalle.items.map((it) => ({ nombre: it.descripcion, cantidad: it.cantidad, gasto: it.gasto }))}
           moneda={cajas.find((c) => c.id === detalle.caja_id)?.moneda ?? 'USD'}
           total={detalle.gasto}
+          nota={detalle.nota}
           pagoExterno={detalle.pago_externo ? (detalle.pago_externo_datos ?? '') : null}
           facturas={detalle.facturas}
           urlFor={urlAdjuntoServicio}
@@ -605,6 +607,7 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
     return init;
   });
   const [file, setFile] = useState<File | null>(null);
+  const [nota, setNota] = useState(servicio.nota ?? '');
   // Pago a externo: una persona externa YA pagó el servicio; Tesorería le reintegra al pagar.
   const [pagoExterno, setPagoExterno] = useState(!!servicio.pago_externo);
   const [pagoExternoDatos, setPagoExternoDatos] = useState(servicio.pago_externo_datos ?? '');
@@ -621,7 +624,7 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
     const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await montarServicioDirecto({ servicio, items, file, actor, actorName, pagoExterno, pagoExternoDatos });
+      await montarServicioDirecto({ servicio, items, file, actor, actorName, pagoExterno, pagoExternoDatos, nota });
       notify(`Servicio enviado a Tesorería · ${montoCaja(total, 'USD')} por pagar`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar el servicio a Tesorería.'); setSaving(false); }
@@ -668,6 +671,12 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
           <label>Adjuntar FACTURA del servicio · PDF o imagen</label>
           <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           {file ? <small className="muted">{file.name}</small> : (servicio.facturas?.length ? <small className="muted">Ya hay {servicio.facturas.length} factura(s) cargada(s).</small> : null)}
+        </div>
+
+        <div className="form-row">
+          <label>Nota / motivo <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Motivo o detalle del servicio (aparece en el detalle, en Tesorería y en el PDF)." />
+          <small className="muted">Tesorería la lee al momento de pagar.</small>
         </div>
 
         {/* Pago a externo: una persona externa YA pagó; MGG debe reintegrarle. Lo ve Tesorería al pagar. */}

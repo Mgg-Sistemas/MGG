@@ -215,9 +215,10 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           rows={editarMontos.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: Number(it.gasto) || 0 }))}
           pagoExterno={editarMontos.pago_externo}
           pagoExternoDatos={editarMontos.pago_externo_datos}
+          nota={editarMontos.nota ?? ''}
           onSave={async (gastos, extra) => {
             const items = editarMontos.items.map((it, i) => ({ ...it, gasto: gastos[i] ?? 0 }));
-            await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos });
+            await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos, nota: extra.nota });
             await reloadLista();
           }}
           onClose={() => setEditarMontos(null)}

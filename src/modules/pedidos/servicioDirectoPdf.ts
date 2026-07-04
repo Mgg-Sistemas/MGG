@@ -83,18 +83,29 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
+  const pageW = doc.internal.pageSize.getWidth();
+  let blockY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+
+  // Bloque de texto con título (reintegro / nota). Avanza el cursor `blockY`.
+  const bloqueTexto = (titulo: string, texto: string) => {
+    blockY += 18;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(titulo, MARGIN, blockY);
+    blockY += 14;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    const lineas = doc.splitTextToSize(texto, pageW - MARGIN * 2) as string[];
+    doc.text(lineas, MARGIN, blockY);
+    blockY += lineas.length * 12;
+  };
+
   // Pago a externo (si aplica): lo pagó una persona externa y MGG debe reintegrarle.
   if (servicio.pago_externo) {
-    const pageW = doc.internal.pageSize.getWidth();
-    let py = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 18;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Pago a externo — reintegrar el dinero', MARGIN, py);
-    py += 14;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    const txt = servicio.pago_externo_datos?.trim() || 'Lo pagó una persona externa; Tesorería le reintegra al pagar.';
-    const lineas = doc.splitTextToSize(txt, pageW - MARGIN * 2) as string[];
-    doc.text(lineas, MARGIN, py);
+    bloqueTexto('Pago a externo — reintegrar el dinero',
+      servicio.pago_externo_datos?.trim() || 'Lo pagó una persona externa; Tesorería le reintegra al pagar.');
   }
+
+  // Nota / motivo del servicio (si la cargó el analista).
+  if (servicio.nota?.trim()) bloqueTexto('Nota / motivo', servicio.nota.trim());
 
   previewPdfDoc(doc, `servicio-directo-${(servicio.codigo ?? servicio.id.slice(0, 8))}.pdf`);
 }
