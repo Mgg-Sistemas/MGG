@@ -60,6 +60,7 @@ export function TasaChip() {
     <>
       <button
         type="button"
+        className="tasa-chip"
         onClick={() => setOpen(true)}
         title={`Tasas de referencia (Bs por USD) · BCV ${r2(tasa.usd)}${binance != null ? ` · Binance ${r2(binance)}${margen != null ? ` · ahorro ${r2(margen)} %` : ''}` : ''} · ${tasa.fecha ?? ''} · clic para ver el historial`}
         style={{
@@ -71,18 +72,18 @@ export function TasaChip() {
       >
         <span style={{ color: 'var(--brand, #ff8a00)', fontWeight: 700 }}>BCV</span>
         <span className="mono">$ {r2(tasa.usd)}</span>
-        {tasa.eur != null && <span className="mono">€ {r2(tasa.eur)}</span>}
+        {tasa.eur != null && <span className="mono tc-eur">€ {r2(tasa.eur)}</span>}
         {binance != null && (
           <>
-            <span style={{ opacity: .35 }}>·</span>
+            <span className="tc-sep" style={{ opacity: .35 }}>·</span>
             <span style={{ color: '#f0b90b', fontWeight: 700 }} title="Binance P2P (USDT/VES)">BIN</span>
             <span className="mono">Bs {r2(binance)}</span>
             {margen != null && (
-              <span className="mono" style={{ color: margen > 0 ? '#16c784' : 'var(--muted)' }} title="Margen de ahorro pagando a BCV en vez de Binance">↓{r2(margen)}%</span>
+              <span className="mono tc-margen" style={{ color: margen > 0 ? '#16c784' : 'var(--muted)' }} title="Margen de ahorro pagando a BCV en vez de Binance">↓{r2(margen)}%</span>
             )}
           </>
         )}
-        <span className="muted" style={{ fontSize: '.7rem' }}>{fechaCorta(tasa.fecha)}</span>
+        <span className="muted tc-fecha" style={{ fontSize: '.7rem' }}>{fechaCorta(tasa.fecha)}</span>
       </button>
       {open && <HistorialTasasModal tasaHoy={tasa} onClose={() => setOpen(false)} onRefreshed={setTasa} />}
     </>

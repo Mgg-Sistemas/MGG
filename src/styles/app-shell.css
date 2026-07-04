@@ -711,9 +711,14 @@ tr.row-selectable:active { transform: scale(0.998); }
 
   .search-box { display: none; }
   .main { padding: 1rem; }
-  .topbar { padding: 0 1rem; }
-  .topbar .crumb { font-size: .8rem; }
+  .topbar { padding: 0 .75rem; gap: .4rem; }
+  .topbar .crumb { font-size: .8rem; min-width: 0; }
+  /* El texto "MGG · Sistema" puede recortarse antes que empujar las acciones fuera. */
+  .topbar .crumb > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .top-actions { gap: .4rem; min-width: 0; }
+  /* Ticker de tasas: se compacta (oculta EUR, fecha y margen) para no desbordar la topbar. */
+  .tasa-chip { gap: .35rem !important; font-size: .72rem !important; padding: .3rem .45rem !important; }
+  .tasa-chip .tc-eur, .tasa-chip .tc-fecha, .tasa-chip .tc-margen, .tasa-chip .tc-sep { display: none; }
 
   .page-head h1 { font-size: 1.2rem; }
   .page-head p { font-size: .8rem; }

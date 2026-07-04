@@ -279,7 +279,7 @@ function LabGrid({ grupoId, minerales, analisis, canWrite, actor, miNombre, onRe
               <span className="muted" style={{ fontSize: '.72rem' }}>· {gis.length} lectura{gis.length === 1 ? '' : 's'}</span>
               {canWrite && !sinProc && <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => addCol(proc)}>+ lectura</button>}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', alignItems: 'start' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: '1rem', alignItems: 'start' }}>
               {bloques.map((b, i) => tabla(b, gis, i))}
             </div>
           </div>
@@ -589,7 +589,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       </div>
 
       {/* ───────────── Humedad (Provisional + Final, lado a lado) ───────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem', marginTop: '1.25rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '1rem', marginTop: '1.25rem' }}>
         <HumedadProvCard filas={humProv} canWrite={canWrite} onAgregar={agregarHumProv} onBorrar={borrarHumProv} onReload={reload} />
         <HumedadFinalCard filas={humFinal} netoSeco={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)} canWrite={canWrite} onAgregar={agregarHumFinal} onBorrar={borrarHumFinal} onReload={reload} />
       </div>
@@ -914,7 +914,7 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
         <span className="muted" style={{ fontSize: '.8rem' }}>Cada fila lleva su <strong>categoría</strong> (BIG BAG ×1,5 · SACO ×0,06 · BOLSA DE HIELO ×0,05) y su <strong>cantidad</strong>. DESCUENTO = −Σ (factor × cantidad) de cada fila con peso (ej. 7 big bags → −1,5×7) · TOTAL NETO = suma de pesos + DESCUENTO.</span>
         <button className="btn btn-sm btn-primary" onClick={addBigbag}>+ Añadir peso</button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '1rem' }}>
         <PesajeTabla titulo="PESOS HÚMEDOS" bg="#9db8e0" rows={rows} lado="h" opciones={procOpciones}
           bigBag={bigBagLado(bigbags, 'h')} totalNeto={totalNetoLado(bigbags, 'h')} subtotales={netoPorProcedencia(bigbags, 'h')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
         <PesajeTabla titulo="PESOS SECOS" bg="#cdddf3" rows={rows} lado="s" opciones={procOpciones}
@@ -1200,7 +1200,7 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '1rem', alignItems: 'start' }}>
         {/* Centros de Acopio (saldos) */}
         <div className="card" style={{ padding: 0, overflow: 'hidden', margin: 0 }}>
           <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '.55rem .7rem', margin: 0 }}>
@@ -1752,7 +1752,7 @@ function CierreDetalleModal({ cierre, onClose }: { cierre: RecepcionCierre; onCl
       <h4 style={{ margin: '1rem 0 .4rem', textAlign: 'center', color: 'var(--primary, #ff8a00)' }}>RECEPCIÓN GLOBAL LABORATORIO</h4>
       <LabGrid grupoId={cierre.grupo_id ?? ''} minerales={minerales} analisis={analisis} canWrite={false} actor="" miNombre="" onReload={noopReload} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '1rem', marginTop: '1rem' }}>
         <HumedadProvCard filas={d.humProv ?? []} canWrite={false} onAgregar={noop} onBorrar={noop} onReload={noopReload} />
         <HumedadFinalCard filas={d.humFinal ?? []} netoSeco={(d.pesajes ?? []).reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)} canWrite={false} onAgregar={noop} onBorrar={noop} onReload={noopReload} />
       </div>

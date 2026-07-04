@@ -2598,6 +2598,7 @@ function OrdenDetailModal({
         // qué ítems se aprueban para comprar.
         const puedeEditarComprar = !conPrecio && canManageProcurement;
         return (
+      <div className="table-wrap">
       <table className="items-table">
         <thead>
           <tr>
@@ -2698,6 +2699,7 @@ function OrdenDetailModal({
           </tfoot>
         )}
       </table>
+      </div>
         );
       })()}
 
@@ -3939,7 +3941,7 @@ function CrearOrdenModal({
           />
           <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
         </div>
-        <div className="line-picker head" style={{ gridTemplateColumns: '34px 1.4fr 190px 36px' }}>
+        <div className="line-picker head" style={{ gridTemplateColumns: '30px minmax(0, 1.4fr) 130px 34px' }}>
           <div title="Comprar">✓</div>
           <div>Producto</div>
           <div>Cantidad</div>
@@ -3950,7 +3952,7 @@ function CrearOrdenModal({
             const comprar = it.comprar !== false;
             return (
             <div key={`${it.sku}-${idx}`} style={{ opacity: comprar ? 1 : 0.5, marginBottom: '.4rem' }}>
-            <div className="line-picker" style={{ gridTemplateColumns: '34px 1.4fr 190px 36px', marginBottom: 0 }}>
+            <div className="line-picker" style={{ gridTemplateColumns: '30px minmax(0, 1.4fr) 130px 34px', marginBottom: 0 }}>
               <input
                 type="checkbox"
                 checked={comprar}
@@ -4387,6 +4389,7 @@ function HistoricoPreciosModal({ sku, nombre, onClose }: HistoricoPreciosModalPr
       {rows && rows.length > 0 && (
         <>
           <h4 style={{ marginTop: '1rem' }}>Resumen por proveedor</h4>
+          <div className="table-wrap">
           <table className="items-table">
             <thead>
               <tr>
@@ -4409,8 +4412,10 @@ function HistoricoPreciosModal({ sku, nombre, onClose }: HistoricoPreciosModalPr
               ))}
             </tbody>
           </table>
+          </div>
 
           <h4 style={{ marginTop: '1.25rem' }}>Detalle</h4>
+          <div className="table-wrap">
           <table className="items-table">
             <thead>
               <tr>
@@ -4435,6 +4440,7 @@ function HistoricoPreciosModal({ sku, nombre, onClose }: HistoricoPreciosModalPr
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </Modal>

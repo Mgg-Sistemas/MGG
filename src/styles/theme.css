@@ -373,8 +373,8 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
    Los formularios (md/lg/xl) siguen a pantalla completa. */
 .modal.modal-sm {
   width: auto;
-  min-width: 320px;
-  max-width: 460px;
+  min-width: min(320px, 92vw);   /* no desborda en teléfonos angostos (<320px) */
+  max-width: min(460px, 94vw);
   height: auto;
   max-height: 85vh;
 }

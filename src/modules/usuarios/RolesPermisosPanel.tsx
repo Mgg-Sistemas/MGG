@@ -179,7 +179,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))',
             gap: '1rem',
           }}
         >
@@ -226,6 +226,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                   )}
                 </div>
 
+                <div className="table-wrap">
                 <table className="table" style={{ fontSize: '.82rem' }}>
                   <thead>
                     <tr>
@@ -255,6 +256,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
             );
           })}

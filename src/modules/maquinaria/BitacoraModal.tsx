@@ -307,7 +307,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
             {insumos.length === 0 && <small className="muted" style={{ fontSize: '.72rem' }}>Agregá lo que se le cambió al equipo (cauchos, pintura, repuestos…) con su cantidad, para llevar el seguimiento.</small>}
             <div style={{ display: 'grid', gap: '.4rem' }}>
               {insumos.map((x) => (
-                <div key={x.id} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 90px auto', gap: '.4rem', alignItems: 'center' }}>
+                <div key={x.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 80px 80px auto', gap: '.4rem', alignItems: 'center' }}>
                   <input className="input" list="bit-insumo-conceptos" value={x.concepto}
                     onChange={(e) => setInsumo(x.id, { concepto: e.target.value.toUpperCase() })} placeholder="Caucho, pintura, batería, repuesto…" />
                   <input className="input mono" type="number" step="any" min={0} value={x.cantidad}
