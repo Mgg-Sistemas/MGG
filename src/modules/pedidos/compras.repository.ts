@@ -648,6 +648,9 @@ export interface EditarCompraFinalizadaInput {
   items: CompraDirectaItem[];
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Pago a externo (editable al corregir montos). */
+  pagoExterno?: boolean;
+  pagoExternoDatos?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -705,10 +708,13 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
     });
   }
 
-  // 3) Guardar los nuevos montos en la compra.
+  // 3) Guardar los nuevos montos + pago a externo (si se editó) en la compra.
+  const updatePago = input.pagoExterno !== undefined
+    ? { pago_externo: !!input.pagoExterno, pago_externo_datos: input.pagoExterno ? (input.pagoExternoDatos?.trim() || null) : null }
+    : {};
   const { error } = await supabase
     .from('compras_directas')
-    .update({ items, gasto: nuevoTotal, updated_at: new Date().toISOString() })
+    .update({ items, gasto: nuevoTotal, ...updatePago, updated_at: new Date().toISOString() })
     .eq('id', compra.id);
   if (error) throw error;
 }
