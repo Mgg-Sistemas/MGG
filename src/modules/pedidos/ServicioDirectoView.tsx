@@ -234,9 +234,11 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           title={`Editar montos · ${editarMontos.codigo ?? 'Servicio directo'}`}
           moneda={cajas.find((c) => c.id === editarMontos.caja_id)?.moneda ?? 'USD'}
           rows={editarMontos.items.map((it) => ({ nombre: it.descripcion, cantidad: it.cantidad, gasto: Number(it.gasto) || 0 }))}
-          onSave={async (gastos) => {
+          pagoExterno={editarMontos.pago_externo}
+          pagoExternoDatos={editarMontos.pago_externo_datos}
+          onSave={async (gastos, extra) => {
             const items = editarMontos.items.map((it, i) => ({ ...it, gasto: gastos[i] ?? 0 }));
-            await editarServicioDirectoFinalizado({ servicio: editarMontos, items, actor, actorName });
+            await editarServicioDirectoFinalizado({ servicio: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos });
             await reloadLista();
           }}
           onClose={() => setEditarMontos(null)}

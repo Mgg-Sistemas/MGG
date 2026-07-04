@@ -13,14 +13,19 @@ function montoCaja(n: number, moneda: string): string {
  * La cantidad no cambia. Al guardar, el módulo correspondiente reajusta Tesorería
  * (y el inventario en compras). `onSave` recibe los nuevos gastos por renglón.
  */
-export function EditarMontosModal({ title, moneda, rows, onSave, onClose }: {
+export function EditarMontosModal({ title, moneda, rows, pagoExterno: pagoExternoInicial, pagoExternoDatos: pagoExternoDatosInicial, onSave, onClose }: {
   title: string;
   moneda: string;
   rows: { nombre: string; cantidad: number; gasto: number }[];
-  onSave: (gastos: number[]) => Promise<void>;
+  /** Pago a externo (editable): estado y datos actuales de la persona externa que pagó. */
+  pagoExterno?: boolean;
+  pagoExternoDatos?: string | null;
+  onSave: (gastos: number[], extra: { pagoExterno: boolean; pagoExternoDatos: string }) => Promise<void>;
   onClose: () => void;
 }) {
   const [gastos, setGastos] = useState<string[]>(rows.map((r) => (r.gasto ? String(r.gasto) : '')));
+  const [pagoExterno, setPagoExterno] = useState(!!pagoExternoInicial);
+  const [pagoExternoDatos, setPagoExternoDatos] = useState(pagoExternoDatosInicial ?? '');
   const [saving, setSaving] = useState(false);
 
   const total = useMemo(
@@ -30,9 +35,10 @@ export function EditarMontosModal({ title, moneda, rows, onSave, onClose }: {
 
   async function guardar() {
     if (total <= 0) { toast('El total debe ser mayor que 0.', 'error'); return; }
+    if (pagoExterno && !pagoExternoDatos.trim()) { toast('Ingresá los datos de la persona externa que pagó.', 'error'); return; }
     setSaving(true);
     try {
-      await onSave(gastos.map((g) => Number(g) || 0));
+      await onSave(gastos.map((g) => Number(g) || 0), { pagoExterno, pagoExternoDatos });
       toast('Montos actualizados · sincronizado con Tesorería', 'success');
       onClose();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo actualizar', 'error'); setSaving(false); }
@@ -70,6 +76,22 @@ export function EditarMontosModal({ title, moneda, rows, onSave, onClose }: {
         </table>
       </div>
       <div className="card" style={{ margin: '.5rem 0' }}>Nuevo total: <strong className="mono">{montoCaja(total, moneda)}</strong></div>
+
+      {/* Pago a externo: editable acá (lo pagó una persona externa; hay que reintegrarle). */}
+      <div className="form-row" style={{ borderTop: '1px solid var(--border,#3a3a3a)', paddingTop: '.7rem' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+          <input type="checkbox" checked={pagoExterno} onChange={(e) => setPagoExterno(e.target.checked)} />
+          <span>💳 Pago a externo <span className="muted" style={{ fontWeight: 400 }}>(lo pagó otra persona; hay que reintegrarle)</span></span>
+        </label>
+        {pagoExterno && (
+          <div style={{ marginTop: '.5rem' }}>
+            <label>Datos de la persona externa que pagó <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <textarea className="input" rows={2} value={pagoExternoDatos} onChange={(e) => setPagoExternoDatos(e.target.value)}
+              placeholder="Nombre, C.I. / RIF, teléfono, y cómo reintegrarle (cuenta / pago móvil)…" />
+            <small className="muted">Aparece en el detalle, en el PDF y en Tesorería.</small>
+          </div>
+        )}
+      </div>
     </Modal>
   );
 }

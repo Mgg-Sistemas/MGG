@@ -419,6 +419,9 @@ export interface EditarServicioFinalizadoInput {
   items: ServicioDirectoItem[];
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Pago a externo (editable al corregir montos). */
+  pagoExterno?: boolean;
+  pagoExternoDatos?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -451,9 +454,12 @@ export async function editarServicioDirectoFinalizado(input: EditarServicioFinal
     gastoSubcategoria: input.gastoSubcategoria ?? undefined,
   });
 
+  const updatePago = input.pagoExterno !== undefined
+    ? { pago_externo: !!input.pagoExterno, pago_externo_datos: input.pagoExterno ? (input.pagoExternoDatos?.trim() || null) : null }
+    : {};
   const { error } = await supabase
     .from('servicios_directos')
-    .update({ items, gasto: nuevoTotal, updated_at: new Date().toISOString() })
+    .update({ items, gasto: nuevoTotal, ...updatePago, updated_at: new Date().toISOString() })
     .eq('id', servicio.id);
   if (error) throw error;
 }

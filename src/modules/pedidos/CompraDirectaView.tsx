@@ -213,9 +213,11 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           title={`Editar montos · ${editarMontos.codigo ?? 'Compra directa'}`}
           moneda={cajas.find((c) => c.id === editarMontos.caja_id)?.moneda ?? 'USD'}
           rows={editarMontos.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: Number(it.gasto) || 0 }))}
-          onSave={async (gastos) => {
+          pagoExterno={editarMontos.pago_externo}
+          pagoExternoDatos={editarMontos.pago_externo_datos}
+          onSave={async (gastos, extra) => {
             const items = editarMontos.items.map((it, i) => ({ ...it, gasto: gastos[i] ?? 0 }));
-            await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName });
+            await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos });
             await reloadLista();
           }}
           onClose={() => setEditarMontos(null)}
