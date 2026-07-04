@@ -78,8 +78,8 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   const [comisionSaldoId, setComisionSaldoId] = useState('');
   const total = fila.total;
   const esCompra = fila.kind === 'compra';
-  // Moneda de la compra ($ o Bs): el total está en ESTA moneda. Los servicios son en $.
-  const monedaBase = fila.compra?.moneda === 'Bs' ? 'Bs' : 'USD';
+  // Moneda del directo ($ o Bs): el total está en ESTA moneda (compra y servicio).
+  const monedaBase = (fila.compra?.moneda ?? fila.servicio?.moneda) === 'Bs' ? 'Bs' : 'USD';
 
   // Categoría → subcategoría de gasto: la elige Tesorería al pagar (compra Y servicio directo).
   const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
@@ -387,7 +387,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
         )}
         {fila.servicio?.items?.length ? (
           <ul className="muted" style={{ fontSize: '.76rem', margin: '.4rem 0 0', paddingLeft: '1rem' }}>
-            {fila.servicio.items.map((it, i) => <li key={i}>{it.descripcion} · {num(it.cantidad)} · {montoCaja(Number(it.gasto) || 0, 'USD')}</li>)}
+            {fila.servicio.items.map((it, i) => <li key={i}>{it.descripcion} · {num(it.cantidad)} · {montoCaja(Number(it.gasto) || 0, monedaBase)}</li>)}
           </ul>
         ) : null}
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>Montado el {fila.kind === 'compra' ? dateTime(fila.compra?.updated_at ?? '') : dateTime(fila.servicio?.updated_at ?? '')}.</div>

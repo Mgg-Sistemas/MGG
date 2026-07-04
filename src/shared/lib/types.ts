@@ -732,6 +732,8 @@ export interface Orden {
   items: ItemOrden[];
   total: number;
   estado: EstadoOrden;
+  /** Moneda de la orden (la usan los Servicios: 'USD' o 'Bs'). Por defecto 'USD'. */
+  moneda?: string | null;
   notas?: string | null;
   /** Motivo y finalidad de la OP (el "porqué" de la solicitud). */
   motivo?: string | null;

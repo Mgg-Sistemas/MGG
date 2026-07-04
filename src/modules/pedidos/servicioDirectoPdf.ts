@@ -28,6 +28,12 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
   y += 60;
 
   const items = servicio.items ?? [];
+  // Moneda del servicio ($ o Bs): los montos del PDF se muestran en esta moneda.
+  const moneda = servicio.moneda === 'Bs' ? 'Bs' : 'USD';
+  const mc = (n: number) => {
+    const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return moneda === 'USD' ? `$ ${v}` : `${moneda} ${v}`;
+  };
   const totalGasto = servicio.gasto != null ? Number(servicio.gasto) : items.reduce((a, it) => a + (Number(it.gasto) || 0), 0);
   const equipos = Array.from(new Set(items.map((it) => it.equipo_nombre).filter(Boolean) as string[])).join(' · ')
     || servicio.equipo_nombre || '—';
@@ -39,7 +45,7 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     ...(servicio.solicitante ? [['Unidad solicitante', servicio.solicitante] as [string, string]] : []),
     ...(servicio.solicitante_persona ? [['Quién lo solicita', servicio.solicitante_persona] as [string, string]] : []),
     ['Estado', servicio.estado === 'finalizada' ? 'Finalizada (pagada)' : 'En proceso'],
-    ['Gasto total', totalGasto > 0 ? fmt.money(totalGasto) : '—'],
+    ['Gasto total', totalGasto > 0 ? mc(totalGasto) : '—'],
     ...(servicio.pago_externo ? [['Pago a externo', 'Sí — reintegrar a la persona externa'] as [string, string]] : []),
     ['Generó', personaDe(servicio.actor, personas, servicio.actor_name)],
     ['Fecha de creación', fmt.dateTime(servicio.created_at)],
@@ -70,11 +76,11 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
         it.servicio_tipo || '—',
         it.descripcion || '—',
         fmt.num(cant),
-        cu != null ? fmt.money(cu) : '—',
-        g != null ? fmt.money(g) : '—',
+        cu != null ? mc(cu) : '—',
+        g != null ? mc(g) : '—',
       ];
     }),
-    foot: [['', '', '', '', 'TOTAL', totalGasto > 0 ? fmt.money(totalGasto) : '—']],
+    foot: [['', '', '', '', 'TOTAL', totalGasto > 0 ? mc(totalGasto) : '—']],
     theme: 'grid',
     headStyles: { fillColor: [255, 138, 0], textColor: 255 },
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },

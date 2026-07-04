@@ -3232,6 +3232,9 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
   const [nuevaUnidad, setNuevaUnidad] = useState('');
   const [solicitantePersona, setSolicitantePersona] = useState(esEdicion ? (orden!.solicitante_persona ?? '') : '');
   const [nota, setNota] = useState(esEdicion ? (orden!.notas ?? '') : '');
+  // Moneda del servicio ($ o Bs): los precios estimados se cargan en esta moneda.
+  const [moneda, setModeda] = useState<'USD' | 'Bs'>(esEdicion && orden!.moneda === 'Bs' ? 'Bs' : 'USD');
+  const monedaSym = moneda === 'USD' ? '$' : 'Bs';
   const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]);
   const [productosStock, setProductosStock] = useState<ProductoConStock[]>([]);
   useEffect(() => { listProductosConStock().then(setProductosStock).catch(() => setProductosStock([])); }, []);
@@ -3320,6 +3323,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           solicitante: unidad,
           solicitante_persona: solicitantePersona.trim() || null,
           ci_solicitante: orden!.ci_solicitante ?? null,
+          moneda,
         }, authEmail);
         toast(`Servicio ${codigo} actualizado`, 'success');
       } else {
@@ -3327,6 +3331,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           clase: 'servicio',
           proveedor_id: null,
           items,
+          moneda,
           solicitante_email: authEmail,
           solicitante: unidad,
           solicitante_persona: solicitantePersona.trim() || null,
@@ -3389,6 +3394,15 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           onChange={(e) => setSolicitantePersona(e.target.value.toUpperCase())}
           placeholder="Nombre de la persona que pide el servicio…" />
         <small className="muted" style={{ fontSize: '.72rem' }}>La persona que solicita (queda registrada en la solicitud y se ve en Control de Mantenimiento).</small>
+      </div>
+
+      <div className="form-row">
+        <label>Moneda del servicio</label>
+        <div className="view-toggle" role="tablist" style={{ margin: 0 }}>
+          <button type="button" className={moneda === 'USD' ? 'active' : ''} onClick={() => setModeda('USD')}>$ Dólares</button>
+          <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setModeda('Bs')}>Bs Bolívares</button>
+        </div>
+        <small className="muted" style={{ fontSize: '.72rem' }}>Los precios estimados se cargan en esta moneda. Se puede cambiar al editar.</small>
       </div>
 
       <div className="form-row">
@@ -3488,7 +3502,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                         </div>
                       </div>
                       <div className="form-row" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '.74rem' }}>Precio estimado (USD, opcional)</label>
+                        <label style={{ fontSize: '.74rem' }}>Precio estimado ({monedaSym}, opcional)</label>
                         <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -3503,7 +3517,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                       <input className="input mono" type="number" min={0} step="any" value={l.cantidad} onChange={(e) => setLinea(l.id, { cantidad: e.target.value })} />
                     </div>
                     <div className="form-row" style={{ margin: 0 }}>
-                      <label style={{ fontSize: '.74rem' }}>Precio estimado (USD, opcional)</label>
+                      <label style={{ fontSize: '.74rem' }}>Precio estimado ({monedaSym}, opcional)</label>
                       <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -3516,6 +3530,11 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           })}
         </div>
         <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={addLinea}>+ Agregar servicio</button>
+        {total > 0 && (
+          <div className="card" style={{ margin: '.5rem 0 0', display: 'flex', justifyContent: 'space-between' }}>
+            <span className="muted">Total estimado</span><strong className="mono">{fmtMonto(total, moneda)}</strong>
+          </div>
+        )}
       </div>
 
       <div className="form-row">

@@ -561,6 +561,8 @@ alter table public.servicios_directos add column if not exists pago_externo     
 alter table public.servicios_directos add column if not exists pago_externo_datos text;
 -- Nota / motivo del servicio directo (se ve en el detalle, en Tesorería y en el PDF).
 alter table public.servicios_directos add column if not exists nota text;
+-- Moneda del servicio directo (Bs / $). Por defecto USD (como venía funcionando).
+alter table public.servicios_directos add column if not exists moneda text not null default 'USD';
 alter table public.servicios_directos enable row level security;
 create policy "serv_directo read auth" on public.servicios_directos for select using (auth.role()='authenticated');
 create policy "serv_directo write op" on public.servicios_directos for all using (public.is_operativo()) with check (public.is_operativo());
@@ -969,6 +971,8 @@ create table if not exists public.ordenes (
 );
 
 alter table public.ordenes add column if not exists parent_orden_id uuid references public.ordenes(id) on delete set null;
+-- Moneda de la orden (la usan los Servicios: Bs / $). Por defecto USD.
+alter table public.ordenes add column if not exists moneda text not null default 'USD';
 create index if not exists idx_ordenes_proveedor on public.ordenes(proveedor_id);
 create index if not exists idx_ordenes_estado    on public.ordenes(estado);
 create index if not exists idx_ordenes_parent    on public.ordenes(parent_orden_id);

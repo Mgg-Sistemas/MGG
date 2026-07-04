@@ -13,19 +13,23 @@ function montoCaja(n: number, moneda: string): string {
  * La cantidad no cambia. Al guardar, el módulo correspondiente reajusta Tesorería
  * (y el inventario en compras). `onSave` recibe los nuevos gastos por renglón.
  */
-export function EditarMontosModal({ title, moneda, rows, pagoExterno: pagoExternoInicial, pagoExternoDatos: pagoExternoDatosInicial, nota: notaInicial, onSave, onClose }: {
+export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExterno: pagoExternoInicial, pagoExternoDatos: pagoExternoDatosInicial, nota: notaInicial, onSave, onClose }: {
   title: string;
   moneda: string;
+  /** Si true, muestra un selector Bs/$ para cambiar la moneda (se devuelve en onSave). */
+  editarMoneda?: boolean;
   rows: { nombre: string; cantidad: number; gasto: number }[];
   /** Pago a externo (editable): estado y datos actuales de la persona externa que pagó. */
   pagoExterno?: boolean;
   pagoExternoDatos?: string | null;
   /** Nota / motivo (editable): si se pasa (aunque sea ''), se muestra el campo. */
   nota?: string | null;
-  onSave: (gastos: number[], extra: { pagoExterno: boolean; pagoExternoDatos: string; nota: string }) => Promise<void>;
+  onSave: (gastos: number[], extra: { pagoExterno: boolean; pagoExternoDatos: string; nota: string; moneda: string }) => Promise<void>;
   onClose: () => void;
 }) {
   const [gastos, setGastos] = useState<string[]>(rows.map((r) => (r.gasto ? String(r.gasto) : '')));
+  const [monedaSel, setMonedaSel] = useState<'USD' | 'Bs'>(moneda === 'Bs' ? 'Bs' : 'USD');
+  const monedaMostrada = editarMoneda ? monedaSel : moneda;
   const [pagoExterno, setPagoExterno] = useState(!!pagoExternoInicial);
   const [pagoExternoDatos, setPagoExternoDatos] = useState(pagoExternoDatosInicial ?? '');
   const [nota, setNota] = useState(notaInicial ?? '');
@@ -42,7 +46,7 @@ export function EditarMontosModal({ title, moneda, rows, pagoExterno: pagoExtern
     if (pagoExterno && !pagoExternoDatos.trim()) { toast('Ingresá los datos de la persona externa que pagó.', 'error'); return; }
     setSaving(true);
     try {
-      await onSave(gastos.map((g) => Number(g) || 0), { pagoExterno, pagoExternoDatos, nota });
+      await onSave(gastos.map((g) => Number(g) || 0), { pagoExterno, pagoExternoDatos, nota, moneda: monedaMostrada });
       toast('Montos actualizados · sincronizado con Tesorería', 'success');
       onClose();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo actualizar', 'error'); setSaving(false); }
@@ -51,7 +55,7 @@ export function EditarMontosModal({ title, moneda, rows, pagoExterno: pagoExtern
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button className="btn btn-primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : `Guardar · ${montoCaja(total, moneda)}`}</button>
+      <button className="btn btn-primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : `Guardar · ${montoCaja(total, monedaMostrada)}`}</button>
     </>
   );
 
@@ -72,14 +76,25 @@ export function EditarMontosModal({ title, moneda, rows, pagoExterno: pagoExtern
                   <td>{r.nombre}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(r.cantidad)}</td>
                   <td><input className="input mono" type="number" min={0} step="any" value={gastos[i]} onChange={(e) => setGastos((prev) => prev.map((x, k) => (k === i ? dosDecimales(e.target.value) : x)))} placeholder="0,00" /></td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, monedaMostrada)}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      <div className="card" style={{ margin: '.5rem 0' }}>Nuevo total: <strong className="mono">{montoCaja(total, moneda)}</strong></div>
+      <div className="card" style={{ margin: '.5rem 0' }}>Nuevo total: <strong className="mono">{montoCaja(total, monedaMostrada)}</strong></div>
+
+      {/* Moneda del servicio: editable acá (Bs / $). */}
+      {editarMoneda && (
+        <div className="form-row">
+          <label>Moneda</label>
+          <div className="view-toggle" role="tablist" style={{ margin: 0 }}>
+            <button type="button" className={monedaSel === 'USD' ? 'active' : ''} onClick={() => setMonedaSel('USD')}>$ Dólares</button>
+            <button type="button" className={monedaSel === 'Bs' ? 'active' : ''} onClick={() => setMonedaSel('Bs')}>Bs Bolívares</button>
+          </div>
+        </div>
+      )}
 
       {/* Nota / motivo: editable acá (aparece en el detalle, en Tesorería y en el PDF). */}
       {mostrarNota && (

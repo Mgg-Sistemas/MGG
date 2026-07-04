@@ -137,7 +137,9 @@ export async function getCategorias(fromProductos: Producto[] = []): Promise<str
 }
 
 export async function addCategoria(nombre: string, actorEmail?: string): Promise<string | null> {
-  return addTaxonomia('inventario.categoria', nombre, actorEmail);
+  // Convención del sistema: las categorías de inventario van en MAYÚSCULAS (evita
+  // duplicados por caja como "Combustible" vs "COMBUSTIBLE").
+  return addTaxonomia('inventario.categoria', nombre.trim().toUpperCase(), actorEmail);
 }
 
 /**
