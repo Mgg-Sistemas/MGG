@@ -6,6 +6,7 @@ import { money, num, dateTime, hoyISO } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 import { resumenInventarioMovs, type ResumenInventarioMovs, type ResumenGrupo } from './inventarioResumen.repository';
+import { ProductoDetail } from './ProductoDetail';
 import {
   descargarResumenInventarioPdf, enviarResumenInventarioPorCorreo,
   type ResumenAlmacenFila, type ResumenInventarioFull,
@@ -39,6 +40,8 @@ export function ResumenInventarioModal({ productos, existencias, almacenes, onCl
   // Detalle al hacer click: grupo de movimientos o un almacén concreto.
   const [verGrupo, setVerGrupo] = useState<'nuevos' | 'salidas' | 'traslados' | null>(null);
   const [verAlmacen, setVerAlmacen] = useState<string | null>(null);
+  // Producto seleccionado (click en una fila) → abre su trazabilidad (kardex).
+  const [verProducto, setVerProducto] = useState<Producto | null>(null);
   const [correoOpen, setCorreoOpen] = useState(false);
 
   useEffect(() => {
@@ -94,6 +97,12 @@ export function ResumenInventarioModal({ productos, existencias, almacenes, onCl
 
   // Productos dentro de un almacén (para el detalle al hacer click).
   const prodMap = useMemo(() => new Map(productos.map((p) => [p.id, p])), [productos]);
+  // Abre la trazabilidad (kardex) del producto de una fila. Si ya no está en el catálogo, avisa.
+  const abrirProducto = (productoId: string | null | undefined) => {
+    const p = productoId ? prodMap.get(productoId) : null;
+    if (p) setVerProducto(p);
+    else toast('Este producto ya no está en el inventario (sin trazabilidad).', 'warning');
+  };
   const productosDeAlmacen = useMemo(() => {
     if (!verAlmacen) return [];
     return existencias
@@ -168,12 +177,15 @@ export function ResumenInventarioModal({ productos, existencias, almacenes, onCl
           {grupoSel.items.length === 0 ? (
             <div className="muted" style={{ fontSize: '.85rem' }}>Sin movimientos en el período.</div>
           ) : (
+            <>
             <div style={{ overflowX: 'auto' }}>
               <table className="table" style={{ fontSize: '.8rem' }}>
                 <thead><tr><th>Fecha</th><th>SKU</th><th>Producto</th><th style={{ textAlign: 'right' }}>Cant.</th><th>Almacén</th><th>Destino</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>
                 <tbody>
                   {grupoSel.items.map((it, i) => (
-                    <tr key={`${it.producto_id}-${i}`}>
+                    <tr key={`${it.producto_id}-${i}`} className="row-selectable" style={{ cursor: 'pointer' }}
+                      title="Ver la trazabilidad del producto"
+                      onClick={() => abrirProducto(it.producto_id)}>
                       <td>{dateTime(it.at)}</td>
                       <td className="mono">{it.sku ?? '—'}</td>
                       <td>{it.nombre ?? '—'}</td>
@@ -186,6 +198,8 @@ export function ResumenInventarioModal({ productos, existencias, almacenes, onCl
                 </tbody>
               </table>
             </div>
+            <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>👆 Tocá una fila para ver la trazabilidad (kardex) del producto.</div>
+            </>
           )}
         </div>
       )}
@@ -221,7 +235,9 @@ export function ResumenInventarioModal({ productos, existencias, almacenes, onCl
               <thead><tr><th>SKU</th><th>Producto</th><th style={{ textAlign: 'right' }}>Stock</th><th style={{ textAlign: 'right' }}>Costo</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>
               <tbody>
                 {productosDeAlmacen.map(({ e, p }) => (
-                  <tr key={e.producto_id}>
+                  <tr key={e.producto_id} className="row-selectable" style={{ cursor: 'pointer' }}
+                    title="Ver la trazabilidad del producto"
+                    onClick={() => abrirProducto(e.producto_id)}>
                     <td className="mono">{p?.sku ?? '—'}</td>
                     <td>{p?.nombre ?? '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(e.stock)} {p?.unidad ?? ''}</td>
@@ -234,6 +250,11 @@ export function ResumenInventarioModal({ productos, existencias, almacenes, onCl
             </div>
           )}
         </Modal>
+      )}
+
+      {/* Trazabilidad (kardex) del producto clickeado, sobre el resumen. */}
+      {verProducto && (
+        <ProductoDetail producto={verProducto} onClose={() => setVerProducto(null)} />
       )}
 
       {correoOpen && (
