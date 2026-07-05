@@ -18,8 +18,8 @@ export function OcPorLoteView() {
   // Modifica/anula OC: el administrador o quien tenga FULL CONTROL de Pedidos/Compras.
   const { isAdmin: esAdmin, can } = usePermissions();
   const isAdmin = esAdmin || can('pedidos', 'full');
-  // APROBAR una OC es exclusivo del rol administrador (no basta con el control total).
-  const soloAdmin = esAdmin;
+  // AUTORIZAR una OC: el Gerente General (admin) o la Jefa de Administración (LEYDIS RENGEL).
+  const soloAdmin = esAdmin || (user?.email ?? '').toLowerCase() === 'jhzgcontabilidad@gmail.com';
   const [rows, setRows] = useState<OcLoteRow[]>([]);
   const [incluirPagadas, setIncluirPagadas] = useState(false);
   const [loading, setLoading] = useState(true);

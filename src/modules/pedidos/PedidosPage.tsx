@@ -347,6 +347,10 @@ export function PedidosPage() {
   const canManageProcurement = isAdmin || usuario?.role === 'analista';
   // El obrero solo crea solicitudes de pedido y las finaliza: sin acceso a Órdenes de Compra.
   const isObrero = usuario?.role === 'obrero';
+  // Autorizar (confirmar) las Órdenes de Compra: el Gerente General (admin) y LEYDIS RENGEL
+  // (jefa de administración). Cada uno firma con su propia firma en el PDF.
+  const emailActual = (usuario?.email ?? user?.email ?? '').toLowerCase();
+  const puedeAprobarOc = usuario?.role === 'admin' || emailActual === 'jhzgcontabilidad@gmail.com';
 
   // Si el obrero quedara con scope 'oc' (estado viejo), lo forzamos a 'pedidos'.
   useEffect(() => {
@@ -639,6 +643,7 @@ export function PedidosPage() {
           proveedorMap={proveedorMap}
           personaMap={personaMap}
           isAdmin={isAdmin}
+          puedeAprobarOc={puedeAprobarOc}
           canManageProcurement={canManageProcurement}
           enOc={scope === 'oc' || currentDetail.clase === 'servicio'}
           actorEmail={user?.email ?? ''}
@@ -657,7 +662,7 @@ export function PedidosPage() {
           onEditarOc={() => setModal({ kind: 'edit-oc', orden: currentDetail })}
           onAsignar={() => setModal({ kind: 'asignar', orden: currentDetail })}
           onConfirmOc={async () => {
-            if (usuario?.role !== 'admin') { toast('Solo el administrador puede aprobar las órdenes de compra.', 'error'); return; }
+            if (!puedeAprobarOc) { toast('Solo el Gerente General o la Jefa de Administración pueden autorizar las órdenes de compra.', 'error'); return; }
             try {
               await aprobarOcsEnLote([currentDetail], usuario?.email ?? user?.email ?? 'sistema', null);
               notify(`OC confirmada: ${currentDetail.oc_codigo ?? currentDetail.codigo} · falta indicar el método de pago (el almacén destino se elige al recibir)`, 'success', { link: '#/app/pedidos' });
@@ -1964,6 +1969,8 @@ interface OrdenDetailModalProps {
   proveedorMap: Map<string, Proveedor>;
   personaMap: Map<string, string>;
   isAdmin: boolean;
+  /** Puede autorizar (confirmar) la OC: Gerente General o Jefa de Administración (LEYDIS). */
+  puedeAprobarOc: boolean;
   canManageProcurement: boolean;
   /** true cuando se abre desde la pestaña Órdenes de Compra (allí se gestionan ofertas/proveedor). */
   enOc: boolean;
@@ -1998,6 +2005,7 @@ function OrdenDetailModal({
   proveedorMap,
   personaMap,
   isAdmin,
+  puedeAprobarOc,
   canManageProcurement,
   enOc,
   actorEmail,
@@ -2209,10 +2217,10 @@ function OrdenDetailModal({
           <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (queda en estado Anulada)">⊘ Anular OC</button>
         </>
       )}
-      {/* Aprobar la OC = confirmación del Gerente: SOLO el rol administrador (no basta con
-          tener control total de Pedidos). El resto de acciones de la OC quedan igual. */}
-      {isOcCreada && usuarioRole === 'admin' && (
-        <button className="btn btn-success" onClick={onConfirmOc} title="Aprobar esta OC de forma puntual (sin pasar por el lote)">
+      {/* Autorizar la OC = confirmación del Gerente General o de la Jefa de Administración
+          (LEYDIS RENGEL). Cada uno firma con su propia firma en el PDF. */}
+      {isOcCreada && puedeAprobarOc && (
+        <button className="btn btn-success" onClick={onConfirmOc} title="Autorizar esta OC de forma puntual (sin pasar por el lote)">
           ✔ Aprobar OC
         </button>
       )}
