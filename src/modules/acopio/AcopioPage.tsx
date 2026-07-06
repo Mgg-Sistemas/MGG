@@ -23,7 +23,7 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, cerrarYAbrirCaja, listCajaMovimientos, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, cerrarYAbrirCaja, listCajaMovimientos, siguienteNumeroCaja, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
 import type { GrupoClasificacion, CajaMovimiento } from '@/shared/lib/types';
 import { listVehiculos } from '@/modules/combustible/combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
@@ -629,14 +629,22 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [numeroNueva, setNumeroNueva] = useState('');
   const saldoUsd = Math.round((Number(resumen.saldoUsd) || 0) * 100) / 100;
   const saldoKg = Math.round((Number(resumen.saldoKg) || 0) * 100) / 100;
   const tasa = Number(resumen.tasa) || 0;
 
+  // Sugerencia incremental para el número de la caja nueva (editable la 1ª vez).
+  useEffect(() => {
+    let vivo = true;
+    siguienteNumeroCaja(centro).then((n) => { if (vivo) setNumeroNueva(n); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [centro]);
+
   async function confirmar() {
     setSaving(true); setError(null);
     try {
-      const res = await cerrarYAbrirCaja({ centro, actor, actorName });
+      const res = await cerrarYAbrirCaja({ centro, actor, actorName, numeroNueva: numeroNueva.trim() || null });
       notify(`Caja ${res.cajaCerrada.numero} cerrada · nueva ${res.cajaNueva.numero} abierta`, 'success', { link: '#/app/acopio' });
       onDone();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cerrar la caja.'); setSaving(false); }
@@ -659,6 +667,11 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
           <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
             Se cerrará <strong>{cajaActual.numero}</strong> ({date(cajaActual.fecha_inicio)} → hoy) y se abrirá una nueva automáticamente.
           </p>
+          <div className="form-row" style={{ marginBottom: '.6rem' }}>
+            <label>Número de la caja nueva</label>
+            <input className="input" value={numeroNueva} onChange={(e) => setNumeroNueva(e.target.value)} placeholder="Caja #1" disabled={saving} />
+            <small className="muted" style={{ fontSize: '.74rem' }}>Podés ajustarlo la primera vez; luego se autoincrementa solo.</small>
+          </div>
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.84rem' }}>
               <tbody>
