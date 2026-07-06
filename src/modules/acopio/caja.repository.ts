@@ -673,7 +673,11 @@ export function almacenCasiteritaDeCentro(centro: string): string {
 }
 
 /** Siguiente «Caja #N» del centro (correlativo por el mayor número ya usado). */
-async function nextNumeroCaja(centro: string): Promise<string> {
+/** Sugerencia del número de la próxima caja: toma el mayor número usado en el
+ *  centro y le suma 1. Si aún no hay ninguna con número, arranca en «Caja #1».
+ *  El usuario puede sobreescribirlo al cerrar (la primera vez); de ahí en más
+ *  el incremental sigue solo. */
+export async function siguienteNumeroCaja(centro: string): Promise<string> {
   const cajas = await listCajas(centro);
   let max = 0;
   for (const c of cajas) {
@@ -693,7 +697,7 @@ export interface CierreCajaResultado {
   kgAInventario: boolean;
 }
 
-export async function cerrarYAbrirCaja(input: { centro: string; actor: string; actorName?: string | null }): Promise<CierreCajaResultado> {
+export async function cerrarYAbrirCaja(input: { centro: string; actor: string; actorName?: string | null; numeroNueva?: string | null }): Promise<CierreCajaResultado> {
   const centro = (input.centro || CENTRO_ACOPIO_DEFECTO).trim();
   const cajas = await listCajas(centro);
   const abierta = cajas.find((c) => c.estado === 'abierta');
@@ -724,8 +728,9 @@ export async function cerrarYAbrirCaja(input: { centro: string; actor: string; a
   // 2) Cerrar la caja actual con su saldo final.
   await cerrarCaja(abierta.id, saldoUsd, input.actor, hoy);
 
-  // 3) Abrir la caja nueva.
-  const numero = await nextNumeroCaja(centro);
+  // 3) Abrir la caja nueva. Si el usuario indicó un número (la primera vez),
+  //    se respeta; si no, sigue el incremental automático.
+  const numero = input.numeroNueva?.trim() || (await siguienteNumeroCaja(centro));
   const nueva = await crearCaja({ numero, nombre: `CAJA ${centro}`, fecha_inicio: hoy, centroNombre: centro }, input.actor);
 
   // 4) Traer el SALDO EN $ como movimiento de apertura («$ entregados») en la
