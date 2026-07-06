@@ -3505,13 +3505,23 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                           placeholder="🔎 Buscá el repuesto (caucho, filtro…) si sale del inventario" emptyText="Sin productos con stock." />
                         <small className="muted" style={{ fontSize: '.72rem' }}>Si el repuesto está en el inventario, se descuenta del stock al crear el servicio. Dejalo en blanco si no aplica.</small>
                       </div>
-                      {prod && (
+                      {prod && (() => {
+                        const enTope = (Number(l.repuestoCant) || 0) >= prod.stock;
+                        return (
                         <div className="form-row" style={{ margin: 0 }}>
                           <label style={{ fontSize: '.74rem' }}>Cantidad a tomar del inventario</label>
-                          <input className="input mono" type="number" min={1} step="any" max={prod.stock} value={l.repuestoCant} onChange={(e) => setLinea(l.id, { repuestoCant: e.target.value })} />
-                          <small className="muted" style={{ fontSize: '.72rem' }}>Disponible: {num(prod.stock)} {prod.unidad}{prod.almacen ? ` · ${prod.almacen}` : ''}.</small>
+                          <input className="input mono" type="number" min={1} step="any" max={prod.stock}
+                            value={l.repuestoCant}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setLinea(l.id, { repuestoCant: (Number(v) || 0) > prod.stock ? String(prod.stock) : v });
+                            }} />
+                          <small className="muted" style={{ fontSize: '.72rem', color: enTope ? 'var(--warning)' : undefined }}>
+                            Disponible: {num(prod.stock)} {prod.unidad}{prod.almacen ? ` · ${prod.almacen}` : ''}{enTope ? ' · tope alcanzado' : ''}.
+                          </small>
                         </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   );
                 })()}
