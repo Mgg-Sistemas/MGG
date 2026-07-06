@@ -628,6 +628,22 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     setDescPctStr(desc !== 0 && subtotal > 0 ? String(Math.round((desc / subtotal) * 10000) / 100) : '');
   };
 
+  // Convierte los costos cargados a la otra moneda ($↔Bs) a la tasa y cambia la moneda.
+  // La tasa es la del campo (BCV del día o la que ponga el usuario). El descuento en monto
+  // se convierte también (el % se mantiene). El IVA se re-sugiere en la nueva moneda.
+  function convertirMoneda() {
+    const r = Number(tasaStr) || 0;
+    if (r <= 0) { setError('Colocá la tasa (Bs por $) para convertir.'); return; }
+    const toBs = moneda === 'USD';
+    const conv = (n: number) => round2(toBs ? n * r : n / r);
+    setLineas((ls) => ls.map((l) => { const cu = Number(l.costoUnit) || 0; return cu > 0 ? { ...l, costoUnit: String(conv(cu)) } : l; }));
+    setDescMontoStr((s) => { const m = Number(s) || 0; return m !== 0 ? String(conv(m)) : s; });
+    setIvaManual(false);
+    setMoneda(toBs ? 'Bs' : 'USD');
+    setError(null);
+    toast(`Costos convertidos a ${toBs ? 'Bs' : '$'} a la tasa ${r.toLocaleString('es-VE')}`, 'success');
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!lineas.length) { setError('Dejá al menos un material en la compra.'); return; }
@@ -682,6 +698,14 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
             <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setMoneda('Bs')}>Bs Bolívares</button>
           </div>
           {moneda === 'Bs' && <small className="muted">En Bs se suma el IVA (16%) al total y podés registrar la retención de IVA.</small>}
+          {/* Convertir los costos a la otra moneda a la tasa (del día o la que ponga el usuario). */}
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.45rem' }}>
+            <span className="muted" style={{ fontSize: '.78rem' }}>Tasa (Bs/$)</span>
+            <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 140 }} value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} placeholder="0,00" />
+            {tasaBcv > 0 && Number(tasaStr) !== tasaBcv && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaStr(String(tasaBcv))}>↻ Hoy ({tasaBcv.toLocaleString('es-VE')})</button>}
+            <button type="button" className="btn btn-sm btn-primary" onClick={convertirMoneda}>⇄ Convertir a {moneda === 'USD' ? 'Bs' : '$'}</button>
+          </div>
+          <small className="muted">Convierte los costos cargados a {moneda === 'USD' ? 'Bs' : '$'} a esa tasa. El total convertido es el que va a Tesorería.</small>
         </div>
 
         {moneda === 'Bs' && (

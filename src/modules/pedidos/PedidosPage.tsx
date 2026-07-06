@@ -7,6 +7,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, relTime } from '@/shared/lib/format';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -3243,6 +3244,10 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
   // Moneda del servicio ($ o Bs): los precios estimados se cargan en esta moneda.
   const [moneda, setModeda] = useState<'USD' | 'Bs'>(esEdicion && orden!.moneda === 'Bs' ? 'Bs' : 'USD');
   const monedaSym = moneda === 'USD' ? '$' : 'Bs';
+  // Conversión de moneda a la tasa (BCV del día o la que ponga el usuario).
+  const [tasaConv, setTasaConv] = useState('');
+  const [tasaBcv, setTasaBcv] = useState(0);
+  useEffect(() => { getTasaHoy().then((t) => { const v = Number(t.usd) || 0; if (v > 0) { setTasaBcv(v); setTasaConv((p) => p || String(v)); } }).catch(() => { /* sin tasa */ }); }, []);
   const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]);
   const [productosStock, setProductosStock] = useState<ProductoConStock[]>([]);
   useEffect(() => { listProductosConStock().then(setProductosStock).catch(() => setProductosStock([])); }, []);
@@ -3263,6 +3268,18 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
   const delLinea = (id: number) => setLineas((ls) => ls.filter((l) => l.id !== id));
 
   const total = lineas.reduce((a, l) => a + (Number(l.cantidad) || 0) * (Number(l.precio) || 0), 0);
+
+  // Convierte los precios estimados a la otra moneda ($↔Bs) a la tasa y cambia la moneda.
+  function convertirMoneda() {
+    const r = Number(tasaConv) || 0;
+    if (r <= 0) { setError('Colocá la tasa (Bs por $) para convertir.'); return; }
+    const toBs = moneda === 'USD';
+    const conv = (n: number) => Math.round((toBs ? n * r : n / r) * 100) / 100;
+    setLineas((ls) => ls.map((l) => { const p = Number(l.precio) || 0; return p > 0 ? { ...l, precio: String(conv(p)) } : l; }));
+    setModeda(toBs ? 'Bs' : 'USD');
+    setError(null);
+    toast(`Precios convertidos a ${toBs ? 'Bs' : '$'} a la tasa ${r.toLocaleString('es-VE')}`, 'success');
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -3411,6 +3428,14 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setModeda('Bs')}>Bs Bolívares</button>
         </div>
         <small className="muted" style={{ fontSize: '.72rem' }}>Los precios estimados se cargan en esta moneda. Se puede cambiar al editar.</small>
+        {/* Convertir los precios a la otra moneda a la tasa (del día o la que ponga el usuario). */}
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.45rem' }}>
+          <span className="muted" style={{ fontSize: '.78rem' }}>Tasa (Bs/$)</span>
+          <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 140 }} value={tasaConv} onChange={(e) => setTasaConv(e.target.value)} placeholder="0,00" />
+          {tasaBcv > 0 && Number(tasaConv) !== tasaBcv && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaConv(String(tasaBcv))}>↻ Hoy ({tasaBcv.toLocaleString('es-VE')})</button>}
+          <button type="button" className="btn btn-sm btn-primary" onClick={convertirMoneda}>⇄ Convertir a {moneda === 'USD' ? 'Bs' : '$'}</button>
+        </div>
+        <small className="muted" style={{ fontSize: '.72rem' }}>Convierte los precios cargados a {moneda === 'USD' ? 'Bs' : '$'} a esa tasa. El total va a Tesorería en esa moneda.</small>
       </div>
 
       <div className="form-row">

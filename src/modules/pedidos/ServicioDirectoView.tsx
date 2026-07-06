@@ -11,6 +11,7 @@ import type { Proveedor } from '@/shared/lib/types';
 import { listCatalogoPedido, crearCatalogoPedido, ensureUnidadSolicitante, type CatalogoPedido } from './pedidos.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
   crearServicioDirecto, montarServicioDirecto, listServiciosDirectos, eliminarServicioDirecto,
   urlAdjuntoServicio, gestionarFacturasServicio, editarServicioDirectoFinalizado, esRecargaGas, type ServicioDirecto, type ServicioDirectoItem, type LineaServicioInput,
@@ -608,6 +609,10 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
   const [nota, setNota] = useState(servicio.nota ?? '');
   // Moneda del servicio ($ o Bs): el monto está en esta moneda.
   const [moneda, setModeda] = useState<'USD' | 'Bs'>(servicio.moneda === 'Bs' ? 'Bs' : 'USD');
+  // Conversión de moneda a la tasa (BCV del día o la que ponga el usuario).
+  const [tasaConv, setTasaConv] = useState('');
+  const [tasaBcv, setTasaBcv] = useState(0);
+  useEffect(() => { getTasaHoy().then((t) => { const v = Number(t.usd) || 0; if (v > 0) { setTasaBcv(v); setTasaConv((p) => p || String(v)); } }).catch(() => { /* sin tasa */ }); }, []);
   // Pago a externo: una persona externa YA pagó el servicio; Tesorería le reintegra al pagar.
   const [pagoExterno, setPagoExterno] = useState(!!servicio.pago_externo);
   const [pagoExternoDatos, setPagoExternoDatos] = useState(servicio.pago_externo_datos ?? '');
@@ -615,6 +620,22 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null);
 
   const total = useMemo(() => Math.round(servicio.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100, [gastos, servicio.items]);
+
+  // Convierte los montos cargados a la otra moneda ($↔Bs) a la tasa y cambia la moneda.
+  function convertirMoneda() {
+    const r = Number(tasaConv) || 0;
+    if (r <= 0) { setError('Colocá la tasa (Bs por $) para convertir.'); return; }
+    const toBs = moneda === 'USD';
+    const conv = (n: number) => Math.round((toBs ? n * r : n / r) * 100) / 100;
+    setGastos((m) => {
+      const out: Record<number, string> = {};
+      for (const [k, v] of Object.entries(m)) { const n = Number(v) || 0; out[Number(k)] = n > 0 ? String(conv(n)) : v; }
+      return out;
+    });
+    setModeda(toBs ? 'Bs' : 'USD');
+    setError(null);
+    toast(`Montos convertidos a ${toBs ? 'Bs' : '$'} a la tasa ${r.toLocaleString('es-VE')}`, 'success');
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -654,6 +675,14 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
             <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setModeda('Bs')}>Bs Bolívares</button>
           </div>
           <small className="muted">Los montos se cargan en esta moneda. Tesorería la ve al pagar.</small>
+          {/* Convertir los montos a la otra moneda a la tasa (del día o la que ponga el usuario). */}
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.45rem' }}>
+            <span className="muted" style={{ fontSize: '.78rem' }}>Tasa (Bs/$)</span>
+            <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 140 }} value={tasaConv} onChange={(e) => setTasaConv(e.target.value)} placeholder="0,00" />
+            {tasaBcv > 0 && Number(tasaConv) !== tasaBcv && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaConv(String(tasaBcv))}>↻ Hoy ({tasaBcv.toLocaleString('es-VE')})</button>}
+            <button type="button" className="btn btn-sm btn-primary" onClick={convertirMoneda}>⇄ Convertir a {moneda === 'USD' ? 'Bs' : '$'}</button>
+          </div>
+          <small className="muted">Convierte los montos cargados a {moneda === 'USD' ? 'Bs' : '$'} a esa tasa. El total convertido es el que va a Tesorería.</small>
         </div>
 
         <div className="table-wrap">
