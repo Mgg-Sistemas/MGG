@@ -31,6 +31,8 @@ import { GestionarCajasModal } from './GestionarCajasModal';
 import { GestionarChoferesVehiculosModal } from './GestionarChoferesVehiculosModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
 import { SalidaDineroDetalle } from './SalidaDineroDetalle';
+import { ClientePicker } from './ClientePicker';
+import type { Cliente } from '@/modules/ventas/clientes.repository';
 import {
   descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
   type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
@@ -472,6 +474,21 @@ function SolicitudDetalleModal({
   const [edFecha, setEdFecha] = useState(sol.fecha_entrega ?? '');
   const [edConsumo, setEdConsumo] = useState(!!sol.consumo_interno);
   const [edSolicitante, setEdSolicitante] = useState(sol.solicitante ?? '');
+  // Despacho (transporte).
+  const [edChofer, setEdChofer] = useState(sol.chofer ?? '');
+  const [edCedula, setEdCedula] = useState(sol.chofer_cedula ?? '');
+  const [edVehiculo, setEdVehiculo] = useState(sol.vehiculo ?? '');
+  const [edPlaca, setEdPlaca] = useState(sol.vehiculo_placa ?? '');
+  const [edDirDespacho, setEdDirDespacho] = useState(sol.direccion_despacho ?? '');
+  const [edDirDestino, setEdDirDestino] = useState(sol.direccion_destino ?? '');
+  const [edSedeDestino, setEdSedeDestino] = useState(sol.sede_destino ?? '');
+  // Cliente + cuenta por cobrar.
+  const [edEsCliente, setEdEsCliente] = useState(!!sol.cliente_id);
+  const [edCliente, setEdCliente] = useState<Cliente | null>(sol.cliente_id ? ({ id: sol.cliente_id, nombre: sol.cliente_nombre ?? '' } as Cliente) : null);
+  const [edCxcMonto, setEdCxcMonto] = useState(sol.cxc_monto != null ? String(sol.cxc_monto) : '');
+  const [edCxcMoneda, setEdCxcMoneda] = useState(sol.cxc_moneda ?? 'USD');
+  // Nota adicional (se imprime en la orden).
+  const [edNotaEntrega, setEdNotaEntrega] = useState(sol.nota_entrega ?? '');
 
   // Edición SOLO de la nota/motivo (disponible incluso FINALIZADA: no toca stock ni estado).
   const [editandoNota, setEditandoNota] = useState(false);
@@ -512,6 +529,18 @@ function SolicitudDetalleModal({
     setEdFecha(sol.fecha_entrega ?? '');
     setEdConsumo(!!sol.consumo_interno);
     setEdSolicitante(sol.solicitante ?? '');
+    setEdChofer(sol.chofer ?? '');
+    setEdCedula(sol.chofer_cedula ?? '');
+    setEdVehiculo(sol.vehiculo ?? '');
+    setEdPlaca(sol.vehiculo_placa ?? '');
+    setEdDirDespacho(sol.direccion_despacho ?? '');
+    setEdDirDestino(sol.direccion_destino ?? '');
+    setEdSedeDestino(sol.sede_destino ?? '');
+    setEdEsCliente(!!sol.cliente_id);
+    setEdCliente(sol.cliente_id ? ({ id: sol.cliente_id, nombre: sol.cliente_nombre ?? '' } as Cliente) : null);
+    setEdCxcMonto(sol.cxc_monto != null ? String(sol.cxc_monto) : '');
+    setEdCxcMoneda(sol.cxc_moneda ?? 'USD');
+    setEdNotaEntrega(sol.nota_entrega ?? '');
     setEditando(true);
   }
   const setLinea = (id: number, patch: Partial<LineaEd>) => setEdLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -526,6 +555,11 @@ function SolicitudDetalleModal({
     if (items.some((it) => !it.producto_id)) { toast('Elegí el material en cada renglón.', 'error'); return; }
     if (items.some((it) => !it.almacen)) { toast('Elegí el almacén de origen en cada renglón.', 'error'); return; }
     if (items.some((it) => it.cantidad <= 0)) { toast('Cada material debe tener cantidad mayor que 0.', 'error'); return; }
+    if (edEsCliente && !edCliente) { toast('Elegí (o agregá) el cliente para la cuenta por cobrar.', 'error'); return; }
+    // Si es cliente y no se puso monto, se toma el total de las líneas (cantidad × precio).
+    const totalLineas = items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0);
+    const cxcMonto = edEsCliente ? (Number(edCxcMonto) || totalLineas) : 0;
+    if (edEsCliente && cxcMonto <= 0) { toast('El monto de la cuenta por cobrar debe ser mayor que 0.', 'error'); return; }
     setBusy(true);
     try {
       await editarSolicitudSalida(sol, {
@@ -534,6 +568,15 @@ function SolicitudDetalleModal({
         destino: sol.scope === 'salida' ? edDestino : undefined,
         motivo: edMotivo, fechaEntrega: edFecha || null, consumoInterno: edConsumo,
         solicitante: edSolicitante,
+        chofer: edChofer, choferCedula: edCedula,
+        vehiculo: edVehiculo, vehiculoPlaca: edPlaca,
+        direccionDespacho: edDirDespacho, direccionDestino: edDirDestino,
+        sedeDestino: sol.scope === 'salida' ? edSedeDestino : undefined,
+        clienteId: edEsCliente ? (edCliente?.id ?? null) : null,
+        clienteNombre: edEsCliente ? (edCliente?.nombre ?? null) : null,
+        cxcMonto: edEsCliente ? cxcMonto : null,
+        cxcMoneda: edEsCliente ? edCxcMoneda : null,
+        notaEntrega: edNotaEntrega,
       }, actor);
       notify(`Solicitud ${sol.codigo} actualizada`, 'success');
       setEditando(false);
@@ -659,6 +702,45 @@ function SolicitudDetalleModal({
           </div>
         )}
 
+        {sol.scope === 'salida' && (
+          <div className="form-row">
+            <label>Sede / destino (opcional)</label>
+            <select className="select" value={edSedeDestino} onChange={(e) => setEdSedeDestino(e.target.value)}>
+              <option value="">— sin sede —</option>
+              {Array.from(new Set([...sedes, ...(edSedeDestino ? [edSedeDestino] : [])])).map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* Despacho (transporte). Se imprime en la orden de salida. */}
+        <div className="form-row" style={{ marginTop: '.5rem', marginBottom: '.3rem' }}><label>Despacho (transporte)</label></div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Chofer / responsable</label>
+            <input className="input" value={edChofer} onChange={(e) => setEdChofer(e.target.value)} placeholder="Nombre del chofer…" />
+          </div>
+          <div className="form-row">
+            <label>Cédula</label>
+            <input className="input mono" value={edCedula} onChange={(e) => setEdCedula(e.target.value)} placeholder="C.I." />
+          </div>
+          <div className="form-row">
+            <label>Vehículo</label>
+            <input className="input" value={edVehiculo} onChange={(e) => setEdVehiculo(e.target.value)} placeholder="Marca / modelo…" />
+          </div>
+          <div className="form-row">
+            <label>Placa</label>
+            <input className="input mono" value={edPlaca} onChange={(e) => setEdPlaca(e.target.value)} placeholder="Placa" />
+          </div>
+          <div className="form-row">
+            <label>Dirección de despacho</label>
+            <input className="input" value={edDirDespacho} onChange={(e) => setEdDirDespacho(e.target.value)} placeholder="Desde dónde sale…" />
+          </div>
+          <div className="form-row">
+            <label>Dirección de destino</label>
+            <input className="input" value={edDirDestino} onChange={(e) => setEdDirDestino(e.target.value)} placeholder="A dónde llega…" />
+          </div>
+        </div>
+
         <div className="form-row" style={{ marginTop: '.5rem', marginBottom: '.3rem' }}><label>Materiales</label></div>
         {edLineas.map((l, idx) => {
           // Todos los almacenes activos (incluye subalmacenes como Los Pinos), no solo
@@ -732,6 +814,38 @@ function SolicitudDetalleModal({
             <input type="checkbox" checked={edConsumo} onChange={(e) => setEdConsumo(e.target.checked)} />
             Consumo interno
           </label>
+        </div>
+
+        {/* Cliente + cuenta por cobrar: al ejecutar se le genera la CxC. */}
+        <div className="form-row">
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={edEsCliente} onChange={(e) => setEdEsCliente(e.target.checked)} />
+            Es para un cliente (genera cuenta por cobrar)
+          </label>
+        </div>
+        {edEsCliente && (
+          <div className="card" style={{ padding: '.7rem .85rem', margin: '0 0 .6rem' }}>
+            <ClientePicker value={edCliente} onChange={setEdCliente} actor={actor} actorName={actorName} />
+            <div className="form-grid" style={{ marginTop: '.5rem' }}>
+              <div className="form-row">
+                <label>Monto por cobrar</label>
+                <input className="input mono" type="number" min={0} step="any" value={edCxcMonto} onChange={(e) => setEdCxcMonto(e.target.value)}
+                  placeholder="Se toma el total de las líneas si lo dejás vacío" />
+              </div>
+              <div className="form-row">
+                <label>Moneda</label>
+                <select className="select" value={edCxcMoneda} onChange={(e) => setEdCxcMoneda(e.target.value)}>
+                  <option value="USD">USD ($)</option>
+                  <option value="Bs">Bs</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="form-row">
+          <label>Nota adicional (se imprime en la orden)</label>
+          <textarea className="input" rows={2} value={edNotaEntrega} onChange={(e) => setEdNotaEntrega(e.target.value)} placeholder="Nota / observación adicional…" />
         </div>
       </ModalUI>
     );

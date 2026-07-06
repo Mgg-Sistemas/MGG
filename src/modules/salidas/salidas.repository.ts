@@ -567,6 +567,26 @@ export interface EditarSolicitudSalidaInput {
   fechaEntrega?: string | null;
   consumoInterno?: boolean | null;
   solicitante?: string | null;
+  /** Nota / observación adicional (se imprime en la orden). */
+  notaEntrega?: string | null;
+  /** Datos de despacho (transporte). */
+  chofer?: string | null;
+  choferCedula?: string | null;
+  vehiculo?: string | null;
+  vehiculoPlaca?: string | null;
+  direccionDespacho?: string | null;
+  direccionDestino?: string | null;
+  sedeDestino?: string | null;
+  /** Cliente + cuenta por cobrar (si la salida/traslado va a un cliente). */
+  clienteId?: string | null;
+  clienteNombre?: string | null;
+  cxcMonto?: number | null;
+  cxcMoneda?: string | null;
+  /** Solicitudes de DINERO (monto / moneda / cajas). */
+  monto?: number | null;
+  moneda?: string | null;
+  cajaId?: string | null;
+  cajaDestinoId?: string | null;
 }
 
 /**
@@ -611,8 +631,16 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
       throw new Error('Indicá la unidad solicitante / destino.');
     }
   } else {
-    const monto = input.cantidad != null ? Number(input.cantidad) : Number(s.monto) || 0;
+    const monto = input.monto != null ? Number(input.monto) : (input.cantidad != null ? Number(input.cantidad) : Number(s.monto) || 0);
     if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+    if (s.scope === 'traslado') {
+      const org = input.cajaId !== undefined ? input.cajaId : s.caja_id;
+      const dst = input.cajaDestinoId !== undefined ? input.cajaDestinoId : s.caja_destino_id;
+      if (!org || !dst) throw new Error('Indicá la caja de origen y la de destino.');
+      if (org === dst) throw new Error('La caja de origen y la de destino deben ser distintas.');
+    } else if (!(input.cajaId !== undefined ? input.cajaId : s.caja_id)) {
+      throw new Error('Indicá la caja de origen.');
+    }
   }
 
   const cab = itemsLimpios[0] ?? null;
@@ -631,6 +659,29 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
     solicitante: (input.solicitante?.trim()) || s.solicitante,
     historial: appendHistorial(s, 'editada', actor),
   };
+  // Nota / observación (ambos tipos).
+  if (input.notaEntrega !== undefined) patch.nota_entrega = input.notaEntrega?.trim() || null;
+  // Despacho + cliente/CxC (material).
+  if (s.tipo === 'material') {
+    if (input.chofer !== undefined) patch.chofer = input.chofer?.trim() || null;
+    if (input.choferCedula !== undefined) patch.chofer_cedula = input.choferCedula?.trim() || null;
+    if (input.vehiculo !== undefined) patch.vehiculo = input.vehiculo?.trim() || null;
+    if (input.vehiculoPlaca !== undefined) patch.vehiculo_placa = input.vehiculoPlaca?.trim() || null;
+    if (input.direccionDespacho !== undefined) patch.direccion_despacho = input.direccionDespacho?.trim() || null;
+    if (input.direccionDestino !== undefined) patch.direccion_destino = input.direccionDestino?.trim() || null;
+    if (input.sedeDestino !== undefined) patch.sede_destino = input.sedeDestino?.trim() || null;
+    if (input.clienteId !== undefined) patch.cliente_id = input.clienteId || null;
+    if (input.clienteNombre !== undefined) patch.cliente_nombre = input.clienteNombre?.trim() || null;
+    if (input.cxcMonto !== undefined) patch.cxc_monto = input.cxcMonto != null ? Number(input.cxcMonto) : null;
+    if (input.cxcMoneda !== undefined) patch.cxc_moneda = input.cxcMoneda || null;
+  }
+  // Monto / moneda / cajas (dinero).
+  if (s.tipo === 'dinero') {
+    if (input.monto !== undefined) patch.monto = Number(input.monto) || 0;
+    if (input.moneda !== undefined) patch.moneda = input.moneda || s.moneda;
+    if (input.cajaId !== undefined) patch.caja_id = input.cajaId || null;
+    if (input.cajaDestinoId !== undefined) patch.caja_destino_id = input.cajaDestinoId || null;
+  }
   const { data, error } = await supabase.from(SOL).update(patch).eq('id', s.id).select('*').single();
   if (error) throw error;
   // Mantener sincronizada la unidad solicitante en el catálogo compartido con OP.
