@@ -29,6 +29,8 @@ export interface DirectoFila {
   titulo: string;
   detalle: string;
   total: number;
+  /** Moneda del total ($ o Bs): la compra/servicio se montó en esta moneda. */
+  moneda: string;
   generoPor: string;
   categoria: string;
   /** Pago a externo: lo pagó una persona externa; el pago reintegra el dinero a esa persona. */
@@ -49,7 +51,7 @@ export async function cargarDirectosPorPagar(): Promise<DirectoFila[]> {
   const fc: DirectoFila[] = compras.map((c) => ({
     kind: 'compra', id: c.id, codigo: c.codigo ?? '—', titulo: c.producto_nombre,
     detalle: c.items.length > 1 ? `${c.items.length} materiales` : (c.producto_sku ?? ''),
-    total: Number(c.gasto) || 0, generoPor: c.actor_name || c.actor || '—',
+    total: Number(c.gasto) || 0, moneda: c.moneda === 'Bs' ? 'Bs' : 'USD', generoPor: c.actor_name || c.actor || '—',
     categoria: [c.gasto_categoria, c.gasto_subcategoria].filter(Boolean).join(' → '),
     pagoExterno: !!c.pago_externo, pagoExternoDatos: c.pago_externo_datos,
     adjuntoPath: c.adjunto_path, adjuntoNombre: c.adjunto_nombre, compra: c,
@@ -57,7 +59,7 @@ export async function cargarDirectosPorPagar(): Promise<DirectoFila[]> {
   const fs: DirectoFila[] = servicios.map((s) => ({
     kind: 'servicio', id: s.id, codigo: s.codigo ?? '—', titulo: s.descripcion,
     detalle: s.equipo_nombre || (s.items.length > 1 ? `${s.items.length} servicios` : ''),
-    total: Number(s.gasto) || 0, generoPor: s.actor_name || s.actor || '—',
+    total: Number(s.gasto) || 0, moneda: s.moneda === 'Bs' ? 'Bs' : 'USD', generoPor: s.actor_name || s.actor || '—',
     categoria: [s.gasto_categoria, s.gasto_subcategoria].filter(Boolean).join(' → '),
     pagoExterno: !!s.pago_externo, pagoExternoDatos: s.pago_externo_datos,
     adjuntoPath: s.adjunto_path, adjuntoNombre: s.adjunto_nombre, servicio: s,
