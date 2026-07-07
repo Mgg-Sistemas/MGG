@@ -68,12 +68,13 @@ export function SalidasPage() {
   const { can, appUser, isAdmin, role } = usePermissions();
   const canWrite = can('salidas', 'escritura');
   // Aprueban y ejecutan: el administrador, quien tenga FULL CONTROL del módulo,
-  // cualquier ANALISTA y cualquier JEFE/JEFA. (Se excluye el rol de solo lectura,
-  // que no debe ejecutar movimientos). El obrero solo crea solicitudes.
+  // cualquier ANALISTA y cualquier JEFE/JEFA. El obrero solo crea solicitudes.
+  // Excepción DURA (nunca aprueban ni ejecutan, aunque tengan full): el Analista
+  // de Compras (key 'analista') y el Analista de Lectura ('analista_de_lectura').
   const r = role ?? '';
-  const puedeAprobar = isAdmin
-    || can('salidas', 'full')
-    || (r !== 'analista_de_lectura' && (/^analista/.test(r) || /^jef[ae]/.test(r)));
+  const NO_APRUEBA_SALIDAS = r === 'analista' || r === 'analista_de_lectura';
+  const puedeAprobar = !NO_APRUEBA_SALIDAS
+    && (isAdmin || can('salidas', 'full') || /^analista/.test(r) || /^jef[ae]/.test(r));
   const actor = appUser?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
