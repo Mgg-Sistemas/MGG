@@ -5,6 +5,7 @@
    por retrocompatibilidad con datos legados ('General', etc.).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { cachedQuery } from '@/shared/lib/queryCache';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 
 const TABLE = 'almacenes';
@@ -33,9 +34,12 @@ export interface AlmacenValor {
 }
 
 export async function listAlmacenes(): Promise<Almacen[]> {
-  const { data, error } = await supabase.from(TABLE).select('*').order('nombre', { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as Almacen[];
+  // Cacheada (SWR): dato de referencia usado en casi todos los desplegables.
+  return cachedQuery('inv:almacenes', async () => {
+    const { data, error } = await supabase.from(TABLE).select('*').order('nombre', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as Almacen[];
+  }, { tables: ['almacenes'], ttl: 30_000 });
 }
 
 /**
@@ -176,9 +180,13 @@ export async function eliminarAlmacen(id: string, nombre: string): Promise<void>
 
 /** Todas las existencias (stock + costo por almacén). */
 export async function listExistencias(): Promise<Existencia[]> {
-  const { data, error } = await supabase.from('existencias').select('*');
-  if (error) throw error;
-  return (data ?? []) as Existencia[];
+  // Cacheada (SWR) con TTL corto: el stock cambia seguido, pero realtime
+  // (tabla `existencias`) la invalida al instante ante cualquier movimiento.
+  return cachedQuery('inv:existencias', async () => {
+    const { data, error } = await supabase.from('existencias').select('*');
+    if (error) throw error;
+    return (data ?? []) as Existencia[];
+  }, { tables: ['existencias'], ttl: 15_000 });
 }
 
 /** Existencia de un producto en un almacén (null si no hay fila). */

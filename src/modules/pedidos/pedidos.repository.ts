@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { cachedQuery } from '@/shared/lib/queryCache';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -73,12 +74,16 @@ export async function listProveedoresActivos(): Promise<Proveedor[]> {
 /** Todos los proveedores (activos e inactivos). Para resolver nombres en las
  *  órdenes aunque el proveedor haya quedado inactivo. */
 export async function listProveedores(): Promise<Proveedor[]> {
-  const { data, error } = await supabase
-    .from('proveedores')
-    .select('*')
-    .order('razon_social', { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as Proveedor[];
+  // Cacheada (SWR): dato de referencia usado en varios módulos. Realtime la
+  // invalida ante cualquier cambio en `proveedores`.
+  return cachedQuery('proveedores:all', async () => {
+    const { data, error } = await supabase
+      .from('proveedores')
+      .select('*')
+      .order('razon_social', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as Proveedor[];
+  }, { tables: ['proveedores'], ttl: 30_000 });
 }
 
 export async function listProductosActivos(): Promise<Producto[]> {
