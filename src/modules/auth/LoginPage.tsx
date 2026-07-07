@@ -12,6 +12,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [bioOk, setBioOk] = useState(false);     // el equipo tiene sensor biométrico
   const [bioBusy, setBioBusy] = useState(false);
+  const [verClave, setVerClave] = useState(false); // mostrar/ocultar la contraseña
 
   // ¿Este equipo soporta huella / Windows Hello / Face ID? (para mostrar el botón)
   useEffect(() => { biometriaDisponible().then(setBioOk).catch(() => setBioOk(false)); }, []);
@@ -124,15 +125,32 @@ export function LoginPage() {
 
           <div className="form-row">
             <label htmlFor="password">Contraseña</label>
-            <input
-              id="password"
-              type="password"
-              className="input"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                id="password"
+                type={verClave ? 'text' : 'password'}
+                className="input"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                style={{ paddingRight: '2.6rem', width: '100%' }}
+              />
+              <button
+                type="button"
+                onClick={() => setVerClave((v) => !v)}
+                title={verClave ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                aria-label={verClave ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                aria-pressed={verClave}
+                style={{
+                  position: 'absolute', top: '50%', right: '.5rem', transform: 'translateY(-50%)',
+                  background: 'transparent', border: 'none', cursor: 'pointer', padding: '.25rem',
+                  fontSize: '1.05rem', lineHeight: 1, color: 'var(--muted)',
+                }}
+              >
+                {verClave ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
 
           {error && (
