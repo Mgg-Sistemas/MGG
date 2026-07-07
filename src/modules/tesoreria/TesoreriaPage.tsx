@@ -4386,7 +4386,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
                 <td>{f.titulo}{f.detalle ? <span className="muted"> · {f.detalle}</span> : null}</td>
                 <td className="muted" style={{ fontSize: '.78rem' }}>{f.generoPor}</td>
                 <td style={{ fontSize: '.78rem' }}>{f.categoria || '—'}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{monto(f.total, 'USD')}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{monto(f.total, f.moneda)}</td>
                 <td className="muted">—</td>
                 <td className="muted">—</td>
                 <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={() => setPagarDir(f)}>Ver / Pagar</button></td>
