@@ -11,6 +11,7 @@
    plpgsql `registrar_movimiento(...)` con SECURITY DEFINER.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { bustCache } from '@/shared/lib/queryCache';
 import type { Movimiento, TipoMovimiento } from '@/shared/lib/types';
 import { findProducto } from './inventario.repository';
 
@@ -203,6 +204,9 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
     if (fErr) throw fErr;
   }
 
+  // El stock cambió: invalidar la caché para que la próxima lectura (esta misma
+  // pestaña, sin esperar realtime) traiga existencias/stock frescos.
+  bustCache(['existencias', 'productos']);
   return data as Movimiento;
 }
 

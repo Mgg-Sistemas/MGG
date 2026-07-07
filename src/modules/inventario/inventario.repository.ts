@@ -4,6 +4,7 @@
    exclusivamente desde `movimientos.repository.ts` (kardex).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { cachedQuery, bustCache } from '@/shared/lib/queryCache';
 import type { EstadoGenerico, Orden, Producto, RecetaFundicion } from '@/shared/lib/types';
 
 export interface ProductoInput {
@@ -244,12 +245,16 @@ export async function contarProductosPorCategoria(): Promise<Record<string, numb
 }
 
 export async function listProductos(): Promise<Producto[]> {
-  const { data, error } = await supabase
-    .from('productos')
-    .select('*')
-    .order('nombre', { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as Producto[];
+  // Cacheada (SWR): casi todas las páginas la piden al montar. Realtime la
+  // invalida ante cualquier cambio en `productos`.
+  return cachedQuery('inv:productos', async () => {
+    const { data, error } = await supabase
+      .from('productos')
+      .select('*')
+      .order('nombre', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as Producto[];
+  }, { tables: ['productos'], ttl: 30_000 });
 }
 
 export async function findProducto(id: string): Promise<Producto | null> {
@@ -314,6 +319,7 @@ export async function createProducto(input: ProductoInput): Promise<Producto> {
     .select('*')
     .single();
   if (error) throw error;
+  bustCache(['productos']); // que la próxima lectura (misma pestaña) ya lo incluya
   return data as Producto;
 }
 
@@ -370,6 +376,7 @@ export async function updateProducto(
     if (!ubic.some((r) => r.almacen === origen) && ubic.length === 1) origen = ubic[0].almacen;
     await moverExistenciaProducto(id, origen, patch.almacen).catch(() => { /* no bloquea el guardado */ });
   }
+  bustCache(['productos', 'existencias']); // reflejar el cambio en la próxima lectura
   return data as Producto;
 }
 

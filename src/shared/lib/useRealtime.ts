@@ -10,6 +10,7 @@
    ============================================================ */
 import { useEffect, useRef } from 'react';
 import { getSupabase, isSupabaseConfigured } from './supabase';
+import { bustCache } from './queryCache';
 
 /**
  * Suscribe `onChange` a los cambios de `tables`. Recarga con debounce (300 ms)
@@ -33,6 +34,9 @@ export function useRealtime(tables: string[], onChange: () => void, opts?: { ena
     // Recarga con debounce (400 ms) para agrupar ráfagas de eventos relacionados.
     const programar = () => { if (timer) clearTimeout(timer); timer = setTimeout(() => cb.current(), 400); };
     const alEvento = () => {
+      // Un cambio real ⇒ la caché de estas tablas ya no es válida: la invalidamos
+      // para que la próxima lectura (esta u otra pestaña) traiga lo fresco.
+      bustCache(tables);
       // En segundo plano no recargamos (ahorra red/CPU); marcamos para ponernos al día al volver.
       if (ocultaApi && document.hidden) { pendienteOculto = true; return; }
       programar();

@@ -5,6 +5,7 @@
    con la recepción de mineral equivalente (entra al inventario).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { cachedQuery } from '@/shared/lib/queryCache';
 import type { Caja, MovimientoCaja, Moneda, MonedaCaja } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
@@ -17,9 +18,13 @@ function round2(n: number): number { return Math.round(n * 100) / 100; }
 /* ───────────── Cajas (CRUD) ───────────── */
 
 export async function listCajas(): Promise<Caja[]> {
-  const { data, error } = await supabase.from(TABLE).select('*').order('nombre', { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as Caja[];
+  // Cacheada (SWR) con TTL corto: el saldo cambia con cada movimiento, pero
+  // realtime (tabla `cajas`) la invalida al instante.
+  return cachedQuery('cajas:all', async () => {
+    const { data, error } = await supabase.from(TABLE).select('*').order('nombre', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as Caja[];
+  }, { tables: ['cajas'], ttl: 15_000 });
 }
 
 export async function listCajasActivas(): Promise<Caja[]> {
