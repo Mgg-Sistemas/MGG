@@ -15,12 +15,16 @@ export interface FilterValues {
   filterAlmacen: string;
 }
 
+export interface AlmacenOpcion { value: string; label: string }
+
 interface InventarioFilterbarProps {
   values: FilterValues;
   categorias: string[];
   /** Almacenes para el filtro por ubicación. Solo se pasa en la vista general
-   *  (en el detalle de un almacén ya está acotado, así que el select no aparece). */
-  almacenes?: string[];
+   *  (en el detalle de un almacén ya está acotado, así que el select no aparece).
+   *  Lista jerárquica: el almacén PADRE se elige "sin subalmacén" (roll-up: trae
+   *  todos sus productos y los de sus subalmacenes); los subalmacenes van indentados. */
+  almacenes?: AlmacenOpcion[];
   onChange: (key: keyof FilterValues, value: string) => void;
 }
 
@@ -54,7 +58,7 @@ export function InventarioFilterbar({ values, categorias, almacenes, onChange }:
         >
           <option value="">Todos los almacenes</option>
           {almacenes.map((a) => (
-            <option key={a} value={a}>{a}</option>
+            <option key={a.value} value={a.value}>{a.label}</option>
           ))}
         </select>
       )}
