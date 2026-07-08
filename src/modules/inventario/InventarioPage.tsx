@@ -322,13 +322,37 @@ export function InventarioPage() {
     return base.filter((p) => coincideFiltros(p, ui));
   }, [decorated, rollupAlmacen, ui]);
 
-  // Nombres de almacén para el filtro de la vista general (catálogo activo + los que
-  // tengan existencias, por si hay nombres legados fuera del catálogo).
-  const almacenNombres = useMemo<string[]>(() => {
-    const s = new Set<string>();
-    almacenes.filter((a) => a.estado === 'activo').forEach((a) => s.add(a.nombre));
-    existencias.forEach((e) => { if (e.almacen) s.add(e.almacen); });
-    return Array.from(s).sort((x, y) => x.localeCompare(y, 'es'));
+  // Opciones del filtro por almacén, JERÁRQUICAS: primero el almacén PADRE (elegirlo
+  // "sin subalmacén" trae TODOS sus productos y los de sus subalmacenes vía roll-up) y
+  // debajo, indentados, sus subalmacenes por si se quiere acotar a uno. Incluye nombres
+  // legados con existencias (fuera del catálogo) al final.
+  const almacenNombres = useMemo<{ value: string; label: string }[]>(() => {
+    const activos = almacenes.filter((a) => a.estado === 'activo');
+    const hijosDe = new Map<string | null, typeof activos>();
+    for (const a of activos) {
+      const k = a.parent_id ?? null;
+      const arr = hijosDe.get(k) ?? [];
+      arr.push(a); hijosDe.set(k, arr);
+    }
+    for (const arr of hijosDe.values()) arr.sort((x, y) => x.nombre.localeCompare(y.nombre, 'es'));
+    const out: { value: string; label: string }[] = [];
+    const seen = new Set<string>();
+    const walk = (parentId: string | null, depth: number) => {
+      for (const a of hijosDe.get(parentId) ?? []) {
+        if (seen.has(a.nombre)) continue;
+        out.push({ value: a.nombre, label: depth === 0 ? a.nombre : `${'  '.repeat(depth)}↳ ${a.nombre}` });
+        seen.add(a.nombre);
+        walk(a.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    // Almacenes activos cuyo padre no está activo/existe: mostrarlos como raíz.
+    for (const a of activos) if (!seen.has(a.nombre)) { out.push({ value: a.nombre, label: a.nombre }); seen.add(a.nombre); }
+    // Nombres legados con existencias, fuera del catálogo.
+    const legados = new Set<string>();
+    existencias.forEach((e) => { if (e.almacen && !seen.has(e.almacen)) legados.add(e.almacen); });
+    Array.from(legados).sort((x, y) => x.localeCompare(y, 'es')).forEach((n) => out.push({ value: n, label: n }));
+    return out;
   }, [almacenes, existencias]);
 
   // Filas (con stock/PMP propios del almacén) de CUALQUIER almacén por nombre, sin
