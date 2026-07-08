@@ -1,6 +1,10 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
-import { loadLogoDataUrl, loadFirmaGerenteDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoDataUrl, loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl } from '@/shared/lib/pdfLogo';
+
+/** Correo de la Jefa de Administración (LEYDIS RENGEL): si confirmó ella la OC,
+ *  el PDF muestra SU firma (firma2.jpeg) en vez de la del Gerente General. */
+const EMAIL_JEFA_ADMIN = 'jhzgcontabilidad@gmail.com';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { descuentoEfectivo } from './ofertas.repository';
 import type { OfertaDetalle, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
@@ -86,10 +90,11 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
 }
 
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
-  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personaMap }, logoDataUrl, firmaDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personaMap }, logoDataUrl, firmaDataUrl, firmaLeydisDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarDatosOc(ordenId),
     loadLogoDataUrl().catch(() => null),
     loadFirmaGerenteDataUrl().catch(() => null),
+    loadFirmaSalidasDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -435,14 +440,19 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     y = MARGIN;
   }
 
-  // Firma del Gerente General: se inserta abajo a la izquierda cuando la OC ya fue
-  // aprobada por él (oc_aprobada en adelante). Sobre la línea "Firma autorizada · MGG".
+  // Firma de quien AUTORIZÓ la OC: se inserta abajo a la izquierda cuando la OC ya
+  // fue confirmada (oc_aprobada en adelante). Si la confirmó la Jefa de Administración
+  // (LEYDIS RENGEL) se estampa SU firma (firma2.jpeg); si no, la del Gerente General.
   const aprobadaPorGG = !!(orden.oc_aprobada_por || orden.oc_aprobada_en)
     || ['oc_aprobada', 'pagada', 'oc_emitida', 'recibida', 'finalizada', 'por_recibir', 'cuenta_abierta'].includes(orden.estado);
-  if (firmaDataUrl && aprobadaPorGG) {
+  const aproboJefaAdmin = (orden.oc_aprobada_por ?? '').toLowerCase() === EMAIL_JEFA_ADMIN;
+  const firmaMostrar = aproboJefaAdmin ? firmaLeydisDataUrl : firmaDataUrl;
+  const firmaFmt = aproboJefaAdmin ? 'JPEG' : 'PNG';
+  const firmaLabel = aproboJefaAdmin ? 'Firma autorizada · Jefa de Administración' : 'Firma autorizada · Gerente General';
+  if (firmaMostrar && aprobadaPorGG) {
     try {
       const fw = 120, fh = 50;
-      doc.addImage(firmaDataUrl, 'PNG', MARGIN + 6, pageH - 80 - fh + 6, fw, fh, undefined, 'FAST');
+      doc.addImage(firmaMostrar, firmaFmt, MARGIN + 6, pageH - 80 - fh + 6, fw, fh, undefined, 'FAST');
     } catch { /* firma opcional */ }
   }
 
@@ -450,7 +460,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.line(MARGIN, pageH - 80, MARGIN + 200, pageH - 80);
   doc.line(PAGE_W - MARGIN - 200, pageH - 80, PAGE_W - MARGIN, pageH - 80);
   doc.setFontSize(9);
-  doc.text(aprobadaPorGG ? 'Firma autorizada · Gerente General' : 'Firma autorizada · MGG', MARGIN, pageH - 66);
+  doc.text(aprobadaPorGG ? firmaLabel : 'Firma autorizada · MGG', MARGIN, pageH - 66);
   doc.text('Recibido por proveedor', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
   doc.setFontSize(8);
   doc.setTextColor(120);

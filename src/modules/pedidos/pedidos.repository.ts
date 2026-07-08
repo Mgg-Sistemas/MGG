@@ -19,20 +19,26 @@ import type {
 /** Bucket de Storage para los adjuntos de pago de OC (factura / retención). */
 const BUCKET_OC = 'compras-oc';
 
+/** Correo de la Jefa de Administración (LEYDIS RENGEL): autoriza OC igual que el
+ *  Gerente General. Cada uno firma con su propia firma en el PDF de la OC. */
+const EMAIL_JEFA_ADMIN = 'jhzgcontabilidad@gmail.com';
+
 /**
- * Guard de capa de datos: la confirmación/aprobación de OC es EXCLUSIVA del
- * administrador (gerente general). El front ya oculta los botones a otros roles,
- * pero re-verificamos el rol del usuario logueado contra la tabla `usuarios`
- * para que el flujo no se pueda disparar por otra vía. No toca RLS (el acceso
- * por rol vive en el front, según la arquitectura del sistema).
+ * Guard de capa de datos: la confirmación/aprobación de OC la puede hacer el
+ * administrador (Gerente General) O la Jefa de Administración (LEYDIS RENGEL).
+ * El front ya oculta los botones a otros roles, pero re-verificamos contra la
+ * tabla `usuarios` para que el flujo no se pueda disparar por otra vía. No toca
+ * RLS (el acceso por rol vive en el front, según la arquitectura del sistema).
  */
 async function assertAdmin(accion: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
   const uid = auth.user?.id;
   if (!uid) throw new Error('Sesión no válida. Volvé a iniciar sesión.');
-  const { data, error } = await supabase.from('usuarios').select('role').eq('id', uid).single();
-  if (error || data?.role !== 'admin') {
-    throw new Error(`Solo el administrador puede ${accion}.`);
+  const { data, error } = await supabase.from('usuarios').select('role, email').eq('id', uid).single();
+  const rol = data?.role;
+  const email = (data?.email ?? '').toLowerCase();
+  if (error || (rol !== 'admin' && email !== EMAIL_JEFA_ADMIN)) {
+    throw new Error(`Solo el Gerente General o la Jefa de Administración pueden ${accion}.`);
   }
 }
 
