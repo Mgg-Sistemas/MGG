@@ -359,6 +359,15 @@ export async function updateProducto(
     const { data: actual } = await supabase.from('productos').select('almacen').eq('id', id).single();
     homeAnterior = (actual as { almacen?: string } | null)?.almacen ?? null;
   }
+
+  // Precio anterior: si el usuario CAMBIA el precio a mano, hay que sincronizar el
+  // costo por almacén (existencias.costo_promedio), porque otros módulos —Salidas/
+  // Traslados, reportes— leen ese costo y, si no, seguirían mostrando el precio viejo.
+  let precioAnterior: number | null = null;
+  if (patch.precio !== undefined) {
+    const { data: prev } = await supabase.from('productos').select('precio').eq('id', id).single();
+    precioAnterior = prev ? Number((prev as { precio: number }).precio) : null;
+  }
   const { data, error } = await supabase
     .from('productos')
     .update(patch)
@@ -376,6 +385,20 @@ export async function updateProducto(
     if (!ubic.some((r) => r.almacen === origen) && ubic.length === 1) origen = ubic[0].almacen;
     await moverExistenciaProducto(id, origen, patch.almacen).catch(() => { /* no bloquea el guardado */ });
   }
+
+  // Sincroniza el COSTO por almacén con el precio recién editado. En este sistema
+  // `producto.precio` ES el costo (PMP global); al cambiarlo a mano hay que reflejarlo
+  // en existencias.costo_promedio para que Salidas/Traslados y los reportes muestren
+  // el precio nuevo, no el original. Solo cuando el precio realmente cambió.
+  if (patch.precio !== undefined && Number(patch.precio) !== precioAnterior) {
+    const nuevoCosto = Number(patch.precio) || 0;
+    const { error: cErr } = await supabase
+      .from('existencias')
+      .update({ costo_promedio: nuevoCosto, updated_at: new Date().toISOString() })
+      .eq('producto_id', id);
+    if (cErr) { /* best-effort: el producto ya se guardó; el costo se re-sincroniza al próximo movimiento */ }
+  }
+
   bustCache(['productos', 'existencias']); // reflejar el cambio en la próxima lectura
   return data as Producto;
 }
