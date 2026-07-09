@@ -383,7 +383,7 @@ export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Pr
     let primero: string | null = null;
     for (const leg of legs) {
       const r = await egresarDivisa({
-        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        cajaId: leg.cajaId || input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'servicio_directo',
         gastoCategoria: gCat, gastoSubcategoria: gSub,
         actor: input.actor, actorName: input.actorName ?? null,

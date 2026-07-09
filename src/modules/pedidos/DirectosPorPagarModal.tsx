@@ -106,8 +106,10 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   const catNombre = categorias.find((c) => c.id === catId)?.nombre ?? '';
   const subNombre = subcategorias.find((s) => s.id === subId)?.nombre ?? '';
 
-  // Saldo real por caja (para el desplegable).
+  // Saldo real por caja (para el desplegable) + TODOS los saldos por cuenta/moneda
+  // de todas las cajas (para el multipago cross-caja: pagar $ de una caja y Bs de otra).
   const [saldoReal, setSaldoReal] = useState<Map<string, { saldo: number; moneda: string }>>(new Map());
+  const [todosSaldos, setTodosSaldos] = useState<CajaSaldo[]>([]);
   useEffect(() => {
     listSaldos().then((rows) => {
       const m = new Map<string, { saldo: number; moneda: string }>();
@@ -119,6 +121,9 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
         m.set(c.id, { saldo, moneda: mon });
       }
       setSaldoReal(m);
+      // Solo cajas activas del sistema (las que se pueden usar para pagar) y con saldo.
+      const cajaIds = new Set(cajas.map((c) => c.id));
+      setTodosSaldos(rows.filter((r) => cajaIds.has(r.caja_id) && Number(r.saldo) > 0));
     }).catch(() => { /* sin saldos */ });
   }, [cajas]);
 
@@ -126,7 +131,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
 
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
   const [legMontos, setLegMontos] = useState<Record<string, string>>({});
-  const [cuentaSel, setCuentaSel] = useState<string>(''); // id del saldo elegido, o '__split__'
+  const [cuentaSel, setCuentaSel] = useState<string>(''); // id del saldo elegido, o '__multicaja__'
   const [tasa, setTasa] = useState<number>(0);
   // Tasa manual para este pago (Bs por $): si se coloca, prevalece sobre la tasa BCV.
   const [tasaManualStr, setTasaManualStr] = useState('');
@@ -134,7 +139,6 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   useEffect(() => {
     if (!cajaId) { setSaldosCaja([]); return; }
     saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
-    setLegMontos({});
   }, [cajaId]);
   // Por defecto, la cuenta/billetera que coincide con la moneda de la caja (o la primera).
   useEffect(() => {
@@ -148,7 +152,8 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   // Tasa efectiva Bs/$: la manual (si la colocan) prevalece sobre la BCV auto.
   const tasaEff = (Number(tasaManualStr) || 0) > 0 ? Number(tasaManualStr) : tasa;
 
-  const esMultimoneda = saldosCaja.length >= 2;
+  // Multipago cross-caja disponible cuando hay ≥2 cuentas con saldo en el sistema.
+  const haySplit = todosSaldos.length >= 2;
   function legUsd(monedaLeg: string, n: number): number {
     if (!n || n <= 0) return 0;
     if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(n);
@@ -170,17 +175,20 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   // conversión (pivota en USD), llevamos el total a USD-equivalente con la tasa.
   const totalUsd = monedaBase === 'Bs' ? (tasaEff > 0 ? round2(total / tasaEff) : 0) : total;
 
-  // Modo de pago: una sola cuenta/billetera (default) o repartir entre varias monedas.
-  const esSplit = cuentaSel === '__split__';
+  // Modo de pago: una sola cuenta/billetera de la caja elegida (default) o REPARTIR el
+  // pago entre varias cajas / monedas (ej. una parte en $ de una caja y otra en Bs de
+  // otra). El reparto pivota en USD para poder mezclar monedas.
+  const esSplit = cuentaSel === '__multicaja__';
   const saldoSel = saldosCaja.find((s) => s.id === cuentaSel) ?? null;
   const montoCuenta = saldoSel ? montoEnMoneda(saldoSel.moneda, totalUsd) : totalUsd;
-  const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
+  const sumUsdMulti = round2(todosSaldos.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
   const cubreTotalMulti = sumUsdMulti >= totalUsd - 0.01;
   const excedeTotalMulti = esSplit && sumUsdMulti > totalUsd + 0.01;
   // ¿Este pago cruza Bs↔$ (hace falta tasa)? Para mostrar el campo de tasa manual.
+  const legsSplitActivos = todosSaldos.filter((s) => (Number(legMontos[s.id]) || 0) > 0);
   const cruzaBsUsd = !esSplit
     ? (!!saldoSel && saldoSel.moneda !== monedaBase && (saldoSel.moneda === 'Bs' || monedaBase === 'Bs'))
-    : (monedaBase !== 'Bs' && saldosCaja.some((s) => s.moneda === 'Bs')) || (monedaBase === 'Bs' && saldosCaja.some((s) => s.moneda === 'USD' || s.moneda === 'USDT'));
+    : legsSplitActivos.some((s) => (s.moneda === 'Bs') !== (monedaBase === 'Bs'));
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -192,8 +200,13 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
     if (!subId) { setError('Elegí la subcategoría de gasto.'); return; }
     let legs: PagoLeg[] | undefined;
     if (esSplit) {
-      legs = saldosCaja.map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 })).filter((l) => l.monto > 0);
-      if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
+      // Ninguna pata puede exceder el saldo de su cuenta (en su moneda).
+      for (const s of todosSaldos) {
+        const n = Number(legMontos[s.id]) || 0;
+        if (n > Number(s.saldo) + 0.01) { setError(`«${s.caja?.nombre ?? 'Caja'}» — ${s.moneda}${cuentaLabel(s.cuenta)} no tiene saldo suficiente (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
+      }
+      legs = todosSaldos.map((s) => ({ cajaId: s.caja_id, cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 })).filter((l) => l.monto > 0);
+      if (!legs.length) { setError('Indicá cuánto pagar en al menos una cuenta.'); return; }
       if (excedeTotalMulti) { setError(`No podés pagar más que el total (${montoCaja(totalUsd, 'USD')}).`); return; }
       if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(totalUsd, 'USD')}).`); return; }
     } else if (saldoSel) {
@@ -299,7 +312,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
             <label>Cuenta / Billetera (de dónde sale)</label>
             <select className="select" value={cuentaSel} onChange={(e) => setCuentaSel(e.target.value)} style={{ maxWidth: 320 }}>
               {saldosCaja.map((s) => <option key={s.id} value={s.id}>{s.moneda}{cuentaLabel(s.cuenta)} · {montoCaja(Number(s.saldo), s.moneda)}</option>)}
-              {esMultimoneda && <option value="__split__">↔ Repartir entre varias monedas…</option>}
+              {haySplit && <option value="__multicaja__">↔ Repartir entre varias cajas / monedas…</option>}
             </select>
             {!esSplit && saldoSel && (
               <div className="card" style={{ margin: '.45rem 0 0', padding: '.5rem .7rem', fontSize: '.86rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -315,8 +328,8 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           </div>
         )}
 
-        {/* Tasa manual (Bs/$) para este pago: aparece cuando el pago cruza Bs↔$. */}
-        {cruzaBsUsd && (
+        {/* Tasa manual (Bs/$) para este pago: aparece cuando el pago cruza Bs↔$ o al repartir. */}
+        {(cruzaBsUsd || esSplit) && (
           <div className="form-row">
             <label>Tasa de pago (Bs por $) {tasa > 0 && <span className="muted" style={{ fontWeight: 400 }}>· BCV {montoCaja(tasa, 'Bs')}</span>}</label>
             <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 200 }}
@@ -333,17 +346,17 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
 
         {esSplit && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
-            <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda · ¿cuánto sale de cada una?</div>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago repartido · ¿cuánto sale de cada caja / cuenta?</div>
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.84rem' }}>
-                <thead><tr><th>Moneda</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
+                <thead><tr><th>Caja · Cuenta</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
                 <tbody>
-                  {saldosCaja.map((s) => {
+                  {[...todosSaldos].sort((a, b) => (a.caja?.nombre ?? '').localeCompare(b.caja?.nombre ?? '', 'es') || a.moneda.localeCompare(b.moneda)).map((s) => {
                     const n = Number(legMontos[s.id]) || 0;
                     const excede = n > Number(s.saldo);
                     return (
                       <tr key={s.id}>
-                        <td><span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)}</td>
+                        <td>{s.caja?.nombre ?? '—'} · <span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(Number(s.saldo), s.moneda)}</td>
                         <td style={{ textAlign: 'right' }}>
                           <input className="input mono" type="number" min={0} max={Number(s.saldo)} step="any" value={legMontos[s.id] ?? ''} placeholder="0,00"
