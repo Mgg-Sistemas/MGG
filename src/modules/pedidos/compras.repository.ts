@@ -15,7 +15,7 @@ import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Producto, CuentaCaja } from '@/shared/lib/types';
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
-export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
+export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; /** Caja de la que sale esta pata (multipago cross-caja); si falta, usa la caja principal. */ cajaId?: string; }
 
 const BUCKET = 'compras-directas';
 
@@ -465,7 +465,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     let primero: string | null = null;
     for (const leg of legs) {
       const r = await egresarDivisa({
-        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        cajaId: leg.cajaId || input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'compra_directa',
         gastoCategoria: gcat ?? null, gastoSubcategoria: gsub ?? null,
         actor: input.actor, actorName: input.actorName ?? null,
