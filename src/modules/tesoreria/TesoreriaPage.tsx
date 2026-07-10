@@ -180,6 +180,7 @@ export function TesoreriaPage() {
   useEffect(() => { listMonedas().then(setMonedasReg).catch(() => { /* base */ }); }, []);
   const [fTipo, setFTipo] = useState('');
   const [fCategoria, setFCategoria] = useState('');
+  const [fCuenta, setFCuenta] = useState(''); // filtro por billetera / cuenta (usdt2, juridica…)
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
   const [fBuscar, setFBuscar] = useState('');
@@ -238,11 +239,20 @@ export function TesoreriaPage() {
     return Array.from(set).sort((a, b) => catLabel(a).localeCompare(catLabel(b), 'es'));
   }, [libro]);
 
+  // Billeteras / cuentas presentes en el registro (para el filtro): usdt2, usdt-1,
+  // juridica, personal, general… etiquetadas con su nombre legible.
+  const cuentasReg = useMemo(() => {
+    const set = new Set<string>();
+    libro.forEach((m) => { const c = (m.cuenta ?? '').trim(); if (c) set.add(c); });
+    return Array.from(set).sort((a, b) => labelCuentaCaja(a).localeCompare(labelCuentaCaja(b), 'es'));
+  }, [libro]);
+
   const libroView = useMemo(() => {
     const q = normalizarBusqueda(fBuscar);
     const palabras = q ? q.split(/\s+/).filter(Boolean) : [];
     return libro.filter((m) => {
       if (fCategoria && (m.categoria ?? '') !== fCategoria) return false;
+      if (fCuenta && (m.cuenta ?? '') !== fCuenta) return false;
       if (!palabras.length) return true;
       const heno = normalizarBusqueda([
         m.caja?.nombre, TIPO_MOV_LABEL[m.tipo] ?? m.tipo, catLabel(m.categoria),
@@ -251,7 +261,7 @@ export function TesoreriaPage() {
       ].filter(Boolean).join(' '));
       return palabras.every((p) => heno.includes(p));
     });
-  }, [libro, fBuscar, fCategoria]);
+  }, [libro, fBuscar, fCategoria, fCuenta]);
 
   // Metadatos del reporte PDF/correo del registro de movimientos (según filtros).
   const reporteMeta = () => ({
@@ -260,6 +270,7 @@ export function TesoreriaPage() {
       fDesde && `Desde ${fDesde}`, fHasta && `Hasta ${fHasta}`,
       fMoneda && `Moneda ${fMoneda}`, fTipo && `Tipo ${fTipo}`,
       fCategoria && `Categoría ${catLabel(fCategoria)}`,
+      fCuenta && `Billetera ${labelCuentaCaja(fCuenta)}`,
       fBuscar.trim() && `Búsqueda "${fBuscar.trim()}"`,
     ].filter(Boolean).join(' · ') || 'Todos los movimientos',
   });
@@ -432,6 +443,10 @@ export function TesoreriaPage() {
                   <option value="">Toda categoría</option>
                   {categoriasReg.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
                 </select>
+                <select className="select" value={fCuenta} onChange={(e) => setFCuenta(e.target.value)} style={{ width: 'auto' }} title="Filtrar por billetera / cuenta (USDT, Jurídica…)">
+                  <option value="">Toda billetera</option>
+                  {cuentasReg.map((c) => <option key={c} value={c}>{labelCuentaCaja(c)}</option>)}
+                </select>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.5rem', alignItems: 'center' }}>
@@ -439,7 +454,7 @@ export function TesoreriaPage() {
                 try { const { descargarReportePdf } = await import('./reportePdf'); await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
-              {(fBuscar.trim() || fCategoria) && (
+              {(fBuscar.trim() || fCategoria || fCuenta) && (
                 <span className="muted" style={{ fontSize: '.8rem' }}>
                   {libroView.length} de {libro.length} {libro.length === 1 ? 'movimiento' : 'movimientos'}
                 </span>
