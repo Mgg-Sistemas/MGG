@@ -775,6 +775,9 @@ export interface Orden {
   factura_nombre?: string | null;
   retencion_path?: string | null;
   retencion_nombre?: string | null;
+  /** Imagen / QR de pago (ej. QR de Binance) cargado al indicar el método; Tesorería lo escanea al pagar. */
+  pago_qr_path?: string | null;
+  pago_qr_nombre?: string | null;
   /** Retenciones fiscales (módulo Retenciones): comprobantes por tipo + estado. */
   comprobante_tipo?: 'nota_entrega' | 'factura' | null;
   retencion_modo?: 'se_paga_despues' | 'completo_reembolso' | null;

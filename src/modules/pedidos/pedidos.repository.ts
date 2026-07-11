@@ -780,6 +780,7 @@ export async function indicarMetodoPago(
   metodos: PagoMetodo[],
   actorEmail: string,
   soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null },
+  qr?: File | null,
 ): Promise<Orden> {
   // Flujo normal: confirmada_metodo → oc_aprobada. Contra entrega: tras recibir
   // (recibida) se indica el método para pagar SOLO lo recibido → oc_aprobada.
@@ -802,6 +803,16 @@ export async function indicarMetodoPago(
   // la OC queda "Confirmada pagar" (oc_aprobada) para que Tesorería pague.
   const comprobanteTipo = soporte?.comprobanteTipo ?? null;
   const retencionModo = comprobanteTipo === 'factura' ? (soporte?.retencionModo ?? null) : null;
+  // Imagen / QR de pago (opcional): ej. el QR de Binance para pagar en cripto. Se sube
+  // al bucket de la OC y Tesorería lo ve al pagar (escanea y paga). Debe ser imagen.
+  let qrPath: string | null = null;
+  let qrNombre: string | null = null;
+  if (qr) {
+    if (qr.type && !qr.type.startsWith('image/')) throw new Error('El QR / comprobante de pago debe ser una imagen.');
+    if (qr.size > 10 * 1024 * 1024) throw new Error('La imagen supera los 10 MB.');
+    qrPath = await subirAdjuntoOc(o.id, qr, 'qr');
+    qrNombre = qr.name;
+  }
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
     metodo_pago: limpios,
@@ -809,7 +820,9 @@ export async function indicarMetodoPago(
     metodo_pago_en: new Date().toISOString(),
     comprobante_tipo: comprobanteTipo,
     retencion_modo: retencionModo,
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo }),
+    pago_qr_path: qrPath,
+    pago_qr_nombre: qrNombre,
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -985,7 +998,7 @@ export async function emitirOrdenCompra(o: Orden, actorEmail: string): Promise<O
 
 /* ───────── Pago de la OC desde Tesorería (oc_aprobada → pagada) ───────── */
 
-async function subirAdjuntoOc(ordenId: string, file: File, tipo: 'factura' | 'retencion'): Promise<string> {
+async function subirAdjuntoOc(ordenId: string, file: File, tipo: 'factura' | 'retencion' | 'qr'): Promise<string> {
   const safe = file.name.replace(/[^\w.\-]+/g, '_');
   const path = `${ordenId}/${tipo}-${safe}`;
   const { error } = await supabase.storage.from(BUCKET_OC).upload(path, file, {
