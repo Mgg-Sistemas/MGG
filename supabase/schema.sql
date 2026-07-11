@@ -1595,6 +1595,9 @@ alter table public.ordenes add column if not exists retencion_finalizada_en   ti
 -- Soporte elegido al indicar método de pago + modo de retención + marca de pago Tesorería.
 alter table public.ordenes add column if not exists comprobante_tipo    text;   -- 'nota_entrega' | 'factura'
 alter table public.ordenes add column if not exists retencion_modo      text;   -- 'se_paga_despues' | 'completo_reembolso'
+-- Imagen / QR de pago (ej. QR de Binance) cargado al indicar el método de pago; Tesorería lo ve al pagar.
+alter table public.ordenes add column if not exists pago_qr_path        text;
+alter table public.ordenes add column if not exists pago_qr_nombre      text;
 alter table public.ordenes add column if not exists retencion_pagada    boolean not null default false;
 alter table public.ordenes add column if not exists retencion_pagada_en timestamptz;
 -- Storage: bucket privado `compras-oc` para la factura adjunta al pago de la OC

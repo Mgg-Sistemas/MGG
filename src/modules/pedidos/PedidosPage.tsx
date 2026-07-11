@@ -934,7 +934,7 @@ export function PedidosPage() {
           proveedores={proveedores}
           proveedorActual={modal.orden.proveedor_id ? proveedorMap.get(modal.orden.proveedor_id) ?? null : null}
           onClose={() => setModal({ kind: 'none' })}
-          onSent={async (metodos, soporte, proveedorId) => {
+          onSent={async (metodos, soporte, proveedorId, qr) => {
             try {
               const email = usuario?.email ?? user?.email ?? 'sistema';
               const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
@@ -946,7 +946,7 @@ export function PedidosPage() {
                 await refresh();
                 return;
               }
-              await indicarMetodoPago(modal.orden, metodos, email, soporte);
+              await indicarMetodoPago(modal.orden, metodos, email, soporte, qr);
               const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
               notify(`OC ${codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
               setModal({ kind: 'none' });
@@ -1274,9 +1274,10 @@ function MetodoPagoModal({
   proveedores: Proveedor[];
   proveedorActual: Proveedor | null;
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }, proveedorId: string) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }, proveedorId: string, qr: File | null) => Promise<void> | void;
 }) {
   const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }]);
+  const [qr, setQr] = useState<File | null>(null); // imagen / QR de pago (ej. QR de Binance) para Tesorería
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Datos de pago del proveedor ya guardados (para precargar por método).
@@ -1350,7 +1351,7 @@ function MetodoPagoModal({
       }
     }
     setSaving(true);
-    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null }, proveedorId); }
+    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null }, proveedorId, qr); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
 
@@ -1426,6 +1427,24 @@ function MetodoPagoModal({
             </div>
           </div>
         )}
+      </div>
+
+      {/* Imagen / QR de pago (opcional): ej. el QR de Binance para pagar por cripto.
+          Se muestra en Tesorería al pagar, para escanear y pagar directo. */}
+      <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
+        <div className="card-title" style={{ marginBottom: '.35rem' }}>Imagen / QR de pago <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>(opcional · lo ve Tesorería al pagar)</span></div>
+        <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.5rem' }}>
+          Subí una imagen (ej. el <strong>QR de Binance</strong> del pago en cripto): Tesorería la <strong>escanea y paga</strong> directo.
+        </div>
+        <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="file" accept="image/*" onChange={(e) => setQr(e.target.files?.[0] ?? null)} />
+          {qr && (
+            <>
+              <img src={URL.createObjectURL(qr)} alt="QR de pago" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} />
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setQr(null)}>✕ Quitar</button>
+            </>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'grid', gap: '.6rem' }}>

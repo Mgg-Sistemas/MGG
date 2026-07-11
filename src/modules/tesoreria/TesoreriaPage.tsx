@@ -5971,6 +5971,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   const [montoStr, setMontoStr] = useState(String(baseGeneral));
   const [factura, setFactura] = useState<File | null>(null);
   const [motivoPago, setMotivoPago] = useState('');
+  // Imagen / QR de pago cargado al indicar el método (ej. QR de Binance): Tesorería lo escanea.
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!o.pago_qr_path) { setQrUrl(null); return; }
+    urlAdjuntoOc(o.pago_qr_path).then(setQrUrl).catch(() => setQrUrl(null));
+  }, [o.pago_qr_path]);
   // Seriales de billetes entregados (solo cuando se paga con USD físico).
   const [seriales, setSeriales] = useState<string[]>([]);
   const [serialInput, setSerialInput] = useState('');
@@ -6293,6 +6299,26 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Imagen / QR de pago cargado al indicar el método (ej. QR de Binance): escanear y pagar. */}
+        {o.pago_qr_path && (
+          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>📷 QR / imagen de pago <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>· escaneá y pagá</span></div>
+            {qrUrl ? (
+              <div style={{ display: 'flex', gap: '.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <a href={qrUrl} target="_blank" rel="noopener noreferrer" title="Abrir en grande para escanear">
+                  <img src={qrUrl} alt="QR de pago" style={{ width: 180, height: 180, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--border)', background: '#fff' }} />
+                </a>
+                <div style={{ fontSize: '.8rem' }}>
+                  <div className="muted">{o.pago_qr_nombre ?? 'QR de pago'}</div>
+                  <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={() => window.open(qrUrl, '_blank', 'noopener')}>🔍 Ver en grande</button>
+                </div>
+              </div>
+            ) : (
+              <div className="muted" style={{ fontSize: '.8rem' }}>Cargando imagen…</div>
+            )}
           </div>
         )}
 
