@@ -57,7 +57,7 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
                 </div>
                 <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
                   <div>{num(itemsCount)} ítem{itemsCount !== 1 ? 's' : ''} · {num(totalUnidades)} und.</div>
-                  <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(o.total)}</div>
+                  <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(o.total, o.moneda)}</div>
                 </div>
                 {o.almacen_destino && (
                   <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 📦 {o.almacen_destino}</div>
@@ -109,7 +109,7 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
                 <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
                   <div><strong>{c.producto_nombre}</strong>{itemsCount > 1 ? <span className="muted"> · {num(itemsCount)} materiales</span> : null}</div>
                   <div className="muted">{num(totalUnidades)} und.{c.pagada_por ? ` · pagó ${c.pagada_por}` : ''}</div>
-                  <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(c.gasto)}</div>
+                  <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(c.gasto, c.moneda)}</div>
                 </div>
                 {c.almacen && (
                   <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 📦 {c.almacen}</div>
@@ -181,7 +181,7 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
         <div className="card" style={{ marginBottom: '.6rem', fontSize: '.86rem' }}>
           <div><strong>{compra.producto_nombre}</strong>{compra.proveedor_nombre ? <span className="muted"> · {compra.proveedor_nombre}</span> : null}</div>
           <div className="muted" style={{ fontSize: '.78rem' }}>
-            Total: <strong className="mono">{money(compra.gasto)}</strong>{compra.pagada_por ? ` · pagó ${compra.pagada_por}` : ''}
+            Total: <strong className="mono">{money(compra.gasto, compra.moneda)}</strong>{compra.pagada_por ? ` · pagó ${compra.pagada_por}` : ''}
           </div>
         </div>
 
@@ -202,8 +202,8 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
                   <tr key={i}>
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(cant)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(cu)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(monto)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(cu, compra.moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(monto, compra.moneda)}</td>
                   </tr>
                 );
               })}

@@ -1,6 +1,15 @@
-export function money(n: number | null | undefined): string {
+/**
+ * Formatea un monto con su símbolo de moneda. Por defecto asume USD ($).
+ * Si la moneda es 'Bs' (Bolívares) antepone «Bs »; cualquier otra (USDT, COP…)
+ * se muestra con su código. Así un monto en Bs no se muestra como si fuera $.
+ */
+export function money(n: number | null | undefined, moneda?: string | null): string {
   if (n == null || isNaN(n as number)) return '—';
-  return '$ ' + Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const monto = Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const m = String(moneda ?? '').trim().toUpperCase();
+  if (m === 'BS' || m === 'BSS' || m === 'BSD') return 'Bs ' + monto;
+  if (m && m !== 'USD' && m !== '$' && m !== 'DIVISA') return `${monto} ${String(moneda).trim()}`;
+  return '$ ' + monto;
 }
 
 /**
