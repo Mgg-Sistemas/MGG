@@ -45,6 +45,28 @@ const TIPOS_SERVICIO: { value: string; label: string }[] = [
 function esMantenimientoElectrodomestico(cat: string): boolean {
   return /electrodom/i.test(cat);
 }
+/** ¿El equipo es una MOTO/motocicleta? (evita falsos positivos como motoniveladora/motobomba). */
+function esMoto(e: MaquinariaEquipo): boolean {
+  return /\bmotos?\b|motocicleta/i.test(`${e.tipo ?? ''} ${e.equipo ?? ''}`);
+}
+/** Un equipo es VEHÍCULO si su tipo es carro/camión/camioneta/vehículo y NO es una moto. */
+function esVehiculo(e: MaquinariaEquipo): boolean {
+  return /carro|cami[oó]n|camioneta|veh[ií]culo|auto/i.test(e.tipo ?? '') && !esMoto(e);
+}
+/** Qué lista de equipos aplica según la categoría: motos / vehículos / maquinaria / todos. */
+function tipoMantenimiento(cat: string): 'maquinaria' | 'vehiculos' | 'motos' | null {
+  if (/\bmotos?\b|motocicleta/i.test(cat)) return 'motos';
+  if (/veh[ií]culo/i.test(cat)) return 'vehiculos';
+  if (/maquinaria|planta/i.test(cat)) return 'maquinaria';
+  return null;
+}
+/** Filtra los equipos por el tipo de mantenimiento (motos/vehículos/maquinaria); null = todos. */
+function equiposDeTipo(equipos: MaquinariaEquipo[], tipo: 'maquinaria' | 'vehiculos' | 'motos' | null): MaquinariaEquipo[] {
+  if (tipo === 'motos') return equipos.filter(esMoto);
+  if (tipo === 'vehiculos') return equipos.filter(esVehiculo);
+  if (tipo === 'maquinaria') return equipos.filter((e) => !esVehiculo(e) && !esMoto(e));
+  return equipos;
+}
 /** Lista base de electrodomésticos (con íconos). El usuario puede escribir uno nuevo (allowCreate). */
 const ELECTRODOMESTICOS: { value: string; label: string }[] = [
   { value: 'COCINA', label: '🍳 Cocina' },
@@ -552,13 +574,22 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                     <small className="muted" style={{ fontSize: '.72rem' }}>Artículo electrodoméstico al que se le hace el mantenimiento.</small>
                   </div>
                 ) : (
+                  (() => {
+                    const mantTipo = tipoMantenimiento(l.categoria);
+                    const equiposLista = equiposDeTipo(equipos, mantTipo);
+                    const lbl = mantTipo === 'motos' ? 'Moto (Control de Motos)' : mantTipo === 'vehiculos' ? 'Vehículo (Control de Vehículos)' : 'Equipo (Control de Maquinaria)';
+                    const ph = mantTipo === 'motos' ? '🔎 Buscá la moto…' : mantTipo === 'vehiculos' ? '🔎 Buscá el vehículo…' : '🔎 Buscá el equipo / vehículo…';
+                    const empty = mantTipo === 'motos' ? 'Sin motos registradas.' : mantTipo === 'vehiculos' ? 'Sin vehículos.' : 'Sin equipos.';
+                    return (
                   <div className="form-row">
-                    <label>Equipo (Control de Maquinaria)</label>
+                    <label>{lbl}</label>
                     <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })}
-                      options={equipos.map((e) => ({ value: e.id, label: `${e.equipo}${e.placa ? ` · ${e.placa}` : ''}` }))}
-                      placeholder="🔎 Buscá el equipo / vehículo…" emptyText="Sin equipos." />
+                      options={equiposLista.map((e) => ({ value: e.id, label: `${e.equipo}${e.placa ? ` · ${e.placa}` : ''}` }))}
+                      placeholder={ph} emptyText={empty} />
                     <small className="muted" style={{ fontSize: '.72rem' }}>Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
                   </div>
+                    );
+                  })()
                 )}
                 <div className="form-row"><label>Cantidad</label><input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
               </div>
