@@ -788,7 +788,7 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
                 <div><span className="muted">OP:</span> <strong className="mono">{orden.codigo}</strong></div>
                 <div><span className="muted">N°ODC:</span> <strong className="mono">{orden.oc_codigo ?? '—'}</strong></div>
-                <div><span className="muted">Total OC:</span> <strong className="mono">{monto(orden.total, 'USD')}</strong></div>
+                <div><span className="muted">Total OC:</span> <strong className="mono">{monto(orden.total, orden.moneda ?? 'USD')}</strong></div>
                 {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), 'USD')}</strong></div>}
                 <div><span className="muted">Solicitante:</span> <strong>{orden.solicitante || orden.solicitante_email}</strong></div>
                 {orden.condiciones_pago && <div><span className="muted">Condición:</span> <strong>{labelCondicionPago(orden.condiciones_pago)}</strong></div>}
@@ -4124,7 +4124,7 @@ function RetencionesTesoreriaModal({ items, onClose }: { items: RetencionItem[];
                   <tr key={orden.id} style={{ background: orden.id === selId ? 'var(--bg-1)' : undefined, cursor: 'pointer' }} onClick={() => toggle(orden.id)}>
                     <td className="mono">{orden.oc_codigo ?? orden.codigo}</td>
                     <td>{proveedorNombre}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{monto(orden.total, 'USD')}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{monto(orden.total, orden.moneda ?? 'USD')}</td>
                     <td>{orden.retencion_pagada
                       ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span>
                       : <span className="muted">Por pagar</span>}</td>
@@ -4148,7 +4148,7 @@ function RetencionesTesoreriaModal({ items, onClose }: { items: RetencionItem[];
                 <div><span className="muted">OP:</span> <strong className="mono">{o.codigo}</strong></div>
                 <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
                 <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
-                <div><span className="muted">Total:</span> <strong className="mono">{monto(o.total, 'USD')}</strong></div>
+                <div><span className="muted">Total:</span> <strong className="mono">{monto(o.total, o.moneda ?? 'USD')}</strong></div>
                 <div><span className="muted">Finalizada:</span> {o.retencion_finalizada_en ? dateTime(o.retencion_finalizada_en) : '—'}</div>
               </div>
 
@@ -4377,7 +4377,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
                 <td className="mono" style={{ textAlign: 'right' }}>
                   {monto(r.montoAPagar, 'USD')}
                   {r.esContraEntrega && r.montoAPagar < Number(r.orden.total) && (
-                    <div className="muted" style={{ fontSize: '.68rem' }}>de {monto(r.orden.total, 'USD')}</div>
+                    <div className="muted" style={{ fontSize: '.68rem' }}>de {monto(r.orden.total, r.orden.moneda ?? 'USD')}</div>
                   )}
                 </td>
                 <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
@@ -4588,7 +4588,7 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
                                   </tr>
                                 ))}
                               </tbody>
-                              <tfoot><tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>Total OC</td><td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{monto(o.total, 'USD')}</td></tr></tfoot>
+                              <tfoot><tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>Total OC</td><td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{monto(o.total, o.moneda ?? 'USD')}</td></tr></tfoot>
                             </table>
                           </td>
                         </tr>
@@ -4809,7 +4809,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
             <select className="select" value={selId} onChange={(e) => setSelId(e.target.value)}>
               {ordenes.map((x) => (
                 <option key={x.orden.id} value={x.orden.id}>
-                  {x.orden.oc_codigo ?? x.orden.codigo} · {x.proveedorNombre} · saldo {monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}
+                  {x.orden.oc_codigo ?? x.orden.codigo} · {x.proveedorNombre} · saldo {monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), x.orden.moneda ?? 'USD')}
                 </option>
               ))}
             </select>
@@ -6248,7 +6248,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         {pagoParcial && (
           <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)' }}>
             <div style={{ fontSize: '.84rem' }}>
-              <strong>Pago por monto recibido (recepción parcial).</strong> De {monto(o.total, 'USD')} pedidos
+              <strong>Pago por monto recibido (recepción parcial).</strong> De {monto(o.total, o.moneda ?? 'USD')} pedidos
               se recibieron {monto(Number(o.recibido_total), 'USD')}; se paga solo lo recibido.
               {o.nota_recepcion && <div className="muted" style={{ marginTop: '.2rem' }}>Nota: {o.nota_recepcion}</div>}
             </div>
@@ -6358,7 +6358,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td colSpan={4} style={{ textAlign: 'right' }}><strong>TOTAL</strong></td><td className="mono" style={{ textAlign: 'right' }}><strong>{monto(o.total, 'USD')}</strong></td></tr></tfoot>
+            <tfoot><tr><td colSpan={4} style={{ textAlign: 'right' }}><strong>TOTAL</strong></td><td className="mono" style={{ textAlign: 'right' }}><strong>{monto(o.total, o.moneda ?? 'USD')}</strong></td></tr></tfoot>
           </table>
         </div>
 

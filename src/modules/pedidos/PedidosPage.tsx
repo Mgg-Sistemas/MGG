@@ -799,7 +799,7 @@ export function PedidosPage() {
       {modal.kind === 'approve' && (
         <ConfirmDialog
           title="Aprobar orden"
-          message={`Aprobar ${modal.orden.codigo} por ${money(modal.orden.total)}.`}
+          message={`Aprobar ${modal.orden.codigo} por ${money(modal.orden.total, modal.orden.moneda)}.`}
           confirmText="Aprobar"
           onCancel={() => setModal({ kind: 'none' })}
           onConfirm={async () => {
@@ -1840,7 +1840,7 @@ function OrdenesTable({ ordenes, proveedorMap, personaMap, canManageProcurement,
                   <div>{o.solicitante_persona ?? o.ci_solicitante ?? persona(o.solicitante_email, personaMap)}</div>
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{o.items.length}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{money(o.total, o.moneda)}</td>
                 <td><StatusBadge estado={o.estado} /></td>
                 <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(o.created_at)}</td>
                 <td className="actions" onClick={(e) => e.stopPropagation()}>
@@ -1973,7 +1973,7 @@ const KanbanCard = memo(function KanbanCard({
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
       <div className="foot">
-        <span className="total">{money(orden.total)}</span>
+        <span className="total">{money(orden.total, orden.moneda)}</span>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
       </div>
     </div>
@@ -2505,7 +2505,7 @@ function OrdenDetailModal({
       {o.abonado_total != null && o.abonado_total > 0 && (
         <div className="detail-row">
           <div className="k">Abonado (crédito)</div>
-          <div className="v mono">{money(o.abonado_total)} <span className="muted">de {money(o.total)}</span></div>
+          <div className="v mono">{money(o.abonado_total, o.moneda)} <span className="muted">de {money(o.total, o.moneda)}</span></div>
         </div>
       )}
       {o.recibida_en && (
@@ -2513,7 +2513,7 @@ function OrdenDetailModal({
           <div className="k">Recepción</div>
           <div className="v">
             {dateTime(o.recibida_en)} <span className="muted">por {persona(o.recibida_por, personaMap)}</span>
-            {o.recibido_total != null && <div className="mono" style={{ fontSize: '.84rem' }}>Total recibido: {money(o.recibido_total)}{o.recibido_total < o.total && <span className="muted"> · de {money(o.total)}</span>}</div>}
+            {o.recibido_total != null && <div className="mono" style={{ fontSize: '.84rem' }}>Total recibido: {money(o.recibido_total, o.moneda)}{o.recibido_total < o.total && <span className="muted"> · de {money(o.total, o.moneda)}</span>}</div>}
           </div>
         </div>
       )}
@@ -2676,8 +2676,8 @@ function OrdenDetailModal({
               </td>
               {conPrecio ? (
                 <>
-                  <td className="num">{money(it.precio)}</td>
-                  <td className="num">{money(it.cantidad * it.precio)}</td>
+                  <td className="num">{money(it.precio, o.moneda)}</td>
+                  <td className="num">{money(it.cantidad * it.precio, o.moneda)}</td>
                 </>
               ) : (
                 <td className="num">
@@ -2714,14 +2714,14 @@ function OrdenDetailModal({
               const sub = Math.round((Number(o.total) + desc) * 100) / 100;
               return (
                 <>
-                  <tr><td colSpan={6} className="num">Subtotal</td><td className="num">{money(sub)}</td><td></td></tr>
-                  <tr><td colSpan={6} className="num" style={{ color: 'var(--success)' }}>Descuento obtenido</td><td className="num" style={{ color: 'var(--success)' }}>− {money(desc)}</td><td></td></tr>
+                  <tr><td colSpan={6} className="num">Subtotal</td><td className="num">{money(sub, o.moneda)}</td><td></td></tr>
+                  <tr><td colSpan={6} className="num" style={{ color: 'var(--success)' }}>Descuento obtenido</td><td className="num" style={{ color: 'var(--success)' }}>− {money(desc, o.moneda)}</td><td></td></tr>
                 </>
               );
             })()}
             <tr>
               <td colSpan={6} className="num">TOTAL</td>
-              <td className="num">{money(o.total)}</td>
+              <td className="num">{money(o.total, o.moneda)}</td>
               <td></td>
             </tr>
           </tfoot>

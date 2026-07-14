@@ -1,0 +1,173 @@
+import { useMemo, useState } from 'react';
+import { Modal } from '@/shared/ui/Modal';
+import { money } from '@/shared/lib/format';
+import type { ItemOrden, OfertaProveedor } from '@/shared/lib/types';
+
+/**
+ * Al aceptar una oferta, si el proveedor cotizó el MISMO producto en varias
+ * marcas (renglones con el mismo SKU cargados con "＋ marca"), acá se elige
+ * cuál marca se compra — no se compran todas. Muestra por producto la marca,
+ * el modelo y los precios en Bs (BCV) y en $ (USD). Los productos con una sola
+ * marca entran directo. Al confirmar devuelve UN ítem por producto (el elegido).
+ */
+
+interface Grupo {
+  key: string;
+  nombre: string;
+  sku: string;
+  opciones: ItemOrden[];
+}
+
+/** Agrupa los ítems por producto (mismo SKU = variantes de marca del mismo producto). */
+function agruparPorProducto(items: ItemOrden[]): Grupo[] {
+  const orden: string[] = [];
+  const mapa = new Map<string, Grupo>();
+  for (const it of items ?? []) {
+    const key = (it.sku && String(it.sku).trim()) || String(it.nombre ?? '').trim() || `#${orden.length}`;
+    let g = mapa.get(key);
+    if (!g) {
+      g = { key, nombre: it.nombre ?? '—', sku: it.sku ?? '', opciones: [] };
+      mapa.set(key, g);
+      orden.push(key);
+    }
+    g.opciones.push(it);
+  }
+  return orden.map((k) => mapa.get(k)!);
+}
+
+const unit = (it: ItemOrden) => ({
+  bcv: Number(it.precio) || 0,
+  usd: Number(it.precio_usd) || 0,
+  cant: Number(it.cantidad) || 0,
+});
+const marcaLabel = (it: ItemOrden) =>
+  [it.marca, it.modelo].map((s) => (s ?? '').toString().trim()).filter(Boolean).join(' · ') || 'Sin marca';
+
+interface Props {
+  oferta: OfertaProveedor;
+  proveedorNombre: string;
+  /** Devuelve los ítems elegidos (uno por producto) + totales recalculados en Bs y $. */
+  onConfirm: (itemsElegidos: ItemOrden[], bcvTotal: number, usdTotal: number) => Promise<void> | void;
+  onCancel: () => void;
+}
+
+export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCancel }: Props) {
+  const grupos = useMemo(() => agruparPorProducto(oferta.items), [oferta.items]);
+  const hayVariantes = grupos.some((g) => g.opciones.length > 1);
+
+  // Selección por producto: índice de la opción elegida (por defecto la 1ª cargada).
+  const [sel, setSel] = useState<Record<string, number>>(() =>
+    Object.fromEntries(grupos.map((g) => [g.key, 0])),
+  );
+  const [saving, setSaving] = useState(false);
+
+  const elegidos = grupos.map((g) => g.opciones[Math.min(sel[g.key] ?? 0, g.opciones.length - 1)]);
+  const bcvTotal = Math.round(elegidos.reduce((a, it) => { const u = unit(it); return a + u.cant * u.bcv; }, 0) * 100) / 100;
+  const usdTotal = Math.round(elegidos.reduce((a, it) => { const u = unit(it); return a + u.cant * u.usd; }, 0) * 100) / 100;
+  const sinPrecio = bcvTotal <= 0 && usdTotal <= 0;
+
+  async function confirmar() {
+    if (sinPrecio || saving) return;
+    setSaving(true);
+    try {
+      await onConfirm(elegidos, bcvTotal, usdTotal > 0 ? usdTotal : 0);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onCancel} disabled={saving}>Cancelar</button>
+      <button className="btn btn-primary" onClick={confirmar} disabled={saving || sinPrecio}>
+        {saving ? 'Eligiendo…' : 'Elegir oferta'}
+      </button>
+    </>
+  );
+
+  return (
+    <Modal title={`Elegir oferta · ${proveedorNombre}`} size="lg" onClose={onCancel} footer={footer}>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+        {hayVariantes
+          ? 'Este proveedor cotizó algún producto en varias marcas. Elegí cuál marca se compra de cada uno (no se compran todas). Se muestran los precios en Bs (BCV) y en $ (USD).'
+          : 'Revisá los productos, marcas y precios (Bs y $). Al confirmar, la orden queda pendiente por aprobación del Gerente General y las demás ofertas se descartan.'}
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.7rem' }}>
+        {grupos.map((g) => {
+          const multi = g.opciones.length > 1;
+          return (
+            <div key={g.key} className="card" style={{ margin: 0, padding: '.7rem .8rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
+                <div>
+                  <strong>{g.nombre}</strong>{g.sku ? <span className="muted mono" style={{ fontSize: '.78rem' }}> · {g.sku}</span> : null}
+                </div>
+                {multi
+                  ? <span className="badge warning">{g.opciones.length} marcas · elegí una</span>
+                  : <span className="muted" style={{ fontSize: '.76rem' }}>marca única</span>}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', marginTop: '.5rem' }}>
+                {g.opciones.map((it, i) => {
+                  const u = unit(it);
+                  const elegida = (sel[g.key] ?? 0) === i;
+                  return (
+                    <label
+                      key={i}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'auto 1fr auto',
+                        alignItems: 'center',
+                        gap: '.6rem',
+                        padding: '.45rem .6rem',
+                        borderRadius: 8,
+                        cursor: multi ? 'pointer' : 'default',
+                        background: elegida ? 'var(--grad-primary-soft, rgba(255,138,0,.10))' : 'var(--bg-1)',
+                        border: `1px solid ${elegida ? 'var(--brand, #ff8a00)' : 'var(--border)'}`,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name={`marca-${g.key}`}
+                        checked={elegida}
+                        disabled={!multi}
+                        onChange={() => setSel((m) => ({ ...m, [g.key]: i }))}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{marcaLabel(it)}</div>
+                        <div className="muted" style={{ fontSize: '.76rem' }}>
+                          Cantidad: <span className="mono">{u.cant}</span>
+                        </div>
+                      </div>
+                      <div className="mono" style={{ textAlign: 'right', fontSize: '.82rem', lineHeight: 1.5 }}>
+                        <div>Bs: <strong>{u.bcv > 0 ? money(u.bcv, 'Bs') : '—'}</strong></div>
+                        <div style={{ color: 'var(--success)' }}>$: <strong>{u.usd > 0 ? money(u.usd, 'USD') : '—'}</strong></div>
+                        <div className="muted" style={{ fontSize: '.72rem' }}>
+                          Total: {u.bcv > 0 ? money(u.cant * u.bcv, 'Bs') : '—'}{u.usd > 0 ? ` · ${money(u.cant * u.usd, 'USD')}` : ''}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Totales de lo elegido (se actualizan al cambiar de marca). */}
+      <div className="card" style={{ background: 'var(--bg-2)', padding: '.7rem .8rem', marginTop: '.8rem' }}>
+        <div className="card-title" style={{ marginBottom: '.35rem' }}><span>💵 Total a comprar</span></div>
+        <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
+          <div>Total Bs (BCV): <strong>{bcvTotal > 0 ? money(bcvTotal, 'Bs') : '—'}</strong></div>
+          <div>Total $ (USD): <strong style={{ color: 'var(--success)' }}>{usdTotal > 0 ? money(usdTotal, 'USD') : '—'}</strong></div>
+        </div>
+        {sinPrecio && (
+          <p className="hint" style={{ color: 'var(--danger)', fontSize: '.8rem', margin: '.4rem 0 0' }}>
+            Las marcas elegidas no tienen precio. Elegí una con precio o cargalo en la oferta.
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
