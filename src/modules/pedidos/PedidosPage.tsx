@@ -3141,18 +3141,25 @@ function esRecargaGas(cat: string): boolean {
   return /gas|ox[ií]geno|extintor|bombona/i.test(cat);
 }
 
-/** Un equipo es VEHÍCULO si su tipo es carro, camión, camioneta o vehículo; el resto es maquinaria. */
+/** ¿El equipo es una MOTO/motocicleta? (evita falsos positivos como motoniveladora/motobomba). */
+function esMoto(e: MaquinariaEquipo): boolean {
+  return /\bmotos?\b|motocicleta/i.test(`${e.tipo ?? ''} ${e.equipo ?? ''}`);
+}
+
+/** Un equipo es VEHÍCULO si su tipo es carro, camión, camioneta o vehículo (y NO una moto); el resto es maquinaria. */
 function esVehiculo(e: MaquinariaEquipo): boolean {
-  return /carro|cami[oó]n|camioneta|veh[ií]culo|auto/i.test(e.tipo ?? '');
+  return /carro|cami[oó]n|camioneta|veh[ií]culo|auto/i.test(e.tipo ?? '') && !esMoto(e);
 }
 
 /**
  * Para una categoría de servicio de mantenimiento, qué lista de equipos aplica:
+ *  - 'motos'      → Control de Motos (motos / motocicletas)
  *  - 'vehiculos'  → Control de Vehículos (carro / camión / camioneta…)
  *  - 'maquinaria' → Control de Maquinaria (todo lo demás: grúas, plantas, montacargas…)
  *  - null         → no es mantenimiento de equipo (no pide equipo)
  */
-function tipoMantenimiento(cat: string): 'maquinaria' | 'vehiculos' | null {
+function tipoMantenimiento(cat: string): 'maquinaria' | 'vehiculos' | 'motos' | null {
+  if (/\bmotos?\b|motocicleta/i.test(cat)) return 'motos';
   if (/veh[ií]culo/i.test(cat)) return 'vehiculos';
   if (/maquinaria|planta/i.test(cat)) return 'maquinaria';
   return null;
@@ -3190,9 +3197,10 @@ const ELECTRODOMESTICOS: { value: string; label: string }[] = [
 ];
 
 /** Filtra los equipos según el tipo de mantenimiento de la categoría (por el tipo del equipo). */
-function equiposDeTipo(equipos: MaquinariaEquipo[], tipo: 'maquinaria' | 'vehiculos' | null): MaquinariaEquipo[] {
+function equiposDeTipo(equipos: MaquinariaEquipo[], tipo: 'maquinaria' | 'vehiculos' | 'motos' | null): MaquinariaEquipo[] {
+  if (tipo === 'motos') return equipos.filter(esMoto);
   if (tipo === 'vehiculos') return equipos.filter(esVehiculo);
-  if (tipo === 'maquinaria') return equipos.filter((e) => !esVehiculo(e));
+  if (tipo === 'maquinaria') return equipos.filter((e) => !esVehiculo(e) && !esMoto(e));
   return equipos;
 }
 
@@ -3476,11 +3484,11 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                   </div>
                   {mant ? (
                     <div className="form-row" style={{ margin: 0 }}>
-                      <label style={{ fontSize: '.74rem' }}>{mantTipo === 'vehiculos' ? 'Vehículo (Control de Vehículos)' : 'Equipo (Control de Maquinaria)'}</label>
+                      <label style={{ fontSize: '.74rem' }}>{mantTipo === 'vehiculos' ? 'Vehículo (Control de Vehículos)' : mantTipo === 'motos' ? 'Moto (Control de Motos)' : 'Equipo (Control de Maquinaria)'}</label>
                       <SearchSelect value={l.equipoId} onChange={(v) => setLinea(l.id, { equipoId: v })}
                         options={equiposLista.map((eq) => ({ value: eq.id, label: `${eq.equipo}${eq.placa ? ` · ${eq.placa}` : ''}` }))}
-                        placeholder={mantTipo === 'vehiculos' ? '🔎 Elegí o buscá el vehículo…' : '🔎 Elegí o buscá el equipo…'}
-                        emptyText={mantTipo === 'vehiculos' ? 'Sin vehículos en ese grupo.' : 'Sin equipos.'} />
+                        placeholder={mantTipo === 'vehiculos' ? '🔎 Elegí o buscá el vehículo…' : mantTipo === 'motos' ? '🔎 Elegí o buscá la moto…' : '🔎 Elegí o buscá el equipo…'}
+                        emptyText={mantTipo === 'vehiculos' ? 'Sin vehículos en ese grupo.' : mantTipo === 'motos' ? 'Sin motos registradas.' : 'Sin equipos.'} />
                     </div>
                   ) : electro ? (
                     <div className="form-row" style={{ margin: 0 }}>
