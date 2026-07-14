@@ -9,12 +9,14 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
-import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta } from './ofertas.repository';
+import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta } from './ofertas.repository';
 import { urlAdjuntoOc } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
+import { AceptarOfertaModal } from './AceptarOfertaModal';
+import type { ItemOrden } from '@/shared/lib/types';
 
 interface Props {
   orden: Orden;
@@ -106,20 +108,33 @@ export function OfertasComparativa({
     }
   }
 
-  async function confirmarAceptacion(s: ScoredOferta) {
-    // Si todos los productos de la oferta están en $0 (ni BCV ni USD), no se puede crear la OC.
-    if (!s.oferta.items.some((it) => (Number(it.precio) || 0) > 0 || (Number(it.precio_usd) || 0) > 0)) {
-      toast('Cargá al menos un precio: todos los productos de esta oferta están en $0.', 'error');
-      setConfirmando(null);
+  /**
+   * Confirma la oferta con la(s) marca(s) elegida(s) en el modal: si un producto
+   * venía en varias marcas, `itemsElegidos` trae solo la marca escogida por producto.
+   * Se persisten en la oferta (items + totales recalculados) para que la OC y el
+   * ahorro por efectivo cuadren, y luego se acepta y se crea la OC.
+   */
+  async function confirmarAceptacion(s: ScoredOferta, itemsElegidos: ItemOrden[], bcvTotal: number, usdTotal: number) {
+    if (!itemsElegidos.some((it) => (Number(it.precio) || 0) > 0 || (Number(it.precio_usd) || 0) > 0)) {
+      toast('Cargá al menos un precio: las marcas elegidas están en $0.', 'error');
       return;
     }
     try {
+      // Si el usuario descartó marcas (había variantes), la oferta ahora refleja solo lo elegido.
+      const huboSeleccion = itemsElegidos.length !== s.oferta.items.length;
+      if (huboSeleccion) {
+        await actualizarOferta(s.oferta.id, {
+          items: itemsElegidos,
+          precio_total: bcvTotal,
+          precio_efectivo: usdTotal > 0 ? usdTotal : null,
+        });
+      }
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
       await aprobarOrdenConOferta(
         orden,
         s.oferta.proveedor_id,
-        s.oferta.items,
-        s.oferta.precio_total,
+        itemsElegidos,
+        bcvTotal,
         s.score.total,
         actorEmail,
       );
@@ -430,11 +445,10 @@ export function OfertasComparativa({
         />
       )}
       {confirmando && (
-        <ConfirmDialog
-          title="Confirmar oferta ganadora"
-          message={`¿Elegir la oferta de ${proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'} por ${money(confirmando.oferta.precio_total)}? La orden quedará Pendiente por aprobación del Gerente General y las demás ofertas se descartarán.`}
-          confirmText="Elegir oferta"
-          onConfirm={() => confirmarAceptacion(confirmando)}
+        <AceptarOfertaModal
+          oferta={confirmando.oferta}
+          proveedorNombre={proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}
+          onConfirm={(items, bcv, usd) => confirmarAceptacion(confirmando, items, bcv, usd)}
           onCancel={() => setConfirmando(null)}
         />
       )}
