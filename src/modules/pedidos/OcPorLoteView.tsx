@@ -176,7 +176,7 @@ export function OcPorLoteView() {
                   <td>{r.orden.solicitante || r.orden.solicitante_email}</td>
                   <td>{r.proveedorNombre}</td>
                   <td style={{ maxWidth: 320 }}>{r.descripcion}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{money(r.orden.total)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{money(r.orden.total, r.orden.moneda)}</td>
                   <td className="muted">{r.orden.oc_creada_en ? date(r.orden.oc_creada_en) : '—'}</td>
                   <td className="muted">{r.orden.oc_aprobada_en ? date(r.orden.oc_aprobada_en) : '—'}</td>
                   <td style={{ textAlign: 'center' }}>
