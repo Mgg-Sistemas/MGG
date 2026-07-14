@@ -2023,14 +2023,21 @@ update public.usuarios
 --   · Respaldo AUTOMÁTICO: cada 30 días al entrar un admin/analista
 --     (la fecha del último respaldo se guarda en config key 'backup.ultimo').
 -- ─────────────────────────────────────────────────────────────
+-- Genera cada tabla con UNA sola consulta set-based (string_agg) en vez del
+-- loop fila-por-fila que era lento y moría por statement_timeout. Además se
+-- lifta el timeout SOLO para esta función. cols y vals se ordenan por clave
+-- (jsonb ordena las claves) para que queden alineados.
 create or replace function public.dump_database_sql()
 returns text
 language plpgsql
 security definer
 set search_path = public
+set statement_timeout = '180s'
 as $func$
 declare
-  t record; r jsonb; k text; v jsonb; cols text; vals text; out text := '';
+  t record;
+  piece text;
+  out text := '';
 begin
   if not exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista')) then
     raise exception 'Solo un administrador o analista puede generar el respaldo de datos.';
@@ -2043,20 +2050,22 @@ begin
     order by table_name
   loop
     out := out || '-- ===== ' || t.table_name || ' =====' || chr(10);
-    for r in execute format('select to_jsonb(x) from public.%I x', t.table_name) loop
-      cols := ''; vals := '';
-      for k, v in select key, value from jsonb_each(r) loop
-        if cols <> '' then cols := cols || ', '; vals := vals || ', '; end if;
-        cols := cols || quote_ident(k);
-        if v is null or jsonb_typeof(v) = 'null' then vals := vals || 'NULL';
-        elsif jsonb_typeof(v) = 'number'  then vals := vals || (v #>> '{}');
-        elsif jsonb_typeof(v) = 'boolean' then vals := vals || (v #>> '{}');
-        elsif jsonb_typeof(v) in ('object','array') then vals := vals || quote_literal(v::text) || '::jsonb';
-        else vals := vals || quote_literal(v #>> '{}'); end if;
-      end loop;
-      out := out || format('INSERT INTO public.%I (%s) VALUES (%s) ON CONFLICT DO NOTHING;', t.table_name, cols, vals) || chr(10);
-    end loop;
-    out := out || chr(10);
+    execute format($q$
+      select coalesce(string_agg(
+        'INSERT INTO public.%1$I (' ||
+        (select string_agg(quote_ident(key), ', ' order by key) from jsonb_each(to_jsonb(x))) ||
+        ') VALUES (' ||
+        (select string_agg(
+           case
+             when value is null or jsonb_typeof(value) = 'null' then 'NULL'
+             when jsonb_typeof(value) in ('number','boolean')   then value #>> '{}'
+             when jsonb_typeof(value) in ('object','array')      then quote_literal(value::text) || '::jsonb'
+             else quote_literal(value #>> '{}')
+           end, ', ' order by key) from jsonb_each(to_jsonb(x))) ||
+        ') ON CONFLICT DO NOTHING;', chr(10)), '')
+      from public.%1$I x
+    $q$, t.table_name) into piece;
+    out := out || piece || chr(10) || chr(10);
   end loop;
   return out;
 end;
