@@ -815,8 +815,8 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
                           <tr key={`${it.sku}-${i}`}>
                             <td>{it.nombre}{it.finalidad ? <span className="muted"> · {it.finalidad}</span> : ''}</td>
                             <td className="mono" style={{ textAlign: 'right' }}>{(Number(it.cantidad) || 0).toLocaleString('es-VE', { maximumFractionDigits: 2 })}{it.unidad ? ` ${it.unidad}` : ''}</td>
-                            <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(it.precio) || 0, 'USD')}</td>
-                            <td className="mono" style={{ textAlign: 'right' }}>{monto((Number(it.cantidad) || 0) * (Number(it.precio) || 0), 'USD')}</td>
+                            <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(it.precio) || 0, orden.moneda ?? 'USD')}</td>
+                            <td className="mono" style={{ textAlign: 'right' }}>{monto((Number(it.cantidad) || 0) * (Number(it.precio) || 0), orden.moneda ?? 'USD')}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -4158,7 +4158,7 @@ function RetencionesTesoreriaModal({ items, onClose }: { items: RetencionItem[];
                   <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
                   <tbody>
                     {(o.items ?? []).map((it, i) => (
-                      <tr key={i}><td>{it.nombre}{it.sku ? <span className="muted"> · {it.sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{Number(it.cantidad).toLocaleString('es-VE')}</td><td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, 'USD')}</td></tr>
+                      <tr key={i}><td>{it.nombre}{it.sku ? <span className="muted"> · {it.sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{Number(it.cantidad).toLocaleString('es-VE')}</td><td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, o.moneda ?? 'USD')}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -4583,8 +4583,8 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
                                   <tr key={`${it.sku}-${i}`}>
                                     <td className="mono">{it.sku}</td><td>{it.nombre}</td>
                                     <td className="mono" style={{ textAlign: 'right' }}>{it.cantidad}</td>
-                                    <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, 'USD')}</td>
-                                    <td className="mono" style={{ textAlign: 'right' }}>{monto(it.cantidad * it.precio, 'USD')}</td>
+                                    <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, o.moneda ?? 'USD')}</td>
+                                    <td className="mono" style={{ textAlign: 'right' }}>{monto(it.cantidad * it.precio, o.moneda ?? 'USD')}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -5965,7 +5965,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   const [pctEfStr, setPctEfStr] = useState(ahorroSnap ? String(ahorroSnap.pct) : '');
   const pctEf = Number(pctEfStr) || 0;
   const efectivoCalc = round2(pctEf > 0 ? baseGeneral * (1 - pctEf / 100) : (efectivoSnap > 0 ? efectivoSnap : baseGeneral));
-  const puedeEfectivo = !pagoParcial && baseGeneral > 0;
+  // El "precio en divisa efectivo" (descuento vs BCV) solo aplica a órdenes en USD/BCV,
+  // no a servicios cotizados nativamente en Bs.
+  const puedeEfectivo = !pagoParcial && baseGeneral > 0 && (o.moneda ?? 'USD') !== 'Bs';
   // Monto base a pagar: el efectivo (si está activado y es menor) o el general.
   const baseUsd = (usarEfectivo && efectivoCalc > 0 && efectivoCalc < baseGeneral) ? efectivoCalc : baseGeneral;
   const [montoStr, setMontoStr] = useState(String(baseGeneral));
@@ -6353,8 +6355,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                 <tr key={`${it.sku}-${i}`}>
                   <td className="mono">{it.sku}</td><td>{it.nombre}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{it.cantidad}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, 'USD')}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{monto(it.cantidad * it.precio, 'USD')}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, o.moneda ?? 'USD')}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{monto(it.cantidad * it.precio, o.moneda ?? 'USD')}</td>
                 </tr>
               ))}
             </tbody>
