@@ -6033,9 +6033,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   // Si el método de pago es en efectivo (divisas/Bs), no se exige comprobante.
   const comprobanteOpcional = pagoSinComprobante(o.metodo_pago);
 
-  // El monto a pagar está en USD. Si se paga con una caja en Bs, se convierte
-  // con la tasa BCV del día (editable). Se autocompleta el monto según la moneda.
-  const totalUsd = baseUsd;
+  // La orden puede estar en USD (BCV) o NATIVAMENTE en Bs (servicios en Bs).
+  // El motor de cobertura del multipago trabaja en USD como denominador común;
+  // si la orden es en Bs, su total se convierte a su equivalente en USD con la
+  // tasa BCV del día. Se autocompleta el monto según la moneda de la caja.
+  const esOrdenBs = (o.moneda ?? 'USD') === 'Bs';
+  const monedaOrden = o.moneda ?? 'USD';
   const [tasa, setTasa] = useState<number>(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
   const [tasaLista, setTasaLista] = useState(false);
@@ -6045,6 +6048,11 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       .catch(() => { /* sin tasa: el usuario la ingresa manualmente */ })
       .finally(() => setTasaLista(true));
   }, []);
+  // Total a cubrir expresado en USD (denominador común). Para órdenes en Bs es el
+  // total en Bs dividido por la tasa; para las de USD, el propio total.
+  const totalUsd = esOrdenBs ? (tasa > 0 ? round2(baseUsd / tasa) : 0) : baseUsd;
+  // Muestra en la MONEDA DE LA ORDEN (Bs para servicios en Bs) un monto dado en USD.
+  const enMonedaOrden = (usd: number) => esOrdenBs ? (tasa > 0 ? round2(usd * tasa) : 0) : round2(usd);
 
   // Autocompletar el monto cuando cambia la moneda de la caja o la tasa.
   useEffect(() => {
@@ -6175,14 +6183,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           .filter((l): l is NonNullable<typeof l> => !!l && l.monto > 0);
         const legs = [...legsCaja, ...legsExtra];
         if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); setSaving(false); return; }
-        if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(sumUsdMulti, 'USD')}, total ${monto(totalUsd, 'USD')} (te pasaste por ${monto(round2(sumUsdMulti - totalUsd), 'USD')}).`); setSaving(false); return; }
-        if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
+        if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(enMonedaOrden(sumUsdMulti), monedaOrden)}, total ${monto(enMonedaOrden(totalUsd), monedaOrden)} (te pasaste por ${monto(enMonedaOrden(round2(sumUsdMulti - totalUsd)), monedaOrden)}).`); setSaving(false); return; }
+        if (!cubreTotalMulti) { setError(`Lo cargado (${monto(enMonedaOrden(sumUsdMulti), monedaOrden)}) no cubre el total (${monto(enMonedaOrden(totalUsd), monedaOrden)}).`); setSaving(false); return; }
         await pagarOrdenCompraMulti({ orden: o, cajaId, legs, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName });
-        notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(sumUsdMulti, 'USD')}`, 'success', { link: '#/app/tesoreria' });
+        notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(enMonedaOrden(sumUsdMulti), monedaOrden)}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
       }
-      if (excedeTotalSimple) { setError(`No podés pagar más que el total de la OC (${monto(totalUsd, 'USD')}). El monto ingresado equivale a ${monto(montoUsdSimple, 'USD')}.`); setSaving(false); return; }
+      if (excedeTotalSimple) { setError(`No podés pagar más que el total de la OC (${monto(enMonedaOrden(totalUsd), monedaOrden)}). El monto ingresado equivale a ${monto(enMonedaOrden(montoUsdSimple), monedaOrden)}.`); setSaving(false); return; }
       await pagarOrdenCompra({
         orden: o, cajaId, monto: Number(montoStr) || 0,
         factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null,
@@ -6198,7 +6206,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       <button className="btn btn-ghost" onClick={() => import('@/modules/pedidos/ordenCompraPdf').then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(o.id)).catch(() => toast('No se pudo generar el PDF', 'error'))}>↓ OC PDF</button>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>{row.esperandoMetodo ? 'Cerrar' : 'Cancelar'}</button>
       {!row.esperandoMetodo && (
-        <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving || excedeTotal}>{saving ? 'Pagando…' : excedeTotal ? 'Excede el total de la OC' : `PAGAR ORDEN · ${esMultimoneda ? monto(sumUsdMulti, 'USD') : monto(Number(montoStr) || 0, moneda)}`}</button>
+        <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving || excedeTotal}>{saving ? 'Pagando…' : excedeTotal ? 'Excede el total de la OC' : `PAGAR ORDEN · ${esMultimoneda ? monto(enMonedaOrden(sumUsdMulti), monedaOrden) : monto(Number(montoStr) || 0, moneda)}`}</button>
       )}
     </>
   );
@@ -6466,7 +6474,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                   <tr>
                     <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
                     <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
-                      {monto(sumUsdMulti, 'USD')} / {monto(totalUsd, 'USD')}
+                      {monto(enMonedaOrden(sumUsdMulti), monedaOrden)} / {monto(enMonedaOrden(totalUsd), monedaOrden)}
                     </td>
                   </tr>
                 </tfoot>
@@ -6474,10 +6482,10 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
               {excedeTotalMulti
-                ? <span style={{ color: 'var(--danger)' }}>⚠ Te pasaste por <strong>{monto(round2(sumUsdMulti - totalUsd), 'USD')}</strong>. No podés pagar más que el total de la OC ({monto(totalUsd, 'USD')}).</span>
+                ? <span style={{ color: 'var(--danger)' }}>⚠ Te pasaste por <strong>{monto(enMonedaOrden(round2(sumUsdMulti - totalUsd)), monedaOrden)}</strong>. No podés pagar más que el total de la OC ({monto(enMonedaOrden(totalUsd), monedaOrden)}).</span>
                 : cubreTotalMulti
                 ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
-                : <>Faltan <strong>{monto(round2(totalUsd - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}
+                : <>Faltan <strong>{monto(enMonedaOrden(round2(totalUsd - sumUsdMulti)), monedaOrden)}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}
             </small>
 
             {/* Patas EXTRA desde otras cajas: cuando la caja elegida no alcanza, se
