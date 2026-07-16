@@ -6098,23 +6098,64 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   const excedeTotalSimple = !esMultimoneda && montoUsdSimple > totalUsd + 0.01;
   const excedeTotal = esMultimoneda ? excedeTotalMulti : excedeTotalSimple;
 
-  // Al elegir una caja multimoneda, prellenar cuánto sale de cada cuenta para
-  // cubrir el total automáticamente (de mayor a menor saldo en USD), así el
-  // usuario ve de una vez lo que debe pagar sin teclear el monto en Bs a mano.
-  // Solo prellena cuando aún no se cargó nada (no pisa lo que el usuario edite).
+  // Prellenado del multipago. Reglas (para que un pago no se parta sin necesidad):
+  //  1) Si UNA sola cuenta alcanza para todo el total → se paga solo de esa (un movimiento).
+  //     Se prefiere una cuenta en la MONEDA de la orden y, entre las que alcanzan, la de menor
+  //     saldo (deja intactas las cuentas grandes).
+  //  2) Si ninguna sola alcanza → se reparte. Para órdenes en Bs el reparto es EXACTO en Bs
+  //     (sin el round-trip Bs→$→Bs que dejaba centavos sin pagar), vaciando cada cuenta.
+  //  3) Órdenes en $ → reparto en USD (como antes).
   const saldosKey = saldosCaja.map((s) => s.id).join('|');
   useEffect(() => {
     if (!saldosCaja.length || totalUsd <= 0) return;
-    // Si hay cuentas en Bs/COP, esperar a tener la tasa para poder convertir.
     if (saldosCaja.some((s) => s.moneda === 'Bs') && !(tasa > 0)) return;
     if (saldosCaja.some((s) => s.moneda === 'COP') && !mercado?.copUsd) return;
-    let restante = totalUsd;
     const next: Record<string, string> = {};
+
+    // 1) ¿Alguna cuenta sola cubre todo? → un solo movimiento.
+    const cubren = saldosCaja
+      .filter((s) => legUsd(s.moneda, Number(s.saldo)) >= totalUsd - 0.01)
+      .sort((a, b) => {
+        const am = a.moneda === monedaOrden ? 0 : 1, bm = b.moneda === monedaOrden ? 0 : 1;
+        if (am !== bm) return am - bm;                                   // primero la moneda de la orden
+        return legUsd(a.moneda, Number(a.saldo)) - legUsd(b.moneda, Number(b.saldo)); // luego menor saldo
+      });
+    if (cubren.length) {
+      const s = cubren[0];
+      const monto = (esOrdenBs && s.moneda === 'Bs') ? round2(baseUsd) : montoDesdeUsd(s.moneda, totalUsd);
+      next[s.id] = dosDecimales(String(monto));
+      setLegMontos(next);
+      return;
+    }
+
+    // 2) Ninguna sola alcanza. Orden en Bs → reparto EXACTO en Bs, vaciando cuentas.
+    if (esOrdenBs) {
+      let restanteBs = round2(baseUsd);
+      const bsSaldos = saldosCaja.filter((s) => s.moneda === 'Bs').sort((a, b) => Number(b.saldo) - Number(a.saldo));
+      const otras = saldosCaja.filter((s) => s.moneda !== 'Bs').sort((a, b) => legUsd(b.moneda, Number(b.saldo)) - legUsd(a.moneda, Number(a.saldo)));
+      for (const s of bsSaldos) {
+        if (restanteBs <= 0.001) break;
+        const usa = Math.min(restanteBs, round2(Number(s.saldo)));
+        next[s.id] = dosDecimales(String(round2(usa)));
+        restanteBs = round2(restanteBs - usa);
+      }
+      let restanteUsd = tasa > 0 ? round2(restanteBs / tasa) : 0;
+      for (const s of otras) {
+        if (restanteUsd <= 0.01) break;
+        const usaUsd = Math.min(restanteUsd, legUsd(s.moneda, Number(s.saldo)));
+        next[s.id] = dosDecimales(String(montoDesdeUsd(s.moneda, usaUsd)));
+        restanteUsd = round2(restanteUsd - usaUsd);
+      }
+      setLegMontos(next);
+      return;
+    }
+
+    // 3) Orden en $ → reparto en USD (de mayor a menor saldo).
+    let restante = totalUsd;
     const ordenadas = [...saldosCaja].sort((a, b) => legUsd(b.moneda, Number(b.saldo)) - legUsd(a.moneda, Number(a.saldo)));
     for (const s of ordenadas) {
       if (restante <= 0.01) break;
-      const dispUsd = legUsd(s.moneda, Number(s.saldo));
-      const usaUsd = Math.min(restante, dispUsd);
+      const usaUsd = Math.min(restante, legUsd(s.moneda, Number(s.saldo)));
       next[s.id] = dosDecimales(String(montoDesdeUsd(s.moneda, usaUsd)));
       restante = round2(restante - usaUsd);
     }
