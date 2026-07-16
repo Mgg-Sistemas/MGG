@@ -789,7 +789,7 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
                 <div><span className="muted">OP:</span> <strong className="mono">{orden.codigo}</strong></div>
                 <div><span className="muted">N°ODC:</span> <strong className="mono">{orden.oc_codigo ?? '—'}</strong></div>
                 <div><span className="muted">Total OC:</span> <strong className="mono">{monto(orden.total, orden.moneda ?? 'USD')}</strong></div>
-                {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), 'USD')}</strong></div>}
+                {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), orden.moneda ?? 'USD')}</strong></div>}
                 <div><span className="muted">Solicitante:</span> <strong>{orden.solicitante || orden.solicitante_email}</strong></div>
                 {orden.condiciones_pago && <div><span className="muted">Condición:</span> <strong>{labelCondicionPago(orden.condiciones_pago)}</strong></div>}
                 {orden.pagada_en && <div><span className="muted">Pagada:</span> <strong>{dateTime(orden.pagada_en)}</strong></div>}
@@ -4375,7 +4375,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
                   {r.esperandoMetodo && <div><span className="badge warning" style={{ fontSize: '.66rem', marginTop: '.2rem' }}>⏳ Esperando método de pago</span></div>}
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>
-                  {monto(r.montoAPagar, 'USD')}
+                  {monto(r.montoAPagar, r.orden.moneda ?? 'USD')}
                   {r.esContraEntrega && r.montoAPagar < Number(r.orden.total) && (
                     <div className="muted" style={{ fontSize: '.68rem' }}>de {monto(r.orden.total, r.orden.moneda ?? 'USD')}</div>
                   )}
