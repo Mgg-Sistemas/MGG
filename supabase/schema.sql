@@ -1519,6 +1519,10 @@ alter table public.usuarios    add column if not exists departamento text;
 alter table public.usuarios    add column if not exists estado       estado_generico not null default 'activo';
 alter table public.usuarios    add column if not exists updated_at   timestamptz;
 alter table public.usuarios    add column if not exists ci           text;
+-- Bloqueo de login por 3 intentos fallidos (solo un admin desbloquea; ver funciones abajo).
+alter table public.usuarios    add column if not exists intentos_fallidos int not null default 0;
+alter table public.usuarios    add column if not exists bloqueado         boolean not null default false;
+alter table public.usuarios    add column if not exists bloqueado_en      timestamptz;
 
 alter table public.proveedores add column if not exists updated_at   timestamptz;
 alter table public.productos   add column if not exists updated_at   timestamptz;
@@ -3249,3 +3253,66 @@ begin
     end if;
   end loop;
 end$$;
+
+-- ─────────────────────────────────────────────────────────────
+-- Bloqueo de login por intentos fallidos (usuarios.intentos_fallidos/bloqueado).
+-- A los 3 fallos la cuenta se bloquea; solo un admin la desbloquea (y fuerza el
+-- cambio de clave). Las 3 primeras son anon-callable (el login es no autenticado).
+-- ─────────────────────────────────────────────────────────────
+create or replace function public.login_estado(p_email text)
+returns jsonb language sql security definer set search_path = public as $$
+  select jsonb_build_object(
+    'bloqueado', coalesce(bool_or(bloqueado), false),
+    'existe', count(*) > 0
+  ) from public.usuarios where lower(email) = lower(p_email);
+$$;
+
+create or replace function public.registrar_fallo_login(p_email text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_intentos int; v_bloqueado boolean; v_limite constant int := 3;
+begin
+  update public.usuarios
+    set intentos_fallidos = coalesce(intentos_fallidos, 0) + 1,
+        bloqueado = (coalesce(intentos_fallidos, 0) + 1 >= v_limite) or coalesce(bloqueado, false),
+        bloqueado_en = case
+          when (coalesce(intentos_fallidos, 0) + 1 >= v_limite) and not coalesce(bloqueado, false)
+          then now() else bloqueado_en end
+    where lower(email) = lower(p_email)
+    returning intentos_fallidos, bloqueado into v_intentos, v_bloqueado;
+  if not found then
+    return jsonb_build_object('intentos', 0, 'bloqueado', false, 'existe', false);
+  end if;
+  return jsonb_build_object('intentos', v_intentos, 'bloqueado', v_bloqueado, 'existe', true);
+end;
+$$;
+
+create or replace function public.resetear_intentos_login(p_email text)
+returns void language sql security definer set search_path = public as $$
+  update public.usuarios set intentos_fallidos = 0
+    where lower(email) = lower(p_email) and coalesce(bloqueado, false) = false;
+$$;
+
+create or replace function public.desbloquear_usuario(p_user_id uuid)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare v_admin boolean;
+begin
+  select (role = 'admin') into v_admin from public.usuarios where id = auth.uid();
+  if not coalesce(v_admin, false) then
+    raise exception 'Solo un administrador puede desbloquear usuarios.';
+  end if;
+  update public.usuarios
+    set bloqueado = false, intentos_fallidos = 0, bloqueado_en = null,
+        must_change_password = true, updated_at = now()
+    where id = p_user_id;
+  return found;
+end;
+$$;
+
+revoke all on function public.login_estado(text) from public;
+revoke all on function public.registrar_fallo_login(text) from public;
+revoke all on function public.resetear_intentos_login(text) from public;
+revoke all on function public.desbloquear_usuario(uuid) from public, anon;
+grant execute on function public.login_estado(text) to anon, authenticated;
+grant execute on function public.registrar_fallo_login(text) to anon, authenticated;
+grant execute on function public.resetear_intentos_login(text) to anon, authenticated;
+grant execute on function public.desbloquear_usuario(uuid) to authenticated;

@@ -15,6 +15,7 @@ import {
   listUsuarios,
   loadRolesAndCache,
   resetearClave,
+  desbloquearUsuario,
   cambiarCorreoUsuario,
   setEstadoUsuario,
   getDepartamentos,
@@ -39,6 +40,7 @@ type ModalKind =
   | { kind: 'edit'; usuario: Usuario }
   | { kind: 'detail'; usuario: Usuario }
   | { kind: 'reset-confirm'; usuario: Usuario }
+  | { kind: 'unblock-confirm'; usuario: Usuario }
   | { kind: 'email-change'; usuario: Usuario }
   | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' }
   | { kind: 'actividad' };
@@ -256,6 +258,11 @@ export function UsuariosPage() {
                 <tr key={u.id}>
                   <td>
                     <strong>{[u.nombre, u.apellido].filter(Boolean).join(' ') || u.nombre}</strong>
+                    {u.bloqueado && (
+                      <div style={{ fontSize: '.7rem' }}>
+                        <span className="badge danger">🔒 Bloqueado (3 intentos)</span>
+                      </div>
+                    )}
                     {u.must_change_password && (
                       <div className="muted" style={{ fontSize: '.7rem' }}>
                         ⚠ Debe cambiar clave al ingresar
@@ -386,6 +393,7 @@ export function UsuariosPage() {
           usuario={modal.usuario}
           onClose={() => setModal({ kind: 'none' })}
           onResetClave={() => setModal({ kind: 'reset-confirm', usuario: modal.usuario })}
+          onDesbloquear={() => setModal({ kind: 'unblock-confirm', usuario: modal.usuario })}
           onCambiarCorreo={() => setModal({ kind: 'email-change', usuario: modal.usuario })}
           onToggleEstado={() =>
             setModal({
@@ -412,6 +420,25 @@ export function UsuariosPage() {
               await refresh();
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error al resetear', 'error');
+            }
+          }}
+        />
+      )}
+
+      {modal.kind === 'unblock-confirm' && (
+        <ConfirmDialog
+          title="Desbloquear usuario"
+          message={`${modal.usuario.email} fue bloqueado por 3 intentos fallidos. Al desbloquearlo, su clave se resetea a "123456" y DEBERÁ cambiarla al ingresar. ¿Continuar?`}
+          confirmText="Desbloquear"
+          onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
+          onConfirm={async () => {
+            try {
+              await desbloquearUsuario(modal.usuario.id);
+              notify(`Usuario desbloqueado · ${modal.usuario.email} usará 123456 y deberá cambiar la clave`, 'success', { link: '#/app/usuarios' });
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'No se pudo desbloquear', 'error');
             }
           }}
         />
@@ -1065,11 +1092,12 @@ interface UsuarioDetailModalProps {
   usuario: Usuario;
   onClose: () => void;
   onResetClave: () => void;
+  onDesbloquear: () => void;
   onCambiarCorreo: () => void;
   onToggleEstado: () => void;
   onEdit: () => void;
 }
-function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, onToggleEstado, onEdit }: UsuarioDetailModalProps) {
+function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onCambiarCorreo, onToggleEstado, onEdit }: UsuarioDetailModalProps) {
   const isActive = usuario.estado === 'activo';
   return (
     <Modal
@@ -1086,6 +1114,11 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, o
           <button className="btn btn-ghost" onClick={onResetClave}>
             🔑 Resetear clave
           </button>
+          {usuario.bloqueado && (
+            <button className="btn btn-success" onClick={onDesbloquear} title="Desbloquear: resetea la clave y fuerza el cambio al ingresar">
+              🔓 Desbloquear
+            </button>
+          )}
           <button
             className={isActive ? 'btn btn-danger' : 'btn btn-success'}
             onClick={onToggleEstado}
@@ -1122,6 +1155,14 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, o
       <div className="detail-row">
         <div className="k">Estado</div>
         <div className="v"><StatusBadge estado={usuario.estado} /></div>
+      </div>
+      <div className="detail-row">
+        <div className="k">Acceso</div>
+        <div className="v">
+          {usuario.bloqueado
+            ? <span className="badge danger">🔒 Bloqueado por 3 intentos fallidos{usuario.bloqueado_en ? ` · ${dateTime(usuario.bloqueado_en)}` : ''}</span>
+            : <span className="badge success">Desbloqueado{typeof usuario.intentos_fallidos === 'number' && usuario.intentos_fallidos > 0 ? ` · ${usuario.intentos_fallidos} intento(s) fallido(s)` : ''}</span>}
+        </div>
       </div>
       <div className="detail-row">
         <div className="k">Cambio de clave pendiente</div>

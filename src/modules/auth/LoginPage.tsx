@@ -1,8 +1,19 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signIn, signOutLocal } from './authStore';
-import { isSupabaseConfigured } from '@/shared/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/shared/lib/supabase';
 import { entrarConBiometria, biometriaDisponible } from './webauthn.repository';
+
+const LIMITE_INTENTOS = 3;
+const MSG_BLOQUEADO = 'Tu cuenta está bloqueada por 3 intentos fallidos. Contactá al administrador para que la desbloquee.';
+
+/** ¿El correo está bloqueado por intentos fallidos? (precheck antes de intentar entrar). */
+async function estaBloqueado(email: string): Promise<boolean> {
+  try {
+    const { data } = await supabase.rpc('login_estado', { p_email: email.trim().toLowerCase() });
+    return Boolean((data as { bloqueado?: boolean } | null)?.bloqueado);
+  } catch { return false; }
+}
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -22,6 +33,7 @@ export function LoginPage() {
     if (!email.trim()) { setError('Escribí tu correo y luego usá la huella.'); return; }
     setBioBusy(true);
     try {
+      if (await estaBloqueado(email)) { setError(MSG_BLOQUEADO); return; }
       await entrarConBiometria(email);
       navigate('/app');
     } catch (e) {
@@ -49,12 +61,33 @@ export function LoginPage() {
     }
     setSubmitting(true);
     setError(null);
-    const { error: authError } = await signIn(email, password);
-    setSubmitting(false);
-    if (authError) {
-      setError(authError.message);
+    // 1) Precheck: si ya está bloqueado, no se intenta entrar.
+    if (await estaBloqueado(email)) {
+      setSubmitting(false);
+      setError(MSG_BLOQUEADO);
       return;
     }
+    const { error: authError } = await signIn(email, password);
+    if (authError) {
+      // 2) Clave incorrecta: se cuenta el fallo; a los 3 se bloquea la cuenta.
+      let msg = 'Correo o contraseña incorrectos.';
+      try {
+        const { data } = await supabase.rpc('registrar_fallo_login', { p_email: email.trim().toLowerCase() });
+        const r = data as { intentos?: number; bloqueado?: boolean; existe?: boolean } | null;
+        if (r?.bloqueado) {
+          msg = `Contraseña incorrecta. Tu cuenta quedó BLOQUEADA por ${LIMITE_INTENTOS} intentos fallidos. Contactá al administrador para desbloquearla.`;
+        } else if (r?.existe && typeof r.intentos === 'number') {
+          const restantes = Math.max(0, LIMITE_INTENTOS - r.intentos);
+          msg = `Contraseña incorrecta. Te queda${restantes === 1 ? '' : 'n'} ${restantes} intento${restantes === 1 ? '' : 's'} antes de que se bloquee la cuenta.`;
+        }
+      } catch { /* si falla el registro del intento, se muestra el mensaje genérico */ }
+      setSubmitting(false);
+      setError(msg);
+      return;
+    }
+    // 3) Éxito: se limpia el contador de intentos fallidos.
+    try { await supabase.rpc('resetear_intentos_login', { p_email: email.trim().toLowerCase() }); } catch { /* no bloquea el ingreso */ }
+    setSubmitting(false);
     navigate('/app');
   }
 
