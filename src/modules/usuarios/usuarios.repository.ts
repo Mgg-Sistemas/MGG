@@ -177,19 +177,6 @@ export async function setEstadoUsuario(id: string, estado: 'activo' | 'inactivo'
   if (error) throw error;
 }
 
-/**
- * Desbloquea un usuario que quedó BLOQUEADO por 3 intentos de login fallidos.
- * Solo un admin: (1) resetea su clave a 123456 y fuerza el cambio al ingresar
- * (Edge Function resetear-clave, must_change_password=true) y (2) limpia el
- * bloqueo y el contador de intentos (RPC desbloquear_usuario, valida admin por dentro).
- */
-export async function desbloquearUsuario(id: string): Promise<void> {
-  await resetearClave(id);
-  const { data, error } = await supabase.rpc('desbloquear_usuario', { p_user_id: id });
-  if (error) throw new Error(error.message ?? 'No se pudo desbloquear el usuario.');
-  if (data === false) throw new Error('No se encontró el usuario a desbloquear.');
-}
-
 /** Cambia la clave del usuario logueado y desactiva el flag must_change_password.
  *  El flag se limpia vía RPC `clear_must_change_password` (SECURITY DEFINER) porque
  *  las políticas RLS de `usuarios` no permiten que un usuario actualice su propia
