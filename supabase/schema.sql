@@ -1631,6 +1631,10 @@ alter table public.ordenes add column if not exists oferta_precio_efectivo numer
 -- Total BCV/general original cuando se aplicó el descuento por efectivo (el `total` ya
 -- pasa a ser el efectivo; este se conserva para mostrar el ahorro en "Datos de la oferta").
 alter table public.ordenes add column if not exists oferta_precio_bcv      numeric;
+-- Observación del analista al elegir la oferta (por qué la eligió) + adjuntos (imágenes/PDF,
+-- paths en el bucket ofertas-pdf). La ven el Gerente General (al aprobar) y Tesorería (al pagar).
+alter table public.ordenes add column if not exists oferta_motivo          text;
+alter table public.ordenes add column if not exists oferta_motivo_adjuntos jsonb;
 -- Marca de prioridad: ORDEN URGENTE (se refleja en el PDF y en toda la trazabilidad).
 alter table public.ordenes add column if not exists urgente boolean not null default false;
 -- Imagen de referencia adjunta a la OP (path en el bucket de adjuntos de OC).

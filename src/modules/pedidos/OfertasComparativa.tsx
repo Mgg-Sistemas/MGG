@@ -9,7 +9,7 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
-import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta } from './ofertas.repository';
+import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta, subirAdjuntosOferta } from './ofertas.repository';
 import { urlAdjuntoOc } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
@@ -114,12 +114,16 @@ export function OfertasComparativa({
    * Se persisten en la oferta (items + totales recalculados) para que la OC y el
    * ahorro por efectivo cuadren, y luego se acepta y se crea la OC.
    */
-  async function confirmarAceptacion(s: ScoredOferta, itemsElegidos: ItemOrden[], bcvTotal: number, usdTotal: number) {
+  async function confirmarAceptacion(s: ScoredOferta, itemsElegidos: ItemOrden[], bcvTotal: number, usdTotal: number, motivo: string, adjuntosFiles: File[]) {
     if (!itemsElegidos.some((it) => (Number(it.precio) || 0) > 0 || (Number(it.precio_usd) || 0) > 0)) {
       toast('Cargá al menos un precio: las marcas elegidas están en $0.', 'error');
       return;
     }
     try {
+      // Adjuntos de la observación (imágenes/PDF): se suben al bucket de ofertas.
+      const motivoAdjuntos = adjuntosFiles.length
+        ? await subirAdjuntosOferta(orden.id, s.oferta.proveedor_id, adjuntosFiles)
+        : [];
       // Si el usuario descartó marcas (había variantes), la oferta ahora refleja solo lo elegido.
       const huboSeleccion = itemsElegidos.length !== s.oferta.items.length;
       if (huboSeleccion) {
@@ -137,6 +141,8 @@ export function OfertasComparativa({
         bcvTotal,
         s.score.total,
         actorEmail,
+        motivo || null,
+        motivoAdjuntos.length ? motivoAdjuntos : null,
       );
       notify('Oferta elegida · pendiente por aprobación del Gerente General', 'success', { link: '#/app/pedidos' });
       onAccepted();
@@ -448,7 +454,7 @@ export function OfertasComparativa({
         <AceptarOfertaModal
           oferta={confirmando.oferta}
           proveedorNombre={proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}
-          onConfirm={(items, bcv, usd) => confirmarAceptacion(confirmando, items, bcv, usd)}
+          onConfirm={(items, bcv, usd, motivo, files) => confirmarAceptacion(confirmando, items, bcv, usd, motivo, files)}
           onCancel={() => setConfirmando(null)}
         />
       )}

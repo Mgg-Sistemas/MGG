@@ -500,7 +500,11 @@ export async function aprobarOrdenConOferta(
   ofertaItems: ItemOrden[],
   ofertaPrecioTotal: number,
   scoreCalculado: number | null,
-  actorEmail: string
+  actorEmail: string,
+  /** Observación del analista: por qué elige esta oferta (la ven Gerente y Tesorería). */
+  motivo?: string | null,
+  /** Adjuntos (imágenes/PDF) de esa observación, en el bucket de ofertas. */
+  motivoAdjuntos?: { path: string; filename: string }[] | null,
 ): Promise<Orden> {
   if (!['aprobada', 'desistida_proveedor'].includes(o.estado))
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
@@ -566,6 +570,8 @@ export async function aprobarOrdenConOferta(
       oferta_detalle: (ofRow?.detalle as Orden['oferta_detalle']) ?? null,
       oferta_precio_efectivo: efectivoOf,
       descuento: descObt || null,
+      motivo: motivo?.trim() || null,
+      motivoAdjuntos: (motivoAdjuntos && motivoAdjuntos.length) ? motivoAdjuntos : null,
     }], actorEmail);
     const { data: padre, error: padreErr } = await supabase.from(TABLE).select('*').eq('id', o.id).single();
     if (padreErr) throw padreErr;
@@ -587,6 +593,9 @@ export async function aprobarOrdenConOferta(
     oferta_detalle: (ofRow?.detalle as Orden['oferta_detalle']) ?? null,
     oferta_precio_efectivo: efectivoOf,
     oferta_precio_bcv: repEf ? repEf.bcv : null,
+    // Observación del analista (por qué eligió la oferta) + adjuntos: la ven Gerente y Tesorería.
+    oferta_motivo: motivo?.trim() || null,
+    oferta_motivo_adjuntos: (motivoAdjuntos && motivoAdjuntos.length) ? motivoAdjuntos : null,
     oc_creada_por: actorEmail,
     oc_creada_en: nowIso,
     historial: appendHistorial(o, 'oc_creada', actorEmail, {
@@ -616,6 +625,9 @@ export interface AsignacionProveedor {
   oferta_precio_efectivo?: number | null;
   /** Descuento obtenido (negociado) de esta sub-OC: reduce su total. */
   descuento?: number | null;
+  /** Observación del analista (por qué eligió) + adjuntos (imágenes/PDF). */
+  motivo?: string | null;
+  motivoAdjuntos?: { path: string; filename: string }[] | null;
 }
 
 /** OC hijas (sub-OC por proveedor) ya creadas para una OP. */
@@ -680,6 +692,8 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       oferta_detalle: a.oferta_detalle ?? null,
       oferta_precio_efectivo: a.oferta_precio_efectivo ?? null,
       oferta_precio_bcv: repEf ? repEf.bcv : null,
+      oferta_motivo: a.motivo ?? null,
+      oferta_motivo_adjuntos: (a.motivoAdjuntos && a.motivoAdjuntos.length) ? a.motivoAdjuntos : null,
       oc_creada_por: actorEmail,
       oc_creada_en: nowIso,
       historial: [{ at: nowIso, evento: 'oc_creada', actor: actorEmail, oc_codigo: ocCodigo, proveedorId: a.proveedorId, precio: total, parent: op.codigo }],
