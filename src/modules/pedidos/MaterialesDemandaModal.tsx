@@ -166,7 +166,7 @@ export function MaterialesDemandaModal({ ordenes, onClose }: Props) {
                 const v = valOf(r);
                 const pct = Math.max(2, (v / max) * 100);
                 return (
-                  <div key={`${r.sku}-${i}`} style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '.6rem', alignItems: 'center' }}>
+                  <div key={`${r.sku}-${i}`} className="m-stack" style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '.6rem', alignItems: 'center' }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '.82rem' }} title={`${r.sku} · ${r.nombre}`}>
                       <strong className="mono">{r.sku !== '—' ? r.sku : ''}</strong> {r.nombre}
                     </div>

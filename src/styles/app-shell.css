@@ -744,7 +744,9 @@ tr.row-selectable:active { transform: scale(0.998); }
   }
   .detail-row .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
 
-  .line-picker { grid-template-columns: 1fr; gap: .35rem; }
+  /* !important: le gana al gridTemplateColumns inline del picker (si no, en el
+     teléfono se quedaría en 4 columnas apretadas). */
+  .line-picker { grid-template-columns: 1fr !important; gap: .35rem; }
   .line-picker.head { display: none; }
 
   .timeline { padding-left: 1rem; }
@@ -770,6 +772,18 @@ tr.row-selectable:active { transform: scale(0.998); }
      botones ENVUELVEN en varias filas en vez de aplastarse a basis 0 y encimarse. */
   .page-head .actions .btn { flex: 1 1 auto; min-width: max-content; white-space: nowrap; }
   .kanban-col { flex: 0 0 86vw; }
+}
+
+/* ============================================================
+   Utilidades de colapso en teléfono (≤ 640px)
+   Se aplican con !important para ganarle al `gridTemplateColumns`
+   inline de los <div style=…>. Marcá el grid con:
+     .m-stack  → una sola columna (apila etiqueta/valor o paneles)
+     .m-tiles  → dos columnas (tarjetas de cifras: TOTAL, ABONADO, …)
+   ============================================================ */
+@media (max-width: 640px) {
+  .m-stack { grid-template-columns: 1fr !important; }
+  .m-tiles { grid-template-columns: 1fr 1fr !important; }
 }
 
 /* View switch (toggle entre vistas dentro de una página) */
