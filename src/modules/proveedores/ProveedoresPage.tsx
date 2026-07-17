@@ -781,6 +781,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div
+      className="m-stack"
       style={{
         display: 'grid',
         gridTemplateColumns: '140px minmax(0, 1fr)',
