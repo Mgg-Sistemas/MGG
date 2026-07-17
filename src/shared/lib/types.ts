@@ -762,6 +762,10 @@ export interface Orden {
   /** Total BCV/general original de la OC cuando se aplicó el descuento por efectivo
    *  (el `total` ya pasa a ser el efectivo). Solo para mostrar el ahorro. */
   oferta_precio_bcv?: number | null;
+  /** Observación del analista al elegir la oferta (por qué la eligió) + adjuntos
+   *  (imágenes/PDF). La ven el Gerente General (al aprobar) y Tesorería (al pagar). */
+  oferta_motivo?: string | null;
+  oferta_motivo_adjuntos?: OfertaAdjunto[] | null;
   /** Método(s) de pago indicados antes de enviar a pagar (multipago). */
   metodo_pago?: PagoMetodo[] | null;
   metodo_pago_por?: string | null;

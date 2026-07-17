@@ -46,8 +46,9 @@ const marcaLabel = (it: ItemOrden) =>
 interface Props {
   oferta: OfertaProveedor;
   proveedorNombre: string;
-  /** Devuelve los ítems elegidos (uno por producto) + totales recalculados en Bs y $. */
-  onConfirm: (itemsElegidos: ItemOrden[], bcvTotal: number, usdTotal: number) => Promise<void> | void;
+  /** Devuelve los ítems elegidos (uno por producto) + totales en Bs y $ + la observación
+   *  del analista (por qué elige la oferta) y sus adjuntos (imágenes/PDF). */
+  onConfirm: (itemsElegidos: ItemOrden[], bcvTotal: number, usdTotal: number, motivo: string, adjuntos: File[]) => Promise<void> | void;
   onCancel: () => void;
 }
 
@@ -59,7 +60,26 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCance
   const [sel, setSel] = useState<Record<string, number>>(() =>
     Object.fromEntries(grupos.map((g) => [g.key, 0])),
   );
+  // Observación del analista (por qué elige) + adjuntos (imágenes/PDF).
+  const [motivo, setMotivo] = useState('');
+  const [adjuntos, setAdjuntos] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
+
+  function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const nuevos = Array.from(e.target.files ?? []);
+    const validos: File[] = [];
+    for (const f of nuevos) {
+      if (f.type !== 'application/pdf' && !f.type.startsWith('image/')) continue; // solo imagen o PDF
+      if (f.size > 10 * 1024 * 1024) continue;                                     // hasta 10 MB
+      validos.push(f);
+    }
+    setAdjuntos((prev) => {
+      const key = (f: File) => `${f.name}-${f.size}`;
+      const ya = new Set(prev.map(key));
+      return [...prev, ...validos.filter((f) => !ya.has(key(f)))];
+    });
+    e.target.value = '';
+  }
 
   const elegidos = grupos.map((g) => g.opciones[Math.min(sel[g.key] ?? 0, g.opciones.length - 1)]);
   const bcvTotal = Math.round(elegidos.reduce((a, it) => { const u = unit(it); return a + u.cant * u.bcv; }, 0) * 100) / 100;
@@ -70,7 +90,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCance
     if (sinPrecio || saving) return;
     setSaving(true);
     try {
-      await onConfirm(elegidos, bcvTotal, usdTotal > 0 ? usdTotal : 0);
+      await onConfirm(elegidos, bcvTotal, usdTotal > 0 ? usdTotal : 0, motivo.trim(), adjuntos);
     } finally {
       setSaving(false);
     }
@@ -153,6 +173,32 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCance
             </div>
           );
         })}
+      </div>
+
+      {/* Observación del analista: por qué elige esta oferta (la ven Gerente y Tesorería). */}
+      <div className="card" style={{ padding: '.7rem .8rem', marginTop: '.8rem', borderLeft: '3px solid var(--primary)' }}>
+        <div className="form-row" style={{ margin: 0 }}>
+          <label>📝 Observación · ¿por qué elegís esta oferta? <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          <textarea className="textarea" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)}
+            placeholder="Ej.: mejor precio en efectivo, entrega inmediata, único con stock, calidad comprobada…" />
+          <small className="muted">Lo verán el <strong>Gerente General</strong> (al aprobar) y <strong>Tesorería</strong> (al pagar).</small>
+        </div>
+        <div className="form-row" style={{ margin: '.5rem 0 0' }}>
+          <label>📎 Adjuntar imágenes / PDF de respaldo <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          <input type="file" className="input" accept="application/pdf,image/*" multiple onChange={onFiles} />
+          {adjuntos.length > 0 && (
+            <div style={{ marginTop: '.35rem', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+              {adjuntos.map((f, i) => (
+                <div key={`${f.name}-${i}`} className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                  ✓ {f.name} ({(f.size / 1024).toFixed(0)} KB)
+                  <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', color: 'var(--danger)' }}
+                    onClick={() => setAdjuntos((prev) => prev.filter((_, k) => k !== i))} title="Quitar">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <small className="muted" style={{ fontSize: '.72rem' }}>PDF o imágenes · máximo 10 MB c/u.</small>
+        </div>
       </div>
 
       {/* Totales de lo elegido (se actualizan al cambiar de marca). */}

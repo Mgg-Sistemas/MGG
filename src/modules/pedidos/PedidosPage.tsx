@@ -71,7 +71,7 @@ import {
   type CatalogoPedido,
   type ScopeCatalogoPedido,
 } from './pedidos.repository';
-import { listOfertasByOrden, labelCondicionPago, descuentoEfectivo, CONDICIONES_PAGO } from './ofertas.repository';
+import { listOfertasByOrden, labelCondicionPago, descuentoEfectivo, CONDICIONES_PAGO, getPdfOfertaSignedUrl } from './ofertas.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -2489,6 +2489,23 @@ function OrdenDetailModal({
           </div>
         );
       })()}
+      {(o.oferta_motivo || (o.oferta_motivo_adjuntos && o.oferta_motivo_adjuntos.length > 0)) && (
+        <div className="detail-row">
+          <div className="k">📝 Motivo de elección</div>
+          <div className="v" style={{ fontSize: '.86rem' }}>
+            {o.oferta_motivo && <div style={{ whiteSpace: 'pre-wrap' }}>{o.oferta_motivo}</div>}
+            {o.oferta_motivo_adjuntos && o.oferta_motivo_adjuntos.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginTop: '.35rem' }}>
+                {o.oferta_motivo_adjuntos.map((a, i) => (
+                  <button key={a.path ?? i} type="button" className="btn btn-sm btn-ghost" style={{ padding: '.1rem .4rem' }}
+                    onClick={() => getPdfOfertaSignedUrl(a.path).then((u) => window.open(u, '_blank', 'noopener')).catch(() => toast('No se pudo abrir el adjunto', 'error'))}
+                    title={a.filename}>📎 {a.filename ?? `Adjunto ${i + 1}`}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {o.metodo_pago && o.metodo_pago.length > 0 && (
         <div className="detail-row">
           <div className="k">Método de pago</div>

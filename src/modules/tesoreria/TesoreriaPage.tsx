@@ -6295,6 +6295,23 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           </div>
         </div>
 
+        {/* Observación del analista al elegir la oferta (por qué la eligió) + adjuntos. */}
+        {(o.oferta_motivo || (o.oferta_motivo_adjuntos && o.oferta_motivo_adjuntos.length > 0)) && (
+          <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--primary)' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>📝 Por qué se eligió esta oferta</div>
+            {o.oferta_motivo && <div style={{ fontSize: '.86rem', whiteSpace: 'pre-wrap' }}>{o.oferta_motivo}</div>}
+            {o.oferta_motivo_adjuntos && o.oferta_motivo_adjuntos.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginTop: '.4rem' }}>
+                {o.oferta_motivo_adjuntos.map((a, i) => (
+                  <button key={a.path ?? i} type="button" className="btn btn-sm btn-ghost" style={{ padding: '.1rem .4rem' }}
+                    onClick={() => getPdfOfertaSignedUrl(a.path).then((u) => window.open(u, '_blank', 'noopener')).catch(() => toast('No se pudo abrir el adjunto', 'error'))}
+                    title={a.filename}>📎 {a.filename ?? `Adjunto ${i + 1}`}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {!row.esperandoMetodo && (<>
         {pagoParcial && (
           <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)' }}>
