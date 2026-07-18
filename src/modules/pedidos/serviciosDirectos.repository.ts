@@ -45,6 +45,16 @@ export function esRecargaGas(cat: string): boolean {
   return /gas|ox[ií]geno|extintor|bombona/i.test(cat);
 }
 
+/** ¿La categoría es de recarga de AGUA? (botellones, garrafones o cisterna) → cantidad × litros. */
+export function esRecargaAgua(cat: string): boolean {
+  return /\bagua\b|botell[oó]n|garraf|cisterna/i.test(cat);
+}
+
+/** Recarga en general (gas O agua): ambas piden cantidad + medida (KG o litros). */
+export function esRecarga(cat: string): boolean {
+  return esRecargaGas(cat) || esRecargaAgua(cat);
+}
+
 export interface ServicioDirecto {
   id: string;
   codigo: string | null;
@@ -155,12 +165,17 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
     const cat = l.servicioCategoria.trim().toUpperCase();
     const tipo = (l.servicioTipo ?? '').trim().toUpperCase() || null;
     const eq = (l.equipoNombre ?? '').trim() || null;
-    const recarga = esRecargaGas(cat);
+    const recarga = esRecarga(cat);
+    const agua = esRecargaAgua(cat);
     const bombonas = recarga ? (l.bombonas ?? null) : null;
-    const kg = recarga ? (l.kgRecarga ?? null) : null;
-    // La descripción incluye bombonas/KG para que se vea en tarjetas, Tesorería y PDF.
-    const extra = recarga ? [bombonas != null ? `${bombonas} bombona(s)` : '', kg != null ? `${kg} KG` : ''].filter(Boolean).join(' · ') : '';
-    // Repuesto del inventario (solo en mantenimiento, nunca en recarga de gas).
+    const kg = recarga ? (l.kgRecarga ?? null) : null;   // gas: KG totales · agua: litros totales
+    // La descripción incluye la medida para que se vea en tarjetas, Tesorería y PDF.
+    const extra = recarga
+      ? (agua
+          ? [kg != null ? `${kg} L DE AGUA` : '', (bombonas != null && bombonas > 1) ? `${bombonas} UND` : ''].filter(Boolean).join(' · ')
+          : [bombonas != null ? `${bombonas} bombona(s)` : '', kg != null ? `${kg} KG` : ''].filter(Boolean).join(' · '))
+      : '';
+    // Repuesto del inventario (solo en mantenimiento, nunca en recarga de gas/agua).
     const prodId = !recarga ? (l.productoId?.trim() || null) : null;
     const prodCant = prodId ? Math.max(0, Number(l.productoCantidad) || 0) : null;
     const prodNombre = prodId ? (l.productoNombre?.trim() || null) : null;

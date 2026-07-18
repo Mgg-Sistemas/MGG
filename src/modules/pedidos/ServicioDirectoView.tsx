@@ -14,7 +14,7 @@ import { listProductosConStock, type ProductoConStock } from '@/modules/inventar
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
   crearServicioDirecto, montarServicioDirecto, listServiciosDirectos, eliminarServicioDirecto,
-  urlAdjuntoServicio, gestionarFacturasServicio, editarServicioDirectoFinalizado, esRecargaGas, type ServicioDirecto, type ServicioDirectoItem, type LineaServicioInput,
+  urlAdjuntoServicio, gestionarFacturasServicio, editarServicioDirectoFinalizado, esRecargaAgua, esRecarga, type ServicioDirecto, type ServicioDirectoItem, type LineaServicioInput,
 } from './serviciosDirectos.repository';
 import { FacturasModal } from './FacturasModal';
 import { EditarMontosModal } from './EditarMontosModal';
@@ -421,11 +421,12 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
     const payload: LineaServicioInput[] = [];
     for (const l of lineas) {
       if (!l.categoria.trim()) { setError('Indicá la categoría del servicio en cada renglón.'); return; }
-      const recargaCat = esRecargaGas(l.categoria);
+      const aguaCat = esRecargaAgua(l.categoria);
+      const recargaCat = esRecarga(l.categoria);
       const bombonas = recargaCat ? (Number(l.bombonas) || 0) : 0;
       const kgTotal = recargaCat ? Math.round(bombonas * (Number(l.kg) || 0) * 100) / 100 : null;
       const cant = recargaCat ? bombonas : (Number(l.cantidad) || 0);
-      if (cant <= 0) { setError(recargaCat ? 'Indicá la cantidad de bombonas.' : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
+      if (cant <= 0) { setError(recargaCat ? (aguaCat ? 'Indicá la cantidad (botellones o cisternas; 1 si es una cisterna).' : 'Indicá la cantidad de bombonas.') : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
       const esElectro = esMantenimientoElectrodomestico(l.categoria);
       const eq = !esElectro ? (equipos.find((x) => x.id === l.equipoId) ?? null) : null;
       // Electrodoméstico: se guarda como nombre del "equipo" servido, sin equipoId (no es del Control de Maquinaria).
@@ -535,11 +536,11 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                   options={categorias.map((c) => ({ value: c.nombre.toUpperCase(), label: c.nombre }))}
                   placeholder="🔎 Buscá o escribí (mantenimiento de vehículos…)" emptyText="Escribí una nueva." />
               </div>
-              {/* En recarga (gas/oxígeno/extintores) solo se pide cantidad de bombonas y KG: sin tipo ni equipo. */}
-              {esRecargaGas(l.categoria) ? (
+              {/* En recarga (gas/oxígeno/extintores/AGUA) solo se pide cantidad y medida: sin tipo ni equipo. */}
+              {esRecarga(l.categoria) ? (
                 <div className="form-row">
-                  <label>🛢️ Cantidad de bombonas</label>
-                  <input className="input mono" type="number" min={0} step="any" value={l.bombonas} onChange={(e) => set(l.id, { bombonas: e.target.value })} placeholder="N° de bombonas" required />
+                  <label>{esRecargaAgua(l.categoria) ? '🚰 Botellones / cisternas (cantidad)' : '🛢️ Cantidad de bombonas'}</label>
+                  <input className="input mono" type="number" min={0} step="any" value={l.bombonas} onChange={(e) => set(l.id, { bombonas: e.target.value })} placeholder={esRecargaAgua(l.categoria) ? 'N° de botellones/cisternas (1 = cisterna)' : 'N° de bombonas'} required />
                 </div>
               ) : (
                 <div className="form-row">
@@ -550,16 +551,18 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                 </div>
               )}
             </div>
-            {esRecargaGas(l.categoria) ? (
+            {esRecarga(l.categoria) ? (
               <div className="form-grid">
                 <div className="form-row">
-                  <label>⚖️ KG por bombona</label>
-                  <input className="input mono" type="number" min={0} step="any" value={l.kg} onChange={(e) => set(l.id, { kg: e.target.value })} placeholder="Kg de cada una" />
+                  <label>{esRecargaAgua(l.categoria) ? '💧 Litros por unidad' : '⚖️ KG por bombona'}</label>
+                  <input className="input mono" type="number" min={0} step="any" value={l.kg} onChange={(e) => set(l.id, { kg: e.target.value })} placeholder={esRecargaAgua(l.categoria) ? 'Litros de cada uno' : 'Kg de cada una'} />
                 </div>
                 <div className="form-row">
                   <label>Total recarga</label>
                   <div className="card mono" style={{ margin: 0, padding: '.45rem .7rem', fontWeight: 700 }}>
-                    {(Number(l.bombonas) || 0)} bombona(s) · {Math.round((Number(l.bombonas) || 0) * (Number(l.kg) || 0) * 100) / 100} KG
+                    {esRecargaAgua(l.categoria)
+                      ? <>{Math.round((Number(l.bombonas) || 0) * (Number(l.kg) || 0) * 100) / 100} L de agua{(Number(l.bombonas) || 0) > 1 ? ` · ${(Number(l.bombonas) || 0)} und` : ''}</>
+                      : <>{(Number(l.bombonas) || 0)} bombona(s) · {Math.round((Number(l.bombonas) || 0) * (Number(l.kg) || 0) * 100) / 100} KG</>}
                   </div>
                 </div>
               </div>
@@ -594,8 +597,9 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                 <div className="form-row"><label>Cantidad</label><input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
               </div>
             )}
-            {/* Repuesto del inventario (mantenimiento): si el repuesto está en stock, se toma de ahí. */}
-            {!esRecargaGas(l.categoria) && (() => {
+            {/* Repuesto del inventario (mantenimiento): si el repuesto está en stock, se toma de ahí.
+               No aplica a recargas (gas/agua). */}
+            {!esRecarga(l.categoria) && (() => {
               const prod = l.productoId ? productos.find((p) => p.id === l.productoId) ?? null : null;
               return (
                 <div className="form-grid">

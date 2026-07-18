@@ -534,7 +534,7 @@ export function PedidosPage() {
           <button
             className={scope === 'servicio' ? 'active' : ''}
             onClick={() => switchScope('servicio')}
-            title="Solicitudes de servicio (recarga de gas, mantenimiento de maquinaria…)"
+            title="Solicitudes de servicio (recarga de gas, recarga de agua, mantenimiento de maquinaria…)"
           >
             🛠 Servicios
           </button>
@@ -3158,6 +3158,16 @@ function esRecargaGas(cat: string): boolean {
   return /gas|ox[ií]geno|extintor|bombona/i.test(cat);
 }
 
+/** ¿La categoría es de recarga de AGUA? (botellones, garrafones o cisterna) → cantidad × litros. */
+function esRecargaAgua(cat: string): boolean {
+  return /\bagua\b|botell[oó]n|garraf|cisterna/i.test(cat);
+}
+
+/** Recarga en general (gas O agua): ambas piden cantidad + medida (KG o litros). */
+function esRecarga(cat: string): boolean {
+  return esRecargaGas(cat) || esRecargaAgua(cat);
+}
+
 /** ¿El equipo es una MOTO/motocicleta? (evita falsos positivos como motoniveladora/motobomba). */
 function esMoto(e: MaquinariaEquipo): boolean {
   return /\bmotos?\b|motocicleta/i.test(`${e.tipo ?? ''} ${e.equipo ?? ''}`);
@@ -3335,18 +3345,22 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
     for (const l of lineas) {
       const cat = l.categoria.trim();
       if (!cat) continue;
-      const recargaCat = esRecargaGas(cat);
-      // Recarga (gas / oxígeno / extintores): la "cantidad" es el nº de bombonas; el
-      // KG por bombona × bombonas da el total a recargar.
+      const aguaCat = esRecargaAgua(cat);
+      const recargaCat = esRecargaGas(cat) || aguaCat;
+      // Recarga (gas / oxígeno / extintores / AGUA): la "cantidad" es el nº de unidades
+      // (bombonas o botellones/cisternas); la medida por unidad × unidades da el total
+      // (KG para gas, litros para agua).
       const bombonas = recargaCat ? (Number(l.bombonas) || 0) : 0;
-      const kgPorBombona = recargaCat ? (Number(l.kg) || 0) : 0;
-      const kgTotal = Math.round(bombonas * kgPorBombona * 100) / 100;
+      const medidaPorUnidad = recargaCat ? (Number(l.kg) || 0) : 0;
+      const kgTotal = Math.round(bombonas * medidaPorUnidad * 100) / 100;
       const cant = recargaCat ? bombonas : (Number(l.cantidad) || 0);
-      if (cant <= 0) { setError(recargaCat ? 'Indicá la cantidad de bombonas.' : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
+      if (cant <= 0) { setError(recargaCat ? (aguaCat ? 'Indicá la cantidad (botellones o cisternas; 1 si es una cisterna).' : 'Indicá la cantidad de bombonas.') : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
       const precio = Number(l.precio) || 0;
       const recarga = recargaCat ? { bombonas, kg_recarga: kgTotal } : {};
-      // Sufijo visible (tablero + PDF): "· 2 BOMBONA(S) · 86 KG".
-      const recargaSuf = recargaCat ? ` · ${bombonas} BOMBONA(S) · ${kgTotal} KG` : '';
+      // Sufijo visible (tablero + PDF): gas "· 2 BOMBONA(S) · 86 KG" · agua "· 100 L DE AGUA (5 UND)".
+      const recargaSuf = recargaCat
+        ? (aguaCat ? ` · ${kgTotal} L DE AGUA${bombonas > 1 ? ` (${bombonas} UND)` : ''}` : ` · ${bombonas} BOMBONA(S) · ${kgTotal} KG`)
+        : '';
       if (esMantenimientoEquipo(cat) || esMantenimientoElectrodomestico(cat)) {
         const esElectro = esMantenimientoElectrodomestico(cat);
         let equipoId: string | null = null;
@@ -3442,7 +3456,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
     }>
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Mismo flujo que una Solicitud de Pedido pero para <strong>servicios</strong> (recarga de gas, oxígeno,
-        mantenimiento de maquinaria, recarga de extintores…). Correlativo <strong className="mono">{codigo}</strong>. Luego se aprueba,
+        recarga de agua —botellones o cisterna—, mantenimiento de maquinaria, recarga de extintores…). Correlativo <strong className="mono">{codigo}</strong>. Luego se aprueba,
         se cotiza y se paga como cualquier OC. <strong>Mantenimiento de maquinaria</strong> lista los equipos de Maquinaria y Plantas Eléctricas; <strong>mantenimiento de vehículos</strong> lista los vehículos. En ambos se casa con el equipo de Control de Maquinaria/Vehículos.
       </p>
 
@@ -3569,23 +3583,25 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                     </div>
                   );
                 })()}
-                {esRecargaGas(l.categoria) ? (
+                {esRecarga(l.categoria) ? (
                   <>
                     <div className="form-grid" style={{ marginTop: '.4rem' }}>
                       <div className="form-row" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '.74rem' }}>🛢️ Cantidad de bombonas</label>
-                        <input className="input mono" type="number" min={0} step="any" value={l.bombonas} onChange={(e) => setLinea(l.id, { bombonas: e.target.value })} placeholder="N° de bombonas" />
+                        <label style={{ fontSize: '.74rem' }}>{esRecargaAgua(l.categoria) ? '🚰 Botellones / cisternas (cantidad)' : '🛢️ Cantidad de bombonas'}</label>
+                        <input className="input mono" type="number" min={0} step="any" value={l.bombonas} onChange={(e) => setLinea(l.id, { bombonas: e.target.value })} placeholder={esRecargaAgua(l.categoria) ? 'N° de botellones/cisternas (1 = cisterna)' : 'N° de bombonas'} />
                       </div>
                       <div className="form-row" style={{ margin: 0 }}>
-                        <label style={{ fontSize: '.74rem' }}>⚖️ KG por bombona</label>
-                        <input className="input mono" type="number" min={0} step="any" value={l.kg} onChange={(e) => setLinea(l.id, { kg: e.target.value })} placeholder="Kg de cada una" />
+                        <label style={{ fontSize: '.74rem' }}>{esRecargaAgua(l.categoria) ? '💧 Litros por unidad' : '⚖️ KG por bombona'}</label>
+                        <input className="input mono" type="number" min={0} step="any" value={l.kg} onChange={(e) => setLinea(l.id, { kg: e.target.value })} placeholder={esRecargaAgua(l.categoria) ? 'Litros de cada uno' : 'Kg de cada una'} />
                       </div>
                     </div>
                     <div className="form-grid" style={{ marginTop: '.4rem', alignItems: 'end' }}>
                       <div className="form-row" style={{ margin: 0 }}>
                         <label style={{ fontSize: '.74rem' }}>Total recarga</label>
                         <div className="card mono" style={{ margin: 0, padding: '.45rem .7rem', fontWeight: 700 }}>
-                          {(Number(l.bombonas) || 0)} bombona(s) · {Math.round((Number(l.bombonas) || 0) * (Number(l.kg) || 0) * 100) / 100} KG
+                          {esRecargaAgua(l.categoria)
+                            ? <>{Math.round((Number(l.bombonas) || 0) * (Number(l.kg) || 0) * 100) / 100} L de agua{(Number(l.bombonas) || 0) > 1 ? ` · ${(Number(l.bombonas) || 0)} und` : ''}</>
+                            : <>{(Number(l.bombonas) || 0)} bombona(s) · {Math.round((Number(l.bombonas) || 0) * (Number(l.kg) || 0) * 100) / 100} KG</>}
                         </div>
                       </div>
                       <div className="form-row" style={{ margin: 0 }}>
