@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent, type CSSProperties } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -6,12 +6,14 @@ import { money, date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Personal, NominaRenglon } from '@/shared/lib/types';
 import {
-  listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal, type PersonalInput,
+  listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal,
+  subirFotoCarnet, type PersonalInput,
 } from './personal.repository';
 import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
+import { generarFrenteBlob, generarReversoBlob, descargarCarnet } from './carnetImagen';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '' };
+const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '' };
 
 /** Limita la cédula a formato venezolano: prefijo opcional (V/E/J/G/P) + hasta 8 dígitos. */
 function sanitizarCedula(v: string): string {
@@ -27,8 +29,10 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<PersonalInput>(VACIO);
   const [guardando, setGuardando] = useState(false);
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
+  const [carnetPersona, setCarnetPersona] = useState<Personal | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [cargos, setCargos] = useState<string[]>([]);
   const [departamentos, setDepartamentos] = useState<string[]>([]);
@@ -50,10 +54,21 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   function abrirNuevo() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
-    setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '' });
+    setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '' });
     setError(null); setFormOpen(true);
   }
   function cerrarForm() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(false); }
+
+  async function onPickFoto(file: File | null) {
+    if (!file) return;
+    setSubiendoFoto(true); setError(null);
+    try {
+      const url = await subirFotoCarnet(file);
+      setForm((f) => ({ ...f, foto_url: url }));
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo subir la foto'); }
+    finally { setSubiendoFoto(false); }
+  }
+  function quitarFoto() { setForm((f) => ({ ...f, foto_url: '' })); }
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -107,6 +122,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                 <td className="mono" style={{ textAlign: 'right' }}>{Number(p.sueldo_base) > 0 ? money(p.sueldo_base) : '—'}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: p.activo ? 'var(--success)' : 'var(--muted)' }}>{p.activo ? 'Activo' : 'Inactivo'}</span></td>
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setCarnetPersona(p)} title="Carnet (imagen con QR)">🪪</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
@@ -136,6 +152,28 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
         >
           <form id="rrhh-personal-form" onSubmit={guardar}>
             {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+            {/* Foto del carnet (opcional): subir / cambiar / quitar. */}
+            <div className="form-row">
+              <label>Foto del carnet</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.8rem', flexWrap: 'wrap' }}>
+                <div style={{ width: 84, height: 96, borderRadius: 10, border: '2px solid var(--primary)', overflow: 'hidden', background: 'var(--bg-1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {form.foto_url
+                    ? <img src={form.foto_url} alt="Foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : <span className="muted" style={{ fontSize: '1.6rem' }}>👤</span>}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+                  <label className="btn btn-sm btn-ghost" style={{ cursor: subiendoFoto ? 'wait' : 'pointer' }}>
+                    {subiendoFoto ? 'Subiendo…' : (form.foto_url ? '🔄 Cambiar foto' : '📷 Subir foto')}
+                    <input type="file" accept="image/*" style={{ display: 'none' }} disabled={subiendoFoto}
+                      onChange={(e) => { void onPickFoto(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+                  </label>
+                  {form.foto_url && <button type="button" className="btn btn-sm btn-danger" onClick={quitarFoto} disabled={subiendoFoto}>🗑 Quitar</button>}
+                </div>
+                <small className="muted" style={{ flex: '1 1 160px', minWidth: 0 }}>Imagen (JPG/PNG) ≤ 5&nbsp;MB. Se recorta al marco del carnet.</small>
+              </div>
+            </div>
+
             <div className="form-grid">
               <div className="form-row"><label>Nombre *</label><input className="input" autoFocus value={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} required /></div>
               <div className="form-row"><label>Apellido</label><input className="input" value={form.apellido ?? ''} onChange={(e) => setForm((f) => ({ ...f, apellido: e.target.value }))} /></div>
@@ -150,14 +188,68 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                 hint="Toma los de Usuarios; podés agregar uno nuevo." />
               <div className="form-row"><label>Sueldo base mensual (USD)</label><input className="input mono" type="number" min={0} step="any" value={form.sueldo_base ?? 0} onChange={(e) => setForm((f) => ({ ...f, sueldo_base: Number(e.target.value) || 0 }))} placeholder="0,00" /></div>
               <div className="form-row"><label>Fecha de ingreso</label><input className="input" type="date" value={form.fecha_ingreso ?? ''} onChange={(e) => setForm((f) => ({ ...f, fecha_ingreso: e.target.value }))} /></div>
+              <div className="form-row"><label>Teléfono</label><input className="input mono" value={form.telefono ?? ''} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
+              <div className="form-row"><label>Contacto de emergencia</label><input className="input" value={form.contacto_emergencia ?? ''} onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia: e.target.value }))} placeholder="Nombre y parentesco" /></div>
+              <div className="form-row"><label>Tel. de emergencia</label><input className="input mono" value={form.contacto_emergencia_tlf ?? ''} onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia_tlf: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
             </div>
-            <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina.</small>
+            <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina. El <strong>teléfono</strong> y el <strong>contacto de emergencia</strong> se incluyen en el <strong>QR del carnet</strong> (🪪).</small>
           </form>
         </Modal>
       )}
 
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
+      {carnetPersona && <CarnetModal persona={carnetPersona} onClose={() => setCarnetPersona(null)} />}
     </div>
+  );
+}
+
+/* ───────── Vista previa + descarga del carnet (frente + reverso, PNG con QR) ───────── */
+function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
+  const [frente, setFrente] = useState<string | null>(null);
+  const [reverso, setReverso] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [bajando, setBajando] = useState(false);
+
+  useEffect(() => {
+    let urls: string[] = [];
+    let vivo = true;
+    Promise.all([generarFrenteBlob(persona), generarReversoBlob()])
+      .then(([bf, br]) => {
+        if (!vivo) return;
+        const uf = URL.createObjectURL(bf);
+        const ur = URL.createObjectURL(br);
+        urls = [uf, ur];
+        setFrente(uf); setReverso(ur);
+      })
+      .catch((e) => { if (vivo) setError(e instanceof Error ? e.message : 'No se pudo generar el carnet'); });
+    return () => { vivo = false; urls.forEach((u) => URL.revokeObjectURL(u)); };
+  }, [persona]);
+
+  async function descargar() {
+    setBajando(true);
+    try { await descargarCarnet(persona); toast('Carnet descargado (frente + reverso)', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo descargar', 'error'); }
+    finally { setBajando(false); }
+  }
+
+  const imgStyle: CSSProperties = { width: 230, maxWidth: '100%', height: 'auto', borderRadius: 10, boxShadow: 'var(--shadow-md)' };
+  return (
+    <Modal title={`Carnet · ${persona.nombre} ${persona.apellido}`} size="lg" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+        <button className="btn btn-primary" onClick={descargar} disabled={!frente || bajando}>{bajando ? 'Descargando…' : '⬇ Descargar PNG (frente + reverso)'}</button>
+      </>
+    }>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.7rem' }}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>}
+        {!error && !frente && <div className="muted" style={{ padding: '2rem' }}>Generando carnet…</div>}
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+          {frente && <div style={{ textAlign: 'center' }}><img src={frente} alt="Frente del carnet" style={imgStyle} /><div className="muted" style={{ fontSize: '.75rem', marginTop: '.25rem' }}>Frente</div></div>}
+          {reverso && <div style={{ textAlign: 'center' }}><img src={reverso} alt="Reverso del carnet" style={imgStyle} /><div className="muted" style={{ fontSize: '.75rem', marginTop: '.25rem' }}>Reverso</div></div>}
+        </div>
+        <small className="muted" style={{ textAlign: 'center' }}>2 imágenes PNG · 54×86&nbsp;mm a 300&nbsp;DPI (638×1016&nbsp;px). El QR del frente incluye cédula, teléfono y contacto de emergencia.</small>
+      </div>
+    </Modal>
   );
 }
 

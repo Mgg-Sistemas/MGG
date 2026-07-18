@@ -1696,6 +1696,11 @@ create table if not exists public.personal (
 -- Campos extra para el módulo RRHH (Fase 3 administrativo). Fase 1 conserva su estructura.
 alter table public.personal add column if not exists fecha_ingreso date;
 alter table public.personal add column if not exists datos_pago jsonb;
+-- Carnet de identificación: teléfono, contacto de emergencia y foto (URL en bucket carnet-fotos).
+alter table public.personal add column if not exists telefono text;
+alter table public.personal add column if not exists contacto_emergencia text;
+alter table public.personal add column if not exists contacto_emergencia_tlf text;
+alter table public.personal add column if not exists foto_url text;
 create index if not exists idx_personal_activo on public.personal(activo);
 alter table public.personal enable row level security;
 create policy "personal read auth"  on public.personal for select using (auth.role() = 'authenticated');
@@ -1809,6 +1814,19 @@ create policy "nomina read auth"   on storage.objects for select to authenticate
 create policy "nomina write staff"  on storage.objects for insert to authenticated with check (bucket_id = 'nomina-comprobantes' and public.is_staff());
 create policy "nomina update staff" on storage.objects for update to authenticated using (bucket_id = 'nomina-comprobantes' and public.is_staff());
 create policy "nomina delete staff" on storage.objects for delete to authenticated using (bucket_id = 'nomina-comprobantes' and public.is_staff());
+
+-- Storage: bucket PÚBLICO `carnet-fotos` para las fotos del carnet del personal (se leen por URL directa en el <canvas>).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('carnet-fotos','carnet-fotos', true, 5242880, array['image/*'])
+on conflict (id) do update set public = true, file_size_limit = 5242880, allowed_mime_types = array['image/*'];
+drop policy if exists "carnet-fotos read"        on storage.objects;
+drop policy if exists "carnet-fotos write auth"  on storage.objects;
+drop policy if exists "carnet-fotos update auth" on storage.objects;
+drop policy if exists "carnet-fotos delete auth" on storage.objects;
+create policy "carnet-fotos read"        on storage.objects for select using (bucket_id = 'carnet-fotos');
+create policy "carnet-fotos write auth"  on storage.objects for insert to authenticated with check (bucket_id = 'carnet-fotos');
+create policy "carnet-fotos update auth" on storage.objects for update to authenticated using (bucket_id = 'carnet-fotos');
+create policy "carnet-fotos delete auth" on storage.objects for delete to authenticated using (bucket_id = 'carnet-fotos');
 
 -- Storage: bucket privado `ofertas-pdf` para las cotizaciones de los proveedores.
 -- Acepta PDF o IMAGEN (foto de la cotización): allowed_mime_types incluye image/* para

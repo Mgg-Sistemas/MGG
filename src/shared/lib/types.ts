@@ -865,6 +865,10 @@ export interface Personal {
   sueldo_base: number;          // sueldo MENSUAL (USD)
   activo: boolean;
   fecha_ingreso?: string | null;
+  telefono?: string | null;
+  contacto_emergencia?: string | null;
+  contacto_emergencia_tlf?: string | null;
+  foto_url?: string | null;
   datos_pago?: Record<string, unknown> | null;
   created_at: string;
   created_by?: string | null;

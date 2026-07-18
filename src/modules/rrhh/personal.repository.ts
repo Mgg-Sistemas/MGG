@@ -25,6 +25,34 @@ export interface PersonalInput {
   departamento?: string | null;
   sueldo_base?: number;
   fecha_ingreso?: string | null;
+  telefono?: string | null;
+  contacto_emergencia?: string | null;
+  contacto_emergencia_tlf?: string | null;
+  foto_url?: string | null;
+}
+
+const BUCKET_FOTOS = 'carnet-fotos';
+
+/** Sube la foto del carnet y devuelve su URL pública. Valida que sea imagen ≤ 5 MB. */
+export async function subirFotoCarnet(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('La foto debe ser una imagen (JPG o PNG).');
+  if (file.size > 5 * 1024 * 1024) throw new Error('La foto no puede superar 5 MB.');
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  const rand = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`);
+  const path = `fotos/${rand}.${ext}`;
+  const { error } = await supabase.storage.from(BUCKET_FOTOS).upload(path, file, { contentType: file.type, upsert: false });
+  if (error) throw error;
+  const { data } = supabase.storage.from(BUCKET_FOTOS).getPublicUrl(path);
+  return data.publicUrl;
+}
+
+/** Borra del Storage la foto del carnet (por su URL pública). No lanza si ya no existe. */
+export async function borrarFotoCarnet(url: string): Promise<void> {
+  const marca = `/${BUCKET_FOTOS}/`;
+  const i = url.indexOf(marca);
+  if (i < 0) return;
+  const path = url.slice(i + marca.length);
+  try { await supabase.storage.from(BUCKET_FOTOS).remove([path]); } catch { /* el Storage no bloquea */ }
 }
 
 function payload(input: PersonalInput) {
@@ -36,6 +64,10 @@ function payload(input: PersonalInput) {
     departamento: input.departamento?.trim() || null,
     sueldo_base: Math.round((Number(input.sueldo_base) || 0) * 100) / 100,
     fecha_ingreso: input.fecha_ingreso || null,
+    telefono: input.telefono?.trim() || null,
+    contacto_emergencia: input.contacto_emergencia?.trim() || null,
+    contacto_emergencia_tlf: input.contacto_emergencia_tlf?.trim() || null,
+    foto_url: input.foto_url?.trim() || null,
   };
 }
 
