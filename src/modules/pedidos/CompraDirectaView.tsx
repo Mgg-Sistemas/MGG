@@ -30,11 +30,12 @@ const COLS: { key: string; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
   { key: 'abierta', label: 'Pendiente (pago + recepción)' },
   { key: 'finalizada', label: 'Finalizada' },
+  { key: 'anulada', label: 'Anuladas' },
 ];
-const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', abierta: '⏳ Pendiente', por_pagar: '💸 Por pagar', por_recibir: '📦 Por recibir', finalizada: '🏁 Finalizada' };
+const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', abierta: '⏳ Pendiente', por_pagar: '💸 Por pagar', por_recibir: '📦 Por recibir', finalizada: '🏁 Finalizada', anulada: '⊘ Anulada' };
 /** Columna del kanban para una compra: los estados legados caen en "abierta". */
 function colDe(c: CompraDirecta): string {
-  if (c.estado === 'en_proceso' || c.estado === 'finalizada') return c.estado;
+  if (c.estado === 'en_proceso' || c.estado === 'finalizada' || c.estado === 'anulada') return c.estado;
   return 'abierta'; // abierta + legado por_pagar / por_recibir
 }
 /** ¿La compra ya está pagada / ya se recibió? (para los chips de estado en paralelo). */
@@ -211,14 +212,18 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       {editarMontos && (
         <EditarMontosModal
           title={`Editar montos · ${editarMontos.codigo ?? 'Compra directa'}`}
-          moneda={cajas.find((c) => c.id === editarMontos.caja_id)?.moneda ?? 'USD'}
+          /* Los montos de la compra están en SU moneda (no en la de la caja que la pagó). */
+          moneda={editarMontos.moneda || cajas.find((c) => c.id === editarMontos.caja_id)?.moneda || 'USD'}
           rows={editarMontos.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: Number(it.gasto) || 0 }))}
           pagoExterno={editarMontos.pago_externo}
           pagoExternoDatos={editarMontos.pago_externo_datos}
           nota={editarMontos.nota ?? ''}
+          /* El IVA solo aplica cuando la compra es en Bs: ahí queda ajustable. */
+          iva={editarMontos.moneda === 'Bs' ? (Number(editarMontos.iva) || 0) : undefined}
+          descuento={Number(editarMontos.descuento_monto) || 0}
           onSave={async (gastos, extra) => {
             const items = editarMontos.items.map((it, i) => ({ ...it, gasto: gastos[i] ?? 0 }));
-            await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos, nota: extra.nota });
+            await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos, nota: extra.nota, iva: editarMontos.moneda === 'Bs' ? extra.iva : undefined });
             await reloadLista();
           }}
           onClose={() => setEditarMontos(null)}

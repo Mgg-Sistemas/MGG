@@ -22,7 +22,7 @@ const BUCKET = 'compras-directas';
 // Flujo nuevo: 'abierta' = pago y recepción PENDIENTES en paralelo (Tesorería paga y
 // el almacenista recibe en cualquier orden). 'por_pagar'/'por_recibir' quedan por
 // compatibilidad con compras del flujo secuencial anterior.
-export type EstadoCompraDirecta = 'en_proceso' | 'abierta' | 'por_pagar' | 'por_recibir' | 'finalizada';
+export type EstadoCompraDirecta = 'en_proceso' | 'abierta' | 'por_pagar' | 'por_recibir' | 'finalizada' | 'anulada';
 
 export interface CompraDirectaItem {
   producto_id: string;
@@ -99,6 +99,10 @@ export interface CompraDirecta {
   recibida_por: string | null;
   recibida_at: string | null;
   finalizada_at: string | null;
+  /** Anulación (deja rastro): motivo, quién y cuándo. */
+  anulada_motivo: string | null;
+  anulada_por: string | null;
+  anulada_at: string | null;
   updated_at: string;
 }
 
@@ -366,6 +370,8 @@ export interface MontarCompraInput {
 export async function montarCompraDirecta(input: MontarCompraInput): Promise<void> {
   const { compra } = input;
   if (compra.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');
+  // Una compra anulada es terminal: montarla la revivría a 'abierta'.
+  if (compra.estado === 'anulada') throw new Error('Esta compra está anulada.');
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('La compra no tiene materiales.');
   const subtotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
@@ -604,6 +610,7 @@ export async function listComprasConRetencion(finalizada: boolean): Promise<Comp
   const { data, error } = await supabase
     .from('compras_directas').select('*')
     .neq('estado', 'en_proceso')
+    .neq('estado', 'anulada')
     .gt('retencion_monto', 0)
     .eq('retencion_finalizada', finalizada)
     .order('updated_at', { ascending: false });
@@ -653,6 +660,8 @@ export interface EditarCompraFinalizadaInput {
   pagoExternoDatos?: string | null;
   /** Nota / motivo (editable al corregir montos). */
   nota?: string | null;
+  /** Monto de IVA (solo compras en Bs). Si no se envía, se conserva el actual. */
+  iva?: number;
   actor: string;
   actorName?: string | null;
 }
@@ -669,7 +678,19 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
   const { compra } = input;
   if (compra.estado !== 'finalizada') throw new Error('Solo se edita una compra ya finalizada.');
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
-  const iva = Math.round((Number(compra.iva) || 0) * 100) / 100;             // IVA y descuento se conservan
+  // El IVA se puede AJUSTAR al editar (solo aplica en Bs); el descuento se conserva.
+  const ivaPrevio = Math.round((Number(compra.iva) || 0) * 100) / 100;
+  const iva = input.iva !== undefined
+    ? Math.round(Math.max(0, Number(input.iva) || 0) * 100) / 100
+    : ivaPrevio;
+  // Si la retención de IVA YA se declaró, cambiar el IVA alteraría el monto retenido
+  // (y dejaría huérfano el comprobante ya cargado): se bloquea.
+  if (compra.retencion_finalizada && iva !== ivaPrevio) {
+    throw new Error('La retención de IVA de esta compra ya fue declarada: no se puede cambiar el IVA. Revertí la retención primero.');
+  }
+  // El monto retenido se deriva del IVA (% ya cargado). Sin IVA no hay retención.
+  const retPct = iva > 0 ? Math.max(0, Number(compra.retencion_pct) || 0) : 0;
+  const retencionMonto = Math.round(iva * (retPct / 100) * 100) / 100;
   const descuento = Math.round((Number(compra.descuento_monto) || 0) * 100) / 100;
   const nuevoTotal = Math.round((items.reduce((a, i) => a + (i.gasto || 0), 0) - descuento + iva) * 100) / 100;
   if (nuevoTotal <= 0) throw new Error('El total debe ser mayor que 0.');
@@ -717,7 +738,7 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
   const updateNota = input.nota !== undefined ? { nota: input.nota?.trim() || null } : {};
   const { error } = await supabase
     .from('compras_directas')
-    .update({ items, gasto: nuevoTotal, ...updatePago, ...updateNota, updated_at: new Date().toISOString() })
+    .update({ items, gasto: nuevoTotal, iva, retencion_pct: retPct, retencion_monto: retencionMonto, ...updatePago, ...updateNota, updated_at: new Date().toISOString() })
     .eq('id', compra.id);
   if (error) throw error;
 }
@@ -727,6 +748,32 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
  * Las finalizadas NO se borran por esta vía porque ya generaron egreso de caja y entrada
  * al inventario (habría que reversar ambos). Si tiene adjunto, también se quita del Storage.
  */
+/**
+ * ANULA una compra directa que está PENDIENTE DE RECIBIR y que todavía NO movió dinero.
+ * Deja rastro: estado 'anulada' + motivo, quién y cuándo (queda en el histórico).
+ * No se puede anular si ya entró al inventario (recibida) ni si ya se pagó / quedó a
+ * crédito: en esos casos primero hay que revertir el movimiento desde Tesorería.
+ */
+export async function anularCompraDirecta(compra: CompraDirecta, actorEmail: string, motivo: string): Promise<void> {
+  if (!motivo.trim()) throw new Error('Indicá el motivo de la anulación.');
+  if (compra.estado === 'anulada') throw new Error('La compra ya está anulada.');
+  if (compra.recibida_at) throw new Error('No se puede anular: la mercancía ya entró al inventario.');
+  if (compra.estado === 'finalizada') throw new Error('No se puede anular una compra finalizada.');
+  if (compra.caja_mov_id) throw new Error('No se puede anular: ya fue pagada (hay un egreso en caja). Revertí primero el pago desde Tesorería.');
+  if (compra.credito_cxp_id) throw new Error('No se puede anular: quedó a crédito (cuenta por pagar). Anulá primero la cuenta por pagar en Tesorería.');
+  const { error } = await supabase
+    .from('compras_directas')
+    .update({
+      estado: 'anulada',
+      anulada_motivo: motivo.trim(),
+      anulada_por: actorEmail,
+      anulada_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', compra.id);
+  if (error) throw error;
+}
+
 export async function eliminarCompraDirecta(compra: CompraDirecta): Promise<void> {
   if (compra.estado !== 'en_proceso')
     throw new Error('Solo se puede eliminar una compra EN PROCESO (las finalizadas ya afectaron caja e inventario).');
