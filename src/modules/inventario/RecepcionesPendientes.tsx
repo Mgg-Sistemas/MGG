@@ -6,7 +6,7 @@ import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
-import { recibirCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
+import { recibirCompraDirecta, anularCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { AlmacenPicker } from './AlmacenPicker';
 import type { Almacen, Orden } from '@/shared/lib/types';
 
@@ -30,6 +30,7 @@ interface RecepcionesPendientesProps {
 export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor, actorName, onRecibida }: RecepcionesPendientesProps) {
   const [recibir, setRecibir] = useState<Orden | null>(null);
   const [recibirCompra, setRecibirCompra] = useState<CompraDirecta | null>(null);
+  const [anularCompra, setAnularCompra] = useState<CompraDirecta | null>(null);
 
   return (
     <>
@@ -114,13 +115,34 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
                 {c.almacen && (
                   <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 📦 {c.almacen}</div>
                 )}
-                <button className="btn btn-sm btn-primary" style={{ marginTop: '.6rem', width: '100%' }} onClick={() => setRecibirCompra(c)}>
-                  📦 Recibir / asignar almacén
-                </button>
+                {(() => {
+                  // Solo se anula si NO movió dinero: sin egreso de caja y sin cuenta por pagar.
+                  const pagada = !!c.caja_mov_id || !!c.credito_cxp_id;
+                  return (
+                    <div style={{ display: 'flex', gap: '.35rem', marginTop: '.6rem' }}>
+                      <button className="btn btn-sm btn-primary" style={{ flex: 1 }} onClick={() => setRecibirCompra(c)}>
+                        📦 Recibir / asignar almacén
+                      </button>
+                      <button className="btn btn-sm btn-danger" disabled={pagada} onClick={() => setAnularCompra(c)}
+                        title={pagada
+                          ? 'Ya fue pagada o quedó a crédito: revertí primero el pago desde Tesorería'
+                          : 'Anular esta compra directa (queda en el histórico)'}>⊘</button>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
         </div>
+      )}
+
+      {anularCompra && (
+        <AnularCompraModal
+          compra={anularCompra}
+          actor={actor}
+          onClose={() => setAnularCompra(null)}
+          onSaved={async () => { setAnularCompra(null); await onRecibida(); }}
+        />
       )}
 
       {recibirCompra && (
@@ -135,6 +157,55 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
       )}
     </div>
     </>
+  );
+}
+
+/* ───────── Modal: ANULAR una compra directa por recibir (deja rastro) ───────── */
+function AnularCompraModal({ compra, actor, onClose, onSaved }: {
+  compra: CompraDirecta; actor: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [motivo, setMotivo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!motivo.trim()) { setError('Indicá el motivo de la anulación.'); return; }
+    setSaving(true);
+    try {
+      await anularCompraDirecta(compra, actor, motivo);
+      toast(`Compra directa ${compra.codigo ?? ''} anulada`, 'success');
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo anular la compra.');
+    } finally { setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="anular-compra-form" className="btn btn-danger" disabled={saving || !motivo.trim()}>
+        {saving ? 'Anulando…' : '⊘ Anular compra'}
+      </button>
+    </>
+  );
+
+  return (
+    <Modal title={`Anular compra directa · ${compra.codigo ?? ''}`} size="sm" onClose={() => { if (!saving) onClose(); }} footer={footer}>
+      <form id="anular-compra-form" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+        <p className="muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
+          <strong>{compra.producto_nombre}</strong> · {money(compra.gasto, compra.moneda)}<br />
+          La compra queda en estado <strong>ANULADA</strong> y sale de “por recibir”. <strong>No</strong> mueve caja ni inventario y <strong>queda en el histórico</strong> con el motivo.
+        </p>
+        <div className="form-row">
+          <label>Motivo de la anulación <span style={{ color: 'var(--danger)' }}>*</span></label>
+          <textarea className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus
+            placeholder="Cargada por error, ya no se requiere, se reemplaza por otra…" />
+        </div>
+      </form>
+    </Modal>
   );
 }
 

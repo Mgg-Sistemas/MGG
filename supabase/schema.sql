@@ -470,7 +470,7 @@ create table if not exists public.compras_directas (
   cantidad        numeric not null check (cantidad > 0),
   -- en_proceso → por_pagar (analista monta) → por_recibir (Tesorería paga, sin tocar
   -- inventario) → finalizada (el almacenista recibe y elige el almacén/subalmacén).
-  estado          text not null default 'en_proceso' check (estado in ('en_proceso','abierta','por_pagar','por_recibir','finalizada')),
+  estado          text not null default 'en_proceso' check (estado in ('en_proceso','abierta','por_pagar','por_recibir','finalizada','anulada')),
   gasto           numeric,
   adjunto_path    text,
   adjunto_nombre  text,
@@ -499,6 +499,10 @@ alter table public.compras_directas add column if not exists pagada_por         
 -- entrada al inventario eligiendo el almacén/subalmacén → 'finalizada'.
 alter table public.compras_directas add column if not exists recibida_por       text;
 alter table public.compras_directas add column if not exists recibida_at        timestamptz;
+-- Anulación de una compra directa por recibir (deja rastro; solo si no movió caja ni inventario).
+alter table public.compras_directas add column if not exists anulada_motivo     text;
+alter table public.compras_directas add column if not exists anulada_por        text;
+alter table public.compras_directas add column if not exists anulada_at         timestamptz;
 -- Moneda (Bs/$), IVA (16% cuando es Bs; se suma al total) y retención de IVA
 -- (% aplicado sobre el IVA + monto retenido). La retención vincula la compra
 -- directa al módulo de Retenciones (aparece en la misma lista que las OC).
