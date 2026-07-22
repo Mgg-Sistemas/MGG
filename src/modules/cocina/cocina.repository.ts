@@ -129,6 +129,34 @@ export async function listViveres(almacen?: string | null): Promise<ViverDisponi
   return out.sort((a, b) => a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
 }
 
+/**
+ * TODOS los víveres del inventario general (categoría VÍVERES), sin importar en qué
+ * almacén estén. El stock es la SUMA de todos los almacenes; el descuento sale del
+ * almacén con más stock (prefiriendo `preferAlmacen` —el de la cocina— si ahí hay
+ * existencia). Se usa en "Añadir movimiento" para elegir víveres con checkboxes.
+ */
+export async function listViveresGlobal(preferAlmacen?: string | null): Promise<ViverDisponible[]> {
+  const [productos, existencias] = await Promise.all([listProductos(), listExistencias()]);
+  const porProducto = new Map<string, Existencia[]>();
+  for (const e of existencias) {
+    const arr = porProducto.get(e.producto_id) ?? [];
+    arr.push(e); porProducto.set(e.producto_id, arr);
+  }
+  const out: ViverDisponible[] = [];
+  for (const p of productos) {
+    if (p.estado !== 'activo') continue;
+    if ((p.categoria ?? '').trim().toUpperCase() !== CATEGORIA_VIVERES) continue;
+    const exs = porProducto.get(p.id) ?? [];
+    const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
+    const conStock = exs.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock));
+    // Descuento: el almacén de la cocina si ahí hay stock; si no, el que más tenga.
+    const preferido = preferAlmacen ? conStock.find((e) => e.almacen === preferAlmacen) : undefined;
+    const mejor = preferido ?? conStock[0];
+    out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
+  }
+  return out.sort((a, b) => a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
+}
+
 /** Productos CON stock desglosados por almacén (para el resumen de cada tarjeta de
  *  cocina): refleja el inventario real del almacén vinculado, no una sola categoría. */
 interface ViverEnAlmacen { producto_id: string; almacen: string; stock: number; precio: number }
@@ -201,7 +229,9 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
   if (!lineas.length) throw new Error('Agregá al menos un víver con cantidad.');
   if ((Number(input.platos) || 0) <= 0) throw new Error('Indicá cuántos platos se realizaron.');
 
-  const viveres = await listViveres(input.almacen ?? null);
+  // Se resuelven contra TODOS los víveres del inventario (sin importar el almacén);
+  // el descuento sale del almacén de la cocina si ahí hay stock, o del que más tenga.
+  const viveres = await listViveresGlobal(input.almacen ?? null);
   const mapV = new Map(viveres.map((v) => [v.producto.id, v]));
 
   const items: ItemCocina[] = [];
