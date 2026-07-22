@@ -17,7 +17,7 @@ import { dateTime, money, num } from '@/shared/lib/format';
 import type { CocinaComida, TipoComida, Cocina, Almacen } from '@/shared/lib/types';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import {
-  listComidas, crearComida, listViveres, listViveresGlobal, resumirComidas,
+  listComidas, crearComida, listViveresGlobal, resumirComidas,
   listCocinas, crearCocina, actualizarCocina, eliminarCocina, listAlmacenesParaCocina,
   TIPOS_COMIDA, labelTipoComida, type ViverDisponible, type ResumenCocina, type CocinaConInfo,
 } from './cocina.repository';
@@ -479,7 +479,8 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
     setLoading(true);
     Promise.all([
       listComidas({ cocinaId, desde: rango.desde.toISOString(), hasta: rango.hasta.toISOString() }),
-      listViveres(almacen),
+      // Todos los víveres del inventario general (sin importar el almacén), igual que en "Añadir movimiento".
+      listViveresGlobal(almacen),
     ]).then(([cs, vs]) => { setComidas(cs); setViveres(vs); }).catch(() => { /* */ }).finally(() => setLoading(false));
   }, [rango, cocinaId, almacen]);
 
@@ -567,7 +568,7 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
 
           {/* Stock disponible de víveres */}
           <div className="card">
-            <div className="card-title" style={{ marginBottom: '.5rem' }}>Stock disponible de víveres</div>
+            <div className="card-title" style={{ marginBottom: '.5rem' }}>Stock disponible de víveres <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· todo el inventario</span></div>
             <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
               <table className="table" style={{ fontSize: '.82rem' }}>
                 <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Stock</th><th style={{ textAlign: 'right' }}>Precio</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>
