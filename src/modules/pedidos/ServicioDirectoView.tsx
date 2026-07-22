@@ -522,7 +522,7 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
           <div className="form-row"><label>Quién lo solicita (opcional)</label><input className="input" value={solicitantePersona} onChange={(e) => setSolicitantePersona(e.target.value)} placeholder="Nombre de la persona" /></div>
         </div>
 
-        <div className="form-row"><label>Servicios</label><small className="muted">Categoría + tipo + equipo de maquinaria. Los montos se cargan al finalizar (con la factura).</small></div>
+        <div className="form-row"><label>Servicios</label><small className="muted">Podés agregar <strong>varios servicios de distinto tipo</strong> (mantenimiento, recarga de gas/agua, electrodoméstico…). Categoría + tipo + equipo. Los montos se cargan al finalizar (con la factura).</small></div>
 
         {lineas.map((l, idx) => (
           <div key={l.id} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>
@@ -633,7 +633,7 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
           </div>
         ))}
 
-        <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar servicio</button>
+        <button type="button" className="btn btn-ghost" style={{ width: '100%', borderStyle: 'dashed' }} onClick={add}>＋ Agregar otro servicio (puede ser de otro tipo)</button>
         <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan montos al crear. La factura, el monto y la caja se indican al finalizar.</p>
       </form>
     </Modal>

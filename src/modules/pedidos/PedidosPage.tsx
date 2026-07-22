@@ -3498,14 +3498,19 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
 
       <div className="form-row">
         <label>Servicios</label>
+        <small className="muted" style={{ display: 'block', margin: '-.3rem 0 .5rem' }}>Podés agregar <strong>varios servicios de distinto tipo</strong> en la misma solicitud (mantenimiento, recarga de gas/agua, electrodoméstico…).</small>
         <div style={{ display: 'grid', gap: '.5rem' }}>
-          {lineas.map((l) => {
+          {lineas.map((l, idx) => {
             const mantTipo = tipoMantenimiento(l.categoria);
             const mant = mantTipo !== null;
             const electro = esMantenimientoElectrodomestico(l.categoria);
             const equiposLista = equiposDeTipo(equipos, mantTipo);
             return (
               <div key={l.id} className="card" style={{ margin: 0, padding: '.6rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+                  <span className="badge primary">Servicio #{idx + 1}</span>
+                  {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLinea(l.id)} title="Quitar este servicio">✕ Quitar</button>}
+                </div>
                 <div className="form-grid">
                   <div className="form-row" style={{ margin: 0 }}>
                     <label style={{ fontSize: '.74rem' }}>Categoría</label>
@@ -3608,9 +3613,6 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                         <label style={{ fontSize: '.74rem' }}>Precio estimado ({monedaSym}, opcional)</label>
                         <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLinea(l.id)}>✕ Quitar</button>}
-                      </div>
                     </div>
                   </>
                 ) : (
@@ -3623,16 +3625,13 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                       <label style={{ fontSize: '.74rem' }}>Precio estimado ({monedaSym}, opcional)</label>
                       <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLinea(l.id)}>✕ Quitar</button>}
-                    </div>
                   </div>
                 )}
               </div>
             );
           })}
         </div>
-        <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={addLinea}>+ Agregar servicio</button>
+        <button type="button" className="btn btn-ghost" style={{ marginTop: '.5rem', width: '100%', borderStyle: 'dashed' }} onClick={addLinea}>＋ Agregar otro servicio (puede ser de otro tipo)</button>
         {total > 0 && (
           <div className="card" style={{ margin: '.5rem 0 0', display: 'flex', justifyContent: 'space-between' }}>
             <span className="muted">Total estimado</span><strong className="mono">{fmtMonto(total, moneda)}</strong>
