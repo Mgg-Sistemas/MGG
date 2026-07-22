@@ -59,6 +59,8 @@ export interface CompraDirecta {
   descuento_monto: number;
   /** Monto de IVA (16% sugerido) que se SUMA al total cuando la compra es en Bs. */
   iva: number;
+  /** Monto de IGTF (3% sugerido) que se SUMA al total. Aplica al pagar en divisas ($). */
+  igtf: number;
   /** Retención de IVA: % aplicado sobre el IVA + monto retenido. Vincula a Retenciones. */
   retencion_pct: number;
   retencion_monto: number;
@@ -128,6 +130,7 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
     descuento_pct: Number(r.descuento_pct) || 0,
     descuento_monto: Number(r.descuento_monto) || 0,
     iva: Number(r.iva) || 0,
+    igtf: Number(r.igtf) || 0,
     retencion_pct: Number(r.retencion_pct) || 0,
     retencion_monto: Number(r.retencion_monto) || 0,
     retencion_finalizada: !!r.retencion_finalizada,
@@ -346,6 +349,8 @@ export interface MontarCompraInput {
   descuentoMonto?: number;
   /** Monto de IVA (se suma al total cuando la compra es en Bs). */
   iva?: number;
+  /** Monto de IGTF (se suma al total; sugerido 3%). Aplica al pagar en divisas ($). */
+  igtf?: number;
   /** Retención de IVA: % aplicado sobre el IVA (el monto retenido se calcula acá). */
   retencionPct?: number;
   /** Categoría → subcategoría de gasto: ahora las pone TESORERÍA al pagar (opcionales acá). */
@@ -389,7 +394,9 @@ export async function montarCompraDirecta(input: MontarCompraInput): Promise<voi
   const iva = moneda === 'Bs' ? Math.round(Math.max(0, Number(input.iva) || 0) * 100) / 100 : 0;
   const retencionPct = iva > 0 ? Math.max(0, Number(input.retencionPct) || 0) : 0;
   const retencionMonto = Math.round(iva * (retencionPct / 100) * 100) / 100;
-  const total = Math.round((base + iva) * 100) / 100;
+  // IGTF: segmento que se suma al total (aplica en $ o Bs; lo carga el analista por % o manual).
+  const igtf = Math.round(Math.max(0, Number(input.igtf) || 0) * 100) / 100;
+  const total = Math.round((base + iva + igtf) * 100) / 100;
 
   // Factura opcional (PDF o imagen). Se suma a la lista existente.
   const facturas: AdjuntoFactura[] = [...(compra.facturas ?? [])];
@@ -410,7 +417,7 @@ export async function montarCompraDirecta(input: MontarCompraInput): Promise<voi
       estado: 'abierta',
       gasto: total, items, cantidad: cantidadTotal,
       moneda, descuento_pct: descuentoPct, descuento_monto: descuentoMonto,
-      iva, retencion_pct: retencionPct, retencion_monto: retencionMonto,
+      iva, igtf, retencion_pct: retencionPct, retencion_monto: retencionMonto,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
       nota: input.nota?.trim() || null,
       pago_externo: !!input.pagoExterno,
@@ -455,8 +462,9 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
   const items = compra.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   const iva = Math.round((Number(compra.iva) || 0) * 100) / 100;             // IVA suma al total (Bs)
+  const igtf = Math.round((Number(compra.igtf) || 0) * 100) / 100;           // IGTF suma al total (divisas)
   const descuento = Math.round((Number(compra.descuento_monto) || 0) * 100) / 100;  // descuento baja el total
-  const total = Math.round((items.reduce((a, i) => a + (i.gasto || 0), 0) - descuento + iva) * 100) / 100;
+  const total = Math.round((items.reduce((a, i) => a + (i.gasto || 0), 0) - descuento + iva + igtf) * 100) / 100;
   if (total <= 0) throw new Error('La compra no tiene montos cargados.');
 
   // Categoría de gasto: la que eligió Tesorería al pagar (override) o la guardada.
@@ -662,6 +670,8 @@ export interface EditarCompraFinalizadaInput {
   nota?: string | null;
   /** Monto de IVA (solo compras en Bs). Si no se envía, se conserva el actual. */
   iva?: number;
+  /** Monto de IGTF (ajustable al corregir montos). Si no se envía, se conserva el actual. */
+  igtf?: number;
   actor: string;
   actorName?: string | null;
 }
@@ -691,8 +701,13 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
   // El monto retenido se deriva del IVA (% ya cargado). Sin IVA no hay retención.
   const retPct = iva > 0 ? Math.max(0, Number(compra.retencion_pct) || 0) : 0;
   const retencionMonto = Math.round(iva * (retPct / 100) * 100) / 100;
+  // IGTF: ajustable al editar; si no se envía, se conserva el actual.
+  const igtfPrevio = Math.round((Number(compra.igtf) || 0) * 100) / 100;
+  const igtf = input.igtf !== undefined
+    ? Math.round(Math.max(0, Number(input.igtf) || 0) * 100) / 100
+    : igtfPrevio;
   const descuento = Math.round((Number(compra.descuento_monto) || 0) * 100) / 100;
-  const nuevoTotal = Math.round((items.reduce((a, i) => a + (i.gasto || 0), 0) - descuento + iva) * 100) / 100;
+  const nuevoTotal = Math.round((items.reduce((a, i) => a + (i.gasto || 0), 0) - descuento + iva + igtf) * 100) / 100;
   if (nuevoTotal <= 0) throw new Error('El total debe ser mayor que 0.');
   const totalPrevio = Math.round(Number(compra.gasto || 0) * 100) / 100;
 
@@ -738,7 +753,7 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
   const updateNota = input.nota !== undefined ? { nota: input.nota?.trim() || null } : {};
   const { error } = await supabase
     .from('compras_directas')
-    .update({ items, gasto: nuevoTotal, iva, retencion_pct: retPct, retencion_monto: retencionMonto, ...updatePago, ...updateNota, updated_at: new Date().toISOString() })
+    .update({ items, gasto: nuevoTotal, iva, igtf, retencion_pct: retPct, retencion_monto: retencionMonto, ...updatePago, ...updateNota, updated_at: new Date().toISOString() })
     .eq('id', compra.id);
   if (error) throw error;
 }

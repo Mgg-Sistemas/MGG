@@ -13,7 +13,7 @@ function montoCaja(n: number, moneda: string): string {
  * La cantidad no cambia. Al guardar, el módulo correspondiente reajusta Tesorería
  * (y el inventario en compras). `onSave` recibe los nuevos gastos por renglón.
  */
-export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExterno: pagoExternoInicial, pagoExternoDatos: pagoExternoDatosInicial, nota: notaInicial, iva: ivaInicial, descuento = 0, onSave, onClose }: {
+export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExterno: pagoExternoInicial, pagoExternoDatos: pagoExternoDatosInicial, nota: notaInicial, iva: ivaInicial, igtf: igtfInicial, descuento = 0, onSave, onClose }: {
   title: string;
   moneda: string;
   /** Si true, muestra un selector Bs/$ para cambiar la moneda (se devuelve en onSave). */
@@ -26,14 +26,18 @@ export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExter
   nota?: string | null;
   /** Monto de IVA (solo compras en Bs): si se pasa, se muestra editable y entra al total. */
   iva?: number | null;
+  /** Monto de IGTF: si se pasa (aunque sea 0), se muestra editable y entra al total. */
+  igtf?: number | null;
   /** Descuento ya aplicado (se conserva): resta en el total mostrado. */
   descuento?: number;
-  onSave: (gastos: number[], extra: { pagoExterno: boolean; pagoExternoDatos: string; nota: string; moneda: string; iva: number }) => Promise<void>;
+  onSave: (gastos: number[], extra: { pagoExterno: boolean; pagoExternoDatos: string; nota: string; moneda: string; iva: number; igtf: number }) => Promise<void>;
   onClose: () => void;
 }) {
   const [gastos, setGastos] = useState<string[]>(rows.map((r) => (r.gasto ? String(r.gasto) : '')));
   const mostrarIva = ivaInicial !== undefined && ivaInicial !== null;
   const [ivaStr, setIvaStr] = useState(ivaInicial ? String(ivaInicial) : '');
+  const mostrarIgtf = igtfInicial !== undefined && igtfInicial !== null;
+  const [igtfStr, setIgtfStr] = useState(igtfInicial ? String(igtfInicial) : '');
   const [monedaSel, setMonedaSel] = useState<'USD' | 'Bs'>(moneda === 'Bs' ? 'Bs' : 'USD');
   const monedaMostrada = editarMoneda ? monedaSel : moneda;
   const [pagoExterno, setPagoExterno] = useState(!!pagoExternoInicial);
@@ -47,15 +51,16 @@ export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExter
     [gastos],
   );
   const iva = mostrarIva ? Math.round(Math.max(0, Number(ivaStr) || 0) * 100) / 100 : 0;
-  // Mismo cálculo que el repositorio: subtotal − descuento + IVA.
-  const total = Math.round((subtotal - descuento + iva) * 100) / 100;
+  const igtf = mostrarIgtf ? Math.round(Math.max(0, Number(igtfStr) || 0) * 100) / 100 : 0;
+  // Mismo cálculo que el repositorio: subtotal − descuento + IVA + IGTF.
+  const total = Math.round((subtotal - descuento + iva + igtf) * 100) / 100;
 
   async function guardar() {
     if (total <= 0) { toast('El total debe ser mayor que 0.', 'error'); return; }
     if (pagoExterno && !pagoExternoDatos.trim()) { toast('Ingresá los datos de la persona externa que pagó.', 'error'); return; }
     setSaving(true);
     try {
-      await onSave(gastos.map((g) => Number(g) || 0), { pagoExterno, pagoExternoDatos, nota, moneda: monedaMostrada, iva });
+      await onSave(gastos.map((g) => Number(g) || 0), { pagoExterno, pagoExternoDatos, nota, moneda: monedaMostrada, iva, igtf });
       toast('Montos actualizados · sincronizado con Tesorería', 'success');
       onClose();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo actualizar', 'error'); setSaving(false); }
@@ -101,16 +106,26 @@ export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExter
           <small className="muted">Se suma al total y <strong>reajusta el egreso en Tesorería</strong>. Si la compra tiene retención de IVA, el monto retenido se recalcula solo.</small>
         </div>
       )}
+      {/* IGTF ajustable. Entra al total y reajusta el egreso en Tesorería. */}
+      {mostrarIgtf && (
+        <div className="form-row">
+          <label>IGTF ({monedaMostrada}) <span className="muted" style={{ fontWeight: 400 }}>· ajustable</span></label>
+          <input className="input mono" type="number" min={0} step="any" value={igtfStr}
+            onChange={(e) => setIgtfStr(dosDecimales(e.target.value))} placeholder="0,00" />
+          <small className="muted">Impuesto a grandes transacciones financieras. Se suma al total y <strong>reajusta el egreso en Tesorería</strong>.</small>
+        </div>
+      )}
 
       <div className="card" style={{ margin: '.5rem 0' }}>
-        {(mostrarIva || descuento > 0) && (
+        {(mostrarIva || (mostrarIgtf && igtf > 0) || descuento > 0) && (
           <div style={{ fontSize: '.84rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Subtotal</span><span className="mono">{montoCaja(subtotal, monedaMostrada)}</span></div>
             {descuento > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Descuento</span><span className="mono">− {montoCaja(descuento, monedaMostrada)}</span></div>}
             {mostrarIva && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">IVA</span><span className="mono">+ {montoCaja(iva, monedaMostrada)}</span></div>}
+            {mostrarIgtf && igtf > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">IGTF</span><span className="mono">+ {montoCaja(igtf, monedaMostrada)}</span></div>}
           </div>
         )}
-        <div style={{ marginTop: (mostrarIva || descuento > 0) ? '.35rem' : 0 }}>Nuevo total: <strong className="mono">{montoCaja(total, monedaMostrada)}</strong></div>
+        <div style={{ marginTop: (mostrarIva || (mostrarIgtf && igtf > 0) || descuento > 0) ? '.35rem' : 0 }}>Nuevo total: <strong className="mono">{montoCaja(total, monedaMostrada)}</strong></div>
       </div>
 
       {/* Moneda del servicio: editable acá (Bs / $). */}
