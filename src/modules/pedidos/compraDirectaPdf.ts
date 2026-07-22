@@ -33,12 +33,23 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     : [{ producto_id: compra.producto_id ?? '', producto_nombre: compra.producto_nombre, producto_sku: compra.producto_sku, cantidad: Number(compra.cantidad) || 0, gasto: compra.gasto }];
   const totalGasto = compra.gasto != null ? Number(compra.gasto) : items.reduce((a, it) => a + (Number(it.gasto) || 0), 0);
 
+  const moneda = compra.moneda === 'Bs' ? 'Bs' : 'USD';
+  const monto = (n: number) => moneda === 'Bs' ? `Bs ${fmt.num(n)}` : fmt.money(n);
+  const descuentoMonto = Number(compra.descuento_monto) || 0;
+  const ivaMonto = Number(compra.iva) || 0;
+  const igtfMonto = Number(compra.igtf) || 0;
+  const retMonto = Number(compra.retencion_monto) || 0;
   const ficha: Array<[string, string]> = [
     ...(compra.codigo ? [['Código', compra.codigo] as [string, string]] : []),
     ['Almacén destino', compra.almacen || '—'],
     ['Proveedor', compra.proveedor_nombre || '—'],
+    ['Moneda', moneda === 'Bs' ? 'Bolívares (Bs)' : 'Dólares ($)'],
     ['Estado', compra.estado === 'finalizada' ? 'Finalizada (ingresó a inventario)' : 'En proceso'],
-    ['Gasto total', totalGasto > 0 ? fmt.money(totalGasto) : '—'],
+    ...(descuentoMonto > 0 ? [['Descuento', `${compra.descuento_pct ? `${compra.descuento_pct}% · ` : ''}− ${monto(descuentoMonto)}`] as [string, string]] : []),
+    ...(ivaMonto > 0 ? [['IVA', `+ ${monto(ivaMonto)}`] as [string, string]] : []),
+    ...(igtfMonto > 0 ? [['IGTF', `+ ${monto(igtfMonto)}`] as [string, string]] : []),
+    ...(retMonto > 0 ? [['Retención IVA', `${compra.retencion_pct}% · ${monto(retMonto)}`] as [string, string]] : []),
+    ['Gasto total', totalGasto > 0 ? monto(totalGasto) : '—'],
     ...(compra.pago_externo ? [['Pago a externo', 'Sí — reintegrar a la persona externa'] as [string, string]] : []),
     ['Generó', personaDe(compra.actor, personas, compra.actor_name)],
     ['Fecha de creación', fmt.dateTime(compra.created_at)],
@@ -68,11 +79,11 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
         it.producto_sku || '—',
         it.producto_nombre,
         fmt.num(cant),
-        cu != null ? fmt.money(cu) : '—',
-        g != null ? fmt.money(g) : '—',
+        cu != null ? monto(cu) : '—',
+        g != null ? monto(g) : '—',
       ];
     }),
-    foot: [['', '', '', 'TOTAL', totalGasto > 0 ? fmt.money(totalGasto) : '—']],
+    foot: [['', '', '', 'TOTAL', totalGasto > 0 ? monto(totalGasto) : '—']],
     theme: 'grid',
     headStyles: { fillColor: [255, 138, 0], textColor: 255 },
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },

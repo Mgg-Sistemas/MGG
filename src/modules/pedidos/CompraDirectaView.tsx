@@ -220,10 +220,12 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           nota={editarMontos.nota ?? ''}
           /* El IVA solo aplica cuando la compra es en Bs: ahí queda ajustable. */
           iva={editarMontos.moneda === 'Bs' ? (Number(editarMontos.iva) || 0) : undefined}
+          /* El IGTF queda ajustable siempre (aplica también en $). */
+          igtf={Number(editarMontos.igtf) || 0}
           descuento={Number(editarMontos.descuento_monto) || 0}
           onSave={async (gastos, extra) => {
             const items = editarMontos.items.map((it, i) => ({ ...it, gasto: gastos[i] ?? 0 }));
-            await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos, nota: extra.nota, iva: editarMontos.moneda === 'Bs' ? extra.iva : undefined });
+            await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos, nota: extra.nota, iva: editarMontos.moneda === 'Bs' ? extra.iva : undefined, igtf: extra.igtf });
             await reloadLista();
           }}
           onClose={() => setEditarMontos(null)}
@@ -240,6 +242,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
             ['Moneda', detalle.moneda === 'Bs' ? 'Bolívares (Bs)' : 'Dólares ($)'],
             ...(detalle.descuento_monto > 0 ? [['Descuento', `${detalle.descuento_pct ? `${detalle.descuento_pct}% · ` : ''}${montoCaja(detalle.descuento_monto, detalle.moneda)}`] as [string, string]] : []),
             ...(detalle.iva > 0 ? [['IVA', montoCaja(detalle.iva, detalle.moneda)] as [string, string]] : []),
+            ...(detalle.igtf > 0 ? [['IGTF', montoCaja(detalle.igtf, detalle.moneda)] as [string, string]] : []),
             ...(detalle.retencion_monto > 0 ? [['Retención IVA', `${detalle.retencion_pct}% · ${montoCaja(detalle.retencion_monto, detalle.moneda)}`] as [string, string]] : []),
             ['Generó', detalle.actor_name || detalle.actor || '—'],
             ['Creada', dateTime(detalle.created_at)],
@@ -535,6 +538,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
 type MontarLinea = { key: number; producto_id: string; producto_nombre: string; producto_sku: string | null; cantidad: string; costoUnit: string };
 
 const IVA_PCT = 16;   // IVA vigente (%). Sugerido; el monto queda editable.
+const IGTF_PCT = 3;   // IGTF vigente (%). Sugerido para pagos en divisas; el monto queda editable.
 
 function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
   compra: CompraDirecta; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
@@ -554,8 +558,13 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
   const [descPctStr, setDescPctStr] = useState(compra.descuento_pct ? String(compra.descuento_pct) : '');
   const [descMontoStr, setDescMontoStr] = useState(compra.descuento_monto ? String(compra.descuento_monto) : '');
   const [ivaStr, setIvaStr] = useState(compra.iva ? String(compra.iva) : '');
+  const [ivaPctStr, setIvaPctStr] = useState('');   // IVA en %: sincronizado con el monto (se auto-rellena)
   const [ivaManual, setIvaManual] = useState(!!compra.iva);   // si el usuario tocó el IVA, no se auto-sugiere
   const [retPctStr, setRetPctStr] = useState(compra.retencion_pct ? String(compra.retencion_pct) : '');
+  // IGTF (impuesto a grandes transacciones financieras): opcional, se carga por % o en monto.
+  // Se suma al total. Aplica sobre todo cuando la compra se paga en divisas ($).
+  const [igtfStr, setIgtfStr] = useState(compra.igtf ? String(compra.igtf) : '');
+  const [igtfPctStr, setIgtfPctStr] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [nota, setNota] = useState(compra.nota ?? '');
   // Pago a externo: una persona externa YA pagó la compra; Tesorería le reintegra al pagar.
@@ -598,20 +607,54 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     setDescPctStr(m > 0 && subtotal > 0 ? String(Math.round((m / subtotal) * 10000) / 100) : '');
   };
 
-  // IVA (sólo Bs): se auto-sugiere 16% de la base salvo que el usuario lo edite.
+  // IVA (sólo Bs): DOBLE entrada — se puede colocar por % o en monto, sincronizados. Se
+  // auto-sugiere 16% de la base salvo que el usuario lo edite (a mano o cambiando el %).
   const ivaSugerido = round2(base * (IVA_PCT / 100));
   const iva = moneda === 'Bs' ? round2(Math.max(0, Number(ivaStr) || 0)) : 0;
+  const onIvaPct = (v: string) => {
+    setIvaManual(true); setIvaPctStr(v);
+    const pct = Math.max(0, Number(v) || 0);
+    setIvaStr(pct > 0 && base > 0 ? String(round2(base * (pct / 100))) : '');
+  };
+  const onIvaMonto = (v: string) => {
+    setIvaManual(true); setIvaStr(v);
+    const m = Math.max(0, Number(v) || 0);
+    setIvaPctStr(m > 0 && base > 0 ? String(Math.round((m / base) * 10000) / 100) : '');
+  };
   useEffect(() => {
-    if (moneda === 'Bs' && !ivaManual) setIvaStr(ivaSugerido > 0 ? String(ivaSugerido) : '');
-    if (moneda === 'USD') { setIvaStr(''); setRetPctStr(''); }
+    if (moneda === 'Bs' && !ivaManual) { setIvaPctStr(String(IVA_PCT)); setIvaStr(ivaSugerido > 0 ? String(ivaSugerido) : ''); }
+    if (moneda === 'USD') { setIvaStr(''); setIvaPctStr(''); setRetPctStr(''); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moneda, base, ivaManual]);
+  // Backfill del % de IVA al reabrir una compra ya montada (monto conocido, % vacío).
+  useEffect(() => {
+    if (ivaManual && !ivaPctStr && iva > 0 && base > 0) setIvaPctStr(String(Math.round((iva / base) * 10000) / 100));
+  }, [ivaManual, ivaPctStr, iva, base]);
 
   // Retención de IVA: % sobre el IVA (sólo cuando hay IVA).
   const retPct = iva > 0 ? Math.max(0, Number(retPctStr) || 0) : 0;
   const retMonto = round2(iva * (retPct / 100));
 
-  const total = round2(base + iva);   // lo que paga Tesorería
+  // IGTF: opcional, DOBLE entrada (% o monto, sincronizados). Se suma al total. La base de
+  // cálculo del % es la base (subtotal − descuento). Aplica al pagar en divisas ($).
+  const igtfSugerido = round2(base * (IGTF_PCT / 100));
+  const igtf = round2(Math.max(0, Number(igtfStr) || 0));
+  const onIgtfPct = (v: string) => {
+    setIgtfPctStr(v);
+    const pct = Math.max(0, Number(v) || 0);
+    setIgtfStr(pct > 0 && base > 0 ? String(round2(base * (pct / 100))) : '');
+  };
+  const onIgtfMonto = (v: string) => {
+    setIgtfStr(v);
+    const m = Math.max(0, Number(v) || 0);
+    setIgtfPctStr(m > 0 && base > 0 ? String(Math.round((m / base) * 10000) / 100) : '');
+  };
+  // Backfill del % de IGTF al reabrir (monto conocido, % vacío).
+  useEffect(() => {
+    if (!igtfPctStr && igtf > 0 && base > 0) setIgtfPctStr(String(Math.round((igtf / base) * 10000) / 100));
+  }, [igtfPctStr, igtf, base]);
+
+  const total = round2(base + iva + igtf);   // lo que paga Tesorería
   const monedaLbl = moneda === 'Bs' ? 'Bs' : 'USD';
 
   // Total editable: al escribir un total, se despeja el descuento para cuajar con él
@@ -626,9 +669,9 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     // Congela el IVA para que el total quede EXACTO al valor tecleado.
     if (moneda === 'Bs') setIvaManual(true);
     const desired = Math.max(0, Number(v) || 0);
-    // El descuento absorbe la diferencia: total = subtotal − desc + iva → desc = subtotal + iva − total.
+    // El descuento absorbe la diferencia: total = subtotal − desc + iva + igtf → desc = subtotal + iva + igtf − total.
     // Puede quedar negativo (recargo) si el total se ajusta hacia arriba.
-    const desc = Math.min(subtotal, round2(subtotal + iva - desired));
+    const desc = Math.min(subtotal, round2(subtotal + iva + igtf - desired));
     setDescMontoStr(desc !== 0 ? String(desc) : '');
     setDescPctStr(desc !== 0 && subtotal > 0 ? String(Math.round((desc / subtotal) * 10000) / 100) : '');
   };
@@ -643,6 +686,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     const conv = (n: number) => round2(toBs ? n * r : n / r);
     setLineas((ls) => ls.map((l) => { const cu = Number(l.costoUnit) || 0; return cu > 0 ? { ...l, costoUnit: String(conv(cu)) } : l; }));
     setDescMontoStr((s) => { const m = Number(s) || 0; return m !== 0 ? String(conv(m)) : s; });
+    setIgtfStr((s) => { const m = Number(s) || 0; return m !== 0 ? String(conv(m)) : s; });   // IGTF (monto) se convierte también
     setIvaManual(false);
     setMoneda(toBs ? 'Bs' : 'USD');
     setError(null);
@@ -665,7 +709,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     try {
       await montarCompraDirecta({
         compra, items, file, nota, actor, actorName,
-        moneda, descuentoMonto: descMonto, iva, retencionPct: retPct,
+        moneda, descuentoMonto: descMonto, iva, igtf, retencionPct: retPct,
         pagoExterno, pagoExternoDatos,
       });
       notify(`Compra enviada a Tesorería · ${montoCaja(total, monedaLbl)} por pagar`, 'success', { link: '#/app/tesoreria' });
@@ -758,13 +802,19 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
           </div>
         </div>
 
-        {/* IVA + retención de IVA (sólo en Bs). */}
+        {/* IVA (por % o en monto, sincronizados) + retención de IVA (sólo en Bs). */}
         {moneda === 'Bs' && (
           <div className="form-grid" style={{ marginTop: '.5rem' }}>
             <div className="form-row" style={{ margin: 0 }}>
-              <label>IVA ({monedaLbl}) <span className="muted" style={{ fontWeight: 400 }}>· sugerido {IVA_PCT}%</span></label>
+              <label>IVA (%) <span className="muted" style={{ fontWeight: 400 }}>· sugerido {IVA_PCT}%</span></label>
+              <input className="input mono" type="number" min={0} step="any" value={ivaPctStr}
+                onChange={(e) => onIvaPct(e.target.value)} placeholder={String(IVA_PCT)} />
+              <small className="muted">Escribí el % o el monto: se sincronizan.</small>
+            </div>
+            <div className="form-row" style={{ margin: 0 }}>
+              <label>IVA ({monedaLbl}) <span className="muted" style={{ fontWeight: 400 }}>· monto</span></label>
               <input className="input mono" type="number" min={0} step="any" value={ivaStr}
-                onChange={(e) => { setIvaManual(true); setIvaStr(e.target.value); }} placeholder="0,00" />
+                onChange={(e) => onIvaMonto(e.target.value)} placeholder="0,00" />
               <small className="muted">
                 {ivaManual
                   ? <button type="button" className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => setIvaManual(false)}>↻ Volver a {IVA_PCT}% ({montoCaja(ivaSugerido, monedaLbl)})</button>
@@ -779,12 +829,34 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
           </div>
         )}
 
+        {/* IGTF: segmento opcional por % o en monto (sincronizados). Se suma al total.
+            Aplica sobre todo cuando la compra se paga en divisas ($). */}
+        <div className="form-grid" style={{ marginTop: '.5rem' }}>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label>IGTF (%) <span className="muted" style={{ fontWeight: 400 }}>· sugerido {IGTF_PCT}%</span></label>
+            <input className="input mono" type="number" min={0} step="any" value={igtfPctStr}
+              onChange={(e) => onIgtfPct(e.target.value)} placeholder="0" />
+            <small className="muted">
+              {igtf > 0
+                ? <button type="button" className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => onIgtfPct('')}>✕ Quitar IGTF</button>
+                : <button type="button" className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => onIgtfPct(String(IGTF_PCT))}>+ Aplicar {IGTF_PCT}% de la base ({montoCaja(igtfSugerido, monedaLbl)})</button>}
+            </small>
+          </div>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label>IGTF ({monedaLbl}) <span className="muted" style={{ fontWeight: 400 }}>· monto</span></label>
+            <input className="input mono" type="number" min={0} step="any" value={igtfStr}
+              onChange={(e) => onIgtfMonto(e.target.value)} placeholder="0,00" />
+            <small className="muted">Impuesto a grandes transacciones financieras. Se suma al total{moneda === 'USD' ? ' (pago en divisas)' : ''}.</small>
+          </div>
+        </div>
+
         {/* Resumen de montos. */}
         <div className="card" style={{ margin: '.6rem 0', fontSize: '.88rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Subtotal</span><strong className="mono">{montoCaja(subtotal, monedaLbl)}</strong></div>
           {descMonto > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Descuento{descPctStr ? ` (${descPctStr}%)` : ''}</span><strong className="mono">− {montoCaja(descMonto, monedaLbl)}</strong></div>}
           {descMonto < 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Ajuste (recargo)</span><strong className="mono">+ {montoCaja(-descMonto, monedaLbl)}</strong></div>}
-          {moneda === 'Bs' && iva > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">IVA</span><strong className="mono">+ {montoCaja(iva, monedaLbl)}</strong></div>}
+          {moneda === 'Bs' && iva > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">IVA{ivaPctStr ? ` (${ivaPctStr}%)` : ''}</span><strong className="mono">+ {montoCaja(iva, monedaLbl)}</strong></div>}
+          {igtf > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">IGTF{igtfPctStr ? ` (${igtfPctStr}%)` : ''}</span><strong className="mono">+ {montoCaja(igtf, monedaLbl)}</strong></div>}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', marginTop: '.35rem', paddingTop: '.35rem', gap: '.6rem' }}>
             <strong>Total por pagar ({monedaLbl})</strong>
             <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 160, textAlign: 'right', fontWeight: 700 }}
