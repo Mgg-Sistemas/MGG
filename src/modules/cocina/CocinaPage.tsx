@@ -17,7 +17,7 @@ import { dateTime, money, num } from '@/shared/lib/format';
 import type { CocinaComida, TipoComida, Cocina, Almacen } from '@/shared/lib/types';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import {
-  listComidas, crearComida, listViveres, resumirComidas,
+  listComidas, crearComida, listViveres, listViveresGlobal, resumirComidas,
   listCocinas, crearCocina, actualizarCocina, eliminarCocina, listAlmacenesParaCocina,
   TIPOS_COMIDA, labelTipoComida, type ViverDisponible, type ResumenCocina, type CocinaConInfo,
 } from './cocina.repository';
@@ -334,30 +334,41 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, o
   const [tipo, setTipo] = useState<TipoComida>('almuerzo');
   const [platos, setPlatos] = useState('');
   const [nota, setNota] = useState('');
-  const [lineas, setLineas] = useState<Array<{ id: number; productoId: string; cantidad: string }>>([{ id: 1, productoId: '', cantidad: '' }]);
-  const [seq, setSeq] = useState(2);
+  const [busqueda, setBusqueda] = useState('');
+  // Selección tipo check: productoId → cantidad (string). Si la clave existe, está tildado.
+  const [sel, setSel] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { listViveres(almacen).then(setViveres).catch(() => setViveres([])); }, [almacen]);
+  // TODOS los víveres del inventario general (categoría VÍVERES), sin importar el almacén.
+  useEffect(() => { listViveresGlobal(almacen).then(setViveres).catch(() => setViveres([])); }, [almacen]);
   const mapV = useMemo(() => new Map(viveres.map((v) => [v.producto.id, v])), [viveres]);
 
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '' }]); setSeq((s) => s + 1); };
-  const setLinea = (id: number, patch: Partial<{ productoId: string; cantidad: string }>) =>
-    setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const delLinea = (id: number) => setLineas((ls) => ls.filter((l) => l.id !== id));
+  const toggle = (id: string) => setSel((s) => {
+    const n = { ...s };
+    if (id in n) delete n[id]; else n[id] = '';
+    return n;
+  });
+  const setCant = (id: string, c: string) => setSel((s) => ({ ...s, [id]: c }));
 
-  const total = useMemo(() => r2(lineas.reduce((a, l) => {
-    const v = mapV.get(l.productoId);
-    return a + (v ? (Number(l.cantidad) || 0) * v.precio : 0);
-  }, 0)), [lineas, mapV]);
+  const filtrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return viveres;
+    return viveres.filter((v) => v.producto.nombre.toLowerCase().includes(q) || (v.producto.sku ?? '').toLowerCase().includes(q));
+  }, [viveres, busqueda]);
+  const nSel = Object.keys(sel).length;
+
+  const total = useMemo(() => r2(Object.entries(sel).reduce((a, [id, c]) => {
+    const v = mapV.get(id);
+    return a + (v ? (Number(c) || 0) * v.precio : 0);
+  }, 0)), [sel, mapV]);
   const nPlatos = Number(platos) || 0;
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    const items = lineas.filter((l) => l.productoId && (Number(l.cantidad) || 0) > 0)
-      .map((l) => ({ producto_id: l.productoId, cantidad: Number(l.cantidad) || 0 }));
-    if (!items.length) { setError('Agregá al menos un víver con cantidad.'); return; }
+    const items = Object.entries(sel).filter(([, c]) => (Number(c) || 0) > 0)
+      .map(([producto_id, c]) => ({ producto_id, cantidad: Number(c) || 0 }));
+    if (!items.length) { setError('Marcá al menos un víver e indicá su cantidad.'); return; }
     if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
     setSaving(true);
     try {
@@ -390,39 +401,37 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, o
           </div>
         </div>
 
-        {/* Víveres (solo categoría VÍVERES desde el inventario) */}
+        {/* Víveres: TODOS los del inventario (categoría VÍVERES), sin importar el almacén.
+            Se eligen con checkboxes; al tildar aparece la cantidad. */}
         <div className="form-row">
-          <label>Víveres consumidos <span className="muted" style={{ fontWeight: 400 }}>(solo categoría VÍVERES)</span></label>
-          <div style={{ display: 'grid', gap: '.5rem' }}>
-            {lineas.map((l) => {
-              const v = mapV.get(l.productoId);
-              const excede = !!v && (Number(l.cantidad) || 0) > v.stock;
+          <label>Víveres consumidos <span className="muted" style={{ fontWeight: 400 }}>(todo el inventario · categoría VÍVERES · {num(viveres.length)} productos{nSel > 0 ? ` · ${num(nSel)} elegido(s)` : ''})</span></label>
+          <input className="search" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar víver por nombre o SKU…" style={{ marginBottom: '.5rem' }} />
+          <div style={{ display: 'grid', gap: '.4rem', maxHeight: 340, overflowY: 'auto', paddingRight: '.15rem' }}>
+            {!filtrados.length && <div className="muted" style={{ padding: '1rem', textAlign: 'center' }}>{viveres.length ? 'Ningún víver coincide con la búsqueda.' : 'No hay productos de categoría VÍVERES en el inventario.'}</div>}
+            {filtrados.map((v) => {
+              const id = v.producto.id;
+              const selected = id in sel;
+              const cant = sel[id] ?? '';
+              const excede = selected && (Number(cant) || 0) > v.stock;
               return (
-                <div key={l.id} className="card" style={{ margin: 0, padding: '.6rem' }}>
-                  <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                    <div className="form-row" style={{ margin: 0, flex: '1 1 260px' }}>
-                      <label style={{ fontSize: '.74rem' }}>Producto</label>
-                      <SearchSelect value={l.productoId} onChange={(v) => setLinea(l.id, { productoId: v })}
-                        options={viveres.map((vv) => ({ value: vv.producto.id, label: `${vv.producto.nombre} · ${money(vv.precio)} · stock ${num(vv.stock)} ${vv.producto.unidad}` }))}
-                        placeholder="Buscar víver…" emptyText="Sin víveres en el inventario." />
-                    </div>
-                    <div className="form-row" style={{ margin: 0, flex: '0 1 130px' }}>
-                      <label style={{ fontSize: '.74rem' }}>Cantidad{v ? ` (${v.producto.unidad})` : ''}</label>
-                      <input className="input mono" type="number" min={0} step="any" value={l.cantidad}
-                        onChange={(e) => setLinea(l.id, { cantidad: e.target.value })}
-                        style={{ textAlign: 'right', borderColor: excede ? 'var(--warning)' : undefined }} />
-                    </div>
-                    <div style={{ fontSize: '.82rem', paddingBottom: '.4rem', minWidth: 90, textAlign: 'right' }}>
-                      {v ? <strong className="mono">{money((Number(l.cantidad) || 0) * v.precio)}</strong> : <span className="muted">—</span>}
-                    </div>
-                    {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLinea(l.id)}>✕</button>}
+                <div key={id} className="card" style={{ margin: 0, padding: '.5rem .65rem', display: 'flex', alignItems: 'center', gap: '.6rem', borderColor: selected ? 'var(--primary)' : 'var(--border)' }}>
+                  <input type="checkbox" checked={selected} onChange={() => toggle(id)} style={{ width: 18, height: 18, flexShrink: 0, accentColor: 'var(--primary)' }} />
+                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => toggle(id)}>
+                    <div style={{ fontWeight: 600, fontSize: '.88rem' }}>{v.producto.nombre}</div>
+                    <small className="muted" style={{ fontSize: '.72rem' }}>{money(v.precio)} · stock {num(v.stock)} {v.producto.unidad}{v.almacenMasStock ? ` · 📦 ${v.almacenMasStock}` : ''}{excede ? <span style={{ color: 'var(--warning)' }}> · supera el stock</span> : null}</small>
                   </div>
-                  {v && <small className="muted" style={{ fontSize: '.72rem' }}>Stock disponible: <strong className="mono">{num(v.stock)} {v.producto.unidad}</strong>{excede && <span style={{ color: 'var(--warning)' }}> · supera el stock (se descontará hasta 0)</span>}</small>}
+                  {selected && (
+                    <>
+                      <input className="input mono" type="number" min={0} step="any" value={cant} autoFocus
+                        onChange={(e) => setCant(id, e.target.value)} placeholder={`Cant. (${v.producto.unidad})`}
+                        style={{ width: 120, textAlign: 'right', borderColor: excede ? 'var(--warning)' : undefined }} />
+                      <span className="mono" style={{ minWidth: 78, textAlign: 'right', fontSize: '.82rem', color: 'var(--primary-3)' }}>{money((Number(cant) || 0) * v.precio)}</span>
+                    </>
+                  )}
                 </div>
               );
             })}
           </div>
-          <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={addLinea}>＋ Agregar producto</button>
         </div>
 
         <div className="form-grid">
