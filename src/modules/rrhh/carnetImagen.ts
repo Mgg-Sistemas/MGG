@@ -412,11 +412,26 @@ function dibujarCirculo(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x:
   }
 }
 
-/** Dibuja un párrafo con ajuste de línea; devuelve la Y donde termina. */
-function parrafo(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lineH: number): number {
+/** Dibuja UNA línea justificada: reparte el sobrante entre las palabras (textAlign 'left'). */
+function lineaJustificada(ctx: CanvasRenderingContext2D, line: string, x: number, y: number, maxW: number) {
+  const words = line.split(/\s+/).filter(Boolean);
+  if (words.length <= 1) { ctx.fillText(line, x, y); return; }
+  const wordsW = words.reduce((a, w) => a + ctx.measureText(w).width, 0);
+  const gap = (maxW - wordsW) / (words.length - 1);
+  let cx = x;
+  for (const w of words) { ctx.fillText(w, cx, y); cx += ctx.measureText(w).width + gap; }
+}
+
+/** Dibuja un párrafo con ajuste de línea; devuelve la Y donde termina.
+ *  Si `justify`, justifica todas las líneas menos la última (requiere textAlign 'left'). */
+function parrafo(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lineH: number, justify = false): number {
   const lines = wrapText(ctx, text, maxW);
   let yy = y;
-  for (const ln of lines) { ctx.fillText(ln, x, yy); yy += lineH; }
+  lines.forEach((ln, i) => {
+    if (justify && i < lines.length - 1) lineaJustificada(ctx, ln, x, yy, maxW);
+    else ctx.fillText(ln, x, yy);
+    yy += lineH;
+  });
   return yy;
 }
 
@@ -448,11 +463,11 @@ export async function generarReversoBlob(): Promise<Blob> {
   ctx.fillStyle = C.text;
   ctx.font = `500 21px ${FONT}`;
   let y = headBottom + 92;
-  y = parrafo(ctx, REV_P1, margin, y, maxW, 30);
+  y = parrafo(ctx, REV_P1, margin, y, maxW, 30, true);   // justificado
   y += 20;
   ctx.fillStyle = C.primary3;
   ctx.font = `600 21px ${FONT}`;
-  parrafo(ctx, REV_P2, margin, y, maxW, 30);
+  parrafo(ctx, REV_P2, margin, y, maxW, 30, true);        // justificado
 
   // Contacto (abajo).
   ctx.textAlign = 'center';

@@ -553,6 +553,30 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   if (error) throw error;
 }
 
+/**
+ * Cierra una solicitud APROBADA como EJECUTADA **sin descontar stock ni caja**, para el
+ * caso en que la salida/traslado YA se hizo por fuera del módulo (ej.: una salida MANUAL
+ * de inventario). Sirve para darle la TRAZA a la solicitud (que quede como ejecutada) sin
+ * duplicar el descuento. Pide un motivo (queda en el historial) y NO genera movimientos.
+ */
+export async function cerrarSolicitudSinDescontar(s: SolicitudSalida, motivo: string, actor: string): Promise<void> {
+  if (s.estado !== 'aprobada') throw new Error('Solo se cierran así las solicitudes aprobadas.');
+  const razon = (motivo || '').trim();
+  if (!razon) throw new Error('Indicá por qué se cierra sin descontar (ej.: ya se descontó con una salida manual de inventario).');
+  const { error } = await supabase
+    .from(SOL)
+    .update({
+      estado: 'ejecutada',
+      ejecutada_por: actor,
+      ejecutada_en: new Date().toISOString(),
+      mov_id: null,
+      mov_ref: 'manual_externo',   // marca: el descuento se hizo por fuera (salida manual de inventario)
+      historial: appendHistorial(s, 'cerrada sin descontar (descuento manual por fuera)', actor, { motivo: razon }),
+    })
+    .eq('id', s.id);
+  if (error) throw error;
+}
+
 export interface EditarSolicitudSalidaInput {
   /** Detalle multi-producto (manda sobre producto/cantidad de cabecera). */
   items?: ItemSolicitudSalida[] | null;
