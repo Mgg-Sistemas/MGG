@@ -2,6 +2,32 @@ let cachedDataUrl: string | null = null;
 let cachedFirma: string | null | undefined;
 let cachedFirmaSalidas: string | null | undefined;
 let cachedFirmaOperaciones: string | null | undefined;
+let cachedFirmaAnalista: string | null | undefined;
+
+/**
+ * Firma de MARIANA TOVAR (Analista administrativo) para el reporte de peso de
+ * Recepciones. Lee `public/firma4.jpeg`. Devuelve null si no existe.
+ */
+export async function loadFirmaAnalistaDataUrl(): Promise<string | null> {
+  if (cachedFirmaAnalista !== undefined) return cachedFirmaAnalista;
+  try {
+    const url = `${import.meta.env.BASE_URL}firma4.jpeg`;
+    const resp = await fetch(url);
+    if (!resp.ok) { cachedFirmaAnalista = null; return null; }
+    const blob = await resp.blob();
+    if (!blob.type.startsWith('image/')) { cachedFirmaAnalista = null; return null; }
+    cachedFirmaAnalista = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => reject(new Error('No se pudo leer la firma de la analista'));
+      fr.readAsDataURL(blob);
+    });
+    return cachedFirmaAnalista;
+  } catch {
+    cachedFirmaAnalista = null;
+    return null;
+  }
+}
 
 /**
  * Firma de MANUEL PALMA (Supervisor de Operaciones) para el reporte de peso de

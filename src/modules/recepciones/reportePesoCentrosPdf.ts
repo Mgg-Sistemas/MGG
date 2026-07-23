@@ -7,7 +7,7 @@
    Se muestra SIN LOGO (reporte interno de operaciones).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
-import { loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl, loadFirmaOperacionesDataUrl } from '@/shared/lib/pdfLogo';
+import { loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl, loadFirmaOperacionesDataUrl, loadFirmaAnalistaDataUrl } from '@/shared/lib/pdfLogo';
 import type { ResumenCentro, RecepcionFila } from './recepciones.repository';
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -31,12 +31,13 @@ const BRAND: [number, number, number] = [255, 138, 0];   // naranja del sistema
 const GRIS: [number, number, number] = [240, 240, 240];
 
 export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, firmaGerente, firmaAdm, firmaOps] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, firmaGerente, firmaAdm, firmaOps, firmaAnalista] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     loadFirmaGerenteDataUrl().catch(() => null),      // Jesús Lozada (Gerente General) · firma.png
     loadFirmaSalidasDataUrl().catch(() => null),       // Leydis Rengel (Gerente Administrativo) · firma2.jpeg
     loadFirmaOperacionesDataUrl().catch(() => null),   // Manuel Palma (Supervisor de Operaciones) · firma3.png
+    loadFirmaAnalistaDataUrl().catch(() => null),      // Mariana Tovar (Analista administrativo) · firma4.jpeg
   ]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -111,15 +112,16 @@ export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Pro
   y = finalY() + 28;
 
   // ── FIRMA DE RESPONSABLES (2×2 líneas de firma con su rol) ──
-  if (y > doc.internal.pageSize.getHeight() - 150) { doc.addPage(); y = MARGIN; }
+  if (y > doc.internal.pageSize.getHeight() - 210) { doc.addPage(); y = MARGIN; }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
   doc.text('FIRMA DE RESPONSABLES', pageW / 2, y, { align: 'center' });
-  y += 34;
-  const firmantes: Array<{ nombre: string; rol: string; firma: string | null }> = [
-    { nombre: 'Mariana Tovar', rol: 'Analista administrativo', firma: null },
-    { nombre: 'Manuel Palma', rol: 'Supervisor de Operaciones', firma: firmaOps },
-    { nombre: 'Leydis Rengel', rol: 'Gerente Administrativo', firma: firmaAdm },
-    { nombre: 'Jesús Lozada', rol: 'Gerente General', firma: firmaGerente },
+  y += 62;   // espacio para la firma escaneada más alta (arriba de la línea)
+  // `h` = alto base de la firma (pt). firma3 (Manuel Palma) va más grande a pedido.
+  const firmantes: Array<{ nombre: string; rol: string; firma: string | null; h: number }> = [
+    { nombre: 'Mariana Tovar', rol: 'Analista administrativo', firma: firmaAnalista, h: 32 },
+    { nombre: 'Manuel Palma', rol: 'Supervisor de Operaciones', firma: firmaOps, h: 48 },
+    { nombre: 'Leydis Rengel', rol: 'Gerente Administrativo', firma: firmaAdm, h: 32 },
+    { nombre: 'Jesús Lozada', rol: 'Gerente General', firma: firmaGerente, h: 32 },
   ];
   const colW = (pageW - MARGIN * 2) / 2;
   const lineW = colW - 40;
@@ -131,7 +133,7 @@ export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Pro
       if (f.firma) {
         try {
           const props = doc.getImageProperties(f.firma);
-          const hImg = 32;
+          const hImg = f.h;
           let wImg = props.width && props.height ? (props.width / props.height) * hImg : 80;
           if (wImg > lineW) wImg = lineW;
           const hFinal = props.width && props.height ? (props.height / props.width) * wImg : hImg;
