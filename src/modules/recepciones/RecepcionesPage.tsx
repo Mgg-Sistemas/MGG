@@ -24,7 +24,7 @@ import {
   totalReportadoConcil, kgFaltanteConcil, kgNoLlegoConcil, pctNoLlegoConcil,
   listTotales, crearTotales, actualizarTotales, eliminarTotales,
   totalMonedaCentro, sumSnO2, totalMonedaTotal, tasaRecepcionada,
-  listGrupos, crearGrupo, eliminarGrupo,
+  listGrupos, crearGrupo, eliminarGrupo, actualizarGrupo,
   listCierres, nextNumeroCierre, crearCierre, eliminarCierre,
   type Recepcion, type RecepcionMineral, type RecepcionProcedencia, type RecepcionAnalisis, type ValorMineral,
   type HumedadProv, type HumedadFinal, type RecepcionPesaje, type PesajeBigbag, type PesoModo,
@@ -318,6 +318,8 @@ export function RecepcionesPage() {
   const [loading, setLoading] = useState(true);
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [nombreNuevo, setNombreNuevo] = useState('');
+  const [renombrar, setRenombrar] = useState<RecepcionGrupo | null>(null);
+  const [nombreEdit, setNombreEdit] = useState('');
   const [confirmar, setConfirmar] = useState<{ message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null>(null);
 
   const cargar = useCallback(async () => { setGrupos(await listGrupos()); }, []);
@@ -341,6 +343,18 @@ export function RecepcionesPage() {
     if (!nombreNuevo.trim()) { toast('Indicá el nombre', 'error'); return; }
     try { await crearGrupo(nombreNuevo, actor, miNombre); setNuevoOpen(false); setNombreNuevo(''); await cargar(); toast('Recepción creada', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear', 'error'); }
+  }
+  function abrirRenombrar(g: RecepcionGrupo) { setRenombrar(g); setNombreEdit(g.nombre); }
+  async function guardarNombre() {
+    if (!renombrar) return;
+    const nuevo = nombreEdit.trim();
+    if (!nuevo) { toast('Indicá el nombre', 'error'); return; }
+    if (nuevo === renombrar.nombre) { setRenombrar(null); return; }
+    try {
+      await actualizarGrupo(renombrar.id, { nombre: nuevo });
+      setRenombrar(null); await cargar();
+      toast('Nombre actualizado', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo renombrar', 'error'); }
   }
   function borrar(g: RecepcionGrupo) {
     setConfirmar({ message: `¿Borrar la tarjeta "${g.nombre}" y TODOS sus datos?`, onConfirm: async () => {
@@ -374,8 +388,11 @@ export function RecepcionesPage() {
               {g.es_general && <span className="badge" style={{ marginTop: '.35rem', display: 'inline-block' }}>Resumen · solo lectura</span>}
               {g.es_general && <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Todas las recepciones (MGG + sistema externo)</div>}
               <div className="muted" style={{ fontSize: '.76rem', marginTop: '.35rem' }}>Abrir →</div>
-              {canWrite && !g.es_general && (
-                <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); borrar(g); }} title="Borrar" style={{ position: 'absolute', top: 6, right: 6 }}>🗑</button>
+              {canWrite && (
+                <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: '.15rem' }}>
+                  <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); abrirRenombrar(g); }} title="Renombrar centro">✎</button>
+                  {!g.es_general && <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); borrar(g); }} title="Borrar">🗑</button>}
+                </div>
               )}
             </div>
           ))}
@@ -395,6 +412,21 @@ export function RecepcionesPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') void crear(); }} placeholder="RECEPCIÓN LA ESPERANZA" />
           </div>
           <small className="muted">Sus datos van manuales (sin vínculo a un cierre de caja).</small>
+        </Modal>
+      )}
+      {renombrar && (
+        <Modal title={`Renombrar · ${renombrar.nombre}`} size="sm" onClose={() => setRenombrar(null)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setRenombrar(null)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={() => void guardarNombre()}>Guardar</button>
+          </>
+        }>
+          <div className="form-row">
+            <label>Nombre del centro</label>
+            <input className="input" autoFocus value={nombreEdit} onChange={(e) => setNombreEdit(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void guardarNombre(); }} />
+          </div>
+          <small className="muted">Se actualiza en la tarjeta y en el <strong>Resumen General</strong> (en vivo).</small>
         </Modal>
       )}
       {confirmar && (

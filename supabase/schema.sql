@@ -3262,6 +3262,21 @@ alter table public.recepcion_cierres enable row level security;
 create policy "rec_cierres read auth" on public.recepcion_cierres for select using (auth.role()='authenticated');
 create policy "rec_cierres write op"  on public.recepcion_cierres for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Alias LOCAL para renombrar centros de un sistema EXTERNO (puente) en el Resumen
+-- General de Recepciones, sin tocar el sistema de origen. Clave (sistema, nombre_original).
+create table if not exists public.recepciones_centro_alias (
+  id uuid primary key default gen_random_uuid(),
+  sistema text not null,
+  nombre_original text not null,
+  alias text not null,
+  actor text, actor_name text,
+  updated_at timestamptz not null default now(),
+  unique (sistema, nombre_original)
+);
+alter table public.recepciones_centro_alias enable row level security;
+create policy "rec_alias read auth" on public.recepciones_centro_alias for select using (auth.role()='authenticated');
+create policy "rec_alias write op"  on public.recepciones_centro_alias for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- ============================================================
 -- Realtime en TODOS los módulos: publica las tablas de datos del esquema
 -- public que aún no estén en supabase_realtime (multiusuario en vivo).
@@ -3272,7 +3287,7 @@ declare faltantes text[] := array[
   'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
   'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
   'ofertas_proveedor','produccion','produccion_materiales','proveedor_datos_pago','proveedores',
-  'recepcion_grupos','recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones','recepcion_totales','recepcion_cierres',
+  'recepcion_grupos','recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones','recepcion_totales','recepcion_cierres','recepciones_centro_alias',
   'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
 ];
 begin

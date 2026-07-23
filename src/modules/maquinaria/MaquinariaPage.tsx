@@ -11,6 +11,7 @@ import { MaquinariaCatalogoModal } from './MaquinariaCatalogoModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
+import { SolicitudRepuestosModal } from './SolicitudRepuestosModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo, consumosPorEquipo, ultimoServicioPorEquipo, type ConsumoMant, type UltimoServicio } from './maquinariaMant.repository';
@@ -22,8 +23,10 @@ const STATUS_COLOR: Record<string, string> = {
   'FUERA DE SERVICIO': 'var(--danger)', 'INACTIVO': 'var(--muted)',
 };
 
-/** Umbral de alerta: si faltan ≤ 250 HRS para el próximo mantenimiento, se avisa. */
-const UMBRAL_ALERTA_HRS = 250;
+/** Umbral de alerta: si faltan ≤ 30 HRS para el próximo mantenimiento, se avisa
+ *  (ej. servicio cada 250 h → la alerta salta al llegar a 220 h de horómetro).
+ *  Da margen para pedir/comprar los repuestos justo antes del servicio. */
+const UMBRAL_ALERTA_HRS = 30;
 /** Umbral de alerta por kilometraje: si faltan ≤ 1.000 km al objetivo, se avisa. */
 const UMBRAL_ALERTA_KM = 1000;
 
@@ -100,6 +103,8 @@ export function MaquinariaPage() {
   const [form, setForm] = useState<{ open: boolean; equipo: MaquinariaEquipo | null }>({ open: false, equipo: null });
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
   const [borrar, setBorrar] = useState<MaquinariaEquipo | null>(null);
+  // Equipo para el que se abre la SOLICITUD DE PEDIDO precargada (desde una alerta de mantenimiento).
+  const [spEquipo, setSpEquipo] = useState<MaquinariaEquipo | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -146,7 +151,7 @@ export function MaquinariaPage() {
     });
   }, [equipos, filtro, verInactivos]);
 
-  // Equipos activos que requieren mantenimiento pronto (≤ 250 HRS).
+  // Equipos activos que requieren mantenimiento pronto (≤ 30 HRS al próximo servicio).
   const enAlerta = useMemo(
     () => equipos.filter((e) => e.activo && infoEquipo.get(e.id)?.alerta),
     [equipos, infoEquipo],
@@ -289,7 +294,20 @@ export function MaquinariaPage() {
 
       {enAlerta.length > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
-          ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
+          <div style={{ marginBottom: canWrite ? '.4rem' : 0 }}>
+            ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS al servicio).
+            {canWrite && <span className="muted"> Generá la solicitud de pedido de repuestos:</span>}
+          </div>
+          {canWrite && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem' }}>
+              {enAlerta.map((e) => (
+                <button key={e.id} type="button" className="btn btn-sm"
+                  style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
+                  title={`Generar solicitud de pedido para ${e.equipo}`}
+                  onClick={() => setSpEquipo(e)}>🛒 {e.equipo}</button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -351,6 +369,11 @@ export function MaquinariaPage() {
                         : <span title={`horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>{fmtNum(info.restantes)} h</span>}
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    {canWrite && info?.alerta && (
+                      <button className="btn btn-sm" style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
+                        title="Generar solicitud de pedido (repuestos) para este equipo"
+                        onClick={() => setSpEquipo(e)}>🛒 SP</button>
+                    )}
                     <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
                     {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => void toggleActivo(e)}>{e.activo ? 'Desactivar' : 'Activar'}</button>}
@@ -453,6 +476,9 @@ export function MaquinariaPage() {
       {borrar && (
         <ConfirmDialog title="Eliminar equipo" message={`¿Eliminar "${borrar.equipo}" y toda su bitácora?`} confirmText="Eliminar" danger
           onCancel={() => setBorrar(null)} onConfirm={() => { const e = borrar; setBorrar(null); void doBorrar(e); }} />
+      )}
+      {spEquipo && (
+        <SolicitudRepuestosModal equipo={spEquipo} actorEmail={actor} onClose={() => setSpEquipo(null)} onCreated={cargar} />
       )}
     </div>
   );
