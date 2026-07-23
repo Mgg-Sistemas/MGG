@@ -12,7 +12,7 @@ export async function loadFirmaAnalistaDataUrl(): Promise<string | null> {
   if (cachedFirmaAnalista !== undefined) return cachedFirmaAnalista;
   try {
     const url = `${import.meta.env.BASE_URL}firma4.jpeg`;
-    const resp = await fetch(url);
+    const resp = await fetch(url, { cache: 'reload' });   // sin caché: si reemplazan el archivo, se toma la versión nueva
     if (!resp.ok) { cachedFirmaAnalista = null; return null; }
     const blob = await resp.blob();
     if (!blob.type.startsWith('image/')) { cachedFirmaAnalista = null; return null; }
@@ -38,7 +38,7 @@ export async function loadFirmaOperacionesDataUrl(): Promise<string | null> {
   if (cachedFirmaOperaciones !== undefined) return cachedFirmaOperaciones;
   try {
     const url = `${import.meta.env.BASE_URL}firma3.png`;
-    const resp = await fetch(url);
+    const resp = await fetch(url, { cache: 'reload' });   // sin caché: si reemplazan el archivo, se toma la versión nueva
     if (!resp.ok) { cachedFirmaOperaciones = null; return null; }
     const blob = await resp.blob();
     if (!blob.type.startsWith('image/')) { cachedFirmaOperaciones = null; return null; }
@@ -64,7 +64,7 @@ export async function loadFirmaSalidasDataUrl(): Promise<string | null> {
   if (cachedFirmaSalidas !== undefined) return cachedFirmaSalidas;
   try {
     const url = `${import.meta.env.BASE_URL}firma2.jpeg`;
-    const resp = await fetch(url);
+    const resp = await fetch(url, { cache: 'reload' });   // sin caché: si reemplazan el archivo, se toma la versión nueva
     if (!resp.ok) { cachedFirmaSalidas = null; return null; }
     const blob = await resp.blob();
     if (!blob.type.startsWith('image/')) { cachedFirmaSalidas = null; return null; }
@@ -90,7 +90,7 @@ export async function loadFirmaGerenteDataUrl(): Promise<string | null> {
   if (cachedFirma !== undefined) return cachedFirma;
   try {
     const url = `${import.meta.env.BASE_URL}firma.png`;
-    const resp = await fetch(url);
+    const resp = await fetch(url, { cache: 'reload' });   // sin caché: si reemplazan el archivo, se toma la versión nueva
     if (!resp.ok) { cachedFirma = null; return null; }
     const blob = await resp.blob();
     // En dev, un archivo inexistente devuelve el index.html (SPA fallback): filtramos por tipo.
