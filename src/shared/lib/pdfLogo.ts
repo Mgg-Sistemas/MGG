@@ -1,6 +1,33 @@
 let cachedDataUrl: string | null = null;
 let cachedFirma: string | null | undefined;
 let cachedFirmaSalidas: string | null | undefined;
+let cachedFirmaOperaciones: string | null | undefined;
+
+/**
+ * Firma de MANUEL PALMA (Supervisor de Operaciones) para el reporte de peso de
+ * Recepciones. Lee `public/firma3.png`. Devuelve null si no existe, así el PDF
+ * se genera igual (queda la línea + nombre).
+ */
+export async function loadFirmaOperacionesDataUrl(): Promise<string | null> {
+  if (cachedFirmaOperaciones !== undefined) return cachedFirmaOperaciones;
+  try {
+    const url = `${import.meta.env.BASE_URL}firma3.png`;
+    const resp = await fetch(url);
+    if (!resp.ok) { cachedFirmaOperaciones = null; return null; }
+    const blob = await resp.blob();
+    if (!blob.type.startsWith('image/')) { cachedFirmaOperaciones = null; return null; }
+    cachedFirmaOperaciones = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => reject(new Error('No se pudo leer la firma de operaciones'));
+      fr.readAsDataURL(blob);
+    });
+    return cachedFirmaOperaciones;
+  } catch {
+    cachedFirmaOperaciones = null;
+    return null;
+  }
+}
 
 /**
  * Firma de LEYDI RENGEL para los PDF de Salidas/Traslados (Orden de Salida), en el

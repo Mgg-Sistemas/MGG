@@ -7,7 +7,7 @@
    Se muestra SIN LOGO (reporte interno de operaciones).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
-import { loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl } from '@/shared/lib/pdfLogo';
+import { loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl, loadFirmaOperacionesDataUrl } from '@/shared/lib/pdfLogo';
 import type { ResumenCentro, RecepcionFila } from './recepciones.repository';
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -31,11 +31,12 @@ const BRAND: [number, number, number] = [255, 138, 0];   // naranja del sistema
 const GRIS: [number, number, number] = [240, 240, 240];
 
 export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, firmaGerente, firmaAdm] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, firmaGerente, firmaAdm, firmaOps] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
-    loadFirmaGerenteDataUrl().catch(() => null),   // Jesús Lozada (Gerente General) · firma.png
-    loadFirmaSalidasDataUrl().catch(() => null),    // Leydis Rengel (Gerente Administrativo) · firma2.jpeg
+    loadFirmaGerenteDataUrl().catch(() => null),      // Jesús Lozada (Gerente General) · firma.png
+    loadFirmaSalidasDataUrl().catch(() => null),       // Leydis Rengel (Gerente Administrativo) · firma2.jpeg
+    loadFirmaOperacionesDataUrl().catch(() => null),   // Manuel Palma (Supervisor de Operaciones) · firma3.png
   ]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -116,7 +117,7 @@ export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Pro
   y += 34;
   const firmantes: Array<{ nombre: string; rol: string; firma: string | null }> = [
     { nombre: 'Mariana Tovar', rol: 'Analista administrativo', firma: null },
-    { nombre: 'Manuel Palma', rol: 'Supervisor de Operaciones', firma: null },
+    { nombre: 'Manuel Palma', rol: 'Supervisor de Operaciones', firma: firmaOps },
     { nombre: 'Leydis Rengel', rol: 'Gerente Administrativo', firma: firmaAdm },
     { nombre: 'Jesús Lozada', rol: 'Gerente General', firma: firmaGerente },
   ];
