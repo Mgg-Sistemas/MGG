@@ -402,7 +402,8 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
               <strong style={{ fontSize: '.82rem' }}>{col.label}</strong>
               <span className={`badge ${SOL_ESTADO_CLASS[col.key]}`}>{items.length}</span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+            {/* Lista con scroll propio: la columna no empuja la página aunque tenga muchas. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', maxHeight: 'max(320px, calc(100vh - 300px))', overflowY: 'auto', paddingRight: '.15rem' }}>
               {items.map((s) => (
                 <button key={s.id} className="card" onClick={() => onVer(s)}
                   style={{ margin: 0, padding: '.55rem .65rem', textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border)' }}>
