@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
-  resumenGeneralLocal, fetchRecepcionesExternas,
+  resumenGeneralLocal, fetchRecepcionesExternas, getAliasExternos, setAliasExterno,
   type RecepcionGrupo, type ResumenCentro, type RecepcionFila, type ResumenExterno,
 } from './recepciones.repository';
+
+const SISTEMA_EXTERNO = 'golden-touch';
 
 /** 2 decimales es-VE con redondeo half-up (igual criterio que el resto de Recepciones). */
 function n2(n: number | null | undefined): string {
@@ -24,10 +29,15 @@ function sumar(rows: ResumenCentro[]) {
   }), { nRecepciones: 0, totalKg: 0, netoHumedo: 0, netoSeco: 0 });
 }
 
-/** Tabla de resumen por centro (solo lectura). */
-function TablaResumen({ rows, etiquetaTotal }: { rows: ResumenCentro[]; etiquetaTotal: string }) {
+/** Tabla de resumen por centro (solo lectura). Si `onRename` viene (y `aliasMap`),
+ *  cada centro muestra un ✎ para renombrarlo localmente (solo el sistema externo). */
+function TablaResumen({ rows, etiquetaTotal, aliasMap, onRename }: {
+  rows: ResumenCentro[]; etiquetaTotal: string;
+  aliasMap?: Record<string, string>; onRename?: (original: string, actual: string) => void;
+}) {
   if (!rows.length) return <EmptyState message="Sin recepciones registradas." icon="📥" />;
   const t = sumar(rows);
+  const display = (nombre: string) => aliasMap?.[nombre] ?? nombre;
   return (
     <div className="table-wrap">
       <table className="table" style={{ fontSize: '.9rem' }}>
@@ -43,7 +53,13 @@ function TablaResumen({ rows, etiquetaTotal }: { rows: ResumenCentro[]; etiqueta
         <tbody>
           {rows.map((c) => (
             <tr key={c.id}>
-              <td><strong>{c.nombre}</strong></td>
+              <td>
+                <strong>{display(c.nombre)}</strong>
+                {onRename && (
+                  <button className="btn btn-sm btn-ghost" style={{ marginLeft: '.35rem', padding: '0 .3rem' }}
+                    title="Renombrar este centro (solo local)" onClick={() => onRename(c.nombre, display(c.nombre))}>✎</button>
+                )}
+              </td>
               <td className="mono" style={{ textAlign: 'right' }}>{c.nRecepciones}</td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(c.totalKg)}</td>
               <td className="mono" style={{ textAlign: 'right' }}>{n2(c.netoHumedo)}</td>
@@ -112,19 +128,32 @@ function HistorialTable({ filas }: { filas: Array<RecepcionFila & { origen?: str
  * cargan en cada centro (o en el sistema externo).
  */
 export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: () => void }) {
+  const { user } = useSession();
+  const { can, appUser } = usePermissions();
+  const canWrite = can('recepciones', 'escritura');
+  const actor = user?.email ?? 'sistema';
+  const miNombre = appUser?.nombre?.trim() || user?.email || '';
+
   const [local, setLocal] = useState<ResumenCentro[]>([]);
   const [localRecs, setLocalRecs] = useState<RecepcionFila[]>([]);
   const [loading, setLoading] = useState(true);
   const [externo, setExterno] = useState<ResumenExterno | null>(null);
   const [extLoading, setExtLoading] = useState(true);
   const [extError, setExtError] = useState<string | null>(null);
+  // Alias LOCALES del sistema externo: { nombre_original → alias }.
+  const [aliasExt, setAliasExt] = useState<Record<string, string>>({});
+  // Rename en curso de un centro externo: { original, valor }.
+  const [renExt, setRenExt] = useState<{ original: string; valor: string } | null>(null);
 
   const cargarLocal = useCallback(async () => { const d = await resumenGeneralLocal(); setLocal(d.centros); setLocalRecs(d.recepciones); }, []);
   const cargarExterno = useCallback(async () => {
     setExtLoading(true); setExtError(null);
-    try { setExterno(await fetchRecepcionesExternas('golden-touch')); }
+    try { setExterno(await fetchRecepcionesExternas(SISTEMA_EXTERNO)); }
     catch (e) { setExterno(null); setExtError(e instanceof Error ? e.message : 'No disponible'); }
     finally { setExtLoading(false); }
+  }, []);
+  const cargarAlias = useCallback(async () => {
+    try { setAliasExt(await getAliasExternos(SISTEMA_EXTERNO)); } catch { /* si falla, se muestran los nombres originales */ }
   }, []);
 
   useEffect(() => {
@@ -134,22 +163,37 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
     return () => { c = true; };
   }, [cargarLocal]);
   useEffect(() => { void cargarExterno(); }, [cargarExterno]);
+  useEffect(() => { void cargarAlias(); }, [cargarAlias]);
   useRealtime(['recepciones', 'recepcion_pesajes', 'recepcion_grupos'], cargarLocal);
+  useRealtime(['recepciones_centro_alias'], cargarAlias);
+
+  const alias = (nombre: string) => aliasExt[nombre] ?? nombre;
+
+  async function guardarAliasExt() {
+    if (!renExt) return;
+    try {
+      await setAliasExterno(SISTEMA_EXTERNO, renExt.original, renExt.valor, actor, miNombre);
+      setRenExt(null); await cargarAlias();
+      toast('Nombre del centro actualizado', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo renombrar', 'error'); }
+  }
 
   const tLocal = sumar(local);
   const tExterno = externo ? sumar(externo.grupos) : null;
   const totalGeneralKg = tLocal.totalKg + (tExterno?.totalKg ?? 0);
   const totalGeneralSeco = tLocal.netoSeco + (tExterno?.netoSeco ?? 0);
 
-  // Histórico consolidado: recepciones locales (MGG) + externas, ordenadas por fecha desc.
+  // Histórico consolidado: recepciones locales (MGG) + externas (con alias aplicado), por fecha desc.
   const historial: Array<RecepcionFila & { origen?: string }> = [
     ...localRecs.map((r) => ({ ...r })),
-    ...(externo?.recepciones ?? []).map((r) => ({ ...r, origen: externo?.label ?? 'Externo' })),
+    ...(externo?.recepciones ?? []).map((r) => ({ ...r, centro: alias(r.centro), origen: externo?.label ?? 'Externo' })),
   ].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
 
-  // Datos combinados (MGG + externo) para el reporte imprimible por centro.
-  const centrosTotales = [...local, ...(externo?.grupos ?? [])];
-  const recepcionesTotales = [...localRecs, ...(externo?.recepciones ?? [])];
+  // Datos combinados (MGG + externo con alias) para el reporte imprimible por centro.
+  const externoGruposAlias = (externo?.grupos ?? []).map((g) => ({ ...g, nombre: alias(g.nombre) }));
+  const externoRecsAlias = (externo?.recepciones ?? []).map((r) => ({ ...r, centro: alias(r.centro) }));
+  const centrosTotales = [...local, ...externoGruposAlias];
+  const recepcionesTotales = [...localRecs, ...externoRecsAlias];
   const centrosConRecep = centrosTotales.filter((c) => c.nRecepciones > 0).length;
 
   async function verReporte() {
@@ -213,10 +257,11 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
           </div>
         ) : (
           <>
-            <TablaResumen rows={externo?.grupos ?? []} etiquetaTotal={`Total ${externo?.label ?? 'externo'}`} />
+            <TablaResumen rows={externo?.grupos ?? []} etiquetaTotal={`Total ${externo?.label ?? 'externo'}`}
+              aliasMap={aliasExt} onRename={canWrite ? (original, actualVal) => setRenExt({ original, valor: actualVal }) : undefined} />
             {externo && (
               <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>
-                Datos traídos del sistema externo en vivo (solo lectura). No se pueden editar desde acá.
+                Datos traídos del sistema externo en vivo (solo lectura){canWrite ? '; solo podés renombrar el centro localmente con ✎ (no cambia el sistema de origen).' : '. No se pueden editar desde acá.'}
               </div>
             )}
           </>
@@ -228,6 +273,23 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
         <div className="card-title">📜 Historial de recepciones · todo <span className="badge" style={{ marginLeft: '.35rem' }}>Solo lectura</span></div>
         {loading ? <p className="hint muted">Cargando…</p> : <HistorialTable filas={historial} />}
       </div>
+
+      {renExt && (
+        <Modal title="Renombrar centro externo" size="sm" onClose={() => setRenExt(null)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setRenExt(null)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={() => void guardarAliasExt()}>Guardar</button>
+          </>
+        }>
+          <div className="form-row">
+            <label>Nombre del centro <span className="muted" style={{ fontWeight: 400 }}>(original: {renExt.original})</span></label>
+            <input className="input" autoFocus value={renExt.valor}
+              onChange={(e) => setRenExt((s) => (s ? { ...s, valor: e.target.value } : s))}
+              onKeyDown={(e) => { if (e.key === 'Enter') void guardarAliasExt(); }} />
+          </div>
+          <small className="muted">Solo cambia cómo se <strong>muestra</strong> acá y en el reporte; no toca el sistema de origen. Dejalo vacío para volver al nombre original.</small>
+        </Modal>
+      )}
     </div>
   );
 }

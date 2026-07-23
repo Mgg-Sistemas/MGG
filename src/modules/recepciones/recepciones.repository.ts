@@ -167,6 +167,43 @@ export async function fetchRecepcionesExternas(sistema = 'golden-touch'): Promis
   };
 }
 
+/* ───────────── Alias LOCAL de centros de un sistema EXTERNO (puente) ─────────────
+   Renombrar SOLO para mostrar (Resumen General + reporte) un centro que llega del
+   otro sistema, sin tocar el sistema de origen (solo lectura). Clave: (sistema,
+   nombre_original). Guardado en Supabase con realtime → multiusuario. */
+
+/** Devuelve el mapa { nombre_original → alias } de un sistema externo. */
+export async function getAliasExternos(sistema = 'golden-touch'): Promise<Record<string, string>> {
+  const { data, error } = await supabase
+    .from('recepciones_centro_alias')
+    .select('nombre_original, alias')
+    .eq('sistema', sistema);
+  if (error) throw error;
+  const m: Record<string, string> = {};
+  for (const r of (data ?? []) as Array<{ nombre_original: string; alias: string }>) m[r.nombre_original] = r.alias;
+  return m;
+}
+
+/** Define (o borra, si `alias` queda vacío) el alias local de un centro externo. */
+export async function setAliasExterno(
+  sistema: string, nombreOriginal: string, alias: string, actor?: string, actorName?: string | null,
+): Promise<void> {
+  const a = (alias ?? '').trim();
+  const orig = (nombreOriginal ?? '').trim();
+  if (!orig) throw new Error('Falta el centro a renombrar.');
+  if (!a) {
+    // Vaciar = quitar el alias (vuelve a mostrarse el nombre original del sistema externo).
+    const { error } = await supabase.from('recepciones_centro_alias').delete().eq('sistema', sistema).eq('nombre_original', orig);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await supabase.from('recepciones_centro_alias').upsert(
+    { sistema, nombre_original: orig, alias: a, actor: actor ?? null, actor_name: actorName ?? null, updated_at: new Date().toISOString() },
+    { onConflict: 'sistema,nombre_original' },
+  );
+  if (error) throw error;
+}
+
 /** Tarjeta de un centro de costo: "RECEPCIÓN <CENTRO>". La crea la 1ª vez y la reutiliza luego. */
 export async function grupoParaCentro(nombreCentro: string, actor: string, actorName?: string | null): Promise<string> {
   const nombre = `RECEPCIÓN ${(nombreCentro || '').trim().toUpperCase()}`.trim();
