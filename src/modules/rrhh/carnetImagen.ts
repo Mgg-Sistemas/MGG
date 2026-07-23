@@ -72,11 +72,16 @@ async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number
   roundRect(ctx, x, y, w, h, r);
   ctx.clip();
   if (img) {
-    // Cover: llena el marco manteniendo proporción, recortando el sobrante.
-    const scale = Math.max(w / img.width, h / img.height);
+    // Cover con encuadre del usuario: llena el marco (proporción) y aplica su zoom y
+    // posición. pos 0..1 (0,5 = centrado) reparte el sobrante recortado; zoom ≥1 acerca.
+    const zoom = Math.min(4, Math.max(1, Number(p.foto_zoom) || 1));
+    const posX = Math.min(1, Math.max(0, p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x)));
+    const posY = Math.min(1, Math.max(0, p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y)));
+    const scale = Math.max(w / img.width, h / img.height) * zoom;
     const dw = img.width * scale;
     const dh = img.height * scale;
-    ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    // drawX = x − sobranteHorizontal × posX (posX 0 = pega a la izquierda, 1 = a la derecha).
+    ctx.drawImage(img, x - (dw - w) * posX, y - (dh - h) * posY, dw, dh);
   } else {
     const g = ctx.createLinearGradient(x, y, x, y + h);
     g.addColorStop(0, C.bgBottom);

@@ -1709,6 +1709,10 @@ alter table public.personal add column if not exists telefono text;
 alter table public.personal add column if not exists contacto_emergencia text;
 alter table public.personal add column if not exists contacto_emergencia_tlf text;
 alter table public.personal add column if not exists foto_url text;
+-- Encuadre de la foto del carnet (lo ajusta el usuario arrastrando/zoom): posición 0..1 y zoom ≥1.
+alter table public.personal add column if not exists foto_pos_x numeric not null default 0.5;
+alter table public.personal add column if not exists foto_pos_y numeric not null default 0.5;
+alter table public.personal add column if not exists foto_zoom  numeric not null default 1;
 create index if not exists idx_personal_activo on public.personal(activo);
 alter table public.personal enable row level security;
 create policy "personal read auth"  on public.personal for select using (auth.role() = 'authenticated');

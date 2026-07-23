@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -13,7 +13,7 @@ import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import { generarFrenteBlob, generarReversoBlob, descargarCarnet } from './carnetImagen';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '' };
+const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
 /** Limita la cédula a formato venezolano: prefijo opcional (V/E/J/G/P) + hasta 8 dígitos. */
 function sanitizarCedula(v: string): string {
@@ -21,6 +21,74 @@ function sanitizarCedula(v: string): string {
   const letra = /^[VEJGP]/.test(limpio) ? limpio[0] : '';
   const digitos = limpio.replace(/[^0-9]/g, '').slice(0, 8);
   return letra && digitos ? `${letra}-${digitos}` : letra + digitos;
+}
+
+/**
+ * Encuadre de la foto del carnet: muestra la imagen dentro de un marco con la MISMA
+ * proporción que el carnet (260×300) y deja al usuario ARRASTRARLA para centrar la cara,
+ * más un zoom. La posición (0..1) y el zoom se guardan y el carnet los respeta idénticos.
+ */
+function FotoEncuadre({ url, posX, posY, zoom, onChange }: {
+  url: string; posX: number; posY: number; zoom: number;
+  onChange: (v: { foto_pos_x: number; foto_pos_y: number; foto_zoom: number }) => void;
+}) {
+  const BOX_W = 191, BOX_H = 220;   // proporción del carnet: 260×300
+  const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  useEffect(() => {
+    let vivo = true; const im = new Image();
+    im.onload = () => { if (vivo) setNat({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 }); };
+    im.onerror = () => { if (vivo) setNat(null); };
+    im.src = url;
+    return () => { vivo = false; };
+  }, [url]);
+
+  const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+  const z = Math.min(4, Math.max(1, zoom));
+  const base = nat ? Math.max(BOX_W / nat.w, BOX_H / nat.h) : 1;
+  const scale = base * z;
+  const dispW = nat ? nat.w * scale : BOX_W;
+  const dispH = nat ? nat.h * scale : BOX_H;
+  const overX = Math.max(0, dispW - BOX_W);
+  const overY = Math.max(0, dispH - BOX_H);
+  const left = -overX * clamp01(posX);
+  const top = -overY * clamp01(posY);
+
+  const onDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    drag.current = { x: e.clientX, y: e.clientY, px: posX, py: posY };
+  };
+  const onMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    const dx = e.clientX - drag.current.x;
+    const dy = e.clientY - drag.current.y;
+    const nx = overX > 0 ? clamp01(drag.current.px - dx / overX) : 0.5;
+    const ny = overY > 0 ? clamp01(drag.current.py - dy / overY) : 0.5;
+    onChange({ foto_pos_x: nx, foto_pos_y: ny, foto_zoom: z });
+  };
+  const onUp = () => { drag.current = null; };
+
+  return (
+    <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div
+        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
+        style={{ width: BOX_W, height: BOX_H, borderRadius: 12, border: '3px solid var(--primary)', overflow: 'hidden', position: 'relative', cursor: 'grab', touchAction: 'none', background: 'var(--bg-1)', flexShrink: 0 }}
+        title="Arrastrá para mover la foto dentro del marco">
+        {nat
+          ? <img src={url} alt="Encuadre" draggable={false} style={{ position: 'absolute', left, top, width: dispW, height: dispH, maxWidth: 'none', userSelect: 'none', pointerEvents: 'none' }} />
+          : <div className="muted" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.8rem' }}>Cargando…</div>}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 180, flex: '1 1 180px' }}>
+        <small className="muted">Arrastrá la foto para <strong>centrar la cara</strong> en el marco (proporción real del carnet). Así queda en el carnet.</small>
+        <label style={{ fontSize: '.82rem' }}>Zoom <span className="mono muted">{z.toFixed(2)}×</span>
+          <input type="range" min={1} max={4} step={0.01} value={z}
+            onChange={(e) => onChange({ foto_pos_x: posX, foto_pos_y: posY, foto_zoom: Number(e.target.value) })}
+            style={{ width: '100%' }} />
+        </label>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange({ foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 })}>↺ Centrar / restablecer</button>
+      </div>
+    </div>
+  );
 }
 
 export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: string }) {
@@ -54,7 +122,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   function abrirNuevo() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
-    setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '' });
+    setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
     setError(null); setFormOpen(true);
   }
   function cerrarForm() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(false); }
@@ -64,11 +132,12 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
     setSubiendoFoto(true); setError(null);
     try {
       const url = await subirFotoCarnet(file);
-      setForm((f) => ({ ...f, foto_url: url }));
+      // Nueva foto → arranca centrada y sin zoom (el usuario la reencuadra si quiere).
+      setForm((f) => ({ ...f, foto_url: url, foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 }));
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo subir la foto'); }
     finally { setSubiendoFoto(false); }
   }
-  function quitarFoto() { setForm((f) => ({ ...f, foto_url: '' })); }
+  function quitarFoto() { setForm((f) => ({ ...f, foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 })); }
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -173,6 +242,20 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                 <small className="muted" style={{ flex: '1 1 160px', minWidth: 0 }}>Imagen (JPG/PNG) ≤ 5&nbsp;MB. Se recorta al marco del carnet.</small>
               </div>
             </div>
+
+            {/* Encuadre de la foto: el usuario arrastra para centrar la cara + zoom. */}
+            {form.foto_url && (
+              <div className="form-row">
+                <label>Encuadre de la foto <span className="muted" style={{ fontWeight: 400 }}>· arrastrá para centrar la cara</span></label>
+                <FotoEncuadre
+                  url={form.foto_url}
+                  posX={form.foto_pos_x ?? 0.5}
+                  posY={form.foto_pos_y ?? 0.5}
+                  zoom={form.foto_zoom ?? 1}
+                  onChange={(v) => setForm((f) => ({ ...f, ...v }))}
+                />
+              </div>
+            )}
 
             <div className="form-grid">
               <div className="form-row"><label>Nombre *</label><input className="input" autoFocus value={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} required /></div>
