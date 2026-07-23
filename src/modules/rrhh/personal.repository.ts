@@ -29,9 +29,16 @@ export interface PersonalInput {
   contacto_emergencia?: string | null;
   contacto_emergencia_tlf?: string | null;
   foto_url?: string | null;
+  /** Encuadre de la foto del carnet: posición 0..1 (default 0,5) y zoom ≥1 (default 1). */
+  foto_pos_x?: number | null;
+  foto_pos_y?: number | null;
+  foto_zoom?: number | null;
 }
 
 const BUCKET_FOTOS = 'carnet-fotos';
+
+/** Acota un valor entre min y max. */
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 
 /** Sube la foto del carnet y devuelve su URL pública. Valida que sea imagen ≤ 5 MB. */
 export async function subirFotoCarnet(file: File): Promise<string> {
@@ -68,6 +75,10 @@ function payload(input: PersonalInput) {
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
     contacto_emergencia_tlf: input.contacto_emergencia_tlf?.trim() || null,
     foto_url: input.foto_url?.trim() || null,
+    // Encuadre de la foto (lo ajusta el usuario): posición 0..1 y zoom entre 1 y 4.
+    foto_pos_x: clamp(Number(input.foto_pos_x ?? 0.5), 0, 1),
+    foto_pos_y: clamp(Number(input.foto_pos_y ?? 0.5), 0, 1),
+    foto_zoom: clamp(Number(input.foto_zoom ?? 1), 1, 4),
   };
 }
 

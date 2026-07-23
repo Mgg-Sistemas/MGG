@@ -869,6 +869,10 @@ export interface Personal {
   contacto_emergencia?: string | null;
   contacto_emergencia_tlf?: string | null;
   foto_url?: string | null;
+  /** Encuadre de la foto del carnet (lo ajusta el usuario): posición 0..1 y zoom ≥1. */
+  foto_pos_x?: number | null;
+  foto_pos_y?: number | null;
+  foto_zoom?: number | null;
   datos_pago?: Record<string, unknown> | null;
   created_at: string;
   created_by?: string | null;
