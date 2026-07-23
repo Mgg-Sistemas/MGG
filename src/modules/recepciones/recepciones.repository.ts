@@ -70,6 +70,103 @@ export async function eliminarGrupo(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/* ───────────── Resumen General (SOLO LECTURA: todas las recepciones) ─────────────
+   La tarjeta RECEPCIÓN GENERAL no se edita: muestra un resumen por centro de TODAS
+   las recepciones (todas las tarjetas locales) y, vía puente inter-sistema, las del
+   OTRO sistema (Golden Touch) en solo lectura. */
+export interface ResumenCentro {
+  id: string;
+  nombre: string;
+  nRecepciones: number;
+  totalKg: number;      // Σ peso_kg de las recepciones del centro
+  netoHumedo: number;   // Σ total_neto_humedo de los pesajes
+  netoSeco: number;     // Σ total_neto_seco de los pesajes (lo que entra al inventario)
+}
+
+/** Una recepción individual, con el nombre de su centro, para el listado consolidado. */
+export interface RecepcionFila {
+  id: string;
+  item: number;
+  fecha: string;
+  peso_kg: number;
+  procedencia: string;
+  centro: string;
+  nota: string;   // identificación / tipo de embalaje (para el reporte por centro)
+}
+
+export interface ResumenGeneralData {
+  centros: ResumenCentro[];
+  recepciones: RecepcionFila[];
+}
+
+/** Resumen local de la tarjeta RECEPCIÓN GENERAL: agrega por centro (tarjeta NO general)
+ *  el total recibido (Kg) y los netos de pesaje, y devuelve además TODAS las recepciones
+ *  individuales (para el listado consolidado). Solo lectura. */
+export async function resumenGeneralLocal(): Promise<ResumenGeneralData> {
+  const [gRes, rRes, pRes] = await Promise.all([
+    supabase.from('recepcion_grupos').select('id, nombre, es_general'),
+    supabase.from('recepciones').select('grupo_id, item, fecha, peso_kg, procedencia, nota').order('fecha', { ascending: false }),
+    supabase.from('recepcion_pesajes').select('grupo_id, total_neto_humedo, total_neto_seco'),
+  ]);
+  if (gRes.error) throw gRes.error;
+  if (rRes.error) throw rRes.error;
+  if (pRes.error) throw pRes.error;
+  const nombreDe = new Map<string, string>();
+  const byId = new Map<string, ResumenCentro>();
+  for (const g of (gRes.data ?? []) as Array<{ id: string; nombre: string; es_general: boolean }>) {
+    if (g.es_general) continue;
+    nombreDe.set(g.id, g.nombre);
+    byId.set(g.id, { id: g.id, nombre: g.nombre, nRecepciones: 0, totalKg: 0, netoHumedo: 0, netoSeco: 0 });
+  }
+  const recepciones: RecepcionFila[] = [];
+  for (const r of (rRes.data ?? []) as Array<{ grupo_id: string; item: number; fecha: string; peso_kg: number; procedencia: string; nota: string | null }>) {
+    const c = byId.get(r.grupo_id);
+    if (!c) continue;   // recepciones de la tarjeta general (no debería haber) se ignoran
+    c.nRecepciones += 1; c.totalKg += num(r.peso_kg);
+    recepciones.push({ id: `${r.grupo_id}-${r.item}`, item: num(r.item), fecha: r.fecha, peso_kg: num(r.peso_kg), procedencia: r.procedencia ?? '', centro: nombreDe.get(r.grupo_id) ?? '—', nota: r.nota ?? '' });
+  }
+  for (const p of (pRes.data ?? []) as Array<{ grupo_id: string; total_neto_humedo: number | null; total_neto_seco: number | null }>) {
+    const c = byId.get(p.grupo_id); if (c) { c.netoHumedo += num(p.total_neto_humedo); c.netoSeco += num(p.total_neto_seco); }
+  }
+  const centros = [...byId.values()]
+    .map((c) => ({ ...c, totalKg: round2(c.totalKg), netoHumedo: round2(c.netoHumedo), netoSeco: round2(c.netoSeco) }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  return { centros, recepciones };
+}
+
+export interface ResumenExterno {
+  sistema: string;
+  label: string;
+  grupos: ResumenCentro[];
+  recepciones: RecepcionFila[];
+  at: string;
+}
+
+/** Trae, vía Edge Function `recepciones-externas`, el resumen de recepciones de OTRO
+ *  sistema puente (Golden Touch) en SOLO LECTURA. Las credenciales del otro sistema
+ *  viven como secretos del servidor (GT_URL / GT_SERVICE_KEY); nunca llegan al navegador. */
+export async function fetchRecepcionesExternas(sistema = 'golden-touch'): Promise<ResumenExterno> {
+  const { data, error } = await supabase.functions.invoke('recepciones-externas', { body: { sistema } });
+  if (error) throw new Error(error.message ?? 'No se pudo leer el sistema externo.');
+  const d = data as { grupos?: ResumenCentro[]; recepciones?: RecepcionFila[]; label?: string; error?: string; at?: string } | null;
+  if (!d || d.error) throw new Error(d?.error || 'Respuesta inválida del sistema externo.');
+  return {
+    sistema,
+    label: d.label ?? sistema,
+    grupos: (d.grupos ?? []).map((g) => ({
+      id: String(g.id), nombre: String(g.nombre),
+      nRecepciones: num(g.nRecepciones), totalKg: round2(num(g.totalKg)),
+      netoHumedo: round2(num(g.netoHumedo)), netoSeco: round2(num(g.netoSeco)),
+    })),
+    recepciones: (d.recepciones ?? []).map((r) => ({
+      id: String(r.id), item: num(r.item), fecha: String(r.fecha),
+      peso_kg: round2(num(r.peso_kg)), procedencia: String(r.procedencia ?? ''), centro: String(r.centro ?? '—'),
+      nota: String((r as RecepcionFila).nota ?? ''),
+    })),
+    at: d.at ?? new Date().toISOString(),
+  };
+}
+
 /** Tarjeta de un centro de costo: "RECEPCIÓN <CENTRO>". La crea la 1ª vez y la reutiliza luego. */
 export async function grupoParaCentro(nombreCentro: string, actor: string, actorName?: string | null): Promise<string> {
   const nombre = `RECEPCIÓN ${(nombreCentro || '').trim().toUpperCase()}`.trim();

@@ -6,6 +6,7 @@ import { dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { ResumenGeneral } from './ResumenGeneral';
 import { AlmacenSelectAgrupado, AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { listAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
 import type { Almacen } from '@/shared/lib/types';
@@ -327,7 +328,14 @@ export function RecepcionesPage() {
   }, [cargar]);
   useRealtime(['recepcion_grupos'], cargar);
 
-  if (sel) return <RecepcionDetalle grupo={sel} onBack={() => { setSel(null); void cargar(); }} />;
+  // La tarjeta GENERAL abre un RESUMEN de solo lectura de TODAS las recepciones
+  // (todos los centros locales + el otro sistema puente). Las demás abren su detalle editable.
+  if (sel) {
+    const volver = () => { setSel(null); void cargar(); };
+    return sel.es_general
+      ? <ResumenGeneral grupo={sel} onBack={volver} />
+      : <RecepcionDetalle grupo={sel} onBack={volver} />;
+  }
 
   async function crear() {
     if (!nombreNuevo.trim()) { toast('Indicá el nombre', 'error'); return; }
@@ -361,9 +369,10 @@ export function RecepcionesPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1rem' }}>
           {grupos.map((g) => (
             <div key={g.id} className="card" style={{ margin: 0, cursor: 'pointer', position: 'relative' }} onClick={() => setSel(g)} title="Abrir recepción">
-              <div style={{ fontSize: '2rem', lineHeight: 1 }}>📥</div>
+              <div style={{ fontSize: '2rem', lineHeight: 1 }}>{g.es_general ? '📊' : '📥'}</div>
               <strong style={{ display: 'block', marginTop: '.4rem' }}>{g.nombre}</strong>
-              {g.es_general && <span className="badge" style={{ marginTop: '.35rem', display: 'inline-block' }}>General</span>}
+              {g.es_general && <span className="badge" style={{ marginTop: '.35rem', display: 'inline-block' }}>Resumen · solo lectura</span>}
+              {g.es_general && <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Todas las recepciones (MGG + sistema externo)</div>}
               <div className="muted" style={{ fontSize: '.76rem', marginTop: '.35rem' }}>Abrir →</div>
               {canWrite && !g.es_general && (
                 <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); borrar(g); }} title="Borrar" style={{ position: 'absolute', top: 6, right: 6 }}>🗑</button>
