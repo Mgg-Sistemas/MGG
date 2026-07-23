@@ -18,7 +18,7 @@ import {
 } from './cajas.repository';
 import {
   listSalidasMaterial, listTrasladosMaterial,
-  listSolicitudesSalida, aprobarSolicitudSalida, ejecutarSolicitudSalida, cancelarSolicitudSalida,
+  listSolicitudesSalida, aprobarSolicitudSalida, ejecutarSolicitudSalida, cerrarSolicitudSinDescontar, cancelarSolicitudSalida,
   editarSolicitudSalida, editarNotaSolicitudSalida,
 } from './salidas.repository';
 // descargarSalidaDineroPdf, descargarTrasladoDineroPdf y descargarOrdenSalidaPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
@@ -447,6 +447,9 @@ function SolicitudDetalleModal({
   const [busy, setBusy] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancel, setMotivoCancel] = useState('');
+  // Cierre SIN descontar (la salida ya se hizo por fuera, ej.: una salida manual de inventario).
+  const [sinDescOpen, setSinDescOpen] = useState(false);
+  const [motivoSinDesc, setMotivoSinDesc] = useState('');
 
   // Edición de la solicitud (solo material, antes de ejecutar). Reusa los datos ya
   // cargados (productos/existencias/almacenes) para los selects.
@@ -644,6 +647,12 @@ function SolicitudDetalleModal({
         <button className="btn btn-primary" disabled={busy}
           onClick={() => run(() => ejecutarSolicitudSalida(sol, actor, actorName), `Solicitud ${sol.codigo} ejecutada`)}>
           {ejecutarLabel}
+        </button>
+      )}
+      {puedeAprobar && sol.estado === 'aprobada' && (
+        <button className="btn btn-ghost" disabled={busy} onClick={() => setSinDescOpen(true)}
+          title="La salida ya se hizo por fuera (ej.: salida manual de inventario): la cierra como ejecutada sin volver a descontar">
+          ✔ Marcar ejecutada (ya descontado)
         </button>
       )}
       {sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
@@ -904,12 +913,35 @@ function SolicitudDetalleModal({
           <tr><td className="muted">Creada</td><td>{dateTime(sol.created_at)}</td></tr>
           {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {sol.aprobada_por ?? ''}</td></tr>}
           {sol.ejecutada_en && <tr><td className="muted">Ejecutada</td><td>{dateTime(sol.ejecutada_en)} · {sol.ejecutada_por ?? ''}</td></tr>}
+          {sol.estado === 'ejecutada' && sol.mov_ref === 'manual_externo' && (
+            <tr><td className="muted">Traza</td><td>⚠️ Cerrada <strong>sin descontar</strong> — el descuento se hizo por fuera (ej.: salida manual de inventario).</td></tr>
+          )}
         </tbody>
       </table>
 
       {!puedeAprobar && sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
           Solo un analista, un jefe o el administrador puede aprobar y ejecutar esta solicitud.
+        </div>
+      )}
+
+      {sinDescOpen && (
+        <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--primary, #ff8a00)' }}>
+          <strong style={{ fontSize: '.85rem' }}>Marcar como ejecutada SIN descontar</strong>
+          <p className="muted" style={{ fontSize: '.78rem', margin: '.3rem 0 .5rem' }}>
+            Usá esto solo si la salida <strong>ya se hizo por fuera</strong> (por ejemplo, con una <strong>salida manual de inventario</strong>).
+            La solicitud queda <strong>Ejecutada</strong> para la traza, pero <strong>no</strong> vuelve a descontar stock ni caja.
+          </p>
+          <label className="muted" style={{ fontSize: '.8rem' }}>Motivo / referencia (queda en el historial)</label>
+          <textarea className="input" rows={2} value={motivoSinDesc} onChange={(e) => setMotivoSinDesc(e.target.value)}
+            placeholder="Ej.: se descontó con una salida manual de inventario del ALMACEN el 13/07…" />
+          <div className="actions" style={{ marginTop: '.5rem' }}>
+            <button className="btn btn-sm btn-ghost" onClick={() => setSinDescOpen(false)} disabled={busy}>Volver</button>
+            <button className="btn btn-sm btn-primary" disabled={busy || !motivoSinDesc.trim()}
+              onClick={() => run(() => cerrarSolicitudSinDescontar(sol, motivoSinDesc.trim(), actor), `Solicitud ${sol.codigo} marcada como ejecutada (sin descontar)`)}>
+              ✔ Confirmar (sin descontar)
+            </button>
+          </div>
         </div>
       )}
 
