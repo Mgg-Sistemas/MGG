@@ -7,6 +7,7 @@
    Se muestra SIN LOGO (reporte interno de operaciones).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl } from '@/shared/lib/pdfLogo';
 import type { ResumenCentro, RecepcionFila } from './recepciones.repository';
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -30,9 +31,11 @@ const BRAND: [number, number, number] = [255, 138, 0];   // naranja del sistema
 const GRIS: [number, number, number] = [240, 240, 240];
 
 export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, firmaGerente, firmaAdm] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
+    loadFirmaGerenteDataUrl().catch(() => null),   // Jesús Lozada (Gerente General) · firma.png
+    loadFirmaSalidasDataUrl().catch(() => null),    // Leydis Rengel (Gerente Administrativo) · firma2.jpeg
   ]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -111,19 +114,37 @@ export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Pro
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
   doc.text('FIRMA DE RESPONSABLES', pageW / 2, y, { align: 'center' });
   y += 34;
-  const roles = ['Analista administrativo', 'Supervisor de Operaciones', 'Gerente Administrativo', 'Gerente General'];
+  const firmantes: Array<{ nombre: string; rol: string; firma: string | null }> = [
+    { nombre: 'Mariana Tovar', rol: 'Analista administrativo', firma: null },
+    { nombre: 'Manuel Palma', rol: 'Supervisor de Operaciones', firma: null },
+    { nombre: 'Leydis Rengel', rol: 'Gerente Administrativo', firma: firmaAdm },
+    { nombre: 'Jesús Lozada', rol: 'Gerente General', firma: firmaGerente },
+  ];
   const colW = (pageW - MARGIN * 2) / 2;
   const lineW = colW - 40;
-  for (let i = 0; i < roles.length; i += 2) {
+  for (let i = 0; i < firmantes.length; i += 2) {
     for (let j = 0; j < 2; j++) {
-      const idx = i + j;
+      const f = firmantes[i + j];
       const cx = MARGIN + colW * j + colW / 2;
+      // Firma escaneada (si el firmante tiene una): se dibuja justo ENCIMA de la línea.
+      if (f.firma) {
+        try {
+          const props = doc.getImageProperties(f.firma);
+          const hImg = 32;
+          let wImg = props.width && props.height ? (props.width / props.height) * hImg : 80;
+          if (wImg > lineW) wImg = lineW;
+          const hFinal = props.width && props.height ? (props.height / props.width) * wImg : hImg;
+          doc.addImage(f.firma, props.fileType || 'PNG', cx - wImg / 2, y - hFinal - 2, wImg, hFinal);
+        } catch { /* si la firma no carga, el PDF sale igual con la línea */ }
+      }
       doc.setDrawColor(120); doc.setLineWidth(0.6);
       doc.line(cx - lineW / 2, y, cx + lineW / 2, y);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-      doc.text(roles[idx], cx, y + 14, { align: 'center' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+      doc.text(f.nombre, cx, y + 14, { align: 'center' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+      doc.text(f.rol, cx, y + 26, { align: 'center' });
     }
-    y += 62;
+    y += 66;
   }
 
   previewPdfDoc(doc, `reporte-peso-centros-${fechaVE.replace(/\//g, '-')}.pdf`);
