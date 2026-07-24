@@ -682,6 +682,8 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       {totalesOpen && (
         <TotalesModal grupoId={grupoId} totales={totales} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
           netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)} subtotalesProc={subtotalesProcSeco}
+          mermaHumProv={humProv.reduce((a, f) => a + mermaProv(f.peso_humedo, f.peso_seco), 0)}
+          mermaHumFinal={mermaFinal(round2(sumaCol(humFinal.map((f) => f.peso_kg))), round2(sumaCol(humFinal.map((f) => f.peso_recogido))))}
           onReload={reload} onClose={() => setTotalesOpen(false)} confirmar={setConfirmar} />
       )}
       {cerrarOpen && (
@@ -1372,9 +1374,10 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
 
 /* ───────────── Totales · PROMEDIO DE PRECIO DE COMPRA (todo dentro del modal) ───────────── */
 
-function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, netoSecoSum, subtotalesProc, onReload, onClose, confirmar }: {
+function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, netoSecoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onReload, onClose, confirmar }: {
   grupoId: string; totales: RecepcionTotales[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
   netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
+  mermaHumProv: number; mermaHumFinal: number;
   onReload: () => Promise<void>; onClose: () => void;
   confirmar: (c: { message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null) => void;
 }) {
@@ -1385,6 +1388,7 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
     return (
       <TotalesEditorModal grupoId={grupoId} totales={editor === 'nuevo' ? null : editor} recepciones={recepciones}
         defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} subtotalesProc={subtotalesProc}
+        mermaHumProv={mermaHumProv} mermaHumFinal={mermaHumFinal}
         onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
     );
   }
@@ -1432,9 +1436,10 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
   );
 }
 
-function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, subtotalesProc, onCancel, onSaved }: {
+function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onCancel, onSaved }: {
   grupoId: string; totales: RecepcionTotales | null; recepciones: Recepcion[]; defaultNumero: number;
-  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>; onCancel: () => void; onSaved: () => void;
+  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
+  mermaHumProv: number; mermaHumFinal: number; onCancel: () => void; onSaved: () => void;
 }) {
   const [numero, setNumero] = useState(String(totales?.numero ?? defaultNumero));
   const [rows, setRows] = useState<{ nombre: string; sno2: string; precio: string }[]>(() =>
@@ -1447,8 +1452,11 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
   const [pesosKg, setPesosKg] = useState(
     totales?.pesos_kg != null ? numInput(totales.pesos_kg)
     : netoSecoSum > 0 ? numInput(round2(netoSecoSum)) : '');
-  const [hProv, setHProv] = useState(numInput(totales?.humedad_prov));
-  const [hFinal, setHFinal] = useState(numInput(totales?.humedad_final));
+  // Humedad Provisional (laboratorio) y Adicional (final) se DERIVAN de las mermas de H2O:
+  //   Provisional (laboratorio) = Merma peso H2O de Humedad Provisional
+  //   Adicional (final)         = Merma H2O Provisional − Merma H2O Final
+  const hProvVal = round2(mermaHumProv);
+  const hFinalVal = round2(mermaHumProv - mermaHumFinal);
   const [fe, setFe] = useState(numInput(totales?.fe_esteril));
   const [nota, setNota] = useState(totales?.nota ?? '');
   const [saving, setSaving] = useState(false);
@@ -1460,7 +1468,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
   const pesosKgN = parseNum(pesosKg);
   // Promedio de precio de compra recepcionada = Total Moneda ÷ Pesos Kg (neto seco de la fila).
   const tasaRec = tasaRecepcionada(totalMoneda, pesosKgN);
-  const hp = parseNum(hProv) ?? 0, hf = parseNum(hFinal) ?? 0, fe2 = parseNum(fe) ?? 0;
+  const hp = hProvVal, hf = hFinalVal, fe2 = parseNum(fe) ?? 0;
   const sum3 = hp + hf + fe2;
   const totalSnO2Final = (pesosKgN ?? 0) + sum3;
   const totalMonedaFinal = sum3 !== 0 ? sum3 : totalMoneda;
@@ -1477,7 +1485,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
     setSaving(true);
     try {
       const input = { grupo_id: grupoId, numero: numN, centros: centrosParsed, gastos: parseNum(gastos), pesos_kg: pesosKgN,
-        humedad_prov: parseNum(hProv), humedad_final: parseNum(hFinal), fe_esteril: parseNum(fe), nota };
+        humedad_prov: hProvVal, humedad_final: hFinalVal, fe_esteril: parseNum(fe), nota };
       if (totales) await actualizarTotales(totales.id, input);
       else await crearTotales(input, actor, miNombre);
       toast('Totales guardados', 'success');
@@ -1576,12 +1584,12 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
                 <td style={{ fontWeight: 800 }}>PROMEDIO DE PRECIO DE COMPRA RECEPCIONADA</td>
               </tr>
               <tr>
-                <td style={{ padding: 2 }}>{inputCell(hProv, setHProv, { rojo: true })}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }} title="= Merma peso H2O de Humedad Provisional">{n2(hProvVal)}</td>
                 <td></td><td></td>
                 <td>HUMEDAD PROVISIONAL (LABORATORIO)</td>
               </tr>
               <tr>
-                <td style={{ padding: 2 }}>{inputCell(hFinal, setHFinal, { rojo: true })}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }} title="= Merma H2O Provisional − Merma H2O Final">{n2(hFinalVal)}</td>
                 <td></td><td></td>
                 <td>HUMEDAD ADICIONAL (FINAL)</td>
               </tr>
@@ -1605,6 +1613,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
         Total Moneda = Total SnO2 × Precio/Tasa (+ Gastos). Tasa recepcionada (promedio de precio de compra) = Total Moneda ÷ Pesos Kg (neto seco).
         Costo final: SnO2 = Pesos Kg + Humedad Prov. + Humedad Final + Fe estéril; Total Moneda = la suma de esas 3 filas
         (si es 0, se toma el Total Moneda recepcionado); Tasa = Total Moneda ÷ SnO2.
+        <br /><strong>Humedad Provisional (laboratorio)</strong> = Merma peso H2O de Humedad Provisional; <strong>Humedad Adicional (final)</strong> = Merma H2O Provisional − Merma H2O Final (ambas se calculan solas desde las tablas de humedad).
       </small>
 
       <div className="form-row" style={{ marginTop: '.6rem' }}>
