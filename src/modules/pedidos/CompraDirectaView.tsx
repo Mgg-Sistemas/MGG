@@ -111,7 +111,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
     if (!c) return;
     setEliminar(null);
     try {
-      await eliminarCompraDirecta(c);
+      await eliminarCompraDirecta(c, actor, actorName);
       toast('Compra directa eliminada', 'success');
       await reloadLista();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
@@ -169,7 +169,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                     {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(c)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
                     {colDe(c) === 'abierta' && !estaPagada(c) && !estaRecibida(c) && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(c)} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
-                    {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑</button>}
+                    <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa (revierte caja e inventario si ya se pagó/recibió)">🗑</button>
                   </td>
                 </tr>
               ))}
@@ -191,7 +191,11 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       {eliminar && (
         <ConfirmDialog
           title="Eliminar compra directa"
-          message={`¿Eliminar la compra directa ${eliminar.codigo ? `${eliminar.codigo} · ` : ''}"${eliminar.producto_nombre}"? Esta acción no se puede deshacer.`}
+          message={`¿Eliminar la compra directa ${eliminar.codigo ? `${eliminar.codigo} · ` : ''}"${eliminar.producto_nombre}"?${
+            estaRecibida(eliminar) || estaPagada(eliminar)
+              ? ` Se revertirá${estaPagada(eliminar) ? ' el egreso de caja (Tesorería)' : ''}${estaPagada(eliminar) && estaRecibida(eliminar) ? ' y' : ''}${estaRecibida(eliminar) ? ' la entrada al inventario' : ''} antes de borrar.`
+              : ''
+          } Esta acción no se puede deshacer.`}
           confirmText="Eliminar"
           danger
           onConfirm={confirmarEliminar}
@@ -320,7 +324,7 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMon
         {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
         {colDe(compra) === 'abierta' && !estaPagada(compra) && !estaRecibida(compra) && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
-        {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
+        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa (revierte caja e inventario si ya se pagó/recibió)">🗑 Eliminar</button>
       </div>
     </div>
   );

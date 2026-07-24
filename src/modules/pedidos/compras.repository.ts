@@ -10,7 +10,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { createProducto, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId } from '@/modules/tesoreria/tesoreria.repository';
+import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId, eliminarMovimientoCaja } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Producto, CuentaCaja } from '@/shared/lib/types';
 
@@ -759,11 +759,6 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
 }
 
 /**
- * Elimina una compra directa que sigue EN PROCESO (todavía no tocó caja ni inventario).
- * Las finalizadas NO se borran por esta vía porque ya generaron egreso de caja y entrada
- * al inventario (habría que reversar ambos). Si tiene adjunto, también se quita del Storage.
- */
-/**
  * ANULA una compra directa que está PENDIENTE DE RECIBIR y que todavía NO movió dinero.
  * Deja rastro: estado 'anulada' + motivo, quién y cuándo (queda en el histórico).
  * No se puede anular si ya entró al inventario (recibida) ni si ya se pagó / quedó a
@@ -789,12 +784,65 @@ export async function anularCompraDirecta(compra: CompraDirecta, actorEmail: str
   if (error) throw error;
 }
 
-export async function eliminarCompraDirecta(compra: CompraDirecta): Promise<void> {
-  if (compra.estado !== 'en_proceso')
-    throw new Error('Solo se puede eliminar una compra EN PROCESO (las finalizadas ya afectaron caja e inventario).');
-  if (compra.adjunto_path) {
-    try { await supabase.storage.from(BUCKET).remove([compra.adjunto_path]); } catch { /* el adjunto no bloquea el borrado */ }
+/**
+ * ELIMINA una compra directa en CUALQUIER estado, revirtiendo sus efectos antes de borrar:
+ *  · Inventario: si ya se recibió, reversa (salida) la entrada de cada material.
+ *  · Caja (Tesorería): si ya se pagó, elimina el egreso y restituye el saldo de la caja.
+ * Bloquea los casos que no puede revertir de forma segura: pagos MULTIMONEDA (varios
+ * egresos) y compras A CRÉDITO (cuenta por pagar) — esos se revierten primero en Tesorería.
+ * Es una acción irreversible: borra la fila y sus adjuntos del Storage.
+ */
+export async function eliminarCompraDirecta(compra: CompraDirecta, actor?: string, actorName?: string | null): Promise<void> {
+  // A crédito: la deuda vive en Tesorería (cuenta por pagar); hay que anularla allí primero.
+  if (compra.credito_cxp_id)
+    throw new Error('Esta compra quedó A CRÉDITO (cuenta por pagar en Tesorería). Anulá primero la cuenta por pagar y después eliminala.');
+
+  // Pago multimoneda: sólo se guarda el 1er egreso; revertir el resto acá dejaría cabos
+  // sueltos. Si el egreso guardado no coincide con el total, se pagó con varias monedas.
+  if (compra.caja_mov_id) {
+    const mov = await getMovimientoCajaPorId(compra.caja_mov_id);
+    if (mov && Math.round(Number(mov.monto) * 100) / 100 !== Math.round(Number(compra.gasto || 0) * 100) / 100) {
+      throw new Error('Esta compra se pagó con MULTIMONEDA (varios egresos). Revertí el pago desde Tesorería y después eliminala.');
+    }
   }
+
+  const quienActor = actor ?? compra.actor ?? 'sistema';
+
+  // 1) Revertir INVENTARIO si ya se recibió (salida por la cantidad ingresada de cada material).
+  if (compra.recibida_at || compra.mov_id) {
+    for (const it of compra.items ?? []) {
+      const cantidad = Number(it.cantidad) || 0;
+      if (cantidad <= 0 || !it.producto_id) continue;
+      try {
+        await registrarMovimiento({
+          producto_id: it.producto_id, tipo: 'salida', delta: -cantidad, almacen: compra.almacen,
+          actor: quienActor, actor_name: actorName ?? null,
+          ref_tipo: 'compra_directa', ref_id: compra.id,
+          detalle: `Reversa por eliminación de compra directa · ${it.producto_nombre}`,
+        });
+      } catch (e) {
+        throw new Error(`No se pudo revertir el inventario de "${it.producto_nombre}" (${e instanceof Error ? e.message : ''}). Ajustá el stock y reintentá.`);
+      }
+    }
+  }
+
+  // 2) Revertir CAJA si ya se pagó (elimina el egreso y restituye el saldo).
+  if (compra.caja_mov_id) {
+    const mov = await getMovimientoCajaPorId(compra.caja_mov_id);
+    if (mov) await eliminarMovimientoCaja(mov);
+  }
+
+  // 3) Adjuntos (facturas + comprobante de retención) del Storage.
+  const paths = [
+    ...(compra.facturas ?? []).map((f) => f.path),
+    compra.adjunto_path,
+    compra.retencion_iva_path,
+  ].filter((p): p is string => !!p);
+  if (paths.length) {
+    try { await supabase.storage.from(BUCKET).remove(Array.from(new Set(paths))); } catch { /* el Storage no bloquea el borrado */ }
+  }
+
+  // 4) Borrar la fila.
   const { error } = await supabase.from('compras_directas').delete().eq('id', compra.id);
   if (error) throw error;
 }
