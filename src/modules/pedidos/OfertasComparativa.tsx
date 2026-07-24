@@ -52,6 +52,9 @@ export function OfertasComparativa({
   const [lockedSkus, setLockedSkus] = useState<Set<string>>(new Set());
   // En una orden HIJA: ítems de la OP madre que quedaron SIN asignar a ningún proveedor.
   const [pendientesMadre, setPendientesMadre] = useState<ItemOrden[]>([]);
+  // Oferta aceptada → sub-OC creada por ese proveedor (cuántos ítems tomó + su código),
+  // para mostrar "Aceptada · orden de N ítem(s)" en la comparativa.
+  const [subOcPorProv, setSubOcPorProv] = useState<Map<string, { items: number; codigo: string }>>(new Map());
 
   const toggleExpand = (id: string) => setExpandido((prev) => {
     const next = new Set(prev);
@@ -92,6 +95,17 @@ export function OfertasComparativa({
         const locked = new Set<string>();
         for (const h of hijas) for (const it of (h.items ?? [])) if (it.sku) locked.add(it.sku);
         setLockedSkus(esHija ? new Set() : locked);
+        // Sub-OC por proveedor: cuántos ítems tomó cada uno (suma si tiene varias) + su código.
+        const subMap = new Map<string, { items: number; codigo: string }>();
+        for (const h of hijas) {
+          if (!h.proveedor_id) continue;
+          const prev = subMap.get(h.proveedor_id);
+          subMap.set(h.proveedor_id, {
+            items: (prev?.items ?? 0) + (h.items ?? []).length,
+            codigo: prev?.codigo || (h.oc_codigo ?? h.codigo),
+          });
+        }
+        setSubOcPorProv(subMap);
         // Artículos de la OP madre que no quedaron en ninguna sub-OC = pendientes por asignar.
         setPendientesMadre(esHija && madre ? (madre.items ?? []).filter((it) => !locked.has(it.sku)) : []);
       })
@@ -354,7 +368,19 @@ export function OfertasComparativa({
                     <td>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
                         {s.oferta.estado === 'pendiente' && <span className="badge warning">Pendiente</span>}
-                        {s.oferta.estado === 'aceptada' && <span className="badge success">Aceptada</span>}
+                        {s.oferta.estado === 'aceptada' && (() => {
+                          const sub = subOcPorProv.get(s.oferta.proveedor_id);
+                          return (
+                            <span style={{ display: 'inline-flex', flexDirection: 'column', gap: '.15rem', alignItems: 'flex-start' }}>
+                              <span className="badge success">Aceptada</span>
+                              {sub && (
+                                <span className="muted" style={{ fontSize: '.7rem', whiteSpace: 'nowrap' }}>
+                                  orden de {sub.items} ítem(s){sub.codigo ? ` · ${sub.codigo}` : ''}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })()}
                         {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
                         {!esHija && canCrearOferta && s.oferta.estado === 'pendiente' && (
                           <>
