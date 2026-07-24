@@ -19,6 +19,10 @@ export interface CrearOfertaInput {
   precio_efectivo?: number | null;
   /** Descuento aplicado al total BCV (BCV total = subtotal − descuento). */
   descuento?: number | null;
+  /** IVA (monto) sobre la factura neta; se suma al total a pagar. */
+  iva?: number | null;
+  /** IGTF (monto); se suma al total a pagar. */
+  igtf?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
   notas?: string | null;
@@ -175,6 +179,8 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       precio_total: input.precio_total,
       precio_efectivo: input.precio_efectivo ?? null,
       descuento: input.descuento ?? null,
+      iva: input.iva ?? null,
+      igtf: input.igtf ?? null,
       fecha_entrega_prometida: input.fecha_entrega_prometida ?? null,
       condiciones_pago: input.condiciones_pago ?? null,
       notas: input.notas ?? null,
@@ -198,6 +204,8 @@ export interface EditarOfertaInput {
   precio_total?: number;
   precio_efectivo?: number | null;
   descuento?: number | null;
+  iva?: number | null;
+  igtf?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;
   notas?: string | null;
@@ -217,6 +225,8 @@ export async function actualizarOferta(
   if (input.precio_total !== undefined) patch.precio_total = input.precio_total;
   if (input.precio_efectivo !== undefined) patch.precio_efectivo = input.precio_efectivo;
   if (input.descuento !== undefined) patch.descuento = input.descuento;
+  if (input.iva !== undefined) patch.iva = input.iva;
+  if (input.igtf !== undefined) patch.igtf = input.igtf;
   if (input.fecha_entrega_prometida !== undefined) patch.fecha_entrega_prometida = input.fecha_entrega_prometida;
   if (input.condiciones_pago !== undefined) patch.condiciones_pago = input.condiciones_pago;
   if (input.notas !== undefined) patch.notas = input.notas;

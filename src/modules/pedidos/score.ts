@@ -25,12 +25,15 @@ export interface ScoredOferta {
  * divisa efectivo (precio_efectivo válido y menor al BCV), ese es el costo que cuenta;
  * si no, el total a BCV. Así la oferta con mejor precio en efectivo puede ganar.
  */
-export function costoEfectivo(o: Pick<OfertaProveedor, 'precio_total' | 'precio_efectivo'>): number {
+export function costoEfectivo(o: Pick<OfertaProveedor, 'precio_total' | 'precio_efectivo' | 'iva' | 'igtf'>): number {
+  // Los impuestos (IVA + IGTF) forman parte del costo real: se suman al total elegido
+  // para que la comparativa ordene por el monto FINAL que pagará Tesorería.
+  const imp = (Number(o.iva) || 0) + (Number(o.igtf) || 0);
   const bcv = Number(o.precio_total) || 0;
   const efe = Number(o.precio_efectivo) || 0;
-  if (bcv <= 0) return efe;             // oferta SOLO en USD efectivo (sin precio Bs)
-  if (efe <= 0) return bcv;             // oferta SOLO en Bs a BCV
-  return efe < bcv ? efe : bcv;         // ambos: manda el efectivo si trae descuento
+  if (bcv <= 0) return efe + imp;                 // oferta SOLO en USD efectivo (sin precio Bs)
+  if (efe <= 0) return bcv + imp;                 // oferta SOLO en Bs a BCV
+  return (efe < bcv ? efe : bcv) + imp;           // ambos: manda el efectivo si trae descuento
 }
 
 /**

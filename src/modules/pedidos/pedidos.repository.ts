@@ -516,7 +516,7 @@ export async function aprobarOrdenConOferta(
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
-    .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo, descuento')
+    .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo, descuento, iva, igtf')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -551,6 +551,10 @@ export async function aprobarOrdenConOferta(
   // Descuento OBTENIDO (negociado): reduce el total de la OC (la factura) sin re-preciar
   // los ítems → total = Σ ítems − descuento. Se arrastra a la OC para mostrarlo/editarlo.
   const descObt = ofRow?.descuento != null ? Math.max(0, Math.round(Number(ofRow.descuento) * 100) / 100) : 0;
+  // IVA / IGTF (montos) de la oferta: se SUMAN al total de la OC (ya vienen calculados
+  // sobre la factura neta al cargar la oferta). Se arrastran a la OC para mostrarlos.
+  const ivaOf = ofRow?.iva != null ? Math.max(0, Math.round(Number(ofRow.iva) * 100) / 100) : 0;
+  const igtfOf = ofRow?.igtf != null ? Math.max(0, Math.round(Number(ofRow.igtf) * 100) / 100) : 0;
 
   // Productos en $0 (sin precio en la oferta) NO entran a la OC. Si quedan productos
   // con precio, se crea la OC solo con esos y la SP madre conserva los $0 en
@@ -570,6 +574,8 @@ export async function aprobarOrdenConOferta(
       oferta_detalle: (ofRow?.detalle as Orden['oferta_detalle']) ?? null,
       oferta_precio_efectivo: efectivoOf,
       descuento: descObt || null,
+      iva: ivaOf || null,
+      igtf: igtfOf || null,
       motivo: motivo?.trim() || null,
       motivoAdjuntos: (motivoAdjuntos && motivoAdjuntos.length) ? motivoAdjuntos : null,
     }], actorEmail);
@@ -580,13 +586,16 @@ export async function aprobarOrdenConOferta(
 
   const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
   const subtotalOc = repEf ? repEf.total : totalBase;
-  const totalOc = Math.round(Math.max(0, subtotalOc - descObt) * 100) / 100;
+  // Total de la OC = (Σ ítems − descuento) + IVA + IGTF.
+  const totalOc = Math.round((Math.max(0, subtotalOc - descObt) + ivaOf + igtfOf) * 100) / 100;
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
     items: repEf ? repEf.items : itemsConContexto,
     total: totalOc,
     descuento_obtenido: descObt || null,
+    iva: ivaOf || null,
+    igtf: igtfOf || null,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     // Snapshot de la oferta elegida: datos técnicos/logísticos + precio efectivo (se ven en la OC y su PDF).
@@ -625,6 +634,9 @@ export interface AsignacionProveedor {
   oferta_precio_efectivo?: number | null;
   /** Descuento obtenido (negociado) de esta sub-OC: reduce su total. */
   descuento?: number | null;
+  /** IVA / IGTF (montos) de la oferta: se suman al total de la sub-OC. */
+  iva?: number | null;
+  igtf?: number | null;
   /** Observación del analista (por qué eligió) + adjuntos (imágenes/PDF). */
   motivo?: string | null;
   motivoAdjuntos?: { path: string; filename: string }[] | null;
@@ -671,7 +683,10 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
     const subtotal = repEf ? repEf.total : totalBase;
     // Descuento obtenido (negociado) de esta sub-OC: reduce su total (factura).
     const descObt = a.descuento != null ? Math.max(0, Math.round(Number(a.descuento) * 100) / 100) : 0;
-    const total = Math.round(Math.max(0, subtotal - descObt) * 100) / 100;
+    // IVA / IGTF (montos) de la oferta: se suman al total de la sub-OC.
+    const ivaA = a.iva != null ? Math.max(0, Math.round(Number(a.iva) * 100) / 100) : 0;
+    const igtfA = a.igtf != null ? Math.max(0, Math.round(Number(a.igtf) * 100) / 100) : 0;
+    const total = Math.round((Math.max(0, subtotal - descObt) + ivaA + igtfA) * 100) / 100;
     const ocCodigo = await nextOcCodigo();
     const row = {
       codigo: `${op.codigo}-${n}`,
@@ -684,6 +699,8 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       items,
       total,
       descuento_obtenido: descObt || null,
+      iva: ivaA || null,
+      igtf: igtfA || null,
       estado: 'oc_creada' as EstadoOrden,
       motivo: op.motivo ?? null,
       finalidad: op.finalidad ?? null,
