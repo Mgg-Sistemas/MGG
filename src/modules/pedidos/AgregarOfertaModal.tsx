@@ -94,6 +94,14 @@ export function AgregarOfertaModal({
   const [notas, setNotas] = useState(ofertaEdit?.notas ?? '');
   // Descuento OBTENIDO (negociado): reduce el monto de la factura (total a pagar).
   const [descuentoStr, setDescuentoStr] = useState(ofertaEdit?.descuento != null ? String(ofertaEdit.descuento) : '');
+  // Impuestos de la oferta (opcionales). IVA e IGTF se cargan por % o por monto (sincronizados)
+  // sobre la FACTURA NETA (subtotal − descuento) y se SUMAN al total a pagar.
+  const [incluyeIva, setIncluyeIva] = useState<boolean>((Number(ofertaEdit?.iva) || 0) > 0);
+  const [ivaMontoStr, setIvaMontoStr] = useState<string>((Number(ofertaEdit?.iva) || 0) > 0 ? String(ofertaEdit!.iva) : '');
+  const [ivaPctStr, setIvaPctStr] = useState<string>('');
+  const [incluyeIgtf, setIncluyeIgtf] = useState<boolean>((Number(ofertaEdit?.igtf) || 0) > 0);
+  const [igtfMontoStr, setIgtfMontoStr] = useState<string>((Number(ofertaEdit?.igtf) || 0) > 0 ? String(ofertaEdit!.igtf) : '');
+  const [igtfPctStr, setIgtfPctStr] = useState<string>('');
   // Datos técnicos/logísticos de la oferta (todos opcionales).
   const [detalle, setDetalle] = useState<OfertaDetalle>(ofertaEdit?.detalle ?? {});
   const setD = (patch: Partial<OfertaDetalle>) => setDetalle((d) => ({ ...d, ...patch }));
@@ -139,6 +147,39 @@ export function AgregarOfertaModal({
   const descuentoObt = Math.max(0, Math.round((Number(descuentoStr) || 0) * 100) / 100);
   const baseFactura = precioEfectivo > 0 ? precioEfectivo : precioTotal;
   const facturaNeta = Math.round(Math.max(0, baseFactura - descuentoObt) * 100) / 100;
+
+  // Impuestos: se calculan sobre la factura neta. % ↔ monto sincronizados.
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const IVA_PCT_SUGERIDO = 16, IGTF_PCT_SUGERIDO = 3;
+  const ivaMonto = incluyeIva ? Math.max(0, r2(Number(ivaMontoStr) || 0)) : 0;
+  const igtfMonto = incluyeIgtf ? Math.max(0, r2(Number(igtfMontoStr) || 0)) : 0;
+  const totalConImpuestos = r2(facturaNeta + ivaMonto + igtfMonto);
+  const setImpPct = (v: string, setPct: (s: string) => void, setMonto: (s: string) => void) => {
+    setPct(v);
+    const p = Math.max(0, Number(v) || 0);
+    setMonto(p > 0 && facturaNeta > 0 ? String(r2(facturaNeta * p / 100)) : '');
+  };
+  const setImpMonto = (v: string, setPct: (s: string) => void, setMonto: (s: string) => void) => {
+    setMonto(v);
+    const m = Math.max(0, Number(v) || 0);
+    setPct(m > 0 && facturaNeta > 0 ? String(r2(m / facturaNeta * 100)) : '');
+  };
+  function toggleIva(on: boolean) {
+    setIncluyeIva(on);
+    if (on && !(Number(ivaMontoStr) > 0)) setImpPct(String(IVA_PCT_SUGERIDO), setIvaPctStr, setIvaMontoStr);
+    if (!on) { setIvaMontoStr(''); setIvaPctStr(''); }
+  }
+  function toggleIgtf(on: boolean) {
+    setIncluyeIgtf(on);
+    if (on && !(Number(igtfMontoStr) > 0)) setImpPct(String(IGTF_PCT_SUGERIDO), setIgtfPctStr, setIgtfMontoStr);
+    if (!on) { setIgtfMontoStr(''); setIgtfPctStr(''); }
+  }
+  // Backfill del % al abrir en edición (monto conocido, % vacío).
+  useEffect(() => {
+    if (Number(ivaMontoStr) > 0 && !ivaPctStr && facturaNeta > 0) setIvaPctStr(String(r2(Number(ivaMontoStr) / facturaNeta * 100)));
+    if (Number(igtfMontoStr) > 0 && !igtfPctStr && facturaNeta > 0) setIgtfPctStr(String(r2(Number(igtfMontoStr) / facturaNeta * 100)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facturaNeta]);
 
   function updateItemPrecio(idx: number, precio: number) {
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precio: Math.max(0, precio) } : it)));
@@ -208,6 +249,8 @@ export function AgregarOfertaModal({
           precio_total: precioTotal,
           precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
           descuento: descuentoObt > 0 ? descuentoObt : null,
+          iva: ivaMonto > 0 ? ivaMonto : null,
+          igtf: igtfMonto > 0 ? igtfMonto : null,
           fecha_entrega_prometida: fechaEntrega || null,
           condiciones_pago: condiciones.trim() || null,
           notas: notas.trim() || null,
@@ -559,6 +602,66 @@ export function AgregarOfertaModal({
             <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(facturaNeta)}</strong>
             {descuentoObt > 0 && <> · descuento <strong className="mono">{money(descuentoObt)}</strong></>}
           </small>
+        </div>
+      </div>
+
+      {/* Impuestos: IVA e IGTF, por % o por monto (sincronizados). Se suman al total a pagar. */}
+      <div className="card" style={{ background: 'var(--bg-2)', padding: '.8rem', marginBottom: '.75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}>
+          <span>🧾 Impuestos <span className="muted" style={{ fontWeight: 400 }}>(se calculan sobre la factura neta {money(facturaNeta)} y se suman al total)</span></span>
+        </div>
+
+        {/* IVA */}
+        <div className="form-row" style={{ marginBottom: '.5rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={incluyeIva} onChange={(e) => toggleIva(e.target.checked)} />
+            <span>Incluye IVA</span>
+          </label>
+          {incluyeIva && (
+            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '.35rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span className="muted" style={{ fontSize: '.72rem' }}>%</span>
+                <input className="input mono" type="number" min={0} step="any" style={{ width: 110, textAlign: 'right' }}
+                  value={ivaPctStr} placeholder="16" onChange={(e) => setImpPct(e.target.value, setIvaPctStr, setIvaMontoStr)} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span className="muted" style={{ fontSize: '.72rem' }}>Monto</span>
+                <input className="input mono" type="number" min={0} step="any" style={{ width: 140, textAlign: 'right' }}
+                  value={ivaMontoStr} placeholder="0,00" onChange={(e) => setImpMonto(e.target.value, setIvaPctStr, setIvaMontoStr)} />
+              </div>
+              <span className="muted" style={{ fontSize: '.78rem', alignSelf: 'flex-end', paddingBottom: '.4rem' }}>IVA: <strong className="mono">{money(ivaMonto)}</strong></span>
+            </div>
+          )}
+        </div>
+
+        {/* IGTF */}
+        <div className="form-row" style={{ marginBottom: '.5rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={incluyeIgtf} onChange={(e) => toggleIgtf(e.target.checked)} />
+            <span>Incluye IGTF</span>
+          </label>
+          {incluyeIgtf && (
+            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '.35rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span className="muted" style={{ fontSize: '.72rem' }}>%</span>
+                <input className="input mono" type="number" min={0} step="any" style={{ width: 110, textAlign: 'right' }}
+                  value={igtfPctStr} placeholder="3" onChange={(e) => setImpPct(e.target.value, setIgtfPctStr, setIgtfMontoStr)} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span className="muted" style={{ fontSize: '.72rem' }}>Monto</span>
+                <input className="input mono" type="number" min={0} step="any" style={{ width: 140, textAlign: 'right' }}
+                  value={igtfMontoStr} placeholder="0,00" onChange={(e) => setImpMonto(e.target.value, setIgtfPctStr, setIgtfMontoStr)} />
+              </div>
+              <span className="muted" style={{ fontSize: '.78rem', alignSelf: 'flex-end', paddingBottom: '.4rem' }}>IGTF: <strong className="mono">{money(igtfMonto)}</strong></span>
+            </div>
+          )}
+        </div>
+
+        <div className="mono" style={{ fontSize: '.95rem', borderTop: '1px solid var(--border)', paddingTop: '.5rem' }}>
+          Total a pagar (con impuestos): <strong style={{ color: 'var(--primary-3)' }}>{money(totalConImpuestos)}</strong>
+          {(ivaMonto > 0 || igtfMonto > 0) && (
+            <span className="muted" style={{ fontSize: '.78rem' }}> {' '}= {money(facturaNeta)}{ivaMonto > 0 ? ` + IVA ${money(ivaMonto)}` : ''}{igtfMonto > 0 ? ` + IGTF ${money(igtfMonto)}` : ''}</span>
+          )}
         </div>
       </div>
 

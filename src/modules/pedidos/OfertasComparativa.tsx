@@ -256,6 +256,12 @@ export function OfertasComparativa({
                     </td>
                     <td className="num mono">
                       {money(s.oferta.precio_total)}
+                      {((Number(s.oferta.iva) || 0) > 0 || (Number(s.oferta.igtf) || 0) > 0) && (
+                        <div style={{ fontSize: '.72rem', marginTop: '.15rem', whiteSpace: 'nowrap' }}>
+                          {(Number(s.oferta.iva) || 0) > 0 && <span className="badge" title={`IVA ${money(Number(s.oferta.iva))}`}>+IVA</span>}{' '}
+                          {(Number(s.oferta.igtf) || 0) > 0 && <span className="badge" title={`IGTF ${money(Number(s.oferta.igtf))}`}>+IGTF</span>}
+                        </div>
+                      )}
                       {(() => {
                         const ahorro = descuentoEfectivo(s.oferta.precio_total, s.oferta.precio_efectivo);
                         if (!ahorro) return null;

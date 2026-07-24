@@ -1467,6 +1467,9 @@ alter table public.ofertas_proveedor
   add column if not exists precio_efectivo numeric,
   -- Descuento sobre el total BCV (BCV total = subtotal − descuento).
   add column if not exists descuento numeric,
+  -- IVA / IGTF (montos) sobre la factura neta; se SUMAN al total a pagar.
+  add column if not exists iva  numeric,
+  add column if not exists igtf numeric,
   -- Adjuntos (varias fotos/PDF de la cotización): [{ path, filename }].
   add column if not exists adjuntos jsonb;
 
@@ -1639,6 +1642,9 @@ alter table public.ordenes add column if not exists abonado_total  numeric defau
 alter table public.ordenes add column if not exists sin_inventario boolean not null default false;
 -- Descuento OBTENIDO (negociado) que reduce el monto de la factura: total = Σ ítems − descuento.
 alter table public.ordenes add column if not exists descuento_obtenido numeric;
+-- IVA / IGTF (montos) de la oferta elegida, copiados a la OC (ya incluidos en `total`).
+alter table public.ordenes add column if not exists iva  numeric;
+alter table public.ordenes add column if not exists igtf numeric;
 -- Seriales de los billetes entregados cuando se paga una OC en USD físico (efectivo).
 alter table public.ordenes add column if not exists seriales_billetes text[];
 -- Snapshot de la oferta elegida: datos técnicos/logísticos + precio en divisa efectivo (se ven en la OC y su PDF).

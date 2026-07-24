@@ -788,7 +788,15 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
                 <div><span className="muted">OP:</span> <strong className="mono">{orden.codigo}</strong></div>
                 <div><span className="muted">N°ODC:</span> <strong className="mono">{orden.oc_codigo ?? '—'}</strong></div>
-                <div><span className="muted">Total OC:</span> <strong className="mono">{monto(orden.total, orden.moneda ?? 'USD')}</strong></div>
+                <div>
+                  <span className="muted">Total OC:</span> <strong className="mono">{monto(orden.total, orden.moneda ?? 'USD')}</strong>
+                  {((Number(orden.iva) || 0) > 0 || (Number(orden.igtf) || 0) > 0) && (
+                    <span style={{ marginLeft: '.4rem', whiteSpace: 'nowrap' }}>
+                      {(Number(orden.iva) || 0) > 0 && <span className="badge" title={`IVA ${monto(Number(orden.iva), orden.moneda ?? 'USD')}`}>IVA {monto(Number(orden.iva), orden.moneda ?? 'USD')}</span>}{' '}
+                      {(Number(orden.igtf) || 0) > 0 && <span className="badge" title={`IGTF ${monto(Number(orden.igtf), orden.moneda ?? 'USD')}`}>IGTF {monto(Number(orden.igtf), orden.moneda ?? 'USD')}</span>}
+                    </span>
+                  )}
+                </div>
                 {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), orden.moneda ?? 'USD')}</strong></div>}
                 <div><span className="muted">Solicitante:</span> <strong>{orden.solicitante || orden.solicitante_email}</strong></div>
                 {orden.condiciones_pago && <div><span className="muted">Condición:</span> <strong>{labelCondicionPago(orden.condiciones_pago)}</strong></div>}

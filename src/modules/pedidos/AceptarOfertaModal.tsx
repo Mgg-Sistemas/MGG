@@ -207,6 +207,15 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCance
         <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
           <div>Total Bs (BCV): <strong>{bcvTotal > 0 ? money(bcvTotal, 'Bs') : '—'}</strong></div>
           <div>Total $ (USD): <strong style={{ color: 'var(--success)' }}>{usdTotal > 0 ? money(usdTotal, 'USD') : '—'}</strong></div>
+          {((Number(oferta.iva) || 0) > 0 || (Number(oferta.igtf) || 0) > 0) && (
+            <div style={{ marginTop: '.2rem' }}>
+              {(Number(oferta.iva) || 0) > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IVA {money(Number(oferta.iva))}</span>}
+              {(Number(oferta.igtf) || 0) > 0 && <span className="badge">+ IGTF {money(Number(oferta.igtf))}</span>}
+              <div className="muted" style={{ fontSize: '.76rem', marginTop: '.15rem' }}>
+                Los impuestos se suman al total de la OC que va a Tesorería.
+              </div>
+            </div>
+          )}
         </div>
         {sinPrecio && (
           <p className="hint" style={{ color: 'var(--danger)', fontSize: '.8rem', margin: '.4rem 0 0' }}>

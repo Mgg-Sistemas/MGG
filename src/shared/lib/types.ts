@@ -811,6 +811,10 @@ export interface Orden {
   sin_inventario?: boolean | null;
   /** Descuento obtenido (negociado) que reduce el monto a pagar: total = Σ ítems − descuento. */
   descuento_obtenido?: number | null;
+  /** IVA (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
+  iva?: number | null;
+  /** IGTF (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
+  igtf?: number | null;
   /** Seriales de los billetes entregados al pagar la OC en USD físico (efectivo). */
   seriales_billetes?: string[] | null;
   /** Marca de prioridad: ORDEN URGENTE (se refleja en el PDF y la trazabilidad). */
@@ -1035,6 +1039,11 @@ export interface OfertaProveedor {
   precio_efectivo?: number | null;
   /** Descuento (sobre el total BCV) aplicado a la cotización: BCV total = subtotal − descuento. */
   descuento?: number | null;
+  /** IVA (monto) de la oferta: se calcula sobre la factura neta (subtotal − descuento)
+   *  y se SUMA al total a pagar. null/0 = la oferta no lleva IVA. */
+  iva?: number | null;
+  /** IGTF (monto) de la oferta: se suma al total a pagar (típico en pagos en divisas). */
+  igtf?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;
   notas?: string | null;
