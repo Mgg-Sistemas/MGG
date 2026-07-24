@@ -231,8 +231,6 @@ export function CombustiblePage() {
   const combSede = useMemo(() => (sedeActiva ? combustibles.filter((c) => sedeDe(c) === sedeActiva) : combustibles), [combustibles, sedeActiva]);
   const tanquesSede = useMemo(() => (sedeActiva ? tanques.filter((t) => sedeDe(t) === sedeActiva) : tanques), [tanques, sedeActiva]);
   const activos = useMemo(() => combSede.filter((c) => c.estado === 'activo'), [combSede]);
-  const valorTotal = useMemo(() => combSede.reduce((a, c) => a + litrosDe(c) * (Number(c.costo_litro) || 0), 0), [combSede, litrosDe]);
-  const litrosTotal = useMemo(() => combSede.reduce((a, c) => a + litrosDe(c), 0), [combSede, litrosDe]);
   const hoyStr = new Date().toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
   // Totales por sede para las dos tarjetas grandes de la pantalla inicial.
@@ -373,16 +371,6 @@ export function CombustiblePage() {
             </div>
           );
         })}
-        {combSede.length > 0 && (
-          <div className="card" style={{ borderColor: 'var(--primary)' }}>
-            <div className="card-title"><span>TOTAL GENERAL</span></div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700 }} className="mono">{num(litrosTotal)} L</div>
-            <div className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>
-              <div>Valor: <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(valorTotal)}</strong></div>
-              <div style={{ marginTop: '.3rem', color: 'var(--text)' }}>Al {hoyStr} hay: <strong className="mono">{num(litrosTotal)} L</strong> · <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(valorTotal)}</strong></div>
-            </div>
-          </div>
-        )}
         {!combSede.length && !loading && (
           <div className="card"><p className="hint muted" style={{ margin: 0 }}>Sin combustibles en esta sede. Creá uno con "⛽ Combustibles".</p></div>
         )}
