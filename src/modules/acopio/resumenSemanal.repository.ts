@@ -37,6 +37,7 @@ export const METRICAS_EXTERNAS: FuenteExterna[] = [
   { sistema: 'mgg-centro-saldokg', metrica: 'GLOBAL MINERAL TIN', label: 'Este sistema · Saldo en Kg (acopio GLOBAL MINERAL TIN)' },
   { sistema: 'mgg-centro-saldokg', metrica: 'LA ESMERALDA ALI', label: 'Este sistema · Saldo en Kg (acopio LA ESMERALDA ALÍ)' },
   { sistema: 'mgg-centro-saldokg', metrica: 'LOS PIJIGUAOS', label: 'Este sistema · Saldo en Kg (acopio LOS PIJIGUAOS)' },
+  { sistema: 'mgg-centro-saldokg', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Saldo en Kg (acopio PERAMANAL ENDER MEJÍAS)' },
   { sistema: 'mgg-aliado', metrica: ALIADO_PIJ_ALBERTO, label: 'Aliado ALBERTO (Pijiguaos) · Kg Recibidos por MGG' },
   { sistema: 'mgg-aliado', metrica: ALIADO_PIJ_ALBERTO_MINA40, label: 'Aliado ALBERTO MINA 40 (Pijiguaos) · Kg Recibidos por MGG' },
   { sistema: 'mgg-aliado', metrica: ALIADO_PIJ_MAGUIBER, label: 'Aliado MAGUIBER (Pijiguaos) · Kg Recibidos por MGG' },
