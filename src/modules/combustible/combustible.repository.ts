@@ -76,6 +76,33 @@ export async function renombrarSedeCombustible(id: string, nombre: string, titul
   if (error) throw error;
 }
 
+/**
+ * Elimina una sede (tarjeta) de combustible. Solo se permite si está VACÍA:
+ * sin combustibles ni tanques asociados (para no perder litros/kardex por error).
+ * Si tiene datos, avisa cuántos y no borra: hay que vaciarla primero.
+ */
+export async function eliminarSedeCombustible(id: string): Promise<void> {
+  const { data: sede, error: sErr } = await supabase
+    .from('combustible_sedes').select('clave, nombre').eq('id', id).maybeSingle();
+  if (sErr) throw sErr;
+  if (!sede) throw new Error('Sede no encontrada.');
+  const { clave, nombre } = sede as { clave: string; nombre: string };
+
+  const [combRes, tanqRes] = await Promise.all([
+    supabase.from('combustibles').select('id', { count: 'exact', head: true }).eq('sede', clave),
+    supabase.from('combustible_tanques').select('id', { count: 'exact', head: true }).eq('sede', clave),
+  ]);
+  if (combRes.error) throw combRes.error;
+  if (tanqRes.error) throw tanqRes.error;
+  const nComb = combRes.count ?? 0;
+  const nTanq = tanqRes.count ?? 0;
+  if (nComb > 0 || nTanq > 0)
+    throw new Error(`No se puede eliminar "${nombre}": tiene ${nTanq} tanque(s) y ${nComb} combustible(s). Vaciá la sede primero (eliminá sus tanques y combustibles) y volvé a intentar.`);
+
+  const { error } = await supabase.from('combustible_sedes').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export async function listCombustibles(): Promise<Combustible[]> {
   const { data, error } = await supabase
     .from('combustibles')

@@ -45,6 +45,7 @@ import {
   listSedesCombustible,
   renombrarSedeCombustible,
   crearSedeCombustible,
+  eliminarSedeCombustible,
   type SedeCombustible,
   listTanqueMovimientos,
   ultimoHorometroEquipo,
@@ -185,6 +186,8 @@ export function CombustiblePage() {
   );
   const [sedeEdit, setSedeEdit] = useState<SedeCombustible | null>(null);
   const [sedeNueva, setSedeNueva] = useState(false);
+  // Sede a eliminar (solo tarjetas vacías; el borrado real lo guarda el backend).
+  const [sedeDel, setSedeDel] = useState<SedeCombustible | null>(null);
 
   const reload = useCallback(async () => {
     const [cs, ss, ts, vs, trs, sd] = await Promise.all([
@@ -296,6 +299,23 @@ export function CombustiblePage() {
                 <span>⛽ {s.nombre}</span>
                 <span style={{ display: 'inline-flex', gap: '.5rem', alignItems: 'center' }}>
                   {canWrite && <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '.1rem .4rem' }} title="Renombrar sede" onClick={(e) => { e.stopPropagation(); setSedeEdit(s); }}>✎</button>}
+                  {canWrite && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ padding: '.1rem .4rem', color: 'var(--danger)' }}
+                      title="Eliminar sede"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Solo se puede borrar una tarjeta VACÍA; si tiene datos, avisamos y no abrimos el diálogo.
+                        if (s.nTanques > 0 || combustibles.some((c) => sedeDe(c) === s.clave)) {
+                          toast(`"${s.nombre}" tiene tanques o combustibles cargados. Vaciá la sede primero para poder eliminarla.`, 'error');
+                          return;
+                        }
+                        setSedeDel(s);
+                      }}
+                    >🗑</button>
+                  )}
                   <span className="muted" style={{ fontSize: '.8rem' }}>entrar →</span>
                 </span>
               </div>
@@ -537,6 +557,27 @@ export function CombustiblePage() {
         <SedeNuevaModal
           onClose={() => setSedeNueva(false)}
           onSaved={async (nueva) => { setSedeNueva(false); await reload(); setSedeActiva(nueva.clave); }} />
+      )}
+      {sedeDel && (
+        <ConfirmDialog
+          title="Eliminar sede de combustible"
+          message={`¿Eliminar la tarjeta "${sedeDel.nombre}"? Está vacía (sin tanques ni combustibles). Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onConfirm={async () => {
+            const s = sedeDel;
+            setSedeDel(null);
+            try {
+              await eliminarSedeCombustible(s.id);
+              toast(`Sede "${s.nombre}" eliminada`, 'success');
+              if (sedeActiva === s.clave) setSedeActiva(null);
+              await reload();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'No se pudo eliminar la sede', 'error');
+            }
+          }}
+          onCancel={() => setSedeDel(null)}
+        />
       )}
     </div>
   );
