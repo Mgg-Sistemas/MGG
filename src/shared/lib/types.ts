@@ -44,6 +44,8 @@ export interface Almacen {
   sede?: string | null;
   /** Subalmacén: id del almacén padre. null/ausente = almacén principal. */
   parent_id?: string | null;
+  /** Espacio de inventario al que pertenece: 'principal' (Inventario) o 'deposito'. */
+  espacio?: string | null;
   estado: EstadoGenerico;
   created_at: string;
   created_by?: string | null;
@@ -605,6 +607,8 @@ export interface Producto {
   /** Unidades por bulto sugeridas (ej. 24). Solo un default; el stock va en unidades. */
   unidades_empaque?: number | null;
   tipo?: TipoInventario | null;
+  /** Espacio de inventario: 'principal' (Inventario) o 'deposito'. Su total no se mezcla. */
+  espacio?: string | null;
   receta_fundicion?: RecetaFundicion | null;
   precio_promedio?: number | null;
   /** Precio de venta (para calcular posible ganancia en fundición). */

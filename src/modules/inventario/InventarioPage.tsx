@@ -27,6 +27,7 @@ import {
   setEstadoProducto,
   updateProducto,
   type ProductoInput,
+  type Espacio,
 } from './inventario.repository';
 import { contarProduccionEnProceso } from '@/modules/produccion/produccion.repository';
 import { listComprasPorRecibir, type CompraDirecta } from '@/modules/pedidos/compras.repository';
@@ -131,12 +132,26 @@ type ModalState =
   | { kind: 'almacenEditar'; almacen: Almacen }
   | { kind: 'almacenEliminar'; almacen: Almacen }
   | { kind: 'sedeEditar'; sede: string }
+  | { kind: 'reporteFiltro' }
   | { kind: 'resumen' };
 
-export function InventarioPage() {
+/** Metadatos de cada espacio (título, icono, ruta, clave de permiso). */
+const ESPACIOS: Record<Espacio, { titulo: string; icono: string; ruta: string; modulo: 'inventario' | 'deposito' }> = {
+  principal: { titulo: 'Inventario', icono: '⬢', ruta: 'inventario', modulo: 'inventario' },
+  deposito: { titulo: 'Depósito', icono: '🏬', ruta: 'deposito', modulo: 'deposito' },
+};
+
+/** Página parametrizada por ESPACIO: 'principal' = Inventario, 'deposito' = submódulo
+ *  Depósito (mismas funciones, datos separados; su total NO suma con el inventario). */
+export function InventarioModulo({ espacio }: { espacio: Espacio }) {
+  const meta = ESPACIOS[espacio];
   const { user } = useSession();
   const { can, appUser } = usePermissions();
-  const canWrite = can('inventario', 'escritura');
+  const canWrite = can(meta.modulo, 'escritura');
+  const basePath = `#/app/${meta.ruta}`;
+  const esDeposito = espacio === 'deposito';
+  // Almacén elegido en el modal "Reporte por almacén" (filtro + vista previa PDF).
+  const [reporteFiltroSel, setReporteFiltroSel] = useState<string>('');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [recepciones, setRecepciones] = useState<Orden[]>([]);
   const [comprasRecibir, setComprasRecibir] = useState<CompraDirecta[]>([]);
@@ -193,10 +208,10 @@ export function InventarioPage() {
     setError(null);
     try {
       const [prods, ords, comprasRec, alms, exs, nEnProduccion] = await Promise.all([
-        listProductos(),
+        listProductos(espacio),
         listRecepcionesPendientes().catch(() => [] as Orden[]),
         listComprasPorRecibir().catch(() => [] as CompraDirecta[]),
-        listAlmacenes().catch(() => [] as Almacen[]),
+        listAlmacenes(espacio).catch(() => [] as Almacen[]),
         listExistencias().catch(() => [] as Existencia[]),
         contarProduccionEnProceso().catch(() => 0),
       ]);
@@ -204,7 +219,10 @@ export function InventarioPage() {
       setRecepciones(ords);
       setComprasRecibir(comprasRec);
       setAlmacenes(alms);
-      setExistencias(exs);
+      // Existencias del ESPACIO: solo las de productos de este espacio (así el total,
+      // el valor por almacén y los reportes del depósito no se mezclan con el inventario).
+      const idsEspacio = new Set(prods.map((p) => p.id));
+      setExistencias(exs.filter((e) => idsEspacio.has(e.producto_id)));
       setEnProduccion(nEnProduccion);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo cargar el inventario.');
@@ -451,7 +469,7 @@ export function InventarioPage() {
       const dup = await findBySku(data.sku);
       if (dup) throw new Error('Ya existe un producto con ese SKU.');
       const stockInicial = data.stock;
-      const created = await createProducto({ ...data, stock: 0 });
+      const created = await createProducto({ ...data, stock: 0, espacio });
       if (stockInicial > 0) {
         await registrarMovimiento({
           producto_id: created.id,
@@ -465,7 +483,7 @@ export function InventarioPage() {
           precio_unitario: data.precio,
         });
       }
-      notify(`Producto creado: ${data.sku} · ${data.nombre}`, 'success', { link: '#/app/inventario' });
+      notify(`Producto creado: ${data.sku} · ${data.nombre}`, 'success', { link: basePath });
       await reload();
       return;
     }
@@ -490,8 +508,8 @@ export function InventarioPage() {
         movidos = await consolidarProductoEnAlmacen(previo.id, almacenNuevo, productoActor, actorName);
       }
       await updateProducto(previo.id, rest);
-      if (movidos > 0) notify(`Stock consolidado en ${almacenNuevo} (1 sola ubicación)`, 'success', { link: '#/app/inventario' });
-      notify(`Producto actualizado: ${data.sku} · ${data.nombre}`, 'success', { link: '#/app/inventario' });
+      if (movidos > 0) notify(`Stock consolidado en ${almacenNuevo} (1 sola ubicación)`, 'success', { link: basePath });
+      notify(`Producto actualizado: ${data.sku} · ${data.nombre}`, 'success', { link: basePath });
       await reload();
     }
   }
@@ -507,10 +525,10 @@ export function InventarioPage() {
         actor_name: input.actor_name,
         detalle: input.detalle,
       });
-      notify(`Transferencia: ${input.almacen} → ${transfer.almacenDestino}`, 'success', { link: '#/app/inventario' });
+      notify(`Transferencia: ${input.almacen} → ${transfer.almacenDestino}`, 'success', { link: basePath });
     } else {
       await registrarMovimiento(input);
-      notify(`Movimiento de inventario registrado (${input.tipo})`, 'success', { link: '#/app/inventario' });
+      notify(`Movimiento de inventario registrado (${input.tipo})`, 'success', { link: basePath });
     }
     await reload();
   }
@@ -519,7 +537,7 @@ export function InventarioPage() {
     const nuevo = p.estado === 'activo' ? 'inactivo' : 'activo';
     try {
       await setEstadoProducto(p.id, nuevo);
-      notify(`Producto ${nuevo === 'activo' ? 'activado' : 'desactivado'}: ${p.sku}`, 'success', { link: '#/app/inventario' });
+      notify(`Producto ${nuevo === 'activo' ? 'activado' : 'desactivado'}: ${p.sku}`, 'success', { link: basePath });
       await reload();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'No se pudo cambiar el estado', 'error');
@@ -534,21 +552,21 @@ export function InventarioPage() {
   }
 
   async function handleCrearAlmacen(data: AlmacenInput) {
-    await crearAlmacen(data, productoActor);
-    notify(`Almacén creado: ${data.nombre}`, 'success', { link: '#/app/inventario' });
+    await crearAlmacen({ ...data, espacio }, productoActor);
+    notify(`Almacén creado: ${data.nombre}`, 'success', { link: basePath });
     await reload();
   }
 
   async function handleEditarAlmacen(id: string, data: AlmacenInput) {
     await actualizarAlmacen(id, data);
-    notify(`Almacén actualizado: ${data.nombre}`, 'success', { link: '#/app/inventario' });
+    notify(`Almacén actualizado: ${data.nombre}`, 'success', { link: basePath });
     await reload();
   }
 
   async function handleEliminarAlmacen(a: Almacen) {
     try {
       await eliminarAlmacen(a.id, a.nombre);
-      notify(`Almacén eliminado: ${a.nombre}`, 'success', { link: '#/app/inventario' });
+      notify(`Almacén eliminado: ${a.nombre}`, 'success', { link: basePath });
       if (almacenSel === a.nombre) setAlmacenSel(null);
       await reload();
     } catch (err) {
@@ -563,9 +581,11 @@ export function InventarioPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>Inventario</h1>
+          <h1>{meta.icono} {meta.titulo}{esDeposito && <span className="badge" style={{ marginLeft: '.5rem', verticalAlign: 'middle' }}>separado del inventario</span>}</h1>
           <p>
-            Catálogo de productos. <span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span>
+            {esDeposito
+              ? <>Depósito aparte: mismos controles que el inventario, con <strong>sus propios almacenes</strong>. <span className="muted">Su total NO suma con el inventario.</span></>
+              : <>Catálogo de productos. <span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span></>}
           </p>
         </div>
         <div className="actions">
@@ -573,7 +593,7 @@ export function InventarioPage() {
             className={`btn ${ui.view === 'productos' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setUi((prev) => ({ ...prev, view: 'productos' }))}
           >
-            Inventario general
+            {esDeposito ? 'Depósito general' : 'Inventario general'}
           </button>
           <button
             className={`btn ${ui.view === 'almacenes' ? 'btn-primary' : 'btn-ghost'}`}
@@ -582,11 +602,20 @@ export function InventarioPage() {
             ▣ Almacenes
           </button>
           <button
+            className="btn btn-ghost"
+            onClick={() => { setReporteFiltroSel(''); setModal({ kind: 'reporteFiltro' }); }}
+            title="Reporte de productos por almacén (filtro) con vista previa PDF"
+          >
+            📄 Reporte por almacén
+          </button>
+          {!esDeposito && (
+          <button
             className={`btn ${ui.view === 'recepciones' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setUi((prev) => ({ ...prev, view: 'recepciones' }))}
           >
             Recepciones {recepciones.length + comprasRecibir.length > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepciones.length + comprasRecibir.length}</span>}
           </button>
+          )}
           {canWrite && (
             <button
               className="btn btn-ghost"
@@ -666,6 +695,7 @@ export function InventarioPage() {
             {kpis.criticos > 0 ? 'requieren atención' : 'todo en orden'}
           </div>
         </div>
+        {!esDeposito && (
         <a
           className="kpi"
           href="#/app/produccion"
@@ -679,6 +709,7 @@ export function InventarioPage() {
             {enProduccion > 0 ? `${num(enProduccion)} en curso` : 'ninguno en proceso'}
           </div>
         </a>
+        )}
       </div>
 
       <AlertasStock productos={decorated} onVerProducto={openVer} />
@@ -732,7 +763,7 @@ export function InventarioPage() {
                 className="btn btn-ghost"
                 style={{ marginLeft: 'auto' }}
                 title="Descargar un PDF de todo el inventario, por almacenes y subalmacenes"
-                onClick={() => import('./almacenExport').then(({ descargarReporteAlmacenesPdf }) => descargarReporteAlmacenesPdf()).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'))}
+                onClick={() => import('./almacenExport').then(({ descargarReporteAlmacenesPdf }) => descargarReporteAlmacenesPdf(espacio)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'))}
               >
                 📄 Reporte general (PDF)
               </button>
@@ -851,6 +882,7 @@ export function InventarioPage() {
         <ProductoForm
           producto={null}
           productos={productos}
+          espacio={espacio}
           /* Dentro de un almacén/sub-almacén: el nuevo producto entra ahí y la ubicación queda fija. */
           fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
           onClose={() => setModal({ kind: 'none' })}
@@ -861,6 +893,7 @@ export function InventarioPage() {
         <ProductoForm
           producto={modal.producto}
           productos={productos}
+          espacio={espacio}
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={handleCreateOrUpdate}
         />
@@ -937,6 +970,47 @@ export function InventarioPage() {
                 <strong>{num(rows.length)}</strong> producto(s) · valor total <strong className="mono">{money(valor)}</strong>.<br />
                 <span className="muted" style={{ fontSize: '.84rem' }}>Elegí el formato. El PDF se abre en vista previa con botón de descarga.</span>
               </p>
+            )}
+          </Modal>
+        );
+      })()}
+      {modal.kind === 'reporteFiltro' && (() => {
+        const rows = reporteFiltroSel ? rollupAlmacen(reporteFiltroSel) : [];
+        const valor = rows.reduce((a, p) => a + (p._valor ?? (Number(p.stock) || 0) * (Number(p.precio) || 0)), 0);
+        return (
+          <Modal
+            title={`📄 Reporte por almacén · ${meta.titulo}`}
+            size="sm"
+            onClose={() => setModal({ kind: 'none' })}
+            footer={
+              <>
+                <button className="btn btn-ghost" onClick={() => setModal({ kind: 'none' })}>Cerrar</button>
+                <button className="btn btn-ghost" disabled={!rows.length}
+                  onClick={() => import('./almacenExport').then(({ descargarAlmacenExcel }) => descargarAlmacenExcel(reporteFiltroSel, rows)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
+                <button className="btn btn-primary" disabled={!rows.length}
+                  onClick={() => import('./almacenExport').then(({ descargarAlmacenPdf }) => descargarAlmacenPdf(reporteFiltroSel, rows)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF (vista previa)</button>
+              </>
+            }
+          >
+            <div className="form-row">
+              <label>Almacén</label>
+              <select className="select" value={reporteFiltroSel} onChange={(e) => setReporteFiltroSel(e.target.value)} autoFocus>
+                <option value="">— Elegí un almacén —</option>
+                {almacenNombres.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <small className="muted" style={{ fontSize: '.72rem' }}>Incluye los subalmacenes del almacén elegido (roll-up).</small>
+            </div>
+            {reporteFiltroSel ? (
+              !rows.length ? (
+                <p className="hint muted" style={{ margin: '.4rem 0 0' }}>Ese almacén no tiene productos con existencia.</p>
+              ) : (
+                <p style={{ margin: '.4rem 0 0' }}>
+                  <strong>{num(rows.length)}</strong> producto(s) · valor total <strong className="mono">{money(valor)}</strong>.<br />
+                  <span className="muted" style={{ fontSize: '.84rem' }}>El PDF se abre en vista previa con botón de descarga.</span>
+                </p>
+              )
+            ) : (
+              <p className="hint muted" style={{ margin: '.4rem 0 0' }}>Elegí un almacén para ver su total y descargar el reporte. Para TODOS los almacenes usá «📄 Reporte general» en la vista de Almacenes.</p>
             )}
           </Modal>
         );
@@ -1028,6 +1102,16 @@ export function InventarioPage() {
       )}
     </div>
   );
+}
+
+/** Inventario principal (ruta /app/inventario). */
+export function InventarioPage() {
+  return <InventarioModulo espacio="principal" />;
+}
+
+/** DEPÓSITO: mismo módulo, espacio separado (ruta /app/deposito). Su total no suma con el inventario. */
+export function DepositoPage() {
+  return <InventarioModulo espacio="deposito" />;
 }
 
 /* ───────── Eliminar almacén: confirmación escribiendo el nombre ───────── */
