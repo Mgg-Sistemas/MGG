@@ -7,6 +7,7 @@ import { listOfertasByOrden } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas } from './score';
 import { asignarProveedoresAOrden, listSubOcs, type AsignacionProveedor } from './pedidos.repository';
+import { AgregarOfertaModal } from './AgregarOfertaModal';
 
 /**
  * Asignador de proveedores POR PRODUCTO (OC multi-proveedor). Para una OP aprobada:
@@ -31,6 +32,8 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
   // sku → proveedor_id asignado en ESTA sesión (no incluye los ya bloqueados por sub-OC previa).
   const [asignado, setAsignado] = useState<Record<string, string>>({});
   const [selProv, setSelProv] = useState<string>('');
+  // Cargar una oferta nueva SIN salir del asignador (para cubrir lo que ningún proveedor cotizó).
+  const [agregando, setAgregando] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -47,6 +50,9 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
 
   // Ítems "a comprar" de la OP.
   const opItems = useMemo(() => orden.items.filter((it) => it.comprar !== false), [orden.items]);
+  // Proveedores disponibles y los que ya tienen oferta (para el modal de «cargar oferta»).
+  const proveedoresList = useMemo(() => Array.from(proveedorMap.values()), [proveedorMap]);
+  const proveedoresYaOfertados = useMemo(() => new Set(ofertas.map((o) => o.proveedor_id)), [ofertas]);
   // Oferta por proveedor + precio por (proveedor, sku).
   const ofertaDe = useMemo(() => new Map(ofertas.map((o) => [o.proveedor_id, o])), [ofertas]);
   const precioDe = (provId: string, sku: string): number | null => {
@@ -164,14 +170,23 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
   return (
     <Modal title={`Asignar proveedores por producto · ${orden.codigo}`} size="xl" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      {!loading && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '.5rem' }}>
+          <button className="btn btn-sm btn-ghost" onClick={() => setAgregando(true)}>
+            + Cargar oferta de proveedor
+          </button>
+        </div>
+      )}
       {loading ? (
         <p className="hint muted" style={{ margin: 0 }}>Cargando ofertas…</p>
       ) : !ofertas.length ? (
-        <p className="hint muted" style={{ margin: 0 }}>No hay ofertas cargadas para esta orden.</p>
+        <p className="hint muted" style={{ margin: 0 }}>
+          No hay ofertas cargadas para esta orden. Usá <strong>«+ Cargar oferta de proveedor»</strong> para agregar la cotización del proveedor que tiene estos productos y luego asignarlos.
+        </p>
       ) : (
         <>
           <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
-            Elegí un proveedor y marcá los productos que le comprás (a su precio). Un producto ya asignado a otro proveedor queda bloqueado. Cada proveedor genera su propia OC con su método de pago. Lo que dejes sin asignar queda pendiente.
+            Elegí un proveedor y marcá los productos que le comprás (a su precio). Si el producto que falta no lo cotizó nadie, cargá su oferta con <strong>«+ Cargar oferta de proveedor»</strong>. Un producto ya asignado a otro proveedor queda bloqueado. Cada proveedor genera su propia OC con su método de pago. Lo que dejes sin asignar queda pendiente.
           </p>
 
           {/* Recomendación por precio / calidad */}
@@ -254,6 +269,16 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
             )}
           </div>
         </>
+      )}
+      {agregando && (
+        <AgregarOfertaModal
+          orden={orden}
+          proveedores={proveedoresList}
+          proveedoresYaOfertados={proveedoresYaOfertados}
+          registradoPorEmail={actorEmail}
+          onClose={() => setAgregando(false)}
+          onCreated={() => { setAgregando(false); void cargar(); }}
+        />
       )}
     </Modal>
   );
