@@ -3,16 +3,18 @@ import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, num, dateTime } from '@/shared/lib/format';
-import { listRecetas, type RecetaResumen } from './produccion.repository';
+import { listRecetas, type RecetaResumen, type ProduccionTipo } from './produccion.repository';
 
 /**
- * Lista de recetas (una por producto producible, según su fundición más
+ * Lista de recetas (una por producto producible, según su fundición/refinación más
  * reciente). Al hacer clic en una fila se abre su detalle.
  */
 export function RecetasModal({
+  tipo = 'fundicion',
   onClose,
   onVer,
 }: {
+  tipo?: ProduccionTipo;
   onClose: () => void;
   onVer: (r: RecetaResumen) => void;
 }) {
@@ -22,18 +24,18 @@ export function RecetasModal({
 
   useEffect(() => {
     let cancel = false;
-    listRecetas()
+    listRecetas(tipo)
       .then((r) => { if (!cancel) setRecetas(r); })
       .catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'No se pudieron cargar las recetas', 'error'); })
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
-  }, []);
+  }, [tipo]);
 
   const filtradas = recetas.filter((r) =>
     !q.trim() || r.producto_nombre.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
-    <Modal title="Recetas de fundición" size="lg" onClose={onClose}
+    <Modal title={tipo === 'refinacion' ? 'Recetas de refinación' : 'Recetas de fundición'} size="lg" onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <input
         className="input"

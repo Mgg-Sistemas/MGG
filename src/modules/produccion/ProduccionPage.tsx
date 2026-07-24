@@ -9,12 +9,51 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Almacen, Existencia, Producto, Produccion } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
-import { listProducciones, finalizarProduccion } from './produccion.repository';
+import { listProducciones, finalizarProduccion, type ProduccionTipo } from './produccion.repository';
 import { getNombresHornosActivos } from './hornos.repository';
 import { MaterialAProducirModal } from './MaterialAProducirModal';
 import { ProduccionDetalle, duracionProd } from './ProduccionDetalle';
 import { RecetasModal } from './RecetasModal';
 import { GestionarHornosModal } from './GestionarHornosModal';
+import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
+
+/** Config por tipo: Fundición (default) y Refinación de Material comparten TODO el flujo,
+ *  solo cambian rótulos, el permiso y el `tipo` con que se leen/graban las órdenes. */
+interface ProduccionCfg {
+  modulo: ModuleKey;        // permiso ('produccion' | 'refinacion')
+  titulo: string;           // H1
+  subtitulo: string;
+  verbo: string;            // sustantivo en minúscula ('fundición' | 'refinación')
+  btnCrear: string;         // botón primario
+  finalizarBtn: string;     // botón finalizar (kanban)
+  estadoEnCurso: string;    // badge/label del estado 'produccion'
+  emptyEnCurso: string;     // vacío de "en curso"
+  emptyIcon: string;
+}
+const CFG: Record<ProduccionTipo, ProduccionCfg> = {
+  fundicion: {
+    modulo: 'produccion',
+    titulo: 'Fundición',
+    subtitulo: 'Órdenes de fundición: consumen insumos del inventario y, al finalizar, el producto terminado entra como existencia.',
+    verbo: 'fundición',
+    btnCrear: '🔥 Material a producir',
+    finalizarBtn: '✓ Finalizar fundición',
+    estadoEnCurso: 'En fundición',
+    emptyEnCurso: 'Nada en fundición.',
+    emptyIcon: '🔥',
+  },
+  refinacion: {
+    modulo: 'refinacion',
+    titulo: 'Refinación de Material',
+    subtitulo: 'Órdenes de refinación: entra el material base más los metales que se agregan (consumo del inventario) y, al finalizar, el material refinado entra como existencia con su costo (CP).',
+    verbo: 'refinación',
+    btnCrear: '⚗️ Material a refinar',
+    finalizarBtn: '✓ Finalizar refinación',
+    estadoEnCurso: 'En refinación',
+    emptyEnCurso: 'Nada en refinación.',
+    emptyIcon: '⚗️',
+  },
+};
 
 type Layout = 'kanban' | 'lista';
 type Modal =
@@ -26,9 +65,13 @@ type Modal =
   | { kind: 'hornos' }
   | { kind: 'finalizar'; prod: Produccion };
 
-export function ProduccionPage() {
+export function ProduccionPage() { return <ProduccionModulo tipo="fundicion" />; }
+export function RefinacionPage() { return <ProduccionModulo tipo="refinacion" />; }
+
+function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
+  const cfg = CFG[tipo];
   const { can, appUser } = usePermissions();
-  const canWrite = can('produccion', 'escritura');
+  const canWrite = can(cfg.modulo, 'escritura');
   const actor = appUser?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
@@ -47,7 +90,7 @@ export function ProduccionPage() {
     setLoading(true);
     try {
       const [prods, pds, exs, alms, hrns] = await Promise.all([
-        listProducciones(),
+        listProducciones(tipo),
         listProductos(),
         listExistencias().catch(() => [] as Existencia[]),
         listAlmacenes().catch(() => [] as Almacen[]),
@@ -59,11 +102,11 @@ export function ProduccionPage() {
       setAlmacenes(alms);
       setHornos(hrns);
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo cargar fundición', 'error');
+      toast(e instanceof Error ? e.message : `No se pudo cargar ${cfg.verbo}`, 'error');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tipo, cfg.verbo]);
 
   useEffect(() => { void reload(); }, [reload]);
   // Realtime: fundición + sus insumos/almacenes/hornos (multiusuario en vivo).
@@ -88,7 +131,7 @@ export function ProduccionPage() {
   async function handleFinalizar(prod: Produccion) {
     try {
       await finalizarProduccion(prod.id, actor, actorName);
-      notify(`Fundición finalizada: ${prod.producto_nombre} (${num(prod.cantidad)} und) → entró a ${prod.almacen_destino}`, 'success', { link: '#/app/inventario' });
+      notify(`${cfg.titulo} finalizada: ${prod.producto_nombre} (${num(prod.cantidad)} und) → entró a ${prod.almacen_destino}`, 'success', { link: '#/app/inventario' });
       await reload();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo finalizar', 'error');
@@ -101,11 +144,11 @@ export function ProduccionPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>Fundición</h1>
-          <p className="hint muted">Órdenes de fundición: consumen insumos del inventario y, al finalizar, el producto terminado entra como existencia.</p>
+          <h1>{cfg.titulo}</h1>
+          <p className="hint muted">{cfg.subtitulo}</p>
         </div>
         <div className="actions">
-          <div className="view-toggle" role="tablist" aria-label="Vista de fundición">
+          <div className="view-toggle" role="tablist" aria-label={`Vista de ${cfg.verbo}`}>
             <button className={layout === 'kanban' ? 'active' : ''} onClick={() => setLayout('kanban')}>▦ Kanban</button>
             <button className={layout === 'lista' ? 'active' : ''} onClick={() => setLayout('lista')}>☰ Lista</button>
           </div>
@@ -114,7 +157,7 @@ export function ProduccionPage() {
             <button className="btn btn-ghost" onClick={() => setModal({ kind: 'hornos' })}>🔥 Hornos</button>
           )}
           {canWrite && (
-            <button className="btn btn-primary" onClick={() => setModal({ kind: 'crear' })}>🔥 Material a producir</button>
+            <button className="btn btn-primary" onClick={() => setModal({ kind: 'crear' })}>{cfg.btnCrear}</button>
           )}
         </div>
       </div>
@@ -131,7 +174,7 @@ export function ProduccionPage() {
           />
           <select className="input" value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value as typeof filtroEstado)} style={{ flex: '0 0 auto' }}>
             <option value="todos">Todos los estados</option>
-            <option value="produccion">En fundición</option>
+            <option value="produccion">{cfg.estadoEnCurso}</option>
             <option value="finalizado">Finalizados</option>
           </select>
           {(busqueda || filtroEstado !== 'todos') && (
@@ -144,14 +187,14 @@ export function ProduccionPage() {
       )}
 
       {loading ? (
-        <EmptyState message="Cargando fundición…" icon="◔" />
+        <EmptyState message={`Cargando ${cfg.verbo}…`} icon="◔" />
       ) : layout === 'kanban' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '1rem' }}>
           {/* En fundición */}
           <div>
-            <div className="sidebar-section" style={{ paddingLeft: 0 }}>Productos en fundición · {num(enProduccion.length)}</div>
+            <div className="sidebar-section" style={{ paddingLeft: 0 }}>Productos en {cfg.verbo} · {num(enProduccion.length)}</div>
             {!enProduccion.length ? (
-              <div className="card"><EmptyState message="Nada en fundición." icon="🔥" /></div>
+              <div className="card"><EmptyState message={cfg.emptyEnCurso} icon={cfg.emptyIcon} /></div>
             ) : (
               <div style={{ display: 'grid', gap: '.75rem' }}>
                 {enProduccion.map((p) => (
@@ -165,7 +208,7 @@ export function ProduccionPage() {
                     <div className="muted" style={{ fontSize: '.75rem' }}>Inicio: {dateTime(p.inicio_at)} · destino {p.almacen_destino}</div>
                     <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem', flexWrap: 'wrap' }}>
                       <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'ver', id: p.id })}>Ver</button>
-                      {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setModal({ kind: 'finalizar', prod: p })}>✓ Finalizar fundición</button>}
+                      {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setModal({ kind: 'finalizar', prod: p })}>{cfg.finalizarBtn}</button>}
                     </div>
                   </div>
                 ))}
@@ -226,7 +269,7 @@ export function ProduccionPage() {
                 <tr key={p.id}>
                   <td><strong>{p.producto_nombre}</strong></td>
                   <td>{p.receta_num != null ? <span className="badge">#{num(p.receta_num)}</span> : '—'}</td>
-                  <td><span className={`badge ${p.estado === 'finalizado' ? 'success' : 'warning'}`}>{p.estado === 'finalizado' ? 'Finalizado' : 'En fundición'}</span></td>
+                  <td><span className={`badge ${p.estado === 'finalizado' ? 'success' : 'warning'}`}>{p.estado === 'finalizado' ? 'Finalizado' : cfg.estadoEnCurso}</span></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(p.cantidad)}</td>
                   <td className="muted" style={{ fontSize: '.8rem' }}>{dateTime(p.inicio_at)}</td>
                   <td className="muted" style={{ fontSize: '.8rem' }}>{p.fin_at ? dateTime(p.fin_at) : '—'}</td>
@@ -247,6 +290,7 @@ export function ProduccionPage() {
 
       {modal.kind === 'crear' && (
         <MaterialAProducirModal
+          tipo={tipo}
           productos={productos}
           existencias={existencias}
           almacenesList={almacenesList}
@@ -270,6 +314,7 @@ export function ProduccionPage() {
       {modal.kind === 'ver' && <ProduccionDetalle id={modal.id} defaultEmail={actor} onClose={() => setModal({ kind: 'none' })} />}
       {modal.kind === 'recetas' && (
         <RecetasModal
+          tipo={tipo}
           onClose={() => setModal({ kind: 'none' })}
           onVer={(r) => setModal({ kind: 'ver-receta', id: r.produccion_id, productoId: r.producto_id })}
         />
@@ -285,7 +330,7 @@ export function ProduccionPage() {
       )}
       {modal.kind === 'finalizar' && (
         <ConfirmDialog
-          title="Finalizar fundición"
+          title={`Finalizar ${cfg.verbo}`}
           message={`Se registrará la entrada de ${num(modal.prod.cantidad)} und de "${modal.prod.producto_nombre}" en ${modal.prod.almacen_destino} a costo ${money(modal.prod.costo_unitario)}/und. ¿Continuar?`}
           confirmText="Finalizar"
           onCancel={() => setModal({ kind: 'none' })}

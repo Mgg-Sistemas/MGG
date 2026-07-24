@@ -6,7 +6,7 @@ import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
 import { getUnidades, updateProducto } from '@/modules/inventario/inventario.repository';
 import { AlmacenPicker, AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
-import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput } from './produccion.repository';
+import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput, type ProduccionTipo } from './produccion.repository';
 import { crearHorno } from './hornos.repository';
 
 interface RecetaBase {
@@ -17,6 +17,8 @@ interface RecetaBase {
 }
 
 interface MaterialAProducirModalProps {
+  /** Fundición (default) o refinación de material: cambia rótulos, categoría del producto y el tipo de orden. */
+  tipo?: ProduccionTipo;
   productos: Producto[];
   existencias: Existencia[];
   almacenesList: string[];
@@ -37,8 +39,17 @@ interface MaterialAProducirModalProps {
 interface MatRow { checked: boolean; cantidad: string; almacen: string }
 
 export function MaterialAProducirModal({
-  productos, existencias, almacenesList, hornosList, actor, actorName, initialProductoId, onClose, onCreated, onProductosChanged, onHornosChanged,
+  tipo = 'fundicion', productos, existencias, almacenesList, hornosList, actor, actorName, initialProductoId, onClose, onCreated, onProductosChanged, onHornosChanged,
 }: MaterialAProducirModalProps) {
+  // Rótulos según el tipo (fundición / refinación).
+  const esRef = tipo === 'refinacion';
+  const L = {
+    verbo: esRef ? 'refinar' : 'producir',
+    proceso: esRef ? 'refinación' : 'fundición',
+    tituloModal: esRef ? 'Material a refinar' : 'Material a producir',
+    iniciar: esRef ? 'Iniciar refinación' : 'Iniciar fundición',
+    categoria: esRef ? 'REFINACIÓN' : 'FUNDICIÓN',
+  };
   const producibles = useMemo(() => productos.filter((p) => p.es_producible), [productos]);
   const materiales = useMemo(
     () => productos.filter((p) => p.es_receta && p.estado === 'activo'),
@@ -147,7 +158,7 @@ export function MaterialAProducirModal({
     if (modoOutput !== 'existente' || !productoSelId) { setRecetaBase(null); return; }
     let cancel = false;
     setRecetaLoading(true);
-    getUltimaReceta(productoSelId)
+    getUltimaReceta(productoSelId, tipo)
       .then((r) => {
         if (cancel) return;
         if (!r || !r.items.length) { setRecetaBase(null); return; }
@@ -158,7 +169,7 @@ export function MaterialAProducirModal({
       .catch(() => { if (!cancel) setRecetaBase(null); })
       .finally(() => { if (!cancel) setRecetaLoading(false); });
     return () => { cancel = true; };
-  }, [modoOutput, productoSelId]);
+  }, [modoOutput, productoSelId, tipo]);
 
   // En modo "nuevo" no hay receta previa: la checklist arranca sin tildar nada.
   useEffect(() => {
@@ -275,6 +286,7 @@ export function MaterialAProducirModal({
           nombre: nombreNuevo,
           unidad: unidadNuevo,
           precioVenta: posiblePrecioVenta,
+          categoria: L.categoria,
         });
         productoId = creado.id;
         productoNombre = creado.nombre;
@@ -297,13 +309,14 @@ export function MaterialAProducirModal({
         costos_indirectos: Number(costosIndirectos) || 0,
         precio_venta: posiblePrecioVenta,
         materiales: matInput,
+        tipo,
         actor,
         actor_name: actorName,
       });
       onCreated();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo iniciar la fundición.');
+      setError(err instanceof Error ? err.message : `No se pudo iniciar la ${L.proceso}.`);
     } finally {
       setSaving(false);
     }
@@ -313,13 +326,13 @@ export function MaterialAProducirModal({
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button type="submit" form="prod-form" className="btn btn-primary" disabled={saving}>
-        {saving ? 'Iniciando…' : 'Iniciar fundición'}
+        {saving ? 'Iniciando…' : L.iniciar}
       </button>
     </>
   );
 
   return (
-    <Modal title="Material a producir" size="lg" onClose={onClose} footer={footer}>
+    <Modal title={L.tituloModal} size="lg" onClose={onClose} footer={footer}>
       <form
         id="prod-form"
         onSubmit={handleSubmit}
