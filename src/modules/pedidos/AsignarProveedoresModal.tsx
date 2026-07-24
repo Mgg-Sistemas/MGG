@@ -276,6 +276,7 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
           proveedores={proveedoresList}
           proveedoresYaOfertados={proveedoresYaOfertados}
           registradoPorEmail={actorEmail}
+          soloSkus={new Set(opItems.filter((it) => !bloqueado.has(it.sku)).map((it) => it.sku))}
           onClose={() => setAgregando(false)}
           onCreated={() => { setAgregando(false); void cargar(); }}
         />
