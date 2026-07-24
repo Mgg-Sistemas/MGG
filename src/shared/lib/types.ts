@@ -367,6 +367,7 @@ export interface TanqueMovimiento {
   contador_global_fin?: number | null;
   equipo?: string | null;
   autorizado_por?: string | null;
+  despachado_por?: string | null;
   destino?: string | null;
   observacion?: string | null;
   combustible_id?: string | null;

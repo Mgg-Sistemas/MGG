@@ -15,6 +15,7 @@ import {
   crearCombustible,
   renombrarCombustible,
   setEstadoCombustible,
+  eliminarCombustible,
   actualizarCombustible,
   crearSolicitudCombustible,
   aprobarSolicitudCombustible,
@@ -215,7 +216,7 @@ export function CombustiblePage() {
   }, [reload]);
 
   // Realtime multiusuario: combustibles, solicitudes y tanques se reflejan al instante.
-  useRealtime(['combustibles', 'combustible_solicitudes', 'combustible_tanques', 'combustible_vehiculos', 'transferencias_combustible_inter', 'combustible_tanque_movimientos', 'combustible_autorizados', 'combustible_ubicaciones'], () => { void reload(); });
+  useRealtime(['combustibles', 'combustible_solicitudes', 'combustible_tanques', 'combustible_vehiculos', 'transferencias_combustible_inter', 'combustible_tanque_movimientos', 'combustible_autorizados', 'combustible_despachadores', 'combustible_ubicaciones'], () => { void reload(); });
 
   // Litros REALES de cada combustible = suma de los litros de sus tanques (los
   // movimientos de tanque mandan; el total sube/baja con los tanques).
@@ -797,15 +798,18 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
   const [hiBloqueado, setHiBloqueado] = useState(false);
   const [ciBloqueado, setCiBloqueado] = useState(false);
   const [autorizado, setAutorizado] = useState('');
+  const [despachado, setDespachado] = useState('');
   const [destino, setDestino] = useState('');
   const [observacion, setObservacion] = useState('');
   const [autorizados, setAutorizados] = useState<CatalogoCombustible[]>([]);
+  const [despachadores, setDespachadores] = useState<CatalogoCombustible[]>([]);
   const [ubicaciones, setUbicaciones] = useState<CatalogoCombustible[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     listCatalogo('combustible_autorizados').then((r) => setAutorizados(r.filter((x) => x.estado === 'activo'))).catch(() => setAutorizados([]));
+    listCatalogo('combustible_despachadores').then((r) => setDespachadores(r.filter((x) => x.estado === 'activo'))).catch(() => setDespachadores([]));
     listCatalogo('combustible_ubicaciones').then((r) => setUbicaciones(r.filter((x) => x.estado === 'activo'))).catch(() => setUbicaciones([]));
   }, []);
   // El contador inicial (CI) se precarga con el último contador final (CF) del tanque (totalizador del surtidor).
@@ -865,6 +869,7 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
         kilometrajeFinal: km !== '' ? Number(km) : null,
         contadorIni: ci !== '' ? ciNum : null, contadorFin: cf !== '' ? cfNum : null,
         equipo: equipo.trim() || null, autorizadoPor: autorizado.trim() || null,
+        despachadoPor: despachado.trim() || null,
         destino: destino.trim() || null, observacion: observacion.trim() || null,
         actor, actorName,
       });
@@ -1004,6 +1009,13 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
           </div>
         </div>
         <div className="form-row">
+          <label>Despachado por</label>
+          <ComboBuscador value={despachado} onChange={setDespachado}
+            opciones={despachadores.map((d) => ({ value: d.nombre, label: d.nombre }))}
+            placeholder="🔎 Buscá quién despachó…" icono="⛽" />
+          <small className="muted">Quién entregó físicamente el combustible. ¿Falta uno? Agregalo en 📒 Catálogo → Despachadores.</small>
+        </div>
+        <div className="form-row">
           <label>Destino</label>
           <ComboBuscador value={destino} onChange={setDestino}
             opciones={ubicaciones.map((u) => ({ value: u.nombre, label: u.nombre }))}
@@ -1134,12 +1146,12 @@ function MovimientosModal({ tanques, vehiculos, tanqueId, actor, actorName, canW
           <thead><tr>
             <th>Fecha y hora</th><th>Tanque</th><th>Tipo</th><th style={{ textAlign: 'right' }}>Litros</th>
             <th>Equipo</th><th style={{ textAlign: 'right' }}>HI</th><th style={{ textAlign: 'right' }}>HF</th><th style={{ textAlign: 'right' }}>HRS</th>
-            <th style={{ textAlign: 'right' }}>Contador</th><th>Autorizado por</th><th>Destino</th><th>Observación</th>
+            <th style={{ textAlign: 'right' }}>Contador</th><th>Autorizado por</th><th>Despachado por</th><th>Destino</th><th>Observación</th>
             {canWrite && <th></th>}
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={canWrite ? 13 : 12} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !delMes.length && <tr><td colSpan={canWrite ? 13 : 12} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin movimientos en este mes.</td></tr>}
+            {loading && <tr><td colSpan={canWrite ? 14 : 13} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !delMes.length && <tr><td colSpan={canWrite ? 14 : 13} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin movimientos en este mes.</td></tr>}
             {delMes.map((m) => {
               const suma = m.tipo === 'ingreso' || m.tipo === 'retorno';
               const hrs = m.horometro_inicial != null && m.horometro_final != null ? Math.round((Number(m.horometro_final) - Number(m.horometro_inicial)) * 100) / 100 : null;
@@ -1155,6 +1167,7 @@ function MovimientosModal({ tanques, vehiculos, tanqueId, actor, actorName, canW
                   <td className="mono" style={{ textAlign: 'right' }}>{hrs != null ? num(hrs) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{m.contador_global_ini != null || m.contador_global_fin != null ? `${m.contador_global_ini != null ? num(m.contador_global_ini) : '—'} → ${m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}` : '—'}</td>
                   <td>{m.autorizado_por || '—'}</td>
+                  <td>{m.despachado_por || '—'}</td>
                   <td>{m.destino || '—'}</td>
                   <td className="muted">{m.observacion || '—'}</td>
                   {canWrite && (
@@ -1220,6 +1233,7 @@ function EditarTanqueMovModal({ mov, tanques, vehiculos, actor, actorName, onClo
   const [contIni] = useState(mov.contador_global_ini != null ? String(mov.contador_global_ini) : ''); // 🔒 encadenado
   const [contFin, setContFin] = useState(mov.contador_global_fin != null ? String(mov.contador_global_fin) : '');
   const [autorizado, setAutorizado] = useState(mov.autorizado_por ?? '');
+  const [despachado, setDespachado] = useState(mov.despachado_por ?? '');
   const [destino, setDestino] = useState(mov.destino ?? '');
   const [observacion, setObservacion] = useState(mov.observacion ?? '');
   const [saving, setSaving] = useState(false);
@@ -1231,7 +1245,7 @@ function EditarTanqueMovModal({ mov, tanques, vehiculos, actor, actorName, onClo
     setSaving(true); setError(null);
     try {
       await actualizarTanqueMovimiento(mov.id, {
-        tanqueId: tanqueId || undefined, litros: l, tipo, equipo, autorizadoPor: autorizado, destino, observacion,
+        tanqueId: tanqueId || undefined, litros: l, tipo, equipo, autorizadoPor: autorizado, despachadoPor: despachado, destino, observacion,
         fecha: fecha ? new Date(fecha).toISOString() : undefined,
         horometroInicial: numOrNull(hi), horometroFinal: numOrNull(hf),
         contadorIni: numOrNull(contIni), contadorFin: numOrNull(contFin),
@@ -1301,8 +1315,9 @@ function EditarTanqueMovModal({ mov, tanques, vehiculos, actor, actorName, onClo
       </small>
       <div className="form-grid">
         <div className="form-row"><label>Autorizado por</label><input className="input" value={autorizado} onChange={(e) => setAutorizado(e.target.value)} /></div>
-        <div className="form-row"><label>Destino</label><input className="input" value={destino} onChange={(e) => setDestino(e.target.value)} /></div>
+        <div className="form-row"><label>Despachado por</label><input className="input" value={despachado} onChange={(e) => setDespachado(e.target.value)} placeholder="Quién entregó el combustible" /></div>
       </div>
+      <div className="form-row"><label>Destino</label><input className="input" value={destino} onChange={(e) => setDestino(e.target.value)} /></div>
       <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} /></div>
       <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
         Si cambiás el <strong>tanque</strong>, el <strong>tipo</strong> o los <strong>litros</strong>, el sistema ajusta solo los balances en el tanque, el combustible y el inventario para que todo quede cuadrado.
@@ -1326,6 +1341,7 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [renombrando, setRenombrando] = useState<{ id: string; actual: string } | null>(null);
   const [nuevoNombre, setNuevoNombre] = useState('');
+  const [borrando, setBorrando] = useState<Combustible | null>(null);
 
   async function crear() {
     setOkMsg(null);
@@ -1369,6 +1385,17 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
     try { await setEstadoCombustible(id, estado === 'activo' ? 'inactivo' : 'activo'); await onChanged(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
+  async function confirmarBorrar() {
+    if (!borrando) return;
+    setBusy(true);
+    try {
+      await eliminarCombustible(borrando.id);
+      setBorrando(null);
+      await onChanged();
+      toast('Combustible eliminado (el histórico se conserva)', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setBusy(false); }
+  }
 
   return (
     <Modal title="Gestionar combustibles" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
@@ -1399,6 +1426,7 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
                 <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => abrirRenombrar(c.id, c.nombre)}>✎</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => toggleEstado(c.id, c.estado)}>{c.estado === 'activo' ? 'Deshabilitar' : 'Habilitar'}</button>
+                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} title="Eliminar combustible (conserva el histórico)" onClick={() => setBorrando(c)}>🗑</button>
                 </td>
               </tr>
             ))}
@@ -1430,6 +1458,16 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
             />
           </div>
         </Modal>
+      )}
+      {borrando && (
+        <ConfirmDialog
+          title="Eliminar combustible"
+          message={`¿Eliminar el combustible "${borrando.nombre}"? Se quita de esta sede pero el HISTÓRICO se conserva (movimientos de tanque, solicitudes e inventario quedan intactos). Los tanques que lo usaban quedan sin combustible asignado. Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onConfirm={confirmarBorrar}
+          onCancel={() => setBorrando(null)}
+        />
       )}
     </Modal>
   );
@@ -1679,14 +1717,16 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
 function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
   vehiculos: VehiculoMaquina[]; actor: string; onClose: () => void; onChanged: () => Promise<void>;
 }) {
-  type Tab = 'vehiculos' | 'autorizados' | 'ubicaciones';
+  type Tab = 'vehiculos' | 'autorizados' | 'despachadores' | 'ubicaciones';
   const META: Record<Tab, { label: string; icon: string; tabla?: TablaCatalogo; conDesc: boolean; singular: string }> = {
     vehiculos: { label: 'Vehículos / Máquinas', icon: '🚜', conDesc: true, singular: 'vehículo / máquina' },
     autorizados: { label: 'Autorizados', icon: '🧑‍⚖️', tabla: 'combustible_autorizados', conDesc: false, singular: 'autorizado' },
+    despachadores: { label: 'Despachadores', icon: '⛽', tabla: 'combustible_despachadores', conDesc: false, singular: 'despachador' },
     ubicaciones: { label: 'Ubicaciones', icon: '📍', tabla: 'combustible_ubicaciones', conDesc: false, singular: 'ubicación' },
   };
   const [tab, setTab] = useState<Tab>('vehiculos');
   const [autorizados, setAutorizados] = useState<CatalogoCombustible[]>([]);
+  const [despachadores, setDespachadores] = useState<CatalogoCombustible[]>([]);
   const [ubicaciones, setUbicaciones] = useState<CatalogoCombustible[]>([]);
   const [nombre, setNombre] = useState('');
   const [descripcion, setDescripcion] = useState('');
@@ -1695,18 +1735,19 @@ function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
   const [busy, setBusy] = useState(false);
 
   const cargar = useCallback(async () => {
-    const [a, u] = await Promise.all([
+    const [a, d, u] = await Promise.all([
       listCatalogo('combustible_autorizados').catch(() => [] as CatalogoCombustible[]),
+      listCatalogo('combustible_despachadores').catch(() => [] as CatalogoCombustible[]),
       listCatalogo('combustible_ubicaciones').catch(() => [] as CatalogoCombustible[]),
     ]);
-    setAutorizados(a); setUbicaciones(u);
+    setAutorizados(a); setDespachadores(d); setUbicaciones(u);
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
   useEffect(() => { setNombre(''); setDescripcion(''); setEdit(null); }, [tab]);
 
   const meta = META[tab];
   const items: { id: string; nombre: string; descripcion?: string | null; estado: string }[] =
-    tab === 'vehiculos' ? vehiculos : tab === 'autorizados' ? autorizados : ubicaciones;
+    tab === 'vehiculos' ? vehiculos : tab === 'autorizados' ? autorizados : tab === 'despachadores' ? despachadores : ubicaciones;
 
   async function refrescar() { await cargar(); await onChanged(); }
 

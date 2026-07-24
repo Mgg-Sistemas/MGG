@@ -231,6 +231,18 @@ export async function setEstadoCombustible(id: string, estado: 'activo' | 'inact
   if (error) throw error;
 }
 
+/**
+ * Elimina la tarjeta de combustible CONSERVANDO el histórico. Solo borra la fila de
+ * `combustibles`: los movimientos de tanque, las solicitudes y los tanques que lo
+ * referenciaban se desvinculan solos (FK on delete set null) manteniendo sus datos
+ * (nombre del tanque, litros, etc.), y el histórico de INVENTARIO (tabla `movimientos`,
+ * ligada por producto_id) queda intacto. No toca el producto de inventario.
+ */
+export async function eliminarCombustible(id: string): Promise<void> {
+  const { error } = await supabase.from('combustibles').delete().eq('id', id);
+  if (error) throw error;
+}
+
 /** Promedio móvil ponderado por litro. */
 function pmpLitro(litrosPrev: number, costoPrev: number, litros: number, costo: number): number {
   const total = litrosPrev + litros;
@@ -744,7 +756,7 @@ export async function eliminarVehiculo(id: string): Promise<void> {
 
 /* ───────────── Catálogos simples (autorizados, ubicaciones) ───────────── */
 
-export type TablaCatalogo = 'combustible_autorizados' | 'combustible_ubicaciones';
+export type TablaCatalogo = 'combustible_autorizados' | 'combustible_ubicaciones' | 'combustible_despachadores';
 
 export async function listCatalogo(tabla: TablaCatalogo): Promise<CatalogoCombustible[]> {
   const { data, error } = await supabase.from(tabla).select('*').order('nombre', { ascending: true });
@@ -895,6 +907,7 @@ export async function crearTanqueMovimiento(input: {
   contadorFin?: number | null;
   equipo?: string | null;
   autorizadoPor?: string | null;
+  despachadoPor?: string | null;
   destino?: string | null;
   observacion?: string | null;
   actor: string;
@@ -956,6 +969,7 @@ export async function crearTanqueMovimiento(input: {
     kilometraje_final: input.kilometrajeFinal ?? null,
     contador_global_ini: input.contadorIni ?? null, contador_global_fin: input.contadorFin ?? null,
     equipo: input.equipo?.trim() || null, autorizado_por: input.autorizadoPor?.trim() || null,
+    despachado_por: input.despachadoPor?.trim() || null,
     destino: input.destino?.trim() || null, observacion: input.observacion?.trim() || null,
     combustible_id: combustibleId, costo_litro: costoLitro,
     actor: input.actor, actor_name: input.actorName ?? null,
@@ -1097,7 +1111,7 @@ export async function actualizarTanqueMovimiento(
   id: string,
   patch: {
     tanqueId?: string; litros?: number; tipo?: TipoMovimientoTanque; equipo?: string | null;
-    autorizadoPor?: string | null; destino?: string | null; observacion?: string | null; fecha?: string | null;
+    autorizadoPor?: string | null; despachadoPor?: string | null; destino?: string | null; observacion?: string | null; fecha?: string | null;
     horometroInicial?: number | null; horometroFinal?: number | null;
     contadorIni?: number | null; contadorFin?: number | null;
   },
@@ -1142,6 +1156,7 @@ export async function actualizarTanqueMovimiento(
   const upd: Record<string, unknown> = { litros: newLitros, tipo: newTipo, tanque_id: newTanque, tanque_nombre: newTanqueNombre, combustible_id: newComb };
   if (patch.equipo !== undefined) upd.equipo = patch.equipo?.trim() || null;
   if (patch.autorizadoPor !== undefined) upd.autorizado_por = patch.autorizadoPor?.trim() || null;
+  if (patch.despachadoPor !== undefined) upd.despachado_por = patch.despachadoPor?.trim() || null;
   if (patch.destino !== undefined) upd.destino = patch.destino?.trim() || null;
   if (patch.observacion !== undefined) upd.observacion = patch.observacion?.trim() || null;
   if (patch.fecha !== undefined && patch.fecha) upd.fecha = patch.fecha;
