@@ -444,7 +444,7 @@ create policy "transf comb write auth" on public.transferencias_combustible_inte
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','transferencias_combustible_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','combustible_vehiculos','combustible_planta_movimientos','combustible_autorizados','combustible_ubicaciones','combustible_tanque_movimientos','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','transferencias_combustible_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','combustible_vehiculos','combustible_planta_movimientos','combustible_autorizados','combustible_ubicaciones','combustible_despachadores','combustible_tanque_movimientos','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
@@ -760,6 +760,17 @@ alter table public.combustible_ubicaciones enable row level security;
 create policy "comb_ubicaciones read auth" on public.combustible_ubicaciones for select using (auth.role()='authenticated');
 create policy "comb_ubicaciones write op"  on public.combustible_ubicaciones for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Despachadores: quién entregó/despachó físicamente el combustible en un movimiento de tanque.
+create table if not exists public.combustible_despachadores (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  estado text not null default 'activo' check (estado in ('activo','inactivo')),
+  created_by text, created_at timestamptz not null default now(), updated_at timestamptz
+);
+alter table public.combustible_despachadores enable row level security;
+create policy "comb_despach read auth" on public.combustible_despachadores for select using (auth.role()='authenticated');
+create policy "comb_despach write op"  on public.combustible_despachadores for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- Catálogos de Pedidos (gestionables desde el botón "📒 Categorías"):
 --   scope='clasificacion'        → clasificación del pedido (Producción, Bienes…)
 --   scope='unidad_solicitante'   → unidad/área que solicita (se alimenta sola al crear OP)
@@ -804,6 +815,7 @@ create table if not exists public.combustible_tanque_movimientos (
   contador_global_ini numeric, contador_global_fin numeric,  -- totalizador del surtidor (por tanque): el fin pasa a ser el ini del próximo movimiento del tanque
   equipo text,            -- vehículo/máquina (combustible_vehiculos)
   autorizado_por text,    -- combustible_autorizados
+  despachado_por text,    -- combustible_despachadores (quién entregó el combustible)
   destino text,           -- combustible_ubicaciones
   observacion text,
   combustible_id uuid references public.combustibles(id) on delete set null,
