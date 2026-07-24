@@ -115,7 +115,7 @@ export async function descargarAlmacenPdf(almacen: string, rows: Producto[]): Pr
    Recorre la jerarquía sede → almacén → subalmacén y, por cada
    uno, lista sus productos (stock/costo/valor) con su subtotal.
    ============================================================ */
-export async function descargarReporteAlmacenesPdf(): Promise<void> {
+export async function descargarReporteAlmacenesPdf(espacio: 'principal' | 'deposito' = 'principal'): Promise<void> {
   const [
     { jsPDF }, { default: autoTable }, { money, num, dateTime },
     { loadLogoDataUrl }, almacenesRepo, inventarioRepo,
@@ -127,14 +127,16 @@ export async function descargarReporteAlmacenesPdf(): Promise<void> {
     import('./almacenes.repository'),
     import('./inventario.repository'),
   ]);
-  const [almacenes, existencias, productos, logo] = await Promise.all([
-    almacenesRepo.listAlmacenes(),
+  const [almacenes, existenciasAll, productos, logo] = await Promise.all([
+    almacenesRepo.listAlmacenes(espacio),
     almacenesRepo.listExistencias(),
-    inventarioRepo.listProductos(),
+    inventarioRepo.listProductos(espacio),
     loadLogoDataUrl().catch(() => null),
   ]);
 
   const prodById = new Map(productos.map((p) => [p.id, p]));
+  // Solo las existencias de productos de este espacio (el reporte no mezcla espacios).
+  const existencias = existenciasAll.filter((e) => prodById.has(e.producto_id));
   // Existencias agrupadas por NOMBRE de almacén (la existencia se llavea por nombre).
   const exPorAlmacen = new Map<string, Existencia[]>();
   for (const e of existencias) {
@@ -150,8 +152,9 @@ export async function descargarReporteAlmacenesPdf(): Promise<void> {
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 60 : MARGIN;
+  const espLabel = espacio === 'deposito' ? 'Depósito' : 'Inventario';
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text('Inventario · Reporte por almacenes y subalmacenes', tx, y + 18);
+  doc.text(`${espLabel} · Reporte por almacenes y subalmacenes`, tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text(`MGG · ${dateTime(new Date().toISOString())}`, tx, y + 33);
   y += 60;
@@ -232,8 +235,8 @@ export async function descargarReporteAlmacenesPdf(): Promise<void> {
   doc.line(MARGIN, y, doc.internal.pageSize.getWidth() - MARGIN, y);
   y += 16;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
-  doc.text('VALOR TOTAL DEL INVENTARIO', MARGIN, y);
+  doc.text(`VALOR TOTAL DEL ${espLabel.toUpperCase()}`, MARGIN, y);
   doc.text(money(valorGeneral), doc.internal.pageSize.getWidth() - MARGIN, y, { align: 'right' });
 
-  previewPdfDoc(doc, `inventario-por-almacenes-${new Date().toISOString().slice(0, 10)}.pdf`);
+  previewPdfDoc(doc, `${espacio === 'deposito' ? 'deposito' : 'inventario'}-por-almacenes-${new Date().toISOString().slice(0, 10)}.pdf`);
 }

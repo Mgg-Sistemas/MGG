@@ -24,6 +24,8 @@ export interface ProductoInput {
   precio_venta?: number | null;
   es_receta?: boolean;
   es_producible?: boolean;
+  /** Espacio: 'principal' (Inventario) o 'deposito'. Por defecto 'principal'. */
+  espacio?: string | null;
   // Detalle del producto (todos opcionales)
   nombre_busqueda?: string | null;
   marca?: string | null;
@@ -244,17 +246,30 @@ export async function contarProductosPorCategoria(): Promise<Record<string, numb
   }, {});
 }
 
-export async function listProductos(): Promise<Producto[]> {
-  // Cacheada (SWR): casi todas las páginas la piden al montar. Realtime la
-  // invalida ante cualquier cambio en `productos`.
-  return cachedQuery('inv:productos', async () => {
+/** Espacio de inventario: 'principal' (Inventario) o 'deposito' (submódulo DEPÓSITO).
+ *  Son disjuntos: el total del depósito NO se mezcla con el del inventario. */
+export type Espacio = 'principal' | 'deposito';
+
+export async function listProductos(espacio: Espacio = 'principal'): Promise<Producto[]> {
+  // Cacheada (SWR) por espacio: casi todas las páginas la piden al montar. Realtime la
+  // invalida ante cualquier cambio en `productos`. Los productos legados (sin `espacio`)
+  // cuentan como 'principal'.
+  return cachedQuery(`inv:productos:${espacio}`, async () => {
     const { data, error } = await supabase
       .from('productos')
       .select('*')
       .order('nombre', { ascending: true });
     if (error) throw error;
-    return (data ?? []) as Producto[];
+    return ((data ?? []) as Producto[]).filter((p) => (p.espacio ?? 'principal') === espacio);
   }, { tables: ['productos'], ttl: 30_000 });
+}
+
+/** Siguiente SKU correlativo GLOBAL (sobre TODOS los espacios), para no colisionar
+ *  con la restricción única de `productos.sku` entre Inventario y Depósito. */
+export async function siguienteSkuGlobal(categoria: string): Promise<string> {
+  const { data, error } = await supabase.from('productos').select('sku, categoria');
+  if (error) throw error;
+  return siguienteSku(categoria, (data ?? []) as Producto[]);
 }
 
 export async function findProducto(id: string): Promise<Producto | null> {
@@ -315,7 +330,7 @@ export async function findBySku(sku: string): Promise<Producto | null> {
 export async function createProducto(input: ProductoInput): Promise<Producto> {
   const { data, error } = await supabase
     .from('productos')
-    .insert(input)
+    .insert({ ...input, espacio: input.espacio ?? 'principal' })
     .select('*')
     .single();
   if (error) throw error;

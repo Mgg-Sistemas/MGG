@@ -7,6 +7,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { cachedQuery } from '@/shared/lib/queryCache';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
+import type { Espacio } from './inventario.repository';
 
 const TABLE = 'almacenes';
 
@@ -17,13 +18,19 @@ export interface AlmacenInput {
   sede?: string | null;
   /** Almacén padre (subalmacén). null = almacén principal. */
   parent_id?: string | null;
+  /** Espacio: 'principal' (Inventario) o 'deposito'. Por defecto 'principal'. */
+  espacio?: string | null;
 }
 
-/** Sedes existentes (para poblar el selector del formulario). */
-export async function listSedes(): Promise<string[]> {
-  const { data } = await supabase.from(TABLE).select('sede');
+/** Sedes existentes de un espacio (para poblar el selector del formulario). */
+export async function listSedes(espacio: Espacio = 'principal'): Promise<string[]> {
+  const { data } = await supabase.from(TABLE).select('sede, espacio');
   const set = new Set<string>();
-  (data ?? []).forEach((r) => { const s = (r as { sede?: string | null }).sede?.trim(); if (s) set.add(s); });
+  (data ?? []).forEach((r) => {
+    const row = r as { sede?: string | null; espacio?: string | null };
+    if ((row.espacio ?? 'principal') !== espacio) return;
+    const s = row.sede?.trim(); if (s) set.add(s);
+  });
   return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
 }
 
@@ -33,12 +40,13 @@ export interface AlmacenValor {
   unidades: number;  // Σ stock
 }
 
-export async function listAlmacenes(): Promise<Almacen[]> {
-  // Cacheada (SWR): dato de referencia usado en casi todos los desplegables.
-  return cachedQuery('inv:almacenes', async () => {
+export async function listAlmacenes(espacio: Espacio = 'principal'): Promise<Almacen[]> {
+  // Cacheada (SWR) por espacio: dato de referencia usado en casi todos los desplegables.
+  // Los almacenes legados (sin `espacio`) cuentan como 'principal'.
+  return cachedQuery(`inv:almacenes:${espacio}`, async () => {
     const { data, error } = await supabase.from(TABLE).select('*').order('nombre', { ascending: true });
     if (error) throw error;
-    return (data ?? []) as Almacen[];
+    return ((data ?? []) as Almacen[]).filter((a) => (a.espacio ?? 'principal') === espacio);
   }, { tables: ['almacenes'], ttl: 30_000 });
 }
 
@@ -95,17 +103,21 @@ export async function crearAlmacen(input: AlmacenInput, actorEmail?: string): Pr
   const parentId = input.parent_id ?? null;
   // El subalmacén hereda la sede de su padre; el principal usa la indicada.
   let sede = input.sede?.trim() || null;
+  // Espacio: el subalmacén hereda el del padre; si no, el indicado (default 'principal').
+  let espacio = input.espacio?.trim() || 'principal';
   if (parentId) {
-    const { data: padre } = await supabase.from(TABLE).select('nombre, sede').eq('id', parentId).single();
-    const p = padre as { nombre?: string; sede?: string | null } | null;
+    const { data: padre } = await supabase.from(TABLE).select('nombre, sede, espacio').eq('id', parentId).single();
+    const p = padre as { nombre?: string; sede?: string | null; espacio?: string | null } | null;
     nombre = await nombreUnicoSubalmacen(nombre, p?.nombre ?? 'sede');
     sede = p?.sede ?? sede;
+    espacio = p?.espacio ?? espacio;
   }
   const payload = {
     nombre,
     ubicacion: input.ubicacion?.trim() || null,
     sede,
     parent_id: parentId,
+    espacio,
     created_by: actorEmail ?? null,
   };
   const { data, error } = await supabase.from(TABLE).insert(payload).select('*').single();

@@ -256,6 +256,14 @@ alter table public.productos add column if not exists descripcion      text;  --
 -- Los productos con receta de fundición ya son insumos de producción.
 update public.productos set es_receta = true where receta_fundicion is not null and es_receta = false;
 
+-- Espacio de inventario: 'principal' (Inventario) vs 'deposito' (submódulo DEPÓSITO).
+-- Separa productos y almacenes en dos espacios disjuntos: el total del DEPÓSITO NO
+-- suma con el Inventario. Todo lo existente queda en 'principal' (default).
+alter table public.productos add column if not exists espacio text not null default 'principal';
+alter table public.almacenes add column if not exists espacio text not null default 'principal';
+create index if not exists idx_productos_espacio on public.productos(espacio);
+create index if not exists idx_almacenes_espacio on public.almacenes(espacio);
+
 -- ─────────────────────────────────────────────────────────────
 -- 5.3 producción: órdenes de producción + materiales consumidos.
 --   Costo de Producción (CP) = costo_material (CTM) + mano_obra + costos_indirectos.

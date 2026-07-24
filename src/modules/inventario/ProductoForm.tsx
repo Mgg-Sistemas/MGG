@@ -12,14 +12,17 @@ import {
   esUnidadLiquida,
   getCategorias,
   getUnidades,
-  siguienteSku,
+  siguienteSkuGlobal,
   type ProductoInput,
+  type Espacio,
 } from './inventario.repository';
 import { listAlmacenes, crearAlmacen } from './almacenes.repository';
 
 interface ProductoFormProps {
   producto: Producto | null; // null => crear
   productos?: Producto[];
+  /** Espacio de inventario en el que se crea/edita el producto y sus almacenes. */
+  espacio?: Espacio;
   /** Si se crea desde DENTRO de un almacén, la ubicación viene fija y NO se puede cambiar
    *  (evita errores humanos: el producto entra justo en ese almacén/sub-almacén). */
   fixedAlmacen?: string | null;
@@ -98,7 +101,7 @@ function initialState(p: Producto | null, cats: string[], unids: string[], fixed
   };
 }
 
-export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, onSubmit }: ProductoFormProps) {
+export function ProductoForm({ producto, productos = [], espacio = 'principal', fixedAlmacen, onClose, onSubmit }: ProductoFormProps) {
   const isEdit = !!producto;
   // Ubicación fija: solo al CREAR desde dentro de un almacén concreto.
   const ubicacionFija = !isEdit && !!(fixedAlmacen && fixedAlmacen.trim());
@@ -108,7 +111,7 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getCategorias(productos), getUnidades(productos), listAlmacenes().catch(() => [] as Almacen[])])
+    Promise.all([getCategorias(productos), getUnidades(productos), listAlmacenes(espacio).catch(() => [] as Almacen[])])
       .then(([cats, unids, almObj]) => {
         if (cancelled) return;
         setCategorias(cats);
@@ -122,7 +125,7 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
       })
       .catch(() => { /* defaults ya vienen del fallback en repo */ });
     return () => { cancelled = true; };
-  }, [productos]);
+  }, [productos, espacio]);
   const [form, setForm] = useState<FormState>(() => initialState(producto, categorias, unidades, fixedAlmacen));
   // Sede del almacén fijo (para mostrar "Sede › Almacén" en el campo bloqueado).
   const sedeFija = useMemo(
@@ -140,18 +143,25 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
   //    categoría original, se restaura el SKU original del producto.
   useEffect(() => {
     if (!form.categoria) return;
+    const cat = form.categoria;
+    let cancel = false;
+    // SKU correlativo GLOBAL (sobre todos los espacios) para no colisionar con el
+    // índice único de `productos.sku` entre Inventario y Depósito.
+    const aplicarSku = () => {
+      siguienteSkuGlobal(cat)
+        .then((sku) => { if (!cancel) setForm((prev) => (prev.categoria === cat ? { ...prev, sku } : prev)); })
+        .catch(() => { /* si falla, el usuario puede escribir el SKU (editable en edición) */ });
+    };
     if (isEdit) {
       if (!producto) return;
-      if (form.categoria !== producto.categoria) {
-        setForm((prev) => ({ ...prev, sku: siguienteSku(prev.categoria, productos) }));
-      } else {
-        setForm((prev) => (prev.sku === producto.sku ? prev : { ...prev, sku: producto.sku }));
-      }
-      return;
+      if (cat !== producto.categoria) aplicarSku();
+      else setForm((prev) => (prev.sku === producto.sku ? prev : { ...prev, sku: producto.sku }));
+      return () => { cancel = true; };
     }
-    setForm((prev) => ({ ...prev, sku: siguienteSku(prev.categoria, productos) }));
+    aplicarSku();
+    return () => { cancel = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, form.categoria, productos, producto]);
+  }, [isEdit, form.categoria, producto]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Ingreso del stock inicial: por unidad o por bulto/caja (× unidades por bulto).
@@ -219,7 +229,7 @@ export function ProductoForm({ producto, productos = [], fixedAlmacen, onClose, 
     const nombre = nuevoAlmacen.trim();
     if (!nombre) { toast('Escribe un nombre para el almacén', 'error'); return; }
     try {
-      const creado = await crearAlmacen({ nombre });
+      const creado = await crearAlmacen({ nombre, espacio });
       setAlmacenesObj((prev) => (prev.some((a) => a.id === creado.id) ? prev : [...prev, creado]));
       setForm((prev) => ({ ...prev, almacen: creado.nombre }));
       setNuevoAlmacen('');
