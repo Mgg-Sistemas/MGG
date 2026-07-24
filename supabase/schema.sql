@@ -403,7 +403,12 @@ create table if not exists public.transferencias_inter (
   actor         text,
   actor_name    text,
   created_at    timestamptz not null default now(),
-  confirmada_at timestamptz
+  confirmada_at timestamptz,
+  -- Aceptación POR MÓDULO de una entrante (el mismo dinero lo aceptan Tesorería y el Centro
+  -- de Acopio por separado). La transferencia pasa a 'recibida' (y hace ACK) en la PRIMERA
+  -- aceptación; cada bandera controla si su panel sigue mostrándola por confirmar.
+  recibida_tesoreria boolean not null default false,
+  recibida_acopio    boolean not null default false
 );
 create index if not exists idx_transf_inter_dir_estado on public.transferencias_inter(direccion, estado);
 alter table public.transferencias_inter enable row level security;

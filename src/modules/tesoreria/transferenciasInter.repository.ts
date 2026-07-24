@@ -46,10 +46,11 @@ export async function listTransferenciasInter(): Promise<TransferenciaInter[]> {
   return (data ?? []) as TransferenciaInter[];
 }
 
-/** Entrantes pendientes de confirmar (el dinero aún no se acreditó). */
+/** Entrantes pendientes de confirmar EN TESORERÍA (aún no acreditó su caja). El
+ *  Centro de Acopio las acepta por separado, con su propia bandera. */
 export async function listEntrantesPorConfirmar(): Promise<TransferenciaInter[]> {
   const { data, error } = await supabase.from(TABLE).select('*')
-    .eq('direccion', 'entrante').eq('estado', 'por_confirmar').order('created_at', { ascending: false });
+    .eq('direccion', 'entrante').eq('recibida_tesoreria', false).order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as TransferenciaInter[];
 }
@@ -129,7 +130,7 @@ export async function confirmarTransferenciaEntrante(input: {
   actorName?: string | null;
 }): Promise<void> {
   const { row } = input;
-  if (row.estado !== 'por_confirmar') throw new Error('Esta transferencia ya fue procesada.');
+  if (row.recibida_tesoreria) throw new Error('Esta transferencia ya fue aceptada en Tesorería.');
   const cajaId = row.caja_id || input.cajaId;
   if (!cajaId) throw new Error('Elegí la caja que recibe el dinero.');
   const legs = (row.legs ?? []).filter((l) => Number(l.monto) > 0);
@@ -144,12 +145,16 @@ export async function confirmarTransferenciaEntrante(input: {
     });
   }
 
+  // La transferencia pasa a 'recibida' (+ ACK) en la PRIMERA aceptación de cualquiera de los
+  // dos módulos; acá solo marcamos la bandera de Tesorería y (si es la primera) el estado.
+  const primera = row.estado === 'por_confirmar';
   await supabase.from(TABLE).update({
-    estado: 'recibida', caja_id: cajaId, confirmada_at: new Date().toISOString(),
+    recibida_tesoreria: true, caja_id: cajaId, confirmada_at: new Date().toISOString(),
+    ...(primera ? { estado: 'recibida' } : {}),
   }).eq('id', row.id);
 
-  // ACK al origen (no bloquea: si falla, el origen puede reconciliar manualmente).
-  if (row.callback_base) {
+  // ACK al origen solo en la primera aceptación (no bloquea: si falla, se reconcilia manual).
+  if (primera && row.callback_base) {
     await supabase.functions.invoke('transfer-enviar', {
       body: { tipo: 'ack', transf_id: row.transf_id, callback_base: row.callback_base },
     }).catch(() => { /* el ACK es best-effort */ });

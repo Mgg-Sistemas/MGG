@@ -2800,7 +2800,8 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
   const [sel, setSel] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  const entrantes = transfers.filter((t) => t.direccion === 'entrante' && t.estado === 'por_confirmar');
+  // Entrantes que Tesorería aún no aceptó (el Centro de Acopio las acepta por separado).
+  const entrantes = transfers.filter((t) => t.direccion === 'entrante' && !t.recibida_tesoreria);
   const salientes = transfers.filter((t) => t.direccion === 'saliente');
   const salientesVivas = salientes.filter((t) => t.estado !== 'recibida');
   const salientesRecibidas = salientes.filter((t) => t.estado === 'recibida');
