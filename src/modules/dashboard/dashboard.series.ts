@@ -148,6 +148,7 @@ export async function getSerieProduccion(rango: RangoFechas): Promise<SeriePoint
     .from('produccion')
     .select('fin_at, cantidad, costo_unitario, estado')
     .eq('estado', 'finalizado')
+    .eq('tipo', 'fundicion')  // la serie del dashboard es solo de fundición (refinación va aparte)
     .gte('fin_at', rango.desde.toISOString())
     .lte('fin_at', rango.hasta.toISOString())
     .order('fin_at', { ascending: true });

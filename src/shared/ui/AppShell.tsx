@@ -40,7 +40,7 @@ export function AppShell() {
   const { can, role, appUser } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('acopio') || can('ventas') || can('tesoreria');
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('acopio') || can('ventas') || can('tesoreria');
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -265,7 +265,16 @@ export function AppShell() {
               <NavItem to="/app/inventario" icon="⬢" label="Inventario" />
             )
           )}
-          {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Fundición" />}
+          {(can('produccion') || can('refinacion')) && (
+            can('refinacion') ? (
+              <NavGroup icon="🔥" label="Fundición" defaultOpen={location.pathname.startsWith('/app/produccion') || location.pathname.startsWith('/app/refinacion')}>
+                {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Fundición" />}
+                <NavItem to="/app/refinacion" icon="⚗️" label="Refinación de Material" />
+              </NavGroup>
+            ) : (
+              <NavItem to="/app/produccion" icon="🔥" label="Fundición" />
+            )
+          )}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}

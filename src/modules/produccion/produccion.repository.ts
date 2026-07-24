@@ -10,20 +10,23 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
 
+/** Tipo de orden en la tabla `produccion`: fundición o refinación de material. */
+export type ProduccionTipo = 'fundicion' | 'refinacion';
+
 function slugSku(prefix: string, nombre: string): string {
   const base = nombre.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 16);
   const suf = Math.floor(performance.now() % 100000).toString(36).toUpperCase();
   return `${prefix}-${base || 'ITEM'}-${suf}`;
 }
 
-/** Crea un producto terminado "producible" (catálogo de qué producir). */
-export async function crearProductoProducible(input: { nombre: string; unidad: string; precioVenta?: number | null }): Promise<Producto> {
+/** Crea un producto terminado "producible" (catálogo de qué producir/refinar). */
+export async function crearProductoProducible(input: { nombre: string; unidad: string; precioVenta?: number | null; categoria?: string }): Promise<Producto> {
   const nombre = input.nombre.trim().toUpperCase();
   if (!nombre) throw new Error('El nombre del producto a producir es obligatorio.');
   return createProducto({
     sku: slugSku('PT', nombre),
     nombre,
-    categoria: 'FUNDICIÓN',
+    categoria: input.categoria || 'FUNDICIÓN',
     unidad: input.unidad || 'und',
     stock: 0,
     stock_min: 0,
@@ -97,26 +100,30 @@ export interface CrearProduccionInput {
   materiales: MaterialInput[];
   actor: string;
   actor_name?: string | null;
+  /** Fundición (default) o refinación de material. */
+  tipo?: ProduccionTipo;
 }
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export async function listProducciones(): Promise<Produccion[]> {
+export async function listProducciones(tipo: ProduccionTipo = 'fundicion'): Promise<Produccion[]> {
   const { data, error } = await supabase
     .from('produccion')
     .select('*')
+    .eq('tipo', tipo)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as Produccion[];
 }
 
 /** Conteo liviano de órdenes en proceso (sin traer filas). */
-export async function contarProduccionEnProceso(): Promise<number> {
+export async function contarProduccionEnProceso(tipo: ProduccionTipo = 'fundicion'): Promise<number> {
   const { count, error } = await supabase
     .from('produccion')
     .select('id', { count: 'exact', head: true })
+    .eq('tipo', tipo)
     .eq('estado', 'produccion');
   if (error) throw error;
   return count ?? 0;
@@ -136,13 +143,14 @@ export interface RecetaGuardada {
   items: RecetaItem[];
 }
 
-/** Próximo nº de receta para un producto = cuántas producciones tiene + 1. */
-export async function proximaRecetaNum(productoId: string | null): Promise<number> {
+/** Próximo nº de receta para un producto = cuántas producciones tiene + 1 (por tipo). */
+export async function proximaRecetaNum(productoId: string | null, tipo: ProduccionTipo = 'fundicion'): Promise<number> {
   if (!productoId) return 1;
   const { count, error } = await supabase
     .from('produccion')
     .select('id', { count: 'exact', head: true })
-    .eq('producto_id', productoId);
+    .eq('producto_id', productoId)
+    .eq('tipo', tipo);
   if (error) throw error;
   return (count ?? 0) + 1;
 }
@@ -152,12 +160,13 @@ export async function proximaRecetaNum(productoId: string | null): Promise<numbe
  * ÚLTIMA fundición, junto al rendimiento (cantidad producida esa vez). Sirve
  * para precargar los materiales al volver a producir el mismo producto.
  */
-export async function getUltimaReceta(productoId: string): Promise<RecetaGuardada | null> {
+export async function getUltimaReceta(productoId: string, tipo: ProduccionTipo = 'fundicion'): Promise<RecetaGuardada | null> {
   if (!productoId) return null;
   const { data: prod, error } = await supabase
     .from('produccion')
     .select('id, cantidad, receta_num')
     .eq('producto_id', productoId)
+    .eq('tipo', tipo)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -199,10 +208,11 @@ export interface RecetaResumen {
  * MÁS RECIENTE como receta vigente (qué materiales y en qué cantidad se usaron
  * para producir X unidades).
  */
-export async function listRecetas(): Promise<RecetaResumen[]> {
+export async function listRecetas(tipo: ProduccionTipo = 'fundicion'): Promise<RecetaResumen[]> {
   const { data, error } = await supabase
     .from('produccion')
     .select('id, producto_id, producto_nombre, cantidad, almacen_destino, costo_material, mano_obra, costos_indirectos, costo_unitario, precio_venta, receta_num, created_at')
+    .eq('tipo', tipo)
     .order('created_at', { ascending: false });
   if (error) throw error;
 
@@ -296,10 +306,11 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
   const precioVenta = input.precio_venta != null ? Number(input.precio_venta) : null;
   const ganancia = precioVenta != null ? round2((precioVenta - costoUnitario) * cantidad) : null;
 
-  // Nº de receta secuencial por producto (1, 2, 3…).
-  const recetaNum = await proximaRecetaNum(input.producto_id);
+  // Nº de receta secuencial por producto (1, 2, 3…), separado por tipo.
+  const tipo: ProduccionTipo = input.tipo ?? 'fundicion';
+  const recetaNum = await proximaRecetaNum(input.producto_id, tipo);
 
-  // 2) Insertar la orden de fundición.
+  // 2) Insertar la orden de fundición / refinación.
   const { data: prod, error: pErr } = await supabase
     .from('produccion')
     .insert({
@@ -309,6 +320,7 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
       almacen_destino: input.almacen_destino,
       horno: input.horno?.trim() || null,
       estado: 'produccion',
+      tipo,
       costo_material: costoMaterial,
       mano_obra: manoObra,
       costos_indirectos: indirectos,

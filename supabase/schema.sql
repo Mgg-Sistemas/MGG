@@ -290,8 +290,13 @@ create table if not exists public.produccion (
   created_at        timestamptz not null default now()
 );
 alter table public.produccion add column if not exists horno text;
+-- Refinación de Material: mismo esquema que fundición, separado por `tipo`.
+-- ('fundicion' = órdenes de fundición; 'refinacion' = refinación de material).
+alter table public.produccion add column if not exists tipo text not null default 'fundicion'
+  check (tipo in ('fundicion', 'refinacion'));
 create index if not exists idx_prod_estado on public.produccion(estado, created_at desc);
 create index if not exists idx_prod_producto on public.produccion(producto_id, created_at desc);
+create index if not exists idx_prod_tipo on public.produccion(tipo, estado, created_at desc);
 
 -- 5.4 hornos: catálogo de hornos (se administran como las categorías:
 --     alta, renombrado e inhabilitación con motivo). produccion.horno guarda

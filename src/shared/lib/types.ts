@@ -1113,6 +1113,7 @@ export interface Produccion {
   ganancia?: number | null;
   receta_num?: number | null;   // nº de receta secuencial por producto (1, 2, 3…)
   horno?: string | null;        // nombre del horno utilizado
+  tipo?: 'fundicion' | 'refinacion'; // 'fundicion' (default) | 'refinacion' (refinación de material)
   inicio_at: string;
   fin_at?: string | null;
   created_by?: string | null;
