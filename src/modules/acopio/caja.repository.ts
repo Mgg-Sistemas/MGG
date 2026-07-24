@@ -24,6 +24,11 @@ const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 /** Centro de acopio por defecto del módulo (hoy solo LA ESPERANZA tiene vista). */
 export const CENTRO_ACOPIO_DEFECTO = 'LA ESPERANZA';
 
+/** Centro de acopio (de ESTE sistema) que recibe el dinero que llega del sistema externo socio.
+ *  Configurable por build con VITE_ACOPIO_CENTRO_EXTERNO; por defecto GT PERAMANAL (coherente con
+ *  DESC_ENTRADA_EXTERNA). Es el «centro de acopio del mismo socio» de un traslado entrante. */
+export const CENTRO_ACOPIO_EXTERNO = ((import.meta.env.VITE_ACOPIO_CENTRO_EXTERNO as string | undefined)?.trim()) || 'GT PERAMANAL';
+
 /** Nombre del centro al que pertenece una caja de acopio (para anclar la cuenta por cobrar). */
 async function centroDeCajaAcopio(cajaId: string | null): Promise<string | null> {
   if (!cajaId) return null;
@@ -589,42 +594,47 @@ export const DESC_ENTRADA_EXTERNA = 'CAJA MULTIMONEDAS MGG / CAJA GT PERAMANAL';
  * global de la transferencia evita doble acreditación. No exige caja abierta;
  * si hay una, se asocia, y si no, el movimiento entra igual (caja_id null).
  */
+/** Entrantes pendientes de aceptar EN EL CENTRO DE ACOPIO (aún no sumaron sus USD entregados).
+ *  Tesorería las acepta por separado, con su propia bandera. */
+export async function listEntrantesAcopioPorConfirmar(): Promise<TransferenciaInter[]> {
+  const { data, error } = await supabase.from('transferencias_inter').select('*')
+    .eq('direccion', 'entrante').eq('recibida_acopio', false).order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as TransferenciaInter[];
+}
+
 export async function aceptarEntradaEnCajaAcopio(input: {
   row: TransferenciaInter;
-  cajaId?: string | null;      // acopio_cajas.id (opcional: caja abierta a la que se asocia)
-  cajaNombre?: string | null;
   actor: string;
   actorName?: string | null;
 }): Promise<void> {
   const { row } = input;
-  const cajaId = input.cajaId ?? null;
-  if (row.estado !== 'por_confirmar') throw new Error('Esta transferencia ya fue procesada.');
+  if (row.recibida_acopio) throw new Error('Esta transferencia ya fue aceptada en el Centro de Acopio.');
   const legs = (row.legs ?? []).filter((l) => Number(l.monto) > 0);
   if (!legs.length) throw new Error('La transferencia no tiene montos.');
   const montoUsd = legs.reduce((a, l) => a + num(l.monto), 0);
 
-  // 1) Entra a los movimientos (sube el saldo USD), grupo Movimientos de Caja,
-  //    con la descripción fija de entrada externa.
-  await crearMovimientoCaja({
-    fecha: new Date().toISOString().slice(0, 10),
+  // 1) Entra como «USD entregados» al centro de acopio del SOCIO (crea/usa su caja abierta),
+  //    grupo Movimientos de Caja, con la descripción fija de entrada externa. Ancla la CxC.
+  await entradaTesoreriaACentroAcopio({
+    centroNombre: CENTRO_ACOPIO_EXTERNO,
+    montoUsd,
     descripcion: DESC_ENTRADA_EXTERNA,
-    usd_entregado: montoUsd,
-    clasif_grupo: 'movimientos_caja',
-    caja_id: cajaId,
-  }, input.actor, input.actorName ?? null);
+    actor: input.actor,
+    actorName: input.actorName ?? null,
+  });
 
-  // 2) Marca la transferencia como recibida (la caja destino va en destino_caja_*).
+  // 2) Marca la bandera de Acopio; la transferencia pasa a 'recibida' (+ACK) en la PRIMERA aceptación.
+  const primera = row.estado === 'por_confirmar';
   const { error } = await supabase.from('transferencias_inter').update({
-    estado: 'recibida',
-    destino_caja_id: cajaId,
-    destino_caja_nombre: input.cajaNombre ?? null,
-    caja_nombre: input.cajaNombre ?? null,
+    recibida_acopio: true,
     confirmada_at: new Date().toISOString(),
+    ...(primera ? { estado: 'recibida' } : {}),
   }).eq('id', row.id);
   if (error) throw error;
 
-  // 3) ACK al origen (best-effort: si falla, el origen reconcilia luego).
-  if (row.callback_base) {
+  // 3) ACK al origen solo en la primera aceptación (best-effort).
+  if (primera && row.callback_base) {
     await supabase.functions.invoke('transfer-enviar', {
       body: { tipo: 'ack', transf_id: row.transf_id, callback_base: row.callback_base },
     }).catch(() => { /* el ACK no bloquea */ });

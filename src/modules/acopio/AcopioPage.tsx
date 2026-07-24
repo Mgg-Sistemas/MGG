@@ -23,8 +23,8 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, cerrarYAbrirCaja, listCajaMovimientos, siguienteNumeroCaja, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
-import type { GrupoClasificacion, CajaMovimiento } from '@/shared/lib/types';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, cerrarYAbrirCaja, listCajaMovimientos, siguienteNumeroCaja, listEntrantesAcopioPorConfirmar, aceptarEntradaEnCajaAcopio, CENTRO_ACOPIO_EXTERNO, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
+import type { GrupoClasificacion, CajaMovimiento, TransferenciaInter } from '@/shared/lib/types';
 import { listVehiculos } from '@/modules/combustible/combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 // descargarResumenCajaPdf / enviarResumenCajaPorCorreo se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
@@ -154,6 +154,10 @@ function AcopioModulo({ centro }: { centro: string }) {
         </div>
       </div>
 
+      {/* Inbox: dinero que llega del sistema externo (traslado inter-sistema). Se acepta acá
+          por separado de Tesorería; ambos módulos registran el mismo monto. */}
+      <EntradasExternasAcopioPanel canWrite={canWrite} actor={actor} actorName={actorName} onChanged={reload} />
+
       {/* Botones + switch «Listar movimientos», debajo del título. Apagado = solo tarjetas;
           encendido = aparece la lista de movimientos y el botón para agregar uno nuevo. */}
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem', marginBottom: '1.25rem' }}>
@@ -249,6 +253,60 @@ function AcopioModulo({ centro }: { centro: string }) {
           onSaved={async () => { setNuevo(false); setEditar(null); await reload(); }}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Inbox del Centro de Acopio: transferencias de dinero que llegan del sistema externo
+ * (puente inter-sistema). Se aceptan acá POR SEPARADO de Tesorería; cada módulo registra
+ * el MISMO monto (Tesorería en su caja; el acopio como «USD entregados» del centro socio).
+ */
+function EntradasExternasAcopioPanel({ canWrite, actor, actorName, onChanged }: {
+  canWrite: boolean; actor: string; actorName: string | null; onChanged: () => void | Promise<void>;
+}) {
+  const [entrantes, setEntrantes] = useState<TransferenciaInter[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const cargar = useCallback(() => {
+    listEntrantesAcopioPorConfirmar().then(setEntrantes).catch(() => setEntrantes([]));
+  }, []);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['transferencias_inter'], cargar);
+
+  async function aceptar(t: TransferenciaInter) {
+    setBusy(t.id);
+    try {
+      await aceptarEntradaEnCajaAcopio({ row: t, actor, actorName });
+      toast(`Dinero de ${t.empresa_origen} registrado en ${CENTRO_ACOPIO_EXTERNO}`, 'success');
+      cargar();
+      await onChanged();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo aceptar', 'error'); }
+    finally { setBusy(null); }
+  }
+
+  if (!entrantes.length) return null;
+  return (
+    <div className="card" style={{ marginBottom: '1.25rem', borderColor: 'var(--brand, #ff8a00)' }}>
+      <div className="card-title" style={{ marginBottom: '.5rem' }}>🔗 Dinero recibido del sistema externo · por aceptar en el acopio</div>
+      <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.4rem' }}>
+        Entra como <strong>USD entregados</strong> al centro <strong>{CENTRO_ACOPIO_EXTERNO}</strong>. Tesorería lo acepta por su lado (el mismo monto).
+      </div>
+      <div style={{ display: 'grid', gap: '.45rem' }}>
+        {entrantes.map((t) => (
+          <div key={t.id} className="card" style={{ margin: 0, padding: '.55rem .7rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem' }}>
+            <div style={{ flex: '1 1 240px', fontSize: '.85rem' }}>
+              <strong>De {t.empresa_origen}</strong> · <span className="mono">{t.resumen}</span>
+              {t.motivo ? <span className="muted"> · {t.motivo}</span> : null}
+              <div className="muted" style={{ fontSize: '.72rem' }}>{date(t.created_at)}</div>
+            </div>
+            {canWrite && (
+              <button className="btn btn-sm btn-primary" disabled={busy === t.id} onClick={() => aceptar(t)}>
+                {busy === t.id ? 'Aceptando…' : '✓ Aceptar en el acopio'}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

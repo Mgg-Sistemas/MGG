@@ -182,6 +182,9 @@ export interface TransferenciaInter {
   actor_name?: string | null;
   created_at: string;
   confirmada_at?: string | null;
+  /** Aceptación por módulo de una entrante (mismo monto en Tesorería y en el Centro de Acopio). */
+  recibida_tesoreria?: boolean | null;
+  recibida_acopio?: boolean | null;
 }
 
 export type TipoMovimientoCaja = 'ingreso' | 'entrada' | 'salida' | 'traslado_salida' | 'traslado_entrada' | 'ajuste';
