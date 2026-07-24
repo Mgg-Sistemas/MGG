@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { crearOrden, ensureUnidadSolicitante, FINALIDAD_MERCADO } from './pedidos.repository';
+import { dateTime } from '@/shared/lib/format';
+import { crearOrden, ensureUnidadSolicitante, ultimaOrdenMercado, FINALIDAD_MERCADO } from './pedidos.repository';
 import type { ItemOrden, Producto, Usuario } from '@/shared/lib/types';
 
 /** Valores precargados (editables) de la Solicitud de Mercado. */
@@ -39,13 +40,45 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
   const [unidad, setUnidad] = useState(UNIDAD_DEFAULT);
   const [persona, setPersona] = useState(SOLICITANTE_DEFAULT);
   const [nota, setNota] = useState('');
-  // sku → { check, cantidad(texto) }. Todos vienen marcados (traer todo) con cantidad 1.
+  // sku → { check, cantidad(texto) }. Todos vienen marcados (traer todo) con cantidad 1;
+  // luego se reemplaza por la cantidad SUGERIDA de la última compra de mercado (si la hubo).
   const [sel, setSel] = useState<Record<string, { check: boolean; cant: string }>>(() => {
     const init: Record<string, { check: boolean; cant: string }> = {};
     for (const p of viveres) init[p.sku] = { check: true, cant: '1' };
     return init;
   });
   const [guardando, setGuardando] = useState(false);
+  // Info de la última compra de mercado, de donde salen las cantidades sugeridas.
+  const [ultima, setUltima] = useState<{ codigo: string; fecha?: string | null } | null>(null);
+
+  // Al abrir, trae la ÚLTIMA compra de mercado y precarga la cantidad de cada víver
+  // que ya se compró antes (por SKU, con respaldo por productoId). El resto queda en 1.
+  useEffect(() => {
+    let vivo = true;
+    ultimaOrdenMercado()
+      .then((o) => {
+        if (!vivo || !o) return;
+        const porSku = new Map<string, number>();
+        const porId = new Map<string, number>();
+        for (const it of o.items ?? []) {
+          const c = Number(it.cantidad) || 0;
+          if (c <= 0) continue;
+          if (it.sku) porSku.set(it.sku, c);
+          if (it.productoId) porId.set(it.productoId, c);
+        }
+        setSel((m) => {
+          const n = { ...m };
+          for (const p of viveres) {
+            const sug = porSku.get(p.sku) ?? porId.get(p.id);
+            if (sug != null) n[p.sku] = { check: n[p.sku]?.check ?? true, cant: String(sug) };
+          }
+          return n;
+        });
+        setUltima({ codigo: o.codigo, fecha: o.created_at });
+      })
+      .catch(() => { /* sin sugerencias: quedan en 1 */ });
+    return () => { vivo = false; };
+  }, [viveres]);
 
   const marcados = viveres.filter((p) => sel[p.sku]?.check).length;
 
@@ -137,6 +170,11 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
 
       <div className="form-row">
         <label>Víveres y Art. de Limpieza <span className="muted" style={{ fontWeight: 400 }}>· marcá los que se piden e indicá la cantidad</span></label>
+        {ultima && (
+          <small className="muted" style={{ display: 'block', margin: '-.2rem 0 .5rem', fontSize: '.76rem' }}>
+            🧾 Cantidades sugeridas de la última compra <strong className="mono">{ultima.codigo}</strong>{ultima.fecha ? <> · {dateTime(ultima.fecha)}</> : null} (editables).
+          </small>
+        )}
         {!viveres.length ? (
           <EmptyState icon="◇" message="No hay productos activos en la categoría «Víveres y Art. de Limpieza». Cargalos primero en Inventario." />
         ) : (
