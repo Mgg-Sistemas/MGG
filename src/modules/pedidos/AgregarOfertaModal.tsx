@@ -23,6 +23,9 @@ interface Props {
   registradoPorEmail: string;
   /** Si se pasa, el modal edita esa oferta (proveedor fijo) en vez de crear una nueva. */
   ofertaEdit?: OfertaProveedor | null;
+  /** Si se pasa, la oferta nueva solo cotiza estos SKU (los productos que quedaron pendientes
+   *  por asignar en una compra multiproveedor). Sin filtro, se cotizan todos los de la OP. */
+  soloSkus?: Set<string> | null;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -43,6 +46,7 @@ export function AgregarOfertaModal({
   proveedoresYaOfertados,
   registradoPorEmail,
   ofertaEdit,
+  soloSkus,
   onClose,
   onCreated,
 }: Props) {
@@ -87,7 +91,9 @@ export function AgregarOfertaModal({
   const [items, setItems] = useState<FormItem[]>(
     ofertaEdit
       ? ofertaEdit.items.map((i) => ({ ...i, precio: Number(i.precio) || 0, precio_usd: Number(i.precio_usd) || 0, _rid: nextRid() }))
-      : orden.items.filter((i) => i.comprar !== false).map((i) => ({ ...i, precio: 0, precio_usd: 0, _rid: nextRid() })),
+      : orden.items
+          .filter((i) => i.comprar !== false && (!soloSkus || soloSkus.has(i.sku)))
+          .map((i) => ({ ...i, precio: 0, precio_usd: 0, _rid: nextRid() })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEdit?.fecha_entrega_prometida ?? '');
   const [condiciones, setCondiciones] = useState(ofertaEdit?.condiciones_pago ?? '');
