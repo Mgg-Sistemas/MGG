@@ -632,6 +632,10 @@ export function PedidosPage() {
           cols={kanbanCols}
           onOpen={openDetail}
           noLeidos={noLeidos}
+          // En Órdenes de Compra el tablero muestra hasta 10 por columna (el resto se ve en el
+          // Histórico); «Pendiente (cargar ofertas)» queda SIN límite para no ocultar lo que falta cotizar.
+          maxPorColumna={scope === 'oc' ? 10 : undefined}
+          columnasSinLimite={scope === 'oc' ? ['aprobada'] : undefined}
         />
       ) : (
         <OrdenesTable
@@ -1892,8 +1896,12 @@ interface KanbanBoardProps {
   cols: { key: EstadoOrden; label: string }[];
   onOpen: (id: string) => void;
   noLeidos: Map<string, number>;
+  /** Máximo de tarjetas por columna (el resto se consulta en el Histórico). Sin definir = sin límite. */
+  maxPorColumna?: number;
+  /** Columnas exentas del límite (se muestran completas). */
+  columnasSinLimite?: EstadoOrden[];
 }
-function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBoardProps) {
+function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, maxPorColumna, columnasSinLimite }: KanbanBoardProps) {
   const byState = useMemo(() => {
     const map = new Map<EstadoOrden, Orden[]>();
     cols.forEach((c) => map.set(c.key, []));
@@ -1903,11 +1911,16 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBo
     });
     return map;
   }, [ordenes, cols]);
+  const sinLimite = useMemo(() => new Set(columnasSinLimite ?? []), [columnasSinLimite]);
 
   return (
     <div className="kanban">
       {cols.map((col) => {
         const items = byState.get(col.key) ?? [];
+        // Cap por columna: se muestran las primeras `maxPorColumna`; el resto queda en el Histórico.
+        const limitada = maxPorColumna != null && !sinLimite.has(col.key) && items.length > maxPorColumna;
+        const visibles = limitada ? items.slice(0, maxPorColumna) : items;
+        const ocultas = items.length - visibles.length;
         return (
           <div className="kanban-col" data-state={col.key} key={col.key}>
             <div className="kanban-col-head">
@@ -1918,15 +1931,22 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBo
               {items.length === 0 ? (
                 <div className="kanban-empty">Sin órdenes</div>
               ) : (
-                items.map((o) => (
-                  <KanbanCard
-                    key={o.id}
-                    orden={o}
-                    proveedor={o.proveedor_id ? proveedorMap.get(o.proveedor_id) ?? null : null}
-                    onOpen={onOpen}
-                    sinLeer={noLeidos.get(o.id) ?? 0}
-                  />
-                ))
+                <>
+                  {visibles.map((o) => (
+                    <KanbanCard
+                      key={o.id}
+                      orden={o}
+                      proveedor={o.proveedor_id ? proveedorMap.get(o.proveedor_id) ?? null : null}
+                      onOpen={onOpen}
+                      sinLeer={noLeidos.get(o.id) ?? 0}
+                    />
+                  ))}
+                  {ocultas > 0 && (
+                    <Link to="/app/pedidos/historico" className="kanban-empty" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }} title="Ver las órdenes restantes en el Histórico">
+                      + {ocultas} más · ver en el Histórico →
+                    </Link>
+                  )}
+                </>
               )}
             </div>
           </div>
