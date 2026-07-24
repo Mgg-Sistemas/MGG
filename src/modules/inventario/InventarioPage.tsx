@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { money, num } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
@@ -993,12 +993,9 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
             }
           >
             <div className="form-row">
-              <label>Almacén</label>
-              <select className="select" value={reporteFiltroSel} onChange={(e) => setReporteFiltroSel(e.target.value)} autoFocus>
-                <option value="">— Elegí un almacén —</option>
-                {almacenNombres.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              <small className="muted" style={{ fontSize: '.72rem' }}>Incluye los subalmacenes del almacén elegido (roll-up).</small>
+              <label>Almacén {reporteFiltroSel && <span className="muted" style={{ fontWeight: 400 }}>· elegido: <strong>{reporteFiltroSel}</strong></span>}</label>
+              <AlmacenArbol almacenes={almacenes} existencias={existencias} value={reporteFiltroSel} onChange={setReporteFiltroSel} />
+              <small className="muted" style={{ fontSize: '.72rem' }}>Tocá un almacén <strong>general</strong> (trae también sus subalmacenes) o desplegá con ▸ para elegir un <strong>subalmacén</strong>.</small>
             </div>
             {reporteFiltroSel ? (
               !rows.length ? (
@@ -1112,6 +1109,75 @@ export function InventarioPage() {
 /** DEPÓSITO: mismo módulo, espacio separado (ruta /app/deposito). Su total no suma con el inventario. */
 export function DepositoPage() {
   return <InventarioModulo espacio="deposito" />;
+}
+
+/* ───────── Árbol de almacenes: general (padre) → desplegar subalmacenes ─────────
+   Reemplaza al <select> plano del reporte por almacén: se listan los almacenes
+   GENERALES y cada uno se despliega (▸/▾) para ver sus subalmacenes. Elegir un
+   padre trae su roll-up (con subalmacenes); elegir un subalmacén acota a ese. */
+function AlmacenArbol({ almacenes, existencias, value, onChange }: {
+  almacenes: Almacen[]; existencias: Existencia[]; value: string; onChange: (n: string) => void;
+}) {
+  const activos = useMemo(() => almacenes.filter((a) => a.estado === 'activo'), [almacenes]);
+  const hijosDeMap = useMemo(() => {
+    const m = new Map<string | null, Almacen[]>();
+    for (const a of activos) {
+      const k = a.parent_id ?? null;
+      const arr = m.get(k) ?? [];
+      arr.push(a); m.set(k, arr);
+    }
+    for (const arr of m.values()) arr.sort((x, y) => x.nombre.localeCompare(y.nombre, 'es'));
+    return m;
+  }, [activos]);
+  const catNames = useMemo(() => new Set(activos.map((a) => a.nombre)), [activos]);
+  const legados = useMemo(
+    () => Array.from(new Set(existencias.map((e) => e.almacen).filter((n) => n && !catNames.has(n)))).sort((a, b) => a.localeCompare(b, 'es')),
+    [existencias, catNames],
+  );
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => setAbiertos((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const btnSel = (activo: boolean): CSSProperties => ({
+    flex: 1, textAlign: 'left', padding: '.32rem .5rem', borderRadius: 6, border: 'none', cursor: 'pointer',
+    background: activo ? 'var(--brand, #ff8a00)' : 'transparent', color: activo ? '#1a1a1a' : 'inherit',
+  });
+
+  const renderNodo = (a: Almacen, depth: number): ReactNode => {
+    const kids = hijosDeMap.get(a.id) ?? [];
+    const abierto = abiertos.has(a.id);
+    const sel = value === a.nombre;
+    return (
+      <div key={a.id}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.2rem', paddingLeft: depth * 16 }}>
+          {kids.length ? (
+            <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', minWidth: 24 }}
+              onClick={() => toggle(a.id)} title={abierto ? 'Contraer' : 'Ver subalmacenes'}>{abierto ? '▾' : '▸'}</button>
+          ) : <span style={{ display: 'inline-block', width: 24 }} />}
+          <button type="button" onClick={() => onChange(a.nombre)} style={{ ...btnSel(sel), fontWeight: depth === 0 ? 600 : 400 }}>
+            {nombreCortoAlmacen(a, almacenes)}
+            {kids.length ? <span className="muted" style={{ fontSize: '.72rem', color: sel ? '#1a1a1a' : undefined }}> · {kids.length} sub</span> : null}
+          </button>
+        </div>
+        {abierto && kids.map((k) => renderNodo(k, depth + 1))}
+      </div>
+    );
+  };
+
+  const roots = hijosDeMap.get(null) ?? [];
+  if (!roots.length && !legados.length) return <p className="hint muted" style={{ margin: 0 }}>No hay almacenes en este espacio.</p>;
+  return (
+    <div className="card" style={{ margin: 0, padding: '.3rem', maxHeight: 320, overflowY: 'auto' }}>
+      {roots.map((a) => renderNodo(a, 0))}
+      {legados.map((n) => (
+        <div key={`leg-${n}`} style={{ display: 'flex', alignItems: 'center', gap: '.2rem' }}>
+          <span style={{ display: 'inline-block', width: 24 }} />
+          <button type="button" onClick={() => onChange(n)} style={btnSel(value === n)}>
+            {n} <span className="muted" style={{ fontSize: '.7rem', color: value === n ? '#1a1a1a' : undefined }}>(sin catálogo)</span>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /* ───────── Eliminar almacén: confirmación escribiendo el nombre ───────── */
