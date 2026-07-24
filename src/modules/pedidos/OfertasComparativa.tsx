@@ -255,21 +255,29 @@ export function OfertasComparativa({
                       </div>
                     </td>
                     <td className="num mono">
-                      {money(s.oferta.precio_total)}
-                      {((Number(s.oferta.iva) || 0) > 0 || (Number(s.oferta.igtf) || 0) > 0) && (
-                        <div style={{ fontSize: '.72rem', marginTop: '.15rem', whiteSpace: 'nowrap' }}>
-                          {(Number(s.oferta.iva) || 0) > 0 && <span className="badge" title={`IVA ${money(Number(s.oferta.iva))}`}>+IVA</span>}{' '}
-                          {(Number(s.oferta.igtf) || 0) > 0 && <span className="badge" title={`IGTF ${money(Number(s.oferta.igtf))}`}>+IGTF</span>}
-                        </div>
-                      )}
                       {(() => {
+                        // El PRECIO TOTAL mostrado YA incluye IVA + IGTF (el "monto final" de la oferta).
+                        const iva = Number(s.oferta.iva) || 0;
+                        const igtf = Number(s.oferta.igtf) || 0;
+                        const imp = iva + igtf;
+                        const bcvConImp = Math.round(((Number(s.oferta.precio_total) || 0) + imp) * 100) / 100;
+                        const efe = Number(s.oferta.precio_efectivo) || 0;
                         const ahorro = descuentoEfectivo(s.oferta.precio_total, s.oferta.precio_efectivo);
-                        if (!ahorro) return null;
                         return (
-                          <div style={{ fontSize: '.75rem', marginTop: '.15rem', whiteSpace: 'nowrap' }}>
-                            <span style={{ color: 'var(--success)' }}>{money(s.oferta.precio_efectivo!)}</span>{' '}
-                            <span className="badge success" title={`Ahorro ${money(ahorro.diferencia)} (${money(s.oferta.precio_total)} BCV − ${money(s.oferta.precio_efectivo!)} efectivo)`}>−{ahorro.pct.toFixed(2)}%</span>
-                          </div>
+                          <>
+                            <strong>{money(bcvConImp)}</strong>
+                            {imp > 0 && (
+                              <div className="muted" style={{ fontSize: '.7rem', marginTop: '.1rem', whiteSpace: 'nowrap' }}>
+                                base {money(Number(s.oferta.precio_total))}{iva > 0 ? ` · IVA ${money(iva)}` : ''}{igtf > 0 ? ` · IGTF ${money(igtf)}` : ''}
+                              </div>
+                            )}
+                            {ahorro && (
+                              <div style={{ fontSize: '.75rem', marginTop: '.15rem', whiteSpace: 'nowrap' }}>
+                                <span style={{ color: 'var(--success)' }}>{money(Math.round((efe + imp) * 100) / 100)}</span>{' '}
+                                <span className="badge success" title={`Ahorro ${money(ahorro.diferencia)} (${money(s.oferta.precio_total)} BCV − ${money(efe)} efectivo)`}>−{ahorro.pct.toFixed(2)}%</span>
+                              </div>
+                            )}
+                          </>
                         );
                       })()}
                     </td>

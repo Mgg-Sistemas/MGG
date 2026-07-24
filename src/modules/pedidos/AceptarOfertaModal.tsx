@@ -207,15 +207,25 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCance
         <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
           <div>Total Bs (BCV): <strong>{bcvTotal > 0 ? money(bcvTotal, 'Bs') : '—'}</strong></div>
           <div>Total $ (USD): <strong style={{ color: 'var(--success)' }}>{usdTotal > 0 ? money(usdTotal, 'USD') : '—'}</strong></div>
-          {((Number(oferta.iva) || 0) > 0 || (Number(oferta.igtf) || 0) > 0) && (
-            <div style={{ marginTop: '.2rem' }}>
-              {(Number(oferta.iva) || 0) > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IVA {money(Number(oferta.iva))}</span>}
-              {(Number(oferta.igtf) || 0) > 0 && <span className="badge">+ IGTF {money(Number(oferta.igtf))}</span>}
-              <div className="muted" style={{ fontSize: '.76rem', marginTop: '.15rem' }}>
-                Los impuestos se suman al total de la OC que va a Tesorería.
+          {((Number(oferta.iva) || 0) > 0 || (Number(oferta.igtf) || 0) > 0) && (() => {
+            const iva = Number(oferta.iva) || 0;
+            const igtf = Number(oferta.igtf) || 0;
+            const bcvConImp = Math.round((bcvTotal + iva + igtf) * 100) / 100;
+            const usdConImp = usdTotal > 0 ? Math.round((usdTotal + iva + igtf) * 100) / 100 : 0;
+            return (
+              <div style={{ marginTop: '.2rem' }}>
+                {iva > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IVA {money(iva)}</span>}
+                {igtf > 0 && <span className="badge">+ IGTF {money(igtf)}</span>}
+                <div style={{ marginTop: '.2rem' }}>
+                  Total con impuestos: <strong>{bcvTotal > 0 ? money(bcvConImp, 'Bs') : '—'}</strong>
+                  {usdConImp > 0 && <> · <strong style={{ color: 'var(--success)' }}>{money(usdConImp, 'USD')}</strong></>}
+                </div>
+                <div className="muted" style={{ fontSize: '.76rem', marginTop: '.15rem' }}>
+                  El total que va a Tesorería ya incluye los impuestos.
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
         {sinPrecio && (
           <p className="hint" style={{ color: 'var(--danger)', fontSize: '.8rem', margin: '.4rem 0 0' }}>

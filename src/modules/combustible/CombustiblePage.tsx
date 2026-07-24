@@ -267,6 +267,7 @@ export function CombustiblePage() {
         </div>
         {sedeActiva && (
           <div className="actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={() => { setSedeActiva(null); setModal('none'); }} title="Volver a las sedes">← Volver</button>
             <button className="btn btn-primary" onClick={() => setModal('consumo')} title="Gráfica de consumo de combustible por tipo">📊 Consumo</button>
             <button className="btn btn-ghost" onClick={() => { setMovTanqueId(null); setModal('movimientos'); }} title="Histórico de movimientos de tanque (por mes)">🗒 Movimientos</button>
             {canWrite && (
