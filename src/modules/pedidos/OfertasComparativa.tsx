@@ -10,7 +10,7 @@ import type {
   Proveedor,
 } from '@/shared/lib/types';
 import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta, subirAdjuntosOferta } from './ofertas.repository';
-import { urlAdjuntoOc, listSubOcs } from './pedidos.repository';
+import { urlAdjuntoOc, listSubOcs, getOrdenById } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
@@ -50,6 +50,8 @@ export function OfertasComparativa({
   // SKUs ya asignados a una sub-OC (multiproveedor): se ocultan de las ofertas restantes,
   // así el detalle solo muestra los productos que quedan pendientes por asignar.
   const [lockedSkus, setLockedSkus] = useState<Set<string>>(new Set());
+  // En una orden HIJA: ítems de la OP madre que quedaron SIN asignar a ningún proveedor.
+  const [pendientesMadre, setPendientesMadre] = useState<ItemOrden[]>([]);
 
   const toggleExpand = (id: string) => setExpandido((prev) => {
     const next = new Set(prev);
@@ -59,22 +61,39 @@ export function OfertasComparativa({
 
   // Lista de proveedores (para mostrar el nombre fijo al editar una oferta).
   const proveedores = Array.from(proveedorMap.values());
+  // Orden HIJA (sub-OC multiproveedor): las ofertas viven en la orden PADRE. En la hija se
+  // muestran TODAS las ofertas del padre (como una orden normal, con la elegida marcada) y un
+  // aviso de los artículos que quedaron pendientes por asignar a otro proveedor.
+  const esHija = !!orden.parent_orden_id;
+  // El código de la OP madre = el de la hija sin el sufijo «-N» (ej. SP-2026-0064-1 → SP-2026-0064).
+  const codigoMadre = esHija ? orden.codigo.replace(/-\d+$/, '') : orden.codigo;
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listOfertasByOrden(orden.id)
+    // Una hija lee las ofertas de su PADRE; una orden normal, las suyas.
+    const madreId = orden.parent_orden_id ?? orden.id;
+    listOfertasByOrden(madreId)
       .then(async (rows) => {
         if (cancelled) return;
         setOfertas(rows);
         const pids = Array.from(new Set(rows.map((r) => r.proveedor_id)));
-        const [s, hijas] = await Promise.all([getStatsForProveedores(pids), listSubOcs(orden.id)]);
+        // Sub-OC del padre (para saber qué ítems ya se asignaron) y, en una hija, la OP madre
+        // (para listar lo que quedó pendiente). En orden normal, las sub-OC son las suyas.
+        const [s, hijas, madre] = await Promise.all([
+          getStatsForProveedores(pids),
+          listSubOcs(madreId),
+          esHija ? getOrdenById(madreId) : Promise.resolve(null),
+        ]);
         if (cancelled) return;
         setStats(s);
-        // Ítems ya cubiertos por una sub-OC (asignación parcial por proveedor): quedan fuera de las ofertas restantes.
+        // Ítems ya cubiertos por una sub-OC: en el PADRE se ocultan del detalle de las ofertas
+        // restantes; en una HIJA NO se filtra el detalle (se ven las ofertas completas).
         const locked = new Set<string>();
         for (const h of hijas) for (const it of (h.items ?? [])) if (it.sku) locked.add(it.sku);
-        setLockedSkus(locked);
+        setLockedSkus(esHija ? new Set() : locked);
+        // Artículos de la OP madre que no quedaron en ninguna sub-OC = pendientes por asignar.
+        setPendientesMadre(esHija && madre ? (madre.items ?? []).filter((it) => !locked.has(it.sku)) : []);
       })
       .catch((e: unknown) => {
         if (!cancelled) toast(e instanceof Error ? e.message : 'Error al cargar ofertas', 'error');
@@ -202,6 +221,23 @@ export function OfertasComparativa({
   return (
     <div className="card" style={{ marginTop: '1rem' }}>
       {headLine}
+      {esHija && (
+        <div className="card" style={{ margin: '0 0 .6rem', padding: '.5rem .8rem', background: 'var(--bg-1)', borderColor: 'var(--warning)' }}>
+          <div style={{ fontWeight: 600 }}>🧩 Compra multiproveedor — esta es una sub-orden de <span className="mono">{codigoMadre}</span>.</div>
+          {pendientesMadre.length > 0 ? (
+            <>
+              <div className="hint muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>Quedaron <strong>{pendientesMadre.length}</strong> artículo(s) pendiente(s) por asignar a otro proveedor:</div>
+              <ul style={{ margin: '.25rem 0 0', paddingLeft: '1.1rem', fontSize: '.8rem' }}>
+                {pendientesMadre.map((it) => (
+                  <li key={it.sku}>{it.nombre}{it.cantidad ? <span className="muted"> · {it.cantidad} {it.unidad ?? ''}</span> : null}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <div className="hint muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>Todos los artículos de la OP quedaron asignados a algún proveedor.</div>
+          )}
+        </div>
+      )}
       {orden.imagen_path && (
         <div className="card" style={{ margin: '0 0 .6rem', padding: '.45rem .7rem', background: 'var(--bg-1)', display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 600 }}>📷 Imagen de referencia de la solicitud (SP)</span>
@@ -320,7 +356,7 @@ export function OfertasComparativa({
                         {s.oferta.estado === 'pendiente' && <span className="badge warning">Pendiente</span>}
                         {s.oferta.estado === 'aceptada' && <span className="badge success">Aceptada</span>}
                         {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
-                        {canCrearOferta && s.oferta.estado === 'pendiente' && (
+                        {!esHija && canCrearOferta && s.oferta.estado === 'pendiente' && (
                           <>
                             <button
                               className="btn btn-sm btn-ghost"
@@ -364,7 +400,8 @@ export function OfertasComparativa({
                     );
                   })()}
                   {expandido.has(s.oferta.id) && (() => {
-                    // Solo los productos que siguen PENDIENTES por asignar (ocultamos los ya cubiertos por una sub-OC).
+                    // En el PADRE ocultamos del detalle los productos ya asignados a otra sub-OC;
+                    // en una HIJA (lockedSkus vacío) se muestra la oferta completa.
                     const itemsPend = lockedSkus.size ? s.oferta.items.filter((it) => !lockedSkus.has(it.sku)) : s.oferta.items;
                     const filas = comparativaPorProducto(itemsPend);
                     const totBcv = filas.reduce((a, f) => a + f.totalBcv, 0);
