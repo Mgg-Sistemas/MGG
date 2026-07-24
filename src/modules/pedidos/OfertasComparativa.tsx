@@ -10,7 +10,7 @@ import type {
   Proveedor,
 } from '@/shared/lib/types';
 import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta, subirAdjuntosOferta } from './ofertas.repository';
-import { urlAdjuntoOc } from './pedidos.repository';
+import { urlAdjuntoOc, listSubOcs } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
@@ -47,6 +47,9 @@ export function OfertasComparativa({
   const [editando, setEditando] = useState<OfertaProveedor | null>(null);
   const [expandido, setExpandido] = useState<Set<string>>(new Set());
   const [bump, setBump] = useState(0);
+  // SKUs ya asignados a una sub-OC (multiproveedor): se ocultan de las ofertas restantes,
+  // así el detalle solo muestra los productos que quedan pendientes por asignar.
+  const [lockedSkus, setLockedSkus] = useState<Set<string>>(new Set());
 
   const toggleExpand = (id: string) => setExpandido((prev) => {
     const next = new Set(prev);
@@ -65,8 +68,13 @@ export function OfertasComparativa({
         if (cancelled) return;
         setOfertas(rows);
         const pids = Array.from(new Set(rows.map((r) => r.proveedor_id)));
-        const s = await getStatsForProveedores(pids);
-        if (!cancelled) setStats(s);
+        const [s, hijas] = await Promise.all([getStatsForProveedores(pids), listSubOcs(orden.id)]);
+        if (cancelled) return;
+        setStats(s);
+        // Ítems ya cubiertos por una sub-OC (asignación parcial por proveedor): quedan fuera de las ofertas restantes.
+        const locked = new Set<string>();
+        for (const h of hijas) for (const it of (h.items ?? [])) if (it.sku) locked.add(it.sku);
+        setLockedSkus(locked);
       })
       .catch((e: unknown) => {
         if (!cancelled) toast(e instanceof Error ? e.message : 'Error al cargar ofertas', 'error');
@@ -356,10 +364,21 @@ export function OfertasComparativa({
                     );
                   })()}
                   {expandido.has(s.oferta.id) && (() => {
-                    const filas = comparativaPorProducto(s.oferta.items);
+                    // Solo los productos que siguen PENDIENTES por asignar (ocultamos los ya cubiertos por una sub-OC).
+                    const itemsPend = lockedSkus.size ? s.oferta.items.filter((it) => !lockedSkus.has(it.sku)) : s.oferta.items;
+                    const filas = comparativaPorProducto(itemsPend);
                     const totBcv = filas.reduce((a, f) => a + f.totalBcv, 0);
                     const totUsd = filas.reduce((a, f) => a + f.totalUsd, 0);
                     const hayUsd = filas.some((f) => f.precioUsd > 0);
+                    if (!filas.length) {
+                      return (
+                        <tr>
+                          <td colSpan={9} style={{ padding: '.3rem .6rem .7rem' }}>
+                            <p className="hint muted" style={{ margin: 0, fontSize: '.8rem' }}>Todos los productos de esta oferta ya fueron asignados a un proveedor.</p>
+                          </td>
+                        </tr>
+                      );
+                    }
                     return (
                       <tr>
                         <td colSpan={9} style={{ padding: '.3rem .6rem .7rem' }}>

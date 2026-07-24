@@ -54,6 +54,21 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     const it = o?.items?.find((x) => x.sku === sku);
     return it && Number(it.precio) > 0 ? Number(it.precio) : null;
   };
+  // IVA/IGTF (montos) de una oferta, PRORRATEADOS por la fracción que compra esta hija
+  // (gross asignado / gross total de la oferta). Así una sub-OC que toma solo parte de
+  // los ítems del proveedor recibe la parte proporcional del impuesto, no el total.
+  const impuestosDe = useCallback((provId: string, grossAsignado: number): { iva: number; igtf: number } => {
+    const o = ofertaDe.get(provId);
+    const ivaOf = Number(o?.iva) || 0;
+    const igtfOf = Number(o?.igtf) || 0;
+    if (ivaOf <= 0 && igtfOf <= 0) return { iva: 0, igtf: 0 };
+    const grossOferta = Number(o?.precio_total) || (o?.items ?? []).reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+    const frac = grossOferta > 0 ? Math.min(1, grossAsignado / grossOferta) : 1;
+    return {
+      iva: Math.round(ivaOf * frac * 100) / 100,
+      igtf: Math.round(igtfOf * frac * 100) / 100,
+    };
+  }, [ofertaDe]);
   // Ítems ya asignados a una sub-OC previa (bloqueados): sku → proveedor_id.
   const bloqueado = useMemo(() => {
     const m = new Map<string, string>();
@@ -78,19 +93,24 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
 
   // Resumen por proveedor (de lo asignado en esta sesión).
   const resumen = useMemo(() => {
-    const m = new Map<string, { items: number; total: number }>();
+    const m = new Map<string, { items: number; total: number; iva: number; igtf: number }>();
     for (const it of opItems) {
       const prov = asignado[it.sku];
       if (!prov) continue;
       const precio = precioDe(prov, it.sku) ?? 0;
-      const cur = m.get(prov) ?? { items: 0, total: 0 };
+      const cur = m.get(prov) ?? { items: 0, total: 0, iva: 0, igtf: 0 };
       cur.items += 1;
       cur.total += (Number(it.cantidad) || 0) * precio;
       m.set(prov, cur);
     }
+    // Prorratea IVA/IGTF de cada oferta por lo asignado (para que el preview iguale a la OC creada).
+    for (const [prov, r] of m) {
+      const imp = impuestosDe(prov, r.total);
+      r.iva = imp.iva; r.igtf = imp.igtf;
+    }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asignado, opItems, ofertaDe]);
+  }, [asignado, opItems, ofertaDe, impuestosDe]);
 
   const sinAsignar = opItems.filter((it) => !asignado[it.sku] && !bloqueado.has(it.sku));
   const nuevos = Object.keys(asignado).length;
@@ -111,11 +131,15 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     }
     const asignaciones: AsignacionProveedor[] = Array.from(porProv.entries()).map(([proveedorId, items]) => {
       const of = ofertaDe.get(proveedorId);
+      const gross = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+      const imp = impuestosDe(proveedorId, gross);
       return {
         proveedorId, items,
         condiciones_pago: of?.condiciones_pago ?? null,
         oferta_detalle: of?.detalle ?? null,
         oferta_precio_efectivo: of?.precio_efectivo ?? null,
+        iva: imp.iva > 0 ? imp.iva : null,
+        igtf: imp.igtf > 0 ? imp.igtf : null,
       };
     });
     setSaving(true);
@@ -163,7 +187,7 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
               const activo = selProv === o.proveedor_id;
               return (
                 <button key={o.id} className={activo ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'} onClick={() => setSelProv(o.proveedor_id)}>
-                  {provName(o.proveedor_id)}{r ? ` · ${r.items} ítem(s) · ${money(r.total)}` : ''}
+                  {provName(o.proveedor_id)}{r ? ` · ${r.items} ítem(s) · ${money(r.total + r.iva + r.igtf)}` : ''}
                 </button>
               );
             })}
@@ -217,7 +241,9 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
             ) : (
               <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '.85rem' }}>
                 {Array.from(resumen.entries()).map(([prov, r]) => (
-                  <li key={prov}><strong>{provName(prov)}</strong>: {r.items} producto(s) · <span className="mono">{money(r.total)}</span></li>
+                  <li key={prov}><strong>{provName(prov)}</strong>: {r.items} producto(s) · <span className="mono">{money(r.total + r.iva + r.igtf)}</span>
+                    {(r.iva > 0 || r.igtf > 0) && <span className="muted"> (base {money(r.total)}{r.iva > 0 ? ` · IVA ${money(r.iva)}` : ''}{r.igtf > 0 ? ` · IGTF ${money(r.igtf)}` : ''})</span>}
+                  </li>
                 ))}
               </ul>
             )}
