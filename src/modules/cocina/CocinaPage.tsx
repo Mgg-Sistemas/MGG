@@ -333,6 +333,8 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, o
   const [viveres, setViveres] = useState<ViverDisponible[]>([]);
   const [tipo, setTipo] = useState<TipoComida>('almuerzo');
   const [platos, setPlatos] = useState('');
+  // Fecha de la comida: por defecto hoy, pero se puede cargar una comida de un día desfasado.
+  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [nota, setNota] = useState('');
   const [busqueda, setBusqueda] = useState('');
   // Selección tipo check: productoId → cantidad (string). Si la clave existe, está tildado.
@@ -370,9 +372,10 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, o
       .map(([producto_id, c]) => ({ producto_id, cantidad: Number(c) || 0 }));
     if (!items.length) { setError('Marcá al menos un víver e indicá su cantidad.'); return; }
     if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
+    if (!fecha) { setError('Indicá la fecha de la comida.'); return; }
     setSaving(true);
     try {
-      await crearComida({ tipoComida: tipo, platos: nPlatos, items, nota: nota.trim() || null, cocinaId, almacen, actor, actorName });
+      await crearComida({ tipoComida: tipo, platos: nPlatos, items, nota: nota.trim() || null, cocinaId, almacen, fecha, actor, actorName });
       notify(`Comida registrada · ${labelTipoComida(tipo)} · ${money(total)}`, 'success', { link: '#/app/cocina' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
@@ -399,6 +402,16 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, o
               </label>
             ))}
           </div>
+        </div>
+
+        {/* Fecha de la comida: por defecto hoy; se puede cargar una comida de un día desfasado. */}
+        <div className="form-row" style={{ maxWidth: 220 }}>
+          <label>Fecha de la comida</label>
+          <input className="input" type="date" value={fecha} max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setFecha(e.target.value)} />
+          {fecha && fecha !== new Date().toISOString().slice(0, 10) && (
+            <small className="muted" style={{ marginTop: '.25rem' }}>📅 Se registrará con fecha <strong>{fecha}</strong> (día desfasado).</small>
+          )}
         </div>
 
         {/* Víveres: TODOS los del inventario (categoría VÍVERES), sin importar el almacén.
