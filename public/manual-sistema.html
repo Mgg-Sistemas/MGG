@@ -252,6 +252,7 @@
       <li><a href="#sventas">Ventas</a></li>
       <li><a href="#sacopio">C. Acopio LA ESPERANZA</a></li>
       <li><a href="#srecep">Recepciones (laboratorio)</a></li>
+      <li><a href="#scocina">Alimentación (Cocina)</a></li>
       <li><a href="#s9">Usuarios</a></li>
       <li><a href="#s10">Ajustes</a></li>
       <li><a href="#srespaldo">Respaldo de Data</a></li>
@@ -616,6 +617,19 @@
       <li><strong>Σ Totales · por procedencia:</strong> centros de costo con <strong>SnO2, precio/tasa, Total Moneda y gastos</strong>, el <strong>promedio de precio de compra recepcionada</strong> y el <strong>costo final</strong> (humedades + Fe estéril). En el costo final, las dos filas de humedad se <strong>calculan solas</strong> desde las tablas de humedad: <strong>Humedad Provisional (Laboratorio)</strong> = <em>Merma peso H2O de Humedad Provisional</em>, y <strong>Humedad Adicional (Final)</strong> = <em>Merma H2O Provisional − Merma H2O Final</em> (ya no se escriben a mano; solo el <strong>Fe estéril</strong> y los <strong>Pesos Kg</strong> quedan editables). Arriba del resumen se listan los <strong>subtotales de neto seco por procedencia</strong> con su Σ.</li>
       <li><strong>📊 Resúmenes (PDF con vista previa):</strong> hoja de recepción con los pesos (Centro de Acopio → Recibidos → Secos → neto final), sus <strong>mermas y %</strong>, el tenor del mineral con sus lecturas y el <strong>Kg neto</strong>, más una tabla <strong>«POR PROCEDENCIA»</strong> (neto húmedo/seco, merma H₂O, tenor y Kg del mineral por cada procedencia).</li>
       <li><strong>🔒 Cerrar recepción:</strong> el <strong>neto seco</strong> entra al inventario como <strong>CASITERITA</strong> a la <strong>tasa final</strong> de Totales, en el almacén/subalmacén elegido; los resguardos que entran al inventario se ingresan aparte. Números en formato <strong>es-VE</strong> (coma decimal): al tipear se acepta coma o punto (<em>1,19</em> = <em>1.19</em>).</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="scocina">
+    <h2>🍳 Alimentación (Cocina)</h2>
+    <p>Controla la <strong>alimentación del personal</strong>: cada <strong>comida</strong> registrada consume <strong>víveres</strong> (categoría <strong>VÍVERES</strong> del inventario) y <strong>descuenta el stock</strong> del almacén de la cocina, tomando los <strong>precios del inventario</strong>. Así se lleva el <strong>costo de la alimentación</strong> (por plato, por día, por víver) sin salirte del sistema.</p>
+    <ul>
+      <li><strong>🍳 Cocinas (tarjetas):</strong> cada cocina se <strong>crea</strong>, <strong>edita (✎)</strong> o <strong>inhabilita (🗑)</strong> y se <strong>vincula a un almacén / subalmacén</strong>: de ahí salen los <strong>precios</strong> y el <strong>descuento de stock</strong> de los víveres. La tarjeta muestra los <strong>víveres con stock</strong> y el <strong>valor del stock</strong>. Al <strong>inhabilitar</strong> una cocina, sus comidas <strong>quedan en el histórico</strong> (podés volver a crearla luego). Sin almacén vinculado avisa y no deja registrar precios/descuento.</li>
+      <li><strong>＋ Añadir movimiento (registrar una comida):</strong> se elige el <strong>tipo de comida</strong> (🍳 Desayuno · 🍽 Almuerzo · 🌙 Cena), la <strong>Fecha de la comida</strong> (por defecto <strong>hoy</strong>, pero se puede <strong>cambiar por un día desfasado</strong> para cargar comidas de días previos), la cantidad de <strong>platos</strong> realizados y los <strong>víveres consumidos</strong> — se marcan con <strong>check</strong> desde todo el inventario de la categoría VÍVERES (con buscador) y se indica la <strong>cantidad</strong> de cada uno; el <strong>precio</strong> sale del inventario. Al guardar, se crea la comida con su <strong>correlativo COC-AAAA-NNNN</strong>, se calcula el <strong>valor total</strong> y se <strong>descuenta el stock</strong> de cada víver (salida en el kardex). Admite una <strong>nota</strong>.</li>
+      <li><strong>Tabla y filtros:</strong> lista cada comida (correlativo, tipo, fecha · hora, platos, víveres, valor y <strong>promedio por plato</strong>), con <strong>totales</strong> al pie. Se filtra por <strong>texto</strong> (correlativo, comida o víver), por <strong>tipo de comida</strong>, por <strong>fecha</strong> y por <strong>hora</strong>.</li>
+      <li><strong>📊 Resumen / Consumo:</strong> panel con <strong>total de platos</strong>, <strong>valor</strong>, <strong>promedio por plato</strong>, <strong>barras por día</strong> y los <strong>víveres más consumidos</strong>, más el <strong>stock</strong> disponible.</li>
+      <li><strong>↓ Reporte PDF:</strong> genera el reporte de las comidas filtradas (con <strong>vista previa</strong> antes de imprimir).</li>
+      <li><strong>🔔 Alerta a restablecer:</strong> avisa a <a href="#s5"><strong>Pedidos / Compras</strong></a> que hay que <strong>reponer víveres</strong>, para que arranquen la compra sin que la cocina se quede sin insumos.</li>
     </ul>
   </section>
 
