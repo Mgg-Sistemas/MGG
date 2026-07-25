@@ -904,6 +904,9 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
     cant: b.cant == null ? '1' : String(b.cant),
   })));
   const [nota, setNota] = useState(pesaje?.nota ?? '');
+  // Fecha del pesaje (día de la recepción): por defecto hoy o el día del pesaje editado;
+  // se puede cargar/cambiar por un día desfasado.
+  const [fecha, setFecha] = useState(() => (pesaje?.fecha ?? new Date().toISOString()).slice(0, 10));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -935,9 +938,11 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
   async function guardar() {
     setError(null); setSaving(true);
     try {
-      const dia = diaVE(pesaje?.fecha ?? new Date().toISOString());
-      if (pesaje) await actualizarPesaje(pesaje.id, { bigbags, nota });
-      else await crearPesaje({ grupo_id: grupoId, bigbags, nota }, actor, miNombre);
+      // Día desfasado: se guarda a mediodía local (evita que la zona horaria corra la fecha).
+      const fechaIso = fecha ? new Date(`${fecha}T12:00:00`).toISOString() : new Date().toISOString();
+      const dia = diaVE(fechaIso);
+      if (pesaje) await actualizarPesaje(pesaje.id, { bigbags, nota, fecha: fechaIso });
+      else await crearPesaje({ grupo_id: grupoId, bigbags, nota, fecha: fechaIso }, actor, miNombre);
       toast(`PESOS GUARDADOS DÍA ${dia}`, 'success');
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
@@ -953,6 +958,13 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
   return (
     <Modal title={pesaje ? `⚖ PESOS GUARDADOS DÍA ${diaVE(pesaje.fecha)}` : '⚖ Añadir pesos — Pesaje'} size="xl" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      <div className="form-row" style={{ maxWidth: 240, marginBottom: '.6rem' }}>
+        <label>Fecha del pesaje <span className="muted" style={{ fontWeight: 400 }}>(día de la recepción)</span></label>
+        <input className="input" type="date" value={fecha} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setFecha(e.target.value)} />
+        {fecha && fecha !== new Date().toISOString().slice(0, 10) && (
+          <small className="muted" style={{ marginTop: '.25rem' }}>📅 Se guardará con fecha <strong>{diaVE(`${fecha}T12:00:00`)}</strong> (día desfasado).</small>
+        )}
+      </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', marginBottom: '.6rem' }}>
         <span className="muted" style={{ fontSize: '.8rem' }}>Cada fila lleva su <strong>categoría</strong> (BIG BAG ×1,5 · SACO ×0,06 · BOLSA DE HIELO ×0,05) y su <strong>cantidad</strong>. DESCUENTO = −Σ (factor × cantidad) de cada fila con peso (ej. 7 big bags → −1,5×7) · TOTAL NETO = suma de pesos + DESCUENTO.</span>
         <button className="btn btn-sm btn-primary" onClick={addBigbag}>+ Añadir peso</button>

@@ -192,8 +192,7 @@ export async function listComidas(filtros?: FiltrosCocina): Promise<CocinaComida
 }
 
 /** Próximo correlativo COC-AAAA-NNNN por el MÁXIMO sufijo (no por conteo). */
-async function nextCodigoCocina(): Promise<string> {
-  const year = new Date().getFullYear();
+async function nextCodigoCocina(year = new Date().getFullYear()): Promise<string> {
   const { data, error } = await supabase
     .from(TABLE).select('codigo').like('codigo', `COC-${year}-%`);
   if (error) throw error;
@@ -215,6 +214,8 @@ export interface CrearComidaInput {
   cocinaId?: string | null;
   /** Almacén vinculado a la cocina (de ahí salen los precios y el descuento de stock). */
   almacen?: string | null;
+  /** Fecha de la comida (YYYY-MM-DD). Por defecto hoy; permite cargar un día desfasado. */
+  fecha?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -247,7 +248,14 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
     });
   }
   const valorTotal = Math.round(items.reduce((a, it) => a + it.subtotal, 0) * 100) / 100;
-  const codigo = await nextCodigoCocina();
+
+  // Fecha de la comida: si se indicó una distinta de HOY (día desfasado), se registra ese
+  // día a mediodía local (evita que la zona horaria corra la fecha). Si es hoy (o no se
+  // indicó), se deja el timestamp actual (default de la BD) para conservar el orden real.
+  const hoyStr = new Date().toISOString().slice(0, 10);
+  const fecha = input.fecha && /^\d{4}-\d{2}-\d{2}$/.test(input.fecha) ? input.fecha : null;
+  const atOverride = fecha && fecha !== hoyStr ? new Date(`${fecha}T12:00:00`).toISOString() : null;
+  const codigo = await nextCodigoCocina(fecha ? Number(fecha.slice(0, 4)) : undefined);
 
   const { data, error } = await supabase.from(TABLE).insert({
     codigo,
@@ -257,6 +265,7 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
     valor_total: valorTotal,
     nota: input.nota?.trim() || null,
     cocina_id: input.cocinaId ?? null,
+    ...(atOverride ? { at: atOverride } : {}),
     actor: input.actor,
     actor_name: input.actorName ?? null,
   }).select('*').single();
