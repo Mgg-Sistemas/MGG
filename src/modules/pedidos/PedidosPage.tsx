@@ -963,7 +963,7 @@ export function PedidosPage() {
           proveedores={proveedores}
           proveedorActual={modal.orden.proveedor_id ? proveedorMap.get(modal.orden.proveedor_id) ?? null : null}
           onClose={() => setModal({ kind: 'none' })}
-          onSent={async (metodos, soporte, proveedorId, qr) => {
+          onSent={async (metodos, soporte, proveedorId, qr, descuentoPago) => {
             try {
               const email = usuario?.email ?? user?.email ?? 'sistema';
               const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
@@ -975,7 +975,7 @@ export function PedidosPage() {
                 await refresh();
                 return;
               }
-              await indicarMetodoPago(modal.orden, metodos, email, soporte, qr);
+              await indicarMetodoPago(modal.orden, metodos, email, soporte, qr, descuentoPago);
               const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
               notify(`OC ${codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
               setModal({ kind: 'none' });
@@ -1303,7 +1303,7 @@ function MetodoPagoModal({
   proveedores: Proveedor[];
   proveedorActual: Proveedor | null;
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }, proveedorId: string, qr: File | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }, proveedorId: string, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
 }) {
   const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }]);
   const [qr, setQr] = useState<File | null>(null); // imagen / QR de pago (ej. QR de Binance) para Tesorería
@@ -1326,6 +1326,19 @@ function MetodoPagoModal({
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
+  // Descuento en el pago (opcional): reduce el monto a pagar en Tesorería (no el total OC).
+  // Se puede indicar en % (sobre el total) o como monto manual.
+  const [incluyeDesc, setIncluyeDesc] = useState(false);
+  const [descModo, setDescModo] = useState<'monto' | 'pct'>('monto');
+  const [descStr, setDescStr] = useState('');
+  const monedaOrden = orden.moneda ?? 'USD';
+  const baseTotal = esContraEntrega && orden.recibido_total != null ? Number(orden.recibido_total) : Number(orden.total);
+  const descPct = incluyeDesc && descModo === 'pct' ? Math.max(0, Math.min(100, Number(descStr) || 0)) : 0;
+  const descNum = !incluyeDesc ? 0
+    : descModo === 'pct'
+      ? Math.round(baseTotal * descPct) / 100                              // total × % , a 2 decimales
+      : Math.max(0, Math.round((Number(descStr) || 0) * 100) / 100);       // monto manual
+  const netoAPagar = Math.round(Math.max(0, baseTotal - descNum) * 100) / 100;
 
   // Precarga los datos de pago guardados del proveedor SELECCIONADO (no del original).
   useEffect(() => {
@@ -1371,6 +1384,10 @@ function MetodoPagoModal({
         setError('En multipago, indicá el monto por cada método/moneda.'); return;
       }
       if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+      if (incluyeDesc) {
+        if (descNum <= 0) { setError('Indicá el monto del descuento o desmarcá «El pago incluye descuento».'); return; }
+        if (descNum > baseTotal) { setError('El descuento no puede superar el total de la OC.'); return; }
+      }
       // Validar datos del proveedor en los métodos que los requieren.
       for (const l of validos) {
         if (requiereDatos(l.metodo)) {
@@ -1380,7 +1397,7 @@ function MetodoPagoModal({
       }
     }
     setSaving(true);
-    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null }, proveedorId, qr); }
+    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null }, proveedorId, qr, incluyeDesc && descNum > 0 ? descNum : null); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
 
@@ -1474,6 +1491,37 @@ function MetodoPagoModal({
             </>
           )}
         </div>
+      </div>
+
+      {/* Descuento en el pago (opcional): reduce el monto a pagar en Tesorería (el total OC no cambia). */}
+      <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: incluyeDesc ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+          <input type="checkbox" checked={incluyeDesc} onChange={(e) => setIncluyeDesc(e.target.checked)} />
+          <strong style={{ fontSize: '.9rem' }}>El pago incluye descuento</strong>
+          <span className="muted" style={{ fontSize: '.76rem' }}>(se resta del monto a pagar en Tesorería)</span>
+        </label>
+        {incluyeDesc && (
+          <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
+            <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.5rem' }}>
+              <button type="button" className={descModo === 'monto' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                onClick={() => { setDescModo('monto'); setDescStr(''); }}>Monto ({monedaOrden})</button>
+              <button type="button" className={descModo === 'pct' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                onClick={() => { setDescModo('pct'); setDescStr(''); }}>Porcentaje (%)</button>
+            </div>
+            <div className="form-row" style={{ margin: 0, maxWidth: 220 }}>
+              <label>{descModo === 'pct' ? 'Descuento (%)' : `Descuento (${monedaOrden})`}</label>
+              <input className="input mono" type="number" min={0} step="any" max={descModo === 'pct' ? 100 : undefined} value={descStr}
+                onChange={(e) => setDescStr(e.target.value)} placeholder={descModo === 'pct' ? '0' : '0,00'} />
+            </div>
+            <div className="card" style={{ margin: '.6rem 0 0', padding: '.5rem .75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+                <span className="muted" style={{ fontSize: '.8rem' }}>Total OC <strong className="mono">{money(baseTotal)}</strong></span>
+                <span className="muted" style={{ fontSize: '.8rem' }}>− Descuento <strong className="mono">{money(descNum)}</strong>{descModo === 'pct' && descPct > 0 ? ` (${descPct}%)` : ''}</span>
+                <span style={{ fontSize: '.92rem' }}>A pagar <strong className="mono" style={{ color: 'var(--success)' }}>{money(netoAPagar)}</strong></span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gap: '.6rem' }}>
@@ -2561,6 +2609,16 @@ function OrdenDetailModal({
               </div>
             ))}
             {o.metodo_pago_en && <span className="muted" style={{ fontSize: '.74rem' }}>indicado {dateTime(o.metodo_pago_en)} por {persona(o.metodo_pago_por, personaMap)}</span>}
+          </div>
+        </div>
+      )}
+      {(Number(o.descuento_pago) || 0) > 0 && (
+        <div className="detail-row">
+          <div className="k">Descuento en el pago</div>
+          <div className="v">
+            <span className="badge success">− {money(Number(o.descuento_pago), o.moneda)}</span>{' '}
+            <span className="mono">A pagar {money(Math.round((Number(o.total) - Number(o.descuento_pago)) * 100) / 100, o.moneda)}</span>{' '}
+            <span className="muted" style={{ fontSize: '.74rem' }}>· total OC {money(o.total, o.moneda)} (no cambia)</span>
           </div>
         </div>
       )}

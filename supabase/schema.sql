@@ -1664,6 +1664,9 @@ alter table public.ordenes add column if not exists abonado_total  numeric defau
 alter table public.ordenes add column if not exists sin_inventario boolean not null default false;
 -- Descuento OBTENIDO (negociado) que reduce el monto de la factura: total = Σ ítems − descuento.
 alter table public.ordenes add column if not exists descuento_obtenido numeric;
+-- Descuento indicado al confirmar el MÉTODO DE PAGO (OC): reduce el monto a pagar en Tesorería
+-- (a pagar = total − descuento_pago). El `total` de la OC NO cambia.
+alter table public.ordenes add column if not exists descuento_pago numeric;
 -- IVA / IGTF (montos) de la oferta elegida, copiados a la OC (ya incluidos en `total`).
 alter table public.ordenes add column if not exists iva  numeric;
 alter table public.ordenes add column if not exists igtf numeric;

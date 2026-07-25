@@ -815,6 +815,9 @@ export interface Orden {
   sin_inventario?: boolean | null;
   /** Descuento obtenido (negociado) que reduce el monto a pagar: total = Σ ítems − descuento. */
   descuento_obtenido?: number | null;
+  /** Descuento indicado al confirmar el MÉTODO DE PAGO (desde la OC): reduce el monto a pagar
+   *  en Tesorería (a pagar = total − descuento_pago). El `total` de la OC NO cambia. */
+  descuento_pago?: number | null;
   /** IVA (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
   iva?: number | null;
   /** IGTF (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
