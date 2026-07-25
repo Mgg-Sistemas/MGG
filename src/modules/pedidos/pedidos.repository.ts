@@ -812,6 +812,7 @@ export async function indicarMetodoPago(
   actorEmail: string,
   soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null },
   qr?: File | null,
+  descuentoPago?: number | null,
 ): Promise<Orden> {
   // Flujo normal: confirmada_metodo → oc_aprobada. Contra entrega: tras recibir
   // (recibida) se indica el método para pagar SOLO lo recibido → oc_aprobada.
@@ -844,6 +845,8 @@ export async function indicarMetodoPago(
     qrPath = await subirAdjuntoOc(o.id, qr, 'qr');
     qrNombre = qr.name;
   }
+  // Descuento indicado en el pago (opcional): reduce el monto a pagar en Tesorería (no el total OC).
+  const descPago = Math.max(0, Math.round((Number(descuentoPago) || 0) * 100) / 100);
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
     metodo_pago: limpios,
@@ -853,7 +856,8 @@ export async function indicarMetodoPago(
     retencion_modo: retencionModo,
     pago_qr_path: qrPath,
     pago_qr_nombre: qrNombre,
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath }),
+    descuento_pago: descPago > 0 ? descPago : null,
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath, ...(descPago > 0 ? { descuento_pago: descPago } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1093,7 +1097,10 @@ export interface OrdenPorPagar {
 
 function mapPorPagar(orden: Orden, pm: Map<string, string>): OrdenPorPagar {
   const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
-  const montoAPagar = esContraEntrega && orden.recibido_total != null ? Number(orden.recibido_total) : Number(orden.total);
+  const base = esContraEntrega && orden.recibido_total != null ? Number(orden.recibido_total) : Number(orden.total);
+  // Descuento indicado en el método de pago: reduce lo que Tesorería paga (no el total OC).
+  const descPago = Math.max(0, Math.round((Number(orden.descuento_pago) || 0) * 100) / 100);
+  const montoAPagar = Math.round(Math.max(0, base - descPago) * 100) / 100;
   return {
     orden,
     proveedorNombre: (orden.proveedor_id && pm.get(orden.proveedor_id)) || '—',

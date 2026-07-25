@@ -798,6 +798,9 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
                   )}
                 </div>
                 {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), orden.moneda ?? 'USD')}</strong></div>}
+                {(Number(orden.descuento_pago) || 0) > 0 && (
+                  <div><span className="muted">Descuento en el pago:</span> <strong className="mono" style={{ color: 'var(--success)' }}>− {monto(Number(orden.descuento_pago), orden.moneda ?? 'USD')}</strong> <span className="badge success" style={{ fontSize: '.66rem' }}>incluye descuento</span></div>
+                )}
                 <div><span className="muted">Solicitante:</span> <strong>{orden.solicitante || orden.solicitante_email}</strong></div>
                 {orden.condiciones_pago && <div><span className="muted">Condición:</span> <strong>{labelCondicionPago(orden.condiciones_pago)}</strong></div>}
                 {orden.pagada_en && <div><span className="muted">Pagada:</span> <strong>{dateTime(orden.pagada_en)}</strong></div>}
@@ -4388,6 +4391,13 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
                   {r.esContraEntrega && r.montoAPagar < Number(r.orden.total) && (
                     <div className="muted" style={{ fontSize: '.68rem' }}>de {monto(r.orden.total, r.orden.moneda ?? 'USD')}</div>
                   )}
+                  {(Number(r.orden.descuento_pago) || 0) > 0 && (
+                    <div style={{ fontSize: '.66rem', marginTop: '.15rem' }}>
+                      <span className="badge success" title={`Incluye descuento de ${monto(Number(r.orden.descuento_pago), r.orden.moneda ?? 'USD')} · total OC ${monto(r.orden.total, r.orden.moneda ?? 'USD')}`}>
+                        incluye desc. −{monto(Number(r.orden.descuento_pago), r.orden.moneda ?? 'USD')}
+                      </span>
+                    </div>
+                  )}
                 </td>
                 <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
                 <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
@@ -6303,6 +6313,18 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             {o.motivo && o.motivo !== o.notas && <div style={{ gridColumn: '1 / -1' }}><span className="muted">Motivo:</span> {o.motivo}</div>}
           </div>
         </div>
+
+        {/* Descuento indicado en el método de pago: el monto a pagar ya viene con el descuento aplicado. */}
+        {(Number(o.descuento_pago) || 0) > 0 && (
+          <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--success)', background: 'var(--bg-1)' }}>
+            <div style={{ fontSize: '.86rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <span>🏷️ <strong>Incluye descuento en el pago.</strong></span>
+              <span className="muted">Total OC <strong className="mono">{monto(o.total, o.moneda ?? 'USD')}</strong></span>
+              <span className="muted">− Descuento <strong className="mono" style={{ color: 'var(--success)' }}>{monto(Number(o.descuento_pago), o.moneda ?? 'USD')}</strong></span>
+              <span>A pagar <strong className="mono" style={{ color: 'var(--success)' }}>{monto(baseGeneral, o.moneda ?? 'USD')}</strong></span>
+            </div>
+          </div>
+        )}
 
         {/* Observación del analista al elegir la oferta (por qué la eligió) + adjuntos. */}
         {(o.oferta_motivo || (o.oferta_motivo_adjuntos && o.oferta_motivo_adjuntos.length > 0)) && (
