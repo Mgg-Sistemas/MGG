@@ -392,11 +392,13 @@ export interface EditarOcInput {
  * nota. Recalcula el total. Una vez aprobada/confirmada ya no se edita por aquí.
  */
 export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: string): Promise<Orden> {
-  // Editable mientras no se haya pagado/recibido: «OC creada» (por aprobar) o
-  // «Confirmada (indicar método de pago)». Si ya estaba confirmada por el Gerente,
-  // editarla la REABRE: vuelve a «OC creada» y debe aprobarse de nuevo.
-  const editable = o.estado === 'oc_creada' || o.estado === 'confirmada_metodo';
-  if (!editable) throw new Error('Solo se puede editar la OC mientras está por aprobar o pendiente de cargar el método de pago.');
+  // Editable mientras no se haya pagado/recibido: «OC creada» (por aprobar),
+  // «Confirmada (indicar método de pago)» o «Confirmada pagar» (ya en Tesorería).
+  // Si estaba en «Confirmada (indicar método)», editarla la REABRE a «OC creada».
+  // En «Confirmada pagar» los cambios de precio se aplican EN SITIO (sigue en pago,
+  // se sincroniza con Tesorería); solo un cambio de PROVEEDOR la reabre a aprobación.
+  const editable = o.estado === 'oc_creada' || o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada';
+  if (!editable) throw new Error('Solo se puede editar la OC mientras está por aprobar, pendiente de método de pago o confirmada para pagar.');
   if (!input.items.length) throw new Error('La OC debe tener al menos un producto.');
   const subtotal = input.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
   // Descuento obtenido (negociado): si viene en el input se usa; si no, se conserva el de la OC.
@@ -421,6 +423,13 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
     patch.estado = 'oc_creada';
     patch.oc_aprobada_por = null;
     patch.oc_aprobada_en = null;
+    if (o.estado === 'oc_aprobada') {
+      // Venía de «Confirmada pagar» (ya en Tesorería): al reabrir por cambio de
+      // proveedor se limpia el método de pago para volver a indicarlo tras aprobar.
+      patch.metodo_pago = null;
+      patch.metodo_pago_por = null;
+      patch.metodo_pago_en = null;
+    }
   }
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;

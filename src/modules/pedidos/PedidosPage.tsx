@@ -2353,6 +2353,9 @@ function OrdenDetailModal({
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
           {canManageProcurement && (
+            <button className="btn btn-ghost" onClick={onEditarOc} title="Editar los precios de la OC. El nuevo total se sincroniza con Tesorería sin sacar la OC de pago; queda en la trazabilidad.">✎ Editar precios</button>
+          )}
+          {canManageProcurement && (
             <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (aún no se pagó en Tesorería)">⊘ Anular OC</button>
           )}
         </>
@@ -3178,7 +3181,11 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
       <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>Ajustá el proveedor, cantidades, precios y la condición de pago. El total se recalcula solo. Si cambiás algo, la OC vuelve a aprobación del Gerente General.</p>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+        {orden.estado === 'oc_aprobada'
+          ? <>Ajustá <strong>precios y cantidades</strong>: el nuevo total se <strong>sincroniza con Tesorería</strong> y la OC <strong>sigue en «Confirmada pagar»</strong> (queda en la trazabilidad). Si cambiás el <strong>proveedor</strong>, la OC vuelve a aprobación del Gerente General.</>
+          : <>Ajustá el proveedor, cantidades, precios y la condición de pago. El total se recalcula solo. Si cambiás algo, la OC vuelve a aprobación del Gerente General.</>}
+      </p>
       {proveedoresSel.length > 0 && (
         <div className="form-row" style={{ marginBottom: '.6rem' }}>
           <label>Proveedor</label>
