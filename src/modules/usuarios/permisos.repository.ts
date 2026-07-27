@@ -82,7 +82,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
   if (role === 'admin') {
     MODULES.forEach((m) => (all[m.key] = { lectura: true, escritura: true, full: true }));
   } else if (role === 'analista') {
-    (['dashboard', 'pedidos', 'proveedores', 'inventario', 'deposito', 'produccion', 'refinacion', 'salidas', 'combustible', 'ajustes'] as ModuleKey[]).forEach((k) => {
+    (['dashboard', 'pedidos', 'proveedores', 'inventario', 'deposito', 'produccion', 'refinacion', 'salidas', 'combustible', 'cocina', 'ajustes'] as ModuleKey[]).forEach((k) => {
       all[k] = { lectura: true, escritura: true, full: false };
     });
     all.usuarios = { lectura: true, escritura: false, full: false };
