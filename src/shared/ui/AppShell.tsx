@@ -265,6 +265,15 @@ export function AppShell() {
               <NavItem to="/app/inventario" icon="⬢" label="Inventario" />
             )
           )}
+          {can('inventario') && (
+            <NavGroup icon="▣" label="Almacenes" defaultOpen={location.pathname.startsWith('/app/almacenes')}>
+              <NavItem to="/app/almacenes/los-pinos" icon="🌲" label="Los Pinos" />
+              <NavItem to="/app/almacenes/el-burro" icon="🏭" label="El Burro" />
+              <NavItem to="/app/almacenes/la-esperanza" icon="🏭" label="La Esperanza" />
+              <NavItem to="/app/almacenes/los-pijiguaos" icon="🏭" label="Los Pijiguaos" />
+              <NavItem to="/app/almacenes/parguaza" icon="🏭" label="Parguaza" />
+            </NavGroup>
+          )}
           {(can('produccion') || can('refinacion')) && (
             can('refinacion') ? (
               <NavGroup icon="🔥" label="Fundición" defaultOpen={location.pathname.startsWith('/app/produccion') || location.pathname.startsWith('/app/refinacion')}>
