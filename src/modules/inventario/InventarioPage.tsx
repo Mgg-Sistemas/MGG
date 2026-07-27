@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useParams, Navigate } from 'react-router-dom';
 import { money, num } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -154,9 +154,13 @@ const SEDES_ARBOL = [
 ];
 
 /** Página parametrizada por ESPACIO: 'principal' = Inventario, 'deposito' = submódulo
- *  Depósito (mismas funciones, datos separados; su total NO suma con el inventario). */
-export function InventarioModulo({ espacio }: { espacio: Espacio }) {
+ *  Depósito (mismas funciones, datos separados; su total NO suma con el inventario).
+ *  `centroSede`: si viene, la página vive como una VISTA DE CENTRO en el submenú del
+ *  sidebar (Los Pinos, El Burro, La Esperanza…): se bloquea en la vista de almacenes de
+ *  ESA sede, sin las pestañas de Inventario. Matanzas se queda dentro de Inventario. */
+export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espacio; centroSede?: string | null }) {
   const meta = ESPACIOS[espacio];
+  const centroMode = !!centroSede;
   const { user } = useSession();
   const { can, appUser } = usePermissions();
   const canWrite = can(meta.modulo, 'escritura');
@@ -170,7 +174,7 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [almacenSel, setAlmacenSel] = useState<string | null>(null);
-  const [sedeSel, setSedeSel] = useState<string | null>(null);
+  const [sedeSel, setSedeSel] = useState<string | null>(centroSede);
   // Almacén padre cuyo nivel de subalmacenes estamos viendo (drill-down dentro de la sede).
   const [almacenNavId, setAlmacenNavId] = useState<string | null>(null);
   const [consumoAlmacen, setConsumoAlmacen] = useState<string | null>(null);
@@ -182,7 +186,17 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
   const [enProduccion, setEnProduccion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [ui, setUi] = useState<UiState>(INITIAL_UI);
+  const [ui, setUi] = useState<UiState>(centroMode ? { ...INITIAL_UI, view: 'almacenes' } : INITIAL_UI);
+
+  // Vista de CENTRO (submenú del sidebar): se bloquea en la sede indicada y
+  // arranca directo en su lista de almacenes (sin pasar por las tarjetas de sede).
+  useEffect(() => {
+    if (!centroSede) return;
+    setUi((prev) => ({ ...prev, view: 'almacenes' }));
+    setSedeSel(centroSede);
+    setAlmacenSel(null);
+    setAlmacenNavId(null);
+  }, [centroSede]);
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -595,26 +609,32 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
     <div>
       <div className="page-head">
         <div>
-          <h1>{meta.icono} {meta.titulo}{esDeposito && <span className="badge" style={{ marginLeft: '.5rem', verticalAlign: 'middle' }}>separado del inventario</span>}</h1>
+          <h1>{centroMode ? '▣' : meta.icono} {centroMode ? centroSede : meta.titulo}{esDeposito && <span className="badge" style={{ marginLeft: '.5rem', verticalAlign: 'middle' }}>separado del inventario</span>}</h1>
           <p>
-            {esDeposito
+            {centroMode
+              ? <>Almacenes y subalmacenes de <strong>{centroSede}</strong>. <span className="muted">Salidas y traslados se hacen desde el módulo Salidas.</span></>
+              : esDeposito
               ? <>Depósito aparte: mismos controles que el inventario, con <strong>sus propios almacenes</strong>. <span className="muted">Su total NO suma con el inventario.</span></>
               : <>Catálogo de productos. <span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span></>}
           </p>
         </div>
         <div className="actions">
+          {!centroMode && (
           <button
             className={`btn ${ui.view === 'productos' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setUi((prev) => ({ ...prev, view: 'productos' }))}
           >
             {esDeposito ? 'Depósito general' : 'Inventario general'}
           </button>
+          )}
+          {!centroMode && (
           <button
             className={`btn ${ui.view === 'almacenes' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => { setAlmacenSel(null); setUi((prev) => ({ ...prev, view: 'almacenes' })); }}
           >
-            ▣ Almacenes
+            {esDeposito ? '▣ Almacenes' : '▣ Subalmacenes'}
           </button>
+          )}
           <button
             className="btn btn-ghost"
             onClick={() => { setReporteFiltroSel(''); setModal({ kind: 'reporteFiltro' }); }}
@@ -622,7 +642,7 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
           >
             📄 Reporte por almacén
           </button>
-          {!esDeposito && (
+          {!esDeposito && !centroMode && (
           <button
             className={`btn ${ui.view === 'recepciones' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setUi((prev) => ({ ...prev, view: 'recepciones' }))}
@@ -734,16 +754,18 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
         <RecepcionesPendientes ordenes={recepciones} compras={comprasRecibir} almacenes={almacenes} actor={productoActor} actorName={actorName} onRecibida={reload} />
       ) : ui.view === 'almacenes' ? (
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+          {centroMode && (
           <aside style={{ width: 270, flexShrink: 0, position: 'sticky', top: '.5rem', maxHeight: '82vh', overflowY: 'auto', borderRight: '1px solid var(--border)', paddingRight: '.5rem' }}>
             <div style={{ fontWeight: 700, margin: '.2rem .3rem .5rem' }}>▣ Almacenes</div>
             <ArbolAlmacenesPanel
               almacenes={almacenes}
-              sedesIncluidas={SEDES_ARBOL}
+              sedesIncluidas={[centroSede!]}
               seleccionado={almacenSel}
               valores={valoresRollup}
               onSelect={(n) => { setAlmacenSel(n); }}
             />
           </aside>
+          )}
           <div style={{ flex: 1, minWidth: 0 }}>
         {almacenSel ? (
           <>
@@ -810,7 +832,10 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
             {loading ? (
               <EmptyState message="Cargando almacenes…" icon="◔" />
             ) : (
-              <SedesView almacenes={almacenes} valores={valoresAlm} canWrite={canWrite}
+              // En Inventario, la vista "Subalmacenes" muestra SOLO las sedes que NO se
+              // movieron al submenú del sidebar (Matanzas y legados). Los Pinos y los
+              // centros de acopio ahora viven en el submenú "Almacenes".
+              <SedesView almacenes={almacenes.filter((a) => !SEDES_ARBOL.includes((a.sede ?? '').trim().toUpperCase()))} valores={valoresAlm} canWrite={canWrite}
                 onSelectSede={(s) => { setSedeSel(s); setAlmacenNavId(null); }}
                 onEditarSede={(s) => setModal({ kind: 'sedeEditar', sede: s })} />
             )}
@@ -839,7 +864,7 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
                 </>
               ) : (
                 <>
-                  <button className="btn btn-ghost" onClick={() => setSedeSel(null)}>← Volver a sedes</button>
+                  {!centroMode && <button className="btn btn-ghost" onClick={() => setSedeSel(null)}>← Volver a sedes</button>}
                   <h2 style={{ margin: 0 }}>📍 {sedeSel}</h2>
                 </>
               )}
@@ -1157,6 +1182,26 @@ export function InventarioPage() {
 /** DEPÓSITO: mismo módulo, espacio separado (ruta /app/deposito). Su total no suma con el inventario. */
 export function DepositoPage() {
   return <InventarioModulo espacio="deposito" />;
+}
+
+/** Centros que viven como VISTA propia en el submenú "Almacenes" del sidebar.
+ *  slug (URL) → nombre de sede (tal como está en la tabla `almacenes`). */
+export const CENTROS_ALMACEN: Array<{ slug: string; sede: string; label: string; icon: string }> = [
+  { slug: 'los-pinos', sede: 'LOS PINOS', label: 'Los Pinos', icon: '🌲' },
+  { slug: 'el-burro', sede: 'CENTRO DE ACOPIO - EL BURRO', label: 'El Burro', icon: '🏭' },
+  { slug: 'la-esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', label: 'La Esperanza', icon: '🏭' },
+  { slug: 'los-pijiguaos', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS', label: 'Los Pijiguaos', icon: '🏭' },
+  { slug: 'parguaza', sede: 'CENTRO DE ACOPIO - PARGUAZA', label: 'Parguaza', icon: '🏭' },
+];
+
+/** VISTA DE CENTRO (ruta /app/almacenes/:sede): reutiliza el módulo de inventario
+ *  bloqueado en la sede del centro (Los Pinos, El Burro, La Esperanza…). */
+export function AlmacenCentroPage() {
+  const { sede: slug } = useParams<{ sede: string }>();
+  const centro = CENTROS_ALMACEN.find((c) => c.slug === slug);
+  if (!centro) return <Navigate to="/app/inventario" replace />;
+  // key: fuerza el remonte del módulo al cambiar de centro (reinicia el estado interno).
+  return <InventarioModulo key={centro.slug} espacio="principal" centroSede={centro.sede} />;
 }
 
 /* ───────── Árbol de almacenes: general (padre) → desplegar subalmacenes ─────────
