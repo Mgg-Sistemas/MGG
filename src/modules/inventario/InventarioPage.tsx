@@ -409,6 +409,9 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const modoInventario = ui.view === 'productos' || (ui.view === 'almacenes' && !esDeposito);
   // Título de la vista de inventario según el contexto.
   const tituloInventario = centroMode ? centroSede! : (esDeposito ? meta.titulo : 'Matanza');
+  // Productos del scope separados en General y Casiterita (para el Exportar contextual).
+  const scopeGeneral = useMemo(() => (almacenesDeScope ? productosDeAlmacenes(almacenesDeScope.resto) : []), [almacenesDeScope, productosDeAlmacenes]);
+  const scopeCasiterita = useMemo(() => (almacenesDeScope ? productosDeAlmacenes(almacenesDeScope.cas) : []), [almacenesDeScope, productosDeAlmacenes]);
 
   // Lista de la vista general. Si hay filtro por almacén, las filas son las de ese
   // almacén (stock/PMP propios); si no, el catálogo global. Luego aplica los demás filtros.
@@ -1171,6 +1174,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       {modal.kind === 'export' && (
         <ExportInventarioModal
           productos={productos}
+          scope={sedeScope ? { titulo: tituloInventario, general: scopeGeneral, casiterita: scopeCasiterita } : undefined}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}

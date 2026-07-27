@@ -14,12 +14,18 @@ import { AlmacenSelectAgrupado } from './AlmacenPicker';
 
 interface Props {
   productos: Producto[];
+  /** Si viene, el export se limita a ESE almacén/centro (con opción General/Casiterita). */
+  scope?: { titulo: string; general: Producto[]; casiterita: Producto[] };
   onClose: () => void;
 }
 
 type RecetaFiltro = '' | 'con_receta' | 'sin_receta' | 'en_proceso' | RecetaFundicion;
 
-export function ExportInventarioModal({ productos, onClose }: Props) {
+export function ExportInventarioModal({ productos, scope, onClose }: Props) {
+  // Vista dentro de un centro: General o Casiterita (solo si el centro tiene casiterita).
+  const [vista, setVista] = useState<'general' | 'casiterita'>('general');
+  // Base de productos: el scope del centro (general/casiterita) o TODOS si no hay scope.
+  const base = scope ? (vista === 'casiterita' ? scope.casiterita : scope.general) : productos;
   const [f, setF] = useState<ExportFiltros>({
     categorias: [],
     estado: 'activo',
@@ -34,15 +40,15 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
   const [categorias, setCategorias] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
-    getCategorias(productos)
+    getCategorias(base)
       .then((cs) => { if (!cancelled) setCategorias(cs); })
       .catch(() => { /* defaults via repo */ });
     return () => { cancelled = true; };
-  }, [productos]);
-  const almacenes = useMemo(() => Array.from(new Set(productos.map((p) => p.almacen).filter(Boolean))).sort(), [productos]);
-  const unidades = useMemo(() => Array.from(new Set(productos.map((p) => p.unidad).filter(Boolean))).sort(), [productos]);
+  }, [base]);
+  const almacenes = useMemo(() => Array.from(new Set(base.map((p) => p.almacen).filter(Boolean))).sort(), [base]);
+  const unidades = useMemo(() => Array.from(new Set(base.map((p) => p.unidad).filter(Boolean))).sort(), [base]);
 
-  const filtrados = useMemo(() => filtrarParaExport(productos, f), [productos, f]);
+  const filtrados = useMemo(() => filtrarParaExport(base, f), [base, f]);
 
   function update<K extends keyof ExportFiltros>(key: K, value: ExportFiltros[K]) {
     setF((prev) => ({ ...prev, [key]: value }));
@@ -80,7 +86,7 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
 
   return (
     <Modal
-      title="Exportar inventario"
+      title={scope ? `Exportar · ${scope.titulo}` : 'Exportar inventario'}
       size="lg"
       onClose={onClose}
       footer={
@@ -162,7 +168,18 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
       <div className="form-grid">
         <div className="form-row">
           <label>Almacén</label>
-          <AlmacenSelectAgrupado value={f.almacen ?? ''} onChange={(v) => update('almacen', v)} todosLabel="Todos" extraNombres={almacenes} />
+          {scope ? (
+            scope.casiterita.length > 0 ? (
+              <div className="view-toggle" role="tablist" aria-label="General o Casiterita" style={{ marginLeft: 0 }}>
+                <button type="button" className={vista === 'general' ? 'active' : ''} onClick={() => setVista('general')}>📦 General</button>
+                <button type="button" className={vista === 'casiterita' ? 'active' : ''} onClick={() => setVista('casiterita')}>⛏ Casiterita</button>
+              </div>
+            ) : (
+              <input className="input" value={scope.titulo} disabled readOnly />
+            )
+          ) : (
+            <AlmacenSelectAgrupado value={f.almacen ?? ''} onChange={(v) => update('almacen', v)} todosLabel="Todos" extraNombres={almacenes} />
+          )}
         </div>
         <div className="form-row">
           <label>Unidad</label>
