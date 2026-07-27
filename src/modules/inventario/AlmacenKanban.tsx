@@ -1,5 +1,5 @@
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { num } from '@/shared/lib/format';
+import { num, money } from '@/shared/lib/format';
 import type { Producto } from '@/shared/lib/types';
 import type { ConsumoProducto } from './almacenes.repository';
 
@@ -27,6 +27,8 @@ export function AlmacenKanban({
         const usados = c?.usados ?? 0;
         const diario = c?.diario ?? 0;
         const u = p.unidad ?? '';
+        const stock = Number(p.stock) || 0;
+        const precio = Number(p.precio) || 0;
         return (
           <div
             key={p.id}
@@ -39,9 +41,11 @@ export function AlmacenKanban({
             <div className="muted mono" style={{ fontSize: '.7rem', marginBottom: '.6rem' }}>{p.sku}</div>
 
             <div style={{ display: 'grid', gap: '.45rem' }}>
-              <Metric label="Total productos" value={`${num(Number(p.stock) || 0)} ${u}`} color="var(--primary-3)" />
-              <Metric label="Total productos usados" value={`${num(usados)} ${u}`} color="var(--warning)" />
-              <Metric label="Total consumo diario" value={`${num(diario)} ${u}/día`} color="var(--success)" />
+              <Metric label="Stock" value={`${num(stock)} ${u}`} color="var(--primary-3)" />
+              <Metric label="Precio UND" value={money(precio)} color="var(--text)" />
+              <Metric label="Valor total" value={money(stock * precio)} color="var(--success)" />
+              <Metric label="Total usados" value={`${num(usados)} ${u}`} color="var(--warning)" />
+              <Metric label="Consumo diario" value={`${num(diario)} ${u}/día`} color="var(--muted, #9aa)" />
             </div>
           </div>
         );
