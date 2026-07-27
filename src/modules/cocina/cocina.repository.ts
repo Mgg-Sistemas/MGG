@@ -13,6 +13,12 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 const TABLE = 'cocina_comidas';
 /** Categoría del inventario que surte la cocina. */
 export const CATEGORIA_VIVERES = 'VIVERES';
+/** Categorías del inventario que surten la cocina: Víveres y Proteína. */
+export const CATEGORIAS_COCINA = ['VIVERES', 'PROTEINA'];
+/** ¿La categoría de un producto surte la cocina (Víveres o Proteína)? */
+export function esCategoriaCocina(cat?: string | null): boolean {
+  return CATEGORIAS_COCINA.includes((cat ?? '').trim().toUpperCase());
+}
 
 /* ───────── Cocinas (cada una vinculada a un almacén/subalmacén) ───────── */
 
@@ -119,8 +125,8 @@ export async function listViveres(almacen?: string | null): Promise<ViverDisponi
       if (!row) continue;
       out.push({ producto: p, stock: Math.round((Number(row.stock) || 0) * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: almacen });
     } else {
-      // Legado (sin almacén vinculado): solo VÍVERES, agregando todos los almacenes.
-      if ((p.categoria ?? '').trim().toUpperCase() !== CATEGORIA_VIVERES) continue;
+      // Legado (sin almacén vinculado): solo Víveres y Proteína, agregando todos los almacenes.
+      if (!esCategoriaCocina(p.categoria)) continue;
       const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
       const mejor = exs.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock))[0];
       out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
@@ -145,7 +151,7 @@ export async function listViveresGlobal(preferAlmacen?: string | null): Promise<
   const out: ViverDisponible[] = [];
   for (const p of productos) {
     if (p.estado !== 'activo') continue;
-    if ((p.categoria ?? '').trim().toUpperCase() !== CATEGORIA_VIVERES) continue;
+    if (!esCategoriaCocina(p.categoria)) continue;
     const exs = porProducto.get(p.id) ?? [];
     const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
     const conStock = exs.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock));

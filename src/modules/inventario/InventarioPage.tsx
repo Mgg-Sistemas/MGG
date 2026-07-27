@@ -175,6 +175,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [almacenSel, setAlmacenSel] = useState<string | null>(null);
   const [sedeSel, setSedeSel] = useState<string | null>(centroSede);
+  // Toggle "General ⟷ Casiterita" dentro de la vista de un centro/Matanzas.
+  const [subVista, setSubVista] = useState<'general' | 'casiterita'>('general');
   // Almacén padre cuyo nivel de subalmacenes estamos viendo (drill-down dentro de la sede).
   const [almacenNavId, setAlmacenNavId] = useState<string | null>(null);
   const [consumoAlmacen, setConsumoAlmacen] = useState<string | null>(null);
@@ -364,12 +366,58 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     [almacenSel, rollupAlmacen, ui],
   );
 
+  // ── Vista "inventario por almacén": cada centro (y Matanzas en Inventario) se ve
+  // igual que el Inventario general (KPIs + alertas + filtros + lista), pero con los
+  // productos de ESE centro. Casiterita se ve aparte con un toggle. ──────────────────
+  const productosDeAlmacenes = useCallback((nombres: string[]): ProductoDecorado[] => {
+    if (!nombres.length) return [];
+    const prodMap = new Map(productos.map((p) => [p.id, p]));
+    const set = new Set(nombres);
+    const agg = new Map<string, { stock: number; valor: number }>();
+    for (const e of existencias) {
+      if (!set.has(e.almacen)) continue;
+      const cur = agg.get(e.producto_id) ?? { stock: 0, valor: 0 };
+      const st = Number(e.stock) || 0;
+      cur.stock += st; cur.valor += st * (Number(e.costo_promedio) || 0);
+      agg.set(e.producto_id, cur);
+    }
+    const virtuales = [...agg.entries()]
+      .map(([pid, v]) => {
+        const p = prodMap.get(pid);
+        const costo = v.stock > 0 ? v.valor / v.stock : 0;
+        return p ? ({ ...p, stock: v.stock, precio: costo } as Producto) : null;
+      })
+      .filter((p): p is Producto => p !== null);
+    return decorate(virtuales, DEFAULT_POLICY);
+  }, [productos, existencias]);
+
+  // Sede que "scopea" el inventario. Inventario principal = Matanzas; cada centro del
+  // submenú = su propia sede; el Depósito conserva su espacio aparte (sin scope de sede).
+  const sedeScope = centroMode ? centroSede : (esDeposito ? null : 'CENTRO DE FUNDICION - MATANZAS');
+  const almacenesDeScope = useMemo(() => {
+    if (!sedeScope) return null;
+    const alms = almacenes.filter((a) => (a.sede?.trim() || '') === sedeScope);
+    const esCas = (n: string) => /casiterita/i.test(n);
+    return { cas: alms.filter((a) => esCas(a.nombre)).map((a) => a.nombre), resto: alms.filter((a) => !esCas(a.nombre)).map((a) => a.nombre) };
+  }, [sedeScope, almacenes]);
+  const decoratedScope = useMemo<ProductoDecorado[]>(() => {
+    if (!almacenesDeScope) return decorated;
+    return productosDeAlmacenes(subVista === 'casiterita' ? almacenesDeScope.cas : almacenesDeScope.resto);
+  }, [almacenesDeScope, subVista, productosDeAlmacenes, decorated]);
+  // ¿Estamos en una vista tipo "inventario" (KPIs + lista)? Sí en el general, en un centro
+  // y en la pestaña Subalmacenes (Matanzas). En Depósito, la vista de almacenes sigue con tarjetas.
+  const modoInventario = ui.view === 'productos' || (ui.view === 'almacenes' && !esDeposito);
+  // Título de la vista de inventario según el contexto.
+  const tituloInventario = centroMode ? centroSede! : (esDeposito ? meta.titulo : 'Matanza');
+
   // Lista de la vista general. Si hay filtro por almacén, las filas son las de ese
   // almacén (stock/PMP propios); si no, el catálogo global. Luego aplica los demás filtros.
   const filtered = useMemo<ProductoDecorado[]>(() => {
-    const base = ui.filterAlmacen ? rollupAlmacen(ui.filterAlmacen) : decorated;
+    // En un centro/Matanzas la base son los productos de ESE scope; en el inventario
+    // general, todos (con el filtro por almacén si se usa el desplegable).
+    const base = almacenesDeScope ? decoratedScope : (ui.filterAlmacen ? rollupAlmacen(ui.filterAlmacen) : decorated);
     return base.filter((p) => coincideFiltros(p, ui));
-  }, [decorated, rollupAlmacen, ui]);
+  }, [decorated, decoratedScope, almacenesDeScope, rollupAlmacen, ui]);
 
   // Opciones del filtro por almacén, JERÁRQUICAS: primero el almacén PADRE (elegirlo
   // "sin subalmacén" trae TODOS sus productos y los de sus subalmacenes vía roll-up) y
@@ -444,7 +492,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   }, [productos]);
 
   const kpis = useMemo(() => {
-    const activos = decorated.filter((p) => p.estado === 'activo');
+    const activos = decoratedScope.filter((p) => p.estado === 'activo');
     const valorTotal = activos.reduce((a, p) => a + p._valor, 0);
     const stockTotal = activos.reduce((a, p) => a + (p.stock ?? 0), 0);
     const promedio = activos.length ? stockTotal / activos.length : 0;
@@ -457,7 +505,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       criticos,
       enFundicion,
     };
-  }, [decorated]);
+  }, [decoratedScope]);
 
   const productoActor = appUser?.email ?? user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -627,23 +675,33 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
             className={`btn ${ui.view === 'productos' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setUi((prev) => ({ ...prev, view: 'productos' }))}
           >
-            {esDeposito ? 'Depósito general' : 'Inventario general'}
+            {esDeposito ? 'Depósito general' : '📦 Matanza'}
           </button>
           )}
-          {!centroMode && (
+          {/* Pestaña de almacenes: SOLO en Depósito (mantiene sus tarjetas). En Inventario y en
+              los centros, la casiterita se ve con el toggle General/Casiterita. */}
+          {!centroMode && esDeposito && (
           <button
             className={`btn ${ui.view === 'almacenes' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => { setAlmacenSel(null); setUi((prev) => ({ ...prev, view: 'almacenes' })); }}
           >
-            {esDeposito ? '▣ Almacenes' : '▣ Subalmacenes'}
+            ▣ Almacenes
           </button>
           )}
           <button
             className="btn btn-ghost"
-            onClick={() => { setReporteFiltroSel(''); setModal({ kind: 'reporteFiltro' }); }}
-            title="Reporte de productos por almacén (filtro) con vista previa PDF"
+            onClick={() => {
+              // Reporte CONTEXTUAL: en un centro/Matanzas, vista previa directa del PDF de esos
+              // productos; en el inventario general (Depósito), abre el selector por almacén.
+              if (sedeScope) {
+                import('./almacenExport').then(({ descargarAlmacenPdf }) => descargarAlmacenPdf(tituloInventario, filtered)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'));
+              } else {
+                setReporteFiltroSel(''); setModal({ kind: 'reporteFiltro' });
+              }
+            }}
+            title={sedeScope ? `Vista previa del PDF de ${tituloInventario}` : 'Reporte de productos por almacén (filtro) con vista previa PDF'}
           >
-            📄 Reporte por almacén
+            📄 Reporte {sedeScope ? `· ${subVista === 'casiterita' ? 'Casiterita' : tituloInventario}` : 'por almacén'}
           </button>
           {!esDeposito && !centroMode && (
           <button
@@ -708,9 +766,20 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         </div>
       )}
 
-      {/* KPIs y alertas: SOLO en inventario general (no en almacenes ni recepciones). */}
-      {ui.view === 'productos' && (
+      {/* KPIs y alertas: en el inventario general, en cada centro y en Subalmacenes (Matanza). */}
+      {modoInventario && (
       <>
+      {sedeScope && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0 }}>📍 {tituloInventario}</h2>
+          {almacenesDeScope && almacenesDeScope.cas.length > 0 && (
+            <div className="view-toggle" role="tablist" aria-label="General o Casiterita" style={{ marginLeft: '.25rem' }}>
+              <button className={subVista === 'general' ? 'active' : ''} onClick={() => setSubVista('general')}>📦 General</button>
+              <button className={subVista === 'casiterita' ? 'active' : ''} onClick={() => setSubVista('casiterita')}>⛏ Casiterita</button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
         <div className="kpi">
           <div className="icon">⬢</div>
@@ -749,13 +818,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         )}
       </div>
 
-      <AlertasStock productos={decorated} onVerProducto={openVer} />
+      <AlertasStock productos={decoratedScope} onVerProducto={openVer} />
       </>
       )}
 
       {ui.view === 'recepciones' ? (
         <RecepcionesPendientes ordenes={recepciones} compras={comprasRecibir} almacenes={almacenes} actor={productoActor} actorName={actorName} onRecibida={reload} />
-      ) : ui.view === 'almacenes' ? (
+      ) : (ui.view === 'almacenes' && esDeposito) ? (
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
           {centroMode && (
           <aside style={{ width: 270, flexShrink: 0, position: 'sticky', top: '.5rem', maxHeight: '82vh', overflowY: 'auto', borderRight: '1px solid var(--border)', paddingRight: '.5rem' }}>
