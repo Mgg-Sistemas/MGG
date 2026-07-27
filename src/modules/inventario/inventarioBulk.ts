@@ -3,6 +3,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import { prefijoCategoria } from './inventario.repository';
+import { recomputeProductoAgg } from './movimientos.repository';
 
 /* ──────────── Estilos compartidos para los Excel ──────────── */
 const HEADER_STYLE = {
@@ -290,9 +291,18 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
 export interface ImportResult {
   insertados: number;
   actualizados: number;
+  /** Materiales ya existentes a los que se les ACTUALIZÓ precio/stock (modo actualización). */
+  actualizadosExistentes: number;
   /** Materiales que ya existían en el inventario (o repetidos en el archivo) y NO se ingresaron. */
   omitidos: Array<{ fila: number; sku: string; nombre: string; motivo: string }>;
   errores: Array<{ fila: number; sku: string; motivo: string }>;
+}
+
+export interface ImportOpts {
+  /** Si true: los materiales que YA EXISTEN (por nombre) no se omiten; se les ACTUALIZA
+   *  el precio y/o el stock del almacén con lo que traiga la plantilla (campos en blanco
+   *  se dejan como están, para no borrar por accidente). */
+  actualizarExistentes?: boolean;
 }
 
 /**
@@ -300,8 +310,12 @@ export interface ImportResult {
  * solo upsert de existencias), en vez de 3 consultas por fila. Salta filas con
  * error de datos. Esto evita que la importación se "cuelgue" con archivos grandes.
  */
-export async function aplicarImportacion(analisis: AnalisisImport): Promise<ImportResult> {
-  const result: ImportResult = { insertados: 0, actualizados: 0, omitidos: [], errores: [] };
+export async function aplicarImportacion(analisis: AnalisisImport, opts: ImportOpts = {}): Promise<ImportResult> {
+  const actualizarExistentes = !!opts.actualizarExistentes;
+  const result: ImportResult = { insertados: 0, actualizados: 0, actualizadosExistentes: 0, omitidos: [], errores: [] };
+  // Materiales ya existentes a ACTUALIZAR (precio/stock) en vez de omitir.
+  interface Actualizable { fila: number; sku: string; nombre: string; almacen: string; stock: number | null; precio: number | null; precioVenta: number | null; }
+  const actualizables: Actualizable[] = [];
 
   // 1) Construir los payloads válidos (las filas con error nunca se importan).
   interface Preparada { fila: number; sku: string; almacen: string; stock: number; precio: number; payload: Record<string, unknown>; }
@@ -317,7 +331,22 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
     // El material YA EXISTE en el inventario (coincide por nombre): NO se re-ingresa, para
     // no duplicarlo. (Coincidir solo por SKU explícito sí se toma como actualización.)
     if (f.duplicadoEnBd === 'nombre' || f.duplicadoEnBd === 'ambos') {
-      result.omitidos.push({ fila: f.fila, sku: f.sku, nombre: f.nombre, motivo: 'Ya existe en el inventario' });
+      if (actualizarExistentes) {
+        // Modo actualización: se le cambia precio/stock (campos en blanco = se dejan igual).
+        const r = f.raw;
+        const almacen = toStr(r.almacen).trim() || 'General';
+        const precioDado = r.precio != null && r.precio !== '' ? toNum(r.precio) : null;
+        const stockDado = r.stock != null && r.stock !== '' ? toNum(r.stock) : null;
+        const ventaDado = r.precio_venta != null && r.precio_venta !== '' ? toNum(r.precio_venta) : null;
+        actualizables.push({
+          fila: f.fila, sku: f.sku, nombre: f.nombre, almacen,
+          precio: Number.isFinite(precioDado as number) ? precioDado : null,
+          stock: Number.isFinite(stockDado as number) ? stockDado : null,
+          precioVenta: Number.isFinite(ventaDado as number) ? ventaDado : null,
+        });
+      } else {
+        result.omitidos.push({ fila: f.fila, sku: f.sku, nombre: f.nombre, motivo: 'Ya existe en el inventario' });
+      }
       continue;
     }
     // El material se repite dentro del archivo: se ingresa una sola vez (la primera).
@@ -367,8 +396,16 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
     });
   }
 
-  if (!preparadas.length) return result;
+  if (preparadas.length) await insertarNuevos(preparadas, result);
+  if (actualizables.length) await actualizarPreciosStock(actualizables, result);
+  return result;
+}
 
+/** Inserta/actualiza por SKU los materiales NUEVOS del archivo (paso original). */
+async function insertarNuevos(
+  preparadas: Array<{ fila: number; sku: string; almacen: string; stock: number; precio: number; payload: Record<string, unknown> }>,
+  result: ImportResult,
+): Promise<void> {
   // 2) Cuántos ya existen (para contar insertados vs actualizados).
   const skus = preparadas.map((p) => p.sku);
   const yaExisten = new Set<string>();
@@ -386,7 +423,7 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
   if (upErr) {
     // Si el lote falla completo, reportar todas las filas con el motivo.
     preparadas.forEach((p) => result.errores.push({ fila: p.fila, sku: p.sku, motivo: upErr.message }));
-    return result;
+    return;
   }
   const idBySku = new Map<string, string>((upserted ?? []).map((row) => [String(row.sku), row.id as string]));
   for (const p of preparadas) {
@@ -405,8 +442,74 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
       result.errores.push({ fila: 0, sku: '(existencias)', motivo: `Productos importados pero no se pudo sincronizar almacén: ${exErr.message}` });
     }
   }
+}
 
-  return result;
+/**
+ * MODO ACTUALIZACIÓN: para los materiales que YA EXISTEN, actualiza el precio (costo del
+ * almacén) y/o el stock del almacén con lo que trae la plantilla. Los campos en blanco se
+ * dejan como están (no se borra nada). Luego recalcula el stock y el PMP global del producto.
+ */
+async function actualizarPreciosStock(
+  actualizables: Array<{ fila: number; sku: string; nombre: string; almacen: string; stock: number | null; precio: number | null; precioVenta: number | null }>,
+  result: ImportResult,
+): Promise<void> {
+  // Un material puede venir repetido (existente + repetido en archivo): se actualiza una vez.
+  const vistos = new Set<string>();
+  const uniq = actualizables.filter((a) => a.sku && !vistos.has(a.sku) && (vistos.add(a.sku), true));
+
+  // Resolver id por SKU.
+  const idBySku = new Map<string, string>();
+  const skus = uniq.map((a) => a.sku);
+  for (let i = 0; i < skus.length; i += 500) {
+    const lote = skus.slice(i, i + 500);
+    const { data } = await supabase.from('productos').select('id, sku').in('sku', lote);
+    (data ?? []).forEach((row) => idBySku.set(String(row.sku), row.id as string));
+  }
+
+  // Existencias actuales de esos productos (para respetar los campos en blanco).
+  const ids = [...idBySku.values()];
+  const exActual = new Map<string, { stock: number; costo: number }>();
+  for (let i = 0; i < ids.length; i += 300) {
+    const lote = ids.slice(i, i + 300);
+    const { data } = await supabase.from('existencias').select('producto_id, almacen, stock, costo_promedio').in('producto_id', lote);
+    (data ?? []).forEach((r) => exActual.set(`${r.producto_id}|${r.almacen}`, { stock: Number(r.stock) || 0, costo: Number(r.costo_promedio) || 0 }));
+  }
+
+  const nowIso = new Date().toISOString();
+  const exRows: Array<{ producto_id: string; almacen: string; stock: number; costo_promedio: number; updated_at: string }> = [];
+  const ventaUpdates: Array<{ id: string; precio_venta: number }> = [];
+  const idsARecalcular = new Set<string>();
+  for (const a of uniq) {
+    const id = idBySku.get(a.sku);
+    if (!id) { result.errores.push({ fila: a.fila, sku: a.sku, motivo: 'No se encontró el producto para actualizar' }); continue; }
+    if (a.precio == null && a.stock == null && a.precioVenta == null) continue; // nada que cambiar
+    const cur = exActual.get(`${id}|${a.almacen}`);
+    exRows.push({
+      producto_id: id, almacen: a.almacen,
+      stock: a.stock != null ? a.stock : (cur?.stock ?? 0),
+      costo_promedio: a.precio != null ? a.precio : (cur?.costo ?? 0),
+      updated_at: nowIso,
+    });
+    if (a.precioVenta != null) ventaUpdates.push({ id, precio_venta: a.precioVenta });
+    idsARecalcular.add(id);
+  }
+
+  if (exRows.length) {
+    const { error } = await supabase.from('existencias').upsert(exRows, { onConflict: 'producto_id,almacen' });
+    if (error) { result.errores.push({ fila: 0, sku: '(existencias)', motivo: `No se pudo actualizar el stock/precio: ${error.message}` }); return; }
+  }
+  // Precio de venta (opcional) en la ficha del producto.
+  for (const v of ventaUpdates) await supabase.from('productos').update({ precio_venta: v.precio_venta }).eq('id', v.id);
+
+  // Recalcular stock total y PMP global desde las existencias (en tandas para no saturar).
+  const lista = [...idsARecalcular];
+  for (let i = 0; i < lista.length; i += 8) {
+    const lote = lista.slice(i, i + 8);
+    await Promise.all(lote.map((id) =>
+      recomputeProductoAgg(id).then(() => { result.actualizadosExistentes++; })
+        .catch((e) => result.errores.push({ fila: 0, sku: id, motivo: e instanceof Error ? e.message : 'No se pudo recalcular el producto' })),
+    ));
+  }
 }
 
 /* ──────────── Plantilla con hoja de instrucciones ──────────── */
@@ -445,6 +548,7 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     ['4. RESULTADO DE LA IMPORTACIÓN'],
     ['• VALIDADO: todas las filas pasan, importación directa.'],
     ['• DUPLICADOS: el sistema COTEJA contra el inventario. Los materiales que YA EXISTEN (por nombre) NO se vuelven a ingresar; se importan solo los nuevos. Te muestra cuáles se omiten.'],
+    ['• ACTUALIZAR EN LOTE: al subir, si hay materiales que ya existen podés marcar "Actualizar precio y stock de los que ya existen": en vez de omitirlos, les actualiza el precio (costo del almacén) y el stock. Las columnas en blanco se dejan como están.'],
     ['• ERROR: existen filas con datos inválidos. La importación queda bloqueada hasta corregirlas. Las filas con error nunca se importan, ni siquiera si confirmás.'],
     [''],
     ['5. RECOMENDACIONES'],
@@ -460,7 +564,7 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
   const refStr = ws['!ref'];
   if (refStr) {
     const range = XLSX.utils.decode_range(refStr);
-    const sectionRows = new Set([2, 7, 22, 30, 36]);
+    const sectionRows = new Set([2, 7, 22, 30, 37]);
     for (let r = range.s.r; r <= range.e.r; r++) {
       const addr = XLSX.utils.encode_cell({ r, c: 0 });
       const cell = ws[addr] as { s?: unknown } | undefined;

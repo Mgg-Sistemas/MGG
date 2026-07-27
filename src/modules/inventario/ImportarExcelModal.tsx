@@ -32,6 +32,9 @@ const FILTROS: Array<{ key: 'todos' | 'error' | 'duplicado' | 'valido'; label: s
 export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
   const [confirmando, setConfirmando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
+  // Modo actualización: en vez de omitir los materiales ya existentes, se les actualiza
+  // el precio y/o el stock del almacén con lo que trae la plantilla.
+  const [actualizar, setActualizar] = useState(false);
   const [filtro, setFiltro] = useState<'todos' | 'error' | 'duplicado' | 'valido'>(
     analisis.conError > 0 ? 'error' : analisis.duplicadas > 0 ? 'duplicado' : 'todos',
   );
@@ -50,10 +53,11 @@ export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
     }
     setAplicando(true);
     try {
-      const res = await aplicarImportacion(analisis);
+      const res = await aplicarImportacion(analisis, { actualizarExistentes: actualizar });
       const partes: string[] = [];
       if (res.insertados) partes.push(`${res.insertados} nuevos`);
       if (res.actualizados) partes.push(`${res.actualizados} actualizados`);
+      if (res.actualizadosExistentes) partes.push(`${res.actualizadosExistentes} precios/stock actualizados`);
       if (res.omitidos.length) partes.push(`${res.omitidos.length} ya existían (omitidos)`);
       if (res.errores.length) partes.push(`${res.errores.length} con error`);
       notify(`Importación: ${partes.join(' · ') || '0 cambios'}`, (res.errores.length || res.omitidos.length) ? 'warning' : 'success', { link: '#/app/inventario' });
@@ -117,14 +121,27 @@ export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
         <EstadoCard icono="❌" color="#ef4444" titulo="Con error" subtitulo={String(analisis.conError)} />
       </div>
 
+      {analisis.duplicadas > 0 && (
+        <label className="card" style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start', padding: '.75rem 1rem', marginBottom: '1rem', borderLeft: `3px solid ${actualizar ? '#10b981' : '#64748b'}`, cursor: 'pointer' }}>
+          <input type="checkbox" checked={actualizar} onChange={(e) => setActualizar(e.target.checked)} style={{ marginTop: '.2rem' }} />
+          <span>
+            <strong>Actualizar precio y stock de los que ya existen</strong>
+            <div className="muted" style={{ fontSize: '.8rem', marginTop: '.2rem' }}>
+              En vez de omitir los materiales que ya están en el inventario, se les <strong>actualiza el precio</strong> (costo del almacén) y el <strong>stock</strong> del almacén que indique la plantilla.
+              Las columnas <strong>en blanco se dejan como están</strong> (no se borra nada). Se cotejan por <strong>nombre</strong> y nunca se crean duplicados.
+            </div>
+          </span>
+        </label>
+      )}
+
       {confirmando && necesitaConfirmar && (
         <div className="card" style={{ borderLeft: '3px solid #f59e0b', padding: '.85rem 1rem', marginBottom: '1rem' }}>
           <strong>⚠ Hay materiales que ya existen</strong>
           <p style={{ margin: '.35rem 0 0' }}>
             {analisis.duplicadas} fila(s) coinciden por nombre (o SKU) con otras del archivo o con
-            materiales que <strong>ya están en el inventario</strong>. Al subir, esos materiales
-            <strong> NO se vuelven a ingresar</strong> (para no duplicarlos): se importan solo los
-            <strong> nuevos</strong>. ¿Querés continuar?
+            materiales que <strong>ya están en el inventario</strong>. {actualizar
+              ? <>Como marcaste <strong>«Actualizar precio y stock»</strong>, a esos materiales se les <strong>actualizará el precio y el stock</strong> (sin crear duplicados). ¿Querés continuar?</>
+              : <>Al subir, esos materiales <strong>NO se vuelven a ingresar</strong> (para no duplicarlos): se importan solo los <strong>nuevos</strong>. ¿Querés continuar?</>}
           </p>
         </div>
       )}
