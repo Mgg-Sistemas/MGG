@@ -5,6 +5,7 @@ import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
@@ -31,10 +32,20 @@ export function TrasladoMaterialForm({
 
   const [destino, setDestino] = useState('');
 
-  // Solo almacenes PADRE (principales con subalmacenes): se excluyen los top-level sin hijos.
-  const almacenesPadre = useMemo(() => {
-    const conHijos = new Set(almacenesObj.filter((a) => a.parent_id).map((a) => a.parent_id));
-    return almacenesObj.filter((a) => !a.parent_id && a.estado === 'activo' && conHijos.has(a.id));
+  // Destino: CUALQUIER almacén activo (principal o subalmacén), agrupado por sede.
+  // El usuario elige a dónde va el material exactamente, no solo la sede padre.
+  const destinosPorSede = useMemo(() => {
+    const activos = almacenesObj.filter((a) => a.estado === 'activo');
+    const grupos = new Map<string, { nombre: string; label: string }[]>();
+    activos
+      .map((a) => ({ nombre: a.nombre, sede: a.sede?.trim() || 'Sin sede', label: nombreCortoAlmacen(a, almacenesObj) }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'))
+      .forEach((a) => {
+        const arr = grupos.get(a.sede) ?? [];
+        arr.push({ nombre: a.nombre, label: a.label });
+        grupos.set(a.sede, arr);
+      });
+    return Array.from(grupos.entries()).sort((a, b) => a[0].localeCompare(b[0], 'es'));
   }, [almacenesObj]);
 
   // Para un producto, el almacén con MÁS stock distinto del destino (de ahí sale).
@@ -194,14 +205,18 @@ export function TrasladoMaterialForm({
           )}
         </div>
 
-        {/* Almacén destino (a dónde va). Solo almacenes PADRE. El origen se asigna solo: el almacén con más stock. */}
+        {/* Almacén destino (a dónde va). CUALQUIER almacén, agrupado por sede. El origen se asigna solo: el almacén con más stock. */}
         <div className="form-row">
-          <label>Almacén destino (padre)</label>
+          <label>Almacén destino</label>
           <select className="select" value={destino} onChange={(e) => setDestino(e.target.value)}>
             <option value="">— elegí el almacén destino —</option>
-            {almacenesPadre.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+            {destinosPorSede.map(([sede, alms]) => (
+              <optgroup key={sede} label={sede}>
+                {alms.map((a) => <option key={a.nombre} value={a.nombre}>{a.label}</option>)}
+              </optgroup>
+            ))}
           </select>
-          <small className="muted">Solo se muestran los almacenes padre (sedes principales con subalmacenes).</small>
+          <small className="muted">Elegí exactamente a qué almacén (o subalmacén) va el material.</small>
         </div>
 
         {/* Materiales (varias líneas) — producto buscable; el origen se asigna solo. */}

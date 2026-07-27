@@ -646,7 +646,7 @@ function SolicitudDetalleModal({
       {puedeAprobar && sol.estado === 'aprobada' && (
         <button className="btn btn-primary" disabled={busy}
           onClick={() => run(() => ejecutarSolicitudSalida(sol, actor, actorName), `Solicitud ${sol.codigo} ejecutada`)}>
-          {ejecutarLabel}
+          {busy ? 'Ejecutando…' : ejecutarLabel}
         </button>
       )}
       {puedeAprobar && sol.estado === 'aprobada' && (

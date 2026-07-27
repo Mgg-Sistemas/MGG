@@ -219,6 +219,7 @@ export function agruparValores(existencias: Existencia[]): Record<string, Almace
   return existencias.reduce<Record<string, AlmacenValor>>((acc, e) => {
     const key = e.almacen || 'General';
     const stock = Number(e.stock) || 0;
+    if (stock === 0) return acc; // no contar filas fantasma (stock 0) en el nº de productos
     const acc0 = acc[key] ?? { valor: 0, items: 0, unidades: 0 };
     acc0.valor += stock * (Number(e.costo_promedio) || 0);
     acc0.items += 1;
