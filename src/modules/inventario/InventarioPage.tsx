@@ -334,9 +334,12 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   // Roll-up de un almacén (incluye sus subalmacenes): cada producto con su stock sumado
   // y costo = promedio ponderado en ese almacén. Lo usan el detalle de almacén y el
   // filtro "por almacén" de la vista general.
-  const rollupAlmacen = useCallback((nombre: string): ProductoDecorado[] => {
+  const rollupAlmacen = useCallback((nombre: string, incluirSub = true): ProductoDecorado[] => {
     const prodMap = new Map(productos.map((p) => [p.id, p]));
-    const nombres = new Set(descendientesDe(nombre));
+    // incluirSub=false → SOLO los productos propios de ese almacén (no los de sus
+    // subalmacenes). Lo usa el detalle: al entrar a un almacén se ven sus productos,
+    // y al entrar a un subalmacén, los del subalmacén (cada nivel por separado).
+    const nombres = incluirSub ? new Set(descendientesDe(nombre)) : new Set([nombre]);
     const agg = new Map<string, { stock: number; valor: number }>();
     for (const e of existencias) {
       if (!nombres.has(e.almacen)) continue;
@@ -357,7 +360,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   }, [productos, existencias, descendientesDe]);
 
   const almacenRows = useMemo<ProductoDecorado[]>(
-    () => (almacenSel ? rollupAlmacen(almacenSel).filter((p) => coincideFiltros(p, ui)) : []),
+    () => (almacenSel ? rollupAlmacen(almacenSel, false).filter((p) => coincideFiltros(p, ui)) : []),
     [almacenSel, rollupAlmacen, ui],
   );
 
@@ -772,7 +775,18 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
             <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
               <button className="btn btn-ghost" onClick={() => setAlmacenSel(null)}>← Volver a almacenes</button>
               <h2 style={{ margin: 0 }}>▣ {almacenSel}</h2>
-              <span className="muted mono">{money(almacenRows.reduce((s, p) => s + (Number(p.stock) || 0) * (Number(p.precio) || 0), 0))} · {num(almacenRows.length)} producto(s){descendientesDe(almacenSel).length > 1 ? ' · incluye subalmacenes' : ''}</span>
+              <span className="muted mono">{money(almacenRows.reduce((s, p) => s + (Number(p.stock) || 0) * (Number(p.precio) || 0), 0))} · {num(almacenRows.length)} producto(s) propios</span>
+              {(() => {
+                const almObj = almacenes.find((a) => a.nombre === almacenSel);
+                const subs = almObj ? hijosDe(almObj.id, almacenes) : [];
+                return subs.length > 0 ? (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    title={`Ver los ${subs.length} subalmacén(es) de ${almacenSel}`}
+                    onClick={() => { setSedeSel(almObj!.sede?.trim() || 'Sin sede'); setAlmacenNavId(almObj!.id); setAlmacenSel(null); }}
+                  >▣ Subalmacenes ({subs.length}) ›</button>
+                ) : null;
+              })()}
               <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto', flexWrap: 'wrap' }}>
                 {canWrite && (
                   <button className="btn btn-primary btn-sm" onClick={() => setModal({ kind: 'crear' })} title={`Agregar un producto directamente en ${almacenSel}`}>+ Nuevo producto</button>
