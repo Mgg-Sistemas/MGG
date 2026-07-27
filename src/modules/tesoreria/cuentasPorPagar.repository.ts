@@ -41,6 +41,8 @@ export interface AbonoCxP {
   caja_mov_id?: string | null;
   saldo_restante?: number | null;
   nota?: string | null;
+  comision_monto?: number | null;
+  comision_moneda?: string | null;
   actor?: string | null;
   actor_name?: string | null;
   at: string;
@@ -156,6 +158,9 @@ export async function registrarAbonoCuenta(input: {
   cuentaCaja: CuentaCaja;
   monto: number;
   nota?: string | null;
+  /** Comisión bancaria (opcional): egreso EXTRA de la billetera, NO se abona a la deuda.
+   *  Ej.: abono 1.500 + comisión 150 → salen 1.650 de la caja; la cuenta baja solo 1.500. */
+  comision?: { cuenta: CuentaCaja; moneda: string; monto: number } | null;
   actor: string;
   actorName?: string | null;
 }): Promise<{ cuenta: CuentaPorPagar; abono: AbonoCxP }> {
@@ -175,12 +180,24 @@ export async function registrarAbonoCuenta(input: {
     categoria: 'abono_cxp', actor: input.actor, actorName: input.actorName,
   });
 
+  // 1b) Comisión bancaria (opcional): egreso EXTRA aparte, no suma a la deuda.
+  const comMonto = input.comision ? Math.round((Number(input.comision.monto) || 0) * 100) / 100 : 0;
+  if (input.comision && comMonto > 0) {
+    await registrarGasto({
+      cajaId: input.cajaId, monto: comMonto, moneda: input.comision.moneda, cuenta: input.comision.cuenta,
+      concepto: `Comisión bancaria · abono a ${c.tipo === 'proveedor' ? 'proveedor' : 'cliente'} ${c.contraparte}`,
+      categoria: 'comision_bancaria', actor: input.actor, actorName: input.actorName,
+    });
+  }
+
   // 2) Registro del abono que salda la deuda (lo aplicado, no el excedente).
   const saldoRestante = round2(saldoPrev - aplicado);
   const { data: ab, error: abErr } = await supabase.from(CXP_ABONOS).insert({
     cuenta_id: c.id, monto: aplicado, moneda: c.moneda, caja_id: input.cajaId, cuenta: input.cuentaCaja,
     caja_mov_id: mov.id, saldo_restante: saldoRestante,
     nota: (input.nota?.trim() || '') + (excedente > 0 ? `${input.nota?.trim() ? ' · ' : ''}Sobrepago ${excedente} ${c.moneda} → cuenta por cobrar` : '') || null,
+    comision_monto: comMonto > 0 ? comMonto : null,
+    comision_moneda: comMonto > 0 ? (input.comision?.moneda ?? null) : null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (abErr) throw abErr;

@@ -5022,6 +5022,38 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   );
 }
 
+/* ───────── Comisión bancaria (opcional) para un abono de cuenta por pagar ─────────
+   Egreso EXTRA de la billetera con concepto COMISIÓN BANCARIA: no suma a la deuda.
+   Ej.: abono 1.500 + comisión 150 → salen 1.650 de la caja, la cuenta baja 1.500. */
+function ComisionBancariaFields({ saldos, montoAbono, monedaAbono, comisionStr, onComisionStr, comisionSaldoId, onComisionSaldoId }: {
+  saldos: CajaSaldo[]; montoAbono: number; monedaAbono: string;
+  comisionStr: string; onComisionStr: (v: string) => void;
+  comisionSaldoId: string; onComisionSaldoId: (v: string) => void;
+}) {
+  const disp = saldos.filter((r) => Number(r.saldo) > 0);
+  const com = Math.max(0, Number(comisionStr) || 0);
+  const sc = disp.find((s) => s.id === comisionSaldoId) ?? disp[0] ?? null;
+  const etqCuenta = (cta: string) => cta === 'general' ? 'General' : cta === 'juridica' ? 'Jurídica' : 'Personal';
+  return (
+    <div className="form-row">
+      <label>Comisión bancaria (opcional)</label>
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 150 }}
+          value={comisionStr} onChange={(e) => onComisionStr(e.target.value)} placeholder="0,00" />
+        {com > 0 && (
+          <select className="select" style={{ maxWidth: 280 }} value={comisionSaldoId || (disp[0]?.id ?? '')} onChange={(e) => onComisionSaldoId(e.target.value)}>
+            {!disp.length && <option value="">— sin saldo en la caja —</option>}
+            {disp.map((r) => <option key={r.id} value={r.id}>{etqCuenta(r.cuenta)} {r.moneda} · disp. {monto(Number(r.saldo), r.moneda)}</option>)}
+          </select>
+        )}
+      </div>
+      {com > 0 && sc && (
+        <small className="muted">Sale aparte como <strong>COMISIÓN BANCARIA</strong> de {etqCuenta(sc.cuenta)} ({sc.moneda}). De la billetera salen <strong>{monto(montoAbono, monedaAbono)}</strong> (abono) + <strong>{monto(com, sc.moneda)}</strong> (comisión).</small>
+      )}
+    </div>
+  );
+}
+
 /* ───────── Compras directas a crédito (respaldadas por una cuenta por pagar) ─────────
    Una compra directa puesta a crédito genera una cuenta por pagar (Tesorería). Este
    panel la muestra dentro de "Compras a crédito" y permite saldarla con abonos
@@ -5036,6 +5068,8 @@ function ComprasDirectasCreditoPanel({ cajas, actor, actorName, onChanged }: {
   const [cuentaCaja, setCuentaCaja] = useState<string>('');
   const [montoStr, setMontoStr] = useState('');
   const [nota, setNota] = useState('');
+  const [comisionStr, setComisionStr] = useState('');
+  const [comisionSaldoId, setComisionSaldoId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -5080,13 +5114,20 @@ function ComprasDirectasCreditoPanel({ cajas, actor, actorName, onChanged }: {
     if (m <= 0) { setError('Indicá el monto a abonar.'); return; }
     if (!cajaId) { setError('Elegí la caja del egreso.'); return; }
     if (!cuentaCaja) { setError(`La caja no tiene saldo en ${sel.moneda}.`); return; }
+    const comNum = Math.max(0, Number(comisionStr) || 0);
+    const comSaldo = comNum > 0 ? (cajaSaldosSel.find((s) => s.id === comisionSaldoId) ?? cajaSaldosSel.find((s) => Number(s.saldo) > 0) ?? null) : null;
+    if (comNum > 0 && !comSaldo) { setError('Elegí de qué saldo sale la comisión.'); return; }
     setSaving(true);
     try {
-      const r = await registrarAbonoCuenta({ cuenta: sel, cajaId, cuentaCaja: cuentaCaja as CuentaCaja, monto: m, nota: nota.trim() || null, actor, actorName });
+      const r = await registrarAbonoCuenta({
+        cuenta: sel, cajaId, cuentaCaja: cuentaCaja as CuentaCaja, monto: m, nota: nota.trim() || null,
+        comision: comSaldo ? { cuenta: comSaldo.cuenta as CuentaCaja, moneda: comSaldo.moneda, monto: comNum } : null,
+        actor, actorName,
+      });
       notify(r.cuenta.estado === 'saldada'
         ? `Crédito de compra directa saldado · ${sel.contraparte}`
-        : `Abono ${monto(m, sel.moneda)} · ${sel._codigo ?? sel.contraparte}`, 'success', { link: '#/app/tesoreria' });
-      setMontoStr(''); setNota('');
+        : `Abono ${monto(m, sel.moneda)}${comNum > 0 ? ` + comisión ${monto(comNum, comSaldo!.moneda)}` : ''} · ${sel._codigo ?? sel.contraparte}`, 'success', { link: '#/app/tesoreria' });
+      setMontoStr(''); setNota(''); setComisionStr('');
       await cargar(); await onChanged();
       if (r.cuenta.estado !== 'saldada') await listAbonosCuenta(sel.id).then(setAbonos);
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el abono'); }
@@ -5140,16 +5181,18 @@ function ComprasDirectasCreditoPanel({ cajas, actor, actorName, onChanged }: {
             <label>Nota (opcional)</label>
             <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del abono…" />
           </div>
+          <ComisionBancariaFields saldos={cajaSaldosSel} montoAbono={Number(montoStr) || 0} monedaAbono={sel.moneda}
+            comisionStr={comisionStr} onComisionStr={setComisionStr} comisionSaldoId={comisionSaldoId} onComisionSaldoId={setComisionSaldoId} />
         </div>
         <div style={{ textAlign: 'right', marginTop: '.5rem' }}>
           <button className="btn btn-success" disabled={saving || (Number(montoStr) || 0) <= 0} onClick={() => void abonar()}>{saving ? 'Registrando…' : '💵 Registrar abono'}</button>
         </div>
         <div className="table-wrap" style={{ maxHeight: 180, overflowY: 'auto', marginTop: '.6rem' }}>
           <table className="table" style={{ fontSize: '.82rem' }}>
-            <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Abono</th><th>Nota</th></tr></thead>
+            <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Abono</th><th style={{ textAlign: 'right' }}>Comisión</th><th>Nota</th></tr></thead>
             <tbody>
-              {!abonos.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>Sin abonos todavía.</td></tr>}
-              {abonos.map((ab) => (<tr key={ab.id}><td>{dateTime(ab.at)}</td><td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ab.monto), ab.moneda || sel.moneda)}</td><td className="muted">{ab.nota || '—'}</td></tr>))}
+              {!abonos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin abonos todavía.</td></tr>}
+              {abonos.map((ab) => (<tr key={ab.id}><td>{dateTime(ab.at)}</td><td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ab.monto), ab.moneda || sel.moneda)}</td><td className="mono" style={{ textAlign: 'right' }}>{Number(ab.comision_monto) > 0 ? monto(Number(ab.comision_monto), ab.comision_moneda || 'Bs') : '—'}</td><td className="muted">{ab.nota || '—'}</td></tr>))}
             </tbody>
           </table>
         </div>
@@ -5170,6 +5213,8 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   const [cuentaCaja, setCuentaCaja] = useState<string>('');
   const [montoStr, setMontoStr] = useState('');
   const [nota, setNota] = useState('');
+  const [comisionStr, setComisionStr] = useState('');
+  const [comisionSaldoId, setComisionSaldoId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -5239,16 +5284,21 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
     if (m <= 0) { setError('Indicá el monto a abonar.'); return; }
     if (!cajaId) { setError('Elegí la caja del egreso.'); return; }
     if (!cuentaCaja) { setError(`La caja no tiene saldo en ${sel.moneda}.`); return; }
+    const comNum = Math.max(0, Number(comisionStr) || 0);
+    const comSaldo = comNum > 0 ? (cajaSaldosSel.find((s) => s.id === comisionSaldoId) ?? cajaSaldosSel.find((s) => Number(s.saldo) > 0) ?? null) : null;
+    if (comNum > 0 && !comSaldo) { setError('Elegí de qué saldo sale la comisión.'); return; }
     setSaving(true);
     try {
       const r = await registrarAbonoCuenta({
         cuenta: sel, cajaId, cuentaCaja: cuentaCaja as CuentaCaja, monto: m,
-        nota: nota.trim() || null, actor, actorName,
+        nota: nota.trim() || null,
+        comision: comSaldo ? { cuenta: comSaldo.cuenta as CuentaCaja, moneda: comSaldo.moneda, monto: comNum } : null,
+        actor, actorName,
       });
       notify(r.cuenta.estado === 'saldada'
         ? `Cuenta por pagar saldada · ${sel.contraparte}`
-        : `Abono ${monto(m, sel.moneda)} · ${sel.contraparte}`, 'success', { link: '#/app/tesoreria' });
-      setMontoStr(''); setNota('');
+        : `Abono ${monto(m, sel.moneda)}${comNum > 0 ? ` + comisión ${monto(comNum, comSaldo!.moneda)}` : ''} · ${sel.contraparte}`, 'success', { link: '#/app/tesoreria' });
+      setMontoStr(''); setNota(''); setComisionStr('');
       await cargar(); await onChanged();
       if (r.cuenta.estado !== 'saldada') await listAbonosCuenta(sel.id).then(setAbonos);
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el abono'); }
@@ -5405,6 +5455,8 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
               <label>Nota (opcional)</label>
               <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del abono…" />
             </div>
+            <ComisionBancariaFields saldos={cajaSaldosSel} montoAbono={Number(montoStr) || 0} monedaAbono={sel.moneda}
+              comisionStr={comisionStr} onComisionStr={setComisionStr} comisionSaldoId={comisionSaldoId} onComisionSaldoId={setComisionSaldoId} />
             <button className="btn btn-primary btn-sm" onClick={abonar} disabled={saving || saldo <= 0}>{saving ? 'Registrando…' : 'Registrar abono'}</button>
           </div>
 
@@ -5458,13 +5510,14 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
 
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.82rem' }}>
-              <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Abono</th><th style={{ textAlign: 'right' }}>Saldo restante</th><th>Nota</th></tr></thead>
+              <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Abono</th><th style={{ textAlign: 'right' }}>Comisión</th><th style={{ textAlign: 'right' }}>Saldo restante</th><th>Nota</th></tr></thead>
               <tbody>
-                {!abonos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin abonos.</td></tr>}
+                {!abonos.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin abonos.</td></tr>}
                 {abonos.map((ab) => (
                   <tr key={ab.id}>
                     <td>{dateTime(ab.at)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ab.monto), ab.moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{Number(ab.comision_monto) > 0 ? monto(Number(ab.comision_monto), ab.comision_moneda || 'Bs') : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{ab.saldo_restante != null ? monto(Number(ab.saldo_restante), ab.moneda) : '—'}</td>
                     <td className="muted">{ab.nota || '—'}</td>
                   </tr>
