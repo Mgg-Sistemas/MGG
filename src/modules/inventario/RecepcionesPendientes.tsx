@@ -256,8 +256,8 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
           </div>
         </div>
 
-        {/* Asignación de almacén: Sede → Almacén (subalmacén) */}
-        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required />
+        {/* Asignación de almacén: Sede → Almacén (subalmacén). Por defecto el general de la sede. */}
+        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal />
         {almacenFinal && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .75rem' }}>Los materiales entrarán a: <strong>📦 {almacenFinal}</strong></p>}
 
         {/* Detalle de la compra: materiales, cantidad y costo unitario */}
@@ -340,8 +340,8 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
       <form id="recibir-form" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-        {/* Asignación de almacén: Sede → Almacén */}
-        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required />
+        {/* Asignación de almacén: Sede → Almacén. Por defecto el general de la sede. */}
+        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal />
         {almacenFinal && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .75rem' }}>La mercancía entrará a: <strong>📦 {almacenFinal}</strong></p>}
 
         {/* Cantidades recibidas por ítem */}

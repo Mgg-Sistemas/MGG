@@ -74,7 +74,7 @@ export function AlmacenSelectAgrupado({
  * `value` es un almacén legado que no está en la tabla, se acepta igual.
  */
 export function AlmacenPicker({
-  value, onChange, almacenes: provided, label = 'Almacén', sedeLabel = 'Sede', required, disabled, extraOpciones,
+  value, onChange, almacenes: provided, label = 'Almacén', sedeLabel = 'Sede', required, disabled, extraOpciones, preferirPrincipal,
 }: {
   value: string;
   onChange: (nombre: string) => void;
@@ -85,6 +85,9 @@ export function AlmacenPicker({
   disabled?: boolean;
   /** Opciones especiales que no son almacenes de la tabla (ej. "Consumo Interno"). */
   extraOpciones?: string[];
+  /** Al elegir una sede, autoselecciona su almacén PRINCIPAL (general, sin padre)
+   *  en vez de dejar el almacén vacío. El usuario puede cambiarlo a un subalmacén. */
+  preferirPrincipal?: boolean;
 }) {
   const [rows, setRows] = useState<Almacen[]>(provided ?? []);
   useEffect(() => {
@@ -122,8 +125,15 @@ export function AlmacenPicker({
   function cambiarSede(s: string) {
     setSede(s);
     // Si la sede elegida es una opción especial (extra), el valor ES esa opción.
-    if (s.startsWith('· ')) onChange(s.slice(2));
-    else onChange('');
+    if (s.startsWith('· ')) { onChange(s.slice(2)); return; }
+    // "General por defecto": autoselecciona el almacén PRINCIPAL de la sede (sin padre).
+    if (preferirPrincipal) {
+      const alms = activos.filter((a) => (a.sede?.trim() || SIN_SEDE) === s);
+      const principal = alms.find((a) => !a.parent_id);
+      onChange(principal ? principal.nombre : '');
+      return;
+    }
+    onChange('');
   }
 
   return (
