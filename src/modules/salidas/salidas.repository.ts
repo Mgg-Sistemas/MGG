@@ -434,6 +434,42 @@ async function resolverAlmacenDestino(destino: string): Promise<string> {
  * Ejecuta la solicitud aprobada: realiza el movimiento real reutilizando las
  * funciones inmediatas (que validan stock/saldo) y cierra como 'ejecutada'.
  */
+/**
+ * Ejecuta una operación por cada línea, pero agrupando por producto: las líneas del
+ * MISMO producto se procesan en serie (evita carreras en el agregado del producto) y
+ * los distintos productos corren EN PARALELO por tandas (acelera mucho vs. serial puro).
+ * Devuelve el id del primer movimiento (para trazar la solicitud).
+ */
+async function ejecutarPorProductoEnTandas(
+  lineas: ItemSolicitudSalida[],
+  op: (it: ItemSolicitudSalida) => Promise<Movimiento>,
+  chunk = 8,
+): Promise<string | null> {
+  const porProd = new Map<string, ItemSolicitudSalida[]>();
+  for (const it of lineas) {
+    const arr = porProd.get(it.producto_id) ?? [];
+    arr.push(it);
+    porProd.set(it.producto_id, arr);
+  }
+  const grupos = [...porProd.values()];
+  let firstId: string | null = null;
+  for (let i = 0; i < grupos.length; i += chunk) {
+    const tanda = grupos.slice(i, i + chunk);
+    const res = await Promise.all(
+      tanda.map(async (ls) => {
+        let first: Movimiento | null = null;
+        for (const it of ls) {
+          const m = await op(it);
+          if (!first) first = m;
+        }
+        return first;
+      }),
+    );
+    for (const m of res) if (m && !firstId) firstId = m.id;
+  }
+  return firstId;
+}
+
 export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string, actorName?: string | null): Promise<void> {
   if (s.estado !== 'aprobada') throw new Error('Solo se ejecutan solicitudes aprobadas.');
 
@@ -476,28 +512,22 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   }
 
   if (s.scope === 'salida' && s.tipo === 'material') {
-    for (const it of lineas) {
-      const mov = await salidaMaterial({
-        productoId: it.producto_id, almacen: it.almacen ?? s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
-        destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
-        fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
-      });
-      if (!movId) movId = mov.id;
-    }
+    movId = await ejecutarPorProductoEnTandas(lineas, (it) => salidaMaterial({
+      productoId: it.producto_id, almacen: it.almacen ?? s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
+      destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
+      fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
+    }));
     movRef = 'salida_modulo';
   } else if (s.scope === 'traslado' && s.tipo === 'material') {
     // El destino puede ser una sede/centro: se resuelve a un almacén real para la entrada.
     const destinoReal = await resolverAlmacenDestino(s.almacen_destino || '');
-    for (const it of lineas) {
-      const origen = it.almacen ?? s.almacen_origen!;
-      if (origen === destinoReal) continue; // mismo almacén: nada que mover para ese ítem
-      const mov = await trasladoMaterial({
-        productoId: it.producto_id, almacenOrigen: origen, almacenDestino: destinoReal,
-        cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
-        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
-      });
-      if (!movId) movId = mov.id;
-    }
+    // Ítems cuyo origen ya es el destino no mueven nada: se descartan.
+    const lineasMover = lineas.filter((it) => (it.almacen ?? s.almacen_origen!) !== destinoReal);
+    movId = await ejecutarPorProductoEnTandas(lineasMover, (it) => trasladoMaterial({
+      productoId: it.producto_id, almacenOrigen: it.almacen ?? s.almacen_origen!, almacenDestino: destinoReal,
+      cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
+      notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
+    }));
     movRef = 'traslado_modulo';
   } else if (s.scope === 'salida' && s.tipo === 'dinero') {
     const mov = await salidaDinero({

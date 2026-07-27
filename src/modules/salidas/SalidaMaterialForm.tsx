@@ -4,7 +4,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
-import type { Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
+import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { listCatalogoPedido, crearCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
@@ -12,8 +12,9 @@ import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCentrosAcopio } from './cajas.repository';
+import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen } from './asignacionPrioridad';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; almacen: string; precio: string }
+interface LineaUI { id: number; productoId: string; cantidad: string; precio: string }
 
 export function SalidaMaterialForm({
   productos, existencias, actor, actorName, onClose, onSaved,
@@ -32,29 +33,34 @@ export function SalidaMaterialForm({
     return m;
   }, [existencias]);
 
-  // Para un producto, el almacén con MÁS stock (de ahí se descuenta). null si no hay.
-  const mejorAlmacen = (productoId: string): { almacen: string; stock: number } | null => {
-    const exs = existencias
-      .filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0)
-      .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
-    const ex = exs[0];
-    return ex ? { almacen: ex.almacen, stock: Number(ex.stock) || 0 } : null;
-  };
+  const [almacenesObj, setAlmacenesObj] = useState<Almacen[]>([]);
 
-  // Varias líneas de producto (como una OC). Cada una: producto + cantidad + almacén autoasignado.
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '', precio: '' }]);
+  // Almacén → sede, para ordenar por prioridad (Los Pinos → Matanzas → resto).
+  const sedePorAlmacen = useMemo(() => {
+    const m = new Map<string, string | null>();
+    almacenesObj.forEach((a) => m.set(a.nombre, a.sede ?? null));
+    return m;
+  }, [almacenesObj]);
+
+  // Candidatos de un producto: todos sus almacenes con stock, con su sede y costo.
+  const candidatosDe = (productoId: string): CandidatoAlmacen[] =>
+    existencias
+      .filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0)
+      .map((e) => ({ almacen: e.almacen, sede: sedePorAlmacen.get(e.almacen) ?? null, stock: Number(e.stock) || 0, costo: Number(e.costo_promedio) || 0 }));
+
+  // Varias líneas de producto (como una OC). Cada una: producto + cantidad. El/los almacén(es) se resuelven por prioridad.
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', precio: '' }]);
   const [seq, setSeq] = useState(2);
   const setLinea = (id: number, patch: Partial<LineaUI>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '', precio: '' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', precio: '' }]); setSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
 
-  // Al elegir el producto, se autoasigna el almacén con más stock y el precio (costo/PMP) editable.
+  // Al elegir el producto: cantidad 1 y precio por defecto = costo del almacén de mayor prioridad.
   function elegirProducto(id: number, productoId: string) {
-    const mej = mejorAlmacen(productoId);
-    const almacen = mej?.almacen ?? '';
+    const primer = planEntregaPorPrioridad(candidatosDe(productoId), 1).tramos[0];
     const p = activos.find((x) => x.id === productoId);
-    const costo = Number(exMap.get(`${productoId}|${almacen}`)?.costo_promedio) || p?.precio || 0;
-    setLinea(id, { productoId, almacen, cantidad: '1', precio: costo ? String(costo) : '' });
+    const costo = primer?.costo || p?.precio || 0;
+    setLinea(id, { productoId, cantidad: '1', precio: costo ? String(costo) : '' });
   }
 
   const [motivo, setMotivo] = useState('');
@@ -73,6 +79,7 @@ export function SalidaMaterialForm({
   useEffect(() => {
     Promise.all([listAlmacenes().catch(() => []), listCentrosAcopio().catch(() => [])])
       .then(([alms, centros]) => {
+        setAlmacenesObj(alms);
         // Solo almacenes PADRE (principales con subalmacenes); se excluyen los top-level sin hijos.
         const conHijos = new Set(alms.filter((a) => a.parent_id).map((a) => a.parent_id));
         setSedePrincipales(alms.filter((a) => !a.parent_id && a.estado === 'activo' && conHijos.has(a.id)).map((a) => a.nombre));
@@ -112,21 +119,20 @@ export function SalidaMaterialForm({
     finally { setAddingUnidad(false); }
   }
 
-  // Datos derivados por línea (producto, stock del almacén autoasignado, precio).
+  // Datos derivados por línea. El stock disponible es el TOTAL de todos los almacenes del producto;
+  // el reparto real (de qué almacén sale cada unidad) lo decide la prioridad (Los Pinos → Matanzas → resto).
   const prodDe = (id: string) => activos.find((p) => p.id === id) ?? null;
-  const stockDe = (l: LineaUI) => Number(exMap.get(`${l.productoId}|${l.almacen}`)?.stock) || 0;
-  // Costo/PMP del inventario para ese producto+almacén (valor por defecto y placeholder del precio).
-  const costoInvDe = (productoId: string, almacen: string) => {
-    const ex = exMap.get(`${productoId}|${almacen}`);
-    const p = prodDe(productoId);
-    return Number(ex?.costo_promedio) || p?.precio || 0;
-  };
-  // Precio efectivo del renglón: el que el usuario editó; si está vacío, el costo del inventario.
-  const precioDe = (l: LineaUI) => (Number(l.precio) > 0 ? Number(l.precio) : costoInvDe(l.productoId, l.almacen));
+  const stockDe = (l: LineaUI) => stockTotal(candidatosDe(l.productoId));
+  // Plan de reparto por prioridad para la cantidad pedida en el renglón.
+  const planDe = (l: LineaUI) => planEntregaPorPrioridad(candidatosDe(l.productoId), Number(l.cantidad) || 0);
+  // Costo por defecto del renglón (almacén de mayor prioridad) para placeholder del precio.
+  const costoInvDe = (l: LineaUI) => planEntregaPorPrioridad(candidatosDe(l.productoId), 1).tramos[0]?.costo || prodDe(l.productoId)?.precio || 0;
+  // Precio efectivo del renglón: el que el usuario editó; si está vacío, el costo del almacén prioritario.
+  const precioDe = (l: LineaUI) => (Number(l.precio) > 0 ? Number(l.precio) : costoInvDe(l));
   const totalGeneral = useMemo(
     () => lineas.reduce((a, l) => a + precioDe(l) * (Number(l.cantidad) || 0), 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lineas, exMap],
+    [lineas, exMap, sedePorAlmacen],
   );
 
   function onCantidadChange(l: LineaUI, v: string) {
@@ -137,7 +143,7 @@ export function SalidaMaterialForm({
   }
 
   const hayExcede = lineas.some((l) => (Number(l.cantidad) || 0) > stockDe(l));
-  const algunaInvalida = lineas.some((l) => !l.productoId || !l.almacen || (Number(l.cantidad) || 0) <= 0);
+  const algunaInvalida = lineas.some((l) => !l.productoId || stockDe(l) <= 0 || (Number(l.cantidad) || 0) <= 0);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -151,10 +157,16 @@ export function SalidaMaterialForm({
       const p = prodDe(l.productoId);
       const cant = Number(l.cantidad) || 0;
       if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
-      if (!l.almacen) { setError(`${p?.nombre ?? 'El material'} no tiene stock en ningún almacén.`); return; }
+      if (stockDe(l) <= 0) { setError(`${p?.nombre ?? 'El material'} no tiene stock en ningún almacén.`); return; }
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
-      if (cant > stockDe(l)) { setError(`No hay stock suficiente de ${p?.nombre} en ${l.almacen}. Disponible: ${num(stockDe(l))}.`); return; }
-      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: cant, precio_unit: precioDe(l) || null, unidad: p?.unidad ?? null, almacen: l.almacen, observacion: null });
+      const { tramos, faltante } = planDe(l);
+      if (faltante > 0) { setError(`No hay stock suficiente de ${p?.nombre}. Disponible: ${num(stockDe(l))}.`); return; }
+      // Una línea puede salir de VARIOS almacenes (cascada por prioridad): un ítem por tramo.
+      // Si el usuario editó el precio, ese precio manda; si no, cada tramo usa el costo de su almacén.
+      const precioEditado = Number(l.precio) > 0 ? Number(l.precio) : null;
+      for (const t of tramos) {
+        items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: t.cantidad, precio_unit: precioEditado ?? t.costo ?? null, unidad: p?.unidad ?? null, almacen: t.almacen, observacion: null });
+      }
     }
     setSaving(true);
     try {
@@ -264,6 +276,7 @@ export function SalidaMaterialForm({
           const prod = prodDe(l.productoId);
           const cant = Number(l.cantidad) || 0;
           const excede = cant > stock;
+          const { tramos } = planDe(l);
           return (
             <div key={l.id} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
@@ -277,10 +290,10 @@ export function SalidaMaterialForm({
                     options={opcionesProducto} placeholder="🔎 Buscá el material…" emptyText="Sin productos." />
                   <small className="muted">
                     {l.productoId
-                      ? (l.almacen
-                        ? <>📦 {l.almacen} · stock <strong className="mono">{num(stock)} {prod?.unidad ?? ''}</strong> · precio {money(precioDe(l))}</>
+                      ? (stock > 0
+                        ? <>📦 Sale de <strong>{tramos.map((t) => `${t.almacen} (${num(t.cantidad)})`).join(' + ') || '—'}</strong> · disponible total <strong className="mono">{num(stock)} {prod?.unidad ?? ''}</strong></>
                         : <span style={{ color: 'var(--danger)' }}>Sin stock en ningún almacén</span>)
-                      : 'Se descuenta del almacén con más stock.'}
+                      : 'Se descuenta por prioridad: Los Pinos primero, luego Matanzas.'}
                   </small>
                 </div>
                 <div className="form-row">
@@ -292,7 +305,7 @@ export function SalidaMaterialForm({
                   <label>Precio unit. (costo)</label>
                   <input className="input mono" type="number" min={0} step="any" value={l.precio}
                     onChange={(e) => setLinea(l.id, { precio: e.target.value })}
-                    placeholder={l.productoId ? String(costoInvDe(l.productoId, l.almacen)) : '0'} />
+                    placeholder={l.productoId ? String(costoInvDe(l)) : '0'} />
                   <small className="muted">Editable. Al ejecutar la salida actualiza el costo del producto en Inventario · subtotal {money(precioDe(l) * (Number(l.cantidad) || 0))}</small>
                 </div>
               </div>

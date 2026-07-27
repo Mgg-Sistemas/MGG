@@ -51,6 +51,8 @@ import { ImportarExcelModal } from './ImportarExcelModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
 import { AlmacenesView, SedesView, hijosDe, raices, type AlmacenLayout } from './AlmacenesView';
+import { ArbolAlmacenesPanel } from './ArbolAlmacenesPanel';
+import { MoverProductoModal } from './MoverProductoModal';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { AlmacenKanban } from './AlmacenKanban';
 // Los generadores de PDF/Excel de almacén se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
@@ -141,6 +143,16 @@ const ESPACIOS: Record<Espacio, { titulo: string; icono: string; ruta: string; m
   deposito: { titulo: 'Depósito', icono: '🏬', ruta: 'deposito', modulo: 'deposito' },
 };
 
+/** Sedes que se navegan con el panel lateral en árbol. Matanzas queda fuera (usa la
+ *  vista de tarjetas actual). Las demás sedes también siguen accesibles por tarjetas. */
+const SEDES_ARBOL = [
+  'LOS PINOS',
+  'CENTRO DE ACOPIO - EL BURRO',
+  'CENTRO DE ACOPIO - LA ESPERANZA',
+  'CENTRO DE ACOPIO - LOS PIJIGUAOS',
+  'CENTRO DE ACOPIO - PARGUAZA',
+];
+
 /** Página parametrizada por ESPACIO: 'principal' = Inventario, 'deposito' = submódulo
  *  Depósito (mismas funciones, datos separados; su total NO suma con el inventario). */
 export function InventarioModulo({ espacio }: { espacio: Espacio }) {
@@ -163,6 +175,7 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
   const [almacenNavId, setAlmacenNavId] = useState<string | null>(null);
   const [consumoAlmacen, setConsumoAlmacen] = useState<string | null>(null);
   const [reporteAlmacen, setReporteAlmacen] = useState<string | null>(null);
+  const [moverProd, setMoverProd] = useState<ProductoDecorado | null>(null);
   const [movStats, setMovStats] = useState<Map<string, { entradas: number; salidas: number }>>(new Map());
   const [consumo, setConsumo] = useState<Map<string, ConsumoProducto>>(new Map());
   const [detalleLayout, setDetalleLayout] = useState<'kanban' | 'lista'>('lista');
@@ -281,6 +294,7 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
       for (const e of existencias) {
         if (!nombres.has(e.almacen)) continue;
         const st = Number(e.stock) || 0;
+        if (st === 0) continue; // no contar filas fantasma (stock 0) en el nº de productos
         valor += st * (Number(e.costo_promedio) || 0);
         items += 1;
         unidades += st;
@@ -719,13 +733,32 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
       {ui.view === 'recepciones' ? (
         <RecepcionesPendientes ordenes={recepciones} compras={comprasRecibir} almacenes={almacenes} actor={productoActor} actorName={actorName} onRecibida={reload} />
       ) : ui.view === 'almacenes' ? (
-        almacenSel ? (
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+          <aside style={{ width: 270, flexShrink: 0, position: 'sticky', top: '.5rem', maxHeight: '82vh', overflowY: 'auto', borderRight: '1px solid var(--border)', paddingRight: '.5rem' }}>
+            <div style={{ fontWeight: 700, margin: '.2rem .3rem .5rem' }}>▣ Almacenes</div>
+            <ArbolAlmacenesPanel
+              almacenes={almacenes}
+              sedesIncluidas={SEDES_ARBOL}
+              seleccionado={almacenSel}
+              valores={valoresRollup}
+              onSelect={(n) => { setAlmacenSel(n); }}
+            />
+          </aside>
+          <div style={{ flex: 1, minWidth: 0 }}>
+        {almacenSel ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
               <button className="btn btn-ghost" onClick={() => setAlmacenSel(null)}>← Volver a almacenes</button>
               <h2 style={{ margin: 0 }}>▣ {almacenSel}</h2>
               <span className="muted mono">{money(almacenRows.reduce((s, p) => s + (Number(p.stock) || 0) * (Number(p.precio) || 0), 0))} · {num(almacenRows.length)} producto(s){descendientesDe(almacenSel).length > 1 ? ' · incluye subalmacenes' : ''}</span>
-              <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
+              <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                {canWrite && (
+                  <button className="btn btn-primary btn-sm" onClick={() => setModal({ kind: 'crear' })} title={`Agregar un producto directamente en ${almacenSel}`}>+ Nuevo producto</button>
+                )}
+                {canWrite && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => setGestionCatsOpen(true)} title="Gestionar categorías y medidas">⚙ Categorías</button>
+                )}
+                <button className="btn btn-ghost btn-sm" onClick={() => { void descargarPlantillaExcel(); }} title="Descargar plantilla de carga masiva">↓ Plantilla</button>
                 <button className="btn btn-primary btn-sm" onClick={() => setConsumoAlmacen(almacenSel)} title="Gráfica de consumo por producto de este almacén">📊 Consumo</button>
                 <button className="btn btn-ghost btn-sm" disabled={!almacenRows.length}
                   onClick={() => import('./almacenExport').then(({ descargarAlmacenExcel }) => descargarAlmacenExcel(almacenSel, almacenRows)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
@@ -751,6 +784,7 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
                 onToggleEstado={askToggleEstado}
                 canWrite={canWrite}
                 movStats={movStats}
+                onMover={canWrite ? setMoverProd : undefined}
               />
             )}
           </>
@@ -850,7 +884,9 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
             )}
           </>
           );
-        })()
+        })()}
+          </div>
+        </div>
       ) : (
         <>
           <InventarioFilterbar values={ui} categorias={categorias} almacenes={almacenNombres} onChange={setFilter2} />
@@ -934,6 +970,18 @@ export function InventarioModulo({ espacio }: { espacio: Espacio }) {
         />
       )}
       {/* Consumo por producto de un almacén — disponible desde la tarjeta y desde el detalle. */}
+      {moverProd && almacenSel && (
+        <MoverProductoModal
+          producto={{ id: moverProd.id, nombre: moverProd.nombre }}
+          almacenOrigen={almacenSel}
+          stockDisponible={Number(moverProd.stock) || 0}
+          almacenes={almacenes.map((a) => a.nombre)}
+          actor={productoActor}
+          actorName={actorName}
+          onClose={() => setMoverProd(null)}
+          onDone={() => { void reload(); }}
+        />
+      )}
       {consumoAlmacen && (
         <ConsumoChartModal
           title={`Consumo · ${consumoAlmacen}`}

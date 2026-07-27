@@ -14,9 +14,11 @@ interface ProductosTableProps {
   canWrite?: boolean;
   /** Si viene, agrega columnas Entradas/Salidas por producto (vista de almacén). */
   movStats?: Map<string, { entradas: number; salidas: number }>;
+  /** Si viene (vista de almacén), agrega la acción "Mover" para trasladar ese producto a otro almacén. */
+  onMover?: (p: ProductoDecorado) => void;
 }
 
-export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdit, onMovimiento, onToggleEstado, canWrite = true, movStats }: ProductosTableProps) {
+export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdit, onMovimiento, onToggleEstado, canWrite = true, movStats, onMover }: ProductosTableProps) {
   if (!rows.length) {
     return (
       <div className="card">
@@ -121,6 +123,11 @@ export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdi
                       <button className="btn btn-sm btn-ghost" onClick={() => onMovimiento(p.id)} title="Registrar movimiento">
                         ↕
                       </button>
+                      {onMover && (
+                        <button className="btn btn-sm btn-ghost" onClick={() => onMover(p)} title="Mover a otro almacén">
+                          ⇄
+                        </button>
+                      )}
                       <button className="btn btn-sm btn-ghost" onClick={() => onEdit(p.id)}>
                         Editar
                       </button>
