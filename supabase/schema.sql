@@ -1209,10 +1209,14 @@ create table if not exists public.cuentas_por_pagar_abonos (
   caja_mov_id    uuid,
   saldo_restante numeric,
   nota           text,
+  comision_monto  numeric,
+  comision_moneda text,
   actor          text,
   actor_name     text,
   at             timestamptz not null default now()
 );
+alter table public.cuentas_por_pagar_abonos add column if not exists comision_monto numeric;
+alter table public.cuentas_por_pagar_abonos add column if not exists comision_moneda text;
 alter table public.cuentas_por_pagar enable row level security;
 alter table public.cuentas_por_pagar_abonos enable row level security;
 create policy "cxp read auth" on public.cuentas_por_pagar for select using (auth.role()='authenticated');
