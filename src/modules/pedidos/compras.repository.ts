@@ -793,6 +793,11 @@ export async function anularCompraDirecta(compra: CompraDirecta, actorEmail: str
  * Es una acción irreversible: borra la fila y sus adjuntos del Storage.
  */
 export async function eliminarCompraDirecta(compra: CompraDirecta, actor?: string, actorName?: string | null): Promise<void> {
+  // Una compra directa FINALIZADA no se elimina: ya cerró su ciclo (pagada y recibida).
+  // Para corregir se usa «Editar montos», que sincroniza Tesorería e inventario sin borrar.
+  if (compra.estado === 'finalizada')
+    throw new Error('Esta compra directa ya está FINALIZADA; no se puede eliminar. Usá «Editar montos» para corregir montos o «Facturas» para las facturas.');
+
   // A crédito: la deuda vive en Tesorería (cuenta por pagar); hay que anularla allí primero.
   if (compra.credito_cxp_id)
     throw new Error('Esta compra quedó A CRÉDITO (cuenta por pagar en Tesorería). Anulá primero la cuenta por pagar y después eliminala.');
