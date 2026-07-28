@@ -32,6 +32,8 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
   // sku → proveedor_id asignado en ESTA sesión (no incluye los ya bloqueados por sub-OC previa).
   const [asignado, setAsignado] = useState<Record<string, string>>({});
   const [selProv, setSelProv] = useState<string>('');
+  // Moneda elegida por proveedor: 'bcv' (paga en Bs al cambio) o 'usd' (directo en divisa).
+  const [monedaSel, setMonedaSel] = useState<Record<string, 'bcv' | 'usd'>>({});
   // Cargar una oferta nueva SIN salir del asignador (para cubrir lo que ningún proveedor cotizó).
   const [agregando, setAgregando] = useState(false);
 
@@ -55,20 +57,35 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
   const proveedoresYaOfertados = useMemo(() => new Set(ofertas.map((o) => o.proveedor_id)), [ofertas]);
   // Oferta por proveedor + precio por (proveedor, sku).
   const ofertaDe = useMemo(() => new Map(ofertas.map((o) => [o.proveedor_id, o])), [ofertas]);
-  const precioDe = (provId: string, sku: string): number | null => {
-    const o = ofertaDe.get(provId);
-    const it = o?.items?.find((x) => x.sku === sku);
+  // ¿Qué monedas cotizó el proveedor? (hay al menos un ítem con precio BCV / precio USD).
+  const ofreceMoneda = useCallback((provId: string): { bcv: boolean; usd: boolean } => {
+    const items = ofertaDe.get(provId)?.items ?? [];
+    return {
+      bcv: items.some((x) => (Number(x.precio) || 0) > 0),
+      usd: items.some((x) => (Number(x.precio_usd) || 0) > 0),
+    };
+  }, [ofertaDe]);
+  // Moneda EFECTIVA del proveedor: la elegida, o por defecto BCV (o USD si solo cotizó en divisa).
+  const monedaDe = useCallback((provId: string): 'bcv' | 'usd' => {
+    const sel = monedaSel[provId];
+    if (sel) return sel;
+    const { bcv, usd } = ofreceMoneda(provId);
+    return (!bcv && usd) ? 'usd' : 'bcv';
+  }, [monedaSel, ofreceMoneda]);
+  // Precio del proveedor para un sku, EN LA MONEDA elegida (BCV = paga en Bs; USD = directo en divisa).
+  const precioEnMoneda = useCallback((provId: string, sku: string, moneda: 'bcv' | 'usd'): number | null => {
+    const it = ofertaDe.get(provId)?.items?.find((x) => x.sku === sku);
     if (!it) return null;
-    // Precio efectivo: BCV si lo cotizó; si la oferta es solo en divisa, el precio USD.
-    const bcv = Number(it.precio) || 0;
-    const usd = Number(it.precio_usd) || 0;
-    const efectivo = bcv > 0 ? bcv : usd;
-    return efectivo > 0 ? efectivo : null;
-  };
+    const val = moneda === 'usd' ? (Number(it.precio_usd) || 0) : (Number(it.precio) || 0);
+    return val > 0 ? val : null;
+  }, [ofertaDe]);
+  const precioDe = (provId: string, sku: string): number | null => precioEnMoneda(provId, sku, monedaDe(provId));
   // IVA/IGTF (montos) de una oferta, PRORRATEADOS por la fracción que compra esta hija
   // (gross asignado / gross total de la oferta). Así una sub-OC que toma solo parte de
   // los ítems del proveedor recibe la parte proporcional del impuesto, no el total.
   const impuestosDe = useCallback((provId: string, grossAsignado: number): { iva: number; igtf: number } => {
+    // Directo en divisa: el precio USD es el monto final, sin IVA/IGTF en Bs.
+    if (monedaDe(provId) === 'usd') return { iva: 0, igtf: 0 };
     const o = ofertaDe.get(provId);
     const ivaOf = Number(o?.iva) || 0;
     const igtfOf = Number(o?.igtf) || 0;
@@ -79,7 +96,7 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
       iva: Math.round(ivaOf * frac * 100) / 100,
       igtf: Math.round(igtfOf * frac * 100) / 100,
     };
-  }, [ofertaDe]);
+  }, [ofertaDe, monedaDe]);
   // Ítems ya asignados a una sub-OC previa (bloqueados): sku → proveedor_id.
   const bloqueado = useMemo(() => {
     const m = new Map<string, string>();
@@ -121,7 +138,7 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asignado, opItems, ofertaDe, impuestosDe]);
+  }, [asignado, opItems, ofertaDe, impuestosDe, monedaSel]);
 
   const sinAsignar = opItems.filter((it) => !asignado[it.sku] && !bloqueado.has(it.sku));
   const nuevos = Object.keys(asignado).length;
@@ -142,13 +159,15 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     }
     const asignaciones: AsignacionProveedor[] = Array.from(porProv.entries()).map(([proveedorId, items]) => {
       const of = ofertaDe.get(proveedorId);
+      const enDivisa = monedaDe(proveedorId) === 'usd';
       const gross = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
       const imp = impuestosDe(proveedorId, gross);
       return {
         proveedorId, items,
         condiciones_pago: of?.condiciones_pago ?? null,
         oferta_detalle: of?.detalle ?? null,
-        oferta_precio_efectivo: of?.precio_efectivo ?? null,
+        // Directo en divisa: el precio USD ya es el final; no se aplica el descuento efectivo (Bs).
+        oferta_precio_efectivo: enDivisa ? null : (of?.precio_efectivo ?? null),
         iva: imp.iva > 0 ? imp.iva : null,
         igtf: imp.igtf > 0 ? imp.igtf : null,
       };
@@ -213,19 +232,41 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
             })}
           </div>
 
+          {/* Selector de moneda del proveedor: paga en Bs (al cambio) o directo en divisa ($). */}
+          {selProv && ofreceMoneda(selProv).usd && (() => {
+            const { bcv, usd } = ofreceMoneda(selProv);
+            const m = monedaDe(selProv);
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.6rem', fontSize: '.82rem' }}>
+                <span className="muted">Pago de <strong>{provName(selProv)}</strong>:</span>
+                <div className="view-toggle" role="tablist">
+                  <button className={m === 'bcv' ? 'active' : ''} disabled={!bcv}
+                    onClick={() => setMonedaSel((p) => ({ ...p, [selProv]: 'bcv' }))}
+                    title={!bcv ? 'Este proveedor no cotizó en Bs' : undefined}>💵 Bs al cambio (BCV)</button>
+                  <button className={m === 'usd' ? 'active' : ''} disabled={!usd}
+                    onClick={() => setMonedaSel((p) => ({ ...p, [selProv]: 'usd' }))}>💲 Directo en divisa ($)</button>
+                </div>
+                {m === 'usd' && <span className="muted" style={{ fontSize: '.76rem' }}>Se usa el precio USD como monto final (sin IVA/IGTF ni descuento efectivo en Bs).</span>}
+              </div>
+            );
+          })()}
+
           {/* Tabla de productos para el proveedor seleccionado */}
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.84rem' }}>
               <thead><tr>
                 <th style={{ width: 40 }}></th><th>Producto</th>
                 <th style={{ textAlign: 'right' }}>Cant.</th>
-                <th style={{ textAlign: 'right' }}>Precio {provName(selProv)}</th>
+                <th style={{ textAlign: 'right' }}>Precio {provName(selProv)} · {monedaDe(selProv) === 'usd' ? 'Divisa $' : 'Bs (BCV)'}</th>
                 <th style={{ textAlign: 'right' }}>Subtotal</th>
                 <th>Asignación</th>
               </tr></thead>
               <tbody>
                 {opItems.map((it) => {
                   const precio = precioDe(selProv, it.sku);
+                  // Precio en la OTRA moneda, como referencia visual.
+                  const otra = monedaDe(selProv) === 'usd' ? 'bcv' : 'usd';
+                  const precioOtra = precioEnMoneda(selProv, it.sku, otra);
                   const lockProv = bloqueado.get(it.sku);
                   const asignProv = asignado[it.sku];
                   const checked = asignProv === selProv;
@@ -239,7 +280,10 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
                       </td>
                       <td>{it.nombre}<span className="muted"> · {it.sku}</span></td>
                       <td className="mono" style={{ textAlign: 'right' }}>{num(cant)} {it.unidad ?? ''}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{precio != null ? money(precio) : <span className="muted">no cotizó</span>}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>
+                        {precio != null ? money(precio) : <span className="muted">no cotizó</span>}
+                        {precioOtra != null && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{money(precioOtra)} · {otra === 'usd' ? 'divisa' : 'BCV'}</div>}
+                      </td>
                       <td className="mono" style={{ textAlign: 'right' }}>{precio != null ? money(cant * precio) : '—'}</td>
                       <td style={{ fontSize: '.8rem' }}>
                         {lockProv ? <span className="badge success">🔒 {provName(lockProv)} (OC creada)</span>
