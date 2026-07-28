@@ -417,10 +417,10 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, o
         {/* Víveres: TODOS los del inventario (categoría VÍVERES), sin importar el almacén.
             Se eligen con checkboxes; al tildar aparece la cantidad. */}
         <div className="form-row">
-          <label>Víveres consumidos <span className="muted" style={{ fontWeight: 400 }}>(todo el inventario · Víveres, Carnes/Proteína, Alimentos, Hortalizas y Limpieza · {num(viveres.length)} productos{nSel > 0 ? ` · ${num(nSel)} elegido(s)` : ''})</span></label>
+          <label>Víveres consumidos <span className="muted" style={{ fontWeight: 400 }}>(de este centro · Víveres, Carnes/Proteína, Alimentos, Hortalizas y Limpieza · {num(viveres.length)} productos{nSel > 0 ? ` · ${num(nSel)} elegido(s)` : ''})</span></label>
           <input className="search" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar víver por nombre o SKU…" style={{ marginBottom: '.5rem' }} />
           <div style={{ display: 'grid', gap: '.4rem', maxHeight: 340, overflowY: 'auto', paddingRight: '.15rem' }}>
-            {!filtrados.length && <div className="muted" style={{ padding: '1rem', textAlign: 'center' }}>{viveres.length ? 'Ningún víver coincide con la búsqueda.' : 'No hay productos de Víveres, Carnes/Proteína, Alimentos, Hortalizas o Limpieza en el inventario.'}</div>}
+            {!filtrados.length && <div className="muted" style={{ padding: '1rem', textAlign: 'center' }}>{viveres.length ? 'Ningún víver coincide con la búsqueda.' : 'No hay productos de Víveres, Carnes/Proteína, Alimentos, Hortalizas o Limpieza en este centro.'}</div>}
             {filtrados.map((v) => {
               const id = v.producto.id;
               const selected = id in sel;
@@ -587,7 +587,7 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
 
           {/* Stock disponible de víveres */}
           <div className="card">
-            <div className="card-title" style={{ marginBottom: '.5rem' }}>Stock disponible de víveres <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· todo el inventario</span></div>
+            <div className="card-title" style={{ marginBottom: '.5rem' }}>Stock disponible de víveres <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· de este centro</span></div>
             <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
               <table className="table" style={{ fontSize: '.82rem' }}>
                 <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Stock</th><th style={{ textAlign: 'right' }}>Precio</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>

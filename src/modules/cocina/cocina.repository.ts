@@ -146,15 +146,30 @@ export async function listViveres(almacen?: string | null): Promise<ViverDisponi
 }
 
 /**
- * TODOS los víveres del inventario general (categoría VÍVERES), sin importar en qué
- * almacén estén. El stock es la SUMA de todos los almacenes; el descuento sale del
- * almacén con más stock (prefiriendo `preferAlmacen` —el de la cocina— si ahí hay
- * existencia). Se usa en "Añadir movimiento" para elegir víveres con checkboxes.
+ * Víveres disponibles para la cocina, ACOTADOS A SU CENTRO (sede). Se toma la sede del
+ * almacén vinculado (`preferAlmacen`) y se consideran SOLO los almacenes de esa sede:
+ * así la cocina de La Esperanza ve únicamente lo de La Esperanza, y la de Los Pinos lo
+ * de Los Pinos. El stock es la suma dentro del centro; el descuento sale del almacén
+ * vinculado si ahí hay existencia, o del que más tenga dentro del centro.
+ * Sin almacén vinculado (legado) cae al comportamiento global (todos los almacenes).
  */
 export async function listViveresGlobal(preferAlmacen?: string | null): Promise<ViverDisponible[]> {
-  const [productos, existencias] = await Promise.all([listProductos(), listExistencias()]);
+  const [productos, existencias, almacenes] = await Promise.all([listProductos(), listExistencias(), listAlmacenes()]);
+
+  // Alcance por CENTRO: nombres de almacén que pertenecen a la misma sede que el vinculado.
+  const sedeDe = new Map(almacenes.map((a) => [a.nombre, a.sede ?? null] as const));
+  const sedeObjetivo = preferAlmacen ? sedeDe.get(preferAlmacen) ?? null : null;
+  const almacenesScope: Set<string> | null = preferAlmacen
+    ? new Set(
+        sedeObjetivo
+          ? almacenes.filter((a) => (a.sede ?? null) === sedeObjetivo).map((a) => a.nombre)
+          : [preferAlmacen], // almacén sin sede: se acota al propio almacén
+      )
+    : null; // sin almacén vinculado (legado): global
+
   const porProducto = new Map<string, Existencia[]>();
   for (const e of existencias) {
+    if (almacenesScope && !almacenesScope.has(e.almacen)) continue; // fuera del centro
     const arr = porProducto.get(e.producto_id) ?? [];
     arr.push(e); porProducto.set(e.producto_id, arr);
   }
@@ -163,9 +178,11 @@ export async function listViveresGlobal(preferAlmacen?: string | null): Promise<
     if (p.estado !== 'activo') continue;
     if (!esCategoriaCocina(p.categoria)) continue;
     const exs = porProducto.get(p.id) ?? [];
+    // Acotado al centro: si el producto no existe en este centro, no se muestra.
+    if (almacenesScope && exs.length === 0) continue;
     const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
     const conStock = exs.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock));
-    // Descuento: el almacén de la cocina si ahí hay stock; si no, el que más tenga.
+    // Descuento: el almacén de la cocina si ahí hay stock; si no, el que más tenga (dentro del centro).
     const preferido = preferAlmacen ? conStock.find((e) => e.almacen === preferAlmacen) : undefined;
     const mejor = preferido ?? conStock[0];
     out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
