@@ -321,6 +321,96 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
   return comida;
 }
 
+/**
+ * Edita una comida ya registrada: reversa el consumo anterior (devuelve el stock de
+ * los víveres de la comida previa), recalcula el detalle con los precios actuales y
+ * aplica el nuevo consumo. Conserva el correlativo. Permite cambiar tipo, platos,
+ * fecha, nota y los víveres (cantidades incluidas) — editar todo.
+ */
+export async function editarComida(comidaId: string, input: CrearComidaInput): Promise<CocinaComida> {
+  const { data: prev, error: e0 } = await supabase.from(TABLE).select('*').eq('id', comidaId).single();
+  if (e0) throw e0;
+  const comidaPrev = prev as CocinaComida;
+
+  const lineas = (input.items ?? []).filter((it) => it.producto_id && (Number(it.cantidad) || 0) > 0);
+  if (!lineas.length) throw new Error('Agregá al menos un víver con cantidad.');
+  if ((Number(input.platos) || 0) <= 0) throw new Error('Indicá cuántos platos se realizaron.');
+
+  // 1) Reversa el consumo anterior: devuelve al inventario el stock de cada víver previo.
+  for (const it of comidaPrev.items ?? []) {
+    try {
+      await registrarMovimiento({
+        producto_id: it.producto_id, tipo: 'entrada', delta: Number(it.cantidad) || 0,
+        almacen: it.almacen ?? undefined, actor: input.actor, actor_name: input.actorName ?? null,
+        ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comidaPrev.codigo,
+        detalle: `Reverso por edición · ${comidaPrev.codigo}`, precio_unitario: it.precio,
+      });
+    } catch { /* no bloquea la edición */ }
+  }
+
+  // 2) Resolver los nuevos ítems contra los víveres del centro (precios actuales).
+  const viveres = await listViveresGlobal(input.almacen ?? null);
+  const mapV = new Map(viveres.map((v) => [v.producto.id, v]));
+  const items: ItemCocina[] = [];
+  for (const l of lineas) {
+    const v = mapV.get(l.producto_id);
+    if (!v) throw new Error('Un producto seleccionado ya no está disponible en este centro.');
+    const cantidad = Number(l.cantidad) || 0;
+    const precio = Number(v.precio) || 0;
+    items.push({
+      producto_id: v.producto.id, sku: v.producto.sku, nombre: v.producto.nombre,
+      unidad: v.producto.unidad, cantidad, precio, subtotal: Math.round(cantidad * precio * 100) / 100,
+      almacen: v.almacenMasStock,
+    });
+  }
+  const valorTotal = Math.round(items.reduce((a, it) => a + it.subtotal, 0) * 100) / 100;
+
+  // 3) Actualizar la comida. La fecha solo mueve el timestamp si cambió de día.
+  const fecha = input.fecha && /^\d{4}-\d{2}-\d{2}$/.test(input.fecha) ? input.fecha : null;
+  const fechaPrev = (comidaPrev.at ?? '').slice(0, 10);
+  const patch: Record<string, unknown> = {
+    tipo_comida: input.tipoComida, platos: Number(input.platos) || 0, items, valor_total: valorTotal,
+    nota: input.nota?.trim() || null,
+  };
+  if (fecha && fecha !== fechaPrev) patch.at = new Date(`${fecha}T12:00:00`).toISOString();
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', comidaId).select('*').single();
+  if (error) throw error;
+  const comida = data as CocinaComida;
+
+  // 4) Aplicar el nuevo consumo (salidas en el kardex).
+  for (const it of items) {
+    try {
+      await registrarMovimiento({
+        producto_id: it.producto_id, tipo: 'salida', delta: -it.cantidad,
+        almacen: it.almacen ?? undefined, actor: input.actor, actor_name: input.actorName ?? null,
+        ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comida.codigo,
+        detalle: `Cocina (editado) · ${labelTipoComida(input.tipoComida)} · ${comida.codigo}`,
+        precio_unitario: it.precio,
+      });
+    } catch { /* no bloquea */ }
+  }
+  return comida;
+}
+
+/** Elimina una comida y devuelve al inventario el stock que había consumido. */
+export async function eliminarComida(comidaId: string, actor: string, actorName?: string | null): Promise<void> {
+  const { data: prev, error: e0 } = await supabase.from(TABLE).select('*').eq('id', comidaId).single();
+  if (e0) throw e0;
+  const comida = prev as CocinaComida;
+  for (const it of comida.items ?? []) {
+    try {
+      await registrarMovimiento({
+        producto_id: it.producto_id, tipo: 'entrada', delta: Number(it.cantidad) || 0,
+        almacen: it.almacen ?? undefined, actor, actor_name: actorName ?? null,
+        ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comida.codigo,
+        detalle: `Reverso por eliminación · ${comida.codigo}`, precio_unitario: it.precio,
+      });
+    } catch { /* no bloquea */ }
+  }
+  const { error } = await supabase.from(TABLE).delete().eq('id', comidaId);
+  if (error) throw error;
+}
+
 /* ───────── Resumen / consumo ───────── */
 
 export interface ResumenDia { dia: string; platos: number; valor: number }

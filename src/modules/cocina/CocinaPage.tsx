@@ -17,7 +17,7 @@ import { dateTime, money, num } from '@/shared/lib/format';
 import type { CocinaComida, TipoComida, Cocina, Almacen } from '@/shared/lib/types';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import {
-  listComidas, crearComida, listViveresGlobal, resumirComidas,
+  listComidas, crearComida, editarComida, eliminarComida, listViveresGlobal, resumirComidas,
   listCocinas, crearCocina, actualizarCocina, eliminarCocina, listAlmacenesParaCocina,
   TIPOS_COMIDA, labelTipoComida, type ViverDisponible, type ResumenCocina, type CocinaConInfo,
 } from './cocina.repository';
@@ -177,6 +177,8 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
   const [comidas, setComidas] = useState<CocinaComida[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'none' | 'add' | 'resumen'>('none');
+  const [editComida, setEditComida] = useState<CocinaComida | null>(null);
+  const [delComida, setDelComida] = useState<CocinaComida | null>(null);
   const [alertando, setAlertando] = useState(false);
 
   // Alerta "a restablecer el mercado": avisa a Pedidos/Compras que hay que reponer víveres.
@@ -288,6 +290,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
               <th>Correlativo</th><th>Comida</th><th>Fecha · hora</th>
               <th style={{ textAlign: 'right' }}>Platos</th><th>Víveres</th>
               <th style={{ textAlign: 'right' }}>Valor</th><th style={{ textAlign: 'right' }}>Prom./plato</th>
+              {canWrite && <th style={{ textAlign: 'right' }}>Acciones</th>}
             </tr></thead>
             <tbody>
               {filtradas.map((c) => {
@@ -302,6 +305,12 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
                     <td className="muted" style={{ fontSize: '.82rem' }}>{(c.items ?? []).map((i) => `${i.nombre} ×${num(i.cantidad)}`).join(', ')}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(c.valor_total)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(prom)}</td>
+                    {canWrite && (
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button className="btn btn-sm btn-ghost" onClick={() => setEditComida(c)} title="Editar movimiento">✎</button>
+                        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setDelComida(c)} title="Eliminar movimiento">🗑</button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -312,14 +321,28 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
               <td></td>
               <td className="mono" style={{ textAlign: 'right' }}>{money(totalFiltrado.valor)}</td>
               <td className="mono" style={{ textAlign: 'right' }}>{money(totalFiltrado.platos > 0 ? totalFiltrado.valor / totalFiltrado.platos : 0)}</td>
+              {canWrite && <td></td>}
             </tr></tfoot>
           </table>
         </div>
       )}
 
-      {modal === 'add' && (
+      {(modal === 'add' || editComida) && (
         <AnadirMovimientoModal cocinaId={cocinaId} almacen={almacen} actor={actor} actorName={userEmail}
-          onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
+          comida={editComida}
+          onClose={() => { setModal('none'); setEditComida(null); }}
+          onSaved={async () => { setModal('none'); setEditComida(null); await reload(); }} />
+      )}
+      {delComida && (
+        <ConfirmDialog title="Eliminar movimiento"
+          message={`¿Eliminar el movimiento ${delComida.codigo}? Se devuelve al inventario el stock de los víveres consumidos.`}
+          confirmText="Eliminar" danger
+          onCancel={() => setDelComida(null)}
+          onConfirm={async () => {
+            const c = delComida; setDelComida(null);
+            try { await eliminarComida(c.id, actor, userEmail); toast('Movimiento eliminado', 'success'); await reload(); }
+            catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+          }} />
       )}
       {modal === 'resumen' && <ResumenModal cocinaId={cocinaId} almacen={almacen} onClose={() => setModal('none')} />}
     </div>
@@ -327,18 +350,21 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
 }
 
 /* ───────────── Añadir movimiento (consumo de víveres) ───────────── */
-function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, onSaved }: {
-  cocinaId: string; almacen: string | null; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, onClose, onSaved }: {
+  cocinaId: string; almacen: string | null; actor: string; actorName: string | null;
+  comida?: CocinaComida | null; onClose: () => void; onSaved: () => void;
 }) {
+  const esEdicion = !!comida;
   const [viveres, setViveres] = useState<ViverDisponible[]>([]);
-  const [tipo, setTipo] = useState<TipoComida>('almuerzo');
-  const [platos, setPlatos] = useState('');
-  // Fecha de la comida: por defecto hoy, pero se puede cargar una comida de un día desfasado.
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
-  const [nota, setNota] = useState('');
+  const [tipo, setTipo] = useState<TipoComida>(comida?.tipo_comida ?? 'almuerzo');
+  const [platos, setPlatos] = useState(comida ? String(comida.platos) : '');
+  // Fecha de la comida: por defecto hoy, pero se puede cargar/editar una comida de un día desfasado.
+  const [fecha, setFecha] = useState(() => (comida?.at ?? new Date().toISOString()).slice(0, 10));
+  const [nota, setNota] = useState(comida?.nota ?? '');
   const [busqueda, setBusqueda] = useState('');
   // Selección tipo check: productoId → cantidad (string). Si la clave existe, está tildado.
-  const [sel, setSel] = useState<Record<string, string>>({});
+  const [sel, setSel] = useState<Record<string, string>>(() =>
+    comida ? Object.fromEntries((comida.items ?? []).map((it) => [it.producto_id, String(it.cantidad)])) : {});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -375,17 +401,23 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, o
     if (!fecha) { setError('Indicá la fecha de la comida.'); return; }
     setSaving(true);
     try {
-      await crearComida({ tipoComida: tipo, platos: nPlatos, items, nota: nota.trim() || null, cocinaId, almacen, fecha, actor, actorName });
-      notify(`Comida registrada · ${labelTipoComida(tipo)} · ${money(total)}`, 'success', { link: '#/app/cocina' });
+      const payload = { tipoComida: tipo, platos: nPlatos, items, nota: nota.trim() || null, cocinaId, almacen, fecha, actor, actorName };
+      if (esEdicion && comida) {
+        await editarComida(comida.id, payload);
+        notify(`Comida actualizada · ${labelTipoComida(tipo)} · ${money(total)}`, 'success', { link: '#/app/cocina' });
+      } else {
+        await crearComida(payload);
+        notify(`Comida registrada · ${labelTipoComida(tipo)} · ${money(total)}`, 'success', { link: '#/app/cocina' });
+      }
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
   }
 
   return (
-    <Modal title="Añadir movimiento · Cocina" size="lg" onClose={() => !saving && onClose()} footer={
+    <Modal title={esEdicion ? 'Editar movimiento · Cocina' : 'Añadir movimiento · Cocina'} size="lg" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button type="submit" form="cocina-add" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : `Registrar · ${money(total)}`}</button>
+        <button type="submit" form="cocina-add" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : `${esEdicion ? 'Guardar' : 'Registrar'} · ${money(total)}`}</button>
       </>
     }>
       <form id="cocina-add" onSubmit={submit}>
