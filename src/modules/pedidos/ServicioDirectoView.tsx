@@ -661,6 +661,8 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
   // Pago a externo: una persona externa YA pagó el servicio; Tesorería le reintegra al pagar.
   const [pagoExterno, setPagoExterno] = useState(!!servicio.pago_externo);
   const [pagoExternoDatos, setPagoExternoDatos] = useState(servicio.pago_externo_datos ?? '');
+  // Con abonos (a crédito): Tesorería lo salda con abonos (cuenta por pagar) en vez de pago completo.
+  const [conAbonos, setConAbonos] = useState(!!servicio.con_abonos);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -690,7 +692,7 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
     const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await montarServicioDirecto({ servicio, items, file, actor, actorName, pagoExterno, pagoExternoDatos, nota, moneda });
+      await montarServicioDirecto({ servicio, items, file, actor, actorName, pagoExterno, pagoExternoDatos, nota, moneda, conAbonos });
       notify(`Servicio enviado a Tesorería · ${montoCaja(total, moneda)} por pagar`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar el servicio a Tesorería.'); setSaving(false); }
@@ -776,6 +778,17 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
                 placeholder="Nombre, C.I. / RIF, teléfono, y cómo reintegrarle (cuenta / pago móvil)…" />
               <small className="muted">Aparece en el detalle y en Tesorería: al pagar, el egreso reintegra el dinero a esta persona.</small>
             </div>
+          )}
+        </div>
+
+        {/* Con abonos (a crédito): Tesorería lo salda con abonos (cuenta por pagar) en vez de pago completo. */}
+        <div className="form-row" style={{ borderTop: '1px solid var(--border,#3a3a3a)', paddingTop: '.8rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={conAbonos} onChange={(e) => setConAbonos(e.target.checked)} />
+            <span>🧾 Pagar con abonos (a crédito) <span className="muted" style={{ fontWeight: 400 }}>(genera una Cuenta por Pagar que Tesorería salda por partes)</span></span>
+          </label>
+          {conAbonos && (
+            <small className="muted" style={{ marginTop: '.3rem' }}>Al recibirlo, Tesorería no lo paga completo: crea una <strong>Cuenta por Pagar</strong> por el total y la va <strong>abonando</strong>. Tesorería también puede marcarlo/desmarcarlo al momento.</small>
           )}
         </div>
       </form>

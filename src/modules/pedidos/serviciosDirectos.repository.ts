@@ -11,6 +11,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId, eliminarMovimientoCaja } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import { crearCuentaPorPagarDeuda } from '@/modules/tesoreria/cuentasPorPagar.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import type { PagoLeg, AdjuntoFactura } from './compras.repository';
 
@@ -78,6 +79,11 @@ export interface ServicioDirecto {
   pago_externo_datos: string | null;
   /** Nota / motivo libre del servicio (se ve en el detalle, en Tesorería y en el PDF). */
   nota: string | null;
+  /** El servicio se salda CON ABONOS (a crédito): en vez de pagarse completo, genera
+   *  una Cuenta por Pagar en Tesorería que se abona en el tiempo. */
+  con_abonos: boolean;
+  /** Cuenta por pagar (Tesorería) que respalda el servicio a crédito. */
+  credito_cxp_id: string | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   adjunto_path: string | null;
@@ -106,6 +112,7 @@ function normalizar(row: Record<string, unknown>): ServicioDirecto {
     ...r, items: Array.isArray(r.items) ? r.items : [], facturas,
     pago_externo: !!r.pago_externo, pago_externo_datos: r.pago_externo_datos ?? null,
     nota: r.nota ?? null, moneda: r.moneda ?? 'USD',
+    con_abonos: !!r.con_abonos, credito_cxp_id: r.credito_cxp_id ?? null,
   };
 }
 
@@ -323,6 +330,8 @@ export interface MontarServicioDirectoInput {
   pagoExternoDatos?: string | null;
   /** Nota / motivo libre (se ve en el detalle, en Tesorería y en el PDF). */
   nota?: string | null;
+  /** El analista marca que se pagará CON ABONOS (a crédito) desde Tesorería. */
+  conAbonos?: boolean;
   file?: File | null;
   actor: string;
   actorName?: string | null;
@@ -356,6 +365,7 @@ export async function montarServicioDirecto(input: MontarServicioDirectoInput): 
       pago_externo: !!input.pagoExterno,
       pago_externo_datos: input.pagoExterno ? (input.pagoExternoDatos?.trim() || null) : null,
       nota: input.nota?.trim() || null,
+      con_abonos: !!input.conAbonos,
       adjunto_path: primera?.path ?? null, adjunto_nombre: primera?.filename ?? null, facturas,
       updated_at: new Date().toISOString(),
     })
@@ -423,6 +433,46 @@ export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Pr
       estado: 'finalizada', gasto: total,
       gasto_categoria: gCat, gasto_subcategoria: gSub,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
+      pagada_por: input.actorName || input.actor,
+      finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    .eq('id', servicio.id);
+  if (error) throw error;
+}
+
+/* ───────── Dejar A CRÉDITO / con abonos (Tesorería: crea Cuenta por Pagar) ───────── */
+
+export interface DejarServicioACreditoInput {
+  servicio: ServicioDirecto;
+  actor: string;             // quién lo pasa a crédito (Tesorería)
+  actorName?: string | null;
+}
+
+/**
+ * Deja un servicio directo POR PAGAR "a crédito": NO descuenta caja ahora; genera una
+ * CUENTA POR PAGAR (deuda) por el total, a nombre del proveedor, que Tesorería salda con
+ * ABONOS en el tiempo. El servicio queda FINALIZADO y vinculado a esa cuenta (credito_cxp_id).
+ * El saldo/abonos viven en la Cuenta por Pagar (fuente de verdad, con su realtime).
+ */
+export async function dejarServicioACredito(input: DejarServicioACreditoInput): Promise<void> {
+  const { servicio } = input;
+  if (servicio.estado !== 'por_pagar') throw new Error('Solo se pasa a crédito un servicio que esté POR PAGAR.');
+  if (servicio.credito_cxp_id) throw new Error('Este servicio ya está a crédito (tiene cuenta por pagar).');
+  const total = Math.round(servicio.items.reduce((a, i) => a + (Number(i.gasto) || 0), 0) * 100) / 100;
+  if (total <= 0) throw new Error('El servicio no tiene montos cargados.');
+  const moneda = servicio.moneda === 'Bs' ? 'Bs' : 'USD';
+  const contraparte = (servicio.proveedor_nombre?.trim() || servicio.descripcion?.trim() || 'Servicio directo');
+
+  const cuenta = await crearCuentaPorPagarDeuda({
+    tipo: 'proveedor', contraparte, monto: total, moneda,
+    nota: `Servicio directo ${servicio.codigo ?? ''} · ${servicio.descripcion}`.trim(),
+    actor: input.actor, actorName: input.actorName ?? null,
+  });
+
+  const { error } = await supabase
+    .from('servicios_directos')
+    .update({
+      estado: 'finalizada', gasto: total, con_abonos: true, credito_cxp_id: cuenta.id,
       pagada_por: input.actorName || input.actor,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })

@@ -127,6 +127,48 @@ export async function registrarIngresoCxP(input: {
   return cuenta;
 }
 
+/**
+ * Crea una Cuenta por Pagar como DEUDA PURA (sin ingreso de dinero a caja): la usa,
+ * p. ej., un servicio directo "con abonos" (a crédito). Si ya hay una cuenta ABIERTA
+ * del mismo tipo+contraparte+moneda, SUMA a esa (incremental). No registra ingreso ni
+ * mueve caja; solo crea/incrementa la deuda que después se salda con abonos.
+ */
+export async function crearCuentaPorPagarDeuda(input: {
+  tipo: TipoCxP;
+  contraparte: string;
+  monto: number;
+  moneda: string;
+  nota?: string | null;
+  actor?: string | null;
+  actorName?: string | null;
+}): Promise<CuentaPorPagar> {
+  const monto = round2(input.monto);
+  if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+  const contraparte = input.contraparte.trim();
+  if (!contraparte) throw new Error('Indicá el proveedor/contraparte.');
+
+  const { data: abiertas } = await supabase.from(CXP).select('*')
+    .eq('tipo', input.tipo).eq('moneda', input.moneda).eq('estado', 'abierta');
+  const existente = (abiertas ?? []).find(
+    (c) => (c as CuentaPorPagar).contraparte.trim().toLowerCase() === contraparte.toLowerCase(),
+  ) as CuentaPorPagar | undefined;
+
+  if (existente) {
+    const { data, error } = await supabase.from(CXP)
+      .update({ monto: round2(Number(existente.monto) + monto), updated_at: new Date().toISOString() })
+      .eq('id', existente.id).select('*').single();
+    if (error) throw error;
+    return data as CuentaPorPagar;
+  }
+  const { data, error } = await supabase.from(CXP).insert({
+    tipo: input.tipo, contraparte, monto, abonado: 0, moneda: input.moneda,
+    estado: 'abierta', nota: input.nota?.trim() || null,
+    actor: input.actor ?? null, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return data as CuentaPorPagar;
+}
+
 /** Lista los ingresos (lotes con su fecha) de una cuenta por pagar, del más viejo al más nuevo. */
 export async function listIngresosCxP(cuentaId: string): Promise<IngresoCxP[]> {
   const { data, error } = await supabase.from(CXP_INGRESOS).select('*').eq('cuenta_id', cuentaId).order('at', { ascending: true });

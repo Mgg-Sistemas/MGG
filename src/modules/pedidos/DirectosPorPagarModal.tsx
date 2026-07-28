@@ -13,7 +13,7 @@ import {
   listComprasPorPagar, pagarCompraDirecta, urlAdjuntoCompra, type CompraDirecta, type PagoLeg,
 } from './compras.repository';
 import {
-  listServiciosPorPagar, pagarServicioDirecto, urlAdjuntoServicio, type ServicioDirecto,
+  listServiciosPorPagar, pagarServicioDirecto, dejarServicioACredito, urlAdjuntoServicio, type ServicioDirecto,
 } from './serviciosDirectos.repository';
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
@@ -80,6 +80,10 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   const [comisionSaldoId, setComisionSaldoId] = useState('');
   const total = fila.total;
   const esCompra = fila.kind === 'compra';
+  const esServicio = fila.kind === 'servicio';
+  // Servicio "con abonos": en vez de pagar completo, se deja a crédito (Cuenta por Pagar
+  // que se salda con abonos). Tesorería puede marcar/desmarcar (arranca con lo que puso el analista).
+  const [aCredito, setACredito] = useState(esServicio && !!fila.servicio?.con_abonos);
   // Moneda del directo ($ o Bs): el total está en ESTA moneda (compra y servicio).
   const monedaBase = (fila.compra?.moneda ?? fila.servicio?.moneda) === 'Bs' ? 'Bs' : 'USD';
 
@@ -192,8 +196,19 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (total <= 0) { setError('Este directo no tiene monto.'); return; }
+    // Servicio A CRÉDITO (con abonos): NO toca caja ni pide categoría; crea una Cuenta
+    // por Pagar por el total que Tesorería salda con abonos.
+    if (esServicio && aCredito && fila.servicio) {
+      setSaving(true);
+      try {
+        await dejarServicioACredito({ servicio: fila.servicio, actor, actorName });
+        notify(`Servicio directo ${fila.codigo} dejado A CRÉDITO · Cuenta por Pagar por ${montoCaja(total, monedaBase)} (se salda con abonos)`, 'success', { link: '#/app/tesoreria' });
+        onPaid();
+      } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo dejar a crédito.'); setSaving(false); }
+      return;
+    }
+    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (cruzaBsUsd && tasaEff <= 0) { setError('Colocá la tasa (Bs por $) para convertir el monto.'); return; }
     // La categoría de gasto la fija Tesorería al pagar (compra Y servicio directo).
     if (!catId) { setError('Elegí la categoría de gasto.'); return; }
@@ -245,7 +260,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="dir-pay-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Pagando…' : excedeTotalMulti ? 'Excede el total' : `Pagar · ${montoCaja(total, monedaBase)}`}</button>
+      <button type="submit" form="dir-pay-form" className="btn btn-primary" disabled={saving || (!aCredito && excedeTotalMulti)}>{saving ? (aCredito ? 'Creando…' : 'Pagando…') : aCredito ? `Dejar a crédito · ${montoCaja(total, monedaBase)}` : excedeTotalMulti ? 'Excede el total' : `Pagar · ${montoCaja(total, monedaBase)}`}</button>
     </>
   );
 
@@ -282,6 +297,20 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           </div>
         </div>
 
+        {esServicio && (
+          <div className="form-row" style={{ borderTop: '1px solid var(--border,#3a3a3a)', paddingTop: '.7rem', marginBottom: '.6rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={aCredito} onChange={(e) => setACredito(e.target.checked)} />
+              <span>🧾 Pagar con abonos (a crédito) <span className="muted" style={{ fontWeight: 400 }}>(no sale dinero ahora: crea una Cuenta por Pagar y se salda con abonos)</span></span>
+            </label>
+            {aCredito && (
+              <div className="card" style={{ margin: '.45rem 0 0', padding: '.5rem .7rem', fontSize: '.82rem', borderLeft: '3px solid var(--brand,#ff8a00)' }}>
+                Se creará una <strong>Cuenta por Pagar</strong> por <strong className="mono">{montoCaja(total, monedaBase)}</strong> a nombre de <strong>{fila.servicio?.proveedor_nombre?.trim() || fila.titulo}</strong>. Los <strong>abonos</strong> se registran en <strong>Tesorería → Cuentas por pagar</strong>; al saldar, la deuda queda en cero.
+              </div>
+            )}
+          </div>
+        )}
+        {!aCredito && (<>
         <div className="form-grid">
           <div className="form-row">
             <label>Categoría de gasto <span style={{ color: 'var(--danger)' }}>*</span></label>
@@ -397,6 +426,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
             )}
           </div>
         )}
+        </>)}
         {fila.kind === 'compra' && fila.compra && (
           <small className="muted" style={{ display: 'block' }}>Al pagar, los materiales quedan <strong>POR RECIBIR en Inventario</strong>: el almacenista les da entrada y elige el almacén / subalmacén.</small>
         )}
