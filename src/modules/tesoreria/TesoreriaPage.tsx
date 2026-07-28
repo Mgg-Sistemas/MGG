@@ -4334,7 +4334,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
 
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
         <button className="btn btn-sm btn-ghost" disabled={!rows.length}
-          onClick={() => import('./ordenesPorPagarPdf').then(({ descargarResumenPorPagarPdf }) => descargarResumenPorPagarPdf(rows)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
+          onClick={() => import('./ordenesPorPagarPdf').then(({ descargarResumenPorPagarPdf }) => descargarResumenPorPagarPdf(rows, directos)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
           ↓ Resumen PDF
         </button>
       </div>
@@ -6441,13 +6441,13 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           <div className="card" style={{ marginBottom: '.75rem' }}>
             <div className="card-title" style={{ marginBottom: '.4rem' }}>Método de pago indicado{comprobanteOpcional ? ' · efectivo (sin comprobante)' : ''}</div>
             {o.metodo_pago.map((m, i) => (
-              <div key={i} style={{ padding: '.15rem 0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.85rem' }}>
+              <div key={i} style={{ padding: '.3rem 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '1.05rem', fontWeight: 700 }}>
                   <span>{labelMetodoPago(m.metodo)}</span>
                   <strong className="mono">{m.monto > 0 ? monto(m.monto, m.moneda) : m.moneda}</strong>
                 </div>
                 {m.datos && Object.keys(m.datos).length > 0 && (
-                  <div className="muted" style={{ fontSize: '.74rem', paddingLeft: '.3rem' }}>↳ {resumenDatosPago(m.metodo, m.datos)}</div>
+                  <div style={{ fontSize: '.98rem', fontWeight: 600, paddingLeft: '.3rem', marginTop: '.15rem', color: 'var(--text, #e8e8e8)', wordBreak: 'break-word' }}>↳ {resumenDatosPago(m.metodo, m.datos)}</div>
                 )}
               </div>
             ))}
