@@ -250,6 +250,9 @@ export function sectoresPorDefecto(): SectorResumen[] {
       'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #53)',
       'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #54)',
       'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #55)',
+    ]),
+    // Resguardos de Los Pinos en su PROPIO segmento (separados del sector MGG · LOS PINOS).
+    sector('RESGUARDOS LOS PINOS', '#99f6e4', [
       'C.A. LOS PINOS RESGUARDOS - GT',
       'C.A. LOS PINOS RESGUARDOS - GMT',
     ]),
