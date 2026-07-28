@@ -58,7 +58,12 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
   const precioDe = (provId: string, sku: string): number | null => {
     const o = ofertaDe.get(provId);
     const it = o?.items?.find((x) => x.sku === sku);
-    return it && Number(it.precio) > 0 ? Number(it.precio) : null;
+    if (!it) return null;
+    // Precio efectivo: BCV si lo cotizó; si la oferta es solo en divisa, el precio USD.
+    const bcv = Number(it.precio) || 0;
+    const usd = Number(it.precio_usd) || 0;
+    const efectivo = bcv > 0 ? bcv : usd;
+    return efectivo > 0 ? efectivo : null;
   };
   // IVA/IGTF (montos) de una oferta, PRORRATEADOS por la fracción que compra esta hija
   // (gross asignado / gross total de la oferta). Así una sub-OC que toma solo parte de
