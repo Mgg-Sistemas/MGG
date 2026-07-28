@@ -169,7 +169,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                     {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(c)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
                     {colDe(c) === 'abierta' && !estaPagada(c) && !estaRecibida(c) && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(c)} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
-                    <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa (revierte caja e inventario si ya se pagó/recibió)">🗑</button>
+                    {c.estado !== 'finalizada' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa (revierte caja e inventario si ya se pagó/recibió)">🗑</button>}
                   </td>
                 </tr>
               ))}
@@ -324,7 +324,7 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMon
         {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
         {colDe(compra) === 'abierta' && !estaPagada(compra) && !estaRecibida(compra) && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
-        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa (revierte caja e inventario si ya se pagó/recibió)">🗑 Eliminar</button>
+        {compra.estado !== 'finalizada' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa (revierte caja e inventario si ya se pagó/recibió)">🗑 Eliminar</button>}
       </div>
     </div>
   );
