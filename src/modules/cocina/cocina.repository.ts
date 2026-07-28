@@ -14,8 +14,8 @@ const TABLE = 'cocina_comidas';
 /** Categoría del inventario que surte la cocina. */
 export const CATEGORIA_VIVERES = 'VIVERES';
 /** Categorías del inventario que surten la distribución de comida:
- *  Víveres, Carnes/Proteína y Limpieza (incluye ALIMENTOS —arroz, pasta, azúcar…—
- *  y las variantes de limpieza/hortalizas presentes en el catálogo). */
+ *  Víveres, Carnes/Proteína, Alimentos (arroz, pasta, azúcar…), Hortalizas y
+ *  legumbres, y Limpieza (incluye las variantes de limpieza del catálogo). */
 export const CATEGORIAS_COCINA = [
   'VIVERES',
   'ALIMENTOS',
