@@ -165,13 +165,17 @@ export function OfertasComparativa({
       const motivoAdjuntos = adjuntosFiles.length
         ? await subirAdjuntosOferta(orden.id, s.oferta.proveedor_id, adjuntosFiles)
         : [];
+      // Monto final = total BCV; si la oferta es SOLO en USD (sin BCV), el total USD
+      // es el monto final. El efectivo solo es descuento cuando además hay BCV.
+      const montoFinal = bcvTotal > 0 ? bcvTotal : usdTotal;
+      const efectivo = bcvTotal > 0 && usdTotal > 0 ? usdTotal : null;
       // Si el usuario descartó marcas (había variantes), la oferta ahora refleja solo lo elegido.
       const huboSeleccion = itemsElegidos.length !== s.oferta.items.length;
       if (huboSeleccion) {
         await actualizarOferta(s.oferta.id, {
           items: itemsElegidos,
-          precio_total: bcvTotal,
-          precio_efectivo: usdTotal > 0 ? usdTotal : null,
+          precio_total: montoFinal,
+          precio_efectivo: efectivo,
         });
       }
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
@@ -179,7 +183,7 @@ export function OfertasComparativa({
         orden,
         s.oferta.proveedor_id,
         itemsElegidos,
-        bcvTotal,
+        montoFinal,
         s.score.total,
         actorEmail,
         motivo || null,

@@ -146,8 +146,11 @@ export function AgregarOfertaModal({
 
   const bcvSubtotal = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
   const usdTotal = items.reduce((a, i) => a + i.cantidad * (i.precio_usd || 0), 0);
-  const precioTotal = Math.round(bcvSubtotal * 100) / 100;
-  const precioEfectivo = usdTotal > 0 ? Math.round(usdTotal * 100) / 100 : 0;
+  // El MONTO FINAL de la oferta es el total BCV; si la oferta se cotizó SOLO en USD
+  // (sin BCV), el total USD es el monto final. `precio_efectivo` solo tiene sentido
+  // como DESCUENTO por pago en divisa cuando además existe un precio BCV.
+  const precioTotal = Math.round((bcvSubtotal > 0 ? bcvSubtotal : usdTotal) * 100) / 100;
+  const precioEfectivo = bcvSubtotal > 0 && usdTotal > 0 ? Math.round(usdTotal * 100) / 100 : 0;
   // Diferencia y % de ahorro al pagar en divisa efectivo (BCV − efectivo) / BCV.
   const ahorroEfectivo = descuentoEfectivo(precioTotal, precioEfectivo);
   // Descuento obtenido y monto de la factura resultante (sobre el efectivo si hay, si no el BCV).
