@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { ConversorBcv } from '@/shared/ui/ConversorBcv';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
@@ -492,6 +493,12 @@ export function AgregarOfertaModal({
           )}
         </div>
       )}
+
+      {/* Conversor Bs ⇄ $ (tasa BCV) como ayuda para pasar precios de la cotización. */}
+      <div className="form-row">
+        <label>Conversor Bs ⇄ $ <span className="muted" style={{ fontWeight: 400 }}>(ayuda: pasá un precio de la cotización de bolívares a dólares o al revés)</span></label>
+        <ConversorBcv />
+      </div>
 
       <div className="form-row">
         <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y/o en USD efectivo — completá al menos una columna)</span></label>
