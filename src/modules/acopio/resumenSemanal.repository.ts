@@ -253,11 +253,6 @@ export function sectoresPorDefecto(): SectorResumen[] {
       'C.A. LOS PINOS RESGUARDOS - GT',
       'C.A. LOS PINOS RESGUARDOS - GMT',
     ]),
-    sector('SECTOR LOS PIJIGUAOS', '#fbcfe8', [
-      'C.A. LOS PIJIGUAOS - P-MGG04 - A HECTOR',
-      'C.A. LOS PIJIGUAOS - P-MGG04 - B ALBERTO',
-      'C.A. LOS PIJIGUAOS - P-MGG04 - C MAGUIBER',
-    ]),
     sector('RESGUARDO LOS PIJIGUAOS', '#5eead4', [
       'C.A. LOS PIJIGUAOS - P-MGG01 - A CAMPOS YEPEZ (RESGUARDO LOS PIJIGUAOS)',
     ]),

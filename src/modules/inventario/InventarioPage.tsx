@@ -215,7 +215,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
-  useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes', 'compras_directas'], () => { void reload(); });
+  useRealtime(['productos', 'movimientos', 'almacenes', 'existencias', 'ordenes', 'compras_directas'], () => { void reload(); });
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
