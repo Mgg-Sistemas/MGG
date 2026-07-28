@@ -13,9 +13,19 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 const TABLE = 'cocina_comidas';
 /** Categoría del inventario que surte la cocina. */
 export const CATEGORIA_VIVERES = 'VIVERES';
-/** Categorías del inventario que surten la cocina: Víveres y Proteína. */
-export const CATEGORIAS_COCINA = ['VIVERES', 'PROTEINA'];
-/** ¿La categoría de un producto surte la cocina (Víveres o Proteína)? */
+/** Categorías del inventario que surten la distribución de comida:
+ *  Víveres, Carnes/Proteína y Limpieza (incluye ALIMENTOS —arroz, pasta, azúcar…—
+ *  y las variantes de limpieza/hortalizas presentes en el catálogo). */
+export const CATEGORIAS_COCINA = [
+  'VIVERES',
+  'ALIMENTOS',
+  'CARNES',
+  'PROTEINA',
+  'HORTALIZAS Y LEGUMBRES',
+  'LIMPIEZA',
+  'MATERIAL DE LIMPIEZA',
+];
+/** ¿La categoría de un producto surte la distribución de comida? */
 export function esCategoriaCocina(cat?: string | null): boolean {
   return CATEGORIAS_COCINA.includes((cat ?? '').trim().toUpperCase());
 }
