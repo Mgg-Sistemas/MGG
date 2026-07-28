@@ -6,6 +6,8 @@ import { aplicarImportacion, type AnalisisImport, type FilaAnalizada } from './i
 
 interface Props {
   analisis: AnalisisImport;
+  /** Almacén del centro/scope actual: destino por defecto de las filas sin columna «almacen». */
+  defaultAlmacen?: string | null;
   onClose: () => void;
   onImportado: () => void;
 }
@@ -29,7 +31,7 @@ const FILTROS: Array<{ key: 'todos' | 'error' | 'duplicado' | 'valido'; label: s
   { key: 'valido', label: 'Válidas' },
 ];
 
-export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
+export function ImportarExcelModal({ analisis, defaultAlmacen, onClose, onImportado }: Props) {
   const [confirmando, setConfirmando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   // Modo actualización: en vez de omitir los materiales ya existentes, se les actualiza
@@ -53,7 +55,7 @@ export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
     }
     setAplicando(true);
     try {
-      const res = await aplicarImportacion(analisis, { actualizarExistentes: actualizar });
+      const res = await aplicarImportacion(analisis, { actualizarExistentes: actualizar, defaultAlmacen });
       const partes: string[] = [];
       if (res.insertados) partes.push(`${res.insertados} nuevos`);
       if (res.actualizados) partes.push(`${res.actualizados} actualizados`);

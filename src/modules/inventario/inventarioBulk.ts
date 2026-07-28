@@ -303,6 +303,10 @@ export interface ImportOpts {
    *  el precio y/o el stock del almacén con lo que traiga la plantilla (campos en blanco
    *  se dejan como están, para no borrar por accidente). */
   actualizarExistentes?: boolean;
+  /** Almacén por defecto cuando la fila de la plantilla NO trae columna «almacen»:
+   *  el del centro/scope donde se está importando. Evita que caigan en el "General"
+   *  invisible (que los dejaba fuera de las vistas por centro). */
+  defaultAlmacen?: string | null;
 }
 
 /**
@@ -312,6 +316,8 @@ export interface ImportOpts {
  */
 export async function aplicarImportacion(analisis: AnalisisImport, opts: ImportOpts = {}): Promise<ImportResult> {
   const actualizarExistentes = !!opts.actualizarExistentes;
+  // Almacén al que entran las filas sin columna «almacen»: el del scope actual, o "General".
+  const almacenDefault = (opts.defaultAlmacen ?? '').trim() || 'General';
   const result: ImportResult = { insertados: 0, actualizados: 0, actualizadosExistentes: 0, omitidos: [], errores: [] };
   // Materiales ya existentes a ACTUALIZAR (precio/stock) en vez de omitir.
   interface Actualizable { fila: number; sku: string; nombre: string; almacen: string; stock: number | null; precio: number | null; precioVenta: number | null; }
@@ -334,7 +340,7 @@ export async function aplicarImportacion(analisis: AnalisisImport, opts: ImportO
       if (actualizarExistentes) {
         // Modo actualización: se le cambia precio/stock (campos en blanco = se dejan igual).
         const r = f.raw;
-        const almacen = toStr(r.almacen).trim() || 'General';
+        const almacen = toStr(r.almacen).trim() || almacenDefault;
         const precioDado = r.precio != null && r.precio !== '' ? toNum(r.precio) : null;
         const stockDado = r.stock != null && r.stock !== '' ? toNum(r.stock) : null;
         const ventaDado = r.precio_venta != null && r.precio_venta !== '' ? toNum(r.precio_venta) : null;
@@ -373,7 +379,7 @@ export async function aplicarImportacion(analisis: AnalisisImport, opts: ImportO
     // No forzar mayúsculas: los nombres de almacén deben respetar la forma
     // canónica de la tabla `almacenes` (ej. "General", "Almacén 1") para que
     // coincidan con las existencias y la vista de fundición.
-    const almacen = toStr(r.almacen).trim() || 'General';
+    const almacen = toStr(r.almacen).trim() || almacenDefault;
 
     preparadas.push({
       fila: f.fila, sku: f.sku, almacen, stock, precio,
@@ -532,7 +538,7 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     ['• stock_min (número entero ≥ 0): umbral de reabastecimiento. Vacío = 0.'],
     ['• precio (número ≥ 0): puede tener decimales. No acepta letras ni negativos. (Precio UND).'],
     ['• precio_venta (número ≥ 0): opcional. Posible precio de venta del producto.'],
-    ['• almacen (texto): opcional. Por defecto "GENERAL". Define en qué almacén entra el stock.'],
+    ['• almacen (texto): opcional. Si se deja vacío, entra al almacén del centro donde importás. Define en qué almacén entra el stock.'],
     ['• estado (texto): "activo" o "inactivo". Vacío se interpreta como "activo".'],
     ['• restock_pct (número 0–100): opcional. % de reabastecimiento para las alertas de stock.'],
     ['• es_receta (SI/NO): opcional. Marca el producto como insumo de receta (fundición).'],

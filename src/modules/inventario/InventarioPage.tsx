@@ -420,6 +420,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     () => (!almacenesDeScope ? [] : (subVista === 'casiterita' ? almacenesDeScope.cas : almacenesDeScope.resto)),
     [almacenesDeScope, subVista],
   );
+  // Almacén por defecto al CREAR un producto: el subalmacén filtrado (si aplica) o el
+  // principal del scope actual. Así el producto entra donde lo estás creando y NO en el
+  // "General" invisible (que lo dejaba fuera de todas las vistas por centro).
+  const defaultAlmacenCrear = useMemo<string | null>(() => {
+    if (ui.filterAlmacen && almacenesScopeActual.includes(ui.filterAlmacen)) return ui.filterAlmacen;
+    return almacenesScopeActual[0] ?? null;
+  }, [ui.filterAlmacen, almacenesScopeActual]);
   const filtered = useMemo<ProductoDecorado[]>(() => {
     // En un centro/Matanzas la base son los productos de ESE scope; si además se eligió
     // un SUBALMACÉN en el filtro (dentro del centro), se acota a ese subalmacén para
@@ -1069,6 +1076,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           espacio={espacio}
           /* Dentro de un almacén/sub-almacén: el nuevo producto entra ahí y la ubicación queda fija. */
           fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
+          /* En un centro/scope (lista normal): arranca en el almacén del scope, no en "General". */
+          defaultAlmacen={defaultAlmacenCrear}
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={handleCreateOrUpdate}
         />
@@ -1218,6 +1227,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       {modal.kind === 'import' && (
         <ImportarExcelModal
           analisis={modal.analisis}
+          /* Filas sin columna «almacen» entran al almacén del scope actual, no en "General". */
+          defaultAlmacen={defaultAlmacenCrear}
           onClose={() => setModal({ kind: 'none' })}
           onImportado={() => { void reload(); }}
         />

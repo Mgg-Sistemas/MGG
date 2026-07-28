@@ -26,6 +26,9 @@ interface ProductoFormProps {
   /** Si se crea desde DENTRO de un almacén, la ubicación viene fija y NO se puede cambiar
    *  (evita errores humanos: el producto entra justo en ese almacén/sub-almacén). */
   fixedAlmacen?: string | null;
+  /** Almacén por defecto al crear (según el centro/scope actual): siembra el picker
+   *  pero SÍ se puede cambiar. Evita que el producto caiga en el "General" invisible. */
+  defaultAlmacen?: string | null;
   onClose: () => void;
   onSubmit: (data: ProductoInput) => Promise<void>;
 }
@@ -70,7 +73,7 @@ const parseDecimal = (s: number | string | null | undefined): number => {
 /** Redondea a 2 decimales (el inventario maneja precios/costos con 2 decimales). */
 const round2 = (n: number | string | null | undefined) => Math.round((parseDecimal(n)) * 100) / 100;
 
-function initialState(p: Producto | null, cats: string[], unids: string[], fixedAlmacen?: string | null): FormState {
+function initialState(p: Producto | null, cats: string[], unids: string[], fixedAlmacen?: string | null, defaultAlmacen?: string | null): FormState {
   return {
     sku: p?.sku ?? '',
     nombre: p?.nombre ?? '',
@@ -81,7 +84,8 @@ function initialState(p: Producto | null, cats: string[], unids: string[], fixed
     precio: String(round2(p?.precio ?? 0)),
     precio_venta: p?.precio_venta != null ? String(round2(p.precio_venta)) : '',
     // Al crear desde dentro de un almacén, la ubicación arranca (y queda) en ese almacén.
-    almacen: p?.almacen ?? fixedAlmacen ?? 'General',
+    // Si no hay almacén fijo, arranca en el del scope actual (defaultAlmacen) y NO en "General".
+    almacen: p?.almacen ?? fixedAlmacen ?? defaultAlmacen ?? 'General',
     estado: p?.estado ?? 'activo',
     restock_pct: p?.restock_pct != null ? String(p.restock_pct) : '',
     presentacion: p?.presentacion ?? '',
@@ -101,7 +105,7 @@ function initialState(p: Producto | null, cats: string[], unids: string[], fixed
   };
 }
 
-export function ProductoForm({ producto, productos = [], espacio = 'principal', fixedAlmacen, onClose, onSubmit }: ProductoFormProps) {
+export function ProductoForm({ producto, productos = [], espacio = 'principal', fixedAlmacen, defaultAlmacen, onClose, onSubmit }: ProductoFormProps) {
   const isEdit = !!producto;
   // Ubicación fija: solo al CREAR desde dentro de un almacén concreto.
   const ubicacionFija = !isEdit && !!(fixedAlmacen && fixedAlmacen.trim());
@@ -126,7 +130,7 @@ export function ProductoForm({ producto, productos = [], espacio = 'principal', 
       .catch(() => { /* defaults ya vienen del fallback en repo */ });
     return () => { cancelled = true; };
   }, [productos, espacio]);
-  const [form, setForm] = useState<FormState>(() => initialState(producto, categorias, unidades, fixedAlmacen));
+  const [form, setForm] = useState<FormState>(() => initialState(producto, categorias, unidades, fixedAlmacen, defaultAlmacen));
   // Sede del almacén fijo (para mostrar "Sede › Almacén" en el campo bloqueado).
   const sedeFija = useMemo(
     () => (ubicacionFija ? (almacenesObj.find((a) => a.nombre === fixedAlmacen)?.sede?.trim() || '') : ''),
