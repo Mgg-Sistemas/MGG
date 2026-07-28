@@ -415,12 +415,35 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
 
   // Lista de la vista general. Si hay filtro por almacén, las filas son las de ese
   // almacén (stock/PMP propios); si no, el catálogo global. Luego aplica los demás filtros.
+  // Almacenes del scope actual (según General/Casiterita) para el filtro de subalmacén.
+  const almacenesScopeActual = useMemo<string[]>(
+    () => (!almacenesDeScope ? [] : (subVista === 'casiterita' ? almacenesDeScope.cas : almacenesDeScope.resto)),
+    [almacenesDeScope, subVista],
+  );
   const filtered = useMemo<ProductoDecorado[]>(() => {
-    // En un centro/Matanzas la base son los productos de ESE scope; en el inventario
-    // general, todos (con el filtro por almacén si se usa el desplegable).
-    const base = almacenesDeScope ? decoratedScope : (ui.filterAlmacen ? rollupAlmacen(ui.filterAlmacen) : decorated);
+    // En un centro/Matanzas la base son los productos de ESE scope; si además se eligió
+    // un SUBALMACÉN en el filtro (dentro del centro), se acota a ese subalmacén para
+    // "segmentar" la lista. En el inventario general (Depósito), el filtro por almacén
+    // usa el roll-up del desplegable.
+    const base = almacenesDeScope
+      ? (ui.filterAlmacen && almacenesScopeActual.includes(ui.filterAlmacen)
+          ? productosDeAlmacenes([ui.filterAlmacen])
+          : decoratedScope)
+      : (ui.filterAlmacen ? rollupAlmacen(ui.filterAlmacen) : decorated);
     return base.filter((p) => coincideFiltros(p, ui));
-  }, [decorated, decoratedScope, almacenesDeScope, rollupAlmacen, ui]);
+  }, [decorated, decoratedScope, almacenesDeScope, almacenesScopeActual, productosDeAlmacenes, rollupAlmacen, ui]);
+
+  // Opciones del filtro de SUBALMACÉN cuando estamos dentro de un centro/Matanzas:
+  // los subalmacenes del scope actual (General o Casiterita), con nombre corto.
+  const subalmacenesScopeOpts = useMemo<{ value: string; label: string }[] | undefined>(() => {
+    if (!almacenesDeScope) return undefined;
+    return almacenesScopeActual
+      .map((n) => {
+        const a = almacenes.find((x) => x.nombre === n);
+        return { value: n, label: a ? nombreCortoAlmacen(a, almacenes) : n };
+      })
+      .sort((x, y) => x.label.localeCompare(y.label, 'es'));
+  }, [almacenesDeScope, almacenesScopeActual, almacenes]);
 
   // Opciones del filtro por almacén, JERÁRQUICAS: primero el almacén PADRE (elegirlo
   // "sin subalmacén" trae TODOS sus productos y los de sus subalmacenes vía roll-up) y
@@ -1007,7 +1030,14 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         </div>
       ) : (
         <>
-          <InventarioFilterbar values={ui} categorias={categorias} almacenes={almacenNombres} onChange={setFilter2} />
+          <InventarioFilterbar
+            values={ui}
+            categorias={categorias}
+            almacenes={almacenesDeScope ? subalmacenesScopeOpts : almacenNombres}
+            almacenTodosLabel={almacenesDeScope ? 'Todos los subalmacenes' : 'Todos los almacenes'}
+            almacenPlaceholder={almacenesDeScope ? 'Subalmacén' : undefined}
+            onChange={setFilter2}
+          />
           {loading ? (
             <EmptyState message="Cargando productos…" icon="◔" />
           ) : (

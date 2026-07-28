@@ -25,11 +25,16 @@ interface InventarioFilterbarProps {
    *  Lista jerárquica: el almacén PADRE se elige "sin subalmacén" (roll-up: trae
    *  todos sus productos y los de sus subalmacenes); los subalmacenes van indentados. */
   almacenes?: AlmacenOpcion[];
+  /** Texto de la opción "todos" del filtro por ubicación (def. "Todos los almacenes").
+   *  Dentro de un centro se usa "Todos los subalmacenes". */
+  almacenTodosLabel?: string;
+  /** title/tooltip del desplegable de ubicación (ej. "Subalmacén" dentro de un centro). */
+  almacenPlaceholder?: string;
   onChange: (key: keyof FilterValues, value: string) => void;
 }
 
 /** Barra de filtros reutilizable de inventario (búsqueda + categoría/fundición/ABC/stock/estado/almacén). */
-export function InventarioFilterbar({ values, categorias, almacenes, onChange }: InventarioFilterbarProps) {
+export function InventarioFilterbar({ values, categorias, almacenes, almacenTodosLabel, almacenPlaceholder, onChange }: InventarioFilterbarProps) {
   return (
     <div className="filterbar">
       <input
@@ -53,10 +58,11 @@ export function InventarioFilterbar({ values, categorias, almacenes, onChange }:
         <select
           className="select"
           style={{ maxWidth: 200 }}
+          title={almacenPlaceholder}
           value={values.filterAlmacen}
           onChange={(e) => onChange('filterAlmacen', e.target.value)}
         >
-          <option value="">Todos los almacenes</option>
+          <option value="">{almacenTodosLabel ?? 'Todos los almacenes'}</option>
           {almacenes.map((a) => (
             <option key={a.value} value={a.value}>{a.label}</option>
           ))}
