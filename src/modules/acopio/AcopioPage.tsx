@@ -92,7 +92,7 @@ function AcopioModulo({ centro }: { centro: string }) {
   // encendido = se muestra la lista de movimientos y el botón de agregar movimiento.
   const [listarMovs, setListarMovs] = useState(false);
   // Resumen único que alimenta TODAS las tarjetas (misma fuente que la tabla de movimientos).
-  const [resumen, setResumen] = useState<ResumenAcopio>({ saldoKg: 0, tasa: 0, usdEntregado: 0, saldoUsd: 0, gastos: 0, nominas: 0, facturado: 0 });
+  const [resumen, setResumen] = useState<ResumenAcopio>({ saldoKg: 0, tasa: 0, usdEntregado: 0, saldoUsd: 0, gastos: 0, nominas: 0, facturado: 0, trasladoCaja: 0 });
   const onResumenAcopio = useCallback((r: ResumenAcopio) => { setResumen(r); }, []);
 
   // Tendencia de la TASA: ▲ verde si subió, ▼ rojo si bajó (vs. el último valor visto).
@@ -206,6 +206,8 @@ function AcopioModulo({ centro }: { centro: string }) {
         <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
         {/* Gastos = gastos + nómina (tarjeta unificada). */}
         <div className="card"><div className="card-title"><span>Gastos</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money((Number(resumen.gastos) || 0) + (Number(resumen.nominas) || 0))}</div><div className="muted" style={{ fontSize: '.72rem' }}>incluye la nómina</div></div>
+        {/* Traspaso de Caja = Σ de la columna «Traspaso de Caja» del centro. */}
+        <div className="card"><div className="card-title"><span>Traspaso de Caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-3)' }} className="mono">{money(Number(resumen.trasladoCaja) || 0)}</div><div className="muted" style={{ fontSize: '.72rem' }}>sumatoria de la columna Traspaso de Caja</div></div>
       </div>
 
       {/* La vista se mantiene montada (oculta cuando el switch está apagado) para que sus

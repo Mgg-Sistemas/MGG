@@ -50,6 +50,7 @@ export interface ResumenAcopio {
   gastos: number;
   nominas: number;
   facturado: number;
+  trasladoCaja: number;   // Σ de la columna «Traspaso de Caja» (todos los movimientos)
 }
 
 export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaId }: { onResumen?: (r: ResumenAcopio) => void; visible?: boolean; centro?: string; cajaId?: string | null } = {}) {
@@ -183,6 +184,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
   const totalGastos = filas.reduce((a, f) => a + (f.gastosGt ?? 0), 0);
   const totalNominas = filas.reduce((a, f) => a + (f.nominasGt ?? 0), 0);
   const totalUsdEntregado = filas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);
+  const totalTraslado = filas.reduce((a, f) => a + (f.trasladoCaja ?? 0), 0);
   const saldoFinal = filas.length ? filas[filas.length - 1].saldoKgCasiterita : 0;
   // Saldo en moneda $ Usd = el saldo corrido del movimiento cronológicamente más nuevo.
   const saldoUsdFinal = filas.length ? filas[filas.length - 1].saldoUsd : 0;
@@ -195,8 +197,9 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
       saldoKg: saldoFinal, tasa,
       usdEntregado: totalUsdEntregado, saldoUsd: saldoUsdFinal,
       gastos: totalGastos, nominas: totalNominas, facturado: totalFacturado,
+      trasladoCaja: totalTraslado,
     });
-  }, [saldoFinal, tasa, totalUsdEntregado, saldoUsdFinal, totalGastos, totalNominas, totalFacturado, onResumen]);
+  }, [saldoFinal, tasa, totalUsdEntregado, saldoUsdFinal, totalGastos, totalNominas, totalFacturado, totalTraslado, onResumen]);
 
   // Totales de la vista (para la fila de totales de la tabla, respeta el filtro).
   const totUsdEntregadoVista = mostradas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);
