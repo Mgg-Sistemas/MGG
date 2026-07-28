@@ -585,9 +585,16 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       // había que guardar dos veces).
       const almacenPrevio = (previo.almacen || 'General').trim();
       const almacenNuevo = (data.almacen || 'General').trim();
+      // Solo se consolida hacia un almacén REAL (que exista en la tabla `almacenes`).
+      // Un nombre legado/sin sede como "General" NUNCA debe recibir stock por edición:
+      // consolidar ahí lo saca de toda vista scopeada y el producto "aparece en 0"
+      // (bug INS-144). Si el destino no es real, se conserva la ubicación actual.
+      const destinoReal = almacenes.some((a) => a.nombre === almacenNuevo);
       let movidos = 0;
-      if (almacenNuevo && almacenNuevo !== almacenPrevio) {
+      if (destinoReal && almacenNuevo !== almacenPrevio) {
         movidos = await consolidarProductoEnAlmacen(previo.id, almacenNuevo, productoActor, actorName);
+      } else if (!destinoReal) {
+        rest.almacen = almacenPrevio;
       }
       await updateProducto(previo.id, rest);
       if (movidos > 0) notify(`Stock consolidado en ${almacenNuevo} (1 sola ubicación)`, 'success', { link: basePath });
