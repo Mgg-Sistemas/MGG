@@ -12,6 +12,7 @@ import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.r
 import { listProducciones, finalizarProduccion, type ProduccionTipo } from './produccion.repository';
 import { getNombresHornosActivos } from './hornos.repository';
 import { MaterialAProducirModal } from './MaterialAProducirModal';
+import { FinalizarColadaModal } from './FinalizarColadaModal';
 import { ProduccionDetalle, duracionProd } from './ProduccionDetalle';
 import { RecetasModal } from './RecetasModal';
 import { GestionarHornosModal } from './GestionarHornosModal';
@@ -36,10 +37,10 @@ const CFG: Record<ProduccionTipo, ProduccionCfg> = {
     titulo: 'Fundición',
     subtitulo: 'Órdenes de fundición: consumen insumos del inventario y, al finalizar, el producto terminado entra como existencia.',
     verbo: 'fundición',
-    btnCrear: '🔥 Material a producir',
-    finalizarBtn: '✓ Finalizar fundición',
-    estadoEnCurso: 'En fundición',
-    emptyEnCurso: 'Nada en fundición.',
+    btnCrear: '🔥 INICIAR COLADA',
+    finalizarBtn: '✓ Finalizar colada',
+    estadoEnCurso: 'En colada',
+    emptyEnCurso: 'Ninguna colada en curso.',
     emptyIcon: '🔥',
   },
   refinacion: {
@@ -328,7 +329,18 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           onClose={() => setModal({ kind: 'recetas' })}
         />
       )}
-      {modal.kind === 'finalizar' && (
+      {/* Fundición: al finalizar se cargan los RESULTADOS de la colada (el estaño
+          obtenido entra a inventario). Refinación: confirmación simple. */}
+      {modal.kind === 'finalizar' && tipo === 'fundicion' && (
+        <FinalizarColadaModal
+          prod={modal.prod}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setModal({ kind: 'none' })}
+          onDone={() => { setModal({ kind: 'none' }); void reload(); }}
+        />
+      )}
+      {modal.kind === 'finalizar' && tipo !== 'fundicion' && (
         <ConfirmDialog
           title={`Finalizar ${cfg.verbo}`}
           message={`Se registrará la entrada de ${num(modal.prod.cantidad)} und de "${modal.prod.producto_nombre}" en ${modal.prod.almacen_destino} a costo ${money(modal.prod.costo_unitario)}/und. ¿Continuar?`}

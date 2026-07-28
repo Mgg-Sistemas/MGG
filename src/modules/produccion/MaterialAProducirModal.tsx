@@ -8,6 +8,9 @@ import { getUnidades, updateProducto } from '@/modules/inventario/inventario.rep
 import { AlmacenPicker, AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
 import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput, type ProduccionTipo } from './produccion.repository';
 import { crearHorno } from './hornos.repository';
+import { ColadaCampos } from './ColadaCampos';
+import { coladaDatosVacios, crearColada, proximaColadaNum } from './colada.repository';
+import type { ColadaDatos } from '@/shared/lib/types';
 
 interface RecetaBase {
   rendimiento: number;
@@ -43,13 +46,25 @@ export function MaterialAProducirModal({
 }: MaterialAProducirModalProps) {
   // Rótulos según el tipo (fundición / refinación).
   const esRef = tipo === 'refinacion';
+  const esColada = tipo === 'fundicion';
   const L = {
     verbo: esRef ? 'refinar' : 'producir',
     proceso: esRef ? 'refinación' : 'fundición',
-    tituloModal: esRef ? 'Material a refinar' : 'Material a producir',
-    iniciar: esRef ? 'Iniciar refinación' : 'Iniciar fundición',
+    tituloModal: esRef ? 'Material a refinar' : '🔥 Iniciar colada',
+    iniciar: esRef ? 'Iniciar refinación' : 'Iniciar colada',
     categoria: esRef ? 'REFINACIÓN' : 'FUNDICIÓN',
   };
+
+  // Colada (solo fundición): correlativo global + fecha + detalle del formato MGG-FR-001.
+  const [coladaNum, setColadaNum] = useState('');
+  const [coladaFecha, setColadaFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [coladaDatos, setColadaDatos] = useState<ColadaDatos>(() => coladaDatosVacios());
+  useEffect(() => {
+    if (!esColada) return;
+    let cancel = false;
+    proximaColadaNum().then((n) => { if (!cancel) setColadaNum((v) => v || String(n)); }).catch(() => { /* editable */ });
+    return () => { cancel = true; };
+  }, [esColada]);
   const producibles = useMemo(() => productos.filter((p) => p.es_producible), [productos]);
   const materiales = useMemo(
     () => productos.filter((p) => p.es_receta && p.estado === 'activo'),
@@ -299,7 +314,7 @@ export function MaterialAProducirModal({
         cantidad: Number(row.cantidad) || 0,
       }));
 
-      await crearProduccion({
+      const prod = await crearProduccion({
         producto_id: productoId,
         producto_nombre: productoNombre,
         cantidad: cantidadNum,
@@ -313,6 +328,23 @@ export function MaterialAProducirModal({
         actor,
         actor_name: actorName,
       });
+
+      // Fundición ⇒ guarda el reporte de colada (MGG-FR-001) vinculado a la orden.
+      if (esColada) {
+        try {
+          const nColada = Number(coladaNum) || (await proximaColadaNum());
+          await crearColada({
+            produccionId: prod.id,
+            coladaNum: nColada,
+            fecha: coladaFecha,
+            datos: { ...coladaDatos, destino_almacen: coladaDatos.destino_almacen || almacenDestino },
+            actor,
+          });
+        } catch (errColada) {
+          toast(errColada instanceof Error ? `Fundición creada, pero el reporte de colada falló: ${errColada.message}` : 'Fundición creada, pero no se pudo guardar el reporte de colada', 'warning');
+        }
+      }
+
       onCreated();
       onClose();
     } catch (err) {
@@ -347,6 +379,15 @@ export function MaterialAProducirModal({
           <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}>
             <strong>Error:</strong> {error}
           </div>
+        )}
+
+        {/* Colada (solo fundición): identificación + materias primas + proceso + carga */}
+        {esColada && (
+          <ColadaCampos
+            coladaNum={coladaNum} setColadaNum={setColadaNum}
+            fecha={coladaFecha} setFecha={setColadaFecha}
+            datos={coladaDatos} setDatos={setColadaDatos}
+          />
         )}
 
         {/* Posible precio de venta — automático (margen bruto sobre CP) */}

@@ -426,12 +426,16 @@
 
   <section class="modulo" id="s7">
     <h2>🔥 7. Fundición</h2>
-    <p>Fabricación/fundición de productos a partir de materiales del inventario, usando <strong>recetas</strong>.</p>
+    <p>Fabricación/fundición de productos a partir de materiales del inventario, usando <strong>recetas</strong>. En Fundición cada orden es una <strong>colada</strong> (formato <strong>MGG-FR-001, horno de fundición primaria</strong>).</p>
     <ul>
       <li><strong>Recetas:</strong> definen los materiales que consume cada producto; al producir, se descuentan del inventario.</li>
       <li><strong>Vista kanban:</strong> fundiciones en proceso y últimas finalizadas.</li>
       <li>Cada fundición registra el <strong>horno</strong> utilizado y la cantidad producida.</li>
       <li>Descarga de la receta/fundición en <strong>Excel</strong> (encabezado naranja característico).</li>
+      <li><strong>🔥 INICIAR COLADA:</strong> el botón para arrancar una fundición se llama <strong>«Iniciar colada»</strong>. Además de la receta (materias primas que se descuentan del inventario), se carga de forma <strong>visual</strong> el reporte de colada: <strong>Identificación</strong> (Colada N° —la 1ª vez se ingresa y luego se sugiere incremental—, fecha, turno, responsable), <strong>Materias primas</strong> (big bags de casiterita con su precinto, Total Casiterita, Ley de Sn/Tenor % → Sn contenido automático, coque con proveedor y granulometría por <em>chips</em>, otro fundente y CaCO₃/caliza), <strong>Proceso</strong> (homogeneización y carga al horno por <em>chips</em>) y <strong>temperaturas de carga</strong>.</li>
+      <li><strong>Durante la colada (en curso):</strong> en el detalle de la orden se registra el <strong>control de temperatura del proceso</strong> (cada ~1 h: hora, temp. interna/externa, observación) y los <strong>tiempos de sangrado</strong>.</li>
+      <li><strong>✓ Finalizar colada:</strong> al finalizar se cargan los <strong>resultados</strong> (estaño obtenido, escoria, N° de lingotes, rendimiento —sugerido = estaño ÷ Sn—, merma, observaciones e involucrados). El <strong>estaño obtenido</strong> es la cantidad que <strong>entra a inventario</strong> con su costo (CP total ÷ estaño).</li>
+      <li><strong>↓ Reporte de colada (PDF):</strong> desde el detalle se descarga el formato formal <strong>MGG-FR-001</strong> (barras naranja por sección, ficha de dos columnas y espacios de firma) para imprimir/firmar.</li>
       <li><strong>⚗️ Refinación de Material (submódulo):</strong> dentro del grupo <strong>Fundición</strong> del menú hay un ítem aparte, <strong>Refinación de Material</strong>, con el <strong>mismo funcionamiento</strong> que Fundición pero para <strong>refinar</strong>: entra el <strong>material base</strong> más los <strong>metales que se agregan</strong> (se descuentan del inventario) y, al finalizar, el <strong>material refinado</strong> entra como existencia con su <strong>costo (CP)</strong> = materiales + mano de obra + costos indirectos, prorrateado por la cantidad. Tiene su <strong>propio kanban, sus propias recetas y su propio conteo</strong> (las órdenes de refinación NO se mezclan con las de fundición); el botón para iniciar es <strong>«Material a refinar»</strong>. El acceso se controla con el permiso <strong>Refinación de Material</strong> en Usuarios.</li>
     </ul>
   </section>

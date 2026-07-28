@@ -1127,6 +1127,83 @@ export interface Produccion {
   materiales?: ProduccionMaterial[];
 }
 
+/* ───────── Reporte de Colada (MGG-FR-001, horno de fundición primaria) ───────── */
+
+/** Una fila del control de temperatura horario (cada ~1 h) durante la colada. */
+export interface ColadaTemperatura {
+  hora: string;                 // 'HH:MM' o texto libre
+  temp_int: number | null;      // temperatura interna (°C)
+  temp_ext: number | null;      // temperatura externa (°C)
+  obs: string;                  // observación / acción
+}
+
+/** Un big bag de casiterita con su nº de precinto. */
+export interface ColadaBigBag { kg: number | null; precinto: string }
+
+/**
+ * Detalle del formato MGG-FR-001 que no vive en columnas propias de
+ * `produccion_colada` (se guarda en su columna `datos` jsonb). Todos los campos
+ * son opcionales para permitir cargas y ediciones parciales a lo largo del ciclo.
+ */
+export interface ColadaDatos {
+  // Identificación
+  turno?: string;
+  responsable?: string;
+  // Materias primas
+  big_bags?: ColadaBigBag[];
+  total_casiterita?: number | null;   // kg (Σ big bags)
+  ley_sn?: number | null;             // Ley de Sn / Tenor (%)
+  sn_kg?: number | null;              // total_casiterita × ley_sn / 100
+  coque_kg?: number | null;
+  coque_proveedor?: string;           // CARBOMORCA | CIVCA | otro
+  coque_granulometria?: string;       // 2-6 mm | 25-50 mm | 25-100 mm
+  otro_fundente?: string;             // p.ej. Pirulita
+  otro_fundente_kg?: number | null;
+  caco3_tipo?: string;                // p.ej. Caliza
+  caco3_kg?: number | null;
+  caco3_granulometria?: string;       // malla 4 | 6 | 10 | 20 | 200
+  // Proceso
+  homogeneizacion?: string;           // Manual (pala) | Trompo hidráulico
+  carga_horno?: string;               // Manual (pala) | Minicargador (mini shower)
+  // Temperaturas y tiempos de carga
+  temp_int_abrir?: number | null;
+  temp_ext_abrir?: number | null;
+  hora_inicio_carga?: string;
+  hora_fin_carga?: string;
+  temp_int_cerrar?: number | null;
+  temp_ext_cerrar?: number | null;
+  // Control de temperatura del proceso (cada ~1 h)
+  temperaturas?: ColadaTemperatura[];
+  // Sangrado y tiempos de colada
+  hora_inicio_proceso?: string;
+  hora_fin_proceso?: string;
+  hora_sangrado?: string;
+  temp_colada?: number | null;
+  duracion_horas?: number | null;
+  // Resultados (se cargan al finalizar)
+  estano_kg?: number | null;          // Estaño obtenido (kg)
+  escoria_kg?: number | null;         // Escoria generada (kg)
+  destino_almacen?: string;
+  n_lingotes?: number | null;
+  rendimiento?: number | null;        // %
+  // Observaciones
+  merma_kg?: number | null;
+  observaciones?: string;
+  // Involucrados (nombres)
+  involucrados?: string[];
+}
+
+export interface ProduccionColada {
+  id: string;
+  produccion_id: string;
+  colada_num: number;
+  fecha: string;                // YYYY-MM-DD
+  datos: ColadaDatos;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PesosScore {
   precio: number;
   puntualidad: number;

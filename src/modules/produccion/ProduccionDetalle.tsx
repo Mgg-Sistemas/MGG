@@ -8,6 +8,7 @@ import type { Produccion } from '@/shared/lib/types';
 import { getProduccionConMateriales } from './produccion.repository';
 // descargarProduccionPdf / descargarProduccionExcel se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
 import { enviarProduccionAMultiples } from './enviarProduccion';
+import { ColadaPanel } from './ColadaPanel';
 
 export function duracionProd(inicio: string, fin?: string | null): string {
   if (!fin) return 'En curso';
@@ -133,6 +134,11 @@ export function ProduccionDetalle({
               )}
             </div>
           </div>
+
+          {/* Reporte de colada (solo fundición con colada): control de temperatura + sangrado + PDF */}
+          {(prod.tipo ?? 'fundicion') === 'fundicion' && (
+            <ColadaPanel produccionId={id} editable={prod.estado !== 'finalizado'} />
+          )}
         </div>
       )}
 
