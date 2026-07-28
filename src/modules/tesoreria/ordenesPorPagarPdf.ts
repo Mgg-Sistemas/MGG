@@ -33,6 +33,7 @@ export async function descargarResumenPorPagarPdf(rows: OrdenPorPagar[], directo
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 42.52; // 1,5 cm
+  const CW = W - MARGIN * 2; // ancho útil imprimible (tabla y caja lo comparten)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -71,14 +72,20 @@ export async function descargarResumenPorPagarPdf(rows: OrdenPorPagar[], directo
     montoUsd: esBsMoneda(d.moneda) ? aExtranjero(Number(d.total) || 0, tasa) : (Number(d.total) || 0),
   });
 
-  const segmentos: Array<{ titulo: string; color: [number, number, number]; filas: FilaRep[] }> = [
+  const segmentosDef: Array<{ titulo: string; color: [number, number, number]; filas: FilaRep[] }> = [
     { titulo: 'COMPRAS DIRECTAS', color: [37, 99, 235], filas: comprasDir.map(deDirecto) },
     { titulo: 'ÓRDENES DE COMPRA', color: [255, 138, 0], filas: ocRows.map(deOrden) },
     { titulo: 'SERVICIOS', color: [124, 92, 255], filas: servRows.map(deOrden) },
     { titulo: 'SERVICIOS DIRECTOS', color: [16, 138, 120], filas: servDir.map(deDirecto) },
-  ].filter((s) => s.filas.length > 0);
+  ];
+  const segmentos = segmentosDef.filter((s) => s.filas.length > 0);
 
   const montoCol = (u: number): string[] => [usd(u), tasa > 0 ? bs(aBs(u, tasa)) : '—'];
+
+  // Anchos fijos que suman EXACTO el ancho útil → tabla de margen a margen, simétrica.
+  const wNum = 26, wCod = 74, wUsd = 88, wBs = 106;
+  const wProv = Math.round((CW - (wNum + wCod + wUsd + wBs)) * 0.42);
+  const wDet = CW - (wNum + wCod + wUsd + wBs) - wProv;
 
   for (const seg of segmentos) {
     const subtotal = seg.filas.reduce((a, f) => a + f.montoUsd, 0);
@@ -91,13 +98,14 @@ export async function descargarResumenPorPagarPdf(rows: OrdenPorPagar[], directo
       styles: { fontSize: 8, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
       headStyles: { fillColor: [225, 225, 225], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: seg.color, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right', fontSize: 9 },
+      tableWidth: CW,
       columnStyles: {
-        0: { halign: 'center', cellWidth: 24 },
-        1: { halign: 'center', cellWidth: 66 },
-        2: { cellWidth: 150 },
-        3: { cellWidth: 235 },
-        4: { halign: 'right', cellWidth: 78 },
-        5: { halign: 'right', cellWidth: 90 },
+        0: { halign: 'center', cellWidth: wNum },
+        1: { halign: 'center', cellWidth: wCod },
+        2: { cellWidth: wProv },
+        3: { cellWidth: wDet },
+        4: { halign: 'right', cellWidth: wUsd },
+        5: { halign: 'right', cellWidth: wBs },
       },
       margin: { top: MARGIN, bottom: MARGIN + 70, left: MARGIN, right: MARGIN },
     });
@@ -110,7 +118,7 @@ export async function descargarResumenPorPagarPdf(rows: OrdenPorPagar[], directo
   const totalBs = tasa > 0 ? aBs(totalUsd, tasa) : 0;
   const H = doc.internal.pageSize.getHeight();
   if (y > H - 96) { doc.addPage(); y = MARGIN; }
-  const boxW = W - MARGIN * 2;
+  const boxW = CW;
   doc.setFillColor(255, 138, 0);
   doc.rect(MARGIN, y, boxW, 66, 'F');
   doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold');
