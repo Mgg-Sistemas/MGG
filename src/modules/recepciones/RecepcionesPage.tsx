@@ -676,7 +676,8 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       )}
       {conciliacionOpen && (
         <ConciliacionModal grupoId={grupoId} conciliaciones={conciliaciones} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
-          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)} subtotalesProc={subtotalesProcSeco}
+          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)}
+          netoHumedoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_humedo ?? 0), 0)} subtotalesProc={subtotalesProcSeco}
           onReload={reload} onClose={() => setConciliacionOpen(false)} confirmar={setConfirmar} />
       )}
       {totalesOpen && (
@@ -1065,9 +1066,9 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, subtotales, op
 const ROJO = 'var(--danger, #e5484d)';
 const VERDE = 'var(--success, #30a46c)';
 
-function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, actor, miNombre, netoSecoSum, subtotalesProc, onReload, onClose, confirmar }: {
+function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, actor, miNombre, netoSecoSum, netoHumedoSum, subtotalesProc, onReload, onClose, confirmar }: {
   grupoId: string; conciliaciones: RecepcionConciliacion[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
-  netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
+  netoSecoSum: number; netoHumedoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
   onReload: () => Promise<void>; onClose: () => void;
   confirmar: (c: { message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null) => void;
 }) {
@@ -1077,7 +1078,7 @@ function ConciliacionModal({ grupoId, conciliaciones, recepciones, canWrite, act
   if (editor) {
     return (
       <ConciliacionEditorModal grupoId={grupoId} conciliacion={editor === 'nueva' ? null : editor} recepciones={recepciones}
-        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} subtotalesProc={subtotalesProc}
+        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} netoHumedoSum={netoHumedoSum} subtotalesProc={subtotalesProc}
         onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
     );
   }
@@ -1142,9 +1143,9 @@ function InlineAlmacen({ onCrear, onCancel }: { onCrear: (nombre: string) => voi
   );
 }
 
-function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, subtotalesProc, onCancel, onSaved }: {
+function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, netoHumedoSum, subtotalesProc, onCancel, onSaved }: {
   grupoId: string; conciliacion: RecepcionConciliacion | null; recepciones: Recepcion[]; defaultNumero: number;
-  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>; onCancel: () => void; onSaved: () => void;
+  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; netoHumedoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>; onCancel: () => void; onSaved: () => void;
 }) {
   const [numero, setNumero] = useState(String(conciliacion?.numero ?? defaultNumero));
   const [centros, setCentros] = useState<CentroRow[]>(() =>
@@ -1158,11 +1159,11 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
           nombre: r.centro_nombre || r.procedencia || '', saldo: numInput(r.peso_kg),
           categoria: '' as const, entra: false, almacen: '', movId: null,
         })));
-  // Peso Kg Total: en una conciliación NUEVA se sincroniza con el NETO de Humedad Final
-  // (PESO (KG) = total neto seco de los pesajes).
+  // Peso Kg Total = "lo que llegó / pesado" → neto HÚMEDO recepcionado (Σ pesajes),
+  // no el neto seco. En una conciliación NUEVA arranca con ese húmedo (editable).
   const [pesoTotal, setPesoTotal] = useState(
     conciliacion?.peso_kg_total != null ? numInput(conciliacion.peso_kg_total)
-    : netoSecoSum > 0 ? numInput(round2(netoSecoSum)) : '');
+    : netoHumedoSum > 0 ? numInput(round2(netoHumedoSum)) : '');
   const [bolsas, setBolsas] = useState(numInput(conciliacion?.kg_peso_bolsas));
   const [muestras, setMuestras] = useState(numInput(conciliacion?.muestras_laboratorio));
   const [nota, setNota] = useState(conciliacion?.nota ?? '');
