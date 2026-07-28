@@ -276,13 +276,14 @@ export function sectoresPorDefecto(): SectorResumen[] {
     },
     {
       nombre: 'SECTOR GT PERAMANAL', color: '#fde68a', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
-      // Saldo $USD y Precio Promedio del sector GT = Saldo de caja y Tasa del material del acopio EXTERNO (Golden Touch).
-      fuente_saldo: { sistema: 'golden-touch', metrica: 'acopio_saldo_usd', label: 'Golden Touch · Saldo de caja $USD (acopio)' },
-      fuente_precio: { sistema: 'golden-touch', metrica: 'acopio_tasa_material', label: 'Golden Touch · Tasa del material $/Kg (acopio)' },
+      // Saldo $USD y Precio Promedio del sector = Saldo de caja y Tasa del material de la caja
+      // PERAMANAL de ESTE sistema (Centro de Costo PERAMANAL / caja P-MGG09), en vivo.
+      fuente_saldo: { sistema: 'mgg-centro-saldo', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Saldo de caja $USD (acopio PERAMANAL)' },
+      fuente_precio: { sistema: 'mgg-centro-tasa', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Tasa actual del material $/Kg (PERAMANAL)' },
       centros: [
         { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.1 GT PERAMANAL (M)', kg_cobrar: 0, kg_disponible: 0 },
-        // El disponible de este centro vive en Golden Touch (Saldo en Kg del acopio).
-        { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.2 GT PERAMANAL (P)', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'golden-touch', metrica: 'acopio_saldo_kg', label: 'Golden Touch · Saldo en Kg (acopio)' } },
+        // Disponible = Saldo en Kg de casiterita de la caja PERAMANAL de ESTE sistema (en vivo).
+        { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.2 GT PERAMANAL (P)', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg-centro-saldokg', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Saldo en Kg (acopio PERAMANAL)' } },
       ],
     },
     sector('SECTOR LA ESMERALDA', '#fecaca', [
