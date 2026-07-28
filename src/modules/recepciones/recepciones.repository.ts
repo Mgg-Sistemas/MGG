@@ -470,17 +470,34 @@ export function promedioDelLote(modo: 'abc' | 'prom', clave: string, analisis: R
 export async function crearRecepcionDesdeCierre(input: {
   pesoKg: number; tasa?: number | null; procedencia: string; centroNombre?: string | null;
   origen: 'cierre_caja' | 'cierre_aliado'; refCajaId?: string | null; refAliadoId?: string | null;
+  gastos?: number | null;   // gastos del aliado/centro que se ARRASTRAN a la tarjeta (pre-llenan Totales)
   actor: string; actorName?: string | null;
 }): Promise<Recepcion | null> {
   if (num(input.pesoKg) <= 0) return null;
   // Cada cierre entra a la tarjeta del centro: "RECEPCIÓN <CENTRO>" (se crea la 1ª vez, luego se reutiliza).
   const nombreCentro = input.centroNombre || input.procedencia || 'GENERAL';
   const grupoId = await grupoParaCentro(nombreCentro, input.actor, input.actorName ?? null);
-  return crearRecepcion({
+  const rec = await crearRecepcion({
     grupo_id: grupoId,
     peso_kg: num(input.pesoKg), tasa: input.tasa ?? null, procedencia: input.procedencia, centro_nombre: input.centroNombre ?? null,
     origen: input.origen, ref_caja_id: input.refCajaId ?? null, ref_aliado_id: input.refAliadoId ?? null,
   }, input.actor, input.actorName ?? null);
+  // Gastos arrastrados: se ACUMULAN en la tarjeta (recepcion_grupos.gastos_acopio) para
+  // pre-llenar el campo Gastos de los Totales. Best-effort: no bloquea la recepción.
+  const g = num(input.gastos);
+  if (g > 0) {
+    const { data } = await supabase.from('recepcion_grupos').select('gastos_acopio').eq('id', grupoId).maybeSingle();
+    const prev = num((data as { gastos_acopio?: number } | null)?.gastos_acopio);
+    await supabase.from('recepcion_grupos').update({ gastos_acopio: round2(prev + g), updated_at: new Date().toISOString() }).eq('id', grupoId);
+  }
+  return rec;
+}
+
+/** Gastos de acopio arrastrados a la tarjeta (Σ gastos de aliados al cerrar la caja
+ *  del centro). Los Totales lo usan para pre-llenar el campo Gastos. */
+export async function gastosAcopioDeGrupo(grupoId: string): Promise<number> {
+  const { data } = await supabase.from('recepcion_grupos').select('gastos_acopio').eq('id', grupoId).maybeSingle();
+  return num((data as { gastos_acopio?: number } | null)?.gastos_acopio);
 }
 
 /* ───────────── Humedad (dos tablas bajo la grilla de análisis) ─────────────

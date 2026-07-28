@@ -445,6 +445,12 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, onClose, o
               );
             })}
           </div>
+          {nSel > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem', marginTop: '.55rem', padding: '.5rem .75rem', background: 'rgba(255,138,0,.08)', border: '1px solid var(--primary)', borderRadius: 8, fontSize: '.9rem' }}>
+              <span><strong className="mono">{num(nSel)}</strong> artículo(s) seleccionado(s)</span>
+              <span>Monto: <strong className="mono" style={{ color: 'var(--primary-3)', fontSize: '1.02rem' }}>{money(total)}</strong></span>
+            </div>
+          )}
         </div>
 
         <div className="form-grid">

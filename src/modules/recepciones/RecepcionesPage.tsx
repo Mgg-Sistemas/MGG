@@ -22,7 +22,7 @@ import {
   listPesajes, crearPesaje, actualizarPesaje, eliminarPesaje, bigBagLado, totalNetoLado, netoPorProcedencia, netoPorProcedenciaGrupo,
   listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion,
   totalReportadoConcil, kgFaltanteConcil, kgNoLlegoConcil, pctNoLlegoConcil,
-  listTotales, crearTotales, actualizarTotales, eliminarTotales,
+  listTotales, crearTotales, actualizarTotales, eliminarTotales, gastosAcopioDeGrupo,
   totalMonedaCentro, sumSnO2, totalMonedaTotal, tasaRecepcionada,
   listGrupos, crearGrupo, eliminarGrupo, actualizarGrupo,
   listCierres, nextNumeroCierre, crearCierre, eliminarCierre,
@@ -1460,6 +1460,14 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
       ? totales.centros.map((c) => ({ nombre: c.nombre ?? '', sno2: numInput(c.sno2), precio: numInput(c.precio) }))
       : recepciones.map((r) => ({ nombre: r.centro_nombre || r.procedencia || '', sno2: numInput(r.peso_kg), precio: numInput(r.tasa) })));
   const [gastos, setGastos] = useState(numInput(totales?.gastos));
+  // Al CREAR unos Totales nuevos, pre-llenar Gastos con los gastos de acopio arrastrados
+  // al cerrar la caja del centro (Σ gastos de aliados), si el campo está vacío.
+  useEffect(() => {
+    if (totales) return;
+    let vivo = true;
+    gastosAcopioDeGrupo(grupoId).then((g) => { if (vivo && g > 0) setGastos((prev) => (prev ? prev : numInput(g))); }).catch(() => { /* red/RLS */ });
+    return () => { vivo = false; };
+  }, [grupoId, totales]);
   // Pesos Kg (PROMEDIO DE PRECIO DE COMPRA RECEPCIONADA): en unos totales NUEVOS toma el
   // PESO (KG) de Humedad Final = total neto seco de los pesajes.
   const [pesosKg, setPesosKg] = useState(

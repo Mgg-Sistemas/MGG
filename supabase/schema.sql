@@ -3061,10 +3061,12 @@ create table if not exists public.recepcion_grupos (
   orden int not null default 0,
   es_general boolean not null default false,
   nota text,
+  gastos_acopio numeric not null default 0,   -- gastos de aliados arrastrados al cerrar la caja del centro (pre-llenan los Totales)
   actor text, actor_name text,
   created_at timestamptz not null default now(),
   updated_at timestamptz
 );
+alter table public.recepcion_grupos add column if not exists gastos_acopio numeric not null default 0;
 alter table public.recepcion_grupos enable row level security;
 create policy "rec_grupos read auth" on public.recepcion_grupos for select using (auth.role()='authenticated');
 create policy "rec_grupos write op"  on public.recepcion_grupos for all using (public.is_operativo()) with check (public.is_operativo());

@@ -690,9 +690,23 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [numeroNueva, setNumeroNueva] = useState('');
+  const [cerrarAliados, setCerrarAliados] = useState(true);
+  const [arrastrarGastos, setArrastrarGastos] = useState(false);
+  const [aliadosSaldo, setAliadosSaldo] = useState<Array<{ nombre: string; saldoKg: number; gastos: number }>>([]);
   const saldoUsd = Math.round((Number(resumen.saldoUsd) || 0) * 100) / 100;
   const saldoKg = Math.round((Number(resumen.saldoKg) || 0) * 100) / 100;
   const tasa = Number(resumen.tasa) || 0;
+
+  // Aliados del centro que tienen saldo de casiterita > 0 (se cerrarán junto con la caja).
+  useEffect(() => {
+    let vivo = true;
+    import('./subledgers.repository')
+      .then(({ listAliadosConResumen }) => listAliadosConResumen(centro))
+      .then((rs) => { if (vivo) setAliadosSaldo(rs.filter((r) => (Number(r.resumen.saldoKg) || 0) > 0).map((r) => ({ nombre: r.aliado.nombre, saldoKg: Number(r.resumen.saldoKg) || 0, gastos: Number(r.resumen.totalGastos) || 0 }))); })
+      .catch(() => { /* RLS/red */ });
+    return () => { vivo = false; };
+  }, [centro]);
+  const gastosAliados = aliadosSaldo.reduce((a, x) => a + x.gastos, 0);
 
   // Sugerencia incremental para el número de la caja nueva (editable la 1ª vez).
   useEffect(() => {
@@ -704,8 +718,8 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
   async function confirmar() {
     setSaving(true); setError(null);
     try {
-      const res = await cerrarYAbrirCaja({ centro, actor, actorName, numeroNueva: numeroNueva.trim() || null });
-      notify(`Caja ${res.cajaCerrada.numero} cerrada · nueva ${res.cajaNueva.numero} abierta`, 'success', { link: '#/app/acopio' });
+      const res = await cerrarYAbrirCaja({ centro, actor, actorName, numeroNueva: numeroNueva.trim() || null, cerrarAliados, arrastrarGastos });
+      notify(`Caja ${res.cajaCerrada.numero} cerrada · nueva ${res.cajaNueva.numero} abierta${res.aliadosCerrados ? ` · ${res.aliadosCerrados} aliado(s) cerrados` : ''}`, 'success', { link: '#/app/acopio' });
       onDone();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cerrar la caja.'); setSaving(false); }
   }
@@ -757,6 +771,29 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
               ? `Los ${num(saldoKg)} Kg pasan al módulo RECEPCIONES (procedencia «${centro.toUpperCase()}»); NO entran al inventario todavía. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.`
               : 'No hay saldo de Kg para enviar a Recepciones. El saldo en $ arranca la caja nueva como «$ entregados»; lo demás se reinicia.'}
           </p>
+
+          {/* Cierre de ALIADOS junto con la caja del centro */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.7rem', fontSize: '.86rem', fontWeight: 600, cursor: 'pointer' }}>
+            <input type="checkbox" checked={cerrarAliados} onChange={(e) => setCerrarAliados(e.target.checked)} disabled={saving} style={{ width: 17, height: 17, accentColor: 'var(--primary)' }} />
+            Cerrar también los aliados con saldo de casiterita <span className="muted" style={{ fontWeight: 400 }}>({aliadosSaldo.length})</span>
+          </label>
+          {cerrarAliados && aliadosSaldo.length > 0 && (
+            <div style={{ marginTop: '.4rem', border: '1px solid var(--border)', borderRadius: 8, padding: '.45rem .6rem', fontSize: '.8rem' }}>
+              {aliadosSaldo.map((a) => (
+                <div key={a.nombre} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
+                  <span className="muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nombre}</span>
+                  <span className="mono" style={{ whiteSpace: 'nowrap' }}>{num(a.saldoKg)} Kg{a.gastos > 0 ? ` · gastos ${money(a.gastos)}` : ''}</span>
+                </div>
+              ))}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px solid var(--border)', fontSize: '.82rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={arrastrarGastos} onChange={(e) => setArrastrarGastos(e.target.checked)} disabled={saving} style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} />
+                Arrastrar los gastos de los aliados a la recepción {gastosAliados > 0 ? <strong className="mono">({money(gastosAliados)})</strong> : ''}
+              </label>
+            </div>
+          )}
+          {cerrarAliados && aliadosSaldo.length === 0 && (
+            <p className="hint muted" style={{ fontSize: '.76rem', margin: '.3rem 0 0' }}>Ningún aliado de este centro tiene saldo de casiterita pendiente.</p>
+          )}
         </>
       )}
     </Modal>

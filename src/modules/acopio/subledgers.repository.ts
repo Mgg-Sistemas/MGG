@@ -460,6 +460,7 @@ export interface CierreAliadoResultado {
 
 export async function cerrarYAbrirCajaAliado(input: {
   aliadoId: string; centro: string; actor: string; actorName?: string | null;
+  gastos?: number | null;   // gastos del aliado que se arrastran a la Recepción (opcional)
 }): Promise<CierreAliadoResultado> {
   const centro = (input.centro || CENTRO_ACOPIO_DEFECTO).trim();
   const oro = esCentroOro(centro);
@@ -500,7 +501,7 @@ export async function cerrarYAbrirCajaAliado(input: {
       const { crearRecepcionDesdeCierre } = await import('@/modules/recepciones/recepciones.repository');
       await crearRecepcionDesdeCierre({
         pesoKg: saldoKg, tasa: tasa > 0 ? tasa : null, procedencia: nombreAliado, centroNombre: centro,
-        origen: 'cierre_aliado', refAliadoId: input.aliadoId,
+        origen: 'cierre_aliado', refAliadoId: input.aliadoId, gastos: r2(num(input.gastos)),
         actor: input.actor, actorName: input.actorName ?? null,
       });
       invMovId = null; // no hubo movimiento de inventario: pasó a Recepciones

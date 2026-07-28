@@ -705,9 +705,14 @@ export interface CierreCajaResultado {
   tasa: number;
   almacenCasiterita: string;
   kgAInventario: boolean;
+  aliadosCerrados: number;   // cuántos aliados del centro se cerraron junto con la caja
 }
 
-export async function cerrarYAbrirCaja(input: { centro: string; actor: string; actorName?: string | null; numeroNueva?: string | null }): Promise<CierreCajaResultado> {
+export async function cerrarYAbrirCaja(input: {
+  centro: string; actor: string; actorName?: string | null; numeroNueva?: string | null;
+  cerrarAliados?: boolean;   // además del centro, cierra cada aliado con saldo_kg > 0
+  arrastrarGastos?: boolean; // arrastra los gastos de cada aliado a los Totales de la recepción
+}): Promise<CierreCajaResultado> {
   const centro = (input.centro || CENTRO_ACOPIO_DEFECTO).trim();
   const cajas = await listCajas(centro);
   const abierta = cajas.find((c) => c.estado === 'abierta');
@@ -755,7 +760,28 @@ export async function cerrarYAbrirCaja(input: { centro: string; actor: string; a
     if (error) throw error;
   }
 
-  return { cajaCerrada: abierta, cajaNueva: nueva, saldoUsd, saldoKg, tasa, almacenCasiterita: almacenCasiteritaDeCentro(centro), kgAInventario };
+  // 5) Cierre de ALIADOS del centro (opcional): cada aliado con saldo de casiterita > 0
+  //    se cierra también, trayendo su saldo_kg a SU propia tasa como una fila más en la
+  //    MISMA Recepción del centro. Los gastos de cada aliado se arrastran si se pidió.
+  //    Un aliado que falle no bloquea el resto del cierre.
+  let aliadosCerrados = 0;
+  if (input.cerrarAliados) {
+    const { listAliadosConResumen, cerrarYAbrirCajaAliado } = await import('./subledgers.repository');
+    const conResumen = await listAliadosConResumen(centro).catch(() => []);
+    for (const { aliado, resumen } of conResumen) {
+      if ((Number(resumen.saldoKg) || 0) > 0) {
+        try {
+          await cerrarYAbrirCajaAliado({
+            aliadoId: aliado.id, centro, actor: input.actor, actorName: input.actorName ?? null,
+            gastos: input.arrastrarGastos ? (Number(resumen.totalGastos) || 0) : 0,
+          });
+          aliadosCerrados++;
+        } catch { /* seguir con los demás aliados */ }
+      }
+    }
+  }
+
+  return { cajaCerrada: abierta, cajaNueva: nueva, saldoUsd, saldoKg, tasa, almacenCasiterita: almacenCasiteritaDeCentro(centro), kgAInventario, aliadosCerrados };
 }
 
 export async function listCostoClases(): Promise<CostoClase[]> {
