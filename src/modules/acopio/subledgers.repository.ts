@@ -516,14 +516,19 @@ export async function cerrarYAbrirCajaAliado(input: {
   });
   if (cErr) throw cErr;
 
-  // 3) Apertura del periodo nuevo: el saldo $ entra como «$ entregado».
+  // 3) Apertura del periodo nuevo: el saldo se ARRASTRA para que el aliado no
+  //    arranque en 0. Se trae el saldo en Kg (como «kg cerrados») a la tasa del
+  //    aliado (precio $usd por kg), y el saldo $ neto se conserva:
+  //    usd_entregado = saldoUsd + saldoKg × tasa (compensa el facturado del arrastre).
+  //    Así el periodo nuevo muestra Saldo en Kg, tasa y saldo $ igual que al cerrar.
   const periodoNuevo = periodo + 1;
-  if (saldoUsd !== 0) {
+  if (saldoUsd !== 0 || saldoKg !== 0) {
     const orden = await nextOrdenAliado(input.aliadoId);
+    const entregadoInicial = r2(saldoUsd + saldoKg * tasa);
     const { error } = await supabase.from('acopio_aliado_movimientos').insert({
       aliado_id: input.aliadoId, fecha: hoy, corte: null, tipo: 'cierre',
       descripcion: `SALDO INICIAL · viene del cierre #${periodo}`,
-      usd_entregado: saldoUsd, kg_cerrados: 0, precio_usd_kg: 0, kg_recibidos: 0, gastos: 0,
+      usd_entregado: entregadoInicial, kg_cerrados: saldoKg, precio_usd_kg: tasa, kg_recibidos: 0, gastos: 0,
       orden, periodo: periodoNuevo, created_by: input.actor, actor_name: input.actorName ?? null,
     });
     if (error) throw error;
