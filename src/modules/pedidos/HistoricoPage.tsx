@@ -317,6 +317,10 @@ function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
       footer={
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+          <button className="btn btn-ghost"
+            onClick={() => void import('./trazabilidadPdf').then(({ descargarTrazabilidadPdf }) => descargarTrazabilidadPdf(orden.id)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar la trazabilidad', 'error'))}>
+            🧭 Trazabilidad
+          </button>
           {orden.oc_codigo && (
             <button className="btn btn-ghost"
               onClick={() => void import('./ordenCompraPdf').then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(orden.id)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
