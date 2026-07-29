@@ -1204,6 +1204,73 @@ export interface ProduccionColada {
   updated_at: string;
 }
 
+// ── Refinación de lingotes de estaño (MGG-FR-002) ──────────────────────────
+/** Una colada de origen aportada al lote de refinación (estaño crudo). */
+export interface RefinacionColadaOrigen {
+  produccion_id: string;
+  colada_num: number;
+  fecha: string;
+  producto_id: string | null;
+  producto_nombre: string;
+  almacen: string;
+  estano_kg: number;            // kg de estaño tomados de esta colada (default = obtenido)
+  costo_unitario: number;       // costo/kg de esa colada (referencia)
+}
+
+/** Una fila del control de temperatura y etapas del proceso de refinación. */
+export interface RefinacionEtapa {
+  etapa?: string;               // "Fusión de la carga cruda", etc.
+  hora?: string;
+  temp_bano?: number | null;    // Temp. baño (°C)
+  temp_quemador?: number | null;
+  accion?: string;              // Acción operativa / reactivo añadido
+}
+
+export interface RefinacionDatos {
+  // Identificación del lote / proceso
+  turno?: string;               // Mañana | Tarde | Noche
+  responsable?: string;
+  n_horno_olla?: string;
+  // Origen del estaño crudo (varias coladas)
+  coladas?: RefinacionColadaOrigen[];
+  estano_crudo_kg?: number | null;   // Σ coladas (editable)
+  pureza_inicial?: number | null;    // % Sn
+  // Parámetros de operación
+  metodo_agitacion?: string;         // Mecánica (hélice) | Neumática | Manual
+  desespumado?: string;              // Raspado manual de dross | Separador mecánico
+  // Etapas / control de temperatura
+  etapas?: RefinacionEtapa[];
+  // Tiempos de colada y moldeo de lingotes (al finalizar)
+  hora_inicio_refinacion?: string;
+  hora_fin_refinacion?: string;
+  hora_inicio_vaciado?: string;
+  temp_colada?: number | null;       // Temp. de colada (°C)
+  tiempo_total_horas?: number | null;
+  // Resultados de producción y balance de masa (al finalizar)
+  estano_refinado_kg?: number | null;
+  n_lingotes?: number | null;
+  peso_prom_lingote?: number | null; // refinado ÷ n_lingotes
+  n_precinto?: string;               // N° de precinto / lote final
+  dross_kg?: number | null;          // Dross / escoria de refinación
+  rendimiento?: number | null;       // % = refinado ÷ crudo × 100
+  pureza_final?: number | null;      // % Sn
+  destino_almacen?: string;
+  merma_kg?: number | null;          // crudo − refinado − dross
+  observaciones?: string;
+  involucrados?: string[];
+}
+
+export interface ProduccionRefinacion {
+  id: string;
+  produccion_id: string;
+  refinacion_num: number;
+  fecha: string;                // YYYY-MM-DD
+  datos: RefinacionDatos;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PesosScore {
   precio: number;
   puntualidad: number;

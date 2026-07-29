@@ -341,6 +341,25 @@ create table if not exists public.produccion_colada (
 create index if not exists idx_colada_prod on public.produccion_colada(produccion_id);
 create index if not exists idx_colada_num on public.produccion_colada(colada_num desc);
 
+-- Reporte de Refinación de Lingotes de Estaño (MGG-FR-002): metadata rica 1:1 con
+-- una orden de refinación (`produccion` tipo='refinacion'). `refinacion_num` es un
+-- correlativo global. Todo el detalle del formato (identificación, origen del estaño
+-- crudo = varias coladas, agentes/reactivos, parámetros, etapas de temperatura,
+-- tiempos, resultados y balance de masa, observaciones, involucrados) vive en
+-- `datos` (jsonb) para iterar sin ALTERs.
+create table if not exists public.produccion_refinacion (
+  id             uuid primary key default gen_random_uuid(),
+  produccion_id  uuid not null unique references public.produccion(id) on delete cascade,
+  refinacion_num integer not null,
+  fecha          date not null default current_date,
+  datos          jsonb not null default '{}'::jsonb,
+  created_by     text,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create index if not exists idx_refinacion_prod on public.produccion_refinacion(produccion_id);
+create index if not exists idx_refinacion_num on public.produccion_refinacion(refinacion_num desc);
+
 -- ─────────────────────────────────────────────────────────────
 -- 5.5 Tesorería (módulo Salidas / Traslados · Dinero)
 --   cajas: cuentas de dinero con saldo, en USD o Bs.
@@ -1965,6 +1984,7 @@ alter table public.existencias    enable row level security;
 alter table public.produccion     enable row level security;
 alter table public.produccion_materiales enable row level security;
 alter table public.produccion_colada enable row level security;
+alter table public.produccion_refinacion enable row level security;
 
 -- Helper: ¿el usuario actual es admin?
 create or replace function public.is_admin()
@@ -1984,7 +2004,7 @@ create policy "usuarios admin all" on public.usuarios for all using (public.is_a
 do $$
 declare t text;
 begin
-  for t in select unnest(array['proveedores', 'productos', 'movimientos', 'ordenes', 'facturas', 'config', 'almacenes', 'hornos', 'cajas', 'movimientos_caja', 'existencias', 'produccion', 'produccion_materiales', 'produccion_colada']) loop
+  for t in select unnest(array['proveedores', 'productos', 'movimientos', 'ordenes', 'facturas', 'config', 'almacenes', 'hornos', 'cajas', 'movimientos_caja', 'existencias', 'produccion', 'produccion_materiales', 'produccion_colada', 'produccion_refinacion']) loop
     execute format('drop policy if exists "%I read auth" on public.%I', t, t);
     execute format('create policy "%I read auth" on public.%I for select using (auth.role() = ''authenticated'')', t, t);
 
@@ -2051,7 +2071,7 @@ end$$;
 do $$
 declare t text;
 begin
-  for t in select unnest(array['movimientos', 'productos', 'existencias', 'almacenes', 'produccion', 'produccion_materiales', 'produccion_colada', 'hornos', 'cajas', 'movimientos_caja']) loop
+  for t in select unnest(array['movimientos', 'productos', 'existencias', 'almacenes', 'produccion', 'produccion_materiales', 'produccion_colada', 'produccion_refinacion', 'hornos', 'cajas', 'movimientos_caja']) loop
     execute format('drop policy if exists "%I write admin" on public.%I', t, t);
     execute format('drop policy if exists "%I write staff" on public.%I', t, t);
     execute format('drop policy if exists "%I write operativo" on public.%I', t, t);
@@ -3350,7 +3370,7 @@ declare t text;
 declare faltantes text[] := array[
   'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
   'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
-  'ofertas_proveedor','produccion','produccion_materiales','produccion_colada','proveedor_datos_pago','proveedores',
+  'ofertas_proveedor','produccion','produccion_materiales','produccion_colada','produccion_refinacion','proveedor_datos_pago','proveedores',
   'recepcion_grupos','recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones','recepcion_totales','recepcion_cierres','recepciones_centro_alias',
   'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
 ];

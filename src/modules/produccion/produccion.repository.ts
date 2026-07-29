@@ -359,7 +359,7 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
     actor_name: input.actor_name ?? null,
     ref_tipo: 'produccion',
     ref_id: produccion.id,
-    detalle: `Consumo para fundición de ${input.producto_nombre}`,
+    detalle: `Consumo para ${tipo === 'refinacion' ? 'refinación' : 'fundición'} de ${input.producto_nombre}`,
   })));
 
   return produccion;
@@ -387,7 +387,7 @@ export async function finalizarProduccion(id: string, actor: string, actorName?:
     actor_name: actorName ?? null,
     ref_tipo: 'produccion',
     ref_id: prod.id,
-    detalle: `Fundición finalizada: ${prod.producto_nombre} (${prod.cantidad} und)`,
+    detalle: `${(prod.tipo ?? 'fundicion') === 'refinacion' ? 'Refinación' : 'Fundición'} finalizada: ${prod.producto_nombre} (${prod.cantidad} und)`,
     precio_unitario: Number(prod.costo_unitario) || 0,
   });
 

@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
-import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Almacen, Existencia, Producto, Produccion } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
-import { listProducciones, finalizarProduccion, type ProduccionTipo } from './produccion.repository';
+import { listProducciones, type ProduccionTipo } from './produccion.repository';
 import { getNombresHornosActivos } from './hornos.repository';
 import { MaterialAProducirModal } from './MaterialAProducirModal';
 import { FinalizarColadaModal } from './FinalizarColadaModal';
+import { FinalizarRefinacionModal } from './FinalizarRefinacionModal';
 import { ProduccionDetalle, duracionProd } from './ProduccionDetalle';
 import { RecetasModal } from './RecetasModal';
 import { GestionarHornosModal } from './GestionarHornosModal';
@@ -111,7 +110,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
 
   useEffect(() => { void reload(); }, [reload]);
   // Realtime: fundición + sus insumos/almacenes/hornos (multiusuario en vivo).
-  useRealtime(['produccion', 'produccion_materiales', 'hornos', 'productos', 'existencias', 'almacenes'], reload);
+  useRealtime(['produccion', 'produccion_materiales', 'produccion_colada', 'produccion_refinacion', 'hornos', 'productos', 'existencias', 'almacenes'], reload);
 
   // Filtros (solo aplican a la vista Lista).
   const filtradas = useMemo(() => {
@@ -128,18 +127,6 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
   // El Kanban solo muestra las 3 producciones finalizadas más recientes.
   const finalizadosKanban = useMemo(() => finalizados.slice(0, 3), [finalizados]);
   const almacenesList = useMemo(() => almacenes.map((a) => a.nombre), [almacenes]);
-
-  async function handleFinalizar(prod: Produccion) {
-    try {
-      await finalizarProduccion(prod.id, actor, actorName);
-      notify(`${cfg.titulo} finalizada: ${prod.producto_nombre} (${num(prod.cantidad)} und) → entró a ${prod.almacen_destino}`, 'success', { link: '#/app/inventario' });
-      await reload();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo finalizar', 'error');
-    } finally {
-      setModal({ kind: 'none' });
-    }
-  }
 
   return (
     <div>
@@ -343,13 +330,13 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           onDone={() => { setModal({ kind: 'none' }); void reload(); }}
         />
       )}
-      {modal.kind === 'finalizar' && tipo !== 'fundicion' && (
-        <ConfirmDialog
-          title={`Finalizar ${cfg.verbo}`}
-          message={`Se registrará la entrada de ${num(modal.prod.cantidad)} und de "${modal.prod.producto_nombre}" en ${modal.prod.almacen_destino} a costo ${money(modal.prod.costo_unitario)}/und. ¿Continuar?`}
-          confirmText="Finalizar"
-          onCancel={() => setModal({ kind: 'none' })}
-          onConfirm={() => handleFinalizar(modal.prod)}
+      {modal.kind === 'finalizar' && tipo === 'refinacion' && (
+        <FinalizarRefinacionModal
+          prod={modal.prod}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setModal({ kind: 'none' })}
+          onDone={() => { setModal({ kind: 'none' }); void reload(); }}
         />
       )}
     </div>
