@@ -10,7 +10,9 @@ import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaR
 import { crearHorno } from './hornos.repository';
 import { ColadaCampos } from './ColadaCampos';
 import { coladaDatosVacios, crearColada, proximaColadaNum } from './colada.repository';
-import type { ColadaDatos } from '@/shared/lib/types';
+import { RefinacionCampos } from './RefinacionCampos';
+import { refinacionDatosVacios, proximaRefinacionNum, crearRefinacion, listColadasFinalizadas, type ColadaFinalizada } from './refinacion.repository';
+import type { ColadaDatos, RefinacionDatos } from '@/shared/lib/types';
 
 interface RecetaBase {
   rendimiento: number;
@@ -65,6 +67,19 @@ export function MaterialAProducirModal({
     proximaColadaNum().then((n) => { if (!cancel) setColadaNum((v) => v || String(n)); }).catch(() => { /* editable */ });
     return () => { cancel = true; };
   }, [esColada]);
+
+  // Refinación (MGG-FR-002): N° de lote + fecha + datos del formato + coladas origen.
+  const [refinacionNum, setRefinacionNum] = useState('');
+  const [refinacionFecha, setRefinacionFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [refinacionDatos, setRefinacionDatos] = useState<RefinacionDatos>(() => refinacionDatosVacios());
+  const [coladasFin, setColadasFin] = useState<ColadaFinalizada[]>([]);
+  useEffect(() => {
+    if (!esRef) return;
+    let cancel = false;
+    proximaRefinacionNum().then((n) => { if (!cancel) setRefinacionNum((v) => v || String(n)); }).catch(() => { /* editable */ });
+    listColadasFinalizadas().then((cs) => { if (!cancel) setColadasFin(cs); }).catch(() => { if (!cancel) setColadasFin([]); });
+    return () => { cancel = true; };
+  }, [esRef]);
   const producibles = useMemo(() => productos.filter((p) => p.es_producible), [productos]);
   const materiales = useMemo(
     () => productos.filter((p) => p.es_receta && p.estado === 'activo'),
@@ -216,12 +231,27 @@ export function MaterialAProducirModal({
     prevRecetaIds.current = recetaBase ? Object.keys(recetaBase.items) : [];
   }, [recetaBase, cantidadNum]);
 
+  // Refinación: líneas de estaño crudo tomadas de las coladas seleccionadas
+  // (se consumen del inventario y su costo entra al CTM como base).
+  const crudoLines = esRef
+    ? (refinacionDatos.coladas ?? []).filter((c) => c.producto_id && (Number(c.estano_kg) || 0) > 0)
+    : [];
+  const crudoKg = Math.round(crudoLines.reduce((a, c) => a + (Number(c.estano_kg) || 0), 0) * 100) / 100;
+  const crudoCosto = crudoLines.reduce((a, c) => a + (Number(c.estano_kg) || 0) * (Number(c.costo_unitario) || 0), 0);
+
+  // En refinación, la cantidad a producir = estaño crudo cargado (se ajusta al
+  // finalizar con el estaño refinado obtenido).
+  useEffect(() => {
+    if (esRef) setCantidad(crudoKg > 0 ? String(crudoKg) : '0');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [esRef, crudoKg]);
+
   // Costos: CTM → CP → costo unitario. El posible precio de venta se MARCA solo
   // = costo unitario de fundición (no editable por el usuario).
   const seleccion = materiales
     .map((m) => ({ m, row: rows[m.id] }))
     .filter((x) => x.row?.checked && (Number(x.row.cantidad) || 0) > 0);
-  const ctm = seleccion.reduce((a, { m, row }) => a + (Number(row.cantidad) || 0) * exCosto(m.id, row.almacen), 0);
+  const ctm = seleccion.reduce((a, { m, row }) => a + (Number(row.cantidad) || 0) * exCosto(m.id, row.almacen), 0) + crudoCosto;
   const cp = ctm + (Number(manoObra) || 0) + (Number(costosIndirectos) || 0);
   const costoUnit = cantidadNum > 0 ? cp / cantidadNum : 0;
   // Margen BRUTO sobre el precio de venta: PV = costo unitario / (1 - margen%).
@@ -277,11 +307,15 @@ export function MaterialAProducirModal({
     e.preventDefault();
     setError(null);
 
-    if (cantidadNum <= 0) { setError('La cantidad a producir debe ser mayor que 0.'); return; }
+    if (esRef) {
+      if (!crudoLines.length) { setError('Seleccioná al menos una colada finalizada como origen del estaño crudo.'); return; }
+    } else {
+      if (!seleccion.length) { setError('Seleccioná al menos un material con cantidad.'); return; }
+    }
+    if (cantidadNum <= 0) { setError(esRef ? 'El estaño crudo a refinar debe ser mayor que 0.' : 'La cantidad a producir debe ser mayor que 0.'); return; }
     if (!almacenDestino) { setError('Elegí el almacén destino.'); return; }
-    if (modoOutput === 'existente' && !productoSelId) { setError('Elegí el producto a producir.'); return; }
+    if (modoOutput === 'existente' && !productoSelId) { setError(esRef ? 'Elegí el material refinado resultante.' : 'Elegí el producto a producir.'); return; }
     if (modoOutput === 'nuevo' && !nombreNuevo.trim()) { setError('Escribí el nombre del producto a producir.'); return; }
-    if (!seleccion.length) { setError('Seleccioná al menos un material con cantidad.'); return; }
 
     for (const { m, row } of seleccion) {
       const cant = Number(row.cantidad) || 0;
@@ -307,12 +341,22 @@ export function MaterialAProducirModal({
         productoNombre = creado.nombre;
       }
 
-      const matInput: MaterialInput[] = seleccion.map(({ m, row }) => ({
+      const reactivoInput: MaterialInput[] = seleccion.map(({ m, row }) => ({
         producto_id: m.id,
         material_nombre: m.nombre,
         almacen: row.almacen,
         cantidad: Number(row.cantidad) || 0,
       }));
+      // Refinación: el estaño crudo de cada colada entra como material consumido.
+      const crudoInput: MaterialInput[] = esRef
+        ? crudoLines.map((c) => ({
+          producto_id: c.producto_id as string,
+          material_nombre: `Estaño crudo · Colada #${c.colada_num || 's/n'}`,
+          almacen: c.almacen,
+          cantidad: Number(c.estano_kg) || 0,
+        }))
+        : [];
+      const matInput: MaterialInput[] = [...crudoInput, ...reactivoInput];
 
       const prod = await crearProduccion({
         producto_id: productoId,
@@ -342,6 +386,22 @@ export function MaterialAProducirModal({
           });
         } catch (errColada) {
           toast(errColada instanceof Error ? `Fundición creada, pero el reporte de colada falló: ${errColada.message}` : 'Fundición creada, pero no se pudo guardar el reporte de colada', 'warning');
+        }
+      }
+
+      // Refinación ⇒ guarda el reporte MGG-FR-002 vinculado a la orden.
+      if (esRef) {
+        try {
+          const nRef = Number(refinacionNum) || (await proximaRefinacionNum());
+          await crearRefinacion({
+            produccionId: prod.id,
+            refinacionNum: nRef,
+            fecha: refinacionFecha,
+            datos: { ...refinacionDatos, estano_crudo_kg: crudoKg, destino_almacen: refinacionDatos.destino_almacen || almacenDestino },
+            actor,
+          });
+        } catch (errRef) {
+          toast(errRef instanceof Error ? `Refinación creada, pero el reporte falló: ${errRef.message}` : 'Refinación creada, pero no se pudo guardar el reporte', 'warning');
         }
       }
 
@@ -390,6 +450,16 @@ export function MaterialAProducirModal({
           />
         )}
 
+        {/* Refinación (MGG-FR-002): identificación + origen (coladas) + parámetros + etapas */}
+        {esRef && (
+          <RefinacionCampos
+            refinacionNum={refinacionNum} setRefinacionNum={setRefinacionNum}
+            fecha={refinacionFecha} setFecha={setRefinacionFecha}
+            datos={refinacionDatos} setDatos={setRefinacionDatos}
+            coladasFin={coladasFin}
+          />
+        )}
+
         {/* Posible precio de venta — automático (margen bruto sobre CP) */}
         <div className="card" style={{ padding: '.7rem .9rem', marginBottom: '.85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -433,8 +503,9 @@ export function MaterialAProducirModal({
 
         <div className="form-grid">
           <div className="form-row">
-            <label>Cantidad a producir</label>
-            <input className="input mono" type="number" min={1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} required />
+            <label>{esRef ? 'Estaño crudo a refinar (kg)' : 'Cantidad a producir'}</label>
+            <input className="input mono" type="number" min={esRef ? 0 : 1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} disabled={esRef} required />
+            {esRef && <small className="muted" style={{ fontSize: '.7rem' }}>Σ coladas seleccionadas. Al finalizar se ajusta al estaño refinado obtenido.</small>}
           </div>
           <div className="form-row">
             <AlmacenPicker value={almacenDestino} onChange={setAlmacenDestino} sedeLabel="Sede destino" label="Almacén destino" />
@@ -472,7 +543,7 @@ export function MaterialAProducirModal({
         {/* Materiales */}
         <div className="form-row">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label style={{ margin: 0 }}>Materiales a utilizar (receta)</label>
+            <label style={{ margin: 0 }}>{esRef ? 'Agentes refinantes / reactivos' : 'Materiales a utilizar (receta)'}</label>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAddOpen((v) => !v)}>+ Nuevo insumo</button>
           </div>
 
