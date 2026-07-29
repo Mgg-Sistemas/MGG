@@ -693,7 +693,8 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
   const [cerrarAliados, setCerrarAliados] = useState(true);
   const [arrastrarGastos, setArrastrarGastos] = useState(false);
   const [traerAliadosAlCentro, setTraerAliadosAlCentro] = useState(true);
-  const [aliadosSaldo, setAliadosSaldo] = useState<Array<{ nombre: string; saldoKg: number; gastos: number }>>([]);
+  const [aliadosSaldo, setAliadosSaldo] = useState<Array<{ id: string; nombre: string; saldoKg: number; gastos: number }>>([]);
+  const [aliadosSel, setAliadosSel] = useState<Set<string>>(new Set());
   const saldoUsd = Math.round((Number(resumen.saldoUsd) || 0) * 100) / 100;
   const saldoKg = Math.round((Number(resumen.saldoKg) || 0) * 100) / 100;
   const tasa = Number(resumen.tasa) || 0;
@@ -703,11 +704,16 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
     let vivo = true;
     import('./subledgers.repository')
       .then(({ listAliadosConResumen }) => listAliadosConResumen(centro))
-      .then((rs) => { if (vivo) setAliadosSaldo(rs.filter((r) => (Number(r.resumen.saldoKg) || 0) > 0).map((r) => ({ nombre: r.aliado.nombre, saldoKg: Number(r.resumen.saldoKg) || 0, gastos: Number(r.resumen.totalGastos) || 0 }))); })
+      .then((rs) => {
+        if (!vivo) return;
+        const conSaldo = rs.filter((r) => (Number(r.resumen.saldoKg) || 0) > 0).map((r) => ({ id: r.aliado.id, nombre: r.aliado.nombre, saldoKg: Number(r.resumen.saldoKg) || 0, gastos: Number(r.resumen.totalGastos) || 0 }));
+        setAliadosSaldo(conSaldo);
+        setAliadosSel(new Set(conSaldo.map((a) => a.id)));   // todos seleccionados por defecto
+      })
       .catch(() => { /* RLS/red */ });
     return () => { vivo = false; };
   }, [centro]);
-  const gastosAliados = aliadosSaldo.reduce((a, x) => a + x.gastos, 0);
+  const gastosAliados = aliadosSaldo.reduce((a, x) => a + (aliadosSel.has(x.id) ? x.gastos : 0), 0);
 
   // Sugerencia incremental para el número de la caja nueva (editable la 1ª vez).
   useEffect(() => {
@@ -719,7 +725,7 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
   async function confirmar() {
     setSaving(true); setError(null);
     try {
-      const res = await cerrarYAbrirCaja({ centro, actor, actorName, numeroNueva: numeroNueva.trim() || null, cerrarAliados, arrastrarGastos, traerAliadosAlCentro });
+      const res = await cerrarYAbrirCaja({ centro, actor, actorName, numeroNueva: numeroNueva.trim() || null, cerrarAliados, arrastrarGastos, traerAliadosAlCentro, aliadosSel: Array.from(aliadosSel) });
       notify(`Caja ${res.cajaCerrada.numero} cerrada · nueva ${res.cajaNueva.numero} abierta${res.aliadosCerrados ? ` · ${res.aliadosCerrados} aliado(s) cerrados` : ''}`, 'success', { link: '#/app/acopio' });
       onDone();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cerrar la caja.'); setSaving(false); }
@@ -780,11 +786,23 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
           </label>
           {cerrarAliados && aliadosSaldo.length > 0 && (
             <div style={{ marginTop: '.4rem', border: '1px solid var(--border)', borderRadius: 8, padding: '.45rem .6rem', fontSize: '.8rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', marginBottom: '.3rem' }}>
+                <span className="muted" style={{ fontSize: '.74rem' }}>Tildá cuáles se toman para la recepción</span>
+                <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .4rem', fontSize: '.72rem' }} disabled={saving}
+                  onClick={() => setAliadosSel((prev) => prev.size === aliadosSaldo.length ? new Set() : new Set(aliadosSaldo.map((a) => a.id)))}>
+                  {aliadosSel.size === aliadosSaldo.length ? 'Ninguno' : 'Todos'}
+                </button>
+              </div>
               {aliadosSaldo.map((a) => (
-                <div key={a.nombre} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
-                  <span className="muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nombre}</span>
-                  <span className="mono" style={{ whiteSpace: 'nowrap' }}>{num(a.saldoKg)} Kg{a.gastos > 0 ? ` · gastos ${money(a.gastos)}` : ''}</span>
-                </div>
+                <label key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', alignItems: 'center', cursor: 'pointer', padding: '.12rem 0' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem', overflow: 'hidden' }}>
+                    <input type="checkbox" checked={aliadosSel.has(a.id)} disabled={saving}
+                      onChange={(e) => setAliadosSel((prev) => { const n = new Set(prev); if (e.target.checked) n.add(a.id); else n.delete(a.id); return n; })}
+                      style={{ width: 15, height: 15, accentColor: 'var(--primary)', flex: '0 0 auto' }} />
+                    <span className="muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nombre}</span>
+                  </span>
+                  <span className="mono" style={{ whiteSpace: 'nowrap', opacity: aliadosSel.has(a.id) ? 1 : .45 }}>{num(a.saldoKg)} Kg{a.gastos > 0 ? ` · gastos ${money(a.gastos)}` : ''}</span>
+                </label>
               ))}
               <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px solid var(--border)', fontSize: '.82rem', cursor: 'pointer' }}>
                 <input type="checkbox" checked={arrastrarGastos} onChange={(e) => setArrastrarGastos(e.target.checked)} disabled={saving} style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} />
