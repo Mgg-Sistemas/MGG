@@ -713,12 +713,15 @@ export async function cerrarYAbrirCaja(input: {
   cerrarAliados?: boolean;   // además del centro, cierra cada aliado con saldo_kg > 0
   arrastrarGastos?: boolean; // arrastra los gastos de cada aliado a los Totales de la recepción
   traerAliadosAlCentro?: boolean; // trae los Kg recibidos de cada aliado como fila en el centro (Kg × tasa)
+  aliadosSel?: string[] | null;   // ids de aliados a INCLUIR en el cierre/recepción (null = todos)
 }): Promise<CierreCajaResultado> {
   const centro = (input.centro || CENTRO_ACOPIO_DEFECTO).trim();
   const cajas = await listCajas(centro);
   const abierta = cajas.find((c) => c.estado === 'abierta');
   if (!abierta) throw new Error('No hay una caja abierta para cerrar en este centro.');
   const hoy = new Date().toISOString().slice(0, 10);
+  // Aliados seleccionados (null = todos). Aplica al paso 0 (traer al centro) y al paso 5 (cerrar aliados).
+  const sel = input.aliadosSel ? new Set(input.aliadosSel) : null;
 
   // 0) (opcional) TRAER LOS ALIADOS AL CENTRO: por cada aliado con Kg recibidos por MGG
   //    en su PERIODO ABIERTO, se inserta una fila «CENTRO DE ACOPIO <aliado> PARA LA
@@ -728,6 +731,7 @@ export async function cerrarYAbrirCaja(input: {
     const { listAliados, openPeriodoAliado, listAliadoMovimientos, resumirAliado } = await import('./subledgers.repository');
     const aliados = await listAliados(centro).catch(() => []);
     for (const a of aliados) {
+      if (sel && !sel.has(a.id)) continue;
       try {
         const periodo = await openPeriodoAliado(a.id);
         const res = resumirAliado(await listAliadoMovimientos(a.id, periodo));
@@ -798,6 +802,7 @@ export async function cerrarYAbrirCaja(input: {
     const { listAliadosConResumen, cerrarYAbrirCajaAliado } = await import('./subledgers.repository');
     const conResumen = await listAliadosConResumen(centro).catch(() => []);
     for (const { aliado, resumen } of conResumen) {
+      if (sel && !sel.has(aliado.id)) continue;
       if ((Number(resumen.saldoKg) || 0) > 0) {
         try {
           await cerrarYAbrirCajaAliado({
