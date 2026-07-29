@@ -101,10 +101,10 @@ export function MaterialAProducirModal({
   const [modoOutput, setModoOutput] = useState<'existente' | 'nuevo'>(producibles.length ? 'existente' : 'nuevo');
   const [productoSelId, setProductoSelId] = useState(preselect || producibles[0]?.id || '');
   const [nombreNuevo, setNombreNuevo] = useState('');
-  const [unidadNuevo, setUnidadNuevo] = useState('und');
+  const [unidadNuevo, setUnidadNuevo] = useState('UNIDAD');
 
-  // Unidades buscables (catálogo del inventario + estándares Und/Kg/Ton), sin repetir.
-  const [unidadesCat, setUnidadesCat] = useState<string[]>(['und', 'kg', 'ton']);
+  // Unidades buscables (catálogo del inventario + estándares, nombres largos), sin repetir.
+  const [unidadesCat, setUnidadesCat] = useState<string[]>(['UNIDAD', 'KILOGRAMO', 'TONELADA']);
   useEffect(() => {
     let cancel = false;
     getUnidades(productos).then((u) => { if (!cancel) setUnidadesCat(u); }).catch(() => { /* defaults */ });
@@ -113,7 +113,7 @@ export function MaterialAProducirModal({
   const opcionesUnidad = useMemo(() => {
     const vistos = new Set<string>();
     const out: string[] = [];
-    for (const u of [...unidadesCat, 'und', 'kg', 'ton']) {
+    for (const u of [...unidadesCat, 'UNIDAD', 'KILOGRAMO', 'TONELADA']) {
       const k = u.trim().toLowerCase();
       if (!k || vistos.has(k)) continue;
       vistos.add(k);
@@ -149,7 +149,7 @@ export function MaterialAProducirModal({
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState<'buscar' | 'crear'>('buscar');
   const [busqueda, setBusqueda] = useState('');
-  const [nuevo, setNuevo] = useState({ nombre: '', unidad: 'und', almacen: almacenes[0], stock: '0', costo: '0' });
+  const [nuevo, setNuevo] = useState({ nombre: '', unidad: 'UNIDAD', almacen: almacenes[0], stock: '0', costo: '0' });
   const [addSaving, setAddSaving] = useState(false);
 
   // Productos del inventario que aún NO son receta (candidatos a marcar como insumo).
@@ -293,7 +293,7 @@ export function MaterialAProducirModal({
         actor_name: actorName,
       });
       toast(`Insumo "${nuevo.nombre}" agregado al inventario (receta SÍ)`, 'success');
-      setNuevo({ nombre: '', unidad: 'und', almacen: almacenes[0], stock: '0', costo: '0' });
+      setNuevo({ nombre: '', unidad: 'UNIDAD', almacen: almacenes[0], stock: '0', costo: '0' });
       setAddOpen(false);
       await onProductosChanged();
     } catch (e) {
