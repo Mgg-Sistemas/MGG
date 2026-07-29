@@ -479,11 +479,15 @@ export async function cerrarYAbrirCajaAliado(input: {
   //    · CASITERITA (no-oro) → RECEPCIONES (paso intermedio). YA NO entra directo
   //      al inventario; se crea una recepción con el peso y la procedencia (aliado).
   //    · ORO (gramos) → sigue entrando al inventario como antes (no aplica a Recepciones).
+  // Lo que ENTRA a la recepción es lo RECIBIDO por MGG (casiterita física), no el
+  // saldo (el saldo queda en la caja del aliado, arrastrado al periodo nuevo).
+  const recibidos = r2(r.totalKgRecibidos);
   let invMovId: string | null = null;
   let almacenDest = oro ? `ORO · ${centro}` : almacenCasiteritaDeCentro(centro);
   let material = oro ? 'oro (AU)' : 'casiterita';
-  if (saldoKg > 0) {
-    if (oro) {
+  if (oro) {
+    // Oro: el saldo en gramos entra directo al inventario (no pasa por Recepciones).
+    if (saldoKg > 0) {
       const d = await destinoInventarioAliado(centro);
       almacenDest = d.almacen; material = d.material;
       const mov = await registrarMovimiento({
@@ -494,18 +498,19 @@ export async function cerrarYAbrirCajaAliado(input: {
         detalle: `Cierre #${periodo} aliado · ${centro} · ${num(saldoKg)} ${unidad}${tasa > 0 ? ` a ${tasa}` : ''}`,
       });
       invMovId = mov.id;
-    } else {
-      // Procedencia = nombre del aliado, sin el prefijo "CENTRO ACOPIO -".
-      const { data: ali } = await supabase.from('acopio_aliados').select('nombre').eq('id', input.aliadoId).maybeSingle();
-      const nombreAliado = String((ali as { nombre?: string } | null)?.nombre ?? centro).replace(/^\s*centro\s+de\s+acopio\s*[-·]?\s*/i, '').replace(/^\s*centro\s+acopio\s*[-·]?\s*/i, '').trim() || centro;
-      const { crearRecepcionDesdeCierre } = await import('@/modules/recepciones/recepciones.repository');
-      await crearRecepcionDesdeCierre({
-        pesoKg: saldoKg, tasa: tasa > 0 ? tasa : null, procedencia: nombreAliado, centroNombre: centro,
-        origen: 'cierre_aliado', refAliadoId: input.aliadoId, gastos: r2(num(input.gastos)),
-        actor: input.actor, actorName: input.actorName ?? null,
-      });
-      invMovId = null; // no hubo movimiento de inventario: pasó a Recepciones
     }
+  } else if (recibidos > 0) {
+    // Casiterita: los Kg RECIBIDOS por MGG pasan a RECEPCIONES a la tasa del cierre.
+    // Procedencia = nombre del aliado, sin el prefijo "CENTRO ACOPIO -".
+    const { data: ali } = await supabase.from('acopio_aliados').select('nombre').eq('id', input.aliadoId).maybeSingle();
+    const nombreAliado = String((ali as { nombre?: string } | null)?.nombre ?? centro).replace(/^\s*centro\s+de\s+acopio\s*[-·]?\s*/i, '').replace(/^\s*centro\s+acopio\s*[-·]?\s*/i, '').trim() || centro;
+    const { crearRecepcionDesdeCierre } = await import('@/modules/recepciones/recepciones.repository');
+    await crearRecepcionDesdeCierre({
+      pesoKg: recibidos, tasa: tasa > 0 ? tasa : null, procedencia: nombreAliado, centroNombre: centro,
+      origen: 'cierre_aliado', refAliadoId: input.aliadoId, gastos: r2(num(input.gastos)),
+      actor: input.actor, actorName: input.actorName ?? null,
+    });
+    invMovId = null; // no hubo movimiento de inventario: pasó a Recepciones
   }
 
   // 2) Registrar el cierre (historial).
