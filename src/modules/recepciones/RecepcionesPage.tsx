@@ -1675,6 +1675,19 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onCerr
   }, [grupo.id]);
   useEffect(() => { void cargar(); }, [cargar]);
 
+  // Default: la casiterita recepcionada entra al almacén de CASITERITA de LOS PINOS
+  // (la "parte casiterita" de esa sede). Se resuelve dinámico para no hardcodear el
+  // nombre exacto; el usuario igual puede cambiarlo en el selector.
+  useEffect(() => {
+    let cancel = false;
+    listAlmacenes().then((als) => {
+      if (cancel) return;
+      const cas = als.find((a) => /casiterita/i.test(a.nombre) && /pino/i.test((a.sede ?? '')));
+      if (cas) setAlmacenNeto((v) => v || cas.nombre);
+    }).catch(() => { /* RLS/red: el usuario lo elige a mano */ });
+    return () => { cancel = true; };
+  }, []);
+
   function cerrar() {
     const n = Math.floor(Number(numero) || 0);
     if (n <= 0) { toast('Indicá el número de la recepción', 'error'); return; }
