@@ -154,6 +154,9 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
             <button className={layout === 'lista' ? 'active' : ''} onClick={() => setLayout('lista')}>☰ Lista</button>
           </div>
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'recetas' })}>📋 Recetas</button>
+          {tipo === 'fundicion' && (
+            <a className="btn btn-ghost" href="http://192.168.0.50/monitor/IZIS_0" target="_blank" rel="noopener noreferrer" title="Abrir el supervisorio de hornos (nueva pestaña)">🖥️ SUPERVISORIO DE HORNOS</a>
+          )}
           {canWrite && (
             <button className="btn btn-ghost" onClick={() => setModal({ kind: 'hornos' })}>🔥 Hornos</button>
           )}

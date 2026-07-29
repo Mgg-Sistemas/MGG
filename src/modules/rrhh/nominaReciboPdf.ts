@@ -127,7 +127,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     doc.text('Firma del trabajador', MARGIN + colW / 2, fy + 14, { align: 'center' });
     doc.text(r.nombre, MARGIN + colW / 2, fy + 26, { align: 'center' });
-    doc.text('Firma RRHH', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
+    doc.text('Firma de la Jefa de RRHH', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
     doc.text('Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + 26, { align: 'center' });
   });
 
