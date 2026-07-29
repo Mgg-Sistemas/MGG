@@ -204,6 +204,69 @@ export async function setAliasExterno(
   if (error) throw error;
 }
 
+/* ───────────── "Guardar recepción": histórico de snapshots del RESUMEN GENERAL ─────────────
+   Congela, en un instante, el resumen por centro de TODAS las recepciones (MGG local +
+   sistema externo puente) para consultarlo/descargarlo luego, aun si el sistema externo
+   (Golden Touch) ya cerró/limpió su recepción. Solo se GUARDA (no se edita). */
+export interface ResumenSnapshotDatos {
+  local: ResumenCentro[];             // centros MGG (con nRecepciones/totales)
+  externoLabel: string | null;        // etiqueta del sistema externo (ej. Golden Touch)
+  externoGrupos: ResumenCentro[];     // centros del externo (alias YA aplicado)
+  externoAt: string | null;           // instante del dato externo traído
+  recepciones: Array<RecepcionFila & { origen?: string }>;  // historial consolidado congelado
+}
+export interface ResumenSnapshot {
+  id: string;
+  numero: number;
+  fecha: string;
+  datos: ResumenSnapshotDatos;
+  total_kg: number | null;
+  total_seco: number | null;
+  n_centros: number | null;
+  n_recepciones: number | null;
+  nota?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
+export async function listResumenSnapshots(): Promise<ResumenSnapshot[]> {
+  const { data, error } = await supabase.from('recepcion_resumen_snapshots').select('*').order('numero', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({ ...(r as ResumenSnapshot), datos: ((r as ResumenSnapshot).datos ?? {}) as ResumenSnapshotDatos }));
+}
+
+/** Siguiente número de snapshot (global): último + 1. */
+export async function nextNumeroResumenSnapshot(): Promise<number> {
+  const { data } = await supabase.from('recepcion_resumen_snapshots').select('numero').order('numero', { ascending: false }).limit(1).maybeSingle();
+  return (num((data as { numero?: number } | null)?.numero) || 0) + 1;
+}
+
+/** Guarda un snapshot del RESUMEN GENERAL. Denormaliza totales para la lista. */
+export async function guardarResumenSnapshot(
+  datos: ResumenSnapshotDatos, nota: string | null, actor: string, actorName?: string | null,
+): Promise<ResumenSnapshot> {
+  const numero = await nextNumeroResumenSnapshot();
+  const centros = [...(datos.local ?? []), ...(datos.externoGrupos ?? [])];
+  const totalKg = round2(centros.reduce((a, c) => a + num(c.totalKg), 0));
+  const totalSeco = round2(centros.reduce((a, c) => a + num(c.netoSeco), 0));
+  const nCentros = centros.filter((c) => num(c.nRecepciones) > 0).length;
+  const nRecepciones = (datos.recepciones ?? []).length;
+  const row = {
+    numero, fecha: new Date().toISOString(), datos,
+    total_kg: totalKg, total_seco: totalSeco, n_centros: nCentros, n_recepciones: nRecepciones,
+    nota: nota?.trim() || null, actor, actor_name: actorName ?? null,
+  };
+  const { data, error } = await supabase.from('recepcion_resumen_snapshots').insert(row).select('*').single();
+  if (error) throw error;
+  return { ...(data as ResumenSnapshot), datos: ((data as ResumenSnapshot).datos ?? {}) as ResumenSnapshotDatos };
+}
+
+export async function eliminarResumenSnapshot(id: string): Promise<void> {
+  const { error } = await supabase.from('recepcion_resumen_snapshots').delete().eq('id', id);
+  if (error) throw error;
+}
+
 /** Tarjeta de un centro de costo: "RECEPCIÓN <CENTRO>". La crea la 1ª vez y la reutiliza luego. */
 export async function grupoParaCentro(nombreCentro: string, actor: string, actorName?: string | null): Promise<string> {
   const nombre = `RECEPCIÓN ${(nombreCentro || '').trim().toUpperCase()}`.trim();
