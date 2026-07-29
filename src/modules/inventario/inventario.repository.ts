@@ -52,7 +52,7 @@ export const CATEGORIAS_DEFAULT = [
 // Alias para retro-compatibilidad con código que importaba CATEGORIAS.
 export const CATEGORIAS = CATEGORIAS_DEFAULT;
 
-export const UNIDADES_DEFAULT = ['und', 'kg', 'l', 'm', 'par', 'saco', 'tambor', 'caja'] as const;
+export const UNIDADES_DEFAULT = ['UNIDAD', 'KILOGRAMO', 'GRAMO', 'LITRO', 'METRO', 'GALON', 'PAR', 'SACOS', 'TAMBOR', 'CAJA', 'BULTO', 'PAQUETE', 'ROLLO'] as const;
 export const UNIDADES = UNIDADES_DEFAULT;
 
 /* ─────────────── SKU automático e incremental ───────────────

@@ -3826,7 +3826,7 @@ function CrearOrdenModal({
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
-  const [nuevoUnidad, setNuevoUnidad] = useState('und');
+  const [nuevoUnidad, setNuevoUnidad] = useState('UNIDAD');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
   const [medidas, setMedidas] = useState<string[]>([]);
   const [categoriasInv, setCategoriasInv] = useState<string[]>([]);
