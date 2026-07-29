@@ -8,7 +8,9 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   resumenGeneralLocal, fetchRecepcionesExternas, getAliasExternos, setAliasExterno,
+  guardarResumenSnapshot, listResumenSnapshots, eliminarResumenSnapshot,
   type RecepcionGrupo, type ResumenCentro, type RecepcionFila, type ResumenExterno,
+  type ResumenSnapshot, type ResumenSnapshotDatos,
 } from './recepciones.repository';
 
 const SISTEMA_EXTERNO = 'golden-touch';
@@ -144,8 +146,13 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
   const [aliasExt, setAliasExt] = useState<Record<string, string>>({});
   // Rename en curso de un centro externo: { original, valor }.
   const [renExt, setRenExt] = useState<{ original: string; valor: string } | null>(null);
+  // Histórico de "Guardar recepción" (snapshots del resumen por centro).
+  const [snapshots, setSnapshots] = useState<ResumenSnapshot[]>([]);
+  const [guardando, setGuardando] = useState(false);
+  const [verSnap, setVerSnap] = useState<ResumenSnapshot | null>(null);
 
   const cargarLocal = useCallback(async () => { const d = await resumenGeneralLocal(); setLocal(d.centros); setLocalRecs(d.recepciones); }, []);
+  const cargarSnapshots = useCallback(async () => { try { setSnapshots(await listResumenSnapshots()); } catch { /* no bloquea el resumen */ } }, []);
   const cargarExterno = useCallback(async () => {
     setExtLoading(true); setExtError(null);
     try { setExterno(await fetchRecepcionesExternas(SISTEMA_EXTERNO)); }
@@ -164,8 +171,10 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
   }, [cargarLocal]);
   useEffect(() => { void cargarExterno(); }, [cargarExterno]);
   useEffect(() => { void cargarAlias(); }, [cargarAlias]);
+  useEffect(() => { void cargarSnapshots(); }, [cargarSnapshots]);
   useRealtime(['recepciones', 'recepcion_pesajes', 'recepcion_grupos'], cargarLocal);
   useRealtime(['recepciones_centro_alias'], cargarAlias);
+  useRealtime(['recepcion_resumen_snapshots'], cargarSnapshots);
 
   const alias = (nombre: string) => aliasExt[nombre] ?? nombre;
 
@@ -203,6 +212,44 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'); }
   }
 
+  /** Congela el resumen por centro de TODAS las recepciones (MGG + externo) en el histórico. */
+  async function guardarRecepcion() {
+    if (guardando) return;
+    setGuardando(true);
+    try {
+      const datos: ResumenSnapshotDatos = {
+        local, externoLabel: externo?.label ?? null, externoGrupos: externoGruposAlias,
+        externoAt: externo?.at ?? null, recepciones: historial,
+      };
+      const snap = await guardarResumenSnapshot(datos, null, actor, miNombre);
+      await cargarSnapshots();
+      toast(`Recepción guardada · N° ${snap.numero}`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar la recepción', 'error'); }
+    finally { setGuardando(false); }
+  }
+
+  /** Descarga el PDF (vista previa) de un snapshot ya guardado, con sus datos congelados. */
+  async function descargarSnap(s: ResumenSnapshot) {
+    try {
+      const centros = [...(s.datos.local ?? []), ...(s.datos.externoGrupos ?? [])];
+      const { descargarReportePesoCentrosPdf } = await import('./reportePesoCentrosPdf');
+      await descargarReportePesoCentrosPdf({ centros, recepciones: s.datos.recepciones ?? [], referencia: `GUARDADA N° ${s.numero}`, fecha: s.fecha });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+  }
+
+  async function borrarSnap(s: ResumenSnapshot) {
+    if (!window.confirm(`¿Eliminar la recepción guardada N° ${s.numero}? Esta acción no se puede deshacer.`)) return;
+    try { await eliminarResumenSnapshot(s.id); await cargarSnapshots(); toast('Recepción guardada eliminada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  }
+
+  // #3 · El otro sistema ya cerró/limpió su recepción → el externo (en vivo) llega vacío.
+  // Para NO perderla de vista, mostramos la ÚLTIMA recepción guardada que tenga datos del
+  // externo (copia congelada), con aviso de que es un respaldo.
+  const ultimoSnapConExterno = snapshots.find((s) => (s.datos?.externoGrupos ?? []).length > 0) ?? null;
+  const externoEnVivoVacio = !extLoading && !extError && (externo?.grupos?.length ?? 0) === 0;
+  const externoRespaldo = externoEnVivoVacio ? ultimoSnapConExterno : null;
+
   return (
     <div>
       <div className="page-head">
@@ -214,7 +261,15 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
             y —vía puente— los del otro sistema. Los datos se cargan en cada centro; acá <strong>no se edita nada</strong>.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => void verReporte()} title="Vista previa antes de imprimir (sin logo)">🖨 Reporte de peso · Vista previa</button>
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          {canWrite && (
+            <button className="btn btn-primary" onClick={() => void guardarRecepcion()} disabled={guardando}
+              title="Congela el resumen por centro de TODAS las recepciones (MGG + externo) en el histórico de abajo">
+              {guardando ? 'Guardando…' : '💾 Guardar recepción'}
+            </button>
+          )}
+          <button className="btn btn-ghost" onClick={() => void verReporte()} title="Vista previa antes de imprimir (sin logo)">🖨 Reporte de peso · Vista previa</button>
+        </div>
       </div>
 
       {/* ───────── Total general combinado (MGG + externo) ───────── */}
@@ -255,6 +310,17 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
               Verificá que la Edge Function <code>recepciones-externas</code> esté desplegada y que estén los secretos <code>GT_URL</code> / <code>GT_SERVICE_KEY</code>.
             </div>
           </div>
+        ) : externoRespaldo ? (
+          <>
+            <div className="card" style={{ borderColor: 'var(--brand, #ff8a00)', margin: 0, marginBottom: '.6rem' }}>
+              <strong>ℹ El sistema externo ya no reporta recepciones</strong> <span className="muted">(las cerró o limpió en su sistema).</span>
+              <div className="muted" style={{ fontSize: '.82rem', marginTop: '.25rem' }}>
+                Mostrando la <strong>última recepción guardada</strong> con datos del externo:
+                N° {externoRespaldo.numero} · {externoRespaldo.fecha ? dateTime(externoRespaldo.fecha) : '—'} <span className="badge" style={{ marginLeft: '.35rem' }}>Copia guardada</span>
+              </div>
+            </div>
+            <TablaResumen rows={externoRespaldo.datos.externoGrupos ?? []} etiquetaTotal={`Total ${externoRespaldo.datos.externoLabel ?? 'externo'} (guardado)`} />
+          </>
         ) : (
           <>
             <TablaResumen rows={externo?.grupos ?? []} etiquetaTotal={`Total ${externo?.label ?? 'externo'}`}
@@ -273,6 +339,76 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
         <div className="card-title">📜 Historial de recepciones · todo <span className="badge" style={{ marginLeft: '.35rem' }}>Solo lectura</span></div>
         {loading ? <p className="hint muted">Cargando…</p> : <HistorialTable filas={historial} />}
       </div>
+
+      {/* ───────── Recepciones GUARDADAS (snapshots del resumen por centro) ───────── */}
+      <div className="card" style={{ marginBottom: '1.25rem' }}>
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+          <span>💾 Recepciones guardadas <span className="badge" style={{ marginLeft: '.35rem' }}>{snapshots.length}</span></span>
+          <span className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>Cada «Guardar recepción» congela el resumen de arriba; queda aunque el sistema externo lo cierre.</span>
+        </div>
+        {snapshots.length === 0 ? (
+          <EmptyState message="Aún no guardaste ninguna recepción. Usá 💾 Guardar recepción arriba." icon="💾" />
+        ) : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.86rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 50 }}>N°</th>
+                  <th>Guardado</th>
+                  <th style={{ textAlign: 'right' }}>Total (Kg)</th>
+                  <th style={{ textAlign: 'right' }}>Neto seco</th>
+                  <th style={{ textAlign: 'right' }}>Centros</th>
+                  <th style={{ textAlign: 'right' }}>Recep.</th>
+                  <th style={{ textAlign: 'right' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snapshots.map((s) => (
+                  <tr key={s.id}>
+                    <td className="mono" style={{ fontWeight: 700 }}>{s.numero}</td>
+                    <td className="muted" style={{ fontSize: '.84rem' }}>
+                      {s.fecha ? dateTime(s.fecha) : '—'}
+                      {s.actor_name ? <div style={{ fontSize: '.74rem' }}>{s.actor_name}</div> : null}
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(s.total_kg)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{n2(s.total_seco)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{s.n_centros ?? '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{s.n_recepciones ?? '—'}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setVerSnap(s)} title="Ver el detalle guardado">👁 Ver</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => void descargarSnap(s)} title="Descargar PDF (vista previa)">🖨</button>
+                      {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => void borrarSnap(s)} title="Eliminar recepción guardada">🗑</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {verSnap && (
+        <Modal title={`Recepción guardada · N° ${verSnap.numero}`} size="lg" onClose={() => setVerSnap(null)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => void descargarSnap(verSnap)}>🖨 Descargar PDF</button>
+            <button className="btn btn-primary" onClick={() => setVerSnap(null)}>Cerrar</button>
+          </>
+        }>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+            Guardado el {verSnap.fecha ? dateTime(verSnap.fecha) : '—'}{verSnap.actor_name ? ` por ${verSnap.actor_name}` : ''}. Copia <strong>congelada</strong>; no se edita.
+          </p>
+          <div className="card-title" style={{ fontSize: '.9rem' }}>🏭 MGG · todos los centros</div>
+          <TablaResumen rows={verSnap.datos.local ?? []} etiquetaTotal="Total MGG" />
+          {(verSnap.datos.externoGrupos ?? []).length > 0 && (
+            <>
+              <div className="card-title" style={{ fontSize: '.9rem', marginTop: '1rem' }}>🌐 {verSnap.datos.externoLabel ?? 'Externo'}</div>
+              <TablaResumen rows={verSnap.datos.externoGrupos ?? []} etiquetaTotal={`Total ${verSnap.datos.externoLabel ?? 'externo'}`} />
+            </>
+          )}
+          <div className="card-title" style={{ fontSize: '.9rem', marginTop: '1rem' }}>📜 Historial congelado</div>
+          <HistorialTable filas={verSnap.datos.recepciones ?? []} />
+        </Modal>
+      )}
 
       {renExt && (
         <Modal title="Renombrar centro externo" size="sm" onClose={() => setRenExt(null)} footer={

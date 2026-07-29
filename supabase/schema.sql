@@ -3361,6 +3361,30 @@ alter table public.recepciones_centro_alias enable row level security;
 create policy "rec_alias read auth" on public.recepciones_centro_alias for select using (auth.role()='authenticated');
 create policy "rec_alias write op"  on public.recepciones_centro_alias for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- "Guardar recepción": snapshot del RESUMEN GENERAL (por centro) de TODAS las
+-- recepciones (MGG local + sistema externo puente) en un instante dado. Congela lo
+-- mostrado en RECEPCIÓN GENERAL para consultarlo/descargarlo luego, aun si el sistema
+-- externo (Golden Touch) ya cerró/limpió su recepción.
+create table if not exists public.recepcion_resumen_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  numero int not null,
+  fecha timestamptz not null default now(),
+  datos jsonb not null default '{}'::jsonb,   -- { local, externoLabel, externoGrupos, externoAt, recepciones }
+  total_kg numeric,
+  total_seco numeric,
+  n_centros int,
+  n_recepciones int,
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_rec_resumen_snap_numero on public.recepcion_resumen_snapshots(numero);
+create index if not exists idx_rec_resumen_snap_fecha on public.recepcion_resumen_snapshots(fecha);
+alter table public.recepcion_resumen_snapshots enable row level security;
+create policy "rec_resumen_snap read auth" on public.recepcion_resumen_snapshots for select using (auth.role()='authenticated');
+create policy "rec_resumen_snap write op"  on public.recepcion_resumen_snapshots for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- ============================================================
 -- Realtime en TODOS los módulos: publica las tablas de datos del esquema
 -- public que aún no estén en supabase_realtime (multiusuario en vivo).
@@ -3371,7 +3395,7 @@ declare faltantes text[] := array[
   'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
   'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
   'ofertas_proveedor','produccion','produccion_materiales','produccion_colada','produccion_refinacion','proveedor_datos_pago','proveedores',
-  'recepcion_grupos','recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones','recepcion_totales','recepcion_cierres','recepciones_centro_alias',
+  'recepcion_grupos','recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones','recepcion_totales','recepcion_cierres','recepciones_centro_alias','recepcion_resumen_snapshots',
   'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
 ];
 begin
