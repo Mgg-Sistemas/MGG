@@ -692,6 +692,7 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
   const [numeroNueva, setNumeroNueva] = useState('');
   const [cerrarAliados, setCerrarAliados] = useState(true);
   const [arrastrarGastos, setArrastrarGastos] = useState(false);
+  const [traerAliadosAlCentro, setTraerAliadosAlCentro] = useState(true);
   const [aliadosSaldo, setAliadosSaldo] = useState<Array<{ nombre: string; saldoKg: number; gastos: number }>>([]);
   const saldoUsd = Math.round((Number(resumen.saldoUsd) || 0) * 100) / 100;
   const saldoKg = Math.round((Number(resumen.saldoKg) || 0) * 100) / 100;
@@ -718,7 +719,7 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
   async function confirmar() {
     setSaving(true); setError(null);
     try {
-      const res = await cerrarYAbrirCaja({ centro, actor, actorName, numeroNueva: numeroNueva.trim() || null, cerrarAliados, arrastrarGastos });
+      const res = await cerrarYAbrirCaja({ centro, actor, actorName, numeroNueva: numeroNueva.trim() || null, cerrarAliados, arrastrarGastos, traerAliadosAlCentro });
       notify(`Caja ${res.cajaCerrada.numero} cerrada · nueva ${res.cajaNueva.numero} abierta${res.aliadosCerrados ? ` · ${res.aliadosCerrados} aliado(s) cerrados` : ''}`, 'success', { link: '#/app/acopio' });
       onDone();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cerrar la caja.'); setSaving(false); }
@@ -794,6 +795,15 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
           {cerrarAliados && aliadosSaldo.length === 0 && (
             <p className="hint muted" style={{ fontSize: '.76rem', margin: '.3rem 0 0' }}>Ningún aliado de este centro tiene saldo de casiterita pendiente.</p>
           )}
+
+          {/* Traer los Kg recibidos de cada aliado como movimiento del centro de costo */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.7rem', fontSize: '.86rem', fontWeight: 600, cursor: 'pointer' }}>
+            <input type="checkbox" checked={traerAliadosAlCentro} onChange={(e) => setTraerAliadosAlCentro(e.target.checked)} disabled={saving} style={{ width: 17, height: 17, accentColor: 'var(--primary)' }} />
+            Traer los Kg de los aliados a los movimientos del centro de costo
+          </label>
+          <p className="hint muted" style={{ fontSize: '.76rem', margin: '.25rem 0 0' }}>
+            Por cada aliado con Kg recibidos, agrega una fila <strong>«CENTRO DE ACOPIO … PARA LA RECEPCION»</strong> = Kg recibidos × su tasa (entrada+salida, neto $0; suma los Kg a la casiterita del centro). Destildá esto si NO querés esos movimientos en este cierre.
+          </p>
         </>
       )}
     </Modal>

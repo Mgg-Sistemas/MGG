@@ -712,19 +712,48 @@ export async function cerrarYAbrirCaja(input: {
   centro: string; actor: string; actorName?: string | null; numeroNueva?: string | null;
   cerrarAliados?: boolean;   // además del centro, cierra cada aliado con saldo_kg > 0
   arrastrarGastos?: boolean; // arrastra los gastos de cada aliado a los Totales de la recepción
+  traerAliadosAlCentro?: boolean; // trae los Kg recibidos de cada aliado como fila en el centro (Kg × tasa)
 }): Promise<CierreCajaResultado> {
   const centro = (input.centro || CENTRO_ACOPIO_DEFECTO).trim();
   const cajas = await listCajas(centro);
   const abierta = cajas.find((c) => c.estado === 'abierta');
   if (!abierta) throw new Error('No hay una caja abierta para cerrar en este centro.');
+  const hoy = new Date().toISOString().slice(0, 10);
 
-  // Saldos de ESTA caja (no acumulados de cierres previos).
+  // 0) (opcional) TRAER LOS ALIADOS AL CENTRO: por cada aliado con Kg recibidos por MGG
+  //    en su PERIODO ABIERTO, se inserta una fila «CENTRO DE ACOPIO <aliado> PARA LA
+  //    RECEPCION» = Kg × tasa del aliado (entrada+salida, neto $0; suma los Kg a la
+  //    casiterita del centro). Se hace ANTES de calcular el saldo, para que entre al cierre.
+  if (input.traerAliadosAlCentro) {
+    const { listAliados, openPeriodoAliado, listAliadoMovimientos, resumirAliado } = await import('./subledgers.repository');
+    const aliados = await listAliados(centro).catch(() => []);
+    for (const a of aliados) {
+      try {
+        const periodo = await openPeriodoAliado(a.id);
+        const res = resumirAliado(await listAliadoMovimientos(a.id, periodo));
+        const kg = Math.round((Number(res.totalKgRecibidos) || 0) * 100) / 100;
+        const tasa2 = Math.round((Number(res.precioProm) || 0) * 10000) / 10000;
+        if (kg <= 0 || tasa2 <= 0) continue;
+        const val = Math.round(kg * tasa2 * 100) / 100;
+        const corto = (a.nombre.split(' - ').pop() || a.nombre).trim();
+        await supabase.from('acopio_caja_movimientos').insert({
+          caja_id: abierta.id, fecha: hoy,
+          descripcion: `CENTRO DE ACOPIO ${corto} PARA LA RECEPCION`,
+          usd_entregado: val, kg_cerrados: kg, facturados: val,
+          clasif_grupo: 'movimientos_caja', clasif_valor: `2. CAJA MULTIMONEDAS MGG / CAJA ${centro}`,
+          created_by: input.actor, actor_name: input.actorName ?? null,
+        });
+      } catch { /* un aliado que falle no bloquea el cierre */ }
+    }
+  }
+
+  // Saldos de ESTA caja (no acumulados de cierres previos). Se leen DESPUÉS de traer los
+  // aliados (paso 0), para que esos Kg entren en el saldo que va a la recepción del centro.
   const movs = await listCajaMovimientos(abierta.id, centro);
   const r = resumirCaja(movs);
   const saldoUsd = Math.round(r.saldoUsd * 100) / 100;
   const saldoKg = Math.round(r.saldoKg * 100) / 100;
   const tasa = Math.round(r.tasa * 10000) / 10000;
-  const hoy = new Date().toISOString().slice(0, 10);
 
   // 1) SALDO EN KG → RECEPCIONES (paso intermedio). YA NO entra directo al inventario:
   //    se crea una recepción con el peso y la procedencia (centro). El ingreso al
