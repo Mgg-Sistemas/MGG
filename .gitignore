@@ -33,3 +33,6 @@ docs/
 # Supabase CLI (estado local)
 supabase/.temp/
 supabase/.branches/
+
+# Playwright MCP artifacts
+.playwright-mcp/
