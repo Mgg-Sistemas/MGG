@@ -25,6 +25,7 @@ export type ModuleKey =
   | 'recepciones'
   | 'rrhh'
   | 'usuarios'
+  | 'auditoria'
   | 'ajustes';
 
 export interface ModulePermission {
@@ -62,6 +63,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'recepciones', label: 'Recepciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
   { key: 'usuarios',    label: 'Usuarios' },
+  { key: 'auditoria',   label: 'Auditoría de Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },
 ];
 

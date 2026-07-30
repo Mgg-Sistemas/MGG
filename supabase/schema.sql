@@ -3469,3 +3469,91 @@ begin
     end if;
   end loop;
 end$$;
+-- Auditoría de Usuarios: feed AGREGADO de actividad. Recorre dinámicamente todas las
+-- tablas public con columna de actor (actor/created_by/creado_por, tipo texto) y arma un
+-- UNION de eventos: creación + acciones (aprobó/ejecutó/confirmó/cerró) donde existan esas
+-- columnas. Admin-only (chequeo server-side). SECURITY DEFINER para leer todas las tablas.
+create or replace function public.auditoria_actividad(
+  p_desde timestamptz,
+  p_hasta timestamptz,
+  p_actor text default null,
+  p_limit int default 8000
+)
+returns table(tabla text, actor text, actor_name text, ts timestamptz, accion text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r record;
+  parts text[] := '{}';
+  actor_col text;
+  name_col text;
+  ts_col text;
+  pair text[];
+  pairs text[] := array[
+    'aprobada_por|aprobada_en|aprobó',
+    'ejecutada_por|ejecutada_en|ejecutó',
+    'confirmada_por|confirmada_at|confirmó',
+    'cerrado_por|cerrado_en|cerró'
+  ];
+  p text;
+  sql text;
+begin
+  if not exists (select 1 from public.usuarios where id = auth.uid() and role = 'admin') then
+    raise exception 'Solo administradores pueden consultar la auditoría';
+  end if;
+
+  for r in
+    select t.table_name from information_schema.tables t
+    where t.table_schema='public' and t.table_type='BASE TABLE'
+      and t.table_name <> 'user_sessions'
+  loop
+    -- columna de actor (texto): creación
+    select c.column_name into actor_col from information_schema.columns c
+      where c.table_schema='public' and c.table_name=r.table_name
+        and c.column_name in ('actor','created_by','creado_por')
+        and c.data_type in ('text','character varying')
+      order by array_position(array['actor','created_by','creado_por'], c.column_name) limit 1;
+    -- columna de tiempo de creación
+    select c.column_name into ts_col from information_schema.columns c
+      where c.table_schema='public' and c.table_name=r.table_name
+        and c.column_name in ('created_at','at','fecha')
+      order by array_position(array['created_at','at','fecha'], c.column_name) limit 1;
+    -- nombre del actor (opcional)
+    select c.column_name into name_col from information_schema.columns c
+      where c.table_schema='public' and c.table_name=r.table_name
+        and c.column_name='actor_name' and c.data_type in ('text','character varying') limit 1;
+
+    if actor_col is not null and ts_col is not null then
+      parts := parts || format(
+        'select %L::text, (%I)::text, %s, (%I)::timestamptz, %L::text from public.%I where %I is not null and (%I)::timestamptz >= %L and (%I)::timestamptz < %L',
+        r.table_name, actor_col,
+        case when name_col is null then 'null::text' else format('(%I)::text', name_col) end,
+        ts_col, 'creó', r.table_name, actor_col, ts_col, p_desde, ts_col, p_hasta);
+    end if;
+
+    -- acciones (aprobó/ejecutó/confirmó/cerró): requieren ambas columnas
+    foreach p in array pairs loop
+      pair := string_to_array(p, '|');
+      if exists (select 1 from information_schema.columns c where c.table_schema='public' and c.table_name=r.table_name and c.column_name=pair[1] and c.data_type in ('text','character varying'))
+         and exists (select 1 from information_schema.columns c where c.table_schema='public' and c.table_name=r.table_name and c.column_name=pair[2]) then
+        parts := parts || format(
+          'select %L::text, (%I)::text, null::text, (%I)::timestamptz, %L::text from public.%I where %I is not null and (%I)::timestamptz >= %L and (%I)::timestamptz < %L',
+          r.table_name, pair[1], pair[2], pair[3], r.table_name, pair[1], pair[2], p_desde, pair[2], p_hasta);
+      end if;
+    end loop;
+  end loop;
+
+  if array_length(parts,1) is null then return; end if;
+
+  sql := 'select u.tabla, u.actor, u.actor_name, u.ts, u.accion from ( '
+      || array_to_string(parts, ' union all ')
+      || ' ) as u(tabla,actor,actor_name,ts,accion) where u.actor is not null and u.actor <> '''''
+      || case when p_actor is not null and p_actor <> '' then format(' and lower(u.actor)=lower(%L)', p_actor) else '' end
+      || ' order by u.ts desc limit ' || greatest(coalesce(p_limit,8000), 1);
+  return query execute sql;
+end $$;
+
+grant execute on function public.auditoria_actividad(timestamptz,timestamptz,text,int) to authenticated;
+

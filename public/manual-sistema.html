@@ -688,6 +688,18 @@
     </ul>
   </section>
 
+  <section class="modulo" id="s9b">
+    <h2>🕵 12b. Auditoría de Usuarios <span class="badge">Solo administradores</span></h2>
+    <p>Panel <strong>muy visual</strong> para supervisar qué hace cada usuario y cuánto tiempo está conectado. <strong>Solo los administradores</strong> lo ven en el menú <em>Sistema</em>.</p>
+    <ul>
+      <li><strong>Rango de fechas:</strong> arriba elegís <strong>Desde / Hasta</strong> (o los atajos <strong>Hoy · 7 días · 30 días</strong>). Todo el panel se recalcula para ese período.</li>
+      <li><strong>Vista general (KPIs + gráficos):</strong> tarjetas con <strong>conectados ahora</strong>, <strong>tiempo conectado total</strong>, <strong>acciones</strong> y <strong>usuarios activos</strong>; gráficos de <strong>tiempo conectado por usuario</strong>, <strong>acciones por usuario</strong> y <strong>acciones por día</strong>. Al hacer <strong>clic</strong> en una barra vas al detalle de ese usuario.</li>
+      <li><strong>Tabla por usuario:</strong> cada usuario con su <strong>tiempo conectado</strong>, <strong>nº de sesiones</strong>, <strong>nº de acciones</strong>, <strong>última conexión</strong> y un punto verde si está <strong>conectado ahora</strong>. Clic en la fila → <strong>detalle</strong>.</li>
+      <li><strong>Detalle de un usuario (con ← Volver):</strong> por <strong>día</strong> y por <strong>rango de fechas</strong>. Muestra sus KPIs, gráficos de <strong>tiempo conectado por día</strong> y <strong>acciones por día</strong>, un filtro rápido <strong>por día</strong>, la lista de <strong>sesiones</strong> (inicio, fin, duración; marca «en curso» si sigue conectado) y el <strong>timeline de actividad</strong>: fecha y hora, <strong>módulo</strong> (Inventario, Salidas, Tesorería, Recepciones, Combustible, etc.) y <strong>acción</strong> (<em>creó · aprobó · ejecutó · confirmó · cerró</em>).</li>
+      <li><strong>Cómo se arma:</strong> el <strong>tiempo conectado</strong> viene del registro de sesiones (login/latido/logout). La <strong>actividad</strong> es un <strong>feed agregado</strong> que reúne el <em>actor</em> y la <em>fecha</em> de todas las tablas del sistema con esos campos, así queda registrado <strong>quién hizo qué y cuándo, en qué módulo</strong> (incluye datos históricos ya existentes).</li>
+    </ul>
+  </section>
+
   <section class="modulo" id="s10">
     <h2>⚙ 13. Ajustes</h2>
     <p>Tu espacio personal de configuración.</p>
