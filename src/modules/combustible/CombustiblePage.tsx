@@ -1103,7 +1103,13 @@ function MovimientosModal({ tanques, vehiculos, tanqueId, actor, actorName, canW
     finally { setBusy(false); }
   }
 
-  const delMes = useMemo(() => movs.filter((m) => (m.fecha || '').slice(0, 7) === mes), [movs, mes]);
+  // Los movimientos se traen sin filtro de sede desde la BD; acá los acotamos a los tanques
+  // de ESTA sede (el prop `tanques` ya viene filtrado por sede) para no mezclar con otras.
+  const idsSede = useMemo(() => new Set(tanques.map((t) => t.id)), [tanques]);
+  const delMes = useMemo(
+    () => movs.filter((m) => (m.fecha || '').slice(0, 7) === mes && !!m.tanque_id && idsSede.has(m.tanque_id)),
+    [movs, mes, idsSede],
+  );
   const totalIng = delMes.filter((m) => m.tipo === 'ingreso' || m.tipo === 'retorno').reduce((a, m) => a + (Number(m.litros) || 0), 0);
   const totalSal = delMes.filter((m) => m.tipo === 'consumo' || m.tipo === 'merma').reduce((a, m) => a + (Number(m.litros) || 0), 0);
   const tanqueNombre = tanqueId ? (tanques.find((t) => t.id === tanqueId)?.nombre ?? '') : '';
