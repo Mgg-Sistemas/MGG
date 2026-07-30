@@ -693,7 +693,7 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
   const [cerrarAliados, setCerrarAliados] = useState(true);
   const [arrastrarGastos, setArrastrarGastos] = useState(false);
   const [traerAliadosAlCentro, setTraerAliadosAlCentro] = useState(true);
-  const [aliadosSaldo, setAliadosSaldo] = useState<Array<{ id: string; nombre: string; saldoKg: number; gastos: number }>>([]);
+  const [aliadosSaldo, setAliadosSaldo] = useState<Array<{ id: string; nombre: string; saldoKg: number; recibidos: number; gastos: number }>>([]);
   const [aliadosSel, setAliadosSel] = useState<Set<string>>(new Set());
   const saldoUsd = Math.round((Number(resumen.saldoUsd) || 0) * 100) / 100;
   const saldoKg = Math.round((Number(resumen.saldoKg) || 0) * 100) / 100;
@@ -706,7 +706,7 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
       .then(({ listAliadosConResumen }) => listAliadosConResumen(centro))
       .then((rs) => {
         if (!vivo) return;
-        const conSaldo = rs.filter((r) => (Number(r.resumen.saldoKg) || 0) > 0).map((r) => ({ id: r.aliado.id, nombre: r.aliado.nombre, saldoKg: Number(r.resumen.saldoKg) || 0, gastos: Number(r.resumen.totalGastos) || 0 }));
+        const conSaldo = rs.filter((r) => (Number(r.resumen.saldoKg) || 0) > 0).map((r) => ({ id: r.aliado.id, nombre: r.aliado.nombre, saldoKg: Number(r.resumen.saldoKg) || 0, recibidos: Number(r.resumen.totalKgRecibidos) || 0, gastos: Number(r.resumen.totalGastos) || 0 }));
         setAliadosSaldo(conSaldo);
         setAliadosSel(new Set(conSaldo.map((a) => a.id)));   // todos seleccionados por defecto
       })
@@ -801,7 +801,7 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
                       style={{ width: 15, height: 15, accentColor: 'var(--primary)', flex: '0 0 auto' }} />
                     <span className="muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nombre}</span>
                   </span>
-                  <span className="mono" style={{ whiteSpace: 'nowrap', opacity: aliadosSel.has(a.id) ? 1 : .45 }}>{num(a.saldoKg)} Kg{a.gastos > 0 ? ` · gastos ${money(a.gastos)}` : ''}</span>
+                  <span className="mono" style={{ whiteSpace: 'nowrap', opacity: aliadosSel.has(a.id) ? 1 : .45 }} title="Kg recibidos por MGG (lo que entra a la recepción)">{num(a.recibidos)} Kg{a.gastos > 0 ? ` · gastos ${money(a.gastos)}` : ''}</span>
                 </label>
               ))}
               <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px solid var(--border)', fontSize: '.82rem', cursor: 'pointer' }}>

@@ -759,20 +759,20 @@ export async function cerrarYAbrirCaja(input: {
   const saldoKg = Math.round(r.saldoKg * 100) / 100;
   const tasa = Math.round(r.tasa * 10000) / 10000;
 
-  // 1) Kg RECIBIDOS por MGG → RECEPCIONES (paso intermedio). Lo que entra a la
-  //    recepción es la casiterita RECIBIDA (Σ kg_recibidos), no el saldo (el saldo
-  //    en Kg queda como referencia del centro). El ingreso al inventario se hará
-  //    luego desde el módulo Recepciones. Solo si hay Kg recibidos positivos.
-  const recibidosCentro = Math.round((Number(r.kgRecibidos) || 0) * 100) / 100;
+  // 1) SALDO EN KG del CENTRO PRINCIPAL → RECEPCIONES (paso intermedio). Para el
+  //    CENTRO, lo que entra a la recepción es el SALDO EN KG de casiterita de la caja
+  //    que se cierra (kg_cerrados − kg_recibidos), NO los recibidos. Los ALIADOS, en
+  //    cambio, entran por sus Kg RECIBIDOS por MGG (ver cerrarYAbrirCajaAliado). El
+  //    ingreso al inventario se hará luego desde Recepciones. Solo si el saldo es > 0.
   let kgAInventario = false;
-  if (recibidosCentro > 0) {
+  if (saldoKg > 0) {
     const { crearRecepcionDesdeCierre } = await import('@/modules/recepciones/recepciones.repository');
     await crearRecepcionDesdeCierre({
-      pesoKg: recibidosCentro, tasa: tasa > 0 ? tasa : null, procedencia: centro, centroNombre: centro,
+      pesoKg: saldoKg, tasa: tasa > 0 ? tasa : null, procedencia: centro, centroNombre: centro,
       origen: 'cierre_caja', refCajaId: abierta.id,
       actor: input.actor, actorName: input.actorName ?? null,
     });
-    kgAInventario = true; // (se mantiene el flag para el resumen del cierre: hubo Kg que pasaron a Recepciones)
+    kgAInventario = true; // (flag para el resumen del cierre: hubo Kg que pasaron a Recepciones)
   }
 
   // 2) Cerrar la caja actual con su saldo final.
