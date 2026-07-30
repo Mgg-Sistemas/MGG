@@ -6,7 +6,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import {
-  netoPorProcedenciaGrupo,
+  netoPorProcedenciaGrupo, catLado,
   type RecepcionGrupo, type Recepcion, type RecepcionPesaje, type RecepcionAnalisis, type RecepcionMineral,
   type RecepcionConciliacion, type RecepcionTotales,
 } from './recepciones.repository';
@@ -75,7 +75,7 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
   // Bolsas / big bags (de los pesajes).
   const bigbags = pesajes.flatMap((p) => p.bigbags ?? []);
   const cantBolsas = bigbags.length;
-  const cantBigbags = bigbags.filter((b) => (b.categoria ?? 'bigbag') === 'bigbag').reduce((a, b) => a + (N(b.cant) || 1), 0);
+  const cantBigbags = bigbags.filter((b) => catLado(b, 'h') === 'bigbag').reduce((a, b) => a + (N(b.cant) || 1), 0);
 
   // Tenor del mineral principal (Sn / Estaño): cada análisis = una lectura (columna).
   // Se lee con lecturaNum (prioriza {prom}, tolera {a,b,c}) igual que la grilla del lab,
