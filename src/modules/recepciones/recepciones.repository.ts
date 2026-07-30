@@ -1135,9 +1135,10 @@ function snapshotTotales(input: TotalesInput) {
   // Promedio de precio de compra recepcionada = Total Moneda ÷ Pesos Kg (neto seco de la fila).
   const tasaRecRaw = tasaRecepcionada(totalMoneda, pesosKg);
   const tasaRec = tasaRecRaw == null ? null : round2(tasaRecRaw);
-  const sum3 = round2(num(input.humedad_prov) + num(input.humedad_final) + num(input.fe_esteril));
-  const totalSnO2Final = round2(pesosKg + sum3);
-  const totalMonedaFinal = sum3 !== 0 ? sum3 : totalMoneda;
+  // Costo final: al peso húmedo se le RESTAN las mermas de agua (prov + adicional) y el Fe estéril.
+  const deduc = round2(num(input.humedad_prov) + num(input.humedad_final) + num(input.fe_esteril));
+  const totalSnO2Final = round2(pesosKg - deduc);
+  const totalMonedaFinal = totalMoneda;   // mismo Total Moneda de la recepcionada
   const tasaFinal = totalSnO2Final !== 0 ? round2(totalMonedaFinal / totalSnO2Final) : null;
   return { centros, totalSnO2, totalMoneda, tasaRec, totalSnO2Final, totalMonedaFinal, tasaFinal };
 }
