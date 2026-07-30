@@ -83,12 +83,7 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
   const mineralSn = minerales.find((m) => /sn/i.test(m.clave) || /sn/i.test(m.nombre) || /esta[ñn]o/i.test(m.nombre))
     ?? minerales[0] ?? null;
   const analisisOrd = [...analisis].sort((a, b) => a.n_analisis - b.n_analisis);
-  const lecturasAll = mineralSn ? analisisOrd.map((a) => lecturaNum(a.valores?.[mineralSn.clave])) : [];
-  const lecturasPresentes = lecturasAll.filter((x): x is number => x != null);
-  const tenorProm = lecturasPresentes.length
-    ? round2(lecturasPresentes.reduce((a, b) => a + b, 0) / lecturasPresentes.length) : null;
   const tenorNombre = mineralSn?.nombre ?? 'Sn';
-  const kgNetoSn = tenorProm != null ? round2((netoFinal * tenorProm) / 100) : null;
 
   // Encabezado.
   const numero = totales[totales.length - 1]?.numero ?? conc?.numero ?? recepciones[0]?.item ?? null;
@@ -184,26 +179,50 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
     y = doc.lastAutoTable.finalY + 18;
   }
 
-  // Tenor + Kg Neto de Sn — se muestran TODAS las lecturas químicas (no solo 3).
-  const nLect = Math.max(lecturasAll.length, 1);
+  // Tenor + Kg Neto de Sn — SEPARADO POR PROCEDENCIA (aliado / centro).
+  // Cada procedencia = una fila con TODAS sus lecturas químicas y su PROMEDIO propio.
+  // Kg Neto de Sn de la fila = neto seco de esa procedencia × su tenor promedio ÷ 100.
+  const lectPorProc = new Map<string, number[]>();
+  if (mineralSn) {
+    for (const a of analisisOrd) {
+      const v = lecturaNum(a.valores?.[mineralSn.clave]);
+      if (v == null) continue;
+      const proc = (a.procedencia ?? '').trim().toUpperCase() || 'SIN PROCEDENCIA';
+      if (!lectPorProc.has(proc)) lectPorProc.set(proc, []);
+      lectPorProc.get(proc)!.push(v);
+    }
+  }
+  const procLect = Array.from(lectPorProc.keys()).sort((a, b) => a.localeCompare(b));
+  const promProc = (p: string): number | null => {
+    const xs = lectPorProc.get(p) ?? [];
+    return xs.length ? round2(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
+  };
+  const kgSnProc = (p: string): number => {
+    const prom = promProc(p);
+    const seco = round2(N(procNetoS.get(p)));
+    return prom != null ? round2((seco * prom) / 100) : 0;
+  };
+  const nLect = Math.max(1, ...procLect.map((p) => lectPorProc.get(p)!.length));
   const lectHead = Array.from({ length: nLect }, (_, i) => `LECTURA ${i + 1}`);
-  const lectBody = lecturasAll.length
-    ? lecturasAll.map((v) => (v != null ? n2(v) : '—'))
-    : ['—'];
+  const bodyLect = procLect.length
+    ? procLect.map((p) => {
+        const xs = lectPorProc.get(p) ?? [];
+        const cells = Array.from({ length: nLect }, (_, i) => (xs[i] != null ? n2(xs[i]) : '—'));
+        const prom = promProc(p);
+        return [p, ...cells, prom != null ? `${n2(prom)} %` : '—', n2(kgSnProc(p))];
+      })
+    : [['—', ...Array(nLect).fill('—'), '—', '—']];
+  const kgSnTotal = round2(procLect.reduce((a, p) => a + kgSnProc(p), 0));
   const chico = nLect > 4; // con muchas lecturas achicamos la fuente para que quepan
   autoTable(doc, {
     startY: y,
-    head: [[`TENOR ${tenorNombre.toUpperCase()}`, ...lectHead, 'PROMEDIO']],
-    body: [[
-      'Tenor (%)',
-      ...lectBody,
-      tenorProm != null ? `${n2(tenorProm)} %` : '—',
-    ]],
-    foot: [[`Kg Neto de ${tenorNombre}`, ...Array(nLect).fill(''), n2(kgNetoSn)]],
+    head: [[`TENOR ${tenorNombre.toUpperCase()}`, ...lectHead, 'PROMEDIO', `KG ${tenorNombre.toUpperCase()}`]],
+    body: bodyLect,
+    foot: [[`Kg Neto de ${tenorNombre} (total)`, ...Array(nLect).fill(''), '', n2(kgSnTotal)]],
     styles: { fontSize: chico ? 8 : 10, cellPadding: chico ? 4 : 5, halign: 'right', valign: 'middle' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center', fontSize: chico ? 7 : 9 },
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
-    columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: chico ? 100 : 160 } },
+    columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: chico ? 90 : 150 } },
     margin: { left: MARGIN, right: MARGIN },
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
@@ -211,7 +230,7 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
   doc.text(
-    `Kg Neto de ${tenorNombre} = Kg neto finales (${n2(netoFinal)}) × Tenor promedio (${tenorProm != null ? n2(tenorProm) : '—'}%) ÷ 100.`,
+    `Kg Neto de ${tenorNombre} por procedencia = neto seco × su tenor promedio ÷ 100 · Total = ${n2(kgSnTotal)}.`,
     MARGIN, y + 4,
   );
   doc.text(
