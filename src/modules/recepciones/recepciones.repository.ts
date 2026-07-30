@@ -696,8 +696,8 @@ export function sumaCol(vals: Array<number | null | undefined>): number {
    TOTAL NETO = Σ pesos + DESCUENTO (permite negativos). */
 /** Categoría (deducción) de cada fila del pesaje. En una misma corrida pueden convivir
  *  las 3: big bag (×1,5), saco (×0,06) y bolsa de hielo (×0,05). */
-export type PesoModo = 'bigbag' | 'saco' | 'hielo';
-export const PESO_FACTOR: Record<PesoModo, number> = { bigbag: 1.5, saco: 0.06, hielo: 0.05 };
+export type PesoModo = 'bigbag' | 'saco' | 'tobo' | 'hielo';
+export const PESO_FACTOR: Record<PesoModo, number> = { bigbag: 1.5, saco: 0.06, tobo: 1, hielo: 0.03 };
 export interface PesajeBigbag {
   proc_h: string | null;   // procedencia (húmedo): A, B, Ali, ...
   peso_h: number | null;   // peso húmedo

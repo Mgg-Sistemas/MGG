@@ -883,9 +883,10 @@ type RowDraft = { proc_h: string; peso_h: string; proc_s: string; peso_s: string
 const PESO_MODES: Record<PesoModo, { label: string; factor: number }> = {
   bigbag: { label: 'BIG BAG', factor: 1.5 },
   saco:   { label: 'SACO',    factor: 0.06 },
-  hielo:  { label: 'BOLSA DE HIELO', factor: 0.05 },
+  tobo:   { label: 'TOBO',    factor: 1 },
+  hielo:  { label: 'BOLSA DE HIELO', factor: 0.03 },
 };
-const PESO_MODOS_ORDEN: PesoModo[] = ['bigbag', 'saco', 'hielo'];
+const PESO_MODOS_ORDEN: PesoModo[] = ['bigbag', 'saco', 'tobo', 'hielo'];
 
 function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas = [], procedenciasCat = [], onClose, onSaved }: {
   grupoId: string; pesaje: RecepcionPesaje | null; actor: string; miNombre: string; procedenciasSugeridas?: string[]; procedenciasCat?: RecepcionProcedencia[]; onClose: () => void; onSaved: () => void;
@@ -961,7 +962,7 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
         )}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', marginBottom: '.6rem' }}>
-        <span className="muted" style={{ fontSize: '.8rem' }}>Cada fila lleva su <strong>categoría</strong> (BIG BAG ×1,5 · SACO ×0,06 · BOLSA DE HIELO ×0,05) y su <strong>cantidad</strong>. DESCUENTO = −Σ (factor × cantidad) de cada fila con peso (ej. 7 big bags → −1,5×7) · TOTAL NETO = suma de pesos + DESCUENTO.</span>
+        <span className="muted" style={{ fontSize: '.8rem' }}>Cada fila lleva su <strong>categoría</strong> (BIG BAG ×1,5 · SACO ×0,06 · TOBO ×1 · BOLSA DE HIELO ×0,03) y su <strong>cantidad</strong>. DESCUENTO = −Σ (factor × cantidad) de cada fila con peso (ej. 7 big bags → −1,5×7) · TOTAL NETO = suma de pesos + DESCUENTO.</span>
         <button className="btn btn-sm btn-primary" onClick={addBigbag}>+ Añadir peso</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '1rem' }}>

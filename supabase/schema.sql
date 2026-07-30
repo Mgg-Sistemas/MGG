@@ -515,6 +515,40 @@ alter table public.transferencias_casiterita_inter enable row level security;
 create policy "transf casi read auth"  on public.transferencias_casiterita_inter for select using (auth.role()='authenticated');
 create policy "transf casi write auth" on public.transferencias_casiterita_inter for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
 
+-- Inventario Detallado (SnO₂) de casiterita (Los Pinos): desglose por precinto/análisis +
+-- valorización por tasa. Ledger paralelo (NO mueve stock; la casiterita ya entra por la recepción).
+create table if not exists public.casiterita_detalle (
+  id                  uuid primary key default gen_random_uuid(),
+  grupo_id            uuid,                                   -- recepción origen (recepcion_grupos), opcional
+  procedencia         text not null default '',               -- centro o aliado
+  precinto            text,                                    -- número de precinto (etiqueta)
+  n_analisis          text,                                    -- # de análisis (ej "34, 35")
+  categoria           text not null default 'bigbag'
+                        check (categoria in ('bigbag','saco','tobo','hielo')),
+  cant                integer not null default 1 check (cant > 0),
+  peso_neto_kgs       numeric not null default 0,              -- traído de la recepción
+  peso_casiterita_kgs numeric not null default 0,              -- neto − factor×cant
+  prom_sn             numeric,                                 -- % tenor SN promedio de la recepción
+  peso_puro_sn        numeric,                                 -- prom × casiterita ÷ 100
+  tasa                numeric,                                 -- USD/Kg por centro/aliado
+  almacen             text not null default 'SNO₂ CASITERITA ALMACEN',
+  nota                text,
+  actor               text,
+  actor_name          text,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz
+);
+create index if not exists idx_casi_detalle_proc  on public.casiterita_detalle(procedencia);
+create index if not exists idx_casi_detalle_grupo on public.casiterita_detalle(grupo_id);
+alter table public.casiterita_detalle enable row level security;
+create policy "casi detalle read auth"  on public.casiterita_detalle for select using (auth.role()='authenticated');
+create policy "casi detalle write auth" on public.casiterita_detalle for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='casiterita_detalle') then
+    alter publication supabase_realtime add table public.casiterita_detalle;
+  end if;
+end $$;
+
 -- Realtime: el sistema es multiusuario; lo que registra un usuario se refleja en
 -- los demás. Se publica el conjunto operativo (idempotente).
 do $$

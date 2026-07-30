@@ -45,6 +45,7 @@ import { ProductoDetail } from './ProductoDetail';
 import { MovimientoForm } from './MovimientoForm';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
+import { CasiteritaResumen, CasiteritaDetalleView } from './CasiteritaDetalleView';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
 import { ImportarExcelModal } from './ImportarExcelModal';
@@ -177,6 +178,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const [sedeSel, setSedeSel] = useState<string | null>(centroSede);
   // Toggle "General ⟷ Casiterita" dentro de la vista de un centro/Matanzas.
   const [subVista, setSubVista] = useState<'general' | 'casiterita'>('general');
+  // ⛏ Casiterita → vista «Inventario Detallado (SnO₂)» (reemplaza el listado mientras está abierta).
+  const [casDetalleOpen, setCasDetalleOpen] = useState(false);
   // Almacén padre cuyo nivel de subalmacenes estamos viendo (drill-down dentro de la sede).
   const [almacenNavId, setAlmacenNavId] = useState<string | null>(null);
   const [consumoAlmacen, setConsumoAlmacen] = useState<string | null>(null);
@@ -807,14 +810,14 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       )}
 
       {/* KPIs y alertas: en el inventario general, en cada centro y en Subalmacenes (Matanza). */}
-      {modoInventario && (
+      {modoInventario && !(subVista === 'casiterita' && casDetalleOpen) && (
       <>
       {sedeScope && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0 }}>📍 {tituloInventario}</h2>
           {almacenesDeScope && almacenesDeScope.cas.length > 0 && (
             <div className="view-toggle" role="tablist" aria-label="General o Casiterita" style={{ marginLeft: '.25rem' }}>
-              <button className={subVista === 'general' ? 'active' : ''} onClick={() => setSubVista('general')}>📦 General</button>
+              <button className={subVista === 'general' ? 'active' : ''} onClick={() => { setSubVista('general'); setCasDetalleOpen(false); }}>📦 General</button>
               <button className={subVista === 'casiterita' ? 'active' : ''} onClick={() => setSubVista('casiterita')}>⛏ Casiterita</button>
             </div>
           )}
@@ -862,7 +865,14 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       </>
       )}
 
-      {ui.view === 'recepciones' ? (
+      {/* ⛏ Casiterita: banner valorizado (Peso Casiterita × Tasa por centro/aliado) + botón al detalle. */}
+      {subVista === 'casiterita' && !casDetalleOpen && sedeScope && (
+        <CasiteritaResumen onOpenDetalle={() => setCasDetalleOpen(true)} />
+      )}
+
+      {(subVista === 'casiterita' && casDetalleOpen) ? (
+        <CasiteritaDetalleView actor={productoActor} actorName={actorName} canWrite={canWrite} onClose={() => setCasDetalleOpen(false)} />
+      ) : ui.view === 'recepciones' ? (
         <RecepcionesPendientes ordenes={recepciones} compras={comprasRecibir} almacenes={almacenes} actor={productoActor} actorName={actorName} onRecibida={reload} />
       ) : (ui.view === 'almacenes' && esDeposito) ? (
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
