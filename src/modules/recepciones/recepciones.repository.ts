@@ -511,14 +511,14 @@ export async function eliminarAnalisis(id: string): Promise<void> {
 }
 
 /* ───────────── Cálculos ───────────── */
-/** Promedio de un mineral en una fila: (a+b+c)/3 (abc) o el valor prom (prom).
- *  Solo cuenta los valores presentes; si no hay ninguno devuelve null. */
+/** Promedio de un mineral en una fila: Σ(lecturas presentes) / CANTIDAD de lecturas
+ *  presentes (no fijo entre 3): 4 lecturas → ÷4, 6 → ÷6. `prom` devuelve el valor prom. */
 export function promMineral(modo: 'abc' | 'prom', v?: ValorMineral | null): number | null {
   if (!v) return null;
   if (modo === 'prom') return v.prom != null && Number.isFinite(Number(v.prom)) ? Number(v.prom) : null;
   const xs = [v.a, v.b, v.c].filter((x) => x != null && Number.isFinite(Number(x))).map(Number);
   if (!xs.length) return null;
-  return xs.reduce((a, b) => a + b, 0) / 3;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
 }
 
 /** Promedio del lote de un mineral = Σ(prom de cada análisis con valor) / cantidad de análisis con valor. */
