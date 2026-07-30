@@ -87,7 +87,6 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
   const lecturasPresentes = lecturasAll.filter((x): x is number => x != null);
   const tenorProm = lecturasPresentes.length
     ? round2(lecturasPresentes.reduce((a, b) => a + b, 0) / lecturasPresentes.length) : null;
-  const lecturas: (number | null)[] = lecturasAll.slice(0, 3); // el formato tiene 3 columnas de lectura
   const tenorNombre = mineralSn?.nombre ?? 'Sn';
   const kgNetoSn = tenorProm != null ? round2((netoFinal * tenorProm) / 100) : null;
 
@@ -185,22 +184,26 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
     y = doc.lastAutoTable.finalY + 18;
   }
 
-  // Tenor + Kg Neto de Sn.
+  // Tenor + Kg Neto de Sn — se muestran TODAS las lecturas químicas (no solo 3).
+  const nLect = Math.max(lecturasAll.length, 1);
+  const lectHead = Array.from({ length: nLect }, (_, i) => `LECTURA ${i + 1}`);
+  const lectBody = lecturasAll.length
+    ? lecturasAll.map((v) => (v != null ? n2(v) : '—'))
+    : ['—'];
+  const chico = nLect > 4; // con muchas lecturas achicamos la fuente para que quepan
   autoTable(doc, {
     startY: y,
-    head: [[`TENOR ${tenorNombre.toUpperCase()}`, 'LECTURA 1', 'LECTURA 2', 'LECTURA 3', 'PROMEDIO']],
+    head: [[`TENOR ${tenorNombre.toUpperCase()}`, ...lectHead, 'PROMEDIO']],
     body: [[
       'Tenor (%)',
-      lecturas[0] != null ? n2(lecturas[0]) : '—',
-      lecturas[1] != null ? n2(lecturas[1]) : '—',
-      lecturas[2] != null ? n2(lecturas[2]) : '—',
+      ...lectBody,
       tenorProm != null ? `${n2(tenorProm)} %` : '—',
     ]],
-    foot: [[`Kg Neto de ${tenorNombre}`, '', '', '', n2(kgNetoSn)]],
-    styles: { fontSize: 10, cellPadding: 5, halign: 'right', valign: 'middle' },
-    headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
+    foot: [[`Kg Neto de ${tenorNombre}`, ...Array(nLect).fill(''), n2(kgNetoSn)]],
+    styles: { fontSize: chico ? 8 : 10, cellPadding: chico ? 4 : 5, halign: 'right', valign: 'middle' },
+    headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center', fontSize: chico ? 7 : 9 },
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
-    columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: 160 } },
+    columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: chico ? 100 : 160 } },
     margin: { left: MARGIN, right: MARGIN },
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
