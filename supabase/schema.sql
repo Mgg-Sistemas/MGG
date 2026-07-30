@@ -486,12 +486,41 @@ alter table public.transferencias_combustible_inter enable row level security;
 create policy "transf comb read auth"  on public.transferencias_combustible_inter for select using (auth.role()='authenticated');
 create policy "transf comb write auth" on public.transferencias_combustible_inter for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
 
+-- Puente inter-sistema · CASITERITA (Kg). El otro sistema (acopio) envía casiterita y
+-- aquí entra DIRECTO al inventario (almacén de casiterita de Los Pinos), valuada a la
+-- tasa informada (PMP). estado 'recibida' de una vez; idempotente por transf_id.
+create table if not exists public.transferencias_casiterita_inter (
+  id                 uuid primary key default gen_random_uuid(),
+  transf_id          uuid not null unique,
+  direccion          text not null check (direccion in ('saliente','entrante')),
+  estado             text not null default 'recibida'
+                       check (estado in ('enviada','por_confirmar','recibida','rechazada','error')),
+  empresa_origen     text not null,
+  empresa_destino    text not null,
+  peso_kg            numeric not null check (peso_kg > 0),
+  tasa               numeric,                          -- USD/Kg informado por el origen (opcional → valoriza el PMP)
+  almacen_destino    text,                             -- almacén donde entró (Los Pinos casiterita)
+  inventario_mov_id  uuid,                             -- movimiento de inventario generado (trazabilidad/idempotencia)
+  resumen            text,
+  motivo             text,
+  callback_base      text,
+  mensaje_error      text,
+  actor              text,
+  actor_name         text,
+  created_at         timestamptz not null default now(),
+  confirmada_at      timestamptz
+);
+create index if not exists idx_transf_casi_dir_estado on public.transferencias_casiterita_inter(direccion, estado);
+alter table public.transferencias_casiterita_inter enable row level security;
+create policy "transf casi read auth"  on public.transferencias_casiterita_inter for select using (auth.role()='authenticated');
+create policy "transf casi write auth" on public.transferencias_casiterita_inter for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
+
 -- Realtime: el sistema es multiusuario; lo que registra un usuario se refleja en
 -- los demás. Se publica el conjunto operativo (idempotente).
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','transferencias_combustible_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','combustible_vehiculos','combustible_planta_movimientos','combustible_autorizados','combustible_ubicaciones','combustible_despachadores','combustible_tanque_movimientos','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','transferencias_combustible_inter','transferencias_casiterita_inter','ordenes','productos','movimientos','combustibles','combustible_solicitudes','combustible_tanques','combustible_vehiculos','combustible_planta_movimientos','combustible_autorizados','combustible_ubicaciones','combustible_despachadores','combustible_tanque_movimientos','compras_directas','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
