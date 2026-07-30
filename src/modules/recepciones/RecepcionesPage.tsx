@@ -878,7 +878,7 @@ function HumedadFinalRow({ fila, canWrite, onBorrar }: {
 }
 
 /* ───────────── Pesos (Pesaje): modal con dos tablas (húmedos / secos) ───────────── */
-type RowDraft = { proc_h: string; peso_h: string; proc_s: string; peso_s: string; categoria: PesoModo; cant: string };
+type RowDraft = { proc_h: string; peso_h: string; proc_s: string; peso_s: string; categoria_h: PesoModo; categoria_s: PesoModo; cant: string };
 /** Categorías por fila: en una misma corrida pueden convivir las 3. */
 const PESO_MODES: Record<PesoModo, { label: string; factor: number }> = {
   bigbag: { label: 'BIG BAG', factor: 1.5 },
@@ -893,7 +893,8 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
   const [rows, setRows] = useState<RowDraft[]>(() => (pesaje?.bigbags ?? []).map((b) => ({
     proc_h: b.proc_h ?? '', peso_h: numInput(b.peso_h),
     proc_s: b.proc_s ?? '', peso_s: numInput(b.peso_s),
-    categoria: (b.categoria ?? 'bigbag') as PesoModo,
+    categoria_h: (b.categoria_h ?? b.categoria ?? 'bigbag') as PesoModo,
+    categoria_s: (b.categoria_s ?? b.categoria ?? 'bigbag') as PesoModo,
     cant: b.cant == null ? '1' : String(b.cant),
   })));
   const [nota, setNota] = useState(pesaje?.nota ?? '');
@@ -906,7 +907,7 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
   const bigbags: PesajeBigbag[] = rows.map((r) => ({
     proc_h: r.proc_h.trim() || null, peso_h: parseNum(r.peso_h),
     proc_s: r.proc_s.trim() || null, peso_s: parseNum(r.peso_s),
-    categoria: r.categoria,
+    categoria_h: r.categoria_h, categoria_s: r.categoria_s,
     cant: (parseNum(r.cant) ?? 0) > 0 ? (parseNum(r.cant) as number) : 1,
   }));
 
@@ -922,10 +923,11 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
     return [...cat, ...extras];
   })();
 
-  const addBigbag = () => setRows((rs) => [...rs, { proc_h: '', peso_h: '', proc_s: '', peso_s: '', categoria: 'bigbag', cant: '1' }]);
+  const addBigbag = () => setRows((rs) => [...rs, { proc_h: '', peso_h: '', proc_s: '', peso_s: '', categoria_h: 'bigbag', categoria_s: 'bigbag', cant: '1' }]);
   const removeRow = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i));
   const setCell = (i: number, key: 'proc_h' | 'peso_h' | 'proc_s' | 'peso_s', val: string) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [key]: val } : r)));
-  const setCat = (i: number, cat: PesoModo) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, categoria: cat } : r)));
+  // Categoría independiente por lado (húmedo/seco): no van enlazadas.
+  const setCat = (i: number, lado: 'h' | 's', cat: PesoModo) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [lado === 'h' ? 'categoria_h' : 'categoria_s']: cat } : r)));
   const setCant = (i: number, val: string) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, cant: val } : r)));
 
   async function guardar() {
@@ -964,9 +966,9 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '1rem' }}>
         <PesajeTabla titulo="PESOS HÚMEDOS" bg="#9db8e0" rows={rows} lado="h" opciones={procOpciones}
-          bigBag={bigBagLado(bigbags, 'h')} totalNeto={totalNetoLado(bigbags, 'h')} subtotales={netoPorProcedencia(bigbags, 'h')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
+          bigBag={bigBagLado(bigbags, 'h')} totalNeto={totalNetoLado(bigbags, 'h')} subtotales={netoPorProcedencia(bigbags, 'h')} onCell={setCell} onCat={(i, cat) => setCat(i, 'h', cat)} onCant={setCant} onRemove={removeRow} />
         <PesajeTabla titulo="PESOS SECOS" bg="#cdddf3" rows={rows} lado="s" opciones={procOpciones}
-          bigBag={bigBagLado(bigbags, 's')} totalNeto={totalNetoLado(bigbags, 's')} subtotales={netoPorProcedencia(bigbags, 's')} onCell={setCell} onCat={setCat} onCant={setCant} onRemove={removeRow} />
+          bigBag={bigBagLado(bigbags, 's')} totalNeto={totalNetoLado(bigbags, 's')} subtotales={netoPorProcedencia(bigbags, 's')} onCell={setCell} onCat={(i, cat) => setCat(i, 's', cat)} onCant={setCant} onRemove={removeRow} />
       </div>
       <div className="form-row" style={{ marginTop: '.85rem' }}>
         <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
@@ -988,6 +990,7 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, subtotales, op
 }) {
   const procKey = lado === 'h' ? 'proc_h' as const : 'proc_s' as const;
   const pesoKey = lado === 'h' ? 'peso_h' as const : 'peso_s' as const;
+  const catKey = lado === 'h' ? 'categoria_h' as const : 'categoria_s' as const;
   const subs = Array.from(subtotales?.entries() ?? []).sort((a, b) => a[0].localeCompare(b[0]));
   const colorDe = (n: string) => opciones?.find((o) => o.nombre === n)?.color ?? null;
   return (
@@ -1014,7 +1017,7 @@ function PesajeTabla({ titulo, bg, rows, lado, bigBag, totalNeto, subtotales, op
                 </td>
                 <td style={{ padding: 2 }}><input className="input mono" style={{ width: 96, textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={r[pesoKey]} onChange={(e) => onCell(i, pesoKey, e.target.value)} placeholder="0,00" /></td>
                 <td style={{ padding: 2 }}>
-                  <select className="select" style={{ padding: '.2rem .3rem', fontSize: '.78rem' }} value={r.categoria} onChange={(e) => onCat(i, e.target.value as PesoModo)}>
+                  <select className="select" style={{ padding: '.2rem .3rem', fontSize: '.78rem' }} value={r[catKey]} onChange={(e) => onCat(i, e.target.value as PesoModo)}>
                     {PESO_MODOS_ORDEN.map((m) => <option key={m} value={m}>{PESO_MODES[m].label}</option>)}
                   </select>
                 </td>
@@ -1342,10 +1345,10 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
                   <td style={{ width: 180, padding: 2 }}><input className="input mono" style={{ width: '100%', textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={muestras} onChange={(e) => setMuestras(e.target.value)} disabled={!canWrite} placeholder="0,00" /></td>
                   <td style={{ fontWeight: 600 }}>Muestras tomadas por Laboratorio MGG</td>
                 </tr>
-                {/* Kg No Llegó = −Faltante − Bolsas − Muestras. Negativo → a favor (verde) · Positivo → no llegó (rojo). */}
+                {/* Kg No Llegó = −Faltante − Bolsas − Muestras. Negativo → sobró (KG A FAVOR, verde) · Positivo → faltó (KG FALTANTES, rojo). */}
                 {kgNoLlego < 0
-                  ? filaResumen(n2(Math.abs(kgNoLlego)), 'Kg No Llegó (a favor)', { verde: true })
-                  : filaResumen(n2(kgNoLlego), 'Kg No Llegó', { rojo: true })}
+                  ? filaResumen(n2(Math.abs(kgNoLlego)), 'KG A FAVOR', { verde: true })
+                  : filaResumen(n2(kgNoLlego), 'KG FALTANTES', { rojo: true })}
                 {filaResumen(pctNoLlego != null ? `${n2(Math.abs(pctNoLlego))}%` : '—', '% de lo que no llegó (descontando bolsas y muestras)', kgNoLlego < 0 ? { verde: true } : { rojo: true })}
               </tbody>
             </table>

@@ -703,8 +703,14 @@ export interface PesajeBigbag {
   peso_h: number | null;   // peso húmedo
   proc_s: string | null;   // procedencia (seco)
   peso_s: number | null;   // peso seco
-  categoria?: PesoModo;    // bigbag (def.) · saco · hielo — su factor define la deducción de la fila
+  categoria?: PesoModo;    // (LEGADO) categoría única — se conserva como respaldo de datos viejos
+  categoria_h?: PesoModo;  // categoría del lado HÚMEDO — independiente del seco
+  categoria_s?: PesoModo;  // categoría del lado SECO — independiente del húmedo
   cant?: number;           // cantidad de la categoría (ej. 7 bigbags) → deducción = factor × cant (def. 1)
+}
+/** Categoría efectiva de un lado: la del lado si existe, si no la legado `categoria`, si no bigbag. */
+export function catLado(b: PesajeBigbag, lado: 'h' | 's'): PesoModo {
+  return ((lado === 'h' ? b.categoria_h : b.categoria_s) ?? b.categoria ?? 'bigbag') as PesoModo;
 }
 export interface RecepcionPesaje {
   id: string;
@@ -740,7 +746,7 @@ export function bigBagLado(bigbags: PesajeBigbag[], lado: 'h' | 's'): number {
   return -bigbags.reduce((a, b) => {
     const peso = num(lado === 'h' ? b.peso_h : b.peso_s);
     if (peso <= 0) return a;
-    const factor = PESO_FACTOR[(b.categoria ?? 'bigbag') as PesoModo] ?? PESO_FACTOR.bigbag;
+    const factor = PESO_FACTOR[catLado(b, lado)] ?? PESO_FACTOR.bigbag;
     const cant = num(b.cant) > 0 ? num(b.cant) : 1;
     return a + factor * cant;
   }, 0);
@@ -764,7 +770,7 @@ export function netoPorProcedencia(bigbags: PesajeBigbag[], lado: 'h' | 's'): Ma
     const peso = num(lado === 'h' ? b.peso_h : b.peso_s);
     let neto = peso;
     if (peso > 0) {
-      const factor = PESO_FACTOR[(b.categoria ?? 'bigbag') as PesoModo] ?? PESO_FACTOR.bigbag;
+      const factor = PESO_FACTOR[catLado(b, lado)] ?? PESO_FACTOR.bigbag;
       const cant = num(b.cant) > 0 ? num(b.cant) : 1;
       neto = peso - factor * cant;
     }
@@ -800,7 +806,8 @@ function limpiarBigbags(bigbags: PesajeBigbag[]): PesajeBigbag[] {
     peso_h: b.peso_h != null && Number.isFinite(Number(b.peso_h)) ? Number(b.peso_h) : null,
     proc_s: b.proc_s?.toString().trim() || null,
     peso_s: b.peso_s != null && Number.isFinite(Number(b.peso_s)) ? Number(b.peso_s) : null,
-    categoria: (b.categoria ?? 'bigbag') as PesoModo,
+    categoria_h: catLado(b, 'h'),
+    categoria_s: catLado(b, 's'),
     cant: b.cant != null && Number.isFinite(Number(b.cant)) && Number(b.cant) > 0 ? Number(b.cant) : 1,
   }));
 }
