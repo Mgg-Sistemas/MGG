@@ -11,7 +11,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import {
-  listPesajes, listAnalisis, listMinerales,
+  listPesajes, listAnalisis, listMinerales, listRecepciones,
   netoPorProcedenciaGrupo, promMineral, PESO_FACTOR,
   type PesoModo, type RecepcionMineral,
 } from '@/modules/recepciones/recepciones.repository';
@@ -117,12 +117,14 @@ export async function eliminarCasiteritaDetalle(id: string): Promise<void> {
 
 /* ───────────── Traer desde recepción ─────────────
    Por cada procedencia (centro/aliado) de una recepción arma una sugerencia con:
-   Peso Neto (seco final de esa procedencia), Prom SN (%) y los # de análisis. */
+   Peso Neto (seco de los bigbags, o el peso del cierre de caja si no hay bigbags),
+   Prom SN (%), los # de análisis y la tasa del cierre. */
 export interface CasiteritaSugerencia {
   procedencia: string;
   peso_neto_kgs: number;
   prom_sn: number | null;
   n_analisis: string | null;
+  tasa: number | null;
 }
 
 function mineralSnDe(minerales: RecepcionMineral[]): RecepcionMineral | null {
@@ -130,11 +132,21 @@ function mineralSnDe(minerales: RecepcionMineral[]): RecepcionMineral | null {
 }
 
 export async function sugerenciasCasiteritaDesdeGrupo(grupoId: string): Promise<CasiteritaSugerencia[]> {
-  const [pesajes, analisis, minerales] = await Promise.all([
-    listPesajes(grupoId), listAnalisis(grupoId), listMinerales(false),
+  const [pesajes, analisis, minerales, receps] = await Promise.all([
+    listPesajes(grupoId), listAnalisis(grupoId), listMinerales(false), listRecepciones(grupoId),
   ]);
-  const netoS = netoPorProcedenciaGrupo(pesajes, 's'); // Map<PROC, neto seco>
+  const netoS = netoPorProcedenciaGrupo(pesajes, 's'); // Map<PROC, neto seco de bigbags>
   const sn = mineralSnDe(minerales);
+
+  // Peso (saldo) y tasa desde las filas de recepción (cierre de caja) por procedencia.
+  const pesoRec = new Map<string, number>();
+  const tasaRec = new Map<string, number>();
+  for (const r of receps) {
+    const proc = (r.procedencia ?? '').trim().toUpperCase();
+    if (!proc) continue;
+    pesoRec.set(proc, (pesoRec.get(proc) ?? 0) + (num(r.peso_kg) || 0));
+    if (r.tasa != null && Number.isFinite(Number(r.tasa))) tasaRec.set(proc, Number(r.tasa));
+  }
 
   // Prom SN y # de análisis por procedencia.
   const promAcc = new Map<string, number[]>();
@@ -150,15 +162,20 @@ export async function sugerenciasCasiteritaDesdeGrupo(grupoId: string): Promise<
     if (etiqueta) { if (!numsAcc.has(proc)) numsAcc.set(proc, []); numsAcc.get(proc)!.push(etiqueta); }
   }
 
-  const procs = Array.from(new Set([...netoS.keys(), ...promAcc.keys()])).sort((a, b) => a.localeCompare(b));
+  // Unión de procedencias vistas en bigbags, recepciones (cierre) y análisis.
+  const procs = Array.from(new Set([...netoS.keys(), ...pesoRec.keys(), ...promAcc.keys()])).sort((a, b) => a.localeCompare(b));
   return procs.map((proc) => {
     const proms = promAcc.get(proc) ?? [];
     const prom = proms.length ? round2(proms.reduce((a, b) => a + b, 0) / proms.length) : null;
+    // Peso Neto: el seco de los bigbags si existe; si no, el peso del cierre de caja.
+    const seco = round2(num(netoS.get(proc)));
+    const peso = seco > 0 ? seco : round2(num(pesoRec.get(proc)));
     return {
       procedencia: proc,
-      peso_neto_kgs: round2(num(netoS.get(proc))),
+      peso_neto_kgs: peso,
       prom_sn: prom,
       n_analisis: (numsAcc.get(proc) ?? []).join(', ') || null,
+      tasa: tasaRec.has(proc) ? round2(tasaRec.get(proc)!) : null,
     };
   });
 }

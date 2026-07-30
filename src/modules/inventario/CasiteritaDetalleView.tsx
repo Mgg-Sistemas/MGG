@@ -332,7 +332,7 @@ function EntradaModal({ entrada, actor, actorName, onClose, onSaved }: {
 }
 
 /* ───────────── Modal «Traer desde recepción» ───────────── */
-type FilaTraer = CasiteritaSugerencia & { incluir: boolean; categoria: CasiteritaCategoria; cant: string; precinto: string; tasa: string };
+type FilaTraer = Omit<CasiteritaSugerencia, 'tasa'> & { incluir: boolean; categoria: CasiteritaCategoria; cant: string; precinto: string; tasa: string };
 function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
   actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
@@ -351,7 +351,7 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
     setCargando(true);
     try {
       const sug = await sugerenciasCasiteritaDesdeGrupo(id);
-      setFilas(sug.map((s) => ({ ...s, incluir: s.peso_neto_kgs > 0, categoria: 'bigbag' as CasiteritaCategoria, cant: '1', precinto: '', tasa: '' })));
+      setFilas(sug.map((s) => ({ ...s, incluir: s.peso_neto_kgs > 0, categoria: 'bigbag' as CasiteritaCategoria, cant: '1', precinto: '', tasa: s.tasa != null ? numInput(s.tasa) : '' })));
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo leer la recepción'); }
     finally { setCargando(false); }
   }
