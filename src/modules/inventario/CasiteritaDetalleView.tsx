@@ -169,7 +169,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
             <th style={{ textAlign: 'center' }}>CANT.</th>
             <th style={{ textAlign: 'right' }}>PESO NETO</th>
             <th style={{ textAlign: 'right' }}>PESO CASITERITA</th>
-            <th style={{ textAlign: 'right' }}>PROM %</th>
+            <th style={{ textAlign: 'right' }}>Tenor SN Prom%</th>
             <th style={{ textAlign: 'right' }}>PESO PURO SN</th>
             <th style={{ textAlign: 'right' }}>TASA</th>
             <th style={{ textAlign: 'right' }}>VALOR</th>
@@ -357,7 +357,7 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
     try {
       const [tipo, id] = value.split(':');
       const sug = tipo === 'cierre' ? await sugerenciasCasiteritaDesdeCierre(id) : await sugerenciasCasiteritaDesdeGrupo(id);
-      setFilas(sug.map((s) => ({ ...s, incluir: s.peso_neto_kgs > 0, categoria: 'bigbag' as CasiteritaCategoria, cant: '1', precinto: '', tasa: s.tasa != null ? numInput(s.tasa) : '' })));
+      setFilas(sug.map((s) => ({ ...s, incluir: s.peso_neto_kgs > 0, categoria: s.categoria_sug, cant: '1', precinto: '', tasa: s.tasa != null ? numInput(s.tasa) : '' })));
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo leer la recepción'); }
     finally { setCargando(false); }
   }
@@ -421,7 +421,7 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
               <th style={{ textAlign: 'center' }}>✓</th>
               <th>PROCEDENCIA</th>
               <th style={{ textAlign: 'right' }}>PESO NETO</th>
-              <th style={{ textAlign: 'right' }}>PROM %</th>
+              <th style={{ textAlign: 'right' }}>Tenor SN Prom%</th>
               <th style={{ textAlign: 'center' }}>CATEGORÍA</th>
               <th style={{ textAlign: 'center' }}>CANT.</th>
               <th>PRECINTO</th>
