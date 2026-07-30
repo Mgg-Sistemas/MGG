@@ -1342,8 +1342,11 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
                   <td style={{ width: 180, padding: 2 }}><input className="input mono" style={{ width: '100%', textAlign: 'right', padding: '.2rem .3rem' }} inputMode="decimal" value={muestras} onChange={(e) => setMuestras(e.target.value)} disabled={!canWrite} placeholder="0,00" /></td>
                   <td style={{ fontWeight: 600 }}>Muestras tomadas por Laboratorio MGG</td>
                 </tr>
-                {filaResumen(n2(kgNoLlego), 'Kg No Llegó', { rojo: true })}
-                {filaResumen(pctNoLlego != null ? `${n2(pctNoLlego)}%` : '—', '% de lo que no llegó (descontando bolsas y muestras)', { rojo: true })}
+                {/* Kg No Llegó = −Faltante − Bolsas − Muestras. Negativo → a favor (verde) · Positivo → no llegó (rojo). */}
+                {kgNoLlego < 0
+                  ? filaResumen(n2(Math.abs(kgNoLlego)), 'Kg No Llegó (a favor)', { verde: true })
+                  : filaResumen(n2(kgNoLlego), 'Kg No Llegó', { rojo: true })}
+                {filaResumen(pctNoLlego != null ? `${n2(Math.abs(pctNoLlego))}%` : '—', '% de lo que no llegó (descontando bolsas y muestras)', kgNoLlego < 0 ? { verde: true } : { rojo: true })}
               </tbody>
             </table>
           </div>

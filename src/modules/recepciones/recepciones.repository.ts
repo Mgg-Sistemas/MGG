@@ -902,16 +902,20 @@ export async function nextNumeroConciliacion(): Promise<number> {
 }
 
 /* — Cálculos — */
-/** Los centros normales SUMAN; los de categoría 'resguardo' NO suman, RESTAN del total. */
+/** Los centros normales SUMAN; los de categoría 'resguardo' NO se toman en el cálculo
+ *  de la conciliación (ni suman ni restan). El resguardo entra al inventario aparte. */
 export function totalReportadoConcil(centros: CentroConcil[]): number {
-  return centros.reduce((a, c) => (c.categoria === 'resguardo' ? a - num(c.saldo_kg) : a + num(c.saldo_kg)), 0);
+  return centros.reduce((a, c) => (c.categoria === 'resguardo' ? a : a + num(c.saldo_kg)), 0);
 }
 export function kgFaltanteConcil(pesoKgTotal: number | null, totalReportado: number): number {
   return num(pesoKgTotal) - totalReportado;
 }
-/** Kg No Llegó = |kg que llegaron o faltaron| (la magnitud de la fila Kg a favor / Kg Faltante) + Peso de Bolsas + Muestras de laboratorio. */
+/** Kg No Llegó = Reportado − Peso Total − Bolsas − Muestras (balance de masa: las bolsas y
+ *  las muestras son retiros justificados, se RESTAN de lo faltante). Negativo = a favor
+ *  (llegó/se justificó más de lo reportado). Como kgFaltante = Peso Total − Reportado:
+ *  Kg No Llegó = −kgFaltante − bolsas − muestras. */
 export function kgNoLlegoConcil(kgFaltante: number, bolsas: number | null, muestras: number | null): number {
-  return Math.abs(kgFaltante) + num(bolsas) + num(muestras);
+  return round2(-num(kgFaltante) - num(bolsas) - num(muestras));
 }
 export function pctNoLlegoConcil(kgNoLlego: number, totalReportado: number): number | null {
   return totalReportado !== 0 ? (kgNoLlego / totalReportado) * 100 : null;
