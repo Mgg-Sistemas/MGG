@@ -682,7 +682,8 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
       )}
       {totalesOpen && (
         <TotalesModal grupoId={grupoId} totales={totales} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
-          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)} subtotalesProc={subtotalesProcSeco}
+          netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)}
+          netoHumedoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_humedo ?? 0), 0)} subtotalesProc={subtotalesProcSeco}
           mermaHumProv={humProv.reduce((a, f) => a + mermaProv(f.peso_humedo, f.peso_seco), 0)}
           mermaHumFinal={mermaFinal(round2(sumaCol(humFinal.map((f) => f.peso_kg))), round2(sumaCol(humFinal.map((f) => f.peso_recogido))))}
           onReload={reload} onClose={() => setTotalesOpen(false)} confirmar={setConfirmar} />
@@ -1387,9 +1388,9 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
 
 /* ───────────── Totales · PROMEDIO DE PRECIO DE COMPRA (todo dentro del modal) ───────────── */
 
-function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, netoSecoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onReload, onClose, confirmar }: {
+function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, netoSecoSum, netoHumedoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onReload, onClose, confirmar }: {
   grupoId: string; totales: RecepcionTotales[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
-  netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
+  netoSecoSum: number; netoHumedoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
   mermaHumProv: number; mermaHumFinal: number;
   onReload: () => Promise<void>; onClose: () => void;
   confirmar: (c: { message: string; onConfirm: () => void; confirmText?: string; danger?: boolean; success?: boolean } | null) => void;
@@ -1400,7 +1401,7 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
   if (editor) {
     return (
       <TotalesEditorModal grupoId={grupoId} totales={editor === 'nuevo' ? null : editor} recepciones={recepciones}
-        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} subtotalesProc={subtotalesProc}
+        defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} netoHumedoSum={netoHumedoSum} subtotalesProc={subtotalesProc}
         mermaHumProv={mermaHumProv} mermaHumFinal={mermaHumFinal}
         onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
     );
@@ -1449,9 +1450,9 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
   );
 }
 
-function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onCancel, onSaved }: {
+function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, netoHumedoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onCancel, onSaved }: {
   grupoId: string; totales: RecepcionTotales | null; recepciones: Recepcion[]; defaultNumero: number;
-  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
+  actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; netoHumedoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
   mermaHumProv: number; mermaHumFinal: number; onCancel: () => void; onSaved: () => void;
 }) {
   const [numero, setNumero] = useState(String(totales?.numero ?? defaultNumero));
@@ -1469,10 +1470,11 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
     return () => { vivo = false; };
   }, [grupoId, totales]);
   // Pesos Kg (PROMEDIO DE PRECIO DE COMPRA RECEPCIONADA): en unos totales NUEVOS toma el
-  // PESO (KG) de Humedad Final = total neto seco de los pesajes.
+  // PESO HÚMEDO = total neto HÚMEDO de los pesajes (a pedido: la recepcionada se divide
+  // entre el peso húmedo, no el seco).
   const [pesosKg, setPesosKg] = useState(
     totales?.pesos_kg != null ? numInput(totales.pesos_kg)
-    : netoSecoSum > 0 ? numInput(round2(netoSecoSum)) : '');
+    : netoHumedoSum > 0 ? numInput(round2(netoHumedoSum)) : '');
   // Humedad Provisional (laboratorio) y Adicional (final) se DERIVAN de las mermas de H2O:
   //   Provisional (laboratorio) = Merma peso H2O de Humedad Provisional
   //   Adicional (final)         = Merma H2O Provisional − Merma H2O Final
@@ -1631,7 +1633,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
       </div>
 
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
-        Total Moneda = Total SnO2 × Precio/Tasa (+ Gastos). Tasa recepcionada (promedio de precio de compra) = Total Moneda ÷ Pesos Kg (neto seco).
+        Total Moneda = Total SnO2 × Precio/Tasa (+ Gastos). Tasa recepcionada (promedio de precio de compra) = Total Moneda ÷ Pesos Kg (neto húmedo).
         Costo final: SnO2 = Pesos Kg + Humedad Prov. + Humedad Final + Fe estéril; Total Moneda = la suma de esas 3 filas
         (si es 0, se toma el Total Moneda recepcionado); Tasa = Total Moneda ÷ SnO2.
         <br /><strong>Humedad Provisional (laboratorio)</strong> = Merma peso H2O de Humedad Provisional; <strong>Humedad Adicional (final)</strong> = Merma H2O Provisional − Merma H2O Final (ambas se calculan solas desde las tablas de humedad).
