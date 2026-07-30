@@ -230,6 +230,21 @@ async function nextCodigoSolicitudSalida(scope: ScopeSalida): Promise<string> {
   return `${prefijo}-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`;
 }
 
+/** Próximo correlativo POR USUARIO (por actor + scope): cada usuario tiene su propia serie
+ *  (Isner 1,2,3… · Kelvin 1,2,3…). Es el mayor num_usuario de ese actor+scope + 1. */
+async function nextNumUsuarioSalida(scope: ScopeSalida, actor: string): Promise<number> {
+  const { data, error } = await supabase
+    .from(SOL)
+    .select('num_usuario')
+    .eq('scope', scope)
+    .eq('actor', actor)
+    .order('num_usuario', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (Number((data as { num_usuario?: number } | null)?.num_usuario) || 0) + 1;
+}
+
 export async function listSolicitudesSalida(filtros?: {
   scope?: ScopeSalida; tipo?: TipoSalida; estado?: EstadoSolicitudSalida;
 }): Promise<SolicitudSalida[]> {
@@ -334,6 +349,7 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
   }
 
   const codigo = await nextCodigoSolicitudSalida(input.scope);
+  const numUsuario = await nextNumUsuarioSalida(input.scope, input.actor);
   const historial = appendHistorial({ historial: [] }, 'creada', input.actor);
   // Cabecera: si hay detalle multi-producto, la primera línea actúa como resumen.
   const cab = itemsLimpios[0] ?? null;
@@ -345,6 +361,7 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
     .from(SOL)
     .insert({
       codigo,
+      num_usuario: numUsuario,
       scope: input.scope,
       tipo: input.tipo,
       estado: 'por_aprobar',

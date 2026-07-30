@@ -997,7 +997,8 @@ create policy "alertas_mercado write operativo" on public.alertas_mercado for al
 -- Al ejecutar se realiza el movimiento real (movimientos / movimientos_caja) y se guarda mov_id.
 create table if not exists public.solicitudes_salida (
   id              uuid primary key default gen_random_uuid(),
-  codigo          text not null,                  -- SAL-AAAA-NNNN / TRA-AAAA-NNNN
+  codigo          text not null,                  -- SAL-AAAA-NNNN / TRA-AAAA-NNNN (global, único)
+  num_usuario     int,                            -- correlativo POR USUARIO (por actor + scope): Isner 1,2… · Kelvin 1,2…
   scope           text not null check (scope in ('salida','traslado')),
   tipo            text not null check (tipo in ('material','dinero')),
   estado          text not null default 'por_aprobar' check (estado in ('por_aprobar','aprobada','ejecutada','cancelada')),
