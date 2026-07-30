@@ -16,6 +16,7 @@ import {
   resumenPorUsuario, duracionSesionMs, fmtDuracion, diaLocal, moduloDeTabla, iconoAccion,
   type UserSession, type ActividadEvento, type ResumenUsuario,
 } from './auditoria.repository';
+import { descargarAuditoriaOverviewPdf, descargarAuditoriaUsuarioPdf } from './auditoriaPdf';
 
 const hoyISO = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
 const haceDiasISO = (n: number) => new Date(Date.now() - n * 86400000).toLocaleDateString('en-CA');
@@ -102,6 +103,11 @@ export function AuditoriaPage() {
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.75rem', marginBottom: '1rem' }}>
             <h1 style={{ margin: 0 }}>🕵 Auditoría de Usuarios</h1>
             <span className="badge" style={{ background: 'rgba(16,185,129,.15)', color: '#10b981' }}>● {num(conectados.length)} conectado(s) ahora</span>
+            <button className="btn btn-sm btn-ghost" disabled={loading || !filas.length}
+              onClick={() => void descargarAuditoriaOverviewPdf({
+                desde, hasta, conectadosAhora: conectados.length,
+                filas: filas.map((f) => ({ nombre: f.nombre ?? f.email, email: f.email, msConectado: f.msConectado, nSesiones: f.nSesiones, nAcciones: f.nAcciones, ultima: f.ultima, conectado: f.conectadoAhora })),
+              }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF (vista previa)</button>
             <div style={{ display: 'flex', gap: '.5rem', marginLeft: 'auto', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div className="form-row" style={{ margin: 0 }}><label style={{ fontSize: '.72rem' }}>Desde</label><input className="input" type="date" value={desde} max={hasta} onChange={(e) => setDesde(e.target.value)} /></div>
               <div className="form-row" style={{ margin: 0 }}><label style={{ fontSize: '.72rem' }}>Hasta</label><input className="input" type="date" value={hasta} min={desde} max={hoyISO()} onChange={(e) => setHasta(e.target.value)} /></div>
@@ -205,7 +211,10 @@ function DetalleUsuario({ email, nombre, desde, hasta, sesiones, actividad, cone
         <h1 style={{ margin: 0 }}>🕵 {nombre}</h1>
         {conectado && <span className="badge" style={{ background: 'rgba(16,185,129,.15)', color: '#10b981' }}>● conectado ahora</span>}
         <span className="muted">{email}</span>
-        <span className="muted" style={{ marginLeft: 'auto' }}>Período: {desde} → {hasta}</span>
+        <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }}
+          onClick={() => void descargarAuditoriaUsuarioPdf({ nombre, email, desde, hasta, sesiones, actividad })
+            .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF (vista previa)</button>
+        <span className="muted">Período: {desde} → {hasta}</span>
       </div>
 
       <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
