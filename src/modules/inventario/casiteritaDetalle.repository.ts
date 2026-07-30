@@ -12,8 +12,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import {
   listPesajes, listAnalisis, listMinerales, listRecepciones,
-  netoPorProcedenciaGrupo, promMineral, PESO_FACTOR,
-  type PesoModo, type RecepcionMineral,
+  netoPorProcedenciaGrupo, PESO_FACTOR,
+  type PesoModo, type RecepcionMineral, type RecepcionPesaje, type RecepcionAnalisis, type Recepcion, type ValorMineral,
 } from '@/modules/recepciones/recepciones.repository';
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -130,18 +130,25 @@ export interface CasiteritaSugerencia {
 function mineralSnDe(minerales: RecepcionMineral[]): RecepcionMineral | null {
   return minerales.find((m) => /sn/i.test(m.clave) || /sn/i.test(m.nombre) || /esta[ñn]o/i.test(m.nombre)) ?? minerales[0] ?? null;
 }
+/** Lee la lectura de SN de un análisis priorizando `prom` (así se guarda una sola lectura),
+ *  con respaldo al promedio de a/b/c. Igual criterio que la grilla del laboratorio. */
+function leerSn(v: ValorMineral | undefined | null): number | null {
+  if (!v) return null;
+  if (v.prom != null && Number.isFinite(Number(v.prom))) return Number(v.prom);
+  const xs = [v.a, v.b, v.c].filter((x) => x != null && Number.isFinite(Number(x))).map(Number);
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+}
 
-export async function sugerenciasCasiteritaDesdeGrupo(grupoId: string): Promise<CasiteritaSugerencia[]> {
-  const [pesajes, analisis, minerales, receps] = await Promise.all([
-    listPesajes(grupoId), listAnalisis(grupoId), listMinerales(false), listRecepciones(grupoId),
-  ]);
-  const netoS = netoPorProcedenciaGrupo(pesajes, 's'); // Map<PROC, neto seco de bigbags>
-  const sn = mineralSnDe(minerales);
+/** Núcleo: arma las sugerencias por procedencia desde los arrays (sirve para una recepción
+ *  ABIERTA o para el snapshot `datos` de una recepción CERRADA — misma forma). */
+function sugerenciasDesde(pesajes: RecepcionPesaje[], analisis: RecepcionAnalisis[], minerales: RecepcionMineral[], receps: Recepcion[], tasaFallback?: number | null): CasiteritaSugerencia[] {
+  const netoS = netoPorProcedenciaGrupo(pesajes ?? [], 's'); // Map<PROC, neto seco de bigbags>
+  const sn = mineralSnDe(minerales ?? []);
 
   // Peso (saldo) y tasa desde las filas de recepción (cierre de caja) por procedencia.
   const pesoRec = new Map<string, number>();
   const tasaRec = new Map<string, number>();
-  for (const r of receps) {
+  for (const r of receps ?? []) {
     const proc = (r.procedencia ?? '').trim().toUpperCase();
     if (!proc) continue;
     pesoRec.set(proc, (pesoRec.get(proc) ?? 0) + (num(r.peso_kg) || 0));
@@ -151,11 +158,11 @@ export async function sugerenciasCasiteritaDesdeGrupo(grupoId: string): Promise<
   // Prom SN y # de análisis por procedencia.
   const promAcc = new Map<string, number[]>();
   const numsAcc = new Map<string, string[]>();
-  for (const a of analisis) {
+  for (const a of analisis ?? []) {
     const proc = (a.procedencia ?? '').trim().toUpperCase();
     if (!proc) continue;
     if (sn) {
-      const p = promMineral(sn.modo, a.valores?.[sn.clave]);
+      const p = leerSn(a.valores?.[sn.clave]);
       if (p != null) { if (!promAcc.has(proc)) promAcc.set(proc, []); promAcc.get(proc)!.push(p); }
     }
     const etiqueta = (a.numeros?.trim() || String(a.n_analisis)).trim();
@@ -175,7 +182,43 @@ export async function sugerenciasCasiteritaDesdeGrupo(grupoId: string): Promise<
       peso_neto_kgs: peso,
       prom_sn: prom,
       n_analisis: (numsAcc.get(proc) ?? []).join(', ') || null,
-      tasa: tasaRec.has(proc) ? round2(tasaRec.get(proc)!) : null,
+      tasa: tasaRec.has(proc) ? round2(tasaRec.get(proc)!)
+        : (tasaFallback != null && Number.isFinite(Number(tasaFallback)) && Number(tasaFallback) > 0 ? round2(Number(tasaFallback)) : null),
     };
+  });
+}
+
+/** Recepción ABIERTA (tarjeta con datos en vivo). */
+export async function sugerenciasCasiteritaDesdeGrupo(grupoId: string): Promise<CasiteritaSugerencia[]> {
+  const [pesajes, analisis, minerales, receps] = await Promise.all([
+    listPesajes(grupoId), listAnalisis(grupoId), listMinerales(false), listRecepciones(grupoId),
+  ]);
+  return sugerenciasDesde(pesajes, analisis, minerales, receps);
+}
+
+/** Recepción CERRADA: lee el snapshot `datos` guardado en recepcion_cierres. */
+export async function sugerenciasCasiteritaDesdeCierre(cierreId: string): Promise<CasiteritaSugerencia[]> {
+  const { data, error } = await supabase.from('recepcion_cierres').select('datos, tasa_final').eq('id', cierreId).maybeSingle();
+  if (error) throw error;
+  const row = data as { datos?: Record<string, unknown>; tasa_final?: number | null } | null;
+  const d = (row?.datos ?? {}) as Record<string, unknown>;
+  return sugerenciasDesde(
+    (d.pesajes as RecepcionPesaje[]) ?? [],
+    (d.analisis as RecepcionAnalisis[]) ?? [],
+    (d.minerales as RecepcionMineral[]) ?? [],
+    (d.recepciones as Recepcion[]) ?? [],
+    row?.tasa_final ?? null,
+  );
+}
+
+/** Opciones de recepciones CERRADAS para el selector «Traer desde recepción». */
+export interface CierreOpcion { id: string; numero: number; grupo_nombre: string; grupo_id: string | null; fecha: string; }
+export async function listCierresParaTraer(): Promise<CierreOpcion[]> {
+  const { data, error } = await supabase
+    .from('recepcion_cierres').select('id, numero, grupo_nombre, grupo_id, fecha').order('numero', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const c = r as CierreOpcion;
+    return { id: c.id, numero: Number(c.numero) || 0, grupo_nombre: c.grupo_nombre ?? '', grupo_id: c.grupo_id ?? null, fecha: c.fecha ?? '' };
   });
 }
