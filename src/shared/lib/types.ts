@@ -508,6 +508,8 @@ export interface Vehiculo {
 export interface SolicitudSalida {
   id: string;
   codigo: string;
+  /** Correlativo POR USUARIO (por actor + scope): Isner 1,2,3… y Kelvin 1,2,3… independientes. */
+  num_usuario?: number | null;
   scope: ScopeSalida;
   tipo: TipoSalida;
   estado: EstadoSolicitudSalida;

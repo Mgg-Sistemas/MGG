@@ -88,6 +88,9 @@ export function SalidasPage() {
   const [vista, setVista] = useState<Vista>('kanban');
   const [modal, setModal] = useState<Modal>({ kind: 'none' });
   const [loading, setLoading] = useState(true);
+  // Filtros del tablero de solicitudes: por USUARIO (quien la hizo, actor) y por SOLICITANTE.
+  const [fUsuario, setFUsuario] = useState('');
+  const [fSolicitante, setFSolicitante] = useState('');
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
@@ -137,6 +140,21 @@ export function SalidasPage() {
     () => solicitudes.filter((s) => s.scope === scopeSol && s.tipo === tipoSol),
     [solicitudes, scopeSol, tipoSol],
   );
+  // Opciones de filtro (según lo que exista en el scope activo).
+  const usuariosOpc = useMemo(() => {
+    const m = new Map<string, string>(); // actor(email) → nombre para mostrar
+    for (const s of solsVista) { const a = (s.actor ?? '').trim(); if (a) m.set(a, s.actor_name?.trim() || a); }
+    return Array.from(m.entries()).sort((x, y) => x[1].localeCompare(y[1]));
+  }, [solsVista]);
+  const solicitantesOpc = useMemo(
+    () => Array.from(new Set(solsVista.map((s) => (s.solicitante ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [solsVista],
+  );
+  // Solicitudes filtradas por usuario y/o solicitante (para el tablero).
+  const solsFiltradas = useMemo(() => solsVista.filter((s) =>
+    (!fUsuario || (s.actor ?? '') === fUsuario) &&
+    (!fSolicitante || (s.solicitante ?? '') === fSolicitante),
+  ), [solsVista, fUsuario, fSolicitante]);
 
   function abrirNuevo() {
     if (esSalida && esMaterial) setModal({ kind: 'salida-material' });
@@ -172,12 +190,35 @@ export function SalidasPage() {
         {esSalida && esMaterial && <button className={vista === 'resumen' ? 'active' : ''} onClick={() => setVista('resumen')}>📊 Resumen</button>}
       </div>
 
+      {vista === 'kanban' && !loading && (
+        <div className="filterbar" style={{ gap: '.6rem', marginBottom: '.8rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label style={{ fontSize: '.72rem' }}>👤 Usuario (quien la hizo)</label>
+            <select className="select" value={fUsuario} onChange={(e) => setFUsuario(e.target.value)}>
+              <option value="">Todos</option>
+              {usuariosOpc.map(([email, nombre]) => <option key={email} value={email}>{nombre}</option>)}
+            </select>
+          </div>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label style={{ fontSize: '.72rem' }}>🏷 Solicitante</label>
+            <select className="select" value={fSolicitante} onChange={(e) => setFSolicitante(e.target.value)}>
+              <option value="">Todos</option>
+              {solicitantesOpc.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          {(fUsuario || fSolicitante) && (
+            <button className="btn btn-sm btn-ghost" onClick={() => { setFUsuario(''); setFSolicitante(''); }}>✕ Limpiar</button>
+          )}
+          <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{solsFiltradas.length} de {solsVista.length} solicitud(es)</span>
+        </div>
+      )}
+
       {loading ? (
         <EmptyState message="Cargando…" icon="◔" />
       ) : (vista === 'resumen' && esSalida && esMaterial) ? (
         <ResumenSalidas solicitudes={solicitudes} actor={actor} />
       ) : vista === 'kanban' ? (
-        <SolicitudesKanban sols={solsVista} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
+        <SolicitudesKanban sols={solsFiltradas} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
       ) : (
         <Historial
           scope={scope} tipo={tipo}
@@ -412,7 +453,11 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
               {items.map((s) => (
                 <button key={s.id} className="card" onClick={() => onVer(s)}
                   style={{ margin: 0, padding: '.55rem .65rem', textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border)' }}>
-                  <div className="mono" style={{ fontSize: '.72rem', color: 'var(--primary-3)' }}>{s.codigo}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.3rem' }}>
+                    <span className="mono" style={{ fontSize: '.9rem', fontWeight: 800, color: 'var(--primary-3)' }} title="Correlativo del usuario">N° {s.num_usuario != null ? String(s.num_usuario).padStart(3, '0') : '—'}</span>
+                    <span className="mono muted" style={{ fontSize: '.62rem' }} title="Código global">{s.codigo}</span>
+                  </div>
+                  {s.actor_name && <div className="muted" style={{ fontSize: '.68rem' }}>👤 {s.actor_name}</div>}
                   <div style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text, #fff)' }}>
                     {s.tipo === 'material'
                       ? ((s.items?.length ?? 0) > 1 ? `${s.producto_nombre ?? 'Material'} +${s.items!.length - 1} más` : (s.producto_nombre ?? 'Material'))

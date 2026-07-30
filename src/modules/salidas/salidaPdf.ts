@@ -195,7 +195,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
   doc.text(esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA', TX, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`N° ${sol.codigo}  ·  ${esTraslado ? 'Traslado de material' : 'Salida de material'}`, TX, y + 38);
+  doc.text(`N° ${sol.num_usuario != null ? String(sol.num_usuario).padStart(3, '0') : sol.codigo}${sol.actor_name ? ` · ${sol.actor_name}` : ''}  ·  ${esTraslado ? 'Traslado de material' : 'Salida de material'}  ·  ${sol.codigo}`, TX, y + 38);
   doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
   y += Math.max(LOGO, 42) + 8;
 
