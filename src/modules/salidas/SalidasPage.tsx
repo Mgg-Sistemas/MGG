@@ -75,6 +75,10 @@ export function SalidasPage() {
   const NO_APRUEBA_SALIDAS = r === 'analista' || r === 'analista_de_lectura';
   const puedeAprobar = !NO_APRUEBA_SALIDAS
     && (isAdmin || can('salidas', 'full') || /^analista/.test(r) || /^jef[ae]/.test(r));
+  // EJECUTAR (descuenta/mueve stock) es más amplio que APROBAR: además de quienes aprueban,
+  // cualquier usuario con permiso de ESCRITURA puede ejecutar una solicitud ya aprobada
+  // (pero NO aprobarla — eso queda para full control / admin / jefe / analista).
+  const puedeEjecutar = !NO_APRUEBA_SALIDAS && (puedeAprobar || canWrite);
   const actor = appUser?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
@@ -189,6 +193,7 @@ export function SalidasPage() {
         <SolicitudDetalleModal
           sol={modal.sol}
           puedeAprobar={puedeAprobar}
+          puedeEjecutar={puedeEjecutar}
           actor={actor}
           actorName={actorName}
           productos={productos}
@@ -432,10 +437,11 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
 /* ───────────── Detalle + acciones de una solicitud ───────────── */
 
 function SolicitudDetalleModal({
-  sol, puedeAprobar, actor, actorName, productos, existencias, almacenes, onClose, onChanged,
+  sol, puedeAprobar, puedeEjecutar, actor, actorName, productos, existencias, almacenes, onClose, onChanged,
 }: {
   sol: SolicitudSalida;
   puedeAprobar: boolean;
+  puedeEjecutar: boolean;
   actor: string;
   actorName: string | null;
   productos: Producto[];
@@ -643,13 +649,13 @@ function SolicitudDetalleModal({
           ✔ Aprobar
         </button>
       )}
-      {puedeAprobar && sol.estado === 'aprobada' && (
+      {puedeEjecutar && sol.estado === 'aprobada' && (
         <button className="btn btn-primary" disabled={busy}
           onClick={() => run(() => ejecutarSolicitudSalida(sol, actor, actorName), `Solicitud ${sol.codigo} ejecutada`)}>
           {busy ? 'Ejecutando…' : ejecutarLabel}
         </button>
       )}
-      {puedeAprobar && sol.estado === 'aprobada' && (
+      {puedeEjecutar && sol.estado === 'aprobada' && (
         <button className="btn btn-ghost" disabled={busy} onClick={() => setSinDescOpen(true)}
           title="La salida ya se hizo por fuera (ej.: salida manual de inventario): la cierra como ejecutada sin volver a descontar">
           ✔ Marcar ejecutada (ya descontado)
@@ -919,9 +925,14 @@ function SolicitudDetalleModal({
         </tbody>
       </table>
 
-      {!puedeAprobar && sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
+      {!puedeAprobar && sol.estado === 'por_aprobar' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
-          Solo un analista, un jefe o el administrador puede aprobar y ejecutar esta solicitud.
+          Solo full control (analista, jefe o administrador) puede <strong>aprobar</strong> esta solicitud.{puedeEjecutar ? ' Una vez aprobada, vos podés ejecutarla.' : ''}
+        </div>
+      )}
+      {!puedeEjecutar && sol.estado === 'aprobada' && (
+        <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
+          Solo un usuario con permiso de escritura (o full control) puede <strong>ejecutar</strong> esta solicitud.
         </div>
       )}
 
