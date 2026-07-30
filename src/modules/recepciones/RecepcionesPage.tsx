@@ -1475,11 +1475,12 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
   const [pesosKg, setPesosKg] = useState(
     totales?.pesos_kg != null ? numInput(totales.pesos_kg)
     : netoHumedoSum > 0 ? numInput(round2(netoHumedoSum)) : '');
-  // Humedad Provisional (laboratorio) y Adicional (final) se DERIVAN de las mermas de H2O:
+  // Humedad Provisional (laboratorio) y Adicional (final) se DERIVAN de las mermas de H2O.
+  // Ambas son AGUA a RESTAR del peso húmedo para obtener el SnO2 final (neto seco/limpio):
   //   Provisional (laboratorio) = Merma peso H2O de Humedad Provisional
-  //   Adicional (final)         = Merma H2O Provisional − Merma H2O Final
+  //   Adicional (final)         = Merma H2O Final − Merma H2O Provisional (agua extra del secado final)
   const hProvVal = round2(mermaHumProv);
-  const hFinalVal = round2(mermaHumProv - mermaHumFinal);
+  const hFinalVal = round2(mermaHumFinal - mermaHumProv);
   const [fe, setFe] = useState(numInput(totales?.fe_esteril));
   const [nota, setNota] = useState(totales?.nota ?? '');
   const [saving, setSaving] = useState(false);
@@ -1492,9 +1493,10 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
   // Promedio de precio de compra recepcionada = Total Moneda ÷ Pesos Kg (neto seco de la fila).
   const tasaRec = tasaRecepcionada(totalMoneda, pesosKgN);
   const hp = hProvVal, hf = hFinalVal, fe2 = parseNum(fe) ?? 0;
-  const sum3 = hp + hf + fe2;
-  const totalSnO2Final = (pesosKgN ?? 0) + sum3;
-  const totalMonedaFinal = sum3 !== 0 ? sum3 : totalMoneda;
+  // Las 3 filas (agua provisional + agua adicional final + Fe estéril) se RESTAN al peso húmedo.
+  const deducciones = hp + hf + fe2;
+  const totalSnO2Final = (pesosKgN ?? 0) - deducciones;
+  const totalMonedaFinal = totalMoneda;   // mismo Total Moneda de la recepcionada
   const tasaFinal = totalSnO2Final !== 0 ? totalMonedaFinal / totalSnO2Final : null;
 
   const addCentro = () => setRows((rs) => [...rs, { nombre: '', sno2: '', precio: '' }]);
@@ -1612,7 +1614,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
                 <td>HUMEDAD PROVISIONAL (LABORATORIO)</td>
               </tr>
               <tr>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }} title="= Merma H2O Provisional − Merma H2O Final">{n2(hFinalVal)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: ROJO }} title="= Merma H2O Final − Merma H2O Provisional (agua extra, se resta)">{n2(hFinalVal)}</td>
                 <td></td><td></td>
                 <td>HUMEDAD ADICIONAL (FINAL)</td>
               </tr>
@@ -1634,7 +1636,7 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
 
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
         Total Moneda = Total SnO2 × Precio/Tasa (+ Gastos). Tasa recepcionada (promedio de precio de compra) = Total Moneda ÷ Pesos Kg (neto húmedo).
-        Costo final: SnO2 = Pesos Kg + Humedad Prov. + Humedad Final + Fe estéril; Total Moneda = la suma de esas 3 filas
+        Costo final: SnO2 = Pesos Kg (peso húmedo) − Humedad Prov. − Humedad Adicional − Fe estéril (las 3 se restan); Total Moneda = el mismo de la recepcionada; Tasa final = Total Moneda ÷ SnO2 final
         (si es 0, se toma el Total Moneda recepcionado); Tasa = Total Moneda ÷ SnO2.
         <br /><strong>Humedad Provisional (laboratorio)</strong> = Merma peso H2O de Humedad Provisional; <strong>Humedad Adicional (final)</strong> = Merma H2O Provisional − Merma H2O Final (ambas se calculan solas desde las tablas de humedad).
       </small>
