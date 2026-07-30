@@ -12,7 +12,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import {
   listPesajes, listAnalisis, listMinerales, listRecepciones,
-  netoPorProcedenciaGrupo, PESO_FACTOR,
+  catLado, PESO_FACTOR,
   type PesoModo, type RecepcionMineral, type RecepcionPesaje, type RecepcionAnalisis, type Recepcion, type ValorMineral,
 } from '@/modules/recepciones/recepciones.repository';
 
@@ -121,10 +121,11 @@ export async function eliminarCasiteritaDetalle(id: string): Promise<void> {
    Prom SN (%), los # de análisis y la tasa del cierre. */
 export interface CasiteritaSugerencia {
   procedencia: string;
-  peso_neto_kgs: number;
+  peso_neto_kgs: number;    // peso (seco) de ESE bigbag — sin restar el factor todavía
   prom_sn: number | null;
   n_analisis: string | null;
   tasa: number | null;
+  categoria_sug: CasiteritaCategoria;  // categoría del bigbag (lado seco), como default de la fila
 }
 
 function mineralSnDe(minerales: RecepcionMineral[]): RecepcionMineral | null {
@@ -142,7 +143,6 @@ function leerSn(v: ValorMineral | undefined | null): number | null {
 /** Núcleo: arma las sugerencias por procedencia desde los arrays (sirve para una recepción
  *  ABIERTA o para el snapshot `datos` de una recepción CERRADA — misma forma). */
 function sugerenciasDesde(pesajes: RecepcionPesaje[], analisis: RecepcionAnalisis[], minerales: RecepcionMineral[], receps: Recepcion[], tasaFallback?: number | null): CasiteritaSugerencia[] {
-  const netoS = netoPorProcedenciaGrupo(pesajes ?? [], 's'); // Map<PROC, neto seco de bigbags>
   const sn = mineralSnDe(minerales ?? []);
 
   // Peso (saldo) y tasa desde las filas de recepción (cierre de caja) por procedencia.
@@ -168,24 +168,37 @@ function sugerenciasDesde(pesajes: RecepcionPesaje[], analisis: RecepcionAnalisi
     const etiqueta = (a.numeros?.trim() || String(a.n_analisis)).trim();
     if (etiqueta) { if (!numsAcc.has(proc)) numsAcc.set(proc, []); numsAcc.get(proc)!.push(etiqueta); }
   }
+  const fbTasa = tasaFallback != null && Number.isFinite(Number(tasaFallback)) && Number(tasaFallback) > 0 ? round2(Number(tasaFallback)) : null;
+  const promDe = (proc: string): number | null => { const xs = promAcc.get(proc) ?? []; return xs.length ? round2(xs.reduce((a, b) => a + b, 0) / xs.length) : null; };
+  const numsDe = (proc: string): string | null => (numsAcc.get(proc) ?? []).join(', ') || null;
+  const tasaDe = (proc: string): number | null => (tasaRec.has(proc) ? round2(tasaRec.get(proc)!) : fbTasa);
 
-  // Unión de procedencias vistas en bigbags, recepciones (cierre) y análisis.
-  const procs = Array.from(new Set([...netoS.keys(), ...pesoRec.keys(), ...promAcc.keys()])).sort((a, b) => a.localeCompare(b));
-  return procs.map((proc) => {
-    const proms = promAcc.get(proc) ?? [];
-    const prom = proms.length ? round2(proms.reduce((a, b) => a + b, 0) / proms.length) : null;
-    // Peso Neto: el seco de los bigbags si existe; si no, el peso del cierre de caja.
-    const seco = round2(num(netoS.get(proc)));
-    const peso = seco > 0 ? seco : round2(num(pesoRec.get(proc)));
-    return {
-      procedencia: proc,
-      peso_neto_kgs: peso,
-      prom_sn: prom,
-      n_analisis: (numsAcc.get(proc) ?? []).join(', ') || null,
-      tasa: tasaRec.has(proc) ? round2(tasaRec.get(proc)!)
-        : (tasaFallback != null && Number.isFinite(Number(tasaFallback)) && Number(tasaFallback) > 0 ? round2(Number(tasaFallback)) : null),
-    };
-  });
+  // UNA FILA POR BIGBAG recepcionado (peso seco de ese bigbag, sin restar el factor: eso se
+  // hace después con Peso Casiterita = peso − factor×cant). Cada bigbag lleva su categoría.
+  const rows: CasiteritaSugerencia[] = [];
+  const procsConBigbag = new Set<string>();
+  for (const p of pesajes ?? []) {
+    for (const b of p.bigbags ?? []) {
+      const proc = ((b.proc_s || b.proc_h) ?? '').toString().trim().toUpperCase();
+      const peso = num(b.peso_s) > 0 ? num(b.peso_s) : num(b.peso_h);
+      if (peso <= 0) continue;
+      if (proc) procsConBigbag.add(proc);
+      rows.push({
+        procedencia: proc, peso_neto_kgs: round2(peso),
+        prom_sn: promDe(proc), n_analisis: numsDe(proc), tasa: tasaDe(proc),
+        categoria_sug: catLado(b, 's'),
+      });
+    }
+  }
+  // Procedencias que solo vienen del cierre de caja (sin bigbags): una fila agregada.
+  for (const [proc, peso] of pesoRec) {
+    if (!proc || procsConBigbag.has(proc) || peso <= 0) continue;
+    rows.push({
+      procedencia: proc, peso_neto_kgs: round2(peso),
+      prom_sn: promDe(proc), n_analisis: numsDe(proc), tasa: tasaDe(proc), categoria_sug: 'bigbag',
+    });
+  }
+  return rows.sort((a, b) => a.procedencia.localeCompare(b.procedencia));
 }
 
 /** Recepción ABIERTA (tarjeta con datos en vivo). */
