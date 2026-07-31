@@ -62,6 +62,46 @@ export async function descargarAuditoriaOverviewPdf(data: AuditoriaOverviewData)
   previewPdfDoc(doc, `auditoria-usuarios-${data.desde}_${data.hasta}.pdf`);
 }
 
+export interface AuditoriaMovimientosUsuario {
+  nombre: string; email: string; msConectado: number; eventos: ActividadEvento[];
+}
+export interface AuditoriaMovimientosData {
+  desde: string; hasta: string; usuarios: AuditoriaMovimientosUsuario[];
+}
+
+/** Reporte POR USUARIO con TODOS los movimientos (fecha y hora · módulo · acción). */
+export async function descargarAuditoriaMovimientosPdf(data: AuditoriaMovimientosData): Promise<void> {
+  const totalMov = data.usuarios.reduce((a, u) => a + u.eventos.length, 0);
+  const { doc, autoTable, y, PAGE_W } = await nuevoDoc('Auditoría · Movimientos por Usuario', `Período ${data.desde} → ${data.hasta} · ${data.usuarios.length} usuario(s) · ${totalMov} movimiento(s) · Generado ${dateTime(new Date().toISOString())}`);
+  let cursorY = y;
+  const usuarios = data.usuarios.filter((u) => u.eventos.length > 0);
+  if (!usuarios.length) {
+    doc.setFontSize(11); doc.text('Sin movimientos en el período.', MARGIN, cursorY + 10);
+  }
+  usuarios.forEach((u, idx) => {
+    // Encabezado del usuario (con salto de página si no cabe).
+    if (idx > 0 && cursorY > doc.internal.pageSize.getHeight() - 120) { doc.addPage(); cursorY = MARGIN; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(20);
+    doc.text(`${u.nombre}`, MARGIN, cursorY + 4);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90);
+    doc.text(`${u.email} · ${fmtDuracion(u.msConectado)} conectado · ${u.eventos.length} movimiento(s)`, MARGIN, cursorY + 18);
+    doc.setTextColor(0);
+    doc.setDrawColor(230); doc.setLineWidth(0.5); doc.line(MARGIN, cursorY + 24, PAGE_W - MARGIN, cursorY + 24);
+    autoTable(doc, {
+      startY: cursorY + 30,
+      head: [['Fecha y hora', 'Módulo', 'Acción']],
+      body: u.eventos.map((a) => [dateTime(a.ts), moduloDeTabla(a.tabla).modulo, a.accion]),
+      theme: 'grid', headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 8.5 },
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    });
+    // @ts-expect-error lastAutoTable lo agrega el plugin
+    cursorY = doc.lastAutoTable.finalY + 24;
+  });
+  pie(doc, `Auditoría · Movimientos por Usuario · ${dateTime(new Date().toISOString())}`);
+  previewPdfDoc(doc, `auditoria-movimientos-${data.desde}_${data.hasta}.pdf`);
+}
+
 export interface AuditoriaUsuarioData {
   nombre: string; email: string; desde: string; hasta: string;
   sesiones: UserSession[]; actividad: ActividadEvento[];

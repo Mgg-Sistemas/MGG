@@ -16,7 +16,7 @@ import {
   resumenPorUsuario, duracionSesionMs, fmtDuracion, diaLocal, moduloDeTabla, iconoAccion,
   type UserSession, type ActividadEvento, type ResumenUsuario,
 } from './auditoria.repository';
-import { descargarAuditoriaOverviewPdf, descargarAuditoriaUsuarioPdf } from './auditoriaPdf';
+import { descargarAuditoriaOverviewPdf, descargarAuditoriaUsuarioPdf, descargarAuditoriaMovimientosPdf } from './auditoriaPdf';
 
 const hoyISO = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
 const haceDiasISO = (n: number) => new Date(Date.now() - n * 86400000).toLocaleDateString('en-CA');
@@ -107,7 +107,17 @@ export function AuditoriaPage() {
               onClick={() => void descargarAuditoriaOverviewPdf({
                 desde, hasta, conectadosAhora: conectados.length,
                 filas: filas.map((f) => ({ nombre: f.nombre ?? f.email, email: f.email, msConectado: f.msConectado, nSesiones: f.nSesiones, nAcciones: f.nAcciones, ultima: f.ultima, conectado: f.conectadoAhora })),
-              }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF (vista previa)</button>
+              }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF resumen</button>
+            <button className="btn btn-sm btn-ghost" disabled={loading || !actividad.length}
+              onClick={() => {
+                const porActor = new Map<string, ActividadEvento[]>();
+                for (const a of actividad) { const e = (a.actor ?? '').toLowerCase(); if (!porActor.has(e)) porActor.set(e, []); porActor.get(e)!.push(a); }
+                const usuarios = filas
+                  .map((f) => ({ nombre: f.nombre ?? f.email, email: f.email, msConectado: f.msConectado, eventos: porActor.get(f.email) ?? [] }))
+                  .filter((u) => u.eventos.length > 0);
+                void descargarAuditoriaMovimientosPdf({ desde, hasta, usuarios })
+                  .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'));
+              }}>↓ PDF movimientos por usuario</button>
             <div style={{ display: 'flex', gap: '.5rem', marginLeft: 'auto', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div className="form-row" style={{ margin: 0 }}><label style={{ fontSize: '.72rem' }}>Desde</label><input className="input" type="date" value={desde} max={hasta} onChange={(e) => setDesde(e.target.value)} /></div>
               <div className="form-row" style={{ margin: 0 }}><label style={{ fontSize: '.72rem' }}>Hasta</label><input className="input" type="date" value={hasta} min={desde} max={hoyISO()} onChange={(e) => setHasta(e.target.value)} /></div>
