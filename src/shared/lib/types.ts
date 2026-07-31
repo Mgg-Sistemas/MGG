@@ -1220,6 +1220,10 @@ export interface RefinacionColadaOrigen {
   almacen: string;
   estano_kg: number;            // kg de estaño tomados de esta colada (default = obtenido)
   costo_unitario: number;       // costo/kg de esa colada (referencia)
+  /** Origen del material: colada de fundición (crudo) o refinación finalizada (2ª refinación). */
+  origen?: 'colada' | 'refinacion';
+  /** Etiqueta para mostrar: "Colada #5" / "Refinación #2". */
+  etiqueta?: string;
 }
 
 /** Una fila del control de temperatura y etapas del proceso de refinación. */

@@ -63,17 +63,17 @@ export function RefinacionPanel({ produccionId, editable }: { produccionId: stri
         <button type="button" className="btn btn-sm btn-ghost" onClick={pdf}>↓ Reporte de refinación (PDF)</button>
       </div>
 
-      {/* Origen del estaño crudo */}
+      {/* Origen del material a refinar */}
       <div style={secStyle}>
-        <div style={tituloSec}>Origen del estaño crudo</div>
+        <div style={tituloSec}>Origen del material a refinar</div>
         {!coladas.length ? (
-          <div className="muted" style={{ fontSize: '.82rem' }}>Sin coladas registradas.</div>
+          <div className="muted" style={{ fontSize: '.82rem' }}>Sin orígenes registrados.</div>
         ) : (
           <div className="mono" style={{ fontSize: '.82rem', lineHeight: 1.6 }}>
             {coladas.map((c) => (
-              <div key={c.produccion_id}>Colada #{c.colada_num || 's/n'} · {num(c.estano_kg)} kg <span className="muted">({c.producto_nombre})</span></div>
+              <div key={c.produccion_id}>{c.etiqueta ?? `Colada #${c.colada_num || 's/n'}`}{c.origen === 'refinacion' ? ' ♻' : ''} · {num(c.estano_kg)} kg <span className="muted">({c.producto_nombre})</span></div>
             ))}
-            <div style={{ marginTop: '.3rem' }}>Estaño crudo cargado: <strong>{num(d.estano_crudo_kg ?? 0)} kg</strong>{d.pureza_inicial != null ? <> · pureza inicial {num(d.pureza_inicial)} %</> : null}</div>
+            <div style={{ marginTop: '.3rem' }}>Material cargado: <strong>{num(d.estano_crudo_kg ?? 0)} kg</strong>{d.pureza_inicial != null ? <> · pureza inicial {num(d.pureza_inicial)} %</> : null}</div>
           </div>
         )}
       </div>

@@ -24,6 +24,7 @@ import {
   totalReportadoConcil, kgFaltanteConcil, kgNoLlegoConcil, pctNoLlegoConcil,
   listTotales, crearTotales, actualizarTotales, eliminarTotales, gastosAcopioDeGrupo,
   totalMonedaCentro, sumSnO2, totalMonedaTotal, tasaRecepcionada,
+  esRecepcionCompartida, SOCIO_COMPARTIDO,
   listGrupos, crearGrupo, eliminarGrupo, actualizarGrupo,
   listCierres, nextNumeroCierre, crearCierre, eliminarCierre,
   type Recepcion, type RecepcionMineral, type RecepcionProcedencia, type RecepcionAnalisis, type ValorMineral,
@@ -681,7 +682,7 @@ function RecepcionDetalle({ grupo, onBack }: { grupo: RecepcionGrupo; onBack: ()
           onReload={reload} onClose={() => setConciliacionOpen(false)} confirmar={setConfirmar} />
       )}
       {totalesOpen && (
-        <TotalesModal grupoId={grupoId} totales={totales} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
+        <TotalesModal grupoId={grupoId} grupoNombre={grupo.nombre} totales={totales} recepciones={recepciones} canWrite={canWrite} actor={actor} miNombre={miNombre}
           netoSecoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_seco ?? 0), 0)}
           netoHumedoSum={pesajes.reduce((a, p) => a + Number(p.total_neto_humedo ?? 0), 0)} subtotalesProc={subtotalesProcSeco}
           mermaHumProv={(promedioCol(humProv.map((f) => pctHumProv(f.peso_humedo, f.peso_seco))) ?? 0) / 100 * pesajes.reduce((a, p) => a + Number(p.total_neto_humedo ?? 0), 0)}
@@ -1390,8 +1391,41 @@ function ConciliacionEditorModal({ grupoId, conciliacion, recepciones, defaultNu
 
 /* ───────────── Totales · PROMEDIO DE PRECIO DE COMPRA (todo dentro del modal) ───────────── */
 
-function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre, netoSecoSum, netoHumedoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onReload, onClose, confirmar }: {
-  grupoId: string; totales: RecepcionTotales[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
+/* Desglose 50/50 (MGG ↔ socio) para las recepciones COMPARTIDAS (las de "EL BURRO").
+   Solo PRESENTACIÓN: parte el total en dos mitades. La tasa (un ratio) NO cambia, así
+   que se repite en las tres filas; solo los Kg y el valor se dividen. */
+function DesgloseKgTotal({ kg, tasa, valor }: { kg: number; tasa: number | null; valor: number }) {
+  const medioKg = kg / 2;
+  const medioValor = valor / 2;
+  const tasaTxt = tasa != null ? `$ ${n2(tasa)}` : '—';
+  const fila = (pct: string, k: number, v: number, socio: string, total = false) => (
+    <tr style={total ? { borderTop: '2px solid var(--border-strong, #888)' } : undefined}>
+      <td className="mono" style={{ fontWeight: total ? 800 : undefined }}>{pct}</td>
+      <td className="mono" style={{ textAlign: 'right', fontWeight: total ? 800 : undefined }}>{n2(k)}</td>
+      <td className="mono" style={{ textAlign: 'right', fontWeight: total ? 800 : undefined }}>{tasaTxt}</td>
+      <td className="mono" style={{ textAlign: 'right', fontWeight: total ? 800 : undefined }}>{n2(v)}</td>
+      <td style={{ fontWeight: total ? 800 : 700 }}>{socio}</td>
+    </tr>
+  );
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden', margin: '1rem 0 0' }}>
+      <div className="card-title" style={{ padding: '.55rem .7rem', margin: 0 }}>DESGLOSE DE KG TOTAL</div>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem', margin: 0 }}>
+          <thead><tr><th style={{ width: 80 }}>%</th><th style={{ textAlign: 'right', width: 150 }}>Kg</th><th style={{ textAlign: 'right', width: 130 }}>Tasa</th><th style={{ textAlign: 'right', width: 160 }}>Valor</th><th>Socio</th></tr></thead>
+          <tbody>
+            {fila('50%', medioKg, medioValor, 'MGG')}
+            {fila('50%', medioKg, medioValor, SOCIO_COMPARTIDO)}
+            {fila('100%', kg, valor, 'TOTAL', true)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TotalesModal({ grupoId, grupoNombre, totales, recepciones, canWrite, actor, miNombre, netoSecoSum, netoHumedoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onReload, onClose, confirmar }: {
+  grupoId: string; grupoNombre: string; totales: RecepcionTotales[]; recepciones: Recepcion[]; canWrite: boolean; actor: string; miNombre: string;
   netoSecoSum: number; netoHumedoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
   mermaHumProv: number; mermaHumFinal: number;
   onReload: () => Promise<void>; onClose: () => void;
@@ -1402,7 +1436,7 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
 
   if (editor) {
     return (
-      <TotalesEditorModal grupoId={grupoId} totales={editor === 'nuevo' ? null : editor} recepciones={recepciones}
+      <TotalesEditorModal grupoId={grupoId} grupoNombre={grupoNombre} totales={editor === 'nuevo' ? null : editor} recepciones={recepciones}
         defaultNumero={nextNum} actor={actor} miNombre={miNombre} canWrite={canWrite} netoSecoSum={netoSecoSum} netoHumedoSum={netoHumedoSum} subtotalesProc={subtotalesProc}
         mermaHumProv={mermaHumProv} mermaHumFinal={mermaHumFinal}
         onCancel={() => setEditor(null)} onSaved={async () => { setEditor(null); await onReload(); }} />
@@ -1448,12 +1482,21 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
           </tbody>
         </table>
       </div>
+
+      {/* Recepciones COMPARTIDAS ("EL BURRO"): desglose 50/50 (MGG ↔ socio) de los últimos totales. */}
+      {esRecepcionCompartida(grupoNombre) && totales[0] && (
+        <DesgloseKgTotal
+          kg={Number(totales[0].total_sno2_final ?? 0)}
+          tasa={totales[0].tasa_final ?? null}
+          valor={Number(totales[0].total_moneda_final ?? 0)}
+        />
+      )}
     </Modal>
   );
 }
 
-function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoHumedoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onCancel, onSaved }: {
-  grupoId: string; totales: RecepcionTotales | null; recepciones: Recepcion[]; defaultNumero: number;
+function TotalesEditorModal({ grupoId, grupoNombre, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoHumedoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onCancel, onSaved }: {
+  grupoId: string; grupoNombre: string; totales: RecepcionTotales | null; recepciones: Recepcion[]; defaultNumero: number;
   actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; netoHumedoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
   mermaHumProv: number; mermaHumFinal: number; onCancel: () => void; onSaved: () => void;
 }) {
@@ -1635,6 +1678,11 @@ function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, acto
           </table>
         </div>
       </div>
+
+      {/* Recepciones COMPARTIDAS ("EL BURRO"): desglose 50/50 (MGG ↔ socio) del costo final. */}
+      {esRecepcionCompartida(grupoNombre) && (
+        <DesgloseKgTotal kg={totalSnO2Final} tasa={tasaFinal} valor={totalMonedaFinal} />
+      )}
 
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
         Total Moneda = Total SnO2 × Precio/Tasa (+ Gastos). Tasa recepcionada (promedio de precio de compra) = Total Moneda ÷ Pesos Kg (neto húmedo).

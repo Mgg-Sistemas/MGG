@@ -109,6 +109,17 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
   }, [tipo, cfg.verbo]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  // Reporte GENERAL (una fila por ítem finalizado + totales), en vista previa.
+  async function handleResumenGeneral() {
+    try {
+      const mod = await import('./resumenProduccionPdf');
+      if (tipo === 'fundicion') await mod.descargarResumenFundicionPdf();
+      else await mod.descargarResumenRefinacionPdf();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error');
+    }
+  }
   // Realtime: fundición + sus insumos/almacenes/hornos (multiusuario en vivo).
   useRealtime(['produccion', 'produccion_materiales', 'produccion_colada', 'produccion_refinacion', 'hornos', 'productos', 'existencias', 'almacenes'], reload);
 
@@ -141,6 +152,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
             <button className={layout === 'lista' ? 'active' : ''} onClick={() => setLayout('lista')}>☰ Lista</button>
           </div>
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'recetas' })}>📋 Recetas</button>
+          <button className="btn btn-ghost" onClick={handleResumenGeneral}>📊 Reporte general</button>
           {tipo === 'fundicion' && (
             <a className="btn btn-ghost" href="http://192.168.0.50/monitor/IZIS_0" target="_blank" rel="noopener noreferrer" title="Abrir el supervisorio de hornos (nueva pestaña)">🖥️ SUPERVISORIO DE HORNOS</a>
           )}
