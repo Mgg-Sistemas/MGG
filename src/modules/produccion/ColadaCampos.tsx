@@ -188,7 +188,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
       <div style={secStyle}>
         <div style={tituloSec}>Proceso</div>
         <div className="form-row">
-          <label>Modo de homogeneización</label>
+          <label>Modo de homogenización</label>
           <Chips value={datos.homogeneizacion} options={['Manual (pala)', 'Trompo hidráulico']} onChange={(v) => set('homogeneizacion', v)} />
         </div>
         <div className="form-row">

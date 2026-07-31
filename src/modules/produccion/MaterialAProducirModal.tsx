@@ -43,6 +43,12 @@ interface MaterialAProducirModalProps {
 
 interface MatRow { checked: boolean; cantidad: string; almacen: string }
 
+/** Conceptos de costos indirectos (cada uno con su costo; no todos son necesarios). */
+const CONCEPTOS_INDIRECTOS = [
+  'COMBUSTIBLE UTILIZADO: GAS', 'INSUMOS Y REPUESTOS', 'PERSONAL (FUNDIDORES)', 'LOGÍSTICA',
+  'ELECTRICIDAD', 'MATERIALES DE OFICINA', 'CONSUMIBLES VARIOS', 'SOLVENTES Y DESENGRASANTES',
+] as const;
+
 export function MaterialAProducirModal({
   tipo = 'fundicion', productos, existencias, almacenesList, hornosList, actor, actorName, initialProductoId, onClose, onCreated, onProductosChanged, onHornosChanged,
 }: MaterialAProducirModalProps) {
@@ -135,7 +141,10 @@ export function MaterialAProducirModal({
   const [hornoNuevo, setHornoNuevo] = useState('');
   const [hornoSaving, setHornoSaving] = useState(false);
   const [manoObra, setManoObra] = useState('0');
-  const [costosIndirectos, setCostosIndirectos] = useState('0');
+  // Costos indirectos POR CONCEPTO (cada uno con su costo; ninguno obligatorio).
+  const [indirectos, setIndirectos] = useState<Record<string, string>>({});
+  const indirectosTotal = CONCEPTOS_INDIRECTOS.reduce((a, c) => a + (Number(indirectos[c]) || 0), 0);
+  const setIndirecto = (c: string, v: string) => setIndirectos((p) => ({ ...p, [c]: v }));
   const [margen, setMargen] = useState('30'); // margen bruto % sobre el precio de venta
 
   // Checklist de materiales
@@ -257,7 +266,7 @@ export function MaterialAProducirModal({
     .map((m) => ({ m, row: rows[m.id] }))
     .filter((x) => x.row?.checked && (Number(x.row.cantidad) || 0) > 0);
   const ctm = seleccion.reduce((a, { m, row }) => a + (Number(row.cantidad) || 0) * exCosto(m.id, row.almacen), 0) + crudoCosto;
-  const cp = ctm + (Number(manoObra) || 0) + (Number(costosIndirectos) || 0);
+  const cp = ctm + (Number(manoObra) || 0) + indirectosTotal;
   const costoUnit = cantidadNum > 0 ? cp / cantidadNum : 0;
   // Margen BRUTO sobre el precio de venta: PV = costo unitario / (1 - margen%).
   // Se acota el margen a [0, 95%] para evitar divisiones por ~0.
@@ -372,7 +381,7 @@ export function MaterialAProducirModal({
         almacen_destino: almacenDestino,
         horno: horno || null,
         mano_obra: Number(manoObra) || 0,
-        costos_indirectos: Number(costosIndirectos) || 0,
+        costos_indirectos: indirectosTotal,
         precio_venta: posiblePrecioVenta,
         materiales: matInput,
         tipo,
@@ -510,7 +519,7 @@ export function MaterialAProducirModal({
 
         <div className="form-grid">
           <div className="form-row">
-            <label>{esRef ? 'Estaño crudo a refinar (kg)' : 'Cantidad a producir'}</label>
+            <label>{esRef ? 'Cantidad refinada (kg)' : 'Cantidad producida'}</label>
             <input className="input mono" type="number" min={esRef ? 0 : 1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} disabled={esRef} required />
             {esRef && <small className="muted" style={{ fontSize: '.7rem' }}>Σ coladas seleccionadas. Al finalizar se ajusta al estaño refinado obtenido.</small>}
           </div>
@@ -668,14 +677,31 @@ export function MaterialAProducirModal({
         </div>
 
         {/* Costos extra */}
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Mano de obra (USD)</label>
-            <input className="input mono" type="number" min={0} step="0.01" value={manoObra} onChange={(e) => setManoObra(e.target.value)} />
+        <div className="form-row">
+          <label>Mano de obra (USD)</label>
+          <input className="input mono" type="number" min={0} step="0.01" value={manoObra} onChange={(e) => setManoObra(e.target.value)} style={{ maxWidth: 220 }} />
+        </div>
+
+        {/* Costos indirectos por concepto (cada uno con su costo; opcionales) */}
+        <div className="form-row">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label style={{ margin: 0 }}>Costos indirectos (USD) <span className="muted" style={{ fontWeight: 400, fontSize: '.72rem' }}>· por concepto, ninguno obligatorio</span></label>
+            <span className="mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>Σ {money(indirectosTotal)}</span>
           </div>
-          <div className="form-row">
-            <label>Costos indirectos (USD)</label>
-            <input className="input mono" type="number" min={0} step="0.01" value={costosIndirectos} onChange={(e) => setCostosIndirectos(e.target.value)} />
+          <div className="table-wrap" style={{ marginTop: '.35rem' }}>
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <tbody>
+                {CONCEPTOS_INDIRECTOS.map((c) => (
+                  <tr key={c}>
+                    <td style={{ width: '70%' }}>{c}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <input className="input mono" type="number" min={0} step="0.01" placeholder="0,00" style={{ width: 120, textAlign: 'right' }}
+                        value={indirectos[c] ?? ''} onChange={(e) => setIndirecto(c, e.target.value)} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -684,7 +710,7 @@ export function MaterialAProducirModal({
           <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Resumen de costos (fórmulas)</div>
           <div className="mono" style={{ fontSize: '.85rem', lineHeight: 1.7 }}>
             <strong>CTM</strong> = Σ (cantidad × costo material) = <strong>{money(ctm)}</strong><br />
-            <strong>CP</strong> = CTM + mano de obra ({money(Number(manoObra) || 0)}) + indirectos ({money(Number(costosIndirectos) || 0)}) = <strong>{money(cp)}</strong><br />
+            <strong>CP</strong> = CTM + mano de obra ({money(Number(manoObra) || 0)}) + indirectos ({money(indirectosTotal)}) = <strong>{money(cp)}</strong><br />
             <strong>Costo unitario</strong> = CP ÷ {num(cantidadNum)} und = <strong style={{ color: 'var(--primary-3)' }}>{money(costoUnit)}</strong><br />
             <strong>Precio de venta</strong> = costo unitario ÷ (1 − {num(Math.round(margenPct * 100))}%) = <strong style={{ color: 'var(--primary-3)' }}>{money(posiblePrecioVenta)}</strong><br />
             <strong>Posible ganancia</strong> = (precio venta − costo unitario) × {num(cantidadNum)} = <strong style={{ color: gananciaTotal >= 0 ? 'var(--success)' : 'var(--danger)' }}>{money(gananciaTotal)}</strong>

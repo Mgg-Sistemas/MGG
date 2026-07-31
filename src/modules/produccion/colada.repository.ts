@@ -37,7 +37,7 @@ export function coladaDatosVacios(): ColadaDatos {
     big_bags: [{ kg: null, precinto: '' }],
     total_casiterita: null, ley_sn: null, sn_kg: null,
     coque_kg: null, coque_proveedor: '', coque_granulometria: '',
-    otro_fundente: '', otro_fundente_kg: null,
+    otro_fundente: 'PIRULITA', otro_fundente_kg: null,
     caco3_tipo: '', caco3_kg: null, caco3_granulometria: '',
     homogeneizacion: '', carga_horno: '',
     temp_int_abrir: null, temp_ext_abrir: null,
