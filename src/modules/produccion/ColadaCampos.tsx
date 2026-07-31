@@ -7,6 +7,7 @@
    ============================================================ */
 import { useEffect, type CSSProperties } from 'react';
 import type { ColadaDatos } from '@/shared/lib/types';
+import { calcJornadaHoras, fmtJornada } from './colada.repository';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -62,6 +63,15 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snKg]);
 
+  // Jornada laboral = (fecha+hora fin) − (fecha+hora inicio) de la carga. Se calcula
+  // sola y se copia al campo "Turno" (queda editable, igual que Total Casiterita).
+  const jornadaH = calcJornadaHoras(datos.fecha_inicio_carga, datos.hora_inicio_carga, datos.fecha_fin_carga, datos.hora_fin_carga);
+  useEffect(() => {
+    set('jornada_horas', jornadaH);
+    if (jornadaH != null) set('turno', `${String(jornadaH).replace('.', ',')} horas`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jornadaH]);
+
   const setBag = (i: number, patch: Partial<{ kg: number | null; precinto: string }>) =>
     setDatos((p) => {
       const arr = [...(p.big_bags ?? [])];
@@ -91,8 +101,9 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         </div>
         <div className="form-grid">
           <div className="form-row">
-            <label>Turno</label>
+            <label>Turno / Jornada</label>
             <input className="input" value={datos.turno ?? ''} onChange={(e) => set('turno', e.target.value)} placeholder="Ej.: 21,5 horas" />
+            <small className="muted" style={{ fontSize: '.7rem' }}>Se calcula solo de las horas de carga (podés ajustarlo).</small>
           </div>
           <div className="form-row">
             <label>Responsable de colada</label>
@@ -201,13 +212,28 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         </div>
         <div className="form-grid">
           <div className="form-row">
+            <label>Fecha inicio de carga</label>
+            <input className="input" type="date" value={datos.fecha_inicio_carga ?? ''} onChange={(e) => set('fecha_inicio_carga', e.target.value)} />
+          </div>
+          <div className="form-row">
             <label>Hora inicio de carga</label>
-            <input className="input" value={datos.hora_inicio_carga ?? ''} onChange={(e) => set('hora_inicio_carga', e.target.value)} placeholder="Ej.: 20/03/26 6am" />
+            <input className="input" type="time" value={datos.hora_inicio_carga ?? ''} onChange={(e) => set('hora_inicio_carga', e.target.value)} />
+          </div>
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Fecha fin de carga</label>
+            <input className="input" type="date" value={datos.fecha_fin_carga ?? ''} onChange={(e) => set('fecha_fin_carga', e.target.value)} />
           </div>
           <div className="form-row">
             <label>Hora fin de carga</label>
-            <input className="input" value={datos.hora_fin_carga ?? ''} onChange={(e) => set('hora_fin_carga', e.target.value)} placeholder="Ej.: 21/03/26 3am" />
+            <input className="input" type="time" value={datos.hora_fin_carga ?? ''} onChange={(e) => set('hora_fin_carga', e.target.value)} />
           </div>
+        </div>
+        <div className="form-row">
+          <label>Jornada laboral (automática)</label>
+          <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
+          <small className="muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de carga.</small>
         </div>
         <div className="form-grid">
           <div className="form-row">

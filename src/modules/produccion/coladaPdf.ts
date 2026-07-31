@@ -6,7 +6,7 @@
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { ColadaBigBag, Produccion, ProduccionColada } from '@/shared/lib/types';
 import { getProduccionConMateriales } from './produccion.repository';
-import { getColada } from './colada.repository';
+import { getColada, fmtJornada } from './colada.repository';
 
 const ORANGE: [number, number, number] = [214, 90, 24];
 const GREY: [number, number, number] = [90, 90, 90];
@@ -85,7 +85,7 @@ async function construir(prod: Produccion, colada: ProduccionColada | null) {
   barra('IDENTIFICACIÓN');
   ficha([
     ['Colada N°', colada ? String(colada.colada_num) : '—', 'Fecha', colada ? fmtFecha(colada.fecha) : '—'],
-    ['Turno', txt(d.turno), 'Responsable de colada', txt(d.responsable)],
+    ['Jornada laboral', d.jornada_horas != null ? fmtJornada(d.jornada_horas) : txt(d.turno), 'Responsable de colada', txt(d.responsable)],
   ]);
 
   // ── MATERIAS PRIMAS ──
@@ -112,7 +112,8 @@ async function construir(prod: Produccion, colada: ProduccionColada | null) {
   barra('TEMPERATURAS Y TIEMPOS — CARGA');
   ficha([
     ['Temp. int. al abrir', tempC(d.temp_int_abrir), 'Temp. ext. al abrir', tempC(d.temp_ext_abrir)],
-    ['Hora inicio de carga', txt(d.hora_inicio_carga), 'Hora fin de carga', txt(d.hora_fin_carga)],
+    ['Inicio de carga', d.fecha_inicio_carga ? `${fmtFecha(d.fecha_inicio_carga)} ${d.hora_inicio_carga ?? ''}`.trim() : txt(d.hora_inicio_carga),
+      'Fin de carga', d.fecha_fin_carga ? `${fmtFecha(d.fecha_fin_carga)} ${d.hora_fin_carga ?? ''}`.trim() : txt(d.hora_fin_carga)],
     ['Temp. int. al cerrar', tempC(d.temp_int_cerrar), 'Temp. ext. al cerrar', tempC(d.temp_ext_cerrar)],
   ]);
 

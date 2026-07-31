@@ -11,6 +11,25 @@ import { finalizarProduccion } from './produccion.repository';
 const TABLE = 'produccion_colada';
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Jornada laboral (en horas) = (fecha+hora fin) − (fecha+hora inicio) de la carga.
+ *  Devuelve null si falta algún dato o si el fin no es posterior al inicio. */
+export function calcJornadaHoras(fIni?: string, hIni?: string, fFin?: string, hFin?: string): number | null {
+  if (!fIni || !hIni || !fFin || !hFin) return null;
+  const ini = new Date(`${fIni}T${hIni}`).getTime();
+  const fin = new Date(`${fFin}T${hFin}`).getTime();
+  if (!Number.isFinite(ini) || !Number.isFinite(fin) || fin <= ini) return null;
+  return round2((fin - ini) / 3_600_000);
+}
+
+/** Jornada legible: "21,5 h · 21 h 30 min" (es-VE). '—' si no hay valor. */
+export function fmtJornada(horas?: number | null): string {
+  if (horas == null || !Number.isFinite(horas)) return '—';
+  const h = Math.floor(horas);
+  const min = Math.round((horas - h) * 60);
+  const dec = String(round2(horas)).replace('.', ',');
+  return `${dec} h · ${h} h ${min} min`;
+}
+
 /** Datos de colada vacíos (para inicializar el formulario). */
 export function coladaDatosVacios(): ColadaDatos {
   return {
@@ -22,7 +41,7 @@ export function coladaDatosVacios(): ColadaDatos {
     caco3_tipo: '', caco3_kg: null, caco3_granulometria: '',
     homogeneizacion: '', carga_horno: '',
     temp_int_abrir: null, temp_ext_abrir: null,
-    hora_inicio_carga: '', hora_fin_carga: '',
+    fecha_inicio_carga: '', hora_inicio_carga: '', fecha_fin_carga: '', hora_fin_carga: '', jornada_horas: null,
     temp_int_cerrar: null, temp_ext_cerrar: null,
     temperaturas: [],
     hora_inicio_proceso: '', hora_fin_proceso: '', hora_sangrado: '',

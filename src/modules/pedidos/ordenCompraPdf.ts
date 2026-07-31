@@ -101,6 +101,8 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
   const esConsolidada = ordenes.length > 1;
   const totalGeneral = ordenes.reduce((a, o) => a + Number(o.total ?? 0), 0);
+  // Servicio → "ORDEN DE SERVICIO" (detección por clase, respaldo por prefijo SV-).
+  const esServicio = orden.clase === 'servicio' || (orden.codigo ?? '').toUpperCase().startsWith('SV-');
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -119,13 +121,13 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const ocLabel = orden.oc_codigo ?? orden.codigo;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(20);
-  doc.text('ORDEN DE COMPRA', TEXT_X, y + 20);
+  doc.text(esServicio ? 'ORDEN DE SERVICIO' : 'ORDEN DE COMPRA', TEXT_X, y + 20);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text(
     esConsolidada
       ? `N° ${ocLabel}  ·  Consolida ${ordenes.length} OPs`
-      : `N° ${ocLabel}  ·  Ref. pedido: ${orden.codigo}`,
+      : `N° ${ocLabel}  ·  Ref. ${esServicio ? 'solicitud' : 'pedido'}: ${orden.codigo}`,
     TEXT_X,
     y + 38,
   );
