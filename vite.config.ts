@@ -2,10 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
-// Identificador de versión del build = hash corto del commit de main desplegado.
-// Se hornea en el cliente (import.meta.env.VITE_APP_VERSION) y se emite en
-// `version.json`. El cliente compara ambos para detectar un despliegue real.
+// Hash del commit desplegado. Se hornea (import.meta.env.VITE_APP_VERSION) y se
+// guarda en version.json solo como referencia de soporte ("¿en qué commit estoy?").
+// NO se usa para avisar de actualización: eso lo decide la huella del bundle.
 function appVersion(): string {
   try {
     return execSync('git rev-parse --short HEAD').toString().trim();
@@ -16,11 +17,17 @@ function appVersion(): string {
 const APP_VERSION = appVersion();
 
 // Plugin que escribe dist/version.json al construir (lo sirve nginx).
+// La "versión" es una HUELLA del contenido servido: los nombres de los .js/.css,
+// que ya llevan hash de contenido de Vite. Si el bundle no cambió (p.ej. un commit
+// que solo toca el manual o el SQL), la huella es idéntica y NO se avisa nada.
+// Solo cuando cambia el JS/CSS que corre el navegador, la huella cambia → aviso.
 const versionJsonPlugin = {
   name: 'mgg-version-json',
-  generateBundle() {
+  generateBundle(_options: unknown, bundle: Record<string, unknown>) {
+    const files = Object.keys(bundle).filter((f) => /\.(js|css)$/.test(f)).sort();
+    const fingerprint = createHash('sha256').update(files.join('\n')).digest('hex').slice(0, 12);
     // @ts-expect-error this.emitFile existe en el contexto de Rollup
-    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: APP_VERSION }) });
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: fingerprint, commit: APP_VERSION }) });
   },
 };
 
