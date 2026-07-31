@@ -2409,9 +2409,9 @@ function OrdenDetailModal({
           💳 Indicar método de pago (pagar lo recibido)
         </button>
       )}
-      {/* Comprobante de pago GENERADO (voucher, vista previa): desde que la OC está pagada
-          y en el histórico finalizada, aun sin factura adjunta (efectivo). */}
-      {o.pagada_en && (
+      {/* Comprobante de pago GENERADO (voucher, vista previa): desde que la OC tiene pago
+          —pagada o con abonos a crédito— y en el histórico finalizada, aun sin factura (efectivo). */}
+      {(o.pagada_en || (Number(o.abonado_total) || 0) > 0) && (
         <button className="btn btn-ghost" onClick={handleComprobantePago} title="Comprobante de pago de la OC (vista previa)">
           🧾 Comprobante de pago
         </button>

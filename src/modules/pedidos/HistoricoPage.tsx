@@ -327,6 +327,14 @@ function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
               📄 PDF Orden de Compra
             </button>
           )}
+          {/* Comprobante de pago (voucher, vista previa): solo si la OC tiene pago
+              registrado —pagada o con abonos— (una cuenta a crédito sin abonos no tiene pago aún). */}
+          {orden.oc_codigo && (!!orden.pagada_en || (Number(orden.abonado_total) || 0) > 0) && (
+            <button className="btn btn-ghost"
+              onClick={() => void import('./comprobantePagoPdf').then(({ descargarComprobantePagoPdf }) => descargarComprobantePagoPdf(orden.id)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante de pago', 'error'))}>
+              🧾 Comprobante de pago
+            </button>
+          )}
           <button className="btn btn-primary"
             onClick={() => void import('./historicoPedidoPdf').then(({ descargarDetallePedidoPdf }) => descargarDetallePedidoPdf(orden, proveedorNombre)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
             🖨 Imprimir PDF
