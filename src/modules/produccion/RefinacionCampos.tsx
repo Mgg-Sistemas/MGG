@@ -70,6 +70,7 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
           produccion_id: c.produccion_id, colada_num: c.colada_num, fecha: c.fecha,
           producto_id: c.producto_id, producto_nombre: c.producto_nombre, almacen: c.almacen,
           estano_kg: c.estano_kg, costo_unitario: c.costo_unitario,
+          origen: c.origen, etiqueta: c.etiqueta,
         };
         arr.push(nueva);
       }
@@ -121,12 +122,12 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
         </div>
       </div>
 
-      {/* Origen del estaño crudo — selección de coladas */}
+      {/* Origen del material a refinar — coladas primarias (crudo) o refinaciones finalizadas (2ª refinación) */}
       <div style={secStyle}>
-        <div style={tituloSec}>Origen del estaño crudo · coladas primarias</div>
+        <div style={tituloSec}>Origen del material a refinar · coladas (crudo) o material ya refinado (2ª refinación)</div>
         {!coladasFin.length ? (
           <div className="muted" style={{ fontSize: '.82rem', padding: '.25rem 0' }}>
-            No hay coladas de fundición finalizadas para tomar como estaño crudo. Finalizá una colada primero.
+            No hay coladas ni refinaciones finalizadas para tomar como material. Finalizá una colada o refinación primero.
           </div>
         ) : (
           <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto' }}>
@@ -134,9 +135,9 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
               <thead>
                 <tr>
                   <th></th>
-                  <th>Colada</th>
+                  <th>Origen</th>
                   <th>Producto · almacén</th>
-                  <th style={{ textAlign: 'right' }}>Obtenido</th>
+                  <th style={{ textAlign: 'right' }}>Disponible</th>
                   <th style={{ textAlign: 'right' }}>Kg a tomar</th>
                 </tr>
               </thead>
@@ -144,10 +145,15 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
                 {coladasFin.map((c) => {
                   const sel = selIds.has(c.produccion_id);
                   const tomado = coladas.find((x) => x.produccion_id === c.produccion_id)?.estano_kg ?? c.estano_kg;
+                  const esReRef = c.origen === 'refinacion';
                   return (
                     <tr key={c.produccion_id} style={sel ? { background: 'rgba(255,138,0,0.06)' } : undefined}>
                       <td><input type="checkbox" checked={sel} onChange={() => toggleColada(c)} /></td>
-                      <td><strong>#{c.colada_num || '—'}</strong>{c.fecha ? <div className="muted" style={{ fontSize: '.7rem' }}>{c.fecha}</div> : null}</td>
+                      <td>
+                        <strong>{esReRef ? '♻ ' : ''}{c.etiqueta ?? `#${c.colada_num || '—'}`}</strong>
+                        {esReRef && <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.62rem', background: 'var(--primary)', color: '#1a1205', fontWeight: 700 }}>2ª refinación</span>}
+                        {c.fecha ? <div className="muted" style={{ fontSize: '.7rem' }}>{c.fecha}</div> : null}
+                      </td>
                       <td>{c.producto_nombre}<div className="muted" style={{ fontSize: '.7rem' }}>{c.almacen}</div></td>
                       <td className="mono" style={{ textAlign: 'right' }}>{num(c.estano_kg)} kg</td>
                       <td style={{ textAlign: 'right' }}>

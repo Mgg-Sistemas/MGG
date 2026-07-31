@@ -990,13 +990,14 @@ async function entrarResguardo(cantidadKg: number, almacen: string, refId: strin
 /** Entrada del TOTAL NETO seco (Σ pesajes) al inventario REAL, valuado a la TASA FINAL de Totales.
  *  Se dispara al CERRAR la recepción, en el almacén/subalmacén asignado en el cierre.
  *  precio_unitario = tasa → recalcula el PMP del almacén con ese costo. */
-async function entrarNetoSeco(cantidadKg: number, almacen: string, tasa: number, refId: string | null, actor: string, actorName: string | null): Promise<string> {
+async function entrarNetoSeco(cantidadKg: number, almacen: string, tasa: number, refId: string | null, actor: string, actorName: string | null, nombreCentro?: string | null): Promise<string> {
   const productoId = await productoResguardoId(almacen);
+  const centro = nombreCentro?.toString().trim();
   const mov = await registrarMovimiento({
     producto_id: productoId, tipo: 'entrada', delta: num(cantidadKg), almacen,
     actor, actor_name: actorName ?? null,
     ref_tipo: 'recepcion_neto_seco', ref_id: refId,
-    detalle: `Neto seco al cerrar la recepción a ${tasa} USD/Kg`,
+    detalle: `Neto seco al cerrar la recepción${centro ? ` · ${centro}` : ''} a ${tasa} USD/Kg`,
     precio_unitario: num(tasa) > 0 ? num(tasa) : null,
   });
   return mov.id;
@@ -1239,7 +1240,7 @@ export async function crearCierre(
   const tasaFinal = num(input.tasaFinal);
   const almacenNeto = input.almacenNeto?.trim() || null;
   if (netoSeco > 0 && tasaFinal > 0 && almacenNeto) {
-    netoSecoMovId = await entrarNetoSeco(netoSeco, almacenNeto, tasaFinal, null, actor, actorName ?? null);
+    netoSecoMovId = await entrarNetoSeco(netoSeco, almacenNeto, tasaFinal, null, actor, actorName ?? null, input.grupoNombre);
   }
   // 2) Snapshot del cierre (con la trazabilidad de la entrada al inventario).
   const row = {

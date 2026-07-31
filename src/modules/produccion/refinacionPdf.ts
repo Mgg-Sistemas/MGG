@@ -81,11 +81,11 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null) {
   // ── IDENTIFICACIÓN DEL LOTE / PROCESO ──
   barra('IDENTIFICACIÓN DEL LOTE / PROCESO');
   const coladas = d.coladas ?? [];
-  const origen = coladas.length ? coladas.map((c) => `#${c.colada_num || 's/n'}`).join(', ') : '—';
+  const origen = coladas.length ? coladas.map((c) => c.etiqueta ?? `#${c.colada_num || 's/n'}`).join(', ') : '—';
   ficha([
     ['Lote de Refinación N°', ref ? String(ref.refinacion_num) : '—', 'Fecha de proceso', ref ? fmtFecha(ref.fecha) : '—'],
     ['Turno', txt(d.turno), 'N° Horno / Olla', txt(d.n_horno_olla)],
-    ['Responsable', txt(d.responsable), 'Origen (coladas primarias)', origen],
+    ['Responsable', txt(d.responsable), 'Origen del material', origen],
   ]);
 
   // ── ENTRADA DE MATERIAS PRIMAS Y REACTIVOS ──
@@ -94,7 +94,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null) {
     ['Estaño crudo cargado', kg(d.estano_crudo_kg), 'Pureza inicial estimada', pct(d.pureza_inicial)],
   ]);
   // Reactivos = materiales consumidos que NO son estaño crudo.
-  const reactivos = (prod.materiales ?? []).filter((m) => !/estaño crudo/i.test(m.material_nombre));
+  const reactivos = (prod.materiales ?? []).filter((m) => !/estaño (crudo|a refinar)/i.test(m.material_nombre));
   autoTable(doc, {
     startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
     head: [['Agente refinante / reactivo', 'Almacén', 'Cantidad (kg)']],

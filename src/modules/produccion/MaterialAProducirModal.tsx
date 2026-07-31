@@ -11,7 +11,7 @@ import { crearHorno } from './hornos.repository';
 import { ColadaCampos } from './ColadaCampos';
 import { coladaDatosVacios, crearColada, proximaColadaNum } from './colada.repository';
 import { RefinacionCampos } from './RefinacionCampos';
-import { refinacionDatosVacios, proximaRefinacionNum, crearRefinacion, listColadasFinalizadas, type ColadaFinalizada } from './refinacion.repository';
+import { refinacionDatosVacios, proximaRefinacionNum, crearRefinacion, listColadasFinalizadas, listRefinacionesFinalizadas, type ColadaFinalizada } from './refinacion.repository';
 import type { ColadaDatos, RefinacionDatos } from '@/shared/lib/types';
 
 interface RecetaBase {
@@ -73,13 +73,18 @@ export function MaterialAProducirModal({
   const [refinacionFecha, setRefinacionFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [refinacionDatos, setRefinacionDatos] = useState<RefinacionDatos>(() => refinacionDatosVacios());
   const [coladasFin, setColadasFin] = useState<ColadaFinalizada[]>([]);
+  const [refinadosFin, setRefinadosFin] = useState<ColadaFinalizada[]>([]);
   useEffect(() => {
     if (!esRef) return;
     let cancel = false;
     proximaRefinacionNum().then((n) => { if (!cancel) setRefinacionNum((v) => v || String(n)); }).catch(() => { /* editable */ });
     listColadasFinalizadas().then((cs) => { if (!cancel) setColadasFin(cs); }).catch(() => { if (!cancel) setColadasFin([]); });
+    // 2ª refinación: refinaciones ya finalizadas disponibles como material a refinar.
+    listRefinacionesFinalizadas().then((rs) => { if (!cancel) setRefinadosFin(rs); }).catch(() => { if (!cancel) setRefinadosFin([]); });
     return () => { cancel = true; };
   }, [esRef]);
+  // Orígenes disponibles = coladas primarias (crudo) + refinaciones finalizadas (2ª refinación).
+  const origenesRefinables = useMemo(() => [...coladasFin, ...refinadosFin], [coladasFin, refinadosFin]);
   const producibles = useMemo(() => productos.filter((p) => p.es_producible), [productos]);
   const materiales = useMemo(
     () => productos.filter((p) => p.es_receta && p.estado === 'activo'),
@@ -351,7 +356,9 @@ export function MaterialAProducirModal({
       const crudoInput: MaterialInput[] = esRef
         ? crudoLines.map((c) => ({
           producto_id: c.producto_id as string,
-          material_nombre: `Estaño crudo · Colada #${c.colada_num || 's/n'}`,
+          material_nombre: c.origen === 'refinacion'
+            ? `Estaño a refinar · ${c.etiqueta ?? `Refinación #${c.colada_num || 's/n'}`}`
+            : `Estaño crudo · ${c.etiqueta ?? `Colada #${c.colada_num || 's/n'}`}`,
           almacen: c.almacen,
           cantidad: Number(c.estano_kg) || 0,
         }))
@@ -456,7 +463,7 @@ export function MaterialAProducirModal({
             refinacionNum={refinacionNum} setRefinacionNum={setRefinacionNum}
             fecha={refinacionFecha} setFecha={setRefinacionFecha}
             datos={refinacionDatos} setDatos={setRefinacionDatos}
-            coladasFin={coladasFin}
+            coladasFin={origenesRefinables}
           />
         )}
 

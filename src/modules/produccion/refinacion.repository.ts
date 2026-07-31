@@ -63,16 +63,18 @@ export async function getRefinacionesByProduccion(ids: string[]): Promise<Map<st
   return out;
 }
 
-/** Una colada finalizada disponible como origen de estaño crudo. */
+/** Un origen de material a refinar: colada finalizada (crudo) o refinación finalizada (2ª refinación). */
 export interface ColadaFinalizada {
   produccion_id: string;
-  colada_num: number;
+  colada_num: number;      // N° de colada (o N° de refinación cuando origen='refinacion')
   fecha: string;
   producto_id: string | null;
   producto_nombre: string;
   almacen: string;
-  estano_kg: number;       // estaño obtenido (= cantidad finalizada)
-  costo_unitario: number;  // costo/kg de esa colada
+  estano_kg: number;       // estaño disponible (= cantidad finalizada)
+  costo_unitario: number;  // costo/kg
+  origen?: 'colada' | 'refinacion';
+  etiqueta?: string;       // "Colada #5" / "Refinación #2"
 }
 
 /**
@@ -100,15 +102,60 @@ export async function listColadasFinalizadas(): Promise<ColadaFinalizada[]> {
 
   return rows.map((r) => {
     const c = cMap.get(r.id as string);
+    const numColada = c?.colada_num ?? 0;
     return {
       produccion_id: r.id as string,
-      colada_num: c?.colada_num ?? 0,
+      colada_num: numColada,
       fecha: c?.fecha ?? '',
       producto_id: (r.producto_id as string) ?? null,
       producto_nombre: r.producto_nombre as string,
       almacen: r.almacen_destino as string,
       estano_kg: round2(Number(r.cantidad) || 0),
       costo_unitario: Number(r.costo_unitario) || 0,
+      origen: 'colada' as const,
+      etiqueta: `Colada #${numColada || 's/n'}`,
+    };
+  });
+}
+
+/**
+ * Lista las REFINACIONES FINALIZADAS para tomarlas como origen de una SEGUNDA
+ * refinación (refinar material ya refinado). Cruza `produccion` (tipo='refinacion',
+ * finalizada) con su reporte para traer el N° de refinación. La cantidad disponible
+ * = estaño refinado obtenido (que entró a inventario con su costo).
+ */
+export async function listRefinacionesFinalizadas(excluirProduccionId?: string): Promise<ColadaFinalizada[]> {
+  const { data: prods, error } = await supabase
+    .from('produccion')
+    .select('id, producto_id, producto_nombre, cantidad, almacen_destino, costo_unitario')
+    .eq('tipo', 'refinacion')
+    .eq('estado', 'finalizado')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const rows = (prods ?? []).filter((r) => r.id !== excluirProduccionId);
+  if (!rows.length) return [];
+
+  const { data: refs } = await supabase
+    .from('produccion_refinacion')
+    .select('produccion_id, refinacion_num, fecha')
+    .in('produccion_id', rows.map((r) => r.id as string));
+  const rMap = new Map<string, { refinacion_num: number; fecha: string }>();
+  (refs ?? []).forEach((r) => rMap.set(r.produccion_id as string, { refinacion_num: Number(r.refinacion_num) || 0, fecha: r.fecha as string }));
+
+  return rows.map((r) => {
+    const rr = rMap.get(r.id as string);
+    const numRef = rr?.refinacion_num ?? 0;
+    return {
+      produccion_id: r.id as string,
+      colada_num: numRef,
+      fecha: rr?.fecha ?? '',
+      producto_id: (r.producto_id as string) ?? null,
+      producto_nombre: r.producto_nombre as string,
+      almacen: r.almacen_destino as string,
+      estano_kg: round2(Number(r.cantidad) || 0),
+      costo_unitario: Number(r.costo_unitario) || 0,
+      origen: 'refinacion' as const,
+      etiqueta: `Refinación #${numRef || 's/n'}`,
     };
   });
 }
