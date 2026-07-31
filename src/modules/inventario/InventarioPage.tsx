@@ -176,8 +176,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [almacenSel, setAlmacenSel] = useState<string | null>(null);
   const [sedeSel, setSedeSel] = useState<string | null>(centroSede);
-  // Toggle "General ⟷ Casiterita" dentro de la vista de un centro/Matanzas.
-  const [subVista, setSubVista] = useState<'general' | 'casiterita'>('general');
+  // Toggle "General ⟷ Casiterita ⟷ Estaño en bruto ⟷ Estaño refinado" dentro de la sede.
+  const [subVista, setSubVista] = useState<'general' | 'casiterita' | 'bruto' | 'refinado'>('general');
   // ⛏ Casiterita → vista «Inventario Detallado (SnO₂)» (reemplaza el listado mientras está abierta).
   const [casDetalleOpen, setCasDetalleOpen] = useState(false);
   // Almacén padre cuyo nivel de subalmacenes estamos viendo (drill-down dentro de la sede).
@@ -400,12 +400,18 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const almacenesDeScope = useMemo(() => {
     if (!sedeScope) return null;
     const alms = almacenes.filter((a) => (a.sede?.trim() || '') === sedeScope);
-    const esCas = (n: string) => /casiterita/i.test(n);
-    return { cas: alms.filter((a) => esCas(a.nombre)).map((a) => a.nombre), resto: alms.filter((a) => !esCas(a.nombre)).map((a) => a.nombre) };
+    // Clasifica el almacén por su nombre: casiterita, estaño refinado, estaño en bruto, o el resto (general).
+    const clase = (n: string): 'cas' | 'refinado' | 'bruto' | 'resto' =>
+      /casiterita/i.test(n) ? 'cas' : /refinad/i.test(n) ? 'refinado' : /bruto/i.test(n) ? 'bruto' : 'resto';
+    const nombres = (c: 'cas' | 'refinado' | 'bruto' | 'resto') => alms.filter((a) => clase(a.nombre) === c).map((a) => a.nombre);
+    return { cas: nombres('cas'), bruto: nombres('bruto'), refinado: nombres('refinado'), resto: nombres('resto') };
   }, [sedeScope, almacenes]);
+  // Lista de almacenes que corresponde a la sub-vista actual.
+  const almsDeSubvista = (sv: typeof subVista, s: NonNullable<typeof almacenesDeScope>) =>
+    sv === 'casiterita' ? s.cas : sv === 'bruto' ? s.bruto : sv === 'refinado' ? s.refinado : s.resto;
   const decoratedScope = useMemo<ProductoDecorado[]>(() => {
     if (!almacenesDeScope) return decorated;
-    return productosDeAlmacenes(subVista === 'casiterita' ? almacenesDeScope.cas : almacenesDeScope.resto);
+    return productosDeAlmacenes(almsDeSubvista(subVista, almacenesDeScope));
   }, [almacenesDeScope, subVista, productosDeAlmacenes, decorated]);
   // ¿Estamos en una vista tipo "inventario" (KPIs + lista)? Sí en el general, en un centro
   // y en la pestaña Subalmacenes (Matanzas). En Depósito, la vista de almacenes sigue con tarjetas.
@@ -420,7 +426,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   // almacén (stock/PMP propios); si no, el catálogo global. Luego aplica los demás filtros.
   // Almacenes del scope actual (según General/Casiterita) para el filtro de subalmacén.
   const almacenesScopeActual = useMemo<string[]>(
-    () => (!almacenesDeScope ? [] : (subVista === 'casiterita' ? almacenesDeScope.cas : almacenesDeScope.resto)),
+    () => (!almacenesDeScope ? [] : almsDeSubvista(subVista, almacenesDeScope)),
     [almacenesDeScope, subVista],
   );
   // Almacén por defecto al CREAR un producto: el subalmacén filtrado (si aplica) o el
@@ -815,10 +821,18 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       {sedeScope && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0 }}>📍 {tituloInventario}</h2>
-          {almacenesDeScope && almacenesDeScope.cas.length > 0 && (
-            <div className="view-toggle" role="tablist" aria-label="General o Casiterita" style={{ marginLeft: '.25rem' }}>
+          {almacenesDeScope && (almacenesDeScope.cas.length > 0 || almacenesDeScope.bruto.length > 0 || almacenesDeScope.refinado.length > 0) && (
+            <div className="view-toggle" role="tablist" aria-label="Vista de inventario" style={{ marginLeft: '.25rem' }}>
               <button className={subVista === 'general' ? 'active' : ''} onClick={() => { setSubVista('general'); setCasDetalleOpen(false); }}>📦 General</button>
-              <button className={subVista === 'casiterita' ? 'active' : ''} onClick={() => setSubVista('casiterita')}>⛏ Casiterita</button>
+              {almacenesDeScope.cas.length > 0 && (
+                <button className={subVista === 'casiterita' ? 'active' : ''} onClick={() => setSubVista('casiterita')}>⛏ Casiterita</button>
+              )}
+              {almacenesDeScope.bruto.length > 0 && (
+                <button className={subVista === 'bruto' ? 'active' : ''} onClick={() => { setSubVista('bruto'); setCasDetalleOpen(false); }}>🔩 Estaño en bruto</button>
+              )}
+              {almacenesDeScope.refinado.length > 0 && (
+                <button className={subVista === 'refinado' ? 'active' : ''} onClick={() => { setSubVista('refinado'); setCasDetalleOpen(false); }}>✨ Estaño refinado</button>
+              )}
             </div>
           )}
         </div>
