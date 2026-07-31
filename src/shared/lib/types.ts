@@ -1170,8 +1170,11 @@ export interface ColadaDatos {
   // Temperaturas y tiempos de carga
   temp_int_abrir?: number | null;
   temp_ext_abrir?: number | null;
-  hora_inicio_carga?: string;
-  hora_fin_carga?: string;
+  fecha_inicio_carga?: string;        // yyyy-mm-dd (separada de la hora)
+  hora_inicio_carga?: string;         // HH:mm (en registros viejos puede venir fecha+hora junta)
+  fecha_fin_carga?: string;           // yyyy-mm-dd
+  hora_fin_carga?: string;            // HH:mm
+  jornada_horas?: number | null;      // (fecha+hora fin) − (fecha+hora inicio), en horas
   temp_int_cerrar?: number | null;
   temp_ext_cerrar?: number | null;
   // Control de temperatura del proceso (cada ~1 h)

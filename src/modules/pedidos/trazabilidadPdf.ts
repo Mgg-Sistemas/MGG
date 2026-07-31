@@ -84,6 +84,18 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   // email → nombre (o el propio correo si no está en usuarios).
   const quien = (email?: string | null) => (email ? nombrePorEmail.get(email) ?? email : '—');
 
+  // Un pedido de SERVICIO habla de "orden/solicitud de servicio", no de "pedido/compra".
+  // Detectamos por clase; respaldo por prefijo de código (SV-) para órdenes viejas.
+  const esServicio = orden.clase === 'servicio' || (orden.codigo ?? '').toUpperCase().startsWith('SV-');
+  const L = {
+    docTitulo: `Trazabilidad de orden de ${esServicio ? 'servicio' : 'pedido'}`,
+    solicitud: esServicio ? 'Solicitud de servicio' : 'Solicitud',
+    items: esServicio ? 'Servicios solicitados' : 'Ítems solicitados',
+    orden: esServicio ? 'Orden de servicio' : 'Orden de compra',
+    nOrden: esServicio ? 'N° de orden de servicio' : 'N° de orden de compra',
+    recepcion: esServicio ? 'Recepción del servicio' : 'Recepción de mercancía',
+  };
+
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
@@ -101,7 +113,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.text('Trazabilidad de orden de pedido', TEXT_X, y + 18);
+  doc.text(L.docTitulo, TEXT_X, y + 18);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.text(
@@ -118,7 +130,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   // ─── 1. Solicitud ──────────────────────────────────────
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
-  doc.text(`1. Solicitud · ${orden.codigo}`, MARGIN, y);
+  doc.text(`1. ${L.solicitud} · ${orden.codigo}`, MARGIN, y);
   y += 14;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
@@ -145,7 +157,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 
   // ─── 2. Ítems solicitados ──────────────────────────────
   doc.setFont('helvetica', 'bold');
-  doc.text('2. Ítems solicitados', MARGIN, y);
+  doc.text(`2. ${L.items}`, MARGIN, y);
   y += 6;
   autoTable(doc, {
     startY: y,
@@ -209,14 +221,14 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 
   // ─── 4. Orden de compra (proveedor aceptado) ───────────
   doc.setFont('helvetica', 'bold');
-  doc.text(`4. Orden de compra${orden.oc_codigo ? ` · ${orden.oc_codigo}` : ''}`, MARGIN, y);
+  doc.text(`4. ${L.orden}${orden.oc_codigo ? ` · ${orden.oc_codigo}` : ''}`, MARGIN, y);
   y += 14;
   doc.setFont('helvetica', 'normal');
   const ofertaAceptada = ofertas.find((o) => o.estado === 'aceptada');
   const ocEvento = orden.historial?.find((h) => h.evento === 'oc_emitida');
   const documentosOc = ocEvento?.documentos ?? [];
   const filasOrden: Array<[string, string]> = [
-    ['N° de orden de compra', orden.oc_codigo ?? '—'],
+    [L.nOrden, orden.oc_codigo ?? '—'],
     ['Proveedor adjudicado', proveedorFinal?.razon_social ?? '—'],
     ['RIF', proveedorFinal?.rif ?? '—'],
     ['Contacto', proveedorFinal?.contacto ?? '—'],
@@ -243,7 +255,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 
   // ─── 5. Recepción ──────────────────────────────────────
   doc.setFont('helvetica', 'bold');
-  doc.text('5. Recepción de mercancía', MARGIN, y);
+  doc.text(`5. ${L.recepcion}`, MARGIN, y);
   y += 14;
   doc.setFont('helvetica', 'normal');
   const recibida = orden.historial?.find((h) => h.evento === 'recibida');
