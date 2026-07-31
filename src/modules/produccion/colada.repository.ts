@@ -76,6 +76,61 @@ export async function getColadasByProduccion(ids: string[]): Promise<Map<string,
   return out;
 }
 
+/** Una fila del RESUMEN GENERAL de fundición (una colada finalizada). */
+export interface FundicionResumenRow {
+  colada_num: number;
+  fecha: string;
+  almacen_destino: string;
+  total_casiterita: number | null;
+  ley_sn: number | null;
+  sn_kg: number | null;
+  coque_kg: number | null;
+  caco3_kg: number | null;
+  estano_kg: number;            // estaño obtenido (= cantidad finalizada)
+  n_lingotes: number | null;
+}
+
+/**
+ * Lista TODAS las fundiciones FINALIZADAS con el detalle de su colada, una fila
+ * por colada, para el reporte general (RESUMEN DE FUNDICIÓN). Cruza `produccion`
+ * (tipo='fundicion', finalizada) con su reporte de colada (`datos`).
+ */
+export async function listFundicionesFinalizadasConDatos(): Promise<FundicionResumenRow[]> {
+  const { data: prods, error } = await supabase
+    .from('produccion')
+    .select('id, almacen_destino, cantidad')
+    .eq('tipo', 'fundicion')
+    .eq('estado', 'finalizado')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const rows = prods ?? [];
+  if (!rows.length) return [];
+
+  const { data: coladas } = await supabase
+    .from(TABLE)
+    .select('produccion_id, colada_num, fecha, datos')
+    .in('produccion_id', rows.map((r) => r.id as string));
+  const cMap = new Map<string, ProduccionColada>();
+  (coladas ?? []).forEach((c) => cMap.set((c as ProduccionColada).produccion_id, c as ProduccionColada));
+
+  return rows.map((r) => {
+    const c = cMap.get(r.id as string);
+    const d: ColadaDatos = c?.datos ?? {};
+    return {
+      colada_num: c ? Number(c.colada_num) || 0 : 0,
+      fecha: c?.fecha ?? '',
+      almacen_destino: (r.almacen_destino as string) ?? '',
+      total_casiterita: d.total_casiterita ?? null,
+      ley_sn: d.ley_sn ?? null,
+      sn_kg: d.sn_kg ?? null,
+      coque_kg: d.coque_kg ?? null,
+      caco3_kg: d.caco3_kg ?? null,
+      estano_kg: Number(r.cantidad) || 0,
+      n_lingotes: d.n_lingotes ?? null,
+    };
+  }).sort((a, b) => a.colada_num - b.colada_num);
+}
+
 /** Crea el reporte de colada vinculado a una orden de fundición ya creada. */
 export async function crearColada(input: {
   produccionId: string; coladaNum: number; fecha: string; datos: ColadaDatos; actor?: string | null;
