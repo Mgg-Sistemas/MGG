@@ -12,10 +12,10 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { listGrupos, PESO_FACTOR, type RecepcionGrupo } from '@/modules/recepciones/recepciones.repository';
+import { PESO_FACTOR } from '@/modules/recepciones/recepciones.repository';
 import {
   listCasiteritaDetalle, crearCasiteritaDetalle, actualizarCasiteritaDetalle, eliminarCasiteritaDetalle,
-  sugerenciasCasiteritaDesdeGrupo, sugerenciasCasiteritaDesdeCierre, listCierresParaTraer,
+  sugerenciasCasiteritaDesdeCierre, listCierresParaTraer,
   calcPesoCasiterita, calcPesoPuroSn,
   type CasiteritaDetalle, type CasiteritaCategoria, type CasiteritaDetalleInput, type CasiteritaSugerencia, type CierreOpcion,
 } from './casiteritaDetalle.repository';
@@ -337,16 +337,15 @@ type FilaTraer = Omit<CasiteritaSugerencia, 'tasa'> & { incluir: boolean; catego
 function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
   actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const [grupos, setGrupos] = useState<RecepcionGrupo[]>([]);
   const [cierres, setCierres] = useState<CierreOpcion[]>([]);
-  const [sel, setSel] = useState(''); // "grupo:<id>" (abierta) | "cierre:<id>" (cerrada)
+  const [sel, setSel] = useState(''); // "cierre:<id>" (recepción cerrada)
   const [filas, setFilas] = useState<FilaTraer[]>([]);
   const [cargando, setCargando] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listGrupos().then((gs) => setGrupos(gs.filter((g) => !g.es_general))).catch(() => setGrupos([]));
+    // Solo recepciones CERRADAS (las abiertas ya no tienen datos: se vaciaron al cerrar).
     listCierresParaTraer().then(setCierres).catch(() => setCierres([]));
   }, []);
 
@@ -355,8 +354,8 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
     if (!value) return;
     setCargando(true);
     try {
-      const [tipo, id] = value.split(':');
-      const sug = tipo === 'cierre' ? await sugerenciasCasiteritaDesdeCierre(id) : await sugerenciasCasiteritaDesdeGrupo(id);
+      const [, id] = value.split(':'); // value = "cierre:<id>"
+      const sug = await sugerenciasCasiteritaDesdeCierre(id);
       setFilas(sug.map((s) => ({ ...s, incluir: s.peso_neto_kgs > 0, categoria: s.categoria_sug, cant: '1', precinto: '', tasa: s.tasa != null ? numInput(s.tasa) : '' })));
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo leer la recepción'); }
     finally { setCargando(false); }
@@ -364,10 +363,9 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
   const setFila = (i: number, patch: Partial<FilaTraer>) => setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   const aGuardar = filas.filter((f) => f.incluir);
 
-  // grupo_id a guardar para trazabilidad: abierta = el grupo; cerrada = el grupo del cierre.
+  // grupo_id a guardar para trazabilidad: el grupo del cierre seleccionado.
   const grupoIdGuardar = (() => {
     const [tipo, id] = sel.split(':');
-    if (tipo === 'grupo') return id || null;
     if (tipo === 'cierre') return cierres.find((c) => c.id === id)?.grupo_id ?? null;
     return null;
   })();
@@ -400,17 +398,8 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
       <div className="form-row" style={{ maxWidth: 420, marginBottom: '.7rem' }}>
         <label>Recepción</label>
         <select className="select" value={sel} onChange={(e) => void cargarSug(e.target.value)}>
-          <option value="">— elegí una recepción —</option>
-          {grupos.length > 0 && (
-            <optgroup label="Abiertas (en curso)">
-              {grupos.map((g) => <option key={g.id} value={`grupo:${g.id}`}>{g.nombre}</option>)}
-            </optgroup>
-          )}
-          {cierres.length > 0 && (
-            <optgroup label="Cerradas (histórico)">
-              {cierres.map((c) => <option key={c.id} value={`cierre:${c.id}`}>{c.grupo_nombre} · Cierre #{c.numero}</option>)}
-            </optgroup>
-          )}
+          <option value="">— elegí una recepción cerrada —</option>
+          {cierres.map((c) => <option key={c.id} value={`cierre:${c.id}`}>{c.grupo_nombre} · Cierre #{c.numero}</option>)}
         </select>
         <small className="muted" style={{ marginTop: '.25rem' }}>Se trae Peso Neto (seco), Prom SN y la tasa por procedencia; completá categoría y precinto. Incluye recepciones ya <strong>cerradas</strong>.</small>
       </div>
