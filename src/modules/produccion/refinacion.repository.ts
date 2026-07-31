@@ -30,6 +30,7 @@ export function refinacionDatosVacios(): RefinacionDatos {
     coladas: [], estano_crudo_kg: null, pureza_inicial: null,
     metodo_agitacion: '', desespumado: '',
     etapas: ETAPAS_REFINACION.map((etapa) => ({ etapa, hora: '', temp_bano: null, temp_quemador: null, accion: etapa })),
+    fecha_inicio_jornada: '', hora_inicio_jornada: '', fecha_fin_jornada: '', hora_fin_jornada: '', jornada_horas: null,
     hora_inicio_refinacion: '', hora_fin_refinacion: '', hora_inicio_vaciado: '',
     temp_colada: null, tiempo_total_horas: null,
     estano_refinado_kg: null, n_lingotes: null, peso_prom_lingote: null, n_precinto: '',
@@ -232,6 +233,14 @@ export async function listRefinacionesFinalizadasConDatos(): Promise<RefinacionR
       n_lingotes: d.n_lingotes ?? null,
     };
   }).sort((a, b) => a.refinacion_num - b.refinacion_num);
+}
+
+/** Total de lingotes producidos en refinación (Σ N° lingotes de todas las
+ *  refinaciones finalizadas). Es la "segunda medida" (unidades) del stock de
+ *  ESTAÑO REFINADO, que en inventario se lleva en kg. */
+export async function totalLingotesRefinacion(): Promise<number> {
+  const filas = await listRefinacionesFinalizadasConDatos();
+  return filas.reduce((a, f) => a + (Number(f.n_lingotes) || 0), 0);
 }
 
 /** Crea el reporte de refinación vinculado a una orden ya creada. */

@@ -16,6 +16,11 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
   const [movs, setMovs] = useState<Movimiento[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // ESTAÑO EN BRUTO / ESTAÑO REFINADO llevan doble medida: stock en kg + N° lingotes
+  // (Σ lingotes producidos en fundición/refinación). Se carga aparte y solo para ellos.
+  const esBruto = /bruto/i.test(producto.nombre);
+  const esRefinado = /refinad/i.test(producto.nombre);
+  const [lingotes, setLingotes] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,6 +31,16 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [producto.id]);
+
+  useEffect(() => {
+    if (!esBruto && !esRefinado) { setLingotes(null); return; }
+    let cancelled = false;
+    (esBruto
+      ? import('@/modules/produccion/colada.repository').then((m) => m.totalLingotesFundicion())
+      : import('@/modules/produccion/refinacion.repository').then((m) => m.totalLingotesRefinacion())
+    ).then((n) => { if (!cancelled) setLingotes(n); }).catch(() => { if (!cancelled) setLingotes(null); });
+    return () => { cancelled = true; };
+  }, [producto.id, esBruto, esRefinado]);
 
   const totalIn = movs.filter((m) => m.delta > 0).reduce((a, m) => a + m.delta, 0);
   const totalOut = movs.filter((m) => m.delta < 0).reduce((a, m) => a + Math.abs(m.delta), 0);
@@ -91,7 +106,10 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '.5rem' }}>
-          <MiniStat label="Stock actual" value={num(producto.stock)} color="var(--primary-3)" />
+          <MiniStat label={esBruto || esRefinado ? 'Stock (kg)' : 'Stock actual'} value={num(producto.stock)} color="var(--primary-3)" />
+          {(esBruto || esRefinado) && lingotes != null && (
+            <MiniStat label="N° lingotes" value={num(lingotes)} color="var(--primary-3)" />
+          )}
           <MiniStat label="Mínimo" value={num(producto.stock_min)} color="var(--text)" />
           <MiniStat label="Costo inicial" value={costoInicial != null ? money(costoInicial) : '—'} color="var(--text)" />
           <MiniStat label="Costo base (PMP)" value={money(producto.precio)} color="var(--primary-3)" />

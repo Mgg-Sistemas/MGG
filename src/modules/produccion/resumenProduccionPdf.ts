@@ -20,9 +20,9 @@ const FOOT: [number, number, number] = [60, 60, 60];
 function kg(n: number | null | undefined): string {
   return n == null ? '—' : Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 });
 }
-/** % con hasta 2 decimales es-VE; '—' si viene null. */
+/** % con hasta 2 decimales es-VE y símbolo «%»; '—' si viene null. */
 function pct(n: number | null | undefined): string {
-  return n == null ? '—' : Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 });
+  return n == null ? '—' : `${Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 })} %`;
 }
 /** Entero es-VE; '—' si viene null. */
 function entero(n: number | null | undefined): string {

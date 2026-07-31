@@ -106,16 +106,31 @@ export async function listFundicionesFinalizadasConDatos(): Promise<FundicionRes
   const rows = prods ?? [];
   if (!rows.length) return [];
 
-  const { data: coladas } = await supabase
-    .from(TABLE)
-    .select('produccion_id, colada_num, fecha, datos')
-    .in('produccion_id', rows.map((r) => r.id as string));
+  const ids = rows.map((r) => r.id as string);
+  const [{ data: coladas }, { data: mats }] = await Promise.all([
+    supabase.from(TABLE).select('produccion_id, colada_num, fecha, datos').in('produccion_id', ids),
+    supabase.from('produccion_materiales').select('produccion_id, material_nombre, cantidad').in('produccion_id', ids),
+  ]);
   const cMap = new Map<string, ProduccionColada>();
   (coladas ?? []).forEach((c) => cMap.set((c as ProduccionColada).produccion_id, c as ProduccionColada));
+
+  // Fundentes ahora viven en la RECETA (produccion_materiales): se suman por nombre
+  // (case-insensitive) para poblar las columnas Coque / CaCO₃ del resumen.
+  const fund = new Map<string, { coque: number; caco3: number }>();
+  (mats ?? []).forEach((m) => {
+    const pid = m.produccion_id as string;
+    const nombre = String(m.material_nombre ?? '');
+    const cant = Number(m.cantidad) || 0;
+    const acc = fund.get(pid) ?? { coque: 0, caco3: 0 };
+    if (/coque/i.test(nombre)) acc.coque += cant;
+    else if (/caco3|caco₃|caliza|calc[aá]reo|carbonato/i.test(nombre)) acc.caco3 += cant;
+    fund.set(pid, acc);
+  });
 
   return rows.map((r) => {
     const c = cMap.get(r.id as string);
     const d: ColadaDatos = c?.datos ?? {};
+    const f = fund.get(r.id as string) ?? { coque: 0, caco3: 0 };
     return {
       colada_num: c ? Number(c.colada_num) || 0 : 0,
       fecha: c?.fecha ?? '',
@@ -123,12 +138,20 @@ export async function listFundicionesFinalizadasConDatos(): Promise<FundicionRes
       total_casiterita: d.total_casiterita ?? null,
       ley_sn: d.ley_sn ?? null,
       sn_kg: d.sn_kg ?? null,
-      coque_kg: d.coque_kg ?? null,
-      caco3_kg: d.caco3_kg ?? null,
+      coque_kg: d.coque_kg ?? (f.coque || null),
+      caco3_kg: d.caco3_kg ?? (f.caco3 || null),
       estano_kg: Number(r.cantidad) || 0,
       n_lingotes: d.n_lingotes ?? null,
     };
   }).sort((a, b) => a.colada_num - b.colada_num);
+}
+
+/** Total de lingotes producidos en fundición (Σ N° lingotes de todas las coladas
+ *  finalizadas). Es la "segunda medida" (unidades) del stock de ESTAÑO EN BRUTO,
+ *  que en inventario se lleva en kg. */
+export async function totalLingotesFundicion(): Promise<number> {
+  const filas = await listFundicionesFinalizadasConDatos();
+  return filas.reduce((a, f) => a + (Number(f.n_lingotes) || 0), 0);
 }
 
 /** Crea el reporte de colada vinculado a una orden de fundición ya creada. */

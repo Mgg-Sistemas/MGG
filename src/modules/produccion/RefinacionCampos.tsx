@@ -9,6 +9,7 @@ import { useEffect, type CSSProperties } from 'react';
 import { num } from '@/shared/lib/format';
 import type { RefinacionColadaOrigen, RefinacionDatos } from '@/shared/lib/types';
 import type { ColadaFinalizada } from './refinacion.repository';
+import { calcJornadaHoras, fmtJornada } from './colada.repository';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -80,6 +81,14 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
   function setColadaKg(produccionId: string, kg: number) {
     setDatos((p) => ({ ...p, coladas: (p.coladas ?? []).map((c) => c.produccion_id === produccionId ? { ...c, estano_kg: kg } : c) }));
   }
+
+  // Jornada de refinación = (fecha+hora fin) − (fecha+hora inicio). Se calcula sola
+  // y se copia al campo "Turno" (queda editable), igual que en la colada.
+  const jornadaH = calcJornadaHoras(datos.fecha_inicio_jornada, datos.hora_inicio_jornada, datos.fecha_fin_jornada, datos.hora_fin_jornada);
+  useEffect(() => {
+    set('jornada_horas', jornadaH);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jornadaH]);
 
   // Etapas de temperatura (tabla dinámica).
   const etapas = datos.etapas ?? [];
@@ -194,6 +203,36 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
         <div className="form-row">
           <label>Sistema de desespumado / descoriado</label>
           <Chips value={datos.desespumado} options={['Raspado manual de dross', 'Separador mecánico']} onChange={(v) => set('desespumado', v)} />
+        </div>
+      </div>
+
+      {/* Jornada de refinación (inicio/fin + total automático) */}
+      <div style={secStyle}>
+        <div style={tituloSec}>Jornada de refinación</div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Fecha inicio de jornada</label>
+            <input className="input" type="date" value={datos.fecha_inicio_jornada ?? ''} onChange={(e) => set('fecha_inicio_jornada', e.target.value)} />
+          </div>
+          <div className="form-row">
+            <label>Hora inicio de jornada</label>
+            <input className="input" type="time" value={datos.hora_inicio_jornada ?? ''} onChange={(e) => set('hora_inicio_jornada', e.target.value)} />
+          </div>
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Fecha fin de jornada</label>
+            <input className="input" type="date" value={datos.fecha_fin_jornada ?? ''} onChange={(e) => set('fecha_fin_jornada', e.target.value)} />
+          </div>
+          <div className="form-row">
+            <label>Hora fin de jornada</label>
+            <input className="input" type="time" value={datos.hora_fin_jornada ?? ''} onChange={(e) => set('hora_fin_jornada', e.target.value)} />
+          </div>
+        </div>
+        <div className="form-row">
+          <label>Total de jornada (automático)</label>
+          <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
+          <small className="muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de jornada.</small>
         </div>
       </div>
 
