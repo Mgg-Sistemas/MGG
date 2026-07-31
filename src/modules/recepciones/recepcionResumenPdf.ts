@@ -6,7 +6,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import {
-  netoPorProcedenciaGrupo, catLado,
+  netoPorProcedenciaGrupo, catLado, esRecepcionCompartida, SOCIO_COMPARTIDO,
   type RecepcionGrupo, type Recepcion, type RecepcionPesaje, type RecepcionAnalisis, type RecepcionMineral,
   type RecepcionConciliacion, type RecepcionTotales,
 } from './recepciones.repository';
@@ -227,6 +227,32 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = doc.lastAutoTable.finalY + 8;
+
+  // ── DESGLOSE DE KG TOTAL — SOLO recepciones COMPARTIDAS ("EL BURRO": NAVIL / AUTANA) ──
+  // Presentación 50/50 (MGG ↔ socio): la casiterita entra completa; la tasa (un ratio) no
+  // cambia, solo se divide el total en dos mitades. Toma los totales del costo final.
+  const totDesglose = totales[totales.length - 1] ?? null;
+  if (esRecepcionCompartida(grupo.nombre) && totDesglose) {
+    const kgTot = round2(N(totDesglose.total_sno2_final));
+    const valorTot = round2(N(totDesglose.total_moneda_final));
+    const tasaTxt = totDesglose.tasa_final != null ? `$ ${n2(N(totDesglose.tasa_final))}` : '—';
+    autoTable(doc, {
+      startY: y + 10,
+      head: [['DESGLOSE DE KG TOTAL', 'KG', 'TASA', 'VALOR', 'SOCIO']],
+      body: [
+        ['50%', n2(round2(kgTot / 2)), tasaTxt, n2(round2(valorTot / 2)), 'MGG'],
+        ['50%', n2(round2(kgTot / 2)), tasaTxt, n2(round2(valorTot / 2)), SOCIO_COMPARTIDO],
+      ],
+      foot: [['100%', n2(kgTot), tasaTxt, n2(valorTot), 'TOTAL']],
+      styles: { fontSize: 9, cellPadding: 4, halign: 'right', valign: 'middle' },
+      headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 8 },
+      footStyles: { fillColor: [255, 244, 214], textColor: [20, 20, 20], fontStyle: 'bold' },
+      columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: 150 }, 4: { halign: 'left', fontStyle: 'bold' } },
+      margin: { left: MARGIN, right: MARGIN },
+    });
+    // @ts-expect-error lastAutoTable lo agrega el plugin
+    y = doc.lastAutoTable.finalY + 8;
+  }
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
   doc.text(

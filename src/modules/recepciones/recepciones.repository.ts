@@ -1121,6 +1121,19 @@ export const totalMonedaTotal = (centros: CentroTotal[], gastos: number | null):
 /** Tasa recepcionada (promedio de precio de compra) = Total Moneda ÷ Total SnO2. */
 export const tasaRecepcionada = (totalMoneda: number, divisor: number | null): number | null => (num(divisor) !== 0 ? totalMoneda / num(divisor) : null);
 
+/* ───────────── Recepciones COMPARTIDAS 50/50 (MGG ↔ socio) ─────────────
+   Algunas recepciones (las de "EL BURRO": NAVIL y AUTANA) se reparten 50% MGG /
+   50% con un socio. La casiterita entra COMPLETA; la tasa se calcula sobre la
+   MITAD de los Kg y la MITAD de los gastos → da la MISMA tasa (es un ratio), así
+   que NO cambia ningún cálculo: solo se MUESTRA el reparto (desglose). */
+/** Nombre del socio del reparto 50/50 en las recepciones compartidas. */
+export const SOCIO_COMPARTIDO = 'MONTOYA';
+/** ¿La recepción se reparte 50/50? Verdadero si el nombre del grupo/centro contiene
+ *  "BURRO" (las de "EL BURRO"). Solo afecta la PRESENTACIÓN (desglose), no los totales. */
+export function esRecepcionCompartida(nombre?: string | null): boolean {
+  return /burro/i.test(String(nombre ?? ''));
+}
+
 export interface TotalesInput {
   grupo_id: string;
   numero: number;
