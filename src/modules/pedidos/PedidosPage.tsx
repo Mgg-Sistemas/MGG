@@ -2280,6 +2280,13 @@ function OrdenDetailModal({
       toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error');
     }
   }
+  // Comprobante de pago GENERADO (voucher) en vista previa: disponible desde que la
+  // OC está pagada y en el histórico ya finalizada (aunque el pago fuera en efectivo).
+  function handleComprobantePago() {
+    import('./comprobantePagoPdf')
+      .then(({ descargarComprobantePagoPdf }) => descargarComprobantePagoPdf(o.id))
+      .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante de pago', 'error'));
+  }
 
   const buttons = (
     <>
@@ -2402,10 +2409,17 @@ function OrdenDetailModal({
           💳 Indicar método de pago (pagar lo recibido)
         </button>
       )}
-      {/* Comprobante de pago cargado en Tesorería (disponible desde que la OC está pagada). */}
+      {/* Comprobante de pago GENERADO (voucher, vista previa): desde que la OC está pagada
+          y en el histórico finalizada, aun sin factura adjunta (efectivo). */}
+      {o.pagada_en && (
+        <button className="btn btn-ghost" onClick={handleComprobantePago} title="Comprobante de pago de la OC (vista previa)">
+          🧾 Comprobante de pago
+        </button>
+      )}
+      {/* Comprobante/soporte cargado en Tesorería (factura o nota adjunta), si existe. */}
       {o.factura_path && (
-        <button className="btn btn-ghost" onClick={handleComprobante} title={o.factura_nombre ?? 'Comprobante de pago'}>
-          ↓ Comprobante de pago
+        <button className="btn btn-ghost" onClick={handleComprobante} title={o.factura_nombre ?? 'Soporte adjunto'}>
+          📎 Ver soporte adjunto
         </button>
       )}
       {/* OC pagada y aún no recibida (anticipado/contado): ya se puede recibir.
