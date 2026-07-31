@@ -10,6 +10,14 @@ import { recibirCompraDirecta, anularCompraDirecta, type CompraDirecta } from '@
 import { AlmacenPicker } from './AlmacenPicker';
 import type { Almacen, Orden } from '@/shared/lib/types';
 
+/** Sede a la que pertenece un almacén (por su nombre). Si no se encuentra, devuelve
+ *  el propio nombre como respaldo. Se usa para mostrar la SEDE en vez del almacén. */
+function sedeDeAlmacen(nombre: string | null | undefined, almacenes: Almacen[]): string {
+  if (!nombre) return '';
+  const a = almacenes.find((x) => x.nombre === nombre);
+  return a?.sede?.trim() || nombre;
+}
+
 interface RecepcionesPendientesProps {
   ordenes: Orden[];
   /** Compras directas pagadas por Tesorería, pendientes de que el almacenista las reciba. */
@@ -61,7 +69,7 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
                   <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(o.total, o.moneda)}</div>
                 </div>
                 {o.almacen_destino && (
-                  <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 📦 {o.almacen_destino}</div>
+                  <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 🏭 {sedeDeAlmacen(o.almacen_destino, almacenes)}</div>
                 )}
                 <button className="btn btn-sm btn-primary" style={{ marginTop: '.6rem', width: '100%' }} onClick={() => setRecibir(o)}>
                   📦 Recibir / asignar almacén
@@ -113,7 +121,7 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
                   <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(c.gasto, c.moneda)}</div>
                 </div>
                 {c.almacen && (
-                  <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 📦 {c.almacen}</div>
+                  <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 🏭 {sedeDeAlmacen(c.almacen, almacenes)}</div>
                 )}
                 {(() => {
                   // Solo se anula si NO movió dinero: sin egreso de caja y sin cuenta por pagar.
@@ -227,7 +235,7 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
     setSaving(true);
     try {
       await recibirCompraDirecta({ compra, almacen: almacenFinal, actor, actorName });
-      notify(`Compra directa ${compra.codigo ?? ''} recibida → 📦 ${almacenFinal}`, 'success', { link: '#/app/inventario' });
+      notify(`Compra directa ${compra.codigo ?? ''} recibida → 🏭 ${sedeDeAlmacen(almacenFinal, almacenes)}`, 'success', { link: '#/app/inventario' });
       toast('Materiales ingresados al inventario', 'success');
       onSaved();
     } catch (err) {
@@ -319,7 +327,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
     setSaving(true);
     try {
       await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName ?? null, almacenFinal);
-      notify(`Recepción registrada: ${orden.oc_codigo ?? orden.codigo} → 📦 ${almacenFinal}`, 'success', { link: '#/app/inventario' });
+      notify(`Recepción registrada: ${orden.oc_codigo ?? orden.codigo} → 🏭 ${sedeDeAlmacen(almacenFinal, almacenes)}`, 'success', { link: '#/app/inventario' });
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar la recepción.');

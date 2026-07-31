@@ -81,6 +81,13 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
   const addBag = () => setDatos((p) => ({ ...p, big_bags: [...(p.big_bags ?? []), { kg: null, precinto: '' }] }));
   const delBag = (i: number) => setDatos((p) => ({ ...p, big_bags: (p.big_bags ?? []).filter((_, k) => k !== i) }));
 
+  // Lecturas de temperatura del proceso (tabla dinámica: cada ~1 h).
+  const temperaturas = datos.temperaturas ?? [];
+  const setTemp = (i: number, patch: Partial<(typeof temperaturas)[number]>) =>
+    setDatos((p) => ({ ...p, temperaturas: (p.temperaturas ?? []).map((t, k) => k === i ? { ...t, ...patch } : t) }));
+  const addTemp = () => setDatos((p) => ({ ...p, temperaturas: [...(p.temperaturas ?? []), { hora: '', temp_int: null, temp_ext: null, obs: '' }] }));
+  const delTemp = (i: number) => setDatos((p) => ({ ...p, temperaturas: (p.temperaturas ?? []).filter((_, k) => k !== i) }));
+
   return (
     <div className="card" style={{ padding: '.85rem', margin: '.5rem 0 .2rem', borderLeft: '3px solid var(--primary)' }}>
       <div style={{ fontWeight: 700, marginBottom: '.6rem' }}>🔥 Reporte de colada <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>· MGG-FR-001 (horno de fundición primaria)</span></div>
@@ -112,9 +119,11 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         </div>
       </div>
 
-      {/* Materias primas */}
+      {/* Casiterita (big bags) y ley — análisis para el reporte. Los fundentes (coque,
+          otro fundente, CaCO₃) ya NO se cargan acá: van como insumos de la RECETA
+          ("Materiales a utilizar" del modal), que se consumen del inventario. */}
       <div style={secStyle}>
-        <div style={tituloSec}>Materias primas</div>
+        <div style={tituloSec}>Casiterita (big bags) y ley</div>
 
         <label style={{ fontSize: '.8rem', fontWeight: 600 }}>Big bags de casiterita</label>
         <div style={{ display: 'grid', gap: '.4rem', margin: '.35rem 0 .5rem' }}>
@@ -141,47 +150,9 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
             <small className="muted" style={{ fontSize: '.7rem' }}>Sn contenido ≈ <strong>{snKg} kg</strong></small>
           </div>
         </div>
-
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Coque (kg)</label>
-            <input className="input mono" type="number" step="any" value={numVal(datos.coque_kg)} onChange={(e) => set('coque_kg', toNum(e.target.value))} style={numInput} />
-          </div>
-          <div className="form-row">
-            <label>Proveedor de coque</label>
-            <Chips value={datos.coque_proveedor} options={['CARBOMORCA', 'CIVCA']} onChange={(v) => set('coque_proveedor', v)} />
-          </div>
-        </div>
-        <div className="form-row">
-          <label>Granulometría coque</label>
-          <Chips value={datos.coque_granulometria} options={['2–6 mm', '25–50 mm', '25–100 mm']} onChange={(v) => set('coque_granulometria', v)} />
-        </div>
-
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Otro fundente</label>
-            <input className="input" value={datos.otro_fundente ?? ''} onChange={(e) => set('otro_fundente', e.target.value)} placeholder="Ej.: Pirulita" />
-          </div>
-          <div className="form-row">
-            <label>Otro fundente (kg)</label>
-            <input className="input mono" type="number" step="any" value={numVal(datos.otro_fundente_kg)} onChange={(e) => set('otro_fundente_kg', toNum(e.target.value))} style={numInput} />
-          </div>
-        </div>
-
-        <div className="form-grid">
-          <div className="form-row">
-            <label>CaCO₃ (tipo)</label>
-            <input className="input" value={datos.caco3_tipo ?? ''} onChange={(e) => set('caco3_tipo', e.target.value)} placeholder="Ej.: Caliza" />
-          </div>
-          <div className="form-row">
-            <label>CaCO₃ (kg)</label>
-            <input className="input mono" type="number" step="any" value={numVal(datos.caco3_kg)} onChange={(e) => set('caco3_kg', toNum(e.target.value))} style={numInput} />
-          </div>
-        </div>
-        <div className="form-row">
-          <label>Granulometría CaCO₃ (malla)</label>
-          <Chips value={datos.caco3_granulometria} options={['4', '6', '10', '20', '200']} onChange={(v) => set('caco3_granulometria', v)} />
-        </div>
+        <small className="muted" style={{ fontSize: '.72rem' }}>
+          Los <strong>fundentes</strong> (coque, otro fundente, CaCO₃…) se cargan arriba en <strong>«Materiales a utilizar (receta)»</strong> y se consumen del inventario.
+        </small>
       </div>
 
       {/* Proceso */}
@@ -246,6 +217,40 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
           </div>
         </div>
       </div>
+
+      {/* Control de temperatura del proceso — lecturas dinámicas */}
+      <details style={{ ...secStyle, marginTop: '.8rem', marginBottom: 0 }} open={temperaturas.length > 0}>
+        <summary style={{ ...tituloSec, marginBottom: 0, cursor: 'pointer' }}>Lecturas de temperatura del proceso (cada ~1 h · se puede llenar durante la colada)</summary>
+        <div style={{ marginTop: '.55rem' }}>
+          <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}>
+            <table className="table" style={{ fontSize: '.8rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 24 }}>N°</th>
+                  <th>Hora</th>
+                  <th style={{ textAlign: 'right' }}>T. int. (°C)</th>
+                  <th style={{ textAlign: 'right' }}>T. ext. (°C)</th>
+                  <th>Observación / acción</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {temperaturas.map((t, i) => (
+                  <tr key={i}>
+                    <td className="mono">{i + 1}</td>
+                    <td><input className="input" value={t.hora ?? ''} onChange={(e) => setTemp(i, { hora: e.target.value })} placeholder="HH:MM" style={{ minWidth: 72 }} /></td>
+                    <td style={{ textAlign: 'right' }}><input className="input mono" type="number" step="any" value={t.temp_int ?? ''} onChange={(e) => setTemp(i, { temp_int: toNum(e.target.value) })} style={{ ...numInput, width: 84 }} /></td>
+                    <td style={{ textAlign: 'right' }}><input className="input mono" type="number" step="any" value={t.temp_ext ?? ''} onChange={(e) => setTemp(i, { temp_ext: toNum(e.target.value) })} style={{ ...numInput, width: 84 }} /></td>
+                    <td><input className="input" value={t.obs ?? ''} onChange={(e) => setTemp(i, { obs: e.target.value })} placeholder="Observación / acción" /></td>
+                    <td><button type="button" className="btn btn-sm btn-ghost" onClick={() => delTemp(i)} style={{ color: 'var(--danger)' }}>✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={addTemp} style={{ marginTop: '.4rem' }}>＋ Lectura de temperatura</button>
+        </div>
+      </details>
     </div>
   );
 }

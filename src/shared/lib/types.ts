@@ -1249,6 +1249,12 @@ export interface RefinacionDatos {
   desespumado?: string;              // Raspado manual de dross | Separador mecánico
   // Etapas / control de temperatura
   etapas?: RefinacionEtapa[];
+  // Jornada de refinación (inicio/fin + total automático)
+  fecha_inicio_jornada?: string;     // yyyy-mm-dd
+  hora_inicio_jornada?: string;      // HH:mm
+  fecha_fin_jornada?: string;        // yyyy-mm-dd
+  hora_fin_jornada?: string;         // HH:mm
+  jornada_horas?: number | null;     // (fecha+hora fin) − (fecha+hora inicio), en horas
   // Tiempos de colada y moldeo de lingotes (al finalizar)
   hora_inicio_refinacion?: string;
   hora_fin_refinacion?: string;
