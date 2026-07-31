@@ -12,6 +12,7 @@ import {
 import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import { generarFrenteBlob, generarReversoBlob, descargarCarnet } from './carnetImagen';
+import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
@@ -101,6 +102,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
   const [carnetPersona, setCarnetPersona] = useState<Personal | null>(null);
+  const [constanciaPersona, setConstanciaPersona] = useState<Personal | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [cargos, setCargos] = useState<string[]>([]);
   const [departamentos, setDepartamentos] = useState<string[]>([]);
@@ -192,6 +194,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: p.activo ? 'var(--success)' : 'var(--muted)' }}>{p.activo ? 'Activo' : 'Inactivo'}</span></td>
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => setCarnetPersona(p)} title="Carnet (imagen con QR)">🪪</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
@@ -282,7 +285,60 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
 
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {carnetPersona && <CarnetModal persona={carnetPersona} onClose={() => setCarnetPersona(null)} />}
+      {constanciaPersona && <ConstanciaModal persona={constanciaPersona} onClose={() => setConstanciaPersona(null)} />}
     </div>
+  );
+}
+
+/* ───────── Constancia de trabajo (PDF, vista previa) ───────── */
+function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
+  const [dirigidoA, setDirigidoA] = useState('A quien pueda interesar');
+  const [lugar, setLugar] = useState('Puerto Ordaz, Estado Bolívar');
+  const [incluirSalario, setIncluirSalario] = useState(true);
+  const [generando, setGenerando] = useState(false);
+
+  const faltan: string[] = [];
+  if (!persona.cedula) faltan.push('cédula');
+  if (!persona.cargo) faltan.push('cargo');
+  if (!persona.fecha_ingreso) faltan.push('fecha de ingreso');
+
+  async function generar() {
+    setGenerando(true);
+    try {
+      await descargarConstanciaTrabajoPdf(persona, { dirigidoA: dirigidoA.trim() || 'A quien pueda interesar', lugar: lugar.trim() || 'Puerto Ordaz, Estado Bolívar', incluirSalario });
+      onClose();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar la constancia', 'error'); }
+    finally { setGenerando(false); }
+  }
+
+  return (
+    <Modal title={`Constancia de trabajo · ${persona.nombre} ${persona.apellido}`} size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={generando}>Cancelar</button>
+        <button className="btn btn-primary" onClick={generar} disabled={generando}>{generando ? 'Generando…' : '📄 Ver constancia (vista previa)'}</button>
+      </>
+    }>
+      {faltan.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.7rem', fontSize: '.85rem' }}>
+          ⚠️ Este registro no tiene <strong>{faltan.join(', ')}</strong>. Podés generarla igual (esos datos se omiten) o completarlos primero con ✎ Editar.
+        </div>
+      )}
+      <div className="form-row">
+        <label>Dirigida a</label>
+        <input className="input" value={dirigidoA} onChange={(e) => setDirigidoA(e.target.value)} placeholder="A quien pueda interesar" />
+      </div>
+      <div className="form-row">
+        <label>Lugar de emisión</label>
+        <input className="input" value={lugar} onChange={(e) => setLugar(e.target.value)} placeholder="Puerto Ordaz, Estado Bolívar" />
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.9rem', marginTop: '.3rem' }}>
+        <input type="checkbox" checked={incluirSalario} onChange={(e) => setIncluirSalario(e.target.checked)} />
+        Incluir el <strong>sueldo mensual</strong> {Number(persona.sueldo_base) > 0 ? <span className="mono muted">({money(persona.sueldo_base)})</span> : <span className="muted">(sin sueldo cargado)</span>}
+      </label>
+      <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
+        La fecha de emisión es la de hoy. El documento se abre en <strong>vista previa</strong> para revisar/imprimir.
+      </small>
+    </Modal>
   );
 }
 
