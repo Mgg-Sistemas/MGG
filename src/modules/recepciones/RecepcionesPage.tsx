@@ -1452,7 +1452,7 @@ function TotalesModal({ grupoId, totales, recepciones, canWrite, actor, miNombre
   );
 }
 
-function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoSecoSum, netoHumedoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onCancel, onSaved }: {
+function TotalesEditorModal({ grupoId, totales, recepciones, defaultNumero, actor, miNombre, canWrite, netoHumedoSum, subtotalesProc, mermaHumProv, mermaHumFinal, onCancel, onSaved }: {
   grupoId: string; totales: RecepcionTotales | null; recepciones: Recepcion[]; defaultNumero: number;
   actor: string; miNombre: string; canWrite: boolean; netoSecoSum: number; netoHumedoSum: number; subtotalesProc: Array<{ proc: string; kg: number }>;
   mermaHumProv: number; mermaHumFinal: number; onCancel: () => void; onSaved: () => void;

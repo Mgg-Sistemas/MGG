@@ -1,24 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 
 /* ============================================================
-   Detección de despliegue real (cambio en la rama main).
-   El build hornea VITE_APP_VERSION (hash del commit) y emite
-   `version.json`. El cliente consulta ese archivo cada minuto;
-   si la versión del servidor difiere de la horneada, hubo un
-   despliegue nuevo → se avisa. Si el cron solo hizo un pull sin
-   cambios, el hash es el mismo y no se avisa nada.
+   Detección de despliegue REAL (cambió el bundle que corre el
+   navegador), no de cualquier commit.
+   El build emite `version.json` con una HUELLA del contenido
+   servido (nombres hasheados de los .js/.css). El cliente lee
+   esa huella al cargar (línea base = lo que corre esta pestaña)
+   y la consulta cada minuto; si difiere de la línea base, se
+   publicó una versión nueva del front → se avisa. Un commit que
+   solo toca manual/SQL/docs NO cambia la huella → no se avisa.
    ============================================================ */
 
 const POLL_MS = 60_000; // un chequeo por minuto
 
 export function useVersionCheck(): { hayActualizacion: boolean } {
-  const actual = (import.meta.env.VITE_APP_VERSION ?? '').trim();
   const [hayActualizacion, setHay] = useState(false);
+  const baseline = useRef<string | null>(null); // huella que corre esta pestaña
   const detectado = useRef(false);
 
   useEffect(() => {
-    // Sin versión horneada (modo dev) no tiene sentido chequear.
-    if (!actual) return;
+    // En dev no hay version.json ni despliegues: no tiene sentido chequear.
+    if (!import.meta.env.PROD) return;
     let timer: number | undefined;
 
     async function chequear() {
@@ -29,7 +31,12 @@ export function useVersionCheck(): { hayActualizacion: boolean } {
         if (!res.ok) return;
         const data = (await res.json()) as { version?: string };
         const remota = (data?.version ?? '').trim();
-        if (remota && remota !== actual) {
+        if (!remota) return;
+        if (baseline.current === null) {
+          baseline.current = remota; // primera lectura = versión que corre esta pestaña
+          return;
+        }
+        if (remota !== baseline.current) {
           detectado.current = true; // ya lo sabemos; dejamos de consultar
           setHay(true);
         }
@@ -52,7 +59,7 @@ export function useVersionCheck(): { hayActualizacion: boolean } {
       if (timer) window.clearTimeout(timer);
       window.removeEventListener('focus', onFocus);
     };
-  }, [actual]);
+  }, []);
 
   return { hayActualizacion };
 }
