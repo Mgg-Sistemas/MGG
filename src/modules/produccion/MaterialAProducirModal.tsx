@@ -5,7 +5,8 @@ import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
 import { getUnidades, updateProducto } from '@/modules/inventario/inventario.repository';
-import { AlmacenPicker, AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
+import { AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
+import { listAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
 import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput, type ProduccionTipo } from './produccion.repository';
 import { crearHorno } from './hornos.repository';
 import { ColadaCampos } from './ColadaCampos';
@@ -48,6 +49,11 @@ const CONCEPTOS_INDIRECTOS = [
   'COMBUSTIBLE UTILIZADO: GAS', 'INSUMOS Y REPUESTOS', 'PERSONAL (FUNDIDORES)', 'LOGÍSTICA',
   'ELECTRICIDAD', 'MATERIALES DE OFICINA', 'CONSUMIBLES VARIOS', 'SOLVENTES Y DESENGRASANTES',
 ] as const;
+
+// El producto de fundición/refinación va SIEMPRE a un destino fijo en Matanzas.
+const SEDE_FUNDICION = 'CENTRO DE FUNDICION - MATANZAS';
+const PROD_FUNDICION = 'ESTAÑO EN BRUTO';   // resultado de toda fundición (se acumula)
+const PROD_REFINACION = 'ESTAÑO REFINADO';  // resultado de toda refinación
 
 export function MaterialAProducirModal({
   tipo = 'fundicion', productos, existencias, almacenesList, hornosList, actor, actorName, initialProductoId, onClose, onCreated, onProductosChanged, onHornosChanged,
@@ -146,6 +152,24 @@ export function MaterialAProducirModal({
   const indirectosTotal = CONCEPTOS_INDIRECTOS.reduce((a, c) => a + (Number(indirectos[c]) || 0), 0);
   const setIndirecto = (c: string, v: string) => setIndirectos((p) => ({ ...p, [c]: v }));
   const [margen, setMargen] = useState('30'); // margen bruto % sobre el precio de venta
+
+  // Destino FIJO: fundición → "ESTAÑO EN BRUTO"; refinación → "ESTAÑO REFINADO" (sede Matanzas).
+  // Se ocultan los selectores de "Producto a producir" y de sede/almacén.
+  const nombreFijo = esRef ? PROD_REFINACION : PROD_FUNDICION;
+  useEffect(() => {
+    setAlmacenDestino(nombreFijo);
+    const ex = productos.find((p) => (p.nombre ?? '').trim().toUpperCase() === nombreFijo && p.es_producible);
+    if (ex) { setModoOutput('existente'); setProductoSelId(ex.id); }
+    else { setModoOutput('nuevo'); setNombreNuevo(nombreFijo); setUnidadNuevo('KILOGRAMO'); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [esRef, productos]);
+  /** Crea la fila del almacén fijo (sede Matanzas) si aún no existe, para que el switch lo vea. */
+  async function asegurarAlmacenFijo() {
+    try {
+      const alms = await listAlmacenes();
+      if (!alms.some((a) => a.nombre === nombreFijo)) await crearAlmacen({ nombre: nombreFijo, sede: SEDE_FUNDICION }, actor);
+    } catch { /* si falla, la existencia igual se crea al entrar el stock */ }
+  }
 
   // Checklist de materiales
   const [rows, setRows] = useState<Record<string, MatRow>>(() =>
@@ -374,6 +398,9 @@ export function MaterialAProducirModal({
         : [];
       const matInput: MaterialInput[] = [...crudoInput, ...reactivoInput];
 
+      // Asegura la fila del almacén fijo (Matanzas) para que aparezca en el switch.
+      await asegurarAlmacenFijo();
+
       const prod = await crearProduccion({
         producto_id: productoId,
         producto_nombre: productoNombre,
@@ -491,41 +518,16 @@ export function MaterialAProducirModal({
           </div>
         </div>
 
-        {/* Qué producir */}
-        <div className="form-row">
-          <label>Producto a producir</label>
-          <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.4rem' }}>
-            <button type="button" className={`btn btn-sm ${modoOutput === 'existente' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setModoOutput('existente')} disabled={!producibles.length}>
-              Existente
-            </button>
-            <button type="button" className={`btn btn-sm ${modoOutput === 'nuevo' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setModoOutput('nuevo')}>
-              Nuevo
-            </button>
-          </div>
-          {modoOutput === 'existente' ? (
-            <SearchSelect value={productoSelId} onChange={setProductoSelId}
-              options={producibles.map((p) => ({ value: p.id, label: `${p.nombre}${p.precio_venta != null ? ` · venta ${money(p.precio_venta)}` : ''}` }))}
-              placeholder="🔎 Buscá el producto…" emptyText="Sin productos." />
-          ) : (
-            <div className="form-grid">
-              <input className="input" placeholder="Nombre del producto a producir" value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value.toUpperCase())} />
-              <SearchSelect options={opcionesUnidad} value={unidadNuevo} onChange={setUnidadNuevo} placeholder="Unidad…" />
-            </div>
-          )}
-          {modoOutput === 'nuevo' && (
-            <small className="muted" style={{ fontSize: '.72rem' }}>Se guarda en el catálogo para próximas producciones.</small>
-          )}
+        {/* Destino FIJO (no editable): fundición → ESTAÑO EN BRUTO; refinación → ESTAÑO REFINADO (Matanzas). */}
+        <div className="card" style={{ padding: '.6rem .85rem', marginBottom: '.6rem', background: 'var(--bg-1)', borderLeft: '3px solid var(--primary)' }}>
+          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Entra al inventario como</div>
+          <div style={{ fontWeight: 700 }}>{nombreFijo} <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>· almacén {nombreFijo} · Matanzas · se acumula</span></div>
         </div>
 
-        <div className="form-grid">
-          <div className="form-row">
-            <label>{esRef ? 'Cantidad refinada (kg)' : 'Cantidad producida'}</label>
-            <input className="input mono" type="number" min={esRef ? 0 : 1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} disabled={esRef} required />
-            {esRef && <small className="muted" style={{ fontSize: '.7rem' }}>Σ coladas seleccionadas. Al finalizar se ajusta al estaño refinado obtenido.</small>}
-          </div>
-          <div className="form-row">
-            <AlmacenPicker value={almacenDestino} onChange={setAlmacenDestino} sedeLabel="Sede destino" label="Almacén destino" />
-          </div>
+        <div className="form-row">
+          <label>{esRef ? 'Cantidad refinada (kg)' : 'Cantidad producida'}</label>
+          <input className="input mono" type="number" min={esRef ? 0 : 1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} disabled={esRef} required style={{ maxWidth: 220 }} />
+          {esRef && <small className="muted" style={{ fontSize: '.7rem' }}>Σ material seleccionado. Al finalizar se ajusta al estaño refinado obtenido.</small>}
         </div>
 
         {/* Horno a utilizar */}
