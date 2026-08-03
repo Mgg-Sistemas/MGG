@@ -363,11 +363,16 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
   const setFila = (i: number, patch: Partial<FilaTraer>) => setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   const aGuardar = filas.filter((f) => f.incluir);
 
-  // grupo_id a guardar para trazabilidad: el grupo del cierre seleccionado.
-  const grupoIdGuardar = (() => {
+  // Trazabilidad del cierre seleccionado: grupo_id (tarjeta) + cierre_id (recepción puntual).
+  // El cierre_id se guarda en cada fila para poder excluir la recepción del selector una
+  // vez usada (no se vuelve a traer lo ya cargado).
+  const { grupoIdGuardar, cierreIdGuardar } = (() => {
     const [tipo, id] = sel.split(':');
-    if (tipo === 'cierre') return cierres.find((c) => c.id === id)?.grupo_id ?? null;
-    return null;
+    if (tipo === 'cierre') {
+      const c = cierres.find((x) => x.id === id);
+      return { grupoIdGuardar: c?.grupo_id ?? null, cierreIdGuardar: c?.id ?? null };
+    }
+    return { grupoIdGuardar: null, cierreIdGuardar: null };
   })();
 
   async function guardar() {
@@ -377,7 +382,7 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
       for (const f of aGuardar) {
         const cant = (parseNum(f.cant) ?? 0) > 0 ? Math.floor(parseNum(f.cant) as number) : 1;
         await crearCasiteritaDetalle({
-          grupo_id: grupoIdGuardar, procedencia: f.procedencia, precinto: f.precinto, n_analisis: f.n_analisis,
+          grupo_id: grupoIdGuardar, cierre_id: cierreIdGuardar, procedencia: f.procedencia, precinto: f.precinto, n_analisis: f.n_analisis,
           categoria: f.categoria, cant, peso_neto_kgs: f.peso_neto_kgs, prom_sn: f.prom_sn, tasa: parseNum(f.tasa),
         }, actor, actorName);
       }
