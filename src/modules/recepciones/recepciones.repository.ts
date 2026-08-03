@@ -989,16 +989,19 @@ async function entrarResguardo(cantidadKg: number, almacen: string, refId: strin
 
 /** Entrada del TOTAL NETO seco (Σ pesajes) al inventario REAL, valuado a la TASA FINAL de Totales.
  *  Se dispara al CERRAR la recepción, en el almacén/subalmacén asignado en el cierre.
- *  precio_unitario = tasa → recalcula el PMP del almacén con ese costo. */
-async function entrarNetoSeco(cantidadKg: number, almacen: string, tasa: number, refId: string | null, actor: string, actorName: string | null, nombreCentro?: string | null): Promise<string> {
+ *  precio_unitario = tasa → recalcula el PMP del almacén con ese costo.
+ *  Si es COMPARTIDA (EL BURRO 50/50): entran TODOS los Kg (delta = 100%) pero solo
+ *  la MITAD de la mercancía toma la tasa → precio_unitario = tasa/2 (valor = Kg/2 × tasa). */
+async function entrarNetoSeco(cantidadKg: number, almacen: string, tasa: number, refId: string | null, actor: string, actorName: string | null, nombreCentro?: string | null, compartida = false): Promise<string> {
   const productoId = await productoResguardoId(almacen);
   const centro = nombreCentro?.toString().trim();
+  const precioUnit = compartida ? num(tasa) / 2 : num(tasa);
   const mov = await registrarMovimiento({
     producto_id: productoId, tipo: 'entrada', delta: num(cantidadKg), almacen,
     actor, actor_name: actorName ?? null,
     ref_tipo: 'recepcion_neto_seco', ref_id: refId,
-    detalle: `Neto seco al cerrar la recepción${centro ? ` · ${centro}` : ''} a ${tasa} USD/Kg`,
-    precio_unitario: num(tasa) > 0 ? num(tasa) : null,
+    detalle: `Neto seco al cerrar la recepción${centro ? ` · ${centro}` : ''} a ${tasa} USD/Kg${compartida ? ' (compartida 50/50: costo sobre la mitad)' : ''}`,
+    precio_unitario: precioUnit > 0 ? precioUnit : null,
   });
   return mov.id;
 }
@@ -1123,13 +1126,17 @@ export const tasaRecepcionada = (totalMoneda: number, divisor: number | null): n
 
 /* ───────────── Recepciones COMPARTIDAS 50/50 (MGG ↔ socio) ─────────────
    Algunas recepciones (las de "EL BURRO": NAVIL y AUTANA) se reparten 50% MGG /
-   50% con un socio. La casiterita entra COMPLETA; la tasa se calcula sobre la
-   MITAD de los Kg y la MITAD de los gastos → da la MISMA tasa (es un ratio), así
-   que NO cambia ningún cálculo: solo se MUESTRA el reparto (desglose). */
+   50% con un socio (MONTOYA). Regla: la casiterita entra COMPLETA al inventario
+   (100% de los Kg), PERO solo la MITAD de la mercancía se le toma la tasa/costo
+   (la otra mitad es del socio). La tasa mostrada por Kg NO cambia (es la misma
+   para ambas mitades); lo que cambia es el VALOR que MGG asume en inventario:
+   valor = (Kg/2) × tasa  ⇒  al PMP se le pasa precio_unitario = tasa/2 sobre el
+   100% de los Kg. El desglose 50/50 en pantalla/PDF sigue mostrando la misma tasa. */
 /** Nombre del socio del reparto 50/50 en las recepciones compartidas. */
 export const SOCIO_COMPARTIDO = 'MONTOYA';
 /** ¿La recepción se reparte 50/50? Verdadero si el nombre del grupo/centro contiene
- *  "BURRO" (las de "EL BURRO"). Solo afecta la PRESENTACIÓN (desglose), no los totales. */
+ *  "BURRO" (las de "EL BURRO"). Afecta la PRESENTACIÓN (desglose) y el COSTEO al
+ *  inventario (la mitad de la mercancía toma la tasa). */
 export function esRecepcionCompartida(nombre?: string | null): boolean {
   return /burro/i.test(String(nombre ?? ''));
 }
@@ -1253,7 +1260,7 @@ export async function crearCierre(
   const tasaFinal = num(input.tasaFinal);
   const almacenNeto = input.almacenNeto?.trim() || null;
   if (netoSeco > 0 && tasaFinal > 0 && almacenNeto) {
-    netoSecoMovId = await entrarNetoSeco(netoSeco, almacenNeto, tasaFinal, null, actor, actorName ?? null, input.grupoNombre);
+    netoSecoMovId = await entrarNetoSeco(netoSeco, almacenNeto, tasaFinal, null, actor, actorName ?? null, input.grupoNombre, esRecepcionCompartida(input.grupoNombre));
   }
   // 2) Snapshot del cierre (con la trazabilidad de la entrada al inventario).
   const row = {

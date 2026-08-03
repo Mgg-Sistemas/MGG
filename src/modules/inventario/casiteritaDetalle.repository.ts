@@ -35,6 +35,7 @@ export function calcPesoPuroSn(prom: number | null | undefined, pesoCasiterita: 
 export interface CasiteritaDetalle {
   id: string;
   grupo_id: string | null;
+  cierre_id: string | null;
   procedencia: string;
   precinto: string | null;
   n_analisis: string | null;
@@ -55,6 +56,7 @@ export interface CasiteritaDetalle {
 
 export interface CasiteritaDetalleInput {
   grupo_id?: string | null;
+  cierre_id?: string | null;
   procedencia: string;
   precinto?: string | null;
   n_analisis?: string | null;
@@ -75,6 +77,7 @@ function normalizar(input: CasiteritaDetalleInput) {
   const prom = input.prom_sn == null || !Number.isFinite(Number(input.prom_sn)) ? null : round2(Number(input.prom_sn));
   return {
     grupo_id: input.grupo_id ?? null,
+    cierre_id: input.cierre_id ?? null,
     procedencia: (input.procedencia ?? '').trim().toUpperCase(),
     precinto: input.precinto?.toString().trim() || null,
     n_analisis: input.n_analisis?.toString().trim() || null,
@@ -224,14 +227,22 @@ export async function sugerenciasCasiteritaDesdeCierre(cierreId: string): Promis
   );
 }
 
-/** Opciones de recepciones CERRADAS para el selector «Traer desde recepción». */
+/** Opciones de recepciones CERRADAS para el selector «Traer desde recepción».
+ *  Se EXCLUYEN las que ya fueron traídas al detallado (tienen filas con ese cierre_id),
+ *  para que el usuario no vuelva a cargar una recepción ya usada. */
 export interface CierreOpcion { id: string; numero: number; grupo_nombre: string; grupo_id: string | null; fecha: string; }
 export async function listCierresParaTraer(): Promise<CierreOpcion[]> {
-  const { data, error } = await supabase
-    .from('recepcion_cierres').select('id, numero, grupo_nombre, grupo_id, fecha').order('numero', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map((r) => {
-    const c = r as CierreOpcion;
-    return { id: c.id, numero: Number(c.numero) || 0, grupo_nombre: c.grupo_nombre ?? '', grupo_id: c.grupo_id ?? null, fecha: c.fecha ?? '' };
-  });
+  const [cierresRes, usadosRes] = await Promise.all([
+    supabase.from('recepcion_cierres').select('id, numero, grupo_nombre, grupo_id, fecha').order('numero', { ascending: false }),
+    supabase.from('casiterita_detalle').select('cierre_id').not('cierre_id', 'is', null),
+  ]);
+  if (cierresRes.error) throw cierresRes.error;
+  if (usadosRes.error) throw usadosRes.error;
+  const usados = new Set((usadosRes.data ?? []).map((r) => (r as { cierre_id: string | null }).cierre_id).filter(Boolean) as string[]);
+  return (cierresRes.data ?? [])
+    .map((r) => {
+      const c = r as CierreOpcion;
+      return { id: c.id, numero: Number(c.numero) || 0, grupo_nombre: c.grupo_nombre ?? '', grupo_id: c.grupo_id ?? null, fecha: c.fecha ?? '' };
+    })
+    .filter((c) => !usados.has(c.id));
 }
