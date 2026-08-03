@@ -355,7 +355,8 @@ export function sectoresPorDefecto(): SectorResumen[] {
       nombre: 'SECTOR GT PERAMANAL', color: '#fde68a', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
       // Saldo $USD y Precio Promedio del sector = Saldo de caja y Tasa del material de la caja
       // PERAMANAL de ESTE sistema (Centro de Costo PERAMANAL / caja P-MGG09), en vivo.
-      fuente_saldo: { sistema: 'mgg-centro-saldo', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Saldo de caja $USD (acopio PERAMANAL)' },
+      // Saldo de caja $USD = de GOLDEN TOUCH en vivo (saldo de su caja abierta: entregado − casiterita − gastos − nómina − traslados). Hoy 0,00.
+      fuente_saldo: { sistema: 'golden-touch', metrica: 'acopio_saldo_usd', label: 'Golden Touch · Saldo de caja $USD (caja abierta)' },
       // Tasa del material = de GOLDEN TOUCH en vivo (Σ usd_entregado ÷ Σ kg_cerrados de su caja abierta). Hoy 19,02.
       fuente_precio: { sistema: 'golden-touch', metrica: 'acopio_tasa_material', label: 'Golden Touch · Tasa del material $/Kg (caja abierta)' },
       centros: [
