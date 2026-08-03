@@ -551,6 +551,54 @@ export async function listAliadoCierres(aliadoId: string): Promise<AliadoCierre[
   return (data ?? []) as AliadoCierre[];
 }
 
+/* ───────────── Histórico de vaciados del aliado (snapshot + reset a 0) ───────────── */
+
+/** Un archivo histórico de un aliado que se vació: totales + snapshot de sus movimientos. */
+export interface AliadoHistorico {
+  id: string;
+  aliado_id: string;
+  aliado_nombre: string;
+  centro_nombre: string | null;
+  fecha_archivado: string;
+  motivo: string | null;
+  total_entregado: number;
+  total_facturado: number;
+  total_gastos: number;
+  total_kg_cerrados: number;
+  total_kg_recibidos: number;
+  saldo_usd: number;
+  saldo_kg: number;
+  n_movimientos: number;
+  movimientos: AliadoMovimiento[];
+  archivado_por: string | null;
+  actor_name: string | null;
+  created_at: string;
+}
+
+/** Lista los archivos históricos del aliado (más reciente primero). */
+export async function listAliadoHistorico(aliadoId: string): Promise<AliadoHistorico[]> {
+  const { data, error } = await supabase
+    .from('acopio_aliado_historico').select('*').eq('aliado_id', aliadoId)
+    .order('fecha_archivado', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as AliadoHistorico[];
+}
+
+/**
+ * VACÍA el libro de un aliado dejándolo en 0, guardando ANTES un snapshot completo de
+ * sus movimientos + totales en el histórico (acopio_aliado_historico). Además SALDA su
+ * cuenta por cobrar en Tesorería (Σ usd_entregado restante = 0). Todo atómico vía RPC.
+ * Devuelve el id del histórico creado. NO revierte los reflejos ya hechos en la caja
+ * general ni en el inventario (esos movimientos realmente ocurrieron).
+ */
+export async function archivarYVaciarAliado(aliadoId: string, actor: string, actorName?: string | null): Promise<string> {
+  const { data, error } = await supabase.rpc('archivar_y_vaciar_aliado', {
+    p_aliado_id: aliadoId, p_actor: actor, p_actor_name: actorName ?? null,
+  });
+  if (error) throw new Error(error.message ?? 'No se pudo vaciar el aliado.');
+  return String(data);
+}
+
 /* ───────────── Cuentas por cobrar ───────────── */
 
 export async function listCuentasCobrar(centroNombre = CENTRO_ACOPIO_DEFECTO): Promise<CuentaCobrarAcopio[]> {
