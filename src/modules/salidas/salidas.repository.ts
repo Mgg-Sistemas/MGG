@@ -10,6 +10,7 @@ import type {
 } from '@/shared/lib/types';
 import { registrarMovimiento, recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
+import { rangoSede, type CandidatoAlmacen } from './asignacionPrioridad';
 import { salidaDinero, trasladoDinero } from './cajas.repository';
 import { ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
 import { registrarSobrepagoCobrar } from '@/modules/tesoreria/cuentasPorCobrar.repository';
@@ -487,6 +488,66 @@ async function ejecutarPorProductoEnTandas(
   return firstId;
 }
 
+/** Almacenes con stock (>0) de un producto, con su sede, para repartir la salida. */
+async function candidatosDeProducto(productoId: string): Promise<CandidatoAlmacen[]> {
+  const { data: exs } = await supabase
+    .from('existencias').select('almacen, stock, costo_promedio')
+    .eq('producto_id', productoId).gt('stock', 0);
+  const rows = (exs ?? []) as Array<{ almacen: string; stock: number; costo_promedio: number }>;
+  if (!rows.length) return [];
+  const nombres = [...new Set(rows.map((r) => r.almacen))];
+  const { data: alms } = await supabase.from('almacenes').select('nombre, sede').in('nombre', nombres);
+  const sedeDe = new Map<string, string | null>();
+  (alms ?? []).forEach((a) => sedeDe.set((a as { nombre: string }).nombre, (a as { sede?: string | null }).sede ?? null));
+  return rows.map((r) => ({ almacen: r.almacen, sede: sedeDe.get(r.almacen) ?? null, stock: Number(r.stock) || 0, costo: Number(r.costo_promedio) || 0 }));
+}
+
+/**
+ * Plan de ejecución de una SALIDA de material repartida por almacén: para cada línea
+ * toma primero del almacén elegido (origen) y, si no alcanza, CASCADA el faltante a los
+ * demás almacenes del producto por prioridad de sede (Los Pinos → Matanzas → resto). Así
+ * una solicitud con un origen que ya no tiene stock igual se ejecuta desde donde SÍ hay.
+ * Es atómico: descuenta el stock restante entre líneas para no reclamar dos veces lo mismo.
+ * Devuelve un tramo por (producto, almacén) y los faltantes reales (si el stock total no cubre).
+ */
+async function planearSalidaTramos(
+  lineas: ItemSolicitudSalida[], almacenOrigenDefault: string | null,
+): Promise<{ tramos: ItemSolicitudSalida[]; faltantes: string[] }> {
+  const prodIds = [...new Set(lineas.map((l) => l.producto_id))];
+  const candMap = new Map<string, CandidatoAlmacen[]>();
+  await Promise.all(prodIds.map(async (pid) => { candMap.set(pid, await candidatosDeProducto(pid)); }));
+  // Stock restante mutable por (producto|almacén): varias líneas del mismo producto no reclaman dos veces.
+  const remaining = new Map<string, number>();
+  for (const [pid, cands] of candMap) for (const c of cands) remaining.set(`${pid}|${c.almacen}`, Number(c.stock) || 0);
+
+  const tramos: ItemSolicitudSalida[] = [];
+  const faltantes: string[] = [];
+  for (const it of lineas) {
+    let resto = Number(it.cantidad) || 0;
+    if (resto <= 0) continue;
+    const pid = it.producto_id;
+    const chosen = it.almacen ?? almacenOrigenDefault ?? '';
+    // Orden: el almacén elegido primero; luego por prioridad de sede (más stock primero).
+    const ordered = [...(candMap.get(pid) ?? [])].sort((a, b) => {
+      if (a.almacen === chosen && b.almacen !== chosen) return -1;
+      if (b.almacen === chosen && a.almacen !== chosen) return 1;
+      return rangoSede(a.sede) - rangoSede(b.sede) || (Number(b.stock) || 0) - (Number(a.stock) || 0);
+    });
+    for (const c of ordered) {
+      if (resto <= 0) break;
+      const key = `${pid}|${c.almacen}`;
+      const avail = remaining.get(key) ?? 0;
+      if (avail <= 0) continue;
+      const toma = Math.min(resto, avail);
+      tramos.push({ producto_id: pid, producto_nombre: it.producto_nombre, cantidad: toma, precio_unit: it.precio_unit, almacen: c.almacen });
+      remaining.set(key, avail - toma);
+      resto = Math.round((resto - toma) * 1e6) / 1e6;
+    }
+    if (resto > 0) faltantes.push(`${it.producto_nombre ?? 'Producto'}: pide ${Number(it.cantidad) || 0}, faltan ${Math.round(resto * 100) / 100} (sin stock suficiente en ningún almacén)`);
+  }
+  return { tramos, faltantes };
+}
+
 export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string, actorName?: string | null): Promise<void> {
   if (s.estado !== 'aprobada') throw new Error('Solo se ejecutan solicitudes aprobadas.');
 
@@ -497,13 +558,11 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     ? s.items
     : [{ producto_id: s.producto_id!, producto_nombre: s.producto_nombre, cantidad: Number(s.cantidad) || 0, precio_unit: s.precio_unit, almacen: s.almacen_origen }];
 
-  // Pre-validación ATÓMICA (material): antes de descontar NADA, se simula el gasto de
-  // stock de TODAS las líneas (agregando las que repiten producto+almacén). Si a alguna
-  // le falta existencia, se lanza un solo error con TODOS los faltantes y no se toca el
-  // inventario. Evita el descuento parcial que dejaba la solicitud a medias (se tomaba
-  // stock de las primeras líneas y el error seguía apareciendo al reintentar).
-  if (s.tipo === 'material') {
-    const destinoReal = s.scope === 'traslado' ? await resolverAlmacenDestino(s.almacen_destino || '') : null;
+  // Pre-validación ATÓMICA del TRASLADO material (un traslado sale de UN almacén concreto,
+  // no cascada): se simula el gasto de todas las líneas; si a alguna le falta, se lanza un
+  // solo error con TODOS los faltantes y no se toca el inventario.
+  if (s.tipo === 'material' && s.scope === 'traslado') {
+    const destinoReal = await resolverAlmacenDestino(s.almacen_destino || '');
     const disp = new Map<string, number>();
     const faltan: string[] = [];
     for (const it of lineas) {
@@ -528,9 +587,20 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     }
   }
 
+  // Plan de la SALIDA material: reparte cada línea entre almacenes (origen primero, cascada
+  // por prioridad). Valida atómico: si el stock TOTAL del producto no cubre, no ejecuta nada.
+  let tramosSalida: ItemSolicitudSalida[] | null = null;
   if (s.scope === 'salida' && s.tipo === 'material') {
-    movId = await ejecutarPorProductoEnTandas(lineas, (it) => salidaMaterial({
-      productoId: it.producto_id, almacen: it.almacen ?? s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
+    const plan = await planearSalidaTramos(lineas, s.almacen_origen ?? null);
+    if (plan.faltantes.length) {
+      throw new Error(`No se ejecutó nada (no se descontó stock): faltan existencias en ${plan.faltantes.length} material(es).\n• ${plan.faltantes.join('\n• ')}`);
+    }
+    tramosSalida = plan.tramos;
+  }
+
+  if (s.scope === 'salida' && s.tipo === 'material') {
+    movId = await ejecutarPorProductoEnTandas(tramosSalida!, (it) => salidaMaterial({
+      productoId: it.producto_id, almacen: it.almacen!, cantidad: Number(it.cantidad) || 0,
       destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
       fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
     }));
