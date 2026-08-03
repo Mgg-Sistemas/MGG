@@ -633,8 +633,11 @@ export async function aceptarEntradaEnCajaAcopio(input: {
   }).eq('id', row.id);
   if (error) throw error;
 
-  // 3) ACK al origen solo en la primera aceptación (best-effort).
-  if (primera && row.callback_base) {
+  // 3) ACK al origen en CADA aceptación (no solo la primera): es idempotente (solo
+  //    marca la saliente como 'recibida' en el origen) y así, si el ACK de la primera
+  //    aceptación se perdió, la segunda —o un reintento— vuelve a limpiarlo. Aceptar en
+  //    CUALQUIERA de los dos módulos (Tesorería o Acopio) confirma al que envió.
+  if (row.callback_base) {
     await supabase.functions.invoke('transfer-enviar', {
       body: { tipo: 'ack', transf_id: row.transf_id, callback_base: row.callback_base },
     }).catch(() => { /* el ACK no bloquea */ });

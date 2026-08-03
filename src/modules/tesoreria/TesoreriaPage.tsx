@@ -29,7 +29,7 @@ import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajas
 import { entradaTesoreriaACentroAcopio, centroAcopioShort } from '@/modules/acopio/caja.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
-  listTransferenciasInter,
+  marcarSalienteRecibida, listTransferenciasInter,
 } from './transferenciasInter.repository';
 import type { TransferenciaInter, TransferLeg } from '@/shared/lib/types';
 import { listMonedas, addMoneda, MONEDAS_BASE } from './monedas';
@@ -2837,6 +2837,17 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
     finally { setBusy(null); }
   }
 
+  async function conciliar(t: TransferenciaInter) {
+    if (!window.confirm(`¿Marcar como RECIBIDA la transferencia de ${t.resumen} a ${t.empresa_destino}?\n\nUsalo solo si el otro sistema YA la aceptó (en Tesorería o en el Centro de Acopio) pero acá siguió "en tránsito". No mueve dinero: el monto ya salió de la caja al enviarse.`)) return;
+    setBusy(t.id);
+    try {
+      await marcarSalienteRecibida(t);
+      toast('Transferencia conciliada como recibida', 'success');
+      await onChanged();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo conciliar', 'error'); }
+    finally { setBusy(null); }
+  }
+
   return (
     <div className="card" style={{ marginBottom: '1rem', borderColor: entrantes.length ? 'var(--brand, #ff8a00)' : undefined }}>
       <div className="card-title" style={{ marginBottom: '.5rem' }}>
@@ -2888,6 +2899,12 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
                   {canWrite && t.estado === 'error' && (
                     <button className="btn btn-sm btn-ghost" disabled={busy === t.id} onClick={() => reintentar(t)}>
                       {busy === t.id ? 'Reintentando…' : '⟳ Reintentar'}
+                    </button>
+                  )}
+                  {canWrite && t.estado === 'enviada' && (
+                    <button className="btn btn-sm btn-ghost" disabled={busy === t.id} onClick={() => conciliar(t)}
+                      title="El otro sistema ya la aceptó pero acá siguió en tránsito: marcarla como recibida.">
+                      {busy === t.id ? 'Conciliando…' : '✓ Ya recibida'}
                     </button>
                   )}
                 </div>
