@@ -35,7 +35,7 @@ import type { CajaCierre } from '@/shared/lib/types';
 import {
   listResumenes, crearResumen, eliminarResumen,
   computeTotales, acopiadoMggSector, resguardoSector, esGt, sectoresPorDefecto,
-  leerMetricaExterna, METRICAS_EXTERNAS, METRICAS_SECTOR,
+  leerMetricaExterna, METRICAS_EXTERNAS, METRICAS_SECTOR, rutaDeFuente,
   type ResumenSemanal, type SectorResumen, type FuenteExterna,
 } from './resumenSemanal.repository';
 // descargarResumenSemanalPdf / enviarResumenSemanalPorCorreo se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
@@ -1337,12 +1337,9 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo leer el dato vinculado', 'error'); }
   }
 
-  // Ruta interna del centro al que apunta una fuente 'mgg…': GMT lleva a su propia página,
-  // el resto (La Esperanza, aliados internos) al acopio principal.
-  const rutaCentroInterno = (fuente: FuenteExterna): string =>
-    (fuente.sistema.startsWith('mgg-centro') && /GLOBAL\s+MINERAL\s+TIN/i.test(fuente.metrica))
-      ? '#/app/acopio/global-mineral-tin'
-      : '#/app/acopio';
+  // Ruta interna del centro al que apunta una fuente 'mgg…': cada centro/aliado lleva a
+  // SU propia página (La Esperanza, GMT, Peramanal, Esmeralda ALÍ, Los Pijiguaos).
+  const rutaCentroInterno = (fuente: FuenteExterna): string => rutaDeFuente(fuente);
 
   // Celda numérica vinculable (Kg por Cobrar / Kg Disponibles): si está vinculada muestra el
   // valor en vivo en solo-lectura (🔗, clickeable si es interno); si no, input editable + botón vincular.
@@ -1363,11 +1360,11 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
         <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem', justifyContent: 'flex-end' }} title={`Vinculado a ${fuenteLabel} — no editable`}>
           {rutaInterna ? (
             <a href={rutaInterna} className="mono" style={{ ...valStyle, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }}
-              title="Ir al centro de acopio (La Esperanza)">{fmtKg(valor)}</a>
+              title="Ir a la página de este centro de acopio">{fmtKg(valor)}</a>
           ) : (
             <span className="mono" style={valStyle}>{fmtKg(valor)}</span>
           )}
-          <span title={interno ? 'Valor interno en vivo · clic para ir al centro de acopio' : 'Valor vinculado en vivo (otro sistema, no editable)'}>🔗</span>
+          <span title={interno ? 'Valor interno en vivo · clic para ir a su centro de acopio' : 'Valor vinculado en vivo (otro sistema, no editable)'}>🔗</span>
           {canWrite && <button className="btn btn-sm btn-ghost" title="Desvincular (volver a editar a mano)" onClick={() => patchCentro(si, ci, campo === 'cobrar' ? { fuente_cobrar: null } : { fuente: null })}>✕</button>}
         </div>
       );
@@ -1415,11 +1412,11 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
         <div style={{ display: 'flex', alignItems: 'center', gap: '.2rem', justifyContent: 'center' }} title={`Vinculado a ${fuenteLabel} — no editable`}>
           {ruta ? (
             <a href={ruta} className="mono" style={{ ...valStyle, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }}
-              title="Ir al centro de acopio (La Esperanza)">{money(valor)}</a>
+              title="Ir a la página de este centro de acopio">{money(valor)}</a>
           ) : (
             <span className="mono" style={valStyle}>{money(valor)}</span>
           )}
-          <span title={interno ? 'Valor interno en vivo · clic para ir al acopio' : 'Valor vinculado en vivo (Golden Touch, no editable)'}>🔗</span>
+          <span title={interno ? 'Valor interno en vivo · clic para ir a su centro de acopio' : 'Valor vinculado en vivo (Golden Touch, no editable)'}>🔗</span>
           {canWrite && <button className="btn btn-sm btn-ghost" title="Desvincular (volver a editar a mano)" onClick={() => patchSector(si, campo === 'saldo' ? { fuente_saldo: null } : { fuente_precio: null })}>✕</button>}
         </div>
       );
