@@ -276,7 +276,7 @@ export function AppShell() {
           )}
           {(can('produccion') || can('refinacion')) && (
             can('refinacion') ? (
-              <NavGroup icon="🔥" label="Fundición" defaultOpen={location.pathname.startsWith('/app/produccion') || location.pathname.startsWith('/app/refinacion')}>
+              <NavGroup icon="🏭" label="PRODUCCIÓN" defaultOpen={location.pathname.startsWith('/app/produccion') || location.pathname.startsWith('/app/refinacion')}>
                 {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Fundición" />}
                 <NavItem to="/app/refinacion" icon="⚗️" label="Refinación de Material" />
               </NavGroup>

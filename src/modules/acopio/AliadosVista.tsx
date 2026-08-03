@@ -11,7 +11,8 @@ import {
   listAliados, listAliadoMovimientos, resumirAliado,
   crearMovimientoAliado, eliminarAliadoMovimiento,
   openPeriodoAliado, cerrarYAbrirCajaAliado, listAliadoCierres,
-  type AliadoFila, type AliadoResumen, type AliadoConResumen,
+  archivarYVaciarAliado, listAliadoHistorico,
+  type AliadoFila, type AliadoResumen, type AliadoConResumen, type AliadoHistorico,
 } from './subledgers.repository';
 
 /** Prefijo de los aliados de esta vista (los legados quedan ocultos). */
@@ -141,6 +142,8 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, centro, onVolver }:
   const [agregar, setAgregar] = useState(false);
   const [cerrar, setCerrar] = useState(false);
   const [cierres, setCierres] = useState(false);
+  const [historico, setHistorico] = useState(false);
+  const [vaciar, setVaciar] = useState(false);
   const [periodo, setPeriodo] = useState(1);
   const resumen = useMemo<AliadoResumen>(() => resumirAliado(filas), [filas]);
   const hayGastos = useMemo(() => filas.some((f) => Number(f.gastos) > 0), [filas]);
@@ -184,7 +187,9 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, centro, onVolver }:
         <button className="btn btn-ghost" onClick={onVolver}>← Volver a Aliados</button>
         {!aliado.activo && <span className="badge" style={{ fontSize: '.7rem' }}>inactivo</span>}
         <button className="btn btn-ghost" onClick={() => setCierres(true)}>🗂 Cierres de caja</button>
+        <button className="btn btn-ghost" onClick={() => setHistorico(true)}>🗄 Histórico</button>
         {canWrite && <button className="btn btn-ghost" onClick={() => setCerrar(true)}>🔒 Cerrar caja</button>}
+        {canWrite && filas.length > 0 && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setVaciar(true)}>🧹 Vaciar</button>}
         {canWrite && <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setAgregar(true)}>+ Agregar Movimiento</button>}
       </div>
 
@@ -271,7 +276,133 @@ function AliadoDetalle({ aliado, canWrite, actor, actorName, centro, onVolver }:
         <CierresAliadoModal aliado={aliado} periodoActual={periodo} unidad={U}
           onClose={() => setCierres(false)} />
       )}
+      {historico && (
+        <HistoricoAliadoModal aliado={aliado} unidad={U} onClose={() => setHistorico(false)} />
+      )}
+      {vaciar && (
+        <VaciarAliadoModal aliado={aliado} resumen={resumen} unidad={U} actor={actor} actorName={actorName}
+          onClose={() => setVaciar(false)} onDone={async () => { setVaciar(false); await cargar(); }} />
+      )}
     </div>
+  );
+}
+
+/* ───────────── Vaciar aliado (archivar a histórico + reset a 0) ───────────── */
+
+function VaciarAliadoModal({ aliado, resumen, unidad, actor, actorName, onClose, onDone }: {
+  aliado: AliadoAcopio; resumen: AliadoResumen; unidad: string; actor: string; actorName: string | null;
+  onClose: () => void; onDone: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirmar() {
+    setSaving(true); setError(null);
+    try {
+      await archivarYVaciarAliado(aliado.id, actor, actorName);
+      notify(`${aliado.nombre} vaciado · movimientos guardados en el histórico`, 'success', { link: '#/app/acopio' });
+      onDone();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo vaciar.'); setSaving(false); }
+  }
+
+  return (
+    <Modal title={`🧹 Vaciar · ${aliado.nombre}`} size="md" onClose={onClose} footer={
+      <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button className="btn btn-primary" style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => void confirmar()} disabled={saving}>{saving ? 'Vaciando…' : '🧹 Archivar y poner en 0'}</button></>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
+        Se <strong>archivan todos los movimientos</strong> de este aliado en el <strong>🗄 Histórico</strong> (quedan para consulta) y el libro se <strong>reinicia a 0</strong>. Su <strong>cuenta por cobrar</strong> en Tesorería se <strong>salda</strong> (queda en $0). No se toca la caja general ni el inventario donde esos Kg/$ ya se reflejaron.
+      </p>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.84rem' }}>
+          <tbody>
+            <tr><td className="muted">USD entregados (se archivan)</td><td className="mono" style={{ textAlign: 'right' }}>{money(resumen.totalEntregado)}</td></tr>
+            <tr><td className="muted">{unidad} cerrados / recibidos</td><td className="mono" style={{ textAlign: 'right' }}>{num(resumen.totalKgCerrados)} / {num(resumen.totalKgRecibidos)} {unidad}</td></tr>
+            <tr><td className="muted">Saldo $ / Saldo {unidad}</td><td className="mono" style={{ textAlign: 'right' }}>{money(resumen.saldoUsd)} / {num(resumen.saldoKg)} {unidad}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────────── Histórico de vaciados del aliado ───────────── */
+
+function HistoricoAliadoModal({ aliado, unidad, onClose }: { aliado: AliadoAcopio; unidad: string; onClose: () => void }) {
+  const [items, setItems] = useState<AliadoHistorico[]>([]);
+  const [sel, setSel] = useState<AliadoHistorico | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const cargar = useCallback(() => {
+    setLoading(true);
+    listAliadoHistorico(aliado.id).then(setItems).catch(() => setItems([])).finally(() => setLoading(false));
+  }, [aliado.id]);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['acopio_aliado_historico'], cargar);
+
+  return (
+    <Modal title={`🗄 Histórico · ${aliado.nombre}`} size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      {loading ? (
+        <p className="hint muted" style={{ margin: 0 }}>Cargando…</p>
+      ) : !sel ? (
+        <>
+          <p className="hint muted" style={{ marginTop: 0, fontSize: '.82rem' }}>Archivos de vaciados anteriores de este aliado. Tocá uno para ver sus movimientos guardados.</p>
+          {!items.length ? (
+            <p className="hint muted" style={{ margin: 0 }}>Sin archivos en el histórico todavía. Se crean al usar <strong>🧹 Vaciar</strong>.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <thead><tr><th>Archivado</th><th style={{ textAlign: 'right' }}>Movs</th><th style={{ textAlign: 'right' }}>Entregado</th><th style={{ textAlign: 'right' }}>{unidad} cerr.</th><th></th></tr></thead>
+                <tbody>
+                  {items.map((h) => (
+                    <tr key={h.id} style={{ cursor: 'pointer' }} onClick={() => setSel(h)} title="Ver movimientos archivados">
+                      <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{date(h.fecha_archivado)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{h.n_movimientos}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{money(Number(h.total_entregado))}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{num(Number(h.total_kg_cerrados))}</td>
+                      <td style={{ textAlign: 'right' }}>›</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+            <strong>Archivo del {date(sel.fecha_archivado)} · {sel.n_movimientos} movimiento(s)</strong>
+            <button className="btn btn-sm btn-ghost" onClick={() => setSel(null)}>← Volver al listado</button>
+          </div>
+          {!sel.movimientos?.length ? (
+            <p className="hint muted" style={{ margin: 0 }}>Sin movimientos en este archivo.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.8rem' }}>
+                <thead><tr>
+                  <th>Fecha</th><th>Descripción</th>
+                  <th style={{ textAlign: 'right' }}>$ Entreg.</th><th style={{ textAlign: 'right' }}>{unidad} Cerr.</th>
+                  <th style={{ textAlign: 'right' }}>$/{unidad}</th><th style={{ textAlign: 'right' }}>{unidad} Recib.</th>
+                </tr></thead>
+                <tbody>
+                  {sel.movimientos.map((m, i) => (
+                    <tr key={m.id ?? i}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{date(m.fecha)}</td>
+                      <td style={{ maxWidth: 240, whiteSpace: 'pre-wrap' }}>{m.descripcion || '—'}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{m.usd_entregado ? money(Number(m.usd_entregado)) : ''}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{m.kg_cerrados ? num(Number(m.kg_cerrados)) : ''}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{m.precio_usd_kg ? money(Number(m.precio_usd_kg)) : ''}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{m.kg_recibidos ? num(Number(m.kg_recibidos)) : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
   );
 }
 
