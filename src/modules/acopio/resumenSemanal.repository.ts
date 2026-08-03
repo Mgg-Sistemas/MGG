@@ -16,12 +16,56 @@ export interface FuenteExterna {
 }
 
 /** Aliados internos vinculables en el resumen (sus «Kg Recibidos por MGG»). */
-export const ALIADO_JUAN_BODEGA = 'e6bcc18f-ffba-4c09-a658-4cf4eb2935b2';
-export const ALIADO_ENDER_MEJIAS = '0efc7005-78b2-4b0c-badb-b564773b8c18';
+// Aliados del centro LA ESPERANZA (ids reales en BD; los libros se recrearon al vaciar).
+export const ALIADO_JUAN_BODEGA = 'eac1e6d0-34fe-4db4-bcd6-e3ff382c1460';
+export const ALIADO_ENDER_MEJIAS = 'a224a358-833b-4844-a63d-7851e6da0d17';
 // Aliados del centro LOS PIJIGUAOS.
 export const ALIADO_PIJ_ALBERTO = 'b2bdf572-fe93-40dd-a830-cb17a70bce27';
 export const ALIADO_PIJ_ALBERTO_MINA40 = '8d86916d-cfa1-48a6-89cd-9318c9760579';
 export const ALIADO_PIJ_MAGUIBER = 'e58ec8b3-dc2d-4988-8b08-d0ae56e5c5da';
+// Aliados del centro LA ESMERALDA (viven en la caja «LA ESMERALDA ALI»; cada uno con su
+// propio libro para tener saldo en Kg por aliado, igual que La Esperanza / Los Pijiguaos).
+export const ALIADO_ESM_ENDER = 'f7c7727b-723f-47cc-98da-21cdbac78766';
+export const ALIADO_ESM_GUAIMA = '4174ed88-4946-4fb7-9221-e0fecb70e440';
+export const ALIADO_ESM_JOSE_MATO = 'd0994ba3-dd87-47ae-b7d3-3a7d4a08b9f0';
+export const ALIADO_ESM_GENESIS = '396d37a6-3802-4585-a73e-306ccf8f7ae4';
+export const ALIADO_ESM_OMI_LOPEZ = 'd23acc97-3f30-4e77-a66d-76d5fc2ae1c2';
+export const ALIADO_ESM_ALEXIS = '6596b24f-071e-4a4d-93ff-11fcc7ad8bd6';
+
+/** Centro de acopio (por su nombre) al que pertenece cada aliado interno. Se usa para
+ *  llevar el clic del enlace a la PÁGINA del centro correcto (no siempre La Esperanza). */
+export const CENTRO_DE_ALIADO: Record<string, string> = {
+  [ALIADO_JUAN_BODEGA]: 'LA ESPERANZA',
+  [ALIADO_ENDER_MEJIAS]: 'LA ESPERANZA',
+  [ALIADO_PIJ_ALBERTO]: 'LOS PIJIGUAOS',
+  [ALIADO_PIJ_ALBERTO_MINA40]: 'LOS PIJIGUAOS',
+  [ALIADO_PIJ_MAGUIBER]: 'LOS PIJIGUAOS',
+  [ALIADO_ESM_ENDER]: 'LA ESMERALDA ALI',
+  [ALIADO_ESM_GUAIMA]: 'LA ESMERALDA ALI',
+  [ALIADO_ESM_JOSE_MATO]: 'LA ESMERALDA ALI',
+  [ALIADO_ESM_GENESIS]: 'LA ESMERALDA ALI',
+  [ALIADO_ESM_OMI_LOPEZ]: 'LA ESMERALDA ALI',
+  [ALIADO_ESM_ALEXIS]: 'LA ESMERALDA ALI',
+};
+
+/** Ruta (#hash) de la página de cada centro de acopio interno. La Esperanza es la principal. */
+export function rutaDeCentro(centro: string): string {
+  const c = (centro || '').trim().toUpperCase();
+  if (/GLOBAL\s+MINERAL\s+TIN/.test(c)) return '#/app/acopio/global-mineral-tin';
+  if (/PERAMANAL/.test(c)) return '#/app/acopio/peramanal-ender';
+  if (/ESMERALDA/.test(c)) return '#/app/acopio/esmeralda-ali';
+  if (/PIJIGUAOS/.test(c)) return '#/app/acopio/los-pijiguaos';
+  return '#/app/acopio'; // LA ESPERANZA (principal) y cualquier otro
+}
+
+/** Ruta interna a la que lleva el clic de un dato vinculado 'mgg…', según su centro real. */
+export function rutaDeFuente(fuente: FuenteExterna): string {
+  if (fuente.sistema === 'mgg-aliado' || fuente.sistema === 'mgg-aliado-saldokg') {
+    return rutaDeCentro(CENTRO_DE_ALIADO[fuente.metrica] ?? 'LA ESPERANZA');
+  }
+  if (fuente.sistema.startsWith('mgg-centro')) return rutaDeCentro(fuente.metrica);
+  return '#/app/acopio'; // sistema 'mgg' = LA ESPERANZA
+}
 
 /**
  * Catálogo de métricas vinculables. `mgg` = este mismo sistema (RPC local);
@@ -44,6 +88,19 @@ export const METRICAS_EXTERNAS: FuenteExterna[] = [
   { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_PIJ_ALBERTO, label: 'Aliado ALBERTO (Pijiguaos) · Saldo en Kg casiterita' },
   { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_PIJ_ALBERTO_MINA40, label: 'Aliado ALBERTO MINA 40 (Pijiguaos) · Saldo en Kg casiterita' },
   { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_PIJ_MAGUIBER, label: 'Aliado MAGUIBER (Pijiguaos) · Saldo en Kg casiterita' },
+  // Aliados de LA ESMERALDA (caja «LA ESMERALDA ALI»): Kg Recibidos + Saldo en Kg por aliado.
+  { sistema: 'mgg-aliado', metrica: ALIADO_ESM_ENDER, label: 'Aliado ENDER MEJÍA (Esmeralda) · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_ESM_GUAIMA, label: 'Aliado GUAIMA (Esmeralda) · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_ESM_JOSE_MATO, label: 'Aliado JOSE MATO (Esmeralda) · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_ESM_GENESIS, label: 'Aliado GENESIS (Esmeralda) · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_ESM_OMI_LOPEZ, label: 'Aliado OMI LOPEZ (Esmeralda) · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado', metrica: ALIADO_ESM_ALEXIS, label: 'Aliado ALEXIS NOGUERA (Esmeralda) · Kg Recibidos por MGG' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_ENDER, label: 'Aliado ENDER MEJÍA (Esmeralda) · Saldo en Kg casiterita' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_GUAIMA, label: 'Aliado GUAIMA (Esmeralda) · Saldo en Kg casiterita' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_JOSE_MATO, label: 'Aliado JOSE MATO (Esmeralda) · Saldo en Kg casiterita' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_GENESIS, label: 'Aliado GENESIS (Esmeralda) · Saldo en Kg casiterita' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_OMI_LOPEZ, label: 'Aliado OMI LOPEZ (Esmeralda) · Saldo en Kg casiterita' },
+  { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_ALEXIS, label: 'Aliado ALEXIS NOGUERA (Esmeralda) · Saldo en Kg casiterita' },
   { sistema: 'golden-touch', metrica: 'acopio_saldo_kg', label: 'Golden Touch · Saldo en Kg (acopio)' },
 ];
 
@@ -305,14 +362,31 @@ export function sectoresPorDefecto(): SectorResumen[] {
         { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.2 GT PERAMANAL (P)', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg-centro-saldokg', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Saldo en Kg (acopio PERAMANAL)' } },
       ],
     },
-    sector('SECTOR LA ESMERALDA', '#fecaca', [
-      'C.A. LA ESMERALDA - P-MGG10 - A ENDER MEJIA',
-      'C.A. LA ESMERALDA - P-MGG10-B GUAIMA (MARTILLO ELECTRICO)',
-      'C.A. LA ESMERALDA - P-MGG10-C JOSE MATO (MARTILLO ELECTRICO)',
-      'C.A. LA ESMERALDA - P-MGG10-D GENESIS',
-      'C.A. LA ESMERALDA - P-MGG10-E OMI LOPEZ',
-      'C.A. LA ESMERALDA - P-MGG10-F ALEXIS NOGUERA',
-    ]),
+    {
+      nombre: 'SECTOR LA ESMERALDA', color: '#fecaca', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
+      // Cada centro es un aliado de LA ESMERALDA (caja «LA ESMERALDA ALI»), en vivo:
+      // Disponibles = «Kg Recibidos por MGG»; por Cobrar = «Saldo en Kg casiterita».
+      centros: [
+        { centro: 'C.A. LA ESMERALDA - P-MGG10 - A ENDER MEJIA', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-aliado', metrica: ALIADO_ESM_ENDER, label: 'Aliado ENDER MEJÍA (Esmeralda) · Kg Recibidos por MGG' },
+          fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_ENDER, label: 'Aliado ENDER MEJÍA (Esmeralda) · Saldo en Kg casiterita' } },
+        { centro: 'C.A. LA ESMERALDA - P-MGG10-B GUAIMA (MARTILLO ELECTRICO)', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-aliado', metrica: ALIADO_ESM_GUAIMA, label: 'Aliado GUAIMA (Esmeralda) · Kg Recibidos por MGG' },
+          fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_GUAIMA, label: 'Aliado GUAIMA (Esmeralda) · Saldo en Kg casiterita' } },
+        { centro: 'C.A. LA ESMERALDA - P-MGG10-C JOSE MATO (MARTILLO ELECTRICO)', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-aliado', metrica: ALIADO_ESM_JOSE_MATO, label: 'Aliado JOSE MATO (Esmeralda) · Kg Recibidos por MGG' },
+          fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_JOSE_MATO, label: 'Aliado JOSE MATO (Esmeralda) · Saldo en Kg casiterita' } },
+        { centro: 'C.A. LA ESMERALDA - P-MGG10-D GENESIS', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-aliado', metrica: ALIADO_ESM_GENESIS, label: 'Aliado GENESIS (Esmeralda) · Kg Recibidos por MGG' },
+          fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_GENESIS, label: 'Aliado GENESIS (Esmeralda) · Saldo en Kg casiterita' } },
+        { centro: 'C.A. LA ESMERALDA - P-MGG10-E OMI LOPEZ', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-aliado', metrica: ALIADO_ESM_OMI_LOPEZ, label: 'Aliado OMI LOPEZ (Esmeralda) · Kg Recibidos por MGG' },
+          fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_OMI_LOPEZ, label: 'Aliado OMI LOPEZ (Esmeralda) · Saldo en Kg casiterita' } },
+        { centro: 'C.A. LA ESMERALDA - P-MGG10-F ALEXIS NOGUERA', kg_cobrar: 0, kg_disponible: 0,
+          fuente: { sistema: 'mgg-aliado', metrica: ALIADO_ESM_ALEXIS, label: 'Aliado ALEXIS NOGUERA (Esmeralda) · Kg Recibidos por MGG' },
+          fuente_cobrar: { sistema: 'mgg-aliado-saldokg', metrica: ALIADO_ESM_ALEXIS, label: 'Aliado ALEXIS NOGUERA (Esmeralda) · Saldo en Kg casiterita' } },
+      ],
+    },
     {
       nombre: 'C.A. GLOBAL MINERAL TIN', color: '#bfdbfe', resguardos_gt: 0, precio_prom: 0, saldo_usd: 0,
       // GMT es un centro INTERNO con su propia caja (P-MGG08): Saldo $USD y Precio Promedio
