@@ -64,6 +64,7 @@ export function rutaDeFuente(fuente: FuenteExterna): string {
     return rutaDeCentro(CENTRO_DE_ALIADO[fuente.metrica] ?? 'LA ESPERANZA');
   }
   if (fuente.sistema.startsWith('mgg-centro')) return rutaDeCentro(fuente.metrica);
+  if (fuente.sistema === 'golden-touch') return rutaDeCentro('PERAMANAL'); // GT = centro PERAMANAL
   return '#/app/acopio'; // sistema 'mgg' = LA ESPERANZA
 }
 
@@ -358,8 +359,9 @@ export function sectoresPorDefecto(): SectorResumen[] {
       fuente_precio: { sistema: 'mgg-centro-tasa', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Tasa actual del material $/Kg (PERAMANAL)' },
       centros: [
         { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.1 GT PERAMANAL (M)', kg_cobrar: 0, kg_disponible: 0 },
-        // Disponible = Saldo en Kg de casiterita de la caja PERAMANAL de ESTE sistema (en vivo).
-        { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.2 GT PERAMANAL (P)', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'mgg-centro-saldokg', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Saldo en Kg (acopio PERAMANAL)' } },
+        // Disponible = Saldo en Kg de casiterita del acopio de GOLDEN TOUCH (caja abierta, en vivo
+        // vía Edge Function metricas-externas → RPC metrica_acopio_saldo_kg). Es el número real de GT.
+        { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.2 GT PERAMANAL (P)', kg_cobrar: 0, kg_disponible: 0, fuente: { sistema: 'golden-touch', metrica: 'acopio_saldo_kg', label: 'Golden Touch · Saldo en Kg del acopio (caja abierta)' } },
       ],
     },
     {
