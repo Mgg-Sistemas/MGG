@@ -57,12 +57,23 @@ const RPC_DE_METRICA: Record<string, string> = {
  * (misma base); para cualquier otro sistema usa la Edge Function `metricas-externas`
  * (lee el otro Supabase sin exponer credenciales al navegador).
  */
+/** Id de la caja ABIERTA de un centro de acopio (o null). Las métricas del preliminar leen
+ *  el saldo ACTUAL (caja abierta), igual que las tarjetas del módulo: al cerrar una caja su
+ *  saldo $/Kg se ARRASTRA a la nueva, así que sumar las cerradas lo DUPLICA. */
+async function cajaAbiertaIdDeCentro(centro: string): Promise<string | null> {
+  const { data } = await supabase.from('acopio_cajas')
+    .select('id').eq('centro_nombre', centro).eq('estado', 'abierta').limit(1).maybeSingle();
+  return (data as { id?: string } | null)?.id ?? null;
+}
+
 export async function leerMetricaExterna(sistema: string, metrica: string): Promise<number> {
   if (sistema === 'mgg') {
-    // Saldo de caja $USD y Tasa del material se calculan del resumen de la caja local.
+    // Saldo de caja $USD y Tasa del material = los de la CAJA ABIERTA de LA ESPERANZA
+    // (idéntico a las tarjetas). Sumar cajas cerradas duplica el saldo arrastrado.
     if (metrica === 'acopio_saldo_usd' || metrica === 'acopio_tasa_material') {
-      const { resumenCajaAcopio } = await import('./caja.repository');
-      const r = await resumenCajaAcopio();
+      const { resumenCajaAcopio, CENTRO_ACOPIO_DEFECTO } = await import('./caja.repository');
+      const cajaId = await cajaAbiertaIdDeCentro(CENTRO_ACOPIO_DEFECTO);
+      const r = await resumenCajaAcopio(cajaId ?? undefined, undefined, CENTRO_ACOPIO_DEFECTO);
       return metrica === 'acopio_saldo_usd' ? r.saldoUsd : r.tasaMaterial;
     }
     const rpc = RPC_DE_METRICA[metrica];
@@ -79,7 +90,11 @@ export async function leerMetricaExterna(sistema: string, metrica: string): Prom
   // Se usa, p. ej., para GLOBAL MINERAL TIN (caja P-MGG08), que vive en ESTE sistema.
   if (sistema === 'mgg-centro-saldo' || sistema === 'mgg-centro-tasa' || sistema === 'mgg-centro-saldokg') {
     const { resumenCajaAcopio } = await import('./caja.repository');
-    const r = await resumenCajaAcopio(undefined, undefined, metrica);
+    // Saldo $USD, Tasa y Saldo en Kg = los de la CAJA ABIERTA del centro (idéntico a sus
+    // tarjetas): las cajas CERRADAS ya arrastraron su saldo $ y despacharon sus Kg.
+    const cajaId = await cajaAbiertaIdDeCentro(metrica);
+    if (!cajaId) return 0; // sin caja abierta → saldo actual 0
+    const r = await resumenCajaAcopio(cajaId, undefined, metrica);
     if (sistema === 'mgg-centro-saldo') return r.saldoUsd;
     if (sistema === 'mgg-centro-tasa') return r.tasaMaterial;
     return r.kgProduccion - r.kgEnviados;
@@ -87,8 +102,12 @@ export async function leerMetricaExterna(sistema: string, metrica: string): Prom
   // Aliado interno: la métrica es el id del aliado. 'mgg-aliado' → «Kg Recibidos por MGG»;
   // 'mgg-aliado-saldokg' → «Saldo en Kg casiterita».
   if (sistema === 'mgg-aliado' || sistema === 'mgg-aliado-saldokg') {
-    const { listAliadoMovimientos, resumirAliado } = await import('./subledgers.repository');
-    const r = resumirAliado(await listAliadoMovimientos(metrica));
+    const { listAliadoMovimientos, resumirAliado, openPeriodoAliado } = await import('./subledgers.repository');
+    // La «vista viva» del aliado usa el periodo ABIERTO (al cerrar, el saldo en Kg/$ se
+    // arrastra al periodo nuevo). Así el preliminar refleja lo mismo que la vista del aliado
+    // y no arrastra los Kg Recibidos de periodos ya cerrados.
+    const periodo = await openPeriodoAliado(metrica);
+    const r = resumirAliado(await listAliadoMovimientos(metrica, periodo));
     return sistema === 'mgg-aliado-saldokg' ? r.saldoKg : r.totalKgRecibidos;
   }
   const { data, error } = await supabase.functions.invoke('metricas-externas', { body: { sistema, metrica } });
