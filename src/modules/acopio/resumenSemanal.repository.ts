@@ -356,7 +356,8 @@ export function sectoresPorDefecto(): SectorResumen[] {
       // Saldo $USD y Precio Promedio del sector = Saldo de caja y Tasa del material de la caja
       // PERAMANAL de ESTE sistema (Centro de Costo PERAMANAL / caja P-MGG09), en vivo.
       fuente_saldo: { sistema: 'mgg-centro-saldo', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Saldo de caja $USD (acopio PERAMANAL)' },
-      fuente_precio: { sistema: 'mgg-centro-tasa', metrica: 'PERAMANAL ENDER MEJIAS', label: 'Este sistema · Tasa actual del material $/Kg (PERAMANAL)' },
+      // Tasa del material = de GOLDEN TOUCH en vivo (Σ usd_entregado ÷ Σ kg_cerrados de su caja abierta). Hoy 19,02.
+      fuente_precio: { sistema: 'golden-touch', metrica: 'acopio_tasa_material', label: 'Golden Touch · Tasa del material $/Kg (caja abierta)' },
       centros: [
         { centro: 'C.A. GT PERAMANAL - P-MGG09 - A.1 GT PERAMANAL (M)', kg_cobrar: 0, kg_disponible: 0 },
         // Disponible = Saldo en Kg de casiterita del acopio de GOLDEN TOUCH (caja abierta, en vivo
