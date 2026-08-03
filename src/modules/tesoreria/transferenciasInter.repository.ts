@@ -153,10 +153,29 @@ export async function confirmarTransferenciaEntrante(input: {
     ...(primera ? { estado: 'recibida' } : {}),
   }).eq('id', row.id);
 
-  // ACK al origen solo en la primera aceptación (no bloquea: si falla, se reconcilia manual).
-  if (primera && row.callback_base) {
+  // ACK al origen en CADA aceptación (no solo la primera): es idempotente (solo pasa la
+  // saliente del origen a 'recibida'). Así, si el ACK de la primera aceptación se perdió,
+  // la segunda —o un reintento— vuelve a limpiarlo. Aceptar en CUALQUIERA de los dos
+  // módulos (Tesorería o Acopio) confirma al que envió. (No bloquea: si falla, se reconcilia.)
+  if (row.callback_base) {
     await supabase.functions.invoke('transfer-enviar', {
       body: { tipo: 'ack', transf_id: row.transf_id, callback_base: row.callback_base },
     }).catch(() => { /* el ACK es best-effort */ });
   }
+}
+
+/**
+ * Concilia manualmente una SALIENTE que quedó "En tránsito" porque el ACK del otro
+ * sistema no llegó (aunque allá SÍ se aceptó). Marca la saliente como 'recibida' en
+ * este sistema. No mueve dinero (ya salió de la caja al enviarse); solo actualiza el
+ * estado local para que deje de aparecer como pendiente.
+ */
+export async function marcarSalienteRecibida(row: TransferenciaInter): Promise<void> {
+  if (row.direccion !== 'saliente') throw new Error('Solo aplica a transferencias salientes.');
+  if (row.estado === 'recibida') return;
+  const { error } = await supabase.from(TABLE).update({
+    estado: 'recibida', recibida_tesoreria: true, recibida_acopio: true,
+    confirmada_at: new Date().toISOString(),
+  }).eq('id', row.id).eq('direccion', 'saliente');
+  if (error) throw error;
 }
