@@ -482,108 +482,9 @@ export function MaterialAProducirModal({
     }
   }
 
-  const footer = (
-    <>
-      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="prod-form" className="btn btn-primary" disabled={saving}>
-        {saving ? 'Iniciando…' : L.iniciar}
-      </button>
-    </>
-  );
-
-  return (
-    <Modal title={L.tituloModal} size="lg" onClose={onClose} footer={footer}>
-      <form
-        id="prod-form"
-        onSubmit={handleSubmit}
-        onKeyDown={(e) => {
-          // Evitar que Enter en un input (cantidades, buscador de insumos, margen…)
-          // dispare el submit y cierre el modal mientras se cargan los insumos.
-          const tag = (e.target as HTMLElement).tagName;
-          if (e.key === 'Enter' && tag !== 'TEXTAREA') e.preventDefault();
-        }}
-      >
-        {error && (
-          <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}>
-            <strong>Error:</strong> {error}
-          </div>
-        )}
-
-        {/* Colada (solo fundición): identificación + materias primas + proceso + carga */}
-        {esColada && (
-          <ColadaCampos
-            coladaNum={coladaNum} setColadaNum={setColadaNum}
-            fecha={coladaFecha} setFecha={setColadaFecha}
-            datos={coladaDatos} setDatos={setColadaDatos}
-          />
-        )}
-
-        {/* Refinación (MGG-FR-002): identificación + origen (coladas) + parámetros + etapas */}
-        {esRef && (
-          <RefinacionCampos
-            refinacionNum={refinacionNum} setRefinacionNum={setRefinacionNum}
-            fecha={refinacionFecha} setFecha={setRefinacionFecha}
-            datos={refinacionDatos} setDatos={setRefinacionDatos}
-            coladasFin={origenesRefinables}
-          />
-        )}
-
-        {/* Posible precio de venta — automático (margen bruto sobre CP) */}
-        <div className="card" style={{ padding: '.7rem .9rem', marginBottom: '.85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div>
-              <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Posible precio de venta (automático)</div>
-              <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-3)' }}>{money(posiblePrecioVenta)}</div>
-              <div className="muted" style={{ fontSize: '.72rem' }}>= costo unitario ÷ (1 − margen). Posible ganancia: <strong style={{ color: gananciaTotal >= 0 ? 'var(--success)' : 'var(--danger)' }}>{money(gananciaTotal)}</strong> ({money(gananciaUnit)}/und)</div>
-            </div>
-            <div style={{ minWidth: 120 }}>
-              <label className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: '.2rem' }}>Margen bruto (%)</label>
-              <input className="input mono" type="number" min={0} max={95} step="1" value={margen} onChange={(e) => setMargen(e.target.value)} style={{ width: 110 }} />
-            </div>
-          </div>
-        </div>
-
-        {/* Destino FIJO (no editable): fundición → ESTAÑO EN BRUTO; refinación → ESTAÑO REFINADO (Matanzas). */}
-        <div className="card" style={{ padding: '.6rem .85rem', marginBottom: '.6rem', background: 'var(--bg-1)', borderLeft: '3px solid var(--primary)' }}>
-          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Entra al inventario como</div>
-          <div style={{ fontWeight: 700 }}>{nombreFijo} <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>· almacén {nombreFijo} · Matanzas · se acumula</span></div>
-        </div>
-
-        <div className="form-row">
-          <label>{esRef ? 'Cantidad refinada (kg)' : 'Cantidad producida'}</label>
-          <input className="input mono" type="number" min={esRef ? 0 : 1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} disabled={esRef} required style={{ maxWidth: 220 }} />
-          {esRef && <small className="muted" style={{ fontSize: '.7rem' }}>Σ material seleccionado. Al finalizar se ajusta al estaño refinado obtenido.</small>}
-        </div>
-
-        {/* Horno a utilizar */}
-        <div className="form-row">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label style={{ margin: 0 }}>Horno a utilizar</label>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setHornoAddOpen((v) => !v)}>+ Horno nuevo</button>
-          </div>
-          <select className="select" value={horno} onChange={(e) => setHorno(e.target.value)}>
-            {!hornosList.length && <option value="">— Sin hornos: agregá uno →</option>}
-            {hornosList.map((h) => <option key={h} value={h}>{h}</option>)}
-            {/* Si el seleccionado no está en la lista activa (recién creado), lo mostramos igual. */}
-            {horno && !hornosList.includes(horno) && <option value={horno}>{horno}</option>}
-          </select>
-          {hornoAddOpen && (
-            <div className="card" style={{ padding: '.6rem', marginTop: '.4rem', display: 'flex', gap: '.5rem' }}>
-              <input
-                className="input"
-                placeholder="Nombre del horno (ej. Horno 3)"
-                value={hornoNuevo}
-                onChange={(e) => setHornoNuevo(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <button type="button" className="btn btn-sm btn-primary" onClick={handleAddHorno} disabled={hornoSaving}>
-                {hornoSaving ? 'Agregando…' : 'Agregar y usar'}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Materiales/reactivos — parte del bloque «Material a procesar» (van justo debajo del origen). */}
+  // Checklist de materiales/reactivos (con tasa editable y % de mezcla). Se inyecta
+  // DENTRO del recuadro «Material a procesar» de ColadaCampos/RefinacionCampos (slotMaterial).
+  const materialesChecklist = (
         <div className="form-row">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <label style={{ margin: 0 }}>{esRef ? 'Agentes refinantes / reactivos (del material de arriba)' : 'Materiales a utilizar (receta) — del material de arriba'}</label>
@@ -678,7 +579,7 @@ export function MaterialAProducirModal({
                 </thead>
                 <tbody>
                   {materiales.map((m) => {
-                    const row = rows[m.id] ?? { checked: false, cantidad: '1', almacen: m.almacen || almacenes[0] };
+                    const row = rows[m.id] ?? { checked: false, cantidad: '1', almacen: m.almacen || almacenes[0], costo: '', costoTouched: false };
                     const disp = exStock(m.id, row.almacen);
                     const cant = Number(row.cantidad) || 0;
                     const exceso = row.checked && cant > disp;
@@ -719,6 +620,113 @@ export function MaterialAProducirModal({
             </div>
           )}
         </div>
+  );
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="prod-form" className="btn btn-primary" disabled={saving}>
+        {saving ? 'Iniciando…' : L.iniciar}
+      </button>
+    </>
+  );
+
+  return (
+    <Modal title={L.tituloModal} size="lg" onClose={onClose} footer={footer}>
+      <form
+        id="prod-form"
+        onSubmit={handleSubmit}
+        onKeyDown={(e) => {
+          // Evitar que Enter en un input (cantidades, buscador de insumos, margen…)
+          // dispare el submit y cierre el modal mientras se cargan los insumos.
+          const tag = (e.target as HTMLElement).tagName;
+          if (e.key === 'Enter' && tag !== 'TEXTAREA') e.preventDefault();
+        }}
+      >
+        {error && (
+          <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}>
+            <strong>Error:</strong> {error}
+          </div>
+        )}
+
+        {/* Colada (solo fundición): identificación + materias primas + proceso + carga */}
+        {esColada && (
+          <ColadaCampos
+            coladaNum={coladaNum} setColadaNum={setColadaNum}
+            fecha={coladaFecha} setFecha={setColadaFecha}
+            datos={coladaDatos} setDatos={setColadaDatos}
+            slotMaterial={materialesChecklist}
+          />
+        )}
+
+        {/* Refinación (MGG-FR-002): identificación + origen (coladas) + parámetros + etapas */}
+        {esRef && (
+          <RefinacionCampos
+            refinacionNum={refinacionNum} setRefinacionNum={setRefinacionNum}
+            fecha={refinacionFecha} setFecha={setRefinacionFecha}
+            datos={refinacionDatos} setDatos={setRefinacionDatos}
+            coladasFin={origenesRefinables}
+            slotMaterial={materialesChecklist}
+          />
+        )}
+
+        {/* Posible precio de venta — automático (margen bruto sobre CP) */}
+        <div className="card" style={{ padding: '.7rem .9rem', marginBottom: '.85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div>
+              <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Posible precio de venta (automático)</div>
+              <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-3)' }}>{money(posiblePrecioVenta)}</div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>= costo unitario ÷ (1 − margen). Posible ganancia: <strong style={{ color: gananciaTotal >= 0 ? 'var(--success)' : 'var(--danger)' }}>{money(gananciaTotal)}</strong> ({money(gananciaUnit)}/und)</div>
+            </div>
+            <div style={{ minWidth: 120 }}>
+              <label className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: '.2rem' }}>Margen bruto (%)</label>
+              <input className="input mono" type="number" min={0} max={95} step="1" value={margen} onChange={(e) => setMargen(e.target.value)} style={{ width: 110 }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Destino FIJO (no editable): fundición → ESTAÑO EN BRUTO; refinación → ESTAÑO REFINADO (Matanzas). */}
+        <div className="card" style={{ padding: '.6rem .85rem', marginBottom: '.6rem', background: 'var(--bg-1)', borderLeft: '3px solid var(--primary)' }}>
+          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Entra al inventario como</div>
+          <div style={{ fontWeight: 700 }}>{nombreFijo} <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>· almacén {nombreFijo} · Matanzas · se acumula</span></div>
+        </div>
+
+        <div className="form-row">
+          <label>{esRef ? 'Cantidad refinada (kg)' : 'Cantidad producida'}</label>
+          <input className="input mono" type="number" min={esRef ? 0 : 1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} disabled={esRef} required style={{ maxWidth: 220 }} />
+          {esRef && <small className="muted" style={{ fontSize: '.7rem' }}>Σ material seleccionado. Al finalizar se ajusta al estaño refinado obtenido.</small>}
+        </div>
+
+        {/* Horno a utilizar */}
+        <div className="form-row">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label style={{ margin: 0 }}>Horno a utilizar</label>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setHornoAddOpen((v) => !v)}>+ Horno nuevo</button>
+          </div>
+          <select className="select" value={horno} onChange={(e) => setHorno(e.target.value)}>
+            {!hornosList.length && <option value="">— Sin hornos: agregá uno →</option>}
+            {hornosList.map((h) => <option key={h} value={h}>{h}</option>)}
+            {/* Si el seleccionado no está en la lista activa (recién creado), lo mostramos igual. */}
+            {horno && !hornosList.includes(horno) && <option value={horno}>{horno}</option>}
+          </select>
+          {hornoAddOpen && (
+            <div className="card" style={{ padding: '.6rem', marginTop: '.4rem', display: 'flex', gap: '.5rem' }}>
+              <input
+                className="input"
+                placeholder="Nombre del horno (ej. Horno 3)"
+                value={hornoNuevo}
+                onChange={(e) => setHornoNuevo(e.target.value)}
+                style={{ flex: 1 }}
+              />
+              <button type="button" className="btn btn-sm btn-primary" onClick={handleAddHorno} disabled={hornoSaving}>
+                {hornoSaving ? 'Agregando…' : 'Agregar y usar'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Materiales/reactivos: se renderizan DENTRO del bloque «Material a procesar»
+            (ColadaCampos / RefinacionCampos) vía slotMaterial={materialesChecklist}. */}
 
         {/* Costos extra */}
         <div className="form-row">
