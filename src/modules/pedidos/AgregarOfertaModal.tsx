@@ -34,12 +34,29 @@ interface Props {
 interface FormItem extends ItemOrden {
   precio: number;       // precio unitario a tasa BCV
   precio_usd: number;   // precio unitario en divisa efectivo (USD)
+  precioStr: string;    // texto crudo del precio BCV (permite escribir "." o "," decimal)
+  precioUsdStr: string; // texto crudo del precio USD
   _rid: string;         // id local estable (las variantes comparten SKU)
   _variante?: boolean;  // true = renglón agregado como marca/variante extra
 }
 
 let _ridSeq = 0;
 const nextRid = () => `r${++_ridSeq}`;
+
+// Muestra vacío cuando el número es 0 (así no aparece el "0" que estorba al escribir).
+const numToStr = (n: number) => (n > 0 ? String(n) : '');
+// Deja solo dígitos y UN separador decimal (acepta punto o coma), conservando el que se escribe.
+function sanitizeDecimal(s: string): string {
+  let out = s.replace(/[^\d.,]/g, '');
+  const sep = out.search(/[.,]/);
+  if (sep !== -1) out = out.slice(0, sep + 1) + out.slice(sep + 1).replace(/[.,]/g, '');
+  return out;
+}
+// Convierte el texto (con "." o ",") a número ≥ 0.
+function parseDecimal(s: string): number {
+  const n = Number(s.replace(',', '.'));
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
 
 export function AgregarOfertaModal({
   orden,
@@ -91,10 +108,14 @@ export function AgregarOfertaModal({
   // En edición, se traen los ítems con el precio que ya tenía la oferta.
   const [items, setItems] = useState<FormItem[]>(
     ofertaEdit
-      ? ofertaEdit.items.map((i) => ({ ...i, precio: Number(i.precio) || 0, precio_usd: Number(i.precio_usd) || 0, _rid: nextRid() }))
+      ? ofertaEdit.items.map((i) => {
+          const precio = Number(i.precio) || 0;
+          const precioUsd = Number(i.precio_usd) || 0;
+          return { ...i, precio, precio_usd: precioUsd, precioStr: numToStr(precio), precioUsdStr: numToStr(precioUsd), _rid: nextRid() };
+        })
       : orden.items
           .filter((i) => i.comprar !== false && (!soloSkus || soloSkus.has(i.sku)))
-          .map((i) => ({ ...i, precio: 0, precio_usd: 0, _rid: nextRid() })),
+          .map((i) => ({ ...i, precio: 0, precio_usd: 0, precioStr: '', precioUsdStr: '', _rid: nextRid() })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEdit?.fecha_entrega_prometida ?? '');
   const [condiciones, setCondiciones] = useState(ofertaEdit?.condiciones_pago ?? '');
@@ -191,11 +212,13 @@ export function AgregarOfertaModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facturaNeta]);
 
-  function updateItemPrecio(idx: number, precio: number) {
-    setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precio: Math.max(0, precio) } : it)));
+  function updateItemPrecio(idx: number, raw: string) {
+    const str = sanitizeDecimal(raw);
+    setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precioStr: str, precio: parseDecimal(str) } : it)));
   }
-  function updateItemPrecioUsd(idx: number, precioUsd: number) {
-    setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precio_usd: Math.max(0, precioUsd) } : it)));
+  function updateItemPrecioUsd(idx: number, raw: string) {
+    const str = sanitizeDecimal(raw);
+    setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precioUsdStr: str, precio_usd: parseDecimal(str) } : it)));
   }
   function updateItemCampo(idx: number, patch: Partial<FormItem>) {
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
@@ -206,7 +229,7 @@ export function AgregarOfertaModal({
       const base = prev[idx];
       const nueva: FormItem = {
         ...base, _rid: nextRid(), _variante: true,
-        marca: '', modelo: '', precio: 0, precio_usd: 0,
+        marca: '', modelo: '', precio: 0, precio_usd: 0, precioStr: '', precioUsdStr: '',
       };
       const out = [...prev];
       out.splice(idx + 1, 0, nueva);
@@ -233,8 +256,8 @@ export function AgregarOfertaModal({
     }
     setSubmitting(true);
     // Se quitan los campos locales (_rid/_variante) y se normaliza marca/modelo.
-    const itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, ...rest }) => {
-      void _rid; void _variante;
+    const itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, precioStr, precioUsdStr, ...rest }) => {
+      void _rid; void _variante; void precioStr; void precioUsdStr;
       return {
         ...rest,
         marca: (rest.marca ?? '').toString().trim() || null,
@@ -560,13 +583,13 @@ export function AgregarOfertaModal({
                         value={it.cantidad} onChange={(e) => updateItemCampo(idx, { cantidad: Math.max(0, Number(e.target.value) || 0) })} />
                     </td>
                     <td className="num">
-                      <input type="number" className="input mono" style={{ width: 95, textAlign: 'right' }} min={0} step={0.01}
-                        value={it.precio} onChange={(e) => updateItemPrecio(idx, Number(e.target.value) || 0)} />
+                      <input type="text" inputMode="decimal" className="input mono" style={{ width: 95, textAlign: 'right' }}
+                        value={it.precioStr} placeholder="0,00" onChange={(e) => updateItemPrecio(idx, e.target.value)} />
                     </td>
                     <td className="num mono">{money(totBcv)}</td>
                     <td className="num">
-                      <input type="number" className="input mono" style={{ width: 95, textAlign: 'right' }} min={0} step={0.01}
-                        value={it.precio_usd || ''} placeholder="—" onChange={(e) => updateItemPrecioUsd(idx, Number(e.target.value) || 0)} />
+                      <input type="text" inputMode="decimal" className="input mono" style={{ width: 95, textAlign: 'right' }}
+                        value={it.precioUsdStr} placeholder="—" onChange={(e) => updateItemPrecioUsd(idx, e.target.value)} />
                     </td>
                     <td className="num mono">{totUsd > 0 ? money(totUsd) : '—'}</td>
                     <td className="num mono" style={{ color: dif > 0 ? 'var(--success)' : undefined }}>{totUsd > 0 ? money(dif) : '—'}</td>
