@@ -1139,8 +1139,23 @@ export interface ColadaTemperatura {
   obs: string;                  // observación / acción
 }
 
-/** Un big bag de casiterita con su nº de precinto. */
-export interface ColadaBigBag { kg: number | null; precinto: string }
+/** Un análisis de laboratorio (letra) del Sn de un big bag: A, B, C… */
+export interface ColadaBigBagLey { letra: string; valor: number | null }
+/**
+ * Un big bag de casiterita con su detalle de recepción (formato "INVENTARIO
+ * CASITERITA MATANZAS"): peso, aliado, precinto, nº de análisis, las leyes de
+ * laboratorio por letra (A/B/C…, se pueden agregar), su promedio (ley del big
+ * bag), la tasa de recepción y el costo total (kg × tasa) que salen solos.
+ */
+export interface ColadaBigBag {
+  kg: number | null;
+  precinto: string;
+  aliado?: string;              // Aliado / centro de acopio de ese big bag
+  analisis?: string;            // Nº(s) de análisis de laboratorio (ej. "2214, 2217")
+  leyes?: ColadaBigBagLey[];    // Sn de laboratorio por letra (A, B, C…)
+  ley_prom?: number | null;     // Promedio de las leyes (% Sn) — editable si no hay letras
+  tasa?: number | null;         // Tasa de recepción ($/kg casiterita) del big bag
+}
 
 /**
  * Detalle del formato MGG-FR-001 que no vive en columnas propias de
@@ -1220,9 +1235,9 @@ export interface RefinacionColadaOrigen {
   almacen: string;
   estano_kg: number;            // kg de estaño tomados de esta colada (default = obtenido)
   costo_unitario: number;       // costo/kg de esa colada (referencia)
-  /** Origen del material: colada de fundición (crudo) o refinación finalizada (2ª refinación). */
-  origen?: 'colada' | 'refinacion';
-  /** Etiqueta para mostrar: "Colada #5" / "Refinación #2". */
+  /** Origen del material: colada (crudo), refinación finalizada (2ª refinación) o MANUAL (cargado a mano). */
+  origen?: 'colada' | 'refinacion' | 'manual';
+  /** Etiqueta para mostrar: "Colada #5" / "Refinación #2" / lo que se escriba en manual. */
   etiqueta?: string;
 }
 

@@ -5,8 +5,8 @@
    El control de temperatura horario, el sangrado y los resultados se cargan
    luego (en curso / al finalizar). El PDF replica el formato formal.
    ============================================================ */
-import { useEffect, type CSSProperties } from 'react';
-import type { ColadaDatos } from '@/shared/lib/types';
+import { useEffect, type CSSProperties, type ReactNode } from 'react';
+import type { ColadaDatos, ColadaBigBag, ColadaBigBagLey } from '@/shared/lib/types';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -40,9 +40,11 @@ interface Props {
   setFecha: (v: string) => void;
   datos: ColadaDatos;
   setDatos: (updater: (prev: ColadaDatos) => ColadaDatos) => void;
+  /** Bloque de materiales (receta) que se renderiza unido, debajo de la casiterita (mismo bloque «Material a procesar»). */
+  slotMaterial?: ReactNode;
 }
 
-export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos }: Props) {
+export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos, slotMaterial }: Props) {
   const set = <K extends keyof ColadaDatos>(key: K, val: ColadaDatos[K]) => setDatos((p) => ({ ...p, [key]: val }));
   const numVal = (v: number | null | undefined) => (v == null ? '' : String(v));
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s));
@@ -56,12 +58,24 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalBigBags]);
 
-  // Sn (kg) = Total Casiterita × Ley / 100.
-  const snKg = round2(((Number(datos.total_casiterita) || 0) * (Number(datos.ley_sn) || 0)) / 100);
+  // Ley (prom) de un big bag = promedio de sus letras de laboratorio; si no cargó
+  // letras, usa la ley que se escriba a mano (ley_prom).
+  const promDe = (b: ColadaBigBag): number => {
+    const vals = (b.leyes ?? []).map((l) => Number(l.valor)).filter((v) => Number.isFinite(v) && v > 0);
+    if (vals.length) return round2(vals.reduce((a, v) => a + v, 0) / vals.length);
+    return Number(b.ley_prom) || 0;
+  };
+  const pesoPuroDe = (b: ColadaBigBag): number => round2(((Number(b.kg) || 0) * promDe(b)) / 100);
+  const costoDe = (b: ColadaBigBag): number => round2((Number(b.kg) || 0) * (Number(b.tasa) || 0));
+  // Sn contenido (kg) = Σ peso puro; ley global = Sn ÷ casiterita × 100; costo = Σ (kg × tasa).
+  const snTotal = round2(bigBags.reduce((a, b) => a + pesoPuroDe(b), 0));
+  const costoCasiterita = round2(bigBags.reduce((a, b) => a + costoDe(b), 0));
+  const leyGlobal = totalBigBags > 0 ? round2((snTotal / totalBigBags) * 100) : 0;
   useEffect(() => {
-    set('sn_kg', snKg || null);
+    set('sn_kg', snTotal || null);
+    set('ley_sn', leyGlobal || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snKg]);
+  }, [snTotal, leyGlobal]);
 
   // Jornada laboral = (fecha+hora fin) − (fecha+hora inicio) de la carga. Se calcula
   // sola y se copia al campo "Turno" (queda editable, igual que Total Casiterita).
@@ -78,8 +92,15 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
       arr[i] = { ...arr[i], ...patch };
       return { ...p, big_bags: arr };
     });
-  const addBag = () => setDatos((p) => ({ ...p, big_bags: [...(p.big_bags ?? []), { kg: null, precinto: '' }] }));
+  const addBag = () => setDatos((p) => ({ ...p, big_bags: [...(p.big_bags ?? []), { kg: null, precinto: '', leyes: [] }] }));
   const delBag = (i: number) => setDatos((p) => ({ ...p, big_bags: (p.big_bags ?? []).filter((_, k) => k !== i) }));
+  // Leyes de laboratorio (A, B, C…) por big bag.
+  const setLey = (bi: number, li: number, patch: Partial<ColadaBigBagLey>) =>
+    setDatos((p) => { const arr = [...(p.big_bags ?? [])]; const leyes = [...(arr[bi].leyes ?? [])]; leyes[li] = { ...leyes[li], ...patch }; arr[bi] = { ...arr[bi], leyes }; return { ...p, big_bags: arr }; });
+  const addLey = (bi: number) =>
+    setDatos((p) => { const arr = [...(p.big_bags ?? [])]; const leyes = [...(arr[bi].leyes ?? [])]; leyes.push({ letra: String.fromCharCode(65 + leyes.length), valor: null }); arr[bi] = { ...arr[bi], leyes }; return { ...p, big_bags: arr }; });
+  const delLey = (bi: number, li: number) =>
+    setDatos((p) => { const arr = [...(p.big_bags ?? [])]; const leyes = (arr[bi].leyes ?? []).filter((_, k) => k !== li); arr[bi] = { ...arr[bi], leyes }; return { ...p, big_bags: arr }; });
 
   // Lecturas de temperatura del proceso (tabla dinámica: cada ~1 h).
   const temperaturas = datos.temperaturas ?? [];
@@ -119,40 +140,82 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         </div>
       </div>
 
-      {/* Casiterita (big bags) y ley — análisis para el reporte. Los fundentes (coque,
-          otro fundente, CaCO₃) ya NO se cargan acá: van como insumos de la RECETA
+      {/* Casiterita — segmento por big bag: peso, aliado, precinto, análisis de
+          laboratorio (letras A/B/C…), promedio, tasa de recepción y costo total.
+          Los fundentes (coque, otro fundente, CaCO₃) van como insumos de la RECETA
           ("Materiales a utilizar" del modal), que se consumen del inventario. */}
       <div style={secStyle}>
-        <div style={tituloSec}>Casiterita (big bags) y ley</div>
+        <div style={tituloSec}>Casiterita — big bags (ley, laboratorio y tasa por bolsa)</div>
 
-        <label style={{ fontSize: '.8rem', fontWeight: 600 }}>Big bags de casiterita</label>
-        <div style={{ display: 'grid', gap: '.4rem', margin: '.35rem 0 .5rem' }}>
-          {bigBags.map((b, i) => (
-            <div key={i} style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-              <span className="muted mono" style={{ width: 20 }}>{i + 1}</span>
-              <input className="input mono" type="number" step="any" placeholder="kg" value={numVal(b.kg)} onChange={(e) => setBag(i, { kg: toNum(e.target.value) })} style={{ ...numInput, flex: '1 1 90px' }} />
-              <input className="input" placeholder={`N° Precinto ${i + 1}`} value={b.precinto} onChange={(e) => setBag(i, { precinto: e.target.value })} style={{ flex: '2 1 130px' }} />
-              {bigBags.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delBag(i)} style={{ color: 'var(--danger)' }}>✕</button>}
-            </div>
-          ))}
+        <div style={{ display: 'grid', gap: '.6rem' }}>
+          {bigBags.map((b, i) => {
+            const prom = promDe(b); const puro = pesoPuroDe(b); const costo = costoDe(b);
+            return (
+              <div key={i} className="card" style={{ padding: '.6rem .7rem', background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                  <strong style={{ fontSize: '.82rem' }}>Big bag #{i + 1}</strong>
+                  {bigBags.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delBag(i)} style={{ color: 'var(--danger)' }}>✕ Quitar</button>}
+                </div>
+                <div className="form-grid">
+                  <div className="form-row"><label>Peso casiterita (kg)</label><input className="input mono" type="number" step="any" value={numVal(b.kg)} onChange={(e) => setBag(i, { kg: toNum(e.target.value) })} style={numInput} /></div>
+                  <div className="form-row"><label>Aliado / centro de acopio</label><input className="input" value={b.aliado ?? ''} onChange={(e) => setBag(i, { aliado: e.target.value })} placeholder="Ej.: JUAN BODEGA" /></div>
+                </div>
+                <div className="form-grid">
+                  <div className="form-row"><label>N° Precinto</label><input className="input" value={b.precinto} onChange={(e) => setBag(i, { precinto: e.target.value })} /></div>
+                  <div className="form-row"><label>N° Análisis (laboratorio)</label><input className="input" value={b.analisis ?? ''} onChange={(e) => setBag(i, { analisis: e.target.value })} placeholder="Ej.: 2214, 2217, 2216" /></div>
+                </div>
+                <label style={{ fontSize: '.76rem', fontWeight: 600, display: 'block', margin: '.3rem 0 .2rem' }}>Sn de laboratorio (%) — por letra</label>
+                <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {(b.leyes ?? []).map((l, li) => (
+                    <div key={li} style={{ display: 'flex', alignItems: 'center', gap: '.2rem' }}>
+                      <span className="mono muted" style={{ fontSize: '.74rem', width: 12 }}>{l.letra || String.fromCharCode(65 + li)}</span>
+                      <input className="input mono" type="number" step="any" value={l.valor ?? ''} onChange={(e) => setLey(i, li, { valor: toNum(e.target.value) })} style={{ width: 76, textAlign: 'right' }} />
+                      <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLey(i, li)} style={{ color: 'var(--danger)', padding: '0 .3rem' }}>✕</button>
+                    </div>
+                  ))}
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => addLey(i)}>＋ Letra</button>
+                  <span className="muted" style={{ fontSize: '.78rem' }}>Prom.: <strong className="mono">{prom ? prom.toFixed(2) + ' %' : '—'}</strong></span>
+                </div>
+                {!(b.leyes ?? []).length && (
+                  <div className="form-row" style={{ marginTop: '.35rem', maxWidth: 220 }}>
+                    <label>Ley / Prom. (%) — manual</label>
+                    <input className="input mono" type="number" step="any" value={numVal(b.ley_prom)} onChange={(e) => setBag(i, { ley_prom: toNum(e.target.value) })} style={numInput} />
+                  </div>
+                )}
+                <div className="form-grid" style={{ marginTop: '.35rem' }}>
+                  <div className="form-row"><label>Tasa de recepción ($/kg)</label><input className="input mono" type="number" step="any" value={numVal(b.tasa)} onChange={(e) => setBag(i, { tasa: toNum(e.target.value) })} style={numInput} /></div>
+                  <div className="form-row">
+                    <label>Resultado (automático)</label>
+                    <div className="mono" style={{ fontSize: '.8rem', lineHeight: 1.5 }}>
+                      Peso puro Sn: <strong>{puro} kg</strong><br />
+                      Costo total: <strong style={{ color: 'var(--primary-3)' }}>{costo ? '$ ' + costo.toFixed(2) : '—'}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
           <button type="button" className="btn btn-sm btn-ghost" onClick={addBag} style={{ alignSelf: 'start' }}>＋ Big bag</button>
         </div>
 
-        <div className="form-grid">
+        <div className="form-grid" style={{ marginTop: '.6rem' }}>
           <div className="form-row">
             <label>Total Casiterita (kg)</label>
             <input className="input mono" type="number" step="any" value={numVal(datos.total_casiterita)} onChange={(e) => set('total_casiterita', toNum(e.target.value))} style={numInput} />
             <small className="muted" style={{ fontSize: '.7rem' }}>Σ big bags = {totalBigBags} kg</small>
           </div>
           <div className="form-row">
-            <label>Ley de Sn / Tenor (%)</label>
-            <input className="input mono" type="number" step="any" value={numVal(datos.ley_sn)} onChange={(e) => set('ley_sn', toNum(e.target.value))} style={numInput} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>Sn contenido ≈ <strong>{snKg} kg</strong></small>
+            <label>Ley global (%) — automática</label>
+            <input className="input mono" readOnly value={leyGlobal ? leyGlobal.toFixed(2) : ''} style={{ ...numInput, background: 'var(--bg-2)', fontWeight: 700 }} />
+            <small className="muted" style={{ fontSize: '.7rem' }}>Sn ≈ <strong>{snTotal} kg</strong> · Costo casiterita <strong>$ {costoCasiterita.toFixed(2)}</strong></small>
           </div>
         </div>
         <small className="muted" style={{ fontSize: '.72rem' }}>
-          Los <strong>fundentes</strong> (coque, otro fundente, CaCO₃…) se cargan arriba en <strong>«Materiales a utilizar (receta)»</strong> y se consumen del inventario.
+          Los <strong>fundentes</strong> (coque, otro fundente, CaCO₃…) se cargan abajo, en el mismo bloque, y se consumen del inventario.
         </small>
+
+        {/* Materiales / fundentes: unidos en el MISMO bloque, debajo de la casiterita */}
+        {slotMaterial && <div style={{ marginTop: '.7rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>{slotMaterial}</div>}
       </div>
 
       {/* Proceso */}

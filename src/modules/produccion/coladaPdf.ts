@@ -4,6 +4,7 @@
    naranja por sección, ficha de dos columnas, firmas). Solo por botón.
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { money } from '@/shared/lib/format';
 import type { ColadaBigBag, Produccion, ProduccionColada } from '@/shared/lib/types';
 import { getProduccionConMateriales } from './produccion.repository';
 import { getColada, fmtJornada } from './colada.repository';
@@ -16,6 +17,18 @@ function kg(n: number | null | undefined): string {
 }
 function txt(s: string | null | undefined): string { return (s ?? '').toString().trim() || '—'; }
 function tempC(n: number | null | undefined): string { return n == null ? '—' : `${Number(n).toLocaleString('es-VE', { maximumFractionDigits: 1 })} °C`; }
+/** Número (hasta 2 decimales, es-VE) sin unidad; '—' si viene null. */
+function n2(n: number | null | undefined): string { return n == null ? '—' : `${Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 })}`; }
+/** % con hasta 2 decimales es-VE y símbolo «%»; '—' si viene null. */
+function pct(n: number | null | undefined): string { return n == null ? '—' : `${Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 })} %`; }
+/** Porcentaje de `part` sobre `total` (0–100 %); '—' si el total no es positivo. */
+function pctOf(part: number, total: number): string { return total > 0 ? `${(part / total * 100).toLocaleString('es-VE', { maximumFractionDigits: 2 })} %` : '—'; }
+/** Ley (promedio de Sn %) de un big bag: media de leyes[].valor si hay, si no ley_prom. */
+function bagProm(b: ColadaBigBag): number | null {
+  const vals = (b.leyes ?? []).map((l) => l.valor).filter((v): v is number => v != null);
+  if (vals.length) return vals.reduce((s, v) => s + v, 0) / vals.length;
+  return b.ley_prom ?? null;
+}
 /** 'YYYY-MM-DD' → 'DD/MM/YYYY' (sin sustos de zona horaria). */
 function fmtFecha(iso: string | null | undefined): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
@@ -91,16 +104,67 @@ async function construir(prod: Produccion, colada: ProduccionColada | null) {
   // ── MATERIAS PRIMAS ──
   barra('MATERIAS PRIMAS');
   const bags = (d.big_bags ?? []) as ColadaBigBag[];
-  const bagRows: Array<[string, string, string?, string?]> = bags.map((b, i) => [
-    `Big Bag ${i + 1} (kg)`, kg(b.kg), `N° Precinto ${i + 1}`, txt(b.precinto),
-  ]);
   ficha([
-    ...bagRows,
     ['Total Casiterita (kg)', kg(d.total_casiterita), 'Ley de Sn / Tenor (%)', d.ley_sn == null ? '—' : `${d.ley_sn} %  (${kg(d.sn_kg)} Sn)`],
     ['Coque (kg)', kg(d.coque_kg), 'Proveedor de coque', txt(d.coque_proveedor)],
     ['Granulometría coque', txt(d.coque_granulometria), 'Otro fundente', `${txt(d.otro_fundente)}${d.otro_fundente_kg != null ? ` · ${kg(d.otro_fundente_kg)}` : ''}`],
     ['CaCO₃ ' + (d.caco3_tipo ? `(${d.caco3_tipo})` : ''), kg(d.caco3_kg), 'Granulometría CaCO₃ (malla)', txt(d.caco3_granulometria)],
   ]);
+
+  // ── DETALLE DE BIG BAGS DE CASITERITA ──
+  barra('DETALLE DE BIG BAGS DE CASITERITA');
+  autoTable(doc, {
+    startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+    head: [['N°', 'Peso (kg)', 'Aliado', 'Precinto', 'N° análisis', 'Leyes Sn (%)', 'Prom (%)', 'Peso puro Sn (kg)', 'Costo total']],
+    body: bags.length
+      ? bags.map((b, i) => {
+          const prom = bagProm(b);
+          const pesoPuro = b.kg != null && prom != null ? b.kg * prom / 100 : null;
+          const costo = b.kg != null && b.tasa != null ? b.kg * b.tasa : null;
+          const leyesStr = (b.leyes ?? [])
+            .filter((l) => l && (l.letra || l.valor != null))
+            .map((l) => `${l.letra || '?'}: ${n2(l.valor)}`)
+            .join(' · ') || '—';
+          return [
+            String(i + 1), n2(b.kg), txt(b.aliado), txt(b.precinto), txt(b.analisis),
+            leyesStr, pct(prom), n2(pesoPuro), costo == null ? '—' : money(costo),
+          ];
+        })
+      : [['—', '', '', '', '', '', '', '', '']],
+    theme: 'grid',
+    headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 7 },
+    styles: { fontSize: 7, cellPadding: 2.5, valign: 'middle' },
+    columnStyles: {
+      0: { cellWidth: 20, halign: 'center' }, 1: { halign: 'right' },
+      6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' },
+    },
+  });
+  // @ts-expect-error lastAutoTable
+  y = (doc.lastAutoTable?.finalY ?? y) + 10;
+
+  // ── COMPOSICIÓN DE LA MEZCLA (%) ──
+  barra('COMPOSICIÓN DE LA MEZCLA (%)');
+  const mezclaRaw: Array<[string, number | null | undefined]> = [
+    ['Casiterita', d.total_casiterita],
+    ['Coque', d.coque_kg],
+    [txt(d.otro_fundente) === '—' ? 'Otro fundente' : txt(d.otro_fundente), d.otro_fundente_kg],
+    ['CaCO₃' + (d.caco3_tipo ? ` (${d.caco3_tipo})` : ''), d.caco3_kg],
+  ];
+  const mezcla = mezclaRaw.filter((r) => r[1] != null && Number(r[1]) > 0) as Array<[string, number]>;
+  const totalMezcla = mezcla.reduce((s, r) => s + Number(r[1]), 0);
+  autoTable(doc, {
+    startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+    head: [['Componente', 'Cantidad (kg)', '% de la mezcla']],
+    body: mezcla.length ? mezcla.map((r) => [r[0], n2(r[1]), pctOf(Number(r[1]), totalMezcla)]) : [['—', '', '']],
+    foot: mezcla.length ? [['TOTAL', n2(totalMezcla), '100,00 %']] : undefined,
+    theme: 'grid',
+    headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 8 },
+    footStyles: { fillColor: [240, 240, 240], textColor: 0, fontStyle: 'bold', fontSize: 8 },
+    styles: { fontSize: 8, cellPadding: 3 },
+    columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+  });
+  // @ts-expect-error lastAutoTable
+  y = (doc.lastAutoTable?.finalY ?? y) + 10;
 
   // ── PROCESO ──
   barra('PROCESO');

@@ -7,8 +7,9 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
-import type { Produccion, ProduccionColada } from '@/shared/lib/types';
+import type { Produccion, ProduccionColada, ProduccionMaterial } from '@/shared/lib/types';
 import { getColada, finalizarColadaConResultados } from './colada.repository';
+import { getProduccionConMateriales } from './produccion.repository';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -16,6 +17,7 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
   prod: Produccion; actor: string; actorName?: string | null; onClose: () => void; onDone: () => void;
 }) {
   const [colada, setColada] = useState<ProduccionColada | null>(null);
+  const [materiales, setMateriales] = useState<ProduccionMaterial[]>([]);
   const [estano, setEstano] = useState('');
   const [lingotes, setLingotes] = useState('');
   const [escoria, setEscoria] = useState('');
@@ -30,12 +32,19 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
   useEffect(() => {
     let cancel = false;
     getColada(prod.id).then((c) => { if (!cancel) setColada(c); }).catch(() => { /* opcional */ });
+    // Materiales crudos consumidos (casiterita + fundentes) = "mezcla" de la colada.
+    getProduccionConMateriales(prod.id).then((p) => { if (!cancel) setMateriales(p?.materiales ?? []); }).catch(() => { /* opcional */ });
     return () => { cancel = true; };
   }, [prod.id]);
 
   const snKg = Number(colada?.datos?.sn_kg) || 0;
-  const totalCasiterita = Number(colada?.datos?.total_casiterita) || 0;
   const estanoNum = Number(estano) || 0;
+
+  // Total de mezcla = Σ de las cantidades de produccion_materiales (casiterita + fundentes).
+  const totalMezcla = useMemo(
+    () => round2(materiales.reduce((a, m) => a + (Number(m.cantidad) || 0), 0)),
+    [materiales],
+  );
 
   // Rendimiento sugerido = estaño ÷ Sn contenido × 100 (mientras el usuario no lo edite).
   const rendSugerido = snKg > 0 && estanoNum > 0 ? round2((estanoNum / snKg) * 100) : 0;
@@ -43,11 +52,11 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
     if (!rendTocado) setRendimiento(rendSugerido > 0 ? String(rendSugerido) : '');
   }, [rendSugerido, rendTocado]);
 
-  // Merma sugerida = total casiterita − estaño − escoria (referencial).
+  // Merma sugerida = total de mezcla − estaño en bruto − escoria (referencial).
   const mermaSugerida = useMemo(() => {
-    const v = totalCasiterita - estanoNum - (Number(escoria) || 0);
+    const v = totalMezcla - estanoNum - (Number(escoria) || 0);
     return v > 0 ? round2(v) : 0;
-  }, [totalCasiterita, estanoNum, escoria]);
+  }, [totalMezcla, estanoNum, escoria]);
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -110,10 +119,11 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
           </div>
         </div>
 
-        <div className="form-row" style={{ maxWidth: 260 }}>
+        <div className="form-row" style={{ maxWidth: 320 }}>
           <label>Merma (kg)</label>
           <input className="input mono" type="number" step="any" value={merma} onChange={(e) => setMerma(e.target.value)} placeholder={mermaSugerida ? String(mermaSugerida) : ''} style={{ textAlign: 'right' }} />
-          {mermaSugerida > 0 && <small className="muted" style={{ fontSize: '.7rem' }}>Referencial: {num(mermaSugerida)} kg (casiterita − estaño − escoria)</small>}
+          {totalMezcla > 0 && <small className="muted" style={{ fontSize: '.7rem' }}>Total de mezcla = <strong>{num(totalMezcla)} kg</strong></small>}
+          {mermaSugerida > 0 && <small className="muted" style={{ fontSize: '.7rem' }}>Referencial: {num(mermaSugerida)} kg (mezcla − estaño − escoria)</small>}
         </div>
 
         <div className="form-row">

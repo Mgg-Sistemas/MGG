@@ -17,6 +17,10 @@ function kg(n: number | null | undefined): string {
 function txt(s: string | null | undefined): string { return (s ?? '').toString().trim() || '—'; }
 function tempC(n: number | null | undefined): string { return n == null ? '—' : `${Number(n).toLocaleString('es-VE', { maximumFractionDigits: 1 })} °C`; }
 function pct(n: number | null | undefined): string { return n == null ? '—' : `${Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 })} %`; }
+/** Número (hasta 2 decimales, es-VE) sin unidad; '—' si viene null. */
+function n2(n: number | null | undefined): string { return n == null ? '—' : `${Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 })}`; }
+/** Porcentaje de `part` sobre `total` (0–100 %); '—' si el total no es positivo. */
+function pctOf(part: number, total: number): string { return total > 0 ? `${(part / total * 100).toLocaleString('es-VE', { maximumFractionDigits: 2 })} %` : '—'; }
 function fmtFecha(iso: string | null | undefined): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
   return m ? `${m[3]}/${m[2]}/${m[1]}` : txt(iso);
@@ -95,16 +99,28 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null) {
   ]);
   // Reactivos = materiales consumidos que NO son estaño crudo.
   const reactivos = (prod.materiales ?? []).filter((m) => !/estaño (crudo|a refinar)/i.test(m.material_nombre));
+  // Composición de la mezcla al 100 %: estaño crudo + reactivos.
+  const crudoKg = d.estano_crudo_kg != null
+    ? Number(d.estano_crudo_kg)
+    : coladas.reduce((s, c) => s + (Number(c.estano_kg) || 0), 0);
+  const almacenesCrudo = Array.from(new Set(coladas.map((c) => c.almacen).filter(Boolean))).join(', ') || '—';
+  const totalMezcla = crudoKg + reactivos.reduce((s, m) => s + (Number(m.cantidad) || 0), 0);
+  const compBody: Array<[string, string, string, string]> = [
+    ['Estaño crudo cargado', almacenesCrudo, n2(crudoKg), pctOf(crudoKg, totalMezcla)],
+    ...reactivos.map((m) => [
+      m.material_nombre, txt(m.almacen), n2(Number(m.cantidad)), pctOf(Number(m.cantidad) || 0, totalMezcla),
+    ] as [string, string, string, string]),
+  ];
   autoTable(doc, {
     startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
-    head: [['Agente refinante / reactivo', 'Almacén', 'Cantidad (kg)']],
-    body: reactivos.length
-      ? reactivos.map((m) => [m.material_nombre, m.almacen, Number(m.cantidad).toLocaleString('es-VE', { maximumFractionDigits: 2 })])
-      : [['Sin reactivos registrados', '', '']],
+    head: [['Material / reactivo', 'Almacén', 'Cantidad (kg)', '% de la mezcla']],
+    body: compBody,
+    foot: [['TOTAL', '', n2(totalMezcla), '100,00 %']],
     theme: 'grid',
     headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 8 },
+    footStyles: { fillColor: [240, 240, 240], textColor: 0, fontStyle: 'bold', fontSize: 8 },
     styles: { fontSize: 8, cellPadding: 3 },
-    columnStyles: { 2: { halign: 'right' } },
+    columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' } },
   });
   // @ts-expect-error lastAutoTable
   y = (doc.lastAutoTable?.finalY ?? y) + 10;
