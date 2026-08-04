@@ -281,6 +281,73 @@ export async function crearCompraDirecta(
   return normalizar(data as Record<string, unknown>);
 }
 
+/**
+ * Edita una compra directa EN PROCESO (aún no tiene factura/precios ni tocó caja o
+ * inventario): se pueden cambiar TODOS los datos — proveedor, almacén destino y los
+ * materiales (agregar, quitar, cambiar cantidad o dar de alta materiales nuevos).
+ * No hay reversas porque nada se movió todavía. Solo aplica si sigue `en_proceso`.
+ */
+export async function editarCompraDirectaEnProceso(
+  compraId: string,
+  input: CrearCompraInput,
+  productosExistentes: Producto[] = [],
+): Promise<CompraDirecta> {
+  const almacen = input.almacen.trim() || 'General';
+  const lineas = input.lineas.filter((l) => (Number(l.cantidad) || 0) > 0);
+  if (!lineas.length) throw new Error('Agregá al menos un material con cantidad.');
+
+  // Guard: solo se edita mientras esté EN PROCESO (después ya movió caja/inventario).
+  const { data: actual, error: eActual } = await supabase
+    .from('compras_directas').select('estado').eq('id', compraId).single();
+  if (eActual) throw eActual;
+  if ((actual as { estado?: string } | null)?.estado !== 'en_proceso') {
+    throw new Error('Solo se puede editar una compra que esté En proceso.');
+  }
+
+  const items: CompraDirectaItem[] = [];
+  for (const l of lineas) {
+    const cantidad = Number(l.cantidad) || 0;
+    if (l.modo === 'existente') {
+      if (!l.productoId) throw new Error('Elegí el material en cada renglón.');
+      const p = productosExistentes.find((x) => x.id === l.productoId) ?? null;
+      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad });
+    } else {
+      const nom = l.nombre.trim().toUpperCase();
+      if (!nom) throw new Error('Indicá el nombre del material nuevo.');
+      const nuevo = await createProducto({
+        sku: siguienteSku(l.categoria, productosExistentes),
+        nombre: nom, categoria: l.categoria, unidad: l.unidad,
+        stock: 0, stock_min: 0, precio: 0, almacen, estado: 'activo',
+      });
+      productosExistentes = [...productosExistentes, nuevo];
+      items.push({ producto_id: nuevo.id, producto_nombre: nuevo.nombre, producto_sku: nuevo.sku, cantidad });
+    }
+  }
+
+  const totalCantidad = items.reduce((a, i) => a + i.cantidad, 0);
+  const resumen = items.length === 1 ? items[0].producto_nombre : `${items.length} materiales`;
+
+  const { data, error } = await supabase
+    .from('compras_directas')
+    .update({
+      producto_id: items.length === 1 ? items[0].producto_id : null,
+      producto_nombre: resumen,
+      producto_sku: items.length === 1 ? items[0].producto_sku : null,
+      proveedor_id: input.proveedorId ?? null,
+      proveedor_nombre: input.proveedorNombre?.trim() || null,
+      almacen,
+      cantidad: totalCantidad,
+      items,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', compraId)
+    .eq('estado', 'en_proceso')
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizar(data as Record<string, unknown>);
+}
+
 /* ───────── Adjunto en Storage ───────── */
 
 export async function subirAdjuntoCompra(compraId: string, file: File): Promise<string> {

@@ -14,11 +14,10 @@ import { getCategorias, getUnidades, listProductos, updateProducto, addCategoria
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
-  crearCompraDirecta, montarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
-  urlAdjuntoCompra, gestionarFacturasCompra, editarCompraDirectaFinalizada, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
+  crearCompraDirecta, editarCompraDirectaEnProceso, montarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
+  urlAdjuntoCompra, gestionarFacturasCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
 } from './compras.repository';
 import { FacturasModal } from './FacturasModal';
-import { EditarMontosModal } from './EditarMontosModal';
 import { DetalleDirectoModal } from './DetalleDirectoModal';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 
@@ -60,7 +59,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
   const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
   const [facturas, setFacturas] = useState<CompraDirecta | null>(null);
-  const [editarMontos, setEditarMontos] = useState<CompraDirecta | null>(null);
+  const [editarProceso, setEditarProceso] = useState<CompraDirecta | null>(null);
   const [detalle, setDetalle] = useState<CompraDirecta | null>(null);
 
   // Solo la lista (la tabla/kanban). Lo que se muestra va denormalizado en la fila,
@@ -139,7 +138,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
                   <CompraCard key={c.id} compra={c} onVer={() => setDetalle(c)}
-                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onFacturas={() => setFacturas(c)} onEditarMontos={() => setEditarMontos(c)} onEliminar={() => setEliminar(c)} />
+                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onFacturas={() => setFacturas(c)} onEditar={() => setEditarProceso(c)} onEliminar={() => setEliminar(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -165,8 +164,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td className="muted">{c.finalizada_at ? dateTime(c.finalizada_at) : '—'}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
-                    {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setEditarMontos(c)} title="Editar montos (sincroniza Tesorería e inventario)">✎ Editar</button>}
                     {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(c)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
+                    {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" onClick={() => setEditarProceso(c)} title="Editar la compra: materiales, cantidades, proveedor y almacén">✎ Editar</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
                     {colDe(c) === 'abierta' && !estaPagada(c) && !estaRecibida(c) && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(c)} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
                     {c.estado !== 'finalizada' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa (revierte caja e inventario si ya se pagó/recibió)">🗑</button>}
@@ -178,9 +177,12 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
         </div>
       )}
 
-      {crear && (
+      {(crear || editarProceso) && (
         <CrearCompraModal productos={productos} categorias={categorias} unidades={unidades} proveedores={proveedores}
-          actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await Promise.all([reloadLista(), reloadCatalogos()]); }} />
+          editCompra={editarProceso}
+          actor={actor} actorName={actorName}
+          onClose={() => { setCrear(false); setEditarProceso(null); }}
+          onSaved={async () => { setCrear(false); setEditarProceso(null); await Promise.all([reloadLista(), reloadCatalogos()]); }} />
       )}
 
       {finalizar && (
@@ -213,29 +215,6 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
         />
       )}
 
-      {editarMontos && (
-        <EditarMontosModal
-          title={`Editar montos · ${editarMontos.codigo ?? 'Compra directa'}`}
-          /* Los montos de la compra están en SU moneda (no en la de la caja que la pagó). */
-          moneda={editarMontos.moneda || cajas.find((c) => c.id === editarMontos.caja_id)?.moneda || 'USD'}
-          rows={editarMontos.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: Number(it.gasto) || 0 }))}
-          pagoExterno={editarMontos.pago_externo}
-          pagoExternoDatos={editarMontos.pago_externo_datos}
-          nota={editarMontos.nota ?? ''}
-          /* El IVA solo aplica cuando la compra es en Bs: ahí queda ajustable. */
-          iva={editarMontos.moneda === 'Bs' ? (Number(editarMontos.iva) || 0) : undefined}
-          /* El IGTF queda ajustable siempre (aplica también en $). */
-          igtf={Number(editarMontos.igtf) || 0}
-          descuento={Number(editarMontos.descuento_monto) || 0}
-          onSave={async (gastos, extra) => {
-            const items = editarMontos.items.map((it, i) => ({ ...it, gasto: gastos[i] ?? 0 }));
-            await editarCompraDirectaFinalizada({ compra: editarMontos, items, actor, actorName, pagoExterno: extra.pagoExterno, pagoExternoDatos: extra.pagoExternoDatos, nota: extra.nota, iva: editarMontos.moneda === 'Bs' ? extra.iva : undefined, igtf: extra.igtf });
-            await reloadLista();
-          }}
-          onClose={() => setEditarMontos(null)}
-        />
-      )}
-
       {detalle && (
         <DetalleDirectoModal
           title={`Compra directa · ${detalle.codigo ?? ''}`}
@@ -265,7 +244,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <button className="btn btn-ghost" onClick={() => setDetalle(null)}>Cerrar</button>
               <button className="btn btn-ghost" onClick={() => handlePdf(detalle)}>↓ PDF</button>
               {detalle.estado === 'finalizada' && <button className="btn btn-ghost" onClick={() => { setFacturas(detalle); setDetalle(null); }}>🧾 Facturas</button>}
-              {detalle.estado === 'finalizada' && <button className="btn btn-primary" onClick={() => { setEditarMontos(detalle); setDetalle(null); }}>✎ Editar montos</button>}
+              {detalle.estado === 'en_proceso' && <button className="btn btn-ghost" onClick={() => { setEditarProceso(detalle); setDetalle(null); }}>✎ Editar</button>}
               {detalle.estado === 'en_proceso' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>Cargar factura y precios</button>}
               {colDe(detalle) === 'abierta' && !estaPagada(detalle) && !estaRecibida(detalle) && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>✎ Editar factura/precios</button>}
             </>
@@ -277,8 +256,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   );
 }
 
-function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMontos, onEliminar }: {
-  compra: CompraDirecta; onVer: () => void; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEditarMontos: () => void; onEliminar: () => void;
+function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditar, onEliminar }: {
+  compra: CompraDirecta; onVer: () => void; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEditar: () => void; onEliminar: () => void;
 }) {
   return (
     <div className="card" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver el detalle">
@@ -320,8 +299,8 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditarMon
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
-        {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onEditarMontos} title="Editar montos (sincroniza Tesorería e inventario)">✎ Editar</button>}
         {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
+        {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" onClick={onEditar} title="Editar la compra: materiales, cantidades, proveedor y almacén">✎ Editar</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
         {colDe(compra) === 'abierta' && !estaPagada(compra) && !estaRecibida(compra) && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
         {compra.estado !== 'finalizada' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa (revierte caja e inventario si ya se pagó/recibió)">🗑 Eliminar</button>}
@@ -343,8 +322,10 @@ function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
 
 interface LineaUI { id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string }
 
-function CrearCompraModal({ productos, categorias, unidades, proveedores, actor, actorName, onClose, onSaved }: {
+function CrearCompraModal({ productos, categorias, unidades, proveedores, editCompra, actor, actorName, onClose, onSaved }: {
   productos: Producto[]; categorias: string[]; unidades: string[]; proveedores: Proveedor[];
+  /** Si viene, el modal edita esa compra EN PROCESO (todos sus datos) en vez de crear una nueva. */
+  editCompra?: CompraDirecta | null;
   actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
@@ -354,16 +335,27 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
     id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
     nombre: '', categoria: categorias[0] ?? '', unidad: unidades[0] ?? 'und', cantidad: '1',
   });
-  const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
-  const [almacen, setAlmacen] = useState('');
+  // En modo edición, precargar los renglones desde los materiales ya cargados en la compra.
+  const [lineas, setLineas] = useState<LineaUI[]>(() => {
+    if (editCompra?.items?.length) {
+      return editCompra.items.map((it, i) => ({
+        id: i + 1, modo: 'existente' as const, productoId: it.producto_id,
+        nombre: it.producto_nombre ?? '', categoria: categorias[0] ?? '',
+        unidad: productos.find((p) => p.id === it.producto_id)?.unidad ?? unidades[0] ?? 'und',
+        cantidad: String(it.cantidad ?? 1),
+      }));
+    }
+    return [nuevaLinea(1)];
+  });
+  const [almacen, setAlmacen] = useState(editCompra?.almacen ?? '');
   // Proveedor: elegir uno existente (buscable) o dar de alta uno nuevo (razón social + RIF).
   const [provModo, setProvModo] = useState<'existente' | 'nuevo'>('existente');
-  const [proveedorId, setProveedorId] = useState('');
+  const [proveedorId, setProveedorId] = useState(editCompra?.proveedor_id ?? '');
   const [provNombre, setProvNombre] = useState('');
   const [provRif, setProvRif] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [seq, setSeq] = useState(2);
+  const [seq, setSeq] = useState((editCompra?.items?.length ?? 1) + 1);
 
   function set(id: number, patch: Partial<LineaUI>) { setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l))); }
   function add() { setLineas((ls) => [...ls, nuevaLinea(seq)]); setSeq((s) => s + 1); }
@@ -416,21 +408,26 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, actor,
         const prov = proveedores.find((p) => p.id === proveedorId) ?? null;
         proveedorId2 = proveedorId; proveedorNombre = prov?.razon_social ?? null;
       }
-      await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorId2, proveedorNombre, actor, actorName }, productos);
-      notify(`Compra directa creada · ${payload.length} material(es)${proveedorNombre ? ` · ${proveedorNombre}` : ''}`, 'success', { link: '#/app/pedidos' });
+      if (editCompra) {
+        await editarCompraDirectaEnProceso(editCompra.id, { lineas: payload, almacen, proveedorId: proveedorId2, proveedorNombre, actor, actorName }, productos);
+        notify(`Compra directa actualizada · ${payload.length} material(es)${proveedorNombre ? ` · ${proveedorNombre}` : ''}`, 'success', { link: '#/app/pedidos' });
+      } else {
+        await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorId2, proveedorNombre, actor, actorName }, productos);
+        notify(`Compra directa creada · ${payload.length} material(es)${proveedorNombre ? ` · ${proveedorNombre}` : ''}`, 'success', { link: '#/app/pedidos' });
+      }
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear la compra directa.'); setSaving(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : (editCompra ? 'No se pudo editar la compra directa.' : 'No se pudo crear la compra directa.')); setSaving(false); }
   }
 
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cd-form" className="btn btn-primary" disabled={saving}>{saving ? 'Creando…' : 'Crear compra directa'}</button>
+      <button type="submit" form="cd-form" className="btn btn-primary" disabled={saving}>{saving ? (editCompra ? 'Guardando…' : 'Creando…') : (editCompra ? 'Guardar cambios' : 'Crear compra directa')}</button>
     </>
   );
 
   return (
-    <Modal title="Nueva compra directa" size="lg" onClose={onClose} footer={footer}>
+    <Modal title={editCompra ? `Editar compra directa${editCompra.codigo ? ` · ${editCompra.codigo}` : ''}` : 'Nueva compra directa'} size="lg" onClose={onClose} footer={footer}>
       <form id="cd-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
