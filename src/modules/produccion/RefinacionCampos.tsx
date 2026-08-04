@@ -5,13 +5,15 @@
    modal, y las etapas de temperatura son una tabla dinámica. Los resultados y
    el balance de masa se cargan al finalizar. El PDF replica el formato formal.
    ============================================================ */
-import { useEffect, type CSSProperties } from 'react';
-import { num } from '@/shared/lib/format';
+import { useEffect, type CSSProperties, type ReactNode } from 'react';
+import { num, money } from '@/shared/lib/format';
 import type { RefinacionColadaOrigen, RefinacionDatos } from '@/shared/lib/types';
 import type { ColadaFinalizada } from './refinacion.repository';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+let _manualSeq = 0;
+const nextManualId = () => `manual-${++_manualSeq}-${Math.round(Math.random() * 1e6)}`;
 
 /** Grupo de chips seleccionables (una sola opción). */
 function Chips({ value, options, onChange }: { value?: string; options: string[]; onChange: (v: string) => void }) {
@@ -44,9 +46,11 @@ interface Props {
   setDatos: (updater: (prev: RefinacionDatos) => RefinacionDatos) => void;
   /** Coladas finalizadas disponibles como origen de estaño crudo. */
   coladasFin: ColadaFinalizada[];
+  /** Bloque de reactivos/insumos que se renderiza unido, debajo del origen (mismo bloque «Material a procesar»). */
+  slotMaterial?: ReactNode;
 }
 
-export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFecha, datos, setDatos, coladasFin }: Props) {
+export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFecha, datos, setDatos, coladasFin, slotMaterial }: Props) {
   const set = <K extends keyof RefinacionDatos>(key: K, val: RefinacionDatos[K]) => setDatos((p) => ({ ...p, [key]: val }));
   const numVal = (v: number | null | undefined) => (v == null ? '' : String(v));
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s));
@@ -81,6 +85,26 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
   function setColadaKg(produccionId: string, kg: number) {
     setDatos((p) => ({ ...p, coladas: (p.coladas ?? []).map((c) => c.produccion_id === produccionId ? { ...c, estano_kg: kg } : c) }));
   }
+  function setColadaCosto(produccionId: string, costo: number) {
+    setDatos((p) => ({ ...p, coladas: (p.coladas ?? []).map((c) => c.produccion_id === produccionId ? { ...c, costo_unitario: costo } : c) }));
+  }
+  // Líneas MANUALES de material a refinar (sin colada de origen): kg + costo inicial.
+  function addManual() {
+    const nueva: RefinacionColadaOrigen = {
+      produccion_id: nextManualId(), colada_num: 0, fecha: '',
+      producto_id: null, producto_nombre: '', almacen: 'Manual',
+      estano_kg: 0, costo_unitario: 0, origen: 'manual', etiqueta: '',
+    };
+    setDatos((p) => ({ ...p, coladas: [...(p.coladas ?? []), nueva] }));
+  }
+  function setManual(produccionId: string, patch: Partial<RefinacionColadaOrigen>) {
+    setDatos((p) => ({ ...p, coladas: (p.coladas ?? []).map((c) => c.produccion_id === produccionId ? { ...c, ...patch } : c) }));
+  }
+  function delManual(produccionId: string) {
+    setDatos((p) => ({ ...p, coladas: (p.coladas ?? []).filter((c) => c.produccion_id !== produccionId) }));
+  }
+  const manuales = coladas.filter((c) => c.origen === 'manual');
+  const costoInicialTotal = round2(coladas.reduce((a, c) => a + (Number(c.estano_kg) || 0) * (Number(c.costo_unitario) || 0), 0));
 
   // Jornada de refinación = (fecha+hora fin) − (fecha+hora inicio). Se calcula sola
   // y se copia al campo "Turno" (queda editable), igual que en la colada.
@@ -131,66 +155,97 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
         </div>
       </div>
 
-      {/* Origen del material a refinar — coladas primarias (crudo) o refinaciones finalizadas (2ª refinación) */}
+      {/* Material a procesar — origen (coladas / 2ª refinación / manual) + reactivos, todo en UN bloque */}
       <div style={secStyle}>
-        <div style={tituloSec}>Origen del material a refinar · coladas (crudo) o material ya refinado (2ª refinación)</div>
-        {!coladasFin.length ? (
-          <div className="muted" style={{ fontSize: '.82rem', padding: '.25rem 0' }}>
-            No hay coladas ni refinaciones finalizadas para tomar como material. Finalizá una colada o refinación primero.
-          </div>
-        ) : (
-          <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto' }}>
-            <table className="table" style={{ fontSize: '.82rem' }}>
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>Origen</th>
-                  <th>Producto · almacén</th>
-                  <th style={{ textAlign: 'right' }}>Disponible</th>
-                  <th style={{ textAlign: 'right' }}>Kg a tomar</th>
+        <div style={tituloSec}>Material a procesar · origen del estaño a refinar (coladas, 2ª refinación o manual)</div>
+        <div className="table-wrap" style={{ maxHeight: 240, overflowY: 'auto' }}>
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Origen</th>
+                <th>Producto · almacén</th>
+                <th style={{ textAlign: 'right' }}>Disponible</th>
+                <th style={{ textAlign: 'right' }}>Kg a tomar</th>
+                <th style={{ textAlign: 'right' }}>Costo inicial ($/kg)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {coladasFin.map((c) => {
+                const sel = selIds.has(c.produccion_id);
+                const selRow = coladas.find((x) => x.produccion_id === c.produccion_id);
+                const tomado = selRow?.estano_kg ?? c.estano_kg;
+                const costo = selRow?.costo_unitario ?? c.costo_unitario;
+                const esReRef = c.origen === 'refinacion';
+                return (
+                  <tr key={c.produccion_id} style={sel ? { background: 'rgba(255,138,0,0.06)' } : undefined}>
+                    <td><input type="checkbox" checked={sel} onChange={() => toggleColada(c)} /></td>
+                    <td>
+                      <strong>{esReRef ? '♻ ' : ''}{c.etiqueta ?? `#${c.colada_num || '—'}`}</strong>
+                      {esReRef && <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.62rem', background: 'var(--primary)', color: '#1a1205', fontWeight: 700 }}>2ª refinación</span>}
+                      {c.fecha ? <div className="muted" style={{ fontSize: '.7rem' }}>{c.fecha}</div> : null}
+                    </td>
+                    <td>{c.producto_nombre}<div className="muted" style={{ fontSize: '.7rem' }}>{c.almacen}</div></td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(c.estano_kg)} kg</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <input className="input mono" type="number" min={0} step="any" style={{ width: 88, textAlign: 'right' }}
+                        value={sel ? String(tomado) : ''} disabled={!sel}
+                        onChange={(e) => setColadaKg(c.produccion_id, Number(e.target.value) || 0)} />
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <input className="input mono" type="number" min={0} step="any" style={{ width: 88, textAlign: 'right' }}
+                        value={sel ? String(costo) : ''} disabled={!sel}
+                        onChange={(e) => setColadaCosto(c.produccion_id, Number(e.target.value) || 0)} />
+                    </td>
+                  </tr>
+                );
+              })}
+              {manuales.map((c) => (
+                <tr key={c.produccion_id} style={{ background: 'rgba(80,140,255,0.06)' }}>
+                  <td title="Material manual" style={{ textAlign: 'center' }}>✎</td>
+                  <td colSpan={2}>
+                    <input className="input" placeholder="Descripción (ej. estaño externo)" value={c.etiqueta ?? ''}
+                      onChange={(e) => setManual(c.produccion_id, { etiqueta: e.target.value, producto_nombre: e.target.value })} style={{ minWidth: 150 }} />
+                    <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.62rem', background: '#508cff', color: '#fff', fontWeight: 700 }}>manual</span>
+                  </td>
+                  <td className="mono muted" style={{ textAlign: 'right' }}>—</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <input className="input mono" type="number" min={0} step="any" style={{ width: 88, textAlign: 'right' }}
+                      value={String(c.estano_kg ?? 0)} onChange={(e) => setManual(c.produccion_id, { estano_kg: Number(e.target.value) || 0 })} />
+                  </td>
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <input className="input mono" type="number" min={0} step="any" style={{ width: 76, textAlign: 'right' }}
+                      value={String(c.costo_unitario ?? 0)} onChange={(e) => setManual(c.produccion_id, { costo_unitario: Number(e.target.value) || 0 })} />
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => delManual(c.produccion_id)} style={{ color: 'var(--danger)', padding: '0 .3rem' }}>✕</button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {coladasFin.map((c) => {
-                  const sel = selIds.has(c.produccion_id);
-                  const tomado = coladas.find((x) => x.produccion_id === c.produccion_id)?.estano_kg ?? c.estano_kg;
-                  const esReRef = c.origen === 'refinacion';
-                  return (
-                    <tr key={c.produccion_id} style={sel ? { background: 'rgba(255,138,0,0.06)' } : undefined}>
-                      <td><input type="checkbox" checked={sel} onChange={() => toggleColada(c)} /></td>
-                      <td>
-                        <strong>{esReRef ? '♻ ' : ''}{c.etiqueta ?? `#${c.colada_num || '—'}`}</strong>
-                        {esReRef && <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.62rem', background: 'var(--primary)', color: '#1a1205', fontWeight: 700 }}>2ª refinación</span>}
-                        {c.fecha ? <div className="muted" style={{ fontSize: '.7rem' }}>{c.fecha}</div> : null}
-                      </td>
-                      <td>{c.producto_nombre}<div className="muted" style={{ fontSize: '.7rem' }}>{c.almacen}</div></td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{num(c.estano_kg)} kg</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <input className="input mono" type="number" min={0} step="any" style={{ width: 90, textAlign: 'right' }}
-                          value={sel ? String(tomado) : ''} disabled={!sel}
-                          onChange={(e) => setColadaKg(c.produccion_id, Number(e.target.value) || 0)} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!coladasFin.length && !manuales.length && (
+          <div className="muted" style={{ fontSize: '.8rem', padding: '.25rem 0' }}>
+            No hay coladas ni refinaciones finalizadas. Podés cargar material a refinar a mano con «＋ Añadir material manual».
           </div>
         )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={addManual}>＋ Añadir material manual</button>
+          <span className="muted mono" style={{ fontSize: '.78rem' }}>Costo inicial total: <strong style={{ color: 'var(--primary-3)' }}>{money(costoInicialTotal)}</strong></span>
+        </div>
         <div className="form-grid" style={{ marginTop: '.5rem' }}>
           <div className="form-row">
             <label>Estaño crudo cargado (kg)</label>
             <input className="input mono" type="number" step="any" value={numVal(datos.estano_crudo_kg)} onChange={(e) => set('estano_crudo_kg', toNum(e.target.value))} style={numInput} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>Σ coladas seleccionadas = <strong>{crudoTotal} kg</strong></small>
+            <small className="muted" style={{ fontSize: '.7rem' }}>Σ seleccionadas + manuales = <strong>{crudoTotal} kg</strong></small>
           </div>
           <div className="form-row">
             <label>Pureza inicial estimada (% Sn)</label>
             <input className="input mono" type="number" step="any" value={numVal(datos.pureza_inicial)} onChange={(e) => set('pureza_inicial', toNum(e.target.value))} style={numInput} />
           </div>
         </div>
-        <small className="muted" style={{ fontSize: '.72rem' }}>
-          Los <strong>agentes refinantes / reactivos</strong> (azufre, soda cáustica, carbón, cal, Al/Zn…) se cargan abajo en <strong>«Materiales a utilizar»</strong> (se consumen del inventario).
-        </small>
+
+        {/* Reactivos / insumos: unidos en el MISMO bloque, debajo del origen */}
+        {slotMaterial && <div style={{ marginTop: '.7rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>{slotMaterial}</div>}
       </div>
 
       {/* Parámetros de operación */}

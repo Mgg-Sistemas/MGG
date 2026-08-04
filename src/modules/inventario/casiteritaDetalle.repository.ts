@@ -118,6 +118,15 @@ export async function eliminarCasiteritaDetalle(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Total RECEPCIONADO de casiterita = Σ existencia del almacén SnO₂ (lo que realmente entró
+ *  al inventario por las recepciones). Es el TOPE que el inventario detallado (Σ Peso
+ *  Casiterita del ledger) no debería superar: si lo supera, hay un descuadre a verificar. */
+export async function totalRecepcionadoCasiterita(almacen: string = CASITERITA_ALMACEN): Promise<number> {
+  const { data, error } = await supabase.from('existencias').select('stock').eq('almacen', almacen);
+  if (error) throw error;
+  return round2((data ?? []).reduce((a, r) => a + num((r as { stock: number }).stock), 0));
+}
+
 /* ───────────── Traer desde recepción ─────────────
    Por cada procedencia (centro/aliado) de una recepción arma una sugerencia con:
    Peso Neto (seco de los bigbags, o el peso del cierre de caja si no hay bigbags),

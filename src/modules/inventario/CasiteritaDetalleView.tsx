@@ -15,7 +15,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { PESO_FACTOR } from '@/modules/recepciones/recepciones.repository';
 import {
   listCasiteritaDetalle, crearCasiteritaDetalle, actualizarCasiteritaDetalle, eliminarCasiteritaDetalle,
-  sugerenciasCasiteritaDesdeCierre, listCierresParaTraer,
+  sugerenciasCasiteritaDesdeCierre, listCierresParaTraer, totalRecepcionadoCasiterita,
   calcPesoCasiterita, calcPesoPuroSn,
   type CasiteritaDetalle, type CasiteritaCategoria, type CasiteritaDetalleInput, type CasiteritaSugerencia, type CierreOpcion,
 } from './casiteritaDetalle.repository';
@@ -56,6 +56,38 @@ function agrupaPorProc(rows: CasiteritaDetalle[]): Map<string, Grupo> {
   return m;
 }
 
+/* Tolerancia (Kg) para el descuadre detallado vs recepcionado: absorbe redondeos. */
+const TOLERANCIA_KG = 0.01;
+
+/** Total recepcionado (existencia del almacén SnO₂) con realtime; sirve de tope al detallado. */
+function useRecepcionadoCasiterita(): number | null {
+  const [recepcionado, setRecepcionado] = useState<number | null>(null);
+  const cargar = useCallback(() => { totalRecepcionadoCasiterita().then(setRecepcionado).catch(() => setRecepcionado(null)); }, []);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['existencias'], cargar);
+  return recepcionado;
+}
+
+/** Aviso NO bloqueante: se muestra solo cuando el inventario detallado supera lo recepcionado. */
+function AlertaDescuadreCasiterita({ detallado, recepcionado }: { detallado: number; recepcionado: number | null }) {
+  if (recepcionado == null) return null;
+  const exceso = round2(detallado - recepcionado);
+  if (exceso <= TOLERANCIA_KG) return null;
+  return (
+    <div className="card" style={{ borderColor: 'var(--danger)', background: 'rgba(239,68,68,0.08)', marginBottom: '.8rem' }}>
+      <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start' }}>
+        <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>⚠</span>
+        <div style={{ fontSize: '.85rem' }}>
+          <strong>El inventario detallado supera lo recepcionado.</strong> Verificá las cargas: el detallado (SnO₂) no debería dar <strong>más</strong> que el total recepcionado de casiterita.
+          <div className="muted" style={{ marginTop: '.25rem' }}>
+            Detallado <strong className="mono">{n2(detallado)}</strong> Kg · Recepcionado <strong className="mono">{n2(recepcionado)}</strong> Kg · Exceso <strong className="mono">{n2(exceso)}</strong> Kg
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ───────────── Banner resumen (dentro de ⛏ Casiterita) ───────────── */
 export function CasiteritaResumen({ onOpenDetalle }: { onOpenDetalle: () => void }) {
   const [rows, setRows] = useState<CasiteritaDetalle[]>([]);
@@ -68,8 +100,11 @@ export function CasiteritaResumen({ onOpenDetalle }: { onOpenDetalle: () => void
     casiterita: a.casiterita + (Number(d.peso_casiterita_kgs) || 0),
     valor: a.valor + valorFila(d),
   }), { casiterita: 0, valor: 0 }), [rows]);
+  const recepcionado = useRecepcionadoCasiterita();
 
   return (
+    <>
+    <AlertaDescuadreCasiterita detallado={tot.casiterita} recepcionado={recepcionado} />
     <div className="card" style={{ marginBottom: '.8rem' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '.6rem', marginBottom: grupos.length ? '.6rem' : 0 }}>
         <div className="card-title" style={{ margin: 0 }}>⛏ Casiterita valorizada <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>(Peso Casiterita × Tasa, por centro/aliado)</span></div>
@@ -106,6 +141,7 @@ export function CasiteritaResumen({ onOpenDetalle }: { onOpenDetalle: () => void
         </div>
       )}
     </div>
+    </>
   );
 }
 
@@ -138,6 +174,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
     puro: a.puro + (Number(d.peso_puro_sn) || 0),
     valor: a.valor + valorFila(d),
   }), { peso: 0, casiterita: 0, puro: 0, valor: 0 }), [rows]);
+  const recepcionado = useRecepcionadoCasiterita();
 
   // Filas + subtotal cuando cambia la procedencia.
   const filas: Array<{ tipo: 'dato'; d: CasiteritaDetalle } | { tipo: 'sub'; proc: string }> = [];
@@ -158,6 +195,8 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
           {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setEditor('nuevo')}>+ Agregar</button>}
         </div>
       </div>
+
+      <AlertaDescuadreCasiterita detallado={tot.casiterita} recepcionado={recepcionado} />
 
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
@@ -339,6 +378,9 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
 }) {
   const [cierres, setCierres] = useState<CierreOpcion[]>([]);
   const [sel, setSel] = useState(''); // "cierre:<id>" (recepción cerrada)
+  // Recepciones ya elegidas en ESTA sesión del modal: se quitan del desplegable para no
+  // volver a elegir la misma dos veces (evita duplicados al cargar varias líneas).
+  const [usadasSesion, setUsadasSesion] = useState<Set<string>>(new Set());
   const [filas, setFilas] = useState<FilaTraer[]>([]);
   const [cargando, setCargando] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -349,12 +391,19 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
     listCierresParaTraer().then(setCierres).catch(() => setCierres([]));
   }, []);
 
+  // Opciones del desplegable: las cerradas aún NO usadas en esta sesión. La actualmente
+  // seleccionada se mantiene visible (es el valor del <select>) aunque ya esté marcada.
+  const selId = sel.startsWith('cierre:') ? sel.slice('cierre:'.length) : '';
+  const cierresDisponibles = cierres.filter((c) => c.id === selId || !usadasSesion.has(c.id));
+
   async function cargarSug(value: string) {
     setSel(value); setFilas([]); setError(null);
     if (!value) return;
     setCargando(true);
     try {
       const [, id] = value.split(':'); // value = "cierre:<id>"
+      // Marca la recepción como elegida en la sesión: sale del desplegable para las próximas líneas.
+      setUsadasSesion((s) => new Set(s).add(id));
       const sug = await sugerenciasCasiteritaDesdeCierre(id);
       setFilas(sug.map((s) => ({ ...s, incluir: s.peso_neto_kgs > 0, categoria: s.categoria_sug, cant: '1', precinto: '', tasa: s.tasa != null ? numInput(s.tasa) : '' })));
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo leer la recepción'); }
@@ -404,7 +453,7 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
         <label>Recepción</label>
         <select className="select" value={sel} onChange={(e) => void cargarSug(e.target.value)}>
           <option value="">— elegí una recepción cerrada —</option>
-          {cierres.map((c) => <option key={c.id} value={`cierre:${c.id}`}>{c.grupo_nombre} · Cierre #{c.numero}</option>)}
+          {cierresDisponibles.map((c) => <option key={c.id} value={`cierre:${c.id}`}>{c.grupo_nombre} · Cierre #{c.numero}</option>)}
         </select>
         <small className="muted" style={{ marginTop: '.25rem' }}>Se trae Peso Neto (seco), Prom SN y la tasa por procedencia; completá categoría y precinto. Incluye recepciones ya <strong>cerradas</strong>.</small>
       </div>

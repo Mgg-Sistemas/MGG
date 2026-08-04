@@ -42,7 +42,20 @@ interface MaterialAProducirModalProps {
   onHornosChanged?: () => Promise<void> | void;
 }
 
-interface MatRow { checked: boolean; cantidad: string; almacen: string }
+interface MatRow { checked: boolean; cantidad: string; almacen: string; costo: string; costoTouched: boolean }
+
+// Deja solo dígitos y UN separador decimal (acepta punto o coma), conservando el que se escribe.
+function sanitizeDecimal(s: string): string {
+  let out = s.replace(/[^\d.,]/g, '');
+  const sep = out.search(/[.,]/);
+  if (sep !== -1) out = out.slice(0, sep + 1) + out.slice(sep + 1).replace(/[.,]/g, '');
+  return out;
+}
+// Convierte el texto (con "." o ",") a número ≥ 0.
+function parseDecimal(s: string): number {
+  const n = Number(s.replace(',', '.'));
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
 
 /** Conceptos de costos indirectos (cada uno con su costo; no todos son necesarios). */
 const CONCEPTOS_INDIRECTOS = [
@@ -112,6 +125,8 @@ export function MaterialAProducirModal({
   }, [existencias]);
   const exStock = (pid: string, alm: string) => Number(exMap.get(`${pid}|${alm}`)?.stock) || 0;
   const exCosto = (pid: string, alm: string) => Number(exMap.get(`${pid}|${alm}`)?.costo_promedio) || 0;
+  // Tasa efectiva del material: la que escribió el usuario (si tocó el campo) o, por defecto, la del inventario.
+  const costoEff = (pid: string, row: MatRow) => (row.costoTouched && row.costo.trim() !== '' ? parseDecimal(row.costo) : exCosto(pid, row.almacen));
 
   // "Qué producir" (preselecciona initialProductoId si vino, ej. "Editar receta").
   const preselect = initialProductoId && producibles.some((p) => p.id === initialProductoId) ? initialProductoId : '';
@@ -173,10 +188,10 @@ export function MaterialAProducirModal({
 
   // Checklist de materiales
   const [rows, setRows] = useState<Record<string, MatRow>>(() =>
-    Object.fromEntries(materiales.map((m) => [m.id, { checked: false, cantidad: '1', almacen: m.almacen || almacenes[0] }])),
+    Object.fromEntries(materiales.map((m) => [m.id, { checked: false, cantidad: '1', almacen: m.almacen || almacenes[0], costo: '', costoTouched: false }])),
   );
   const setRow = (id: string, patch: Partial<MatRow>) =>
-    setRows((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { checked: false, cantidad: '1', almacen: almacenes[0] }), ...patch } }));
+    setRows((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { checked: false, cantidad: '1', almacen: almacenes[0], costo: '', costoTouched: false }), ...patch } }));
 
   // Receta del producto existente: insumos usados en su última fundición.
   const [recetaBase, setRecetaBase] = useState<RecetaBase | null>(null);
@@ -261,7 +276,8 @@ export function MaterialAProducirModal({
         const factor = recetaBase.rendimiento > 0 ? cantidadNum / recetaBase.rendimiento : 1;
         for (const [pid, base] of Object.entries(recetaBase.items)) {
           const scaled = Math.round(base.cantidad * factor * 1000) / 1000;
-          next[pid] = { checked: true, cantidad: String(scaled), almacen: base.almacen };
+          const prev = next[pid] ?? { checked: false, cantidad: '1', almacen: base.almacen, costo: '', costoTouched: false };
+          next[pid] = { ...prev, checked: true, cantidad: String(scaled), almacen: base.almacen };
         }
       }
       return next;
@@ -270,9 +286,10 @@ export function MaterialAProducirModal({
   }, [recetaBase, cantidadNum]);
 
   // Refinación: líneas de estaño crudo tomadas de las coladas seleccionadas
-  // (se consumen del inventario y su costo entra al CTM como base).
+  // (se consumen del inventario) o cargadas a MANO (producto_id null, origen
+  // 'manual'): su costo entra al CTM como base (costo inicial de la refinación).
   const crudoLines = esRef
-    ? (refinacionDatos.coladas ?? []).filter((c) => c.producto_id && (Number(c.estano_kg) || 0) > 0)
+    ? (refinacionDatos.coladas ?? []).filter((c) => (c.producto_id || c.origen === 'manual') && (Number(c.estano_kg) || 0) > 0)
     : [];
   const crudoKg = Math.round(crudoLines.reduce((a, c) => a + (Number(c.estano_kg) || 0), 0) * 100) / 100;
   const crudoCosto = crudoLines.reduce((a, c) => a + (Number(c.estano_kg) || 0) * (Number(c.costo_unitario) || 0), 0);
@@ -289,7 +306,12 @@ export function MaterialAProducirModal({
   const seleccion = materiales
     .map((m) => ({ m, row: rows[m.id] }))
     .filter((x) => x.row?.checked && (Number(x.row.cantidad) || 0) > 0);
-  const ctm = seleccion.reduce((a, { m, row }) => a + (Number(row.cantidad) || 0) * exCosto(m.id, row.almacen), 0) + crudoCosto;
+  // Mezcla (materias primas) = suma de lo seleccionado. En refinación incluye el
+  // estaño crudo cargado. Los % de cada material se calculan sobre esta mezcla (100%).
+  const seleccionKg = seleccion.reduce((a, { row }) => a + (Number(row.cantidad) || 0), 0);
+  const mezclaKg = Math.round((seleccionKg + (esRef ? crudoKg : 0)) * 100) / 100;
+  const pctMezcla = (kg: number) => (mezclaKg > 0 ? Math.round((kg / mezclaKg) * 10000) / 100 : 0);
+  const ctm = seleccion.reduce((a, { m, row }) => a + (Number(row.cantidad) || 0) * costoEff(m.id, row), 0) + crudoCosto;
   const cp = ctm + (Number(manoObra) || 0) + indirectosTotal;
   const costoUnit = cantidadNum > 0 ? cp / cantidadNum : 0;
   // Margen BRUTO sobre el precio de venta: PV = costo unitario / (1 - margen%).
@@ -384,8 +406,10 @@ export function MaterialAProducirModal({
         material_nombre: m.nombre,
         almacen: row.almacen,
         cantidad: Number(row.cantidad) || 0,
+        costo: costoEff(m.id, row),
       }));
-      // Refinación: el estaño crudo de cada colada entra como material consumido.
+      // Refinación: el estaño crudo de cada colada entra como material consumido, a su
+      // COSTO FINAL de fundición (= costo inicial de la refinación), no al PMP mezclado.
       const crudoInput: MaterialInput[] = esRef
         ? crudoLines.map((c) => ({
           producto_id: c.producto_id as string,
@@ -394,6 +418,7 @@ export function MaterialAProducirModal({
             : `Estaño crudo · ${c.etiqueta ?? `Colada #${c.colada_num || 's/n'}`}`,
           almacen: c.almacen,
           cantidad: Number(c.estano_kg) || 0,
+          costo: Number(c.costo_unitario) || 0,
         }))
         : [];
       const matInput: MaterialInput[] = [...crudoInput, ...reactivoInput];
@@ -558,10 +583,10 @@ export function MaterialAProducirModal({
           )}
         </div>
 
-        {/* Materiales */}
+        {/* Materiales/reactivos — parte del bloque «Material a procesar» (van justo debajo del origen). */}
         <div className="form-row">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label style={{ margin: 0 }}>{esRef ? 'Agentes refinantes / reactivos' : 'Materiales a utilizar (receta)'}</label>
+            <label style={{ margin: 0 }}>{esRef ? 'Agentes refinantes / reactivos (del material de arriba)' : 'Materiales a utilizar (receta) — del material de arriba'}</label>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAddOpen((v) => !v)}>+ Nuevo insumo</button>
           </div>
 
@@ -647,7 +672,8 @@ export function MaterialAProducirModal({
                     <th>Almacén</th>
                     <th style={{ textAlign: 'right' }}>Disp.</th>
                     <th style={{ textAlign: 'right' }}>Cantidad</th>
-                    <th style={{ textAlign: 'right' }}>Costo</th>
+                    <th style={{ textAlign: 'right' }}>Costo / tasa</th>
+                    <th style={{ textAlign: 'right' }}>% mezcla</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -668,11 +694,27 @@ export function MaterialAProducirModal({
                           <input className="input mono" type="number" min={0} step="any" style={{ width: 90, textAlign: 'right' }}
                             value={row.cantidad} onChange={(e) => setRow(m.id, { cantidad: e.target.value })} disabled={!row.checked} />
                         </td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{money(exCosto(m.id, row.almacen))}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <input className="input mono" type="text" inputMode="decimal" style={{ width: 96, textAlign: 'right' }}
+                            value={row.costoTouched ? row.costo : String(exCosto(m.id, row.almacen))}
+                            disabled={!row.checked}
+                            title="Tasa/costo unitario a usar. Por defecto trae la del inventario (ej. la tasa de la casiterita) y es editable."
+                            onChange={(e) => setRow(m.id, { costo: sanitizeDecimal(e.target.value), costoTouched: true })} />
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{row.checked && cant > 0 ? `${pctMezcla(cant).toFixed(2)} %` : '—'}</td>
                       </tr>
                     );
                   })}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={4} className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
+                      Mezcla{esRef ? ' (crudo + reactivos)' : ''}: {num(mezclaKg)} kg
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{seleccion.length || (esRef && crudoKg > 0) ? '—' : ''}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{mezclaKg > 0 ? '100 %' : '—'}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}

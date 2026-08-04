@@ -82,10 +82,13 @@ export async function crearInsumoReceta(input: {
 }
 
 export interface MaterialInput {
-  producto_id: string;
+  /** null = material MANUAL (no está en inventario): entra al costo pero no se valida ni se consume. */
+  producto_id: string | null;
   material_nombre: string;
   almacen: string;
   cantidad: number;
+  /** Tasa/costo unitario a usar (override). Si se omite, se toma el costo_promedio del inventario. */
+  costo?: number | null;
 }
 
 export interface CrearProduccionInput {
@@ -281,17 +284,26 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
   //    Las lecturas de existencia se hacen en paralelo (cada material es un
   //    producto distinto) para no encadenar round-trips.
   const validos = input.materiales.filter((m) => (Number(m.cantidad) || 0) > 0);
-  const existencias = await Promise.all(validos.map((m) => getExistencia(m.producto_id, m.almacen)));
+  // Solo los materiales con producto_id real se leen del inventario; los MANUALES
+  // (producto_id null) no se validan ni se consumen, pero sí entran al costo.
+  const existencias = await Promise.all(validos.map((m) => (m.producto_id ? getExistencia(m.producto_id, m.almacen) : Promise.resolve(null))));
   const detalles: Array<MaterialInput & { costo_unitario: number; subtotal: number }> = [];
   let costoMaterial = 0;
   validos.forEach((m, i) => {
     const cant = Number(m.cantidad) || 0;
     const ex = existencias[i];
-    const stock = Number(ex?.stock) || 0;
-    if (stock < cant) {
-      throw new Error(`Stock insuficiente de "${m.material_nombre}" en ${m.almacen}. Disponible: ${stock}.`);
+    const esManual = !m.producto_id;
+    if (!esManual) {
+      const stock = Number(ex?.stock) || 0;
+      if (stock < cant) {
+        throw new Error(`Stock insuficiente de "${m.material_nombre}" en ${m.almacen}. Disponible: ${stock}.`);
+      }
     }
-    const costo = Number(ex?.costo_promedio) || 0;
+    // Tasa a usar: override explícito (≥0) si vino desde el formulario (ej. la tasa
+    // editable de la casiterita, o el costo de la colada/línea manual en refinación);
+    // si no, el costo_promedio del inventario.
+    const override = m.costo != null && Number.isFinite(Number(m.costo)) && Number(m.costo) >= 0 ? Number(m.costo) : null;
+    const costo = override ?? (Number(ex?.costo_promedio) || 0);
     const subtotal = round2(cant * costo);
     costoMaterial += subtotal;
     detalles.push({ ...m, cantidad: cant, costo_unitario: costo, subtotal });
@@ -335,8 +347,10 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
   if (pErr) throw pErr;
   const produccion = prod as Produccion;
 
-  // 3) Registrar materiales.
-  const matRows = detalles.map((d) => ({
+  // 3) Registrar materiales. Los MANUALES (sin producto_id) no van a
+  //    produccion_materiales (esa tabla exige producto): su costo ya entró al CP.
+  const detallesInv = detalles.filter((d) => d.producto_id);
+  const matRows = detallesInv.map((d) => ({
     produccion_id: produccion.id,
     producto_id: d.producto_id,
     material_nombre: d.material_nombre,
@@ -345,13 +359,15 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
     costo_unitario: d.costo_unitario,
     subtotal: d.subtotal,
   }));
-  const { error: mErr } = await supabase.from('produccion_materiales').insert(matRows);
-  if (mErr) throw mErr;
+  if (matRows.length) {
+    const { error: mErr } = await supabase.from('produccion_materiales').insert(matRows);
+    if (mErr) throw mErr;
+  }
 
-  // 4) Consumir el stock de cada insumo (salida por almacén). En paralelo:
+  // 4) Consumir el stock de cada insumo de inventario (salida por almacén). En paralelo:
   //    cada material es un producto distinto, no compiten por la misma fila.
-  await Promise.all(detalles.map((d) => registrarMovimiento({
-    producto_id: d.producto_id,
+  await Promise.all(detallesInv.map((d) => registrarMovimiento({
+    producto_id: d.producto_id as string,
     tipo: 'consumo',
     delta: -d.cantidad,
     almacen: d.almacen,
