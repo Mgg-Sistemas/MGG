@@ -4089,7 +4089,7 @@ function CrearOrdenModal({
           />
           <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
         </div>
-        <div className="line-picker head" style={{ gridTemplateColumns: '30px minmax(0, 1.4fr) 130px 34px' }}>
+        <div className="line-picker head" style={{ gridTemplateColumns: '30px minmax(0, 1.4fr) 180px 34px' }}>
           <div title="Comprar">✓</div>
           <div>Producto</div>
           <div>Cantidad</div>
@@ -4100,7 +4100,7 @@ function CrearOrdenModal({
             const comprar = it.comprar !== false;
             return (
             <div key={`${it.sku}-${idx}`} style={{ opacity: comprar ? 1 : 0.5, marginBottom: '.4rem' }}>
-            <div className="line-picker" style={{ gridTemplateColumns: '30px minmax(0, 1.4fr) 130px 34px', marginBottom: 0 }}>
+            <div className="line-picker" style={{ gridTemplateColumns: '30px minmax(0, 1.4fr) 180px 34px', marginBottom: 0 }}>
               <input
                 type="checkbox"
                 checked={comprar}
@@ -4140,7 +4140,7 @@ function CrearOrdenModal({
                 <input
                   className="input mono"
                   list="item-medidas"
-                  style={{ width: 72, fontSize: '.78rem' }}
+                  style={{ width: 96, minWidth: 0, fontSize: '.78rem' }}
                   placeholder="unidad"
                   value={it.unidad ?? ''}
                   onChange={(e) => updateItem(idx, { unidad: e.target.value })}
