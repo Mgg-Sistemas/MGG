@@ -54,7 +54,8 @@ async function construirSemanalDoc(r: ResumenSemanal) {
   doc.text(r.titulo || 'REPORTE PRELIMINAR DE CENTROS DE ACOPIOS', tx, y + 30);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   const periodo = r.periodo_desde || r.periodo_hasta
-    ? `Semana: ${fmtFechaCorta(r.periodo_desde)} → ${fmtFechaCorta(r.periodo_hasta)}`
+    // "al" en vez de la flecha "→": la fuente helvetica de jsPDF no la soporta (salía como "!'").
+    ? `Semana: ${fmtFechaCorta(r.periodo_desde)} al ${fmtFechaCorta(r.periodo_hasta)}`
     : `Fecha: ${fmtFechaCorta(r.fecha)}`;
   // Metadata (N° · semana · generado) a la IZQUIERDA bajo el título: así la fecha
   // NUNCA se corta contra el borde derecho (el landscape es más ancho que el visor).

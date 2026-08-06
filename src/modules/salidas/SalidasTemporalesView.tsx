@@ -367,8 +367,42 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
     >
       <p className="hint muted" style={{ marginTop: 0 }}>Fecha: <strong>{fmtDate(new Date().toISOString())}</strong> · El material sale a mantenimiento, pasa por aprobación y retorna al inventario al finalizar.</p>
 
-      {/* Materiales */}
-      <div style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', margin: '.4rem 0' }}>Materiales</div>
+      {/* Datos de la solicitud */}
+      <div style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', margin: '.8rem 0 .4rem' }}>Datos de la solicitud</div>
+      <div className="form-grid">
+        <div className="form-row"><label>Solicitante</label><input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Quién solicita" /></div>
+        <div className="form-row"><label>Unidad solicitante</label>
+          <input className="input" list="stemp-unidades" value={unidad} onChange={(e) => setUnidad(e.target.value)} placeholder="Ej.: Mantenimiento, Fundición…" /></div>
+      </div>
+
+      {/* Responsable (nombre + cédula, reutilizable) */}
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Responsable (nombre y apellido)</label>
+          <SearchSelect value={responsable ? (choferes.find((c) => c.nombre === responsable)?.id ?? '') : ''}
+            onChange={(id) => { const c = choferes.find((x) => x.id === id); setResponsable(c?.nombre ?? ''); setResponsableCedula(c?.cedula ?? ''); }}
+            options={choferes.map((c) => ({ value: c.id, label: `${c.nombre}${c.cedula ? ` · C.I. ${c.cedula}` : ''}` }))}
+            placeholder="🔎 Buscá el responsable…" emptyText="Sin responsables guardados." />
+          {responsable && <small className="muted">Elegido: <strong>{responsable}</strong>{responsableCedula ? ` · C.I. ${responsableCedula}` : ''}</small>}
+          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
+            <input className="input" value={nResp} onChange={(e) => setNResp(e.target.value)} placeholder="¿No está? Nombre y apellido"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addResponsable(); } }} style={{ flex: '2 1 140px', fontSize: '.82rem' }} />
+            <input className="input mono" value={nCed} onChange={(e) => setNCed(e.target.value)} placeholder="Cédula"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addResponsable(); } }} style={{ flex: '1 1 100px', fontSize: '.82rem' }} />
+            <button type="button" className="btn btn-sm btn-ghost" onClick={addResponsable} disabled={addingResp || !nResp.trim()}>{addingResp ? '…' : '+ Añadir'}</button>
+          </div>
+        </div>
+        <div className="form-row"><label>Motivo / mantenimiento</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: Reparación de bomba" /></div>
+      </div>
+
+      <div className="form-grid">
+        <div className="form-row"><label>Dirección de despacho (origen)</label><input className="input" value={dirDespacho} onChange={(e) => setDirDespacho(e.target.value)} placeholder="Desde dónde sale" /></div>
+        <div className="form-row"><label>Dirección destino (mantenimiento)</label><input className="input" value={dirDestino} onChange={(e) => setDirDestino(e.target.value)} placeholder="A dónde va" /></div>
+      </div>
+      <div className="form-row"><label>Nota (opcional)</label><textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Notas adicionales" /></div>
+
+      {/* Materiales (de segundo: después de los datos de la solicitud) */}
+      <div style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', margin: '.8rem 0 .4rem' }}>Materiales</div>
       <div style={{ display: 'grid', gap: '.55rem' }}>
         {lineas.map((l, i) => {
           const orig = l.productoId ? origenDe.get(l.productoId) ?? null : null;
@@ -408,40 +442,6 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
         })}
         <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea} style={{ alignSelf: 'start' }}>＋ Añadir material</button>
       </div>
-
-      {/* Datos de la solicitud */}
-      <div style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', margin: '.8rem 0 .4rem' }}>Datos de la solicitud</div>
-      <div className="form-grid">
-        <div className="form-row"><label>Solicitante</label><input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Quién solicita" /></div>
-        <div className="form-row"><label>Unidad solicitante</label>
-          <input className="input" list="stemp-unidades" value={unidad} onChange={(e) => setUnidad(e.target.value)} placeholder="Ej.: Mantenimiento, Fundición…" /></div>
-      </div>
-
-      {/* Responsable (nombre + cédula, reutilizable) */}
-      <div className="form-grid">
-        <div className="form-row">
-          <label>Responsable (nombre y apellido)</label>
-          <SearchSelect value={responsable ? (choferes.find((c) => c.nombre === responsable)?.id ?? '') : ''}
-            onChange={(id) => { const c = choferes.find((x) => x.id === id); setResponsable(c?.nombre ?? ''); setResponsableCedula(c?.cedula ?? ''); }}
-            options={choferes.map((c) => ({ value: c.id, label: `${c.nombre}${c.cedula ? ` · C.I. ${c.cedula}` : ''}` }))}
-            placeholder="🔎 Buscá el responsable…" emptyText="Sin responsables guardados." />
-          {responsable && <small className="muted">Elegido: <strong>{responsable}</strong>{responsableCedula ? ` · C.I. ${responsableCedula}` : ''}</small>}
-          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
-            <input className="input" value={nResp} onChange={(e) => setNResp(e.target.value)} placeholder="¿No está? Nombre y apellido"
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addResponsable(); } }} style={{ flex: '2 1 140px', fontSize: '.82rem' }} />
-            <input className="input mono" value={nCed} onChange={(e) => setNCed(e.target.value)} placeholder="Cédula"
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addResponsable(); } }} style={{ flex: '1 1 100px', fontSize: '.82rem' }} />
-            <button type="button" className="btn btn-sm btn-ghost" onClick={addResponsable} disabled={addingResp || !nResp.trim()}>{addingResp ? '…' : '+ Añadir'}</button>
-          </div>
-        </div>
-        <div className="form-row"><label>Motivo / mantenimiento</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: Reparación de bomba" /></div>
-      </div>
-
-      <div className="form-grid">
-        <div className="form-row"><label>Dirección de despacho (origen)</label><input className="input" value={dirDespacho} onChange={(e) => setDirDespacho(e.target.value)} placeholder="Desde dónde sale" /></div>
-        <div className="form-row"><label>Dirección destino (mantenimiento)</label><input className="input" value={dirDestino} onChange={(e) => setDirDestino(e.target.value)} placeholder="A dónde va" /></div>
-      </div>
-      <div className="form-row"><label>Nota (opcional)</label><textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Notas adicionales" /></div>
 
       <datalist id="stemp-unidades">
         {['Mantenimiento', 'Fundición', 'Producción', 'Acopio', 'Administración', 'Taller'].map((u) => <option key={u} value={u} />)}
