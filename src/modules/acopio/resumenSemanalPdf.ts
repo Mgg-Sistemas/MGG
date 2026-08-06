@@ -56,9 +56,11 @@ async function construirSemanalDoc(r: ResumenSemanal) {
   const periodo = r.periodo_desde || r.periodo_hasta
     ? `Semana: ${fmtFechaCorta(r.periodo_desde)} → ${fmtFechaCorta(r.periodo_hasta)}`
     : `Fecha: ${fmtFechaCorta(r.fecha)}`;
-  doc.text(`${r.numero} · ${periodo}`, PAGE_W - MARGIN, y + 14, { align: 'right' });
-  doc.text(`Generado: ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 28, { align: 'right' });
-  y += 50;
+  // Metadata (N° · semana · generado) a la IZQUIERDA bajo el título: así la fecha
+  // NUNCA se corta contra el borde derecho (el landscape es más ancho que el visor).
+  doc.text(`${r.numero}  ·  ${periodo}`, tx, y + 43);
+  doc.text(`Generado: ${dateTime(new Date().toISOString())}`, tx, y + 54);
+  y += 62;
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.3); doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 12;
 
   // Body como la hoja: una fila por centro (numeración continua) y las 4 columnas
