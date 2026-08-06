@@ -84,6 +84,9 @@ export function SalidasPage() {
   const actorName = appUser?.nombre ?? null;
 
   const [scope, setScope] = useState<Scope>('salidas');
+  // Señal para abrir el formulario de "Nueva salida temporal" desde el botón del encabezado
+  // (el modal vive dentro de SalidasTemporalesView; el header solo dispara la apertura).
+  const [temporalNuevoNonce, setTemporalNuevoNonce] = useState(0);
   // El dinero se maneja directo desde Tesorería; Salidas solo opera material.
   const tipo: Tipo = 'material';
   const [vista, setVista] = useState<Vista>('kanban');
@@ -175,6 +178,7 @@ export function SalidasPage() {
         <div className="actions">
           {canWrite && <button className="btn btn-ghost" onClick={() => setModal({ kind: 'choferes-vehiculos' })}>🚚 Choferes / Vehículos</button>}
           {canWrite && scope !== 'temporales' && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
+          {canWrite && scope === 'temporales' && <button className="btn btn-primary" onClick={() => setTemporalNuevoNonce((n) => n + 1)}>+ Nueva salida temporal</button>}
         </div>
       </div>
 
@@ -186,7 +190,7 @@ export function SalidasPage() {
       </div>
 
       {scope === 'temporales' ? (
-        <SalidasTemporalesView />
+        <SalidasTemporalesView nuevoNonce={temporalNuevoNonce} />
       ) : (<>
       {/* Vista: Kanban (trámite) / Lista (historial de movimientos ejecutados) */}
       <div className="view-toggle" role="tablist" aria-label="Kanban o lista" style={{ marginBottom: '1rem' }}>
