@@ -1500,7 +1500,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
       {borrar && (
         <ConfirmDialog
           title="Eliminar reporte"
-          message={`¿Eliminar del histórico el reporte ${borrar.numero} (${borrar.fecha})? Esta acción no se puede deshacer.`}
+          message={`¿Eliminar del histórico el reporte ${borrar.numero} (${date(borrar.fecha)})? Esta acción no se puede deshacer.`}
           confirmText="Eliminar"
           danger
           onCancel={() => setBorrar(null)}
@@ -1677,8 +1677,8 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
                 {historico.map((r) => (
                   <tr key={r.id}>
                     <td className="mono">{r.numero}</td>
-                    <td>{r.fecha}</td>
-                    <td className="muted">{r.periodo_desde ? `${r.periodo_desde} → ${r.periodo_hasta ?? '—'}` : '—'}</td>
+                    <td>{date(r.fecha)}</td>
+                    <td className="muted">{r.periodo_desde ? `${date(r.periodo_desde)} → ${r.periodo_hasta ? date(r.periodo_hasta) : '—'}` : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{fmtKg(r.totales?.kg_disponible ?? 0)}</td>
                     <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3)' }}>{fmtKg(r.totales?.kg_acopiado_mgg ?? 0)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(r.totales?.saldo_usd ?? 0)}</td>

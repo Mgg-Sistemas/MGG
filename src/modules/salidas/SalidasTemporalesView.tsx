@@ -50,7 +50,7 @@ function resumenItems(s: SalidaTemporal): string {
   return `${num(Number(first.cantidad) || 0)} × ${first.producto_nombre}${extra}`;
 }
 
-export function SalidasTemporalesView() {
+export function SalidasTemporalesView({ nuevoNonce }: { nuevoNonce?: number }) {
   const { can, appUser, isAdmin, role } = usePermissions();
   const canWrite = can('salidas', 'escritura');
   const r = role ?? '';
@@ -84,6 +84,8 @@ export function SalidasTemporalesView() {
   }, []);
   useRealtime(['solicitudes_salida_temporal', 'movimientos', 'productos'], () => { void reload(); });
   useEffect(() => { void reload(); }, [reload]);
+  // El botón "+ Nueva salida temporal" del encabezado (SalidasPage) abre el formulario vía nonce.
+  useEffect(() => { if (nuevoNonce && nuevoNonce > 0) setModal({ kind: 'form' }); }, [nuevoNonce]);
 
   // Origen (almacén con más stock) por producto: de dónde sale y a dónde retorna.
   const origenDe = useMemo(() => {
@@ -99,12 +101,9 @@ export function SalidasTemporalesView() {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        {canWrite && <button className="btn btn-warning" onClick={() => setModal({ kind: 'form' })}>+ Nueva salida temporal</button>}
-        <div className="view-toggle" role="tablist" aria-label="Kanban o histórico" style={{ margin: 0, marginLeft: 'auto' }}>
-          <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
-          <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>📜 Histórico</button>
-        </div>
+      <div className="view-toggle" role="tablist" aria-label="Kanban o histórico" style={{ marginBottom: '1rem' }}>
+        <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
+        <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>📜 Histórico</button>
       </div>
 
       {loading ? (
