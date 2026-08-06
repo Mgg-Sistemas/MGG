@@ -12,9 +12,9 @@ import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCentrosAcopio } from './cajas.repository';
-import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen } from './asignacionPrioridad';
+import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type AsignacionSalida } from './asignacionPrioridad';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; precio: string }
+interface LineaUI { id: number; productoId: string; cantidad: string; precio: string; almacen: string }
 
 export function SalidaMaterialForm({
   productos, existencias, actor, actorName, onClose, onSaved,
@@ -49,10 +49,10 @@ export function SalidaMaterialForm({
       .map((e) => ({ almacen: e.almacen, sede: sedePorAlmacen.get(e.almacen) ?? null, stock: Number(e.stock) || 0, costo: Number(e.costo_promedio) || 0 }));
 
   // Varias líneas de producto (como una OC). Cada una: producto + cantidad. El/los almacén(es) se resuelven por prioridad.
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', precio: '' }]);
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', precio: '', almacen: '' }]);
   const [seq, setSeq] = useState(2);
   const setLinea = (id: number, patch: Partial<LineaUI>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', precio: '' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', precio: '', almacen: '' }]); setSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
 
   // Al elegir el producto: cantidad 1 y precio por defecto = costo del almacén de mayor prioridad.
@@ -60,7 +60,8 @@ export function SalidaMaterialForm({
     const primer = planEntregaPorPrioridad(candidatosDe(productoId), 1).tramos[0];
     const p = activos.find((x) => x.id === productoId);
     const costo = primer?.costo || p?.precio || 0;
-    setLinea(id, { productoId, cantidad: '1', precio: costo ? String(costo) : '' });
+    // Al cambiar de producto, el almacén vuelve a "Automático" (prioridad).
+    setLinea(id, { productoId, cantidad: '1', precio: costo ? String(costo) : '', almacen: '' });
   }
 
   const [motivo, setMotivo] = useState('');
@@ -122,11 +123,29 @@ export function SalidaMaterialForm({
   // Datos derivados por línea. El stock disponible es el TOTAL de todos los almacenes del producto;
   // el reparto real (de qué almacén sale cada unidad) lo decide la prioridad (Los Pinos → Matanzas → resto).
   const prodDe = (id: string) => activos.find((p) => p.id === id) ?? null;
-  const stockDe = (l: LineaUI) => stockTotal(candidatosDe(l.productoId));
-  // Plan de reparto por prioridad para la cantidad pedida en el renglón.
-  const planDe = (l: LineaUI) => planEntregaPorPrioridad(candidatosDe(l.productoId), Number(l.cantidad) || 0);
-  // Costo por defecto del renglón (almacén de mayor prioridad) para placeholder del precio.
-  const costoInvDe = (l: LineaUI) => planEntregaPorPrioridad(candidatosDe(l.productoId), 1).tramos[0]?.costo || prodDe(l.productoId)?.precio || 0;
+  // Almacenes donde el producto tiene stock (para el selector "Almacén de origen").
+  const almacenesConStock = (productoId: string): CandidatoAlmacen[] =>
+    candidatosDe(productoId).sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
+  // Candidato del almacén ELEGIDO manualmente (si el usuario escogió uno).
+  const candElegido = (l: LineaUI) => (l.almacen ? candidatosDe(l.productoId).find((c) => c.almacen === l.almacen) ?? null : null);
+  // Stock disponible: del almacén elegido (si hay) o el TOTAL de todos (automático por prioridad).
+  const stockDe = (l: LineaUI) => (l.almacen ? (candElegido(l)?.stock ?? 0) : stockTotal(candidatosDe(l.productoId)));
+  // Plan de reparto: del almacén elegido (un tramo) o cascada por prioridad (Los Pinos → Matanzas → resto).
+  const planDe = (l: LineaUI): { tramos: AsignacionSalida[]; faltante: number } => {
+    const cant = Number(l.cantidad) || 0;
+    if (l.almacen) {
+      const c = candElegido(l);
+      const disp = Number(c?.stock) || 0;
+      const toma = Math.min(cant, disp);
+      return {
+        tramos: toma > 0 ? [{ almacen: l.almacen, cantidad: toma, stock: disp, costo: Number(c?.costo) || 0 }] : [],
+        faltante: Math.max(0, cant - disp),
+      };
+    }
+    return planEntregaPorPrioridad(candidatosDe(l.productoId), cant);
+  };
+  // Costo por defecto del renglón (almacén elegido o el de mayor prioridad) para placeholder del precio.
+  const costoInvDe = (l: LineaUI) => (l.almacen ? candElegido(l)?.costo : planEntregaPorPrioridad(candidatosDe(l.productoId), 1).tramos[0]?.costo) || prodDe(l.productoId)?.precio || 0;
   // Precio efectivo del renglón: el que el usuario editó; si está vacío, el costo del almacén prioritario.
   const precioDe = (l: LineaUI) => (Number(l.precio) > 0 ? Number(l.precio) : costoInvDe(l));
   const totalGeneral = useMemo(
@@ -291,10 +310,19 @@ export function SalidaMaterialForm({
                   <small className="muted">
                     {l.productoId
                       ? (stock > 0
-                        ? <>📦 Sale de <strong>{tramos.map((t) => `${t.almacen} (${num(t.cantidad)})`).join(' + ') || '—'}</strong> · disponible total <strong className="mono">{num(stock)} {prod?.unidad ?? ''}</strong></>
-                        : <span style={{ color: 'var(--danger)' }}>Sin stock en ningún almacén</span>)
+                        ? <>📦 Sale de <strong>{tramos.map((t) => `${t.almacen} (${num(t.cantidad)})`).join(' + ') || '—'}</strong> · disponible {l.almacen ? 'en este almacén' : 'total'} <strong className="mono">{num(stock)} {prod?.unidad ?? ''}</strong></>
+                        : <span style={{ color: 'var(--danger)' }}>Sin stock en {l.almacen ? 'ese almacén' : 'ningún almacén'}</span>)
                       : 'Se descuenta por prioridad: Los Pinos primero, luego Matanzas.'}
                   </small>
+                  {l.productoId && (
+                    <select className="select" style={{ marginTop: '.35rem', fontSize: '.82rem' }} value={l.almacen}
+                      onChange={(e) => setLinea(l.id, { almacen: e.target.value })}>
+                      <option value="">📦 Automático (por prioridad)</option>
+                      {almacenesConStock(l.productoId).map((c) => (
+                        <option key={c.almacen} value={c.almacen}>{c.almacen} · {num(c.stock)} {prod?.unidad ?? ''}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div className="form-row">
                   <label>Cantidad{prod?.unidad ? ` (${prod.unidad})` : ''}</label>

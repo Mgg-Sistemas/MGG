@@ -82,7 +82,7 @@ export function SalidasTemporalesView({ nuevoNonce }: { nuevoNonce?: number }) {
       setLoading(false);
     }
   }, []);
-  useRealtime(['solicitudes_salida_temporal', 'movimientos', 'productos'], () => { void reload(); });
+  useRealtime(['solicitudes_salida_temporal', 'movimientos', 'productos', 'existencias'], () => { void reload(); });
   useEffect(() => { void reload(); }, [reload]);
   // El botón "+ Nueva salida temporal" del encabezado (SalidasPage) abre el formulario vía nonce.
   useEffect(() => { if (nuevoNonce && nuevoNonce > 0) setModal({ kind: 'form' }); }, [nuevoNonce]);
