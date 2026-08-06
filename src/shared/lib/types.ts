@@ -567,6 +567,68 @@ export interface SolicitudSalida {
   created_at: string;
 }
 
+/* ───────────── Salidas Temporales (material a mantenimiento, con retorno) ───────────── */
+
+export type EstadoSalidaTemporal = 'por_aprobar' | 'aprobada' | 'en_transito' | 'finalizada';
+
+/** Aprobador fijo de una salida temporal: define la firma que se estampa en el PDF. */
+export type AprobadorSalidaTemporal = 'leidys' | 'jesus';
+
+/**
+ * Una línea de material de una salida temporal. Puede venir del inventario
+ * (producto_id + almacen → descuenta/reingresa stock) o ser "nuevo" (no está en
+ * el inventario: solo se documenta, no mueve stock).
+ */
+export interface ItemSalidaTemporal {
+  producto_id: string | null;         // null = material "nuevo" (no está en inventario)
+  producto_nombre: string;
+  sku?: string | null;
+  cantidad: number;
+  unidad?: string | null;
+  /** Almacén de origen (para descontar al aprobar y reingresar al finalizar). Solo ítems de inventario. */
+  almacen?: string | null;
+  precio_unit?: number | null;
+  /** true = material que NO está en inventario (no mueve stock, solo se documenta). */
+  es_nuevo?: boolean;
+  observacion?: string | null;
+}
+
+/**
+ * Solicitud de SALIDA TEMPORAL: saca material a mantenimiento y lo retorna al
+ * inventario. Flujo: por_aprobar → aprobada (descuenta stock + firma) →
+ * en_transito (lo entregan de vuelta) → finalizada (reingresa stock + tiempos).
+ */
+export interface SalidaTemporal {
+  id: string;
+  codigo: string;                     // ST-AAAA-NNNN (global, único)
+  num_usuario?: number | null;        // correlativo POR USUARIO (001, 002…)
+  estado: EstadoSalidaTemporal;
+  items: ItemSalidaTemporal[];
+  unidad_solicitante?: string | null;
+  solicitante: string;
+  /** Responsable del despacho (nombre y apellido) + cédula, reutilizable (catálogo de choferes). */
+  responsable?: string | null;
+  responsable_cedula?: string | null;
+  direccion_despacho?: string | null;
+  direccion_destino?: string | null;
+  /** Motivo / descripción del mantenimiento. */
+  motivo?: string | null;
+  nota?: string | null;
+  /** Aprobador que firma (nombre visible) + su clave de firma. */
+  aprobador?: string | null;          // 'Leidys Rengel' | 'Jesús Lozada'
+  aprobador_firma?: AprobadorSalidaTemporal | null;
+  aprobada_por?: string | null; aprobada_en?: string | null;
+  transito_por?: string | null; transito_en?: string | null;
+  finalizada_por?: string | null; finalizada_en?: string | null;
+  historial: EventoHistorial[];
+  /** Ids de los movimientos de descuento (al aprobar) y de reingreso (al finalizar), para trazabilidad. */
+  mov_out_ids?: string[] | null;
+  mov_in_ids?: string[] | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
 /** Stock y costo (PMP) de un producto en un almacén concreto. */
 export interface Existencia {
   producto_id: string;
