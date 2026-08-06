@@ -130,7 +130,7 @@ export function SalidasPage() {
   }, []);
 
   // Realtime multiusuario: stock, cajas y solicitudes se reflejan al instante.
-  useRealtime(['movimientos', 'movimientos_caja', 'cajas', 'productos'], () => { void reload(); });
+  useRealtime(['movimientos', 'movimientos_caja', 'cajas', 'productos', 'existencias'], () => { void reload(); });
   useEffect(() => { void reload(); }, [reload]);
 
 
