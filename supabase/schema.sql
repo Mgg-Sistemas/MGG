@@ -1051,6 +1051,45 @@ alter table public.solicitudes_salida add column if not exists cxc_moneda     te
 alter table public.solicitudes_salida add column if not exists cxc_id         uuid;
 
 -- ─────────────────────────────────────────────────────────────
+-- 5b-bis. Salidas Temporales: material a mantenimiento con RETORNO al inventario.
+--   Flujo: por_aprobar → aprobada (descuenta stock + firma Leidys/Jesús) →
+--   en_transito (lo entregan de vuelta) → finalizada (reingresa stock + tiempos).
+--   Ítems del inventario (producto_id + almacen) o "nuevo" (solo texto, no mueve stock).
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.solicitudes_salida_temporal (
+  id                 uuid primary key default gen_random_uuid(),
+  codigo             text not null,                 -- ST-AAAA-NNNN (global, único)
+  num_usuario        int,                           -- correlativo POR USUARIO (001, 002…)
+  estado             text not null default 'por_aprobar'
+                       check (estado in ('por_aprobar','aprobada','en_transito','finalizada')),
+  -- materiales: [{producto_id, producto_nombre, sku, cantidad, unidad, almacen, precio_unit, es_nuevo, observacion}]
+  items              jsonb not null default '[]'::jsonb,
+  unidad_solicitante text,
+  solicitante        text not null,
+  responsable        text, responsable_cedula text,
+  direccion_despacho text, direccion_destino text,
+  motivo             text, nota text,
+  aprobador          text, aprobador_firma text,    -- 'leidys' | 'jesus' (define la firma del PDF)
+  aprobada_por       text, aprobada_en   timestamptz,
+  transito_por       text, transito_en   timestamptz,
+  finalizada_por     text, finalizada_en timestamptz,
+  historial          jsonb not null default '[]'::jsonb,
+  mov_out_ids        jsonb, mov_in_ids jsonb,       -- ids de movimientos de descuento / reingreso (trazabilidad)
+  actor              text, actor_name text,
+  created_at         timestamptz not null default now()
+);
+create index if not exists idx_sol_salida_temp_estado on public.solicitudes_salida_temporal(estado);
+create index if not exists idx_sol_salida_temp_actor  on public.solicitudes_salida_temporal(actor);
+alter table public.solicitudes_salida_temporal enable row level security;
+create policy "sol_salida_temp read auth"       on public.solicitudes_salida_temporal for select using (auth.role() = 'authenticated');
+create policy "sol_salida_temp write operativo" on public.solicitudes_salida_temporal for all using (public.is_operativo()) with check (public.is_operativo());
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='solicitudes_salida_temporal') then
+    alter publication supabase_realtime add table public.solicitudes_salida_temporal;
+  end if;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────
 -- 5c. Catálogos de Salidas/Traslados: choferes y vehículos (modificables, deshabilitables).
 --   Chofer = responsable + cédula; Vehículo = nombre + placa. Buscables en el formulario.
 -- ─────────────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ import { ConciliarMineralModal } from './ConciliarMineralModal';
 import { GestionarCajasModal } from './GestionarCajasModal';
 import { GestionarChoferesVehiculosModal } from './GestionarChoferesVehiculosModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
+import { SalidasTemporalesView } from './SalidasTemporalesView';
 import { SalidaDineroDetalle } from './SalidaDineroDetalle';
 import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
@@ -38,7 +39,7 @@ import {
   type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
 } from './resumenSalidasReporte';
 
-type Scope = 'salidas' | 'traslados';
+type Scope = 'salidas' | 'traslados' | 'temporales';
 type Tipo = 'material' | 'dinero';
 type Vista = 'kanban' | 'lista' | 'resumen';
 type Modal =
@@ -173,7 +174,7 @@ export function SalidasPage() {
         </div>
         <div className="actions">
           {canWrite && <button className="btn btn-ghost" onClick={() => setModal({ kind: 'choferes-vehiculos' })}>🚚 Choferes / Vehículos</button>}
-          {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
+          {canWrite && scope !== 'temporales' && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
         </div>
       </div>
 
@@ -181,8 +182,12 @@ export function SalidasPage() {
       <div className="view-toggle" role="tablist" aria-label="Tipo de operación" style={{ marginBottom: '1rem' }}>
         <button className={scope === 'salidas' ? 'active' : ''} onClick={() => setScope('salidas')}>↘ Salidas</button>
         <button className={scope === 'traslados' ? 'active' : ''} onClick={() => { setScope('traslados'); setVista((v) => v === 'resumen' ? 'kanban' : v); }}>↔ Traslados</button>
+        <button className={scope === 'temporales' ? 'active' : ''} onClick={() => setScope('temporales')}>🔧 Salidas temporales</button>
       </div>
 
+      {scope === 'temporales' ? (
+        <SalidasTemporalesView />
+      ) : (<>
       {/* Vista: Kanban (trámite) / Lista (historial de movimientos ejecutados) */}
       <div className="view-toggle" role="tablist" aria-label="Kanban o lista" style={{ marginBottom: '1rem' }}>
         <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
@@ -229,6 +234,7 @@ export function SalidasPage() {
           onVerDinero={(mov, esTraslado) => setModal({ kind: 'detalle-dinero', mov, esTraslado })}
         />
       )}
+      </>)}
 
       {modal.kind === 'detalle-solicitud' && (
         <SolicitudDetalleModal
