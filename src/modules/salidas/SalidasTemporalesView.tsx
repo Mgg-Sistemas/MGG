@@ -99,12 +99,12 @@ export function SalidasTemporalesView() {
 
   return (
     <div>
-      <div className="view-toggle" role="tablist" aria-label="Kanban o histórico" style={{ marginBottom: '1rem' }}>
-        <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
-        <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>📜 Histórico</button>
-        <span style={{ marginLeft: 'auto', alignSelf: 'center' }}>
-          {canWrite && <button className="btn btn-primary btn-sm" onClick={() => setModal({ kind: 'form' })}>+ Nueva salida temporal</button>}
-        </span>
+      <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        {canWrite && <button className="btn btn-warning" onClick={() => setModal({ kind: 'form' })}>+ Nueva salida temporal</button>}
+        <div className="view-toggle" role="tablist" aria-label="Kanban o histórico" style={{ margin: 0, marginLeft: 'auto' }}>
+          <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
+          <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>📜 Histórico</button>
+        </div>
       </div>
 
       {loading ? (
