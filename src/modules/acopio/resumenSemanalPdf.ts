@@ -6,8 +6,24 @@ import { previewWorkbook, previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { ResumenSemanal } from './resumenSemanal.repository';
 import { computeTotales, acopiadoMggSector, resguardoSector } from './resumenSemanal.repository';
 
-const fmtKg = (v: number) => v.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtUsd = (v: number) => `$${v.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Formato es-VE garantizado: PUNTO para miles y COMA para decimales (ej. 1.234,67),
+ *  independiente del locale del entorno (toLocaleString a veces sale en formato en-US). */
+function fmtNum(v: number): string {
+  const n = Number(v) || 0;
+  const neg = n < 0;
+  const [ent, dec] = Math.abs(n).toFixed(2).split('.');
+  const miles = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${neg ? '-' : ''}${miles},${dec}`;
+}
+const fmtKg = (v: number) => fmtNum(v);
+const fmtUsd = (v: number) => `$${fmtNum(v)}`;
+
+/** 'YYYY-MM-DD' → 'DD/MM/YYYY' (sin sustos de zona horaria). */
+function fmtFechaCorta(iso?: string | null): string {
+  if (!iso) return '—';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso);
+}
 
 /** #rrggbb → [r,g,b] para los fondos de banda en autoTable. */
 function hexToRgb(hex?: string): [number, number, number] | undefined {
@@ -38,8 +54,8 @@ async function construirSemanalDoc(r: ResumenSemanal) {
   doc.text(r.titulo || 'REPORTE PRELIMINAR DE CENTROS DE ACOPIOS', tx, y + 30);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   const periodo = r.periodo_desde || r.periodo_hasta
-    ? `Semana: ${r.periodo_desde ?? '—'} → ${r.periodo_hasta ?? '—'}`
-    : `Fecha: ${r.fecha}`;
+    ? `Semana: ${fmtFechaCorta(r.periodo_desde)} → ${fmtFechaCorta(r.periodo_hasta)}`
+    : `Fecha: ${fmtFechaCorta(r.fecha)}`;
   doc.text(`${r.numero} · ${periodo}`, PAGE_W - MARGIN, y + 14, { align: 'right' });
   doc.text(`Generado: ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 28, { align: 'right' });
   y += 50;
@@ -54,7 +70,8 @@ async function construirSemanalDoc(r: ResumenSemanal) {
     const centros = s.centros ?? [];
     const n = centros.length;
     if (!n) continue;
-    const band = hexToRgb(s.color);
+    // El AMARILLO (#fde68a) va SIN relleno (a pedido); los demás colores se conservan.
+    const band = s.color && s.color.toLowerCase() !== '#fde68a' ? hexToRgb(s.color) : undefined;
     const cellBand = band ? { fillColor: band } : {};
     const acopiadoMgg = acopiadoMggSector(s);
     const resg = resguardoSector(s);
