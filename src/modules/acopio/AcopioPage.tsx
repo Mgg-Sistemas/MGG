@@ -353,6 +353,8 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
   const [vehiculos, setVehiculos] = useState<{ value: string; label: string }[]>([]);
   const [descGastos, setDescGastos] = useState('');
   const [compraMaterial, setCompraMaterial] = useState('');
+  const [compraMaterialKg, setCompraMaterialKg] = useState('');
+  const [compraMaterialTasa, setCompraMaterialTasa] = useState('');
   const [descCompra, setDescCompra] = useState('');
   const [traslado, setTraslado] = useState('');
   const [descTraslado, setDescTraslado] = useState('');
@@ -399,7 +401,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
       const filas: CajaMovimientoInput[] = [];
       if (usd > 0) filas.push({ fecha, usd_entregado: usd, clasif_grupo: 'movimientos_caja', clasif_valor: usdCat, descripcion: descUsd.trim() || usdCat, caja_id: cajaId });
       if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, vehiculo: gastoEsVehiculo ? (gastoVehiculo.trim() || null) : null, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
-      if (cmat > 0) filas.push({ fecha, compra_material: cmat, descripcion: descCompra.trim() || 'Compra de material', caja_id: cajaId });
+      if (cmat > 0) filas.push({ fecha, compra_material: cmat, compra_material_kg: Number(compraMaterialKg) || 0, compra_material_tasa: r2(compraMaterialTasa), descripcion: descCompra.trim() || 'Compra de material', caja_id: cajaId });
       if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: descKg.trim() || 'Kg recibidos por MGG', caja_id: cajaId });
       for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
       // El traslado va por el orquestador: baja la caja general y refleja el monto
@@ -481,11 +483,28 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
       )}
       {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto')}
 
-      {/* Compra de material: monto que ingresa el usuario (egreso · baja el Saldo $) */}
+      {/* Compra de material: monto ($ egreso) + Kg comprados (suman al Saldo en Kg) + Tasa $/Kg */}
       <div className="form-grid">
         {campoUsd('$ Compra Material', compraMaterial, setCompraMaterial)}
+        <div className="form-row">
+          <label>Kg comprados</label>
+          <input className="input mono" type="number" min={0} step="any" value={compraMaterialKg}
+            onChange={(e) => setCompraMaterialKg(e.target.value)} placeholder="0" />
+          <small className="muted">Se suman al Saldo en Kg (acumulado).</small>
+        </div>
+      </div>
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Tasa del material ($/Kg)</label>
+          <input className="input mono" type="number" min={0} step="0.01" value={compraMaterialTasa}
+            onChange={(e) => setCompraMaterialTasa(e.target.value)}
+            placeholder={(() => { const cm = r2(compraMaterial), kg = Number(compraMaterialKg) || 0; return kg > 0 && cm > 0 ? (cm / kg).toFixed(2) : '0.00'; })()} />
+          {(() => { const cm = r2(compraMaterial), kg = Number(compraMaterialKg) || 0; return kg > 0 && cm > 0 && !(Number(compraMaterialTasa) > 0)
+            ? <small className="muted">Sugerida: {(cm / kg).toFixed(2)} $/Kg ($ ÷ Kg). Informativa.</small>
+            : <small className="muted">Informativa (no cambia la tasa del centro).</small>; })()}
+        </div>
         <div className="form-row" style={{ display: 'flex', alignItems: 'flex-end' }}>
-          <small className="muted">Egreso por compra de material: baja el Saldo $ de la caja (no afecta el Saldo en Kg).</small>
+          <small className="muted">El $ baja el Saldo $ de la caja; los Kg suman al Saldo en Kg.</small>
         </div>
       </div>
       {campoDesc(descCompra, setDescCompra, 'Descripción de la compra de material')}

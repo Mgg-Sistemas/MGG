@@ -2487,6 +2487,8 @@ create table if not exists public.acopio_caja_movimientos (
   nominas         numeric not null default 0,   -- I · Nóminas GT
   traslado        numeric not null default 0,   -- J · Traslado de caja
   compra_material numeric not null default 0,   -- $ Compra de material (egreso · baja el Saldo $)
+  compra_material_kg   numeric not null default 0,  -- Kg de material comprado (suman al Saldo en Kg)
+  compra_material_tasa numeric not null default 0,  -- Tasa $/Kg de esa compra (informativa)
   kg_recibidos    numeric not null default 0,   -- L · Kg recibidos por MGG
   clasif_grupo    text check (clasif_grupo in ('contratos','gastos_caja','movimientos_caja','nomina','traslado')),
   clasif_valor    text,
@@ -2836,6 +2838,9 @@ alter table public.acopio_caja_movimientos add column if not exists costo_subcla
 alter table public.acopio_caja_movimientos add column if not exists vehiculo text;
 -- $ Compra de material: egreso ingresado por el usuario que baja el Saldo $ de la caja.
 alter table public.acopio_caja_movimientos add column if not exists compra_material numeric not null default 0;
+-- Compra de material: Kg comprados (suman al Saldo en Kg acumulado) + Tasa $/Kg informativa de esa compra.
+alter table public.acopio_caja_movimientos add column if not exists compra_material_kg numeric not null default 0;
+alter table public.acopio_caja_movimientos add column if not exists compra_material_tasa numeric not null default 0;
 create index if not exists idx_acopio_caja_mov_caja on public.acopio_caja_movimientos(caja_id);
 create index if not exists idx_acopio_caja_mov_vehiculo on public.acopio_caja_movimientos(vehiculo);
 
@@ -3054,12 +3059,12 @@ create index if not exists idx_acopio_resumen_semanal_fecha on public.acopio_res
 -- allá con la service-key de GT (secretos GT_URL / GT_SERVICE_KEY).
 create or replace function public.metrica_acopio_saldo_kg()
 returns numeric language sql security definer set search_path = public as $fn$
-  -- Saldo en Kg del acopio LA ESPERANZA = Σ(kg_cerrados − kg_recibidos) de SUS cajas,
-  -- idéntico a la tarjeta «Saldo en Kg» del módulo (resumirCaja, centro LA ESPERANZA).
-  -- Se ACOTA al centro LA ESPERANZA para no sumar los demás centros que comparten la
-  -- tabla acopio_caja_movimientos (GMT, LA ESMERALDA ALÍ, LOS PIJIGUAOS, PERAMANAL).
+  -- Saldo en Kg del acopio LA ESPERANZA = Σ(kg_cerrados + compra_material_kg − kg_recibidos)
+  -- de SUS cajas, idéntico a la tarjeta «Saldo en Kg» del módulo (resumirCaja, LA ESPERANZA).
+  -- Los Kg de compra de material SUMAN al saldo. Se ACOTA al centro LA ESPERANZA para no
+  -- sumar los demás centros que comparten la tabla (GMT, LA ESMERALDA ALÍ, PIJIGUAOS, PERAMANAL).
   select coalesce((
-    select sum(coalesce(m.kg_cerrados,0) - coalesce(m.kg_recibidos,0))
+    select sum(coalesce(m.kg_cerrados,0) + coalesce(m.compra_material_kg,0) - coalesce(m.kg_recibidos,0))
     from public.acopio_caja_movimientos m
     join public.acopio_cajas c on c.id = m.caja_id
     where c.centro_nombre = 'LA ESPERANZA'
