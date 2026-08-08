@@ -1524,6 +1524,8 @@ export interface CajaMovimiento {
   nominas: number;         // I · Nóminas GT
   traslado: number;        // J · Traslado de caja
   compra_material: number; // $ Compra de material (egreso · baja el Saldo $)
+  compra_material_kg?: number;   // Kg de material comprado (suman al Saldo en Kg acumulado)
+  compra_material_tasa?: number; // Tasa $/Kg de esa compra (informativa)
   kg_recibidos: number;    // L · Kg recibidos por MGG
   clasif_grupo?: GrupoClasificacion | null;
   clasif_valor?: string | null;
@@ -1580,9 +1582,10 @@ export interface CajaResumen {
   nominas: number;        // I3
   traslado: number;       // J3
   compraMaterial: number; // $ Compra de material (egreso)
+  compraMaterialKg: number; // Kg de material comprado (suman al Saldo en Kg)
   saldoUsd: number;       // K3 = D - G - H - I - J - Compra material
   kgRecibidos: number;    // L3
-  saldoKg: number;        // M3 = E - L
+  saldoKg: number;        // M3 = E + Compra material Kg - L
   /** Tasa del material = (facturados + gastos + nominas) / kgCerrados (F3). */
   tasa: number;
 }

@@ -226,6 +226,8 @@ function MovimientoModal({ mov, cajaId, clasificaciones, costoClases, actor, act
   const [nominas, setNominas] = useState(mov?.nominas ? String(mov.nominas) : '');
   const [traslado, setTraslado] = useState(mov?.traslado ? String(mov.traslado) : '');
   const [compraMaterial, setCompraMaterial] = useState(mov?.compra_material ? String(mov.compra_material) : '');
+  const [compraMaterialKg, setCompraMaterialKg] = useState(mov?.compra_material_kg ? String(mov.compra_material_kg) : '');
+  const [compraMaterialTasa, setCompraMaterialTasa] = useState(mov?.compra_material_tasa ? String(mov.compra_material_tasa) : '');
   const [kgRecibidos, setKgRecibidos] = useState(mov?.kg_recibidos ? String(mov.kg_recibidos) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -255,7 +257,9 @@ function MovimientoModal({ mov, cajaId, clasificaciones, costoClases, actor, act
       fecha, descripcion,
       usd_entregado: Number(usdEntregado) || 0, kg_cerrados: Number(kgCerrados) || 0,
       facturados: Number(facturados) || 0, gastos: Number(gastos) || 0, nominas: Number(nominas) || 0,
-      traslado: Number(traslado) || 0, compra_material: Number(compraMaterial) || 0, kg_recibidos: Number(kgRecibidos) || 0,
+      traslado: Number(traslado) || 0, compra_material: Number(compraMaterial) || 0,
+      compra_material_kg: Number(compraMaterialKg) || 0, compra_material_tasa: Number(compraMaterialTasa) || 0,
+      kg_recibidos: Number(kgRecibidos) || 0,
       clasif_grupo: grupo || null, clasif_valor: valor || null,
       costo_clasificacion: costoCl || null, costo_subclasificacion: costoSub || null,
       caja_id: cajaId,
@@ -349,7 +353,9 @@ function MovimientoModal({ mov, cajaId, clasificaciones, costoClases, actor, act
         {fld('$ Facturados', facturados, setFacturados)}
         {fld('Gastos GT', gastos, setGastos, 'suma a la tasa')}
         {fld('Nóminas GT', nominas, setNominas, 'suma a la tasa')}
-        {fld('Compra Material', compraMaterial, setCompraMaterial, 'egreso · baja el Saldo $')}
+        {fld('Compra Material ($)', compraMaterial, setCompraMaterial, 'egreso · baja el Saldo $')}
+        {fld('Kg comprados', compraMaterialKg, setCompraMaterialKg, 'suman al Saldo en Kg')}
+        {fld('Tasa material ($/Kg)', compraMaterialTasa, setCompraMaterialTasa, 'informativa')}
         {fld('Traslado de caja', traslado, setTraslado)}
         {fld('Kg Recibidos por MGG', kgRecibidos, setKgRecibidos)}
       </div>

@@ -33,6 +33,8 @@ interface FilaMov {
   precioUsdKg: number | null;
   usdFacturados: number;
   compraMaterial: number | null;  // $ Compra de material (egreso · baja el Saldo $)
+  compraMaterialKg: number | null; // Kg de material comprado (suman al Saldo en Kg)
+  compraMaterialTasa: number | null; // Tasa $/Kg de esa compra (informativa)
   gastosGt: number | null;
   nominasGt: number | null;
   trasladoCaja: number | null;
@@ -124,6 +126,8 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
           precioUsdKg: null,
           usdFacturados: 0,
           compraMaterial: null,
+          compraMaterialKg: null,
+          compraMaterialTasa: null,
           gastosGt: null,
           nominasGt: null,
           trasladoCaja: null,
@@ -139,10 +143,12 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
       const nominas = Number(m.nominas) || 0;
       const traslado = Number(m.traslado) || 0;
       const compraMaterial = Number(m.compra_material) || 0;
+      const compraMaterialKg = Number(m.compra_material_kg) || 0;
       const kgc = Number(m.kg_cerrados) || 0;
       const mgg = Number(m.kg_recibidos) || 0;
       saldoUsd = saldoUsd + entregado - facturados - gastos - nominas - traslado - compraMaterial;
-      saldoKg = saldoKg + kgc - mgg;
+      // Los Kg comprados (compra de material) SUMAN al saldo de casiterita.
+      saldoKg = saldoKg + kgc + compraMaterialKg - mgg;
       return {
         id: `m-${m.id}`,
         fecha: m.fecha,
@@ -152,6 +158,8 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
         precioUsdKg: null,
         usdFacturados: facturados,
         compraMaterial: compraMaterial || null,
+        compraMaterialKg: compraMaterialKg || null,
+        compraMaterialTasa: Number(m.compra_material_tasa) || null,
         gastosGt: gastos || null,
         nominasGt: nominas || null,
         trasladoCaja: traslado || null,
@@ -287,8 +295,15 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
                   {/* Kg que aporta el contrato al cerrarse → resaltado */}
                   <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(f.kgCerrados)}</td>
                   <td className="mono">{money(f.usdFacturados)}</td>
-                  {/* Compra de material (egreso ingresado por el usuario que baja el Saldo $). */}
-                  <td className="mono" style={{ color: f.compraMaterial ? 'var(--primary-3)' : undefined }}>{f.compraMaterial == null ? '—' : money(f.compraMaterial)}</td>
+                  {/* Compra de material (egreso · baja el Saldo $). Si trae Kg, suman al Saldo en Kg. */}
+                  <td className="mono" style={{ color: f.compraMaterial ? 'var(--primary-3)' : undefined }}>
+                    {f.compraMaterial == null ? '—' : money(f.compraMaterial)}
+                    {f.compraMaterialKg ? (
+                      <div className="muted" style={{ fontSize: '.7rem', color: 'var(--success, #45c08a)' }}>
+                        +{num(f.compraMaterialKg)} Kg{f.compraMaterialTasa ? ` · ${money(f.compraMaterialTasa)}/Kg` : ''}
+                      </div>
+                    ) : null}
+                  </td>
                   {/* Gastos = gastos + nómina (columnas unificadas). */}
                   <td className="mono">{(f.gastosGt == null && f.nominasGt == null) ? '—' : money((f.gastosGt ?? 0) + (f.nominasGt ?? 0))}</td>
                   <td className="mono">{f.trasladoCaja == null ? '—' : money(f.trasladoCaja)}</td>
@@ -363,6 +378,8 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
   const [nominas, setNominas] = useState(String(mov.nominas ?? 0));
   const [traslado, setTraslado] = useState(String(mov.traslado ?? 0));
   const [compraMaterial, setCompraMaterial] = useState(String(mov.compra_material ?? 0));
+  const [compraMaterialKg, setCompraMaterialKg] = useState(String(mov.compra_material_kg ?? 0));
+  const [compraMaterialTasa, setCompraMaterialTasa] = useState(String(mov.compra_material_tasa ?? 0));
   const [kgRecibidos, setKgRecibidos] = useState(String(mov.kg_recibidos ?? 0));
   const [grupo, setGrupo] = useState<GrupoClasificacion | ''>((mov.clasif_grupo as GrupoClasificacion) ?? '');
   const [clasifValor, setClasifValor] = useState(mov.clasif_valor ?? '');
@@ -379,7 +396,8 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
         fecha,
         descripcion: descripcion.trim() || null,
         usd_entregado: nzr(usdEntregado), kg_cerrados: nzr(kgCerrados), facturados: nzr(facturados),
-        gastos: nzr(gastos), nominas: nzr(nominas), traslado: nzr(traslado), compra_material: nzr(compraMaterial), kg_recibidos: nzr(kgRecibidos),
+        gastos: nzr(gastos), nominas: nzr(nominas), traslado: nzr(traslado), compra_material: nzr(compraMaterial),
+        compra_material_kg: Number(compraMaterialKg) || 0, compra_material_tasa: nzr(compraMaterialTasa), kg_recibidos: nzr(kgRecibidos),
         clasif_grupo: grupo || null, clasif_valor: clasifValor.trim() || null,
       });
       toast('Movimiento actualizado', 'success');
@@ -423,9 +441,19 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
           {campo('Nóminas', nominas, setNominas)}
         </div>
         <div className="form-grid">
-          {campo('Compra Material', compraMaterial, setCompraMaterial)}
+          {campo('Compra Material ($)', compraMaterial, setCompraMaterial)}
           {campo('Traslado de caja', traslado, setTraslado)}
         </div>
+        {/* Compra de material: Kg comprados (suman al Saldo en Kg) + Tasa $/Kg informativa. */}
+        <div className="form-grid">
+          {campo('Kg comprados', compraMaterialKg, setCompraMaterialKg)}
+          {campo('Tasa del material ($/Kg)', compraMaterialTasa, setCompraMaterialTasa)}
+        </div>
+        {(Number(compraMaterialKg) || 0) > 0 && (
+          <small className="muted" style={{ display: 'block', marginTop: '-.3rem', marginBottom: '.4rem', color: 'var(--success, #45c08a)' }}>
+            +{num(Number(compraMaterialKg) || 0)} Kg se suman al Saldo en Kg (acumulado).
+          </small>
+        )}
       </form>
     </Modal>
   );
