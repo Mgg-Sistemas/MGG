@@ -105,15 +105,27 @@ export async function descargarConstanciaTrabajoPdf(persona: Personal, opts: Con
   y += parrafo2.length * LH + 8;
   doc.setLineHeightFactor(1.15); // restaurar por si acaso
 
-  // ── Firma (bloque inferior) ──
-  const fy = Math.min(PAGE_H - MARGIN - 40, Math.max(y + 90, PAGE_H - 200));
+  // ── Firma y sello (bloque inferior) ──
+  // Se reserva un espacio en blanco (SELLO_ESPACIO) por encima de la línea de firma
+  // para la firma manuscrita y el sello húmedo de la Jefa de Recursos Humanos.
   const cx = PAGE_W / 2;
+  const SELLO_ESPACIO = 84;                         // alto en blanco para firma + sello
+  // Ancla el bloque cerca del pie, dejando el espacio de sello sobre la línea.
+  const fy = Math.min(PAGE_H - MARGIN - 52, Math.max(y + SELLO_ESPACIO + 24, PAGE_H - 170));
+
+  // Caption tenue del recuadro de sello (guía, no imprime borde).
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(150);
+  doc.text('(Espacio para firma y sello)', cx, fy - SELLO_ESPACIO + 10, { align: 'center' });
+  doc.setTextColor(0);
+
+  // Línea de firma.
   doc.setDrawColor(120); doc.setLineWidth(0.7);
-  doc.line(cx - 110, fy, cx + 110, fy);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
-  doc.text('Recursos Humanos', cx, fy + 16, { align: 'center' });
+  doc.line(cx - 120, fy, cx + 120, fy);
+  // Cargo (sin nombre): lo firma la Jefa de Recursos Humanos.
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text('Jefa de Recursos Humanos', cx, fy + 17, { align: 'center' });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(90);
-  doc.text(EMPRESA, cx, fy + 30, { align: 'center' });
+  doc.text(`${EMPRESA} · RIF ${RIF}`, cx, fy + 31, { align: 'center' });
   doc.setTextColor(0);
 
   // ── Pie ──
