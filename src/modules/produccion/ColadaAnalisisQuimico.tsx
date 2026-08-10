@@ -9,6 +9,7 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { LabAnalisisGrid } from '@/shared/ui/LabAnalisisGrid';
 import { ConfigMineralesModal } from '@/shared/ui/ConfigMineralesModal';
 import {
@@ -19,10 +20,10 @@ import {
   listColadaAnalisis, crearColadaAnalisis, actualizarColadaAnalisis, eliminarColadaAnalisis,
 } from './coladaAnalisis.repository';
 
-export function ColadaAnalisisQuimico({ produccionId, editable }: { produccionId: string; editable: boolean }) {
+export function ColadaAnalisisQuimico({ produccionId, editable, modulo = 'produccion' }: { produccionId: string; editable: boolean; modulo?: ModuleKey }) {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
-  const canWrite = editable && can('produccion', 'escritura');
+  const canWrite = editable && can(modulo, 'escritura');
   const actor = user?.email ?? 'sistema';
   const miNombre = appUser?.nombre?.trim() || user?.email || '';
 
