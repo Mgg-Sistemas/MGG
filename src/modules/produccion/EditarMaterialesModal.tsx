@@ -1,8 +1,11 @@
 /* ============================================================
-   MGG · Editar los MATERIALES de una colada/refinación EN CURSO.
-   Permite cambiar cantidades, quitar y agregar materiales (ej. corregir un
-   coque con nombre/stock equivocado). Al guardar, el repositorio revierte el
-   consumo anterior (sin tocar el PMP) y consume los nuevos, recalculando costos.
+   MGG · Editar una colada/refinación EN CURSO (todo):
+   - Cantidad producida, mano de obra.
+   - Materiales: cambiar cantidades, quitar y agregar (ej. corregir un coque
+     con nombre/stock equivocado). Al guardar, el repositorio revierte el consumo
+     anterior (sin tocar el PMP) y consume los nuevos, recalculando costos.
+   - Reporte de colada (MGG-FR-001): identificación, big bags/ley, proceso,
+     temperaturas, observaciones, lingotes y escoria (para fundición).
    ============================================================ */
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
@@ -10,11 +13,14 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
-import type { Existencia, Producto } from '@/shared/lib/types';
+import type { Existencia, Producto, ColadaDatos } from '@/shared/lib/types';
 import {
   getProduccionConMateriales, editarMaterialesProduccion,
   type ProduccionTipo, type MaterialInput,
 } from './produccion.repository';
+import { ColadaCampos } from './ColadaCampos';
+import { getColada, actualizarColadaDatos, actualizarColadaCabecera, coladaDatosVacios, getConsumoBigBags } from './colada.repository';
+import { listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 
 interface Row { key: string; producto_id: string | null; material_nombre: string; almacen: string; cantidad: number | null }
 
@@ -33,26 +39,55 @@ export function EditarMaterialesModal({
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [cantidad, setCantidad] = useState<number | null>(null);
+  const [manoObra, setManoObra] = useState<number | null>(null);
   const [productoNombre, setProductoNombre] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addSel, setAddSel] = useState('');
 
+  // Reporte de colada (solo fundición con reporte). Si no hay colada, esColada = false.
+  const [esColada, setEsColada] = useState(false);
+  const [coladaDatos, setColadaDatos] = useState<ColadaDatos>(coladaDatosVacios());
+  const [coladaNum, setColadaNum] = useState('');
+  const [coladaFecha, setColadaFecha] = useState('');
+  const [casiteritaDetalle, setCasiteritaDetalle] = useState<CasiteritaDetalle[]>([]);
+  const [consumoBigBags, setConsumoBigBags] = useState<Map<string, number>>(new Map());
+
   useEffect(() => {
     let cancel = false;
-    getProduccionConMateriales(produccionId).then((p) => {
-      if (cancel || !p) { if (!cancel) setError('Orden no encontrada.'); return; }
+    (async () => {
+      const p = await getProduccionConMateriales(produccionId);
+      if (cancel) return;
+      if (!p) { setError('Orden no encontrada.'); return; }
       setProductoNombre(p.producto_nombre ?? '');
       setCantidad(Number(p.cantidad) || null);
+      setManoObra(Number(p.mano_obra) || null);
       setRows((p.materiales ?? []).map((m, i) => ({
         key: `m${i}`, producto_id: m.producto_id ?? null, material_nombre: m.material_nombre,
         almacen: m.almacen, cantidad: Number(m.cantidad) || null,
       })));
-    }).catch((e) => { if (!cancel) setError(e instanceof Error ? e.message : 'Error al cargar'); })
+      // Reporte de colada (fundición).
+      if (tipo === 'fundicion') {
+        const [col, det, cons] = await Promise.all([
+          getColada(produccionId),
+          listCasiteritaDetalle().catch(() => [] as CasiteritaDetalle[]),
+          getConsumoBigBags(produccionId).catch(() => new Map<string, number>()),
+        ]);
+        if (cancel) return;
+        if (col) {
+          setEsColada(true);
+          setColadaDatos({ ...coladaDatosVacios(), ...(col.datos ?? {}) });
+          setColadaNum(col.colada_num != null ? String(col.colada_num) : '');
+          setColadaFecha(col.fecha ?? '');
+          setCasiteritaDetalle(det);
+          setConsumoBigBags(cons);
+        }
+      }
+    })().catch((e) => { if (!cancel) setError(e instanceof Error ? e.message : 'Error al cargar'); })
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
-  }, [produccionId]);
+  }, [produccionId, tipo]);
 
   const stockDe = (pid: string | null, alm: string): number =>
     !pid ? Infinity : Number(existencias.find((e) => e.producto_id === pid && e.almacen === alm)?.stock) || 0;
@@ -60,7 +95,6 @@ export function EditarMaterialesModal({
   const setRow = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const delRow = (key: string) => setRows((rs) => rs.filter((r) => r.key !== key));
 
-  // Opciones para agregar material: productos que no están ya en la lista.
   const opcionesAdd = useMemo(() => {
     const usados = new Set(rows.map((r) => r.producto_id).filter(Boolean));
     return productos.filter((p) => !usados.has(p.id)).map((p) => ({ value: p.id, label: `${p.nombre}${p.stock != null ? ` · ${num(p.stock)} en stock` : ''}` }));
@@ -89,15 +123,21 @@ export function EditarMaterialesModal({
       const materiales: MaterialInput[] = validas.map((r) => ({
         producto_id: r.producto_id, material_nombre: r.material_nombre, almacen: r.almacen, cantidad: Number(r.cantidad) || 0,
       }));
-      await editarMaterialesProduccion({ produccionId, cantidad: cant, materiales, actor, actorName });
-      toast('Colada actualizada: materiales e inventario ajustados', 'success');
+      await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, materiales, actor, actorName });
+      // Reporte de colada: guarda todo el detalle + cabecera (Colada N° / fecha).
+      if (esColada) {
+        await actualizarColadaDatos(produccionId, coladaDatos);
+        const nCol = Number(coladaNum);
+        await actualizarColadaCabecera(produccionId, { colada_num: Number.isFinite(nCol) && nCol > 0 ? nCol : undefined, fecha: coladaFecha || undefined });
+      }
+      toast('Colada actualizada: materiales, inventario y reporte ajustados', 'success');
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); }
     finally { setSaving(false); }
   }
 
   return (
-    <Modal title={`✎ Editar materiales · ${tipo === 'refinacion' ? 'Refinación' : 'Colada'}`} size="lg" onClose={onClose}
+    <Modal title={`✎ Editar ${tipo === 'refinacion' ? 'refinación' : 'colada'} (completo)`} size="lg" onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving || loading}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
@@ -107,15 +147,22 @@ export function EditarMaterialesModal({
       ) : (
         <>
           <p className="hint muted" style={{ marginTop: 0 }}>
-            Editás los materiales de <strong>{productoNombre}</strong> (orden en curso). Al guardar se <strong>revierte el consumo anterior</strong> y se consume lo nuevo; el inventario y los costos se reajustan solos.
+            Editás <strong>{productoNombre}</strong> (orden en curso). Al guardar se <strong>revierte el consumo anterior</strong> y se consume lo nuevo; el inventario, los costos y el reporte se reajustan solos.
           </p>
 
-          <div className="form-row" style={{ maxWidth: 260 }}>
-            <label>Cantidad producida</label>
-            <DecimalInput className="input mono" value={cantidad} onChange={setCantidad} style={{ textAlign: 'right' }} />
+          <div className="form-grid">
+            <div className="form-row" style={{ maxWidth: 220 }}>
+              <label>Cantidad producida</label>
+              <DecimalInput className="input mono" value={cantidad} onChange={setCantidad} style={{ textAlign: 'right' }} />
+            </div>
+            <div className="form-row" style={{ maxWidth: 220 }}>
+              <label>Mano de obra ($)</label>
+              <DecimalInput className="input mono" value={manoObra} onChange={setManoObra} style={{ textAlign: 'right' }} />
+            </div>
           </div>
 
-          <div className="table-wrap" style={{ marginTop: '.6rem' }}>
+          <div className="card-title" style={{ marginTop: '.8rem' }}>Materiales (consumo de inventario)</div>
+          <div className="table-wrap">
             <table className="table" style={{ fontSize: '.85rem' }}>
               <thead><tr><th>Material</th><th>Almacén</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Stock</th><th></th></tr></thead>
               <tbody>
@@ -150,6 +197,18 @@ export function EditarMaterialesModal({
               <SearchSelect value={addSel} options={opcionesAdd} placeholder="Buscar producto…" onChange={(v) => { if (v) agregar(v); }} />
             </div>
           </div>
+
+          {esColada && (
+            <div style={{ marginTop: '1rem', borderTop: '2px dashed var(--border)', paddingTop: '.8rem' }}>
+              <div className="card-title" style={{ marginBottom: '.4rem' }}>🔥 Reporte de colada (MGG-FR-001)</div>
+              <ColadaCampos
+                coladaNum={coladaNum} setColadaNum={setColadaNum}
+                fecha={coladaFecha} setFecha={setColadaFecha}
+                datos={coladaDatos} setDatos={setColadaDatos}
+                casiteritaDetalle={casiteritaDetalle} consumoBigBags={consumoBigBags}
+              />
+            </div>
+          )}
 
           {error && <p style={{ color: 'var(--danger)', marginTop: '.7rem', fontWeight: 600 }}>{error}</p>}
         </>
