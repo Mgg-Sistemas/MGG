@@ -105,6 +105,8 @@ export interface CrearProduccionInput {
   actor_name?: string | null;
   /** Fundición (default) o refinación de material. */
   tipo?: ProduccionTipo;
+  /** Si el producto terminado suma al inventario al finalizar (default true). */
+  sumarInventario?: boolean;
 }
 
 function round2(n: number): number {
@@ -333,6 +335,7 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
       horno: input.horno?.trim() || null,
       estado: 'produccion',
       tipo,
+      sumar_inventario: input.sumarInventario ?? true,
       costo_material: costoMaterial,
       mano_obra: manoObra,
       costos_indirectos: indirectos,
@@ -396,6 +399,7 @@ export async function editarMaterialesProduccion(input: {
   cantidad?: number | null;
   manoObra?: number | null;
   costosIndirectos?: number | null;
+  sumarInventario?: boolean;
   materiales: MaterialInput[];
   actor: string;
   actorName?: string | null;
@@ -475,10 +479,12 @@ export async function editarMaterialesProduccion(input: {
   })));
 
   // 6) Actualizar la orden con los nuevos costos.
-  const { data: upd, error: uErr } = await supabase.from('produccion').update({
+  const updPatch: Record<string, unknown> = {
     cantidad, costo_material: costoMaterial, mano_obra: manoObra, costos_indirectos: indirectos,
     costo_unitario: costoUnitario, ganancia,
-  }).eq('id', input.produccionId).select('*').single();
+  };
+  if (input.sumarInventario !== undefined) updPatch.sumar_inventario = input.sumarInventario;
+  const { data: upd, error: uErr } = await supabase.from('produccion').update(updPatch).eq('id', input.produccionId).select('*').single();
   if (uErr) throw uErr;
   return upd as Produccion;
 }
@@ -496,18 +502,22 @@ export async function finalizarProduccion(id: string, actor: string, actorName?:
   if (!prod.producto_id) throw new Error('La fundición no tiene un producto terminado asociado.');
 
   // Entrada del producto terminado al almacén destino, a su costo de fundición.
-  await registrarMovimiento({
-    producto_id: prod.producto_id,
-    tipo: 'entrada',
-    delta: Number(prod.cantidad) || 0,
-    almacen: prod.almacen_destino,
-    actor,
-    actor_name: actorName ?? null,
-    ref_tipo: 'produccion',
-    ref_id: prod.id,
-    detalle: `${(prod.tipo ?? 'fundicion') === 'refinacion' ? 'Refinación' : 'Fundición'} finalizada: ${prod.producto_nombre} (${prod.cantidad} und)`,
-    precio_unitario: Number(prod.costo_unitario) || 0,
-  });
+  // Solo si la orden está marcada para sumar al inventario (default true). En false,
+  // la colada/refinación queda como registro/reporte sin sumar stock.
+  if (prod.sumar_inventario !== false) {
+    await registrarMovimiento({
+      producto_id: prod.producto_id,
+      tipo: 'entrada',
+      delta: Number(prod.cantidad) || 0,
+      almacen: prod.almacen_destino,
+      actor,
+      actor_name: actorName ?? null,
+      ref_tipo: 'produccion',
+      ref_id: prod.id,
+      detalle: `${(prod.tipo ?? 'fundicion') === 'refinacion' ? 'Refinación' : 'Fundición'} finalizada: ${prod.producto_nombre} (${prod.cantidad} und)`,
+      precio_unitario: Number(prod.costo_unitario) || 0,
+    });
+  }
 
   const { data: upd, error: uErr } = await supabase
     .from('produccion')

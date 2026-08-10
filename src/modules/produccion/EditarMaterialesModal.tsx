@@ -40,6 +40,7 @@ export function EditarMaterialesModal({
   const [rows, setRows] = useState<Row[]>([]);
   const [cantidad, setCantidad] = useState<number | null>(null);
   const [manoObra, setManoObra] = useState<number | null>(null);
+  const [sumarInventario, setSumarInventario] = useState(true);
   const [productoNombre, setProductoNombre] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -63,6 +64,7 @@ export function EditarMaterialesModal({
       setProductoNombre(p.producto_nombre ?? '');
       setCantidad(Number(p.cantidad) || null);
       setManoObra(Number(p.mano_obra) || null);
+      setSumarInventario(p.sumar_inventario !== false);
       setRows((p.materiales ?? []).map((m, i) => ({
         key: `m${i}`, producto_id: m.producto_id ?? null, material_nombre: m.material_nombre,
         almacen: m.almacen, cantidad: Number(m.cantidad) || null,
@@ -123,7 +125,7 @@ export function EditarMaterialesModal({
       const materiales: MaterialInput[] = validas.map((r) => ({
         producto_id: r.producto_id, material_nombre: r.material_nombre, almacen: r.almacen, cantidad: Number(r.cantidad) || 0,
       }));
-      await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, materiales, actor, actorName });
+      await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, materiales, actor, actorName });
       // Reporte de colada: guarda todo el detalle + cabecera (Colada N° / fecha).
       if (esColada) {
         await actualizarColadaDatos(produccionId, coladaDatos);
@@ -160,6 +162,11 @@ export function EditarMaterialesModal({
               <DecimalInput className="input mono" value={manoObra} onChange={setManoObra} style={{ textAlign: 'right' }} />
             </div>
           </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', margin: '.2rem 0 .2rem', cursor: 'pointer', fontSize: '.86rem' }}>
+            <input type="checkbox" checked={sumarInventario} onChange={(e) => setSumarInventario(e.target.checked)} />
+            <span><strong>Sumar al inventario</strong> al finalizar <span className="muted" style={{ fontSize: '.76rem' }}>· si lo destildás, queda como registro/reporte y NO suma stock del producto</span></span>
+          </label>
 
           <div className="card-title" style={{ marginTop: '.8rem' }}>Materiales (consumo de inventario)</div>
           <div className="table-wrap">
