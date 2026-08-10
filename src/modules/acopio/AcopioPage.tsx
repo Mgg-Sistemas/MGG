@@ -1281,7 +1281,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
 
   // Trae en vivo los valores de TODOS los centros vinculados a un sistema externo.
   const resolverVinculos = useCallback(async (silencioso = false) => {
-    setResolviendo(true);
+    if (!silencioso) setResolviendo(true);
     let n = 0, fallidos = 0;
     const next = await Promise.all((sectores).map(async (s) => {
       const centros = await Promise.all(s.centros.map(async (c) => {
@@ -1307,8 +1307,10 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
       }
       return s2;
     }));
-    setSectores(next);
-    setResolviendo(false);
+    // Solo actualizamos el estado si algo CAMBIÓ (evita re-render/parpadeo cuando el
+    // realtime dispara pero los valores vinculados siguen iguales).
+    setSectores((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    if (!silencioso) setResolviendo(false);
     if (!silencioso) {
       if (fallidos) toast(`Vínculos: ${n} actualizado(s), ${fallidos} con error`, fallidos ? 'error' : 'success');
       else toast(`Vínculos actualizados (${n})`, 'success');
@@ -1330,12 +1332,17 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
   // SIEMPRE con la tarjeta del centro/aliado (Kg recibidos, saldo casiterita, tasa).
   // Solo refresca las celdas VINCULADAS; las cargadas a mano no se tocan.
   const reResolviendo = useRef(false);
+  const ultimoResolve = useRef(0);
   useRealtime(
     ['acopio_caja_movimientos', 'acopio_aliado_movimientos', 'acopio_cajas', 'acopio_aliado_cierres', 'acopio_cuentas_cobrar', 'acopio_cobrar_abonos', 'acopio_recepciones', 'acopio_recepcion_lotes'],
     () => {
       if (reResolviendo.current) return;
+      // Throttle: como mucho 1 re-resolución cada 8 s (evita parpadeo por ráfagas de eventos).
+      const ahora = Date.now();
+      if (ahora - ultimoResolve.current < 8000) return;
       const hay = sectores.some((s) => s.fuente_saldo || s.fuente_precio || s.centros.some((c) => c.fuente || c.fuente_cobrar));
       if (!hay) return;
+      ultimoResolve.current = ahora;
       reResolviendo.current = true;
       void resolverVinculos(true).finally(() => { reResolviendo.current = false; });
     },
