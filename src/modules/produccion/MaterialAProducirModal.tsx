@@ -11,7 +11,7 @@ import { listAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repo
 import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput, type ProduccionTipo } from './produccion.repository';
 import { crearHorno } from './hornos.repository';
 import { ColadaCampos } from './ColadaCampos';
-import { coladaDatosVacios, crearColada, proximaColadaNum } from './colada.repository';
+import { coladaDatosVacios, crearColada, proximaColadaNum, getConsumoBigBags } from './colada.repository';
 import { RefinacionCampos } from './RefinacionCampos';
 import { refinacionDatosVacios, proximaRefinacionNum, crearRefinacion, listColadasFinalizadas, listRefinacionesFinalizadas, type ColadaFinalizada } from './refinacion.repository';
 import type { ColadaDatos, RefinacionDatos } from '@/shared/lib/types';
@@ -90,11 +90,14 @@ export function MaterialAProducirModal({
   // Inventario detallado de casiterita (big bags con precinto/análisis/prom/peso/tasa):
   // sirve para "traer" un big bag ya cargado en vez de tipearlo (o dejarlo manual).
   const [casiteritaDetalle, setCasiteritaDetalle] = useState<CasiteritaDetalle[]>([]);
+  // Kg ya consumidos de cada big bag (por otras coladas): disponible = peso − consumido.
+  const [consumoBigBags, setConsumoBigBags] = useState<Map<string, number>>(new Map());
   useEffect(() => {
     if (!esColada) return;
     let cancel = false;
     proximaColadaNum().then((n) => { if (!cancel) setColadaNum((v) => v || String(n)); }).catch(() => { /* editable */ });
     listCasiteritaDetalle().then((rows) => { if (!cancel) setCasiteritaDetalle(rows); }).catch(() => { if (!cancel) setCasiteritaDetalle([]); });
+    getConsumoBigBags().then((m) => { if (!cancel) setConsumoBigBags(m); }).catch(() => { if (!cancel) setConsumoBigBags(new Map()); });
     return () => { cancel = true; };
   }, [esColada]);
 
@@ -670,6 +673,7 @@ export function MaterialAProducirModal({
             datos={coladaDatos} setDatos={setColadaDatos}
             slotMaterial={materialesChecklist}
             casiteritaDetalle={casiteritaDetalle}
+            consumoBigBags={consumoBigBags}
           />
         )}
 
