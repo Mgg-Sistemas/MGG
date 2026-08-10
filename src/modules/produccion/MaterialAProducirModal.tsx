@@ -377,6 +377,14 @@ export function MaterialAProducirModal({
     if (modoOutput === 'existente' && !productoSelId) { setError(esRef ? 'Elegí el material refinado resultante.' : 'Elegí el producto a producir.'); return; }
     if (modoOutput === 'nuevo' && !nombreNuevo.trim()) { setError('Escribí el nombre del producto a producir.'); return; }
 
+    // Validaciones del reporte de colada (MGG-FR-001): no iniciar con lo esencial vacío.
+    if (esColada) {
+      if (!coladaNum.trim()) { setError('Indicá el Colada N°.'); return; }
+      if (!(coladaDatos.responsable ?? '').trim()) { setError('Indicá el responsable de la colada.'); return; }
+      const bags = coladaDatos.big_bags ?? [];
+      if (!bags.some((b) => (Number(b.kg) || 0) > 0)) { setError('Cargá al menos un big bag de casiterita con su peso (kg).'); return; }
+    }
+
     for (const { m, row } of seleccion) {
       const cant = Number(row.cantidad) || 0;
       const stock = exStock(m.id, row.almacen);
