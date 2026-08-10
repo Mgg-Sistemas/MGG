@@ -55,7 +55,7 @@ async function construir(orden: Orden, proveedor: Proveedor | null) {
   const filasOrden: Array<[string, string]> = [
     ['OP', orden.codigo],
     ['N° ODC', orden.oc_codigo ?? '—'],
-    ['Proveedor', proveedor?.nombre ?? '—'],
+    ['Proveedor', proveedor?.razon_social ?? '—'],
     ['Solicitante', orden.ci_solicitante || orden.solicitante || personaDe(orden.solicitante_email, personas, null)],
   ];
   if (orden.condiciones_pago) filasOrden.push(['Condición de pago', labelCondicionPago(orden.condiciones_pago)]);

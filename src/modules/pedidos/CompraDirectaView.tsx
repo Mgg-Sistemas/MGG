@@ -9,9 +9,8 @@ import { dateTime, num } from '@/shared/lib/format';
 // descargarCompraDirectaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir la vista.
 import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
-import type { Caja, Producto, Proveedor } from '@/shared/lib/types';
+import type { Producto, Proveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos, updateProducto, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
-import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
   crearCompraDirecta, editarCompraDirectaEnProceso, montarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
@@ -51,7 +50,6 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
-  const [cajas, setCajas] = useState<Caja[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
@@ -71,14 +69,13 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   // Catálogos del formulario de alta (productos, categorías, medidas, cajas, proveedores):
   // casi estáticos; se cargan al entrar y solo se refrescan si cambian en su origen.
   const reloadCatalogos = useCallback(async () => {
-    const [pds, cats, unis, cjs, provs] = await Promise.all([
+    const [pds, cats, unis, provs] = await Promise.all([
       listProductos().catch(() => [] as Producto[]),
       getCategorias().catch(() => [] as string[]),
       getUnidades().catch(() => [] as string[]),
-      listCajasActivas().catch(() => [] as Caja[]),
       listProveedores().catch(() => [] as Proveedor[]),
     ]);
-    setProductos(pds); setCategorias(cats); setUnidades(unis); setCajas(cjs);
+    setProductos(pds); setCategorias(cats); setUnidades(unis);
     setProveedores(provs.filter((p) => p.estado === 'activo'));
   }, []);
 

@@ -9,6 +9,7 @@ import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import type { ColadaTemperatura, ProduccionColada } from '@/shared/lib/types';
 import { getColada, actualizarColadaDatos } from './colada.repository';
+import { ColadaAnalisisQuimico } from './ColadaAnalisisQuimico';
 
 const secStyle: CSSProperties = { margin: '0 0 .7rem', padding: '.65rem .8rem', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-1)' };
 const tituloSec: CSSProperties = { fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', marginBottom: '.5rem' };
@@ -122,6 +123,9 @@ export function ColadaPanel({ produccionId, editable }: { produccionId: string; 
           </div>
         )}
       </div>
+
+      {/* Análisis químico de laboratorio de la colada (desplegable, realtime) */}
+      <ColadaAnalisisQuimico produccionId={produccionId} editable={editable} />
 
       {/* Sangrado y tiempos de colada */}
       <div style={{ ...secStyle, marginBottom: editable ? '.7rem' : 0 }}>

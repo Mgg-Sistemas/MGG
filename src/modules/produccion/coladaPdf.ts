@@ -8,6 +8,8 @@ import { money } from '@/shared/lib/format';
 import type { ColadaBigBag, Produccion, ProduccionColada } from '@/shared/lib/types';
 import { getProduccionConMateriales } from './produccion.repository';
 import { getColada, fmtJornada } from './colada.repository';
+import { listColadaAnalisis } from './coladaAnalisis.repository';
+import { listMinerales, type RecepcionMineral, type RecepcionAnalisis, type ValorMineral } from '@/modules/recepciones/recepciones.repository';
 
 const ORANGE: [number, number, number] = [214, 90, 24];
 const GREY: [number, number, number] = [90, 90, 90];
@@ -34,8 +36,21 @@ function fmtFecha(iso: string | null | undefined): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
   return m ? `${m[3]}/${m[2]}/${m[1]}` : txt(iso);
 }
+/** Etiqueta de columna de lectura: 0→A, 25→Z, 26→AA… */
+function colLetra(i: number): string {
+  let s = ''; let n = i + 1;
+  while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+/** Lee una lectura de laboratorio (valores guardados como { prom } o legado {a,b,c}). */
+function lecturaNum(v: ValorMineral | null | undefined): number | null {
+  if (v == null) return null;
+  if (v.prom != null && Number.isFinite(Number(v.prom))) return Number(v.prom);
+  const xs = [v.a, v.b, v.c].filter((x) => x != null && Number.isFinite(Number(x))).map(Number);
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+}
 
-async function construir(prod: Produccion, colada: ProduccionColada | null) {
+async function construir(prod: Produccion, colada: ProduccionColada | null, analisis: RecepcionAnalisis[] = [], minerales: RecepcionMineral[] = []) {
   const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -166,6 +181,51 @@ async function construir(prod: Produccion, colada: ProduccionColada | null) {
   // @ts-expect-error lastAutoTable
   y = (doc.lastAutoTable?.finalY ?? y) + 10;
 
+  // ── ANÁLISIS QUÍMICO DE LABORATORIO ──
+  // Metales en filas; una columna por lectura (A, B, C…), agrupadas por procedencia;
+  // PROM = promedio de las lecturas de esa procedencia. Solo si la colada tiene análisis.
+  if (analisis.length && minerales.length) {
+    barra('ANÁLISIS QUÍMICO DE LABORATORIO');
+    // Agrupa por procedencia, preservando el orden por N° de análisis.
+    const SIN = 'SIN PROCEDENCIA';
+    const orden: string[] = [];
+    const porProc = new Map<string, RecepcionAnalisis[]>();
+    for (const a of [...analisis].sort((x, z) => x.n_analisis - z.n_analisis)) {
+      const key = (a.procedencia ?? '').trim().toUpperCase() || SIN;
+      if (!porProc.has(key)) { porProc.set(key, []); orden.push(key); }
+      porProc.get(key)!.push(a);
+    }
+    for (const proc of orden) {
+      const lecturas = porProc.get(proc)!;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...ORANGE);
+      if (y > doc.internal.pageSize.getHeight() - 90) { doc.addPage(); y = MARGIN; }
+      doc.text(`${proc}  ·  ${lecturas.length} lectura${lecturas.length === 1 ? '' : 's'}`, MARGIN + 2, y + 2);
+      doc.setTextColor(0, 0, 0);
+      y += 8;
+      const head = ['Metal', ...lecturas.map((_, k) => colLetra(k)), 'PROM (%)'];
+      const numerosRow = ['#  (nºs)', ...lecturas.map((l) => txt(l.numeros)), ''];
+      const filas = minerales.map((m) => {
+        const vals = lecturas.map((l) => lecturaNum(l.valores?.[m.clave]));
+        const presentes = vals.filter((v): v is number => v != null);
+        const prom = presentes.length ? presentes.reduce((a, b) => a + b, 0) / presentes.length : null;
+        return [m.nombre, ...vals.map((v) => (v == null ? '—' : n2(v))), prom == null ? '—' : n2(prom)];
+      });
+      autoTable(doc, {
+        startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+        head: [head], body: [numerosRow, ...filas],
+        theme: 'grid',
+        headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 7, halign: 'center' },
+        styles: { fontSize: 7, cellPadding: 2, halign: 'center' },
+        columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: 110 }, [head.length - 1]: { halign: 'right', fontStyle: 'bold' } },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.index === 0) { data.cell.styles.fontStyle = 'italic'; data.cell.styles.textColor = GREY; }
+        },
+      });
+      // @ts-expect-error lastAutoTable
+      y = (doc.lastAutoTable?.finalY ?? y) + 8;
+    }
+  }
+
   // ── PROCESO ──
   barra('PROCESO');
   ficha([
@@ -247,8 +307,11 @@ async function construir(prod: Produccion, colada: ProduccionColada | null) {
 
 /** Genera y muestra (vista previa) el reporte de colada MGG-FR-001 de una orden. */
 export async function descargarColadaPdf(produccionId: string): Promise<void> {
-  const [prod, colada] = await Promise.all([getProduccionConMateriales(produccionId), getColada(produccionId)]);
+  const [prod, colada, analisis, minerales] = await Promise.all([
+    getProduccionConMateriales(produccionId), getColada(produccionId),
+    listColadaAnalisis(produccionId).catch(() => []), listMinerales(true).catch(() => []),
+  ]);
   if (!prod) throw new Error('Fundición no encontrada');
-  const { doc, filename } = await construir(prod, colada);
+  const { doc, filename } = await construir(prod, colada, analisis, minerales);
   previewPdfDoc(doc, filename);
 }

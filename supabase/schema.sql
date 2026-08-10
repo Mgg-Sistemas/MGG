@@ -341,6 +341,27 @@ create table if not exists public.produccion_colada (
 create index if not exists idx_colada_prod on public.produccion_colada(produccion_id);
 create index if not exists idx_colada_num on public.produccion_colada(colada_num desc);
 
+-- Análisis químico de laboratorio POR COLADA (fundición). Mismo modelo que
+-- recepcion_analisis, pero atado a la orden de fundición. Reutiliza el catálogo de
+-- minerales/procedencias de Recepciones. 1 colada → N lecturas (columnas A, B, C…).
+create table if not exists public.colada_analisis (
+  id uuid primary key default gen_random_uuid(),
+  produccion_id uuid not null references public.produccion(id) on delete cascade,
+  n_analisis int not null default 1,
+  fecha timestamptz not null default now(),
+  valores jsonb not null default '{}'::jsonb,   -- { claveMineral: { prom } }
+  numeros text,               -- lista libre de #s de la lectura (ej. "34, 34, 645")
+  procedencia text,           -- agrupa las lecturas por procedencia
+  nota text,
+  actor text, actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists idx_colada_analisis_produccion on public.colada_analisis(produccion_id);
+alter table public.colada_analisis enable row level security;
+create policy "colada_analisis read auth" on public.colada_analisis for select using (auth.role()='authenticated');
+create policy "colada_analisis write op"  on public.colada_analisis for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- Reporte de Refinación de Lingotes de Estaño (MGG-FR-002): metadata rica 1:1 con
 -- una orden de refinación (`produccion` tipo='refinacion'). `refinacion_num` es un
 -- correlativo global. Todo el detalle del formato (identificación, origen del estaño
@@ -3502,7 +3523,7 @@ declare t text;
 declare faltantes text[] := array[
   'abonos_credito','caja_lotes','catalogos_pedido','combustible_movimientos','combustible_sedes',
   'config','custom_roles','evaluaciones_recepcion','existencias','facturas','hornos','notificaciones',
-  'ofertas_proveedor','produccion','produccion_materiales','produccion_colada','produccion_refinacion','proveedor_datos_pago','proveedores',
+  'ofertas_proveedor','produccion','produccion_materiales','produccion_colada','colada_analisis','produccion_refinacion','proveedor_datos_pago','proveedores',
   'recepcion_grupos','recepciones','recepcion_analisis','recepcion_minerales','recepcion_humedad_prov','recepcion_humedad_final','recepcion_pesajes','recepcion_conciliaciones','recepcion_totales','recepcion_cierres','recepciones_centro_alias','recepcion_resumen_snapshots',
   'retenciones','roles_permisos','solicitudes_salida','tasa_cambio','tasa_snapshot','taxonomias','usuarios'
 ];
