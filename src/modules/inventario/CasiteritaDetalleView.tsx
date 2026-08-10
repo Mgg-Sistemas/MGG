@@ -19,6 +19,7 @@ import {
   calcPesoCasiterita, calcPesoPuroSn,
   type CasiteritaDetalle, type CasiteritaCategoria, type CasiteritaDetalleInput, type CasiteritaSugerencia, type CierreOpcion,
 } from './casiteritaDetalle.repository';
+import { getConsumoBigBagsDetallado, type ConsumoBigBagDetalle } from '@/modules/produccion/colada.repository';
 
 const CAT_LABEL: Record<CasiteritaCategoria, string> = {
   bigbag: 'BIG BAG', saco: 'SACO', tobo: 'TOBO', hielo: 'BOLSA DE HIELO',
@@ -162,6 +163,12 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
   useEffect(() => { cargar(); }, [cargar]);
   useRealtime(['casiterita_detalle'], cargar);
 
+  // Consumo de cada big bag por las coladas (usado / saldo). Realtime con las coladas.
+  const [consumo, setConsumo] = useState<Map<string, ConsumoBigBagDetalle>>(new Map());
+  const cargarConsumo = useCallback(() => { getConsumoBigBagsDetallado().then(setConsumo).catch(() => setConsumo(new Map())); }, []);
+  useEffect(() => { cargarConsumo(); }, [cargarConsumo]);
+  useRealtime(['produccion_colada'], cargarConsumo);
+
   // Orden: por procedencia, luego por creación. Subtotales por procedencia.
   const ordenadas = useMemo(
     () => [...rows].sort((a, b) => (a.procedencia || '').localeCompare(b.procedencia || '') || a.created_at.localeCompare(b.created_at)),
@@ -174,6 +181,18 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
     puro: a.puro + (Number(d.peso_puro_sn) || 0),
     valor: a.valor + valorFila(d),
   }), { peso: 0, casiterita: 0, puro: 0, valor: 0 }), [rows]);
+  // Usado (por coladas) agregado por procedencia y total, para los saldos de los subtotales.
+  const usadoPorProc = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of rows) {
+      const u = consumo.get(d.id)?.kg ?? 0;
+      if (u <= 0) continue;
+      const k = d.procedencia || '—';
+      m.set(k, round2((m.get(k) ?? 0) + u));
+    }
+    return m;
+  }, [rows, consumo]);
+  const totalUsado = useMemo(() => round2(rows.reduce((a, d) => a + (consumo.get(d.id)?.kg ?? 0), 0)), [rows, consumo]);
   const recepcionado = useRecepcionadoCasiterita();
 
   // Filas + subtotal cuando cambia la procedencia.
@@ -184,7 +203,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
     if (!sig || (sig.procedencia || '') !== (d.procedencia || '')) filas.push({ tipo: 'sub', proc: d.procedencia || '—' });
   });
 
-  const COLS = 11;
+  const COLS = 12;
   return (
     <div className="card">
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.6rem', marginBottom: '.8rem' }}>
@@ -212,6 +231,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
             <th style={{ textAlign: 'right' }}>PESO PURO SN</th>
             <th style={{ textAlign: 'right' }}>TASA</th>
             <th style={{ textAlign: 'right' }}>VALOR</th>
+            <th style={{ textAlign: 'right' }}>SALDO / USADO</th>
             {canWrite && <th></th>}
           </tr></thead>
           <tbody>
@@ -228,6 +248,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(subtot.get(f.proc)?.puro)}</td>
                 <td></td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(subtot.get(f.proc)?.valor ?? 0)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{(() => { const u = usadoPorProc.get(f.proc) ?? 0; const cas = subtot.get(f.proc)?.casiterita ?? 0; return u > 0.01 ? n2(round2(cas - u)) : '—'; })()}</td>
                 {canWrite && <td></td>}
               </tr>
             ) : (
@@ -243,6 +264,18 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(f.d.peso_puro_sn)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{f.d.tasa != null ? n2(f.d.tasa) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(valorFila(f.d))}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{(() => {
+                  const c = consumo.get(f.d.id);
+                  const total = round2(Number(f.d.peso_casiterita_kgs) || 0);
+                  if (!c || c.kg <= 0.01) return <span className="muted" style={{ fontSize: '.72rem' }}>{n2(total)} <span style={{ fontSize: '.66rem' }}>(sin usar)</span></span>;
+                  const saldo = round2(total - c.kg);
+                  return (
+                    <>
+                      <strong style={{ color: saldo <= 0.01 ? 'var(--danger)' : 'var(--warning, #f59e0b)' }}>{n2(saldo)}</strong>
+                      <div className="muted" style={{ fontSize: '.66rem' }}>usado {n2(c.kg)} · colada {c.coladas.map((x) => `#${x.num}`).join(', ')}</div>
+                    </>
+                  );
+                })()}</td>
                 {canWrite && (
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button className="btn btn-sm btn-ghost" onClick={() => setEditor(f.d)} title="Editar">✎</button>
@@ -261,6 +294,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
               <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(tot.puro)}</td>
               <td></td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{money(tot.valor)}</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{totalUsado > 0.01 ? n2(round2(tot.casiterita - totalUsado)) : '—'}</td>
               {canWrite && <td></td>}
             </tr></tfoot>
           )}
