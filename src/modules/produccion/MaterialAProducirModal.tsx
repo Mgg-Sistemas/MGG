@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
 import { getUnidades, updateProducto } from '@/modules/inventario/inventario.repository';
+import { listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 import { AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
 import { listAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
 import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput, type ProduccionTipo } from './produccion.repository';
@@ -86,10 +87,14 @@ export function MaterialAProducirModal({
   const [coladaNum, setColadaNum] = useState('');
   const [coladaFecha, setColadaFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [coladaDatos, setColadaDatos] = useState<ColadaDatos>(() => coladaDatosVacios());
+  // Inventario detallado de casiterita (big bags con precinto/análisis/prom/peso/tasa):
+  // sirve para "traer" un big bag ya cargado en vez de tipearlo (o dejarlo manual).
+  const [casiteritaDetalle, setCasiteritaDetalle] = useState<CasiteritaDetalle[]>([]);
   useEffect(() => {
     if (!esColada) return;
     let cancel = false;
     proximaColadaNum().then((n) => { if (!cancel) setColadaNum((v) => v || String(n)); }).catch(() => { /* editable */ });
+    listCasiteritaDetalle().then((rows) => { if (!cancel) setCasiteritaDetalle(rows); }).catch(() => { if (!cancel) setCasiteritaDetalle([]); });
     return () => { cancel = true; };
   }, [esColada]);
 
@@ -664,6 +669,7 @@ export function MaterialAProducirModal({
             fecha={coladaFecha} setFecha={setColadaFecha}
             datos={coladaDatos} setDatos={setColadaDatos}
             slotMaterial={materialesChecklist}
+            casiteritaDetalle={casiteritaDetalle}
           />
         )}
 

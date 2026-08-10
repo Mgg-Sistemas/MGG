@@ -7,6 +7,8 @@
    ============================================================ */
 import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import type { ColadaDatos, ColadaBigBag, ColadaBigBagLey } from '@/shared/lib/types';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import type { CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -52,9 +54,11 @@ interface Props {
   setDatos: (updater: (prev: ColadaDatos) => ColadaDatos) => void;
   /** Bloque de materiales (receta) que se renderiza unido, debajo de la casiterita (mismo bloque «Material a procesar»). */
   slotMaterial?: ReactNode;
+  /** Inventario detallado de casiterita: para "traer" un big bag ya cargado (o dejarlo manual). */
+  casiteritaDetalle?: CasiteritaDetalle[];
 }
 
-export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos, slotMaterial }: Props) {
+export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos, slotMaterial, casiteritaDetalle = [] }: Props) {
   const set = <K extends keyof ColadaDatos>(key: K, val: ColadaDatos[K]) => setDatos((p) => ({ ...p, [key]: val }));
   const numVal = (v: number | null | undefined) => (v == null ? '' : String(v));
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s));
@@ -96,12 +100,33 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jornadaH]);
 
-  const setBag = (i: number, patch: Partial<{ kg: number | null; precinto: string }>) =>
+  const setBag = (i: number, patch: Partial<ColadaBigBag>) =>
     setDatos((p) => {
       const arr = [...(p.big_bags ?? [])];
       arr[i] = { ...arr[i], ...patch };
       return { ...p, big_bags: arr };
     });
+
+  // Opciones del inventario detallado de casiterita + autollenado de un big bag.
+  const detalleOpts = casiteritaDetalle.map((d) => ({
+    value: d.id,
+    label: `${d.procedencia}${d.precinto ? ` · precinto ${d.precinto}` : ''} · ${round2(d.peso_casiterita_kgs)} kg${d.prom_sn != null ? ` · ${round2(d.prom_sn)}%` : ''}${d.tasa != null ? ` · $${round2(d.tasa)}/kg` : ''}`,
+  }));
+  const traerDetalle = (i: number, id: string) => {
+    if (!id) { setBag(i, { origen_detalle_id: null }); return; }
+    const d = casiteritaDetalle.find((x) => x.id === id);
+    if (!d) return;
+    setBag(i, {
+      origen_detalle_id: d.id,
+      kg: d.peso_casiterita_kgs ?? null,
+      aliado: d.procedencia ?? '',
+      precinto: d.precinto ?? '',
+      analisis: d.n_analisis ?? '',
+      ley_prom: d.prom_sn ?? null,
+      tasa: d.tasa ?? null,
+      leyes: [], // usa el promedio traído como ley manual del big bag
+    });
+  };
   const addBag = () => setDatos((p) => ({ ...p, big_bags: [...(p.big_bags ?? []), { kg: null, precinto: '', leyes: [] }] }));
   const delBag = (i: number) => setDatos((p) => ({ ...p, big_bags: (p.big_bags ?? []).filter((_, k) => k !== i) }));
   // Leyes de laboratorio (A, B, C…) por big bag.
@@ -175,6 +200,22 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
                   <strong style={{ fontSize: '.82rem' }}>Big bag #{i + 1}</strong>
                   {bigBags.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delBag(i)} style={{ color: 'var(--danger)' }}>✕ Quitar</button>}
                 </div>
+                {/* Traer del inventario detallado de casiterita (o dejarlo manual). */}
+                {detalleOpts.length > 0 && (
+                  <div className="form-row" style={{ marginBottom: '.4rem' }}>
+                    <label>📦 Traer del inventario de casiterita <span className="muted" style={{ fontWeight: 400 }}>(opcional · autollena los campos)</span></label>
+                    <SearchSelect
+                      value={b.origen_detalle_id ?? ''}
+                      onChange={(v) => traerDetalle(i, v)}
+                      options={detalleOpts}
+                      placeholder="🔎 Elegí un big bag del inventario…"
+                      emptyText="Sin big bags en el inventario detallado de casiterita."
+                    />
+                    <small className="muted" style={{ fontSize: '.7rem' }}>
+                      {b.origen_detalle_id ? 'Traído del inventario — podés editar cualquier campo.' : 'O cargá los datos a mano abajo.'}
+                    </small>
+                  </div>
+                )}
                 <div className="form-grid">
                   <div className="form-row"><label>Peso casiterita (kg)</label><input className="input mono" type="number" step="any" value={numVal(b.kg)} onChange={(e) => setBag(i, { kg: toNum(e.target.value) })} style={numInput} /></div>
                   <div className="form-row"><label>Aliado / centro de acopio</label><input className="input" value={b.aliado ?? ''} onChange={(e) => setBag(i, { aliado: e.target.value })} placeholder="Ej.: JUAN BODEGA" /></div>

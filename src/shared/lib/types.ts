@@ -1217,6 +1217,8 @@ export interface ColadaBigBag {
   leyes?: ColadaBigBagLey[];    // Sn de laboratorio por letra (A, B, C…)
   ley_prom?: number | null;     // Promedio de las leyes (% Sn) — editable si no hay letras
   tasa?: number | null;         // Tasa de recepción ($/kg casiterita) del big bag
+  /** Si el big bag se trajo del inventario detallado de casiterita, su id de origen. */
+  origen_detalle_id?: string | null;
 }
 
 /**
