@@ -4,10 +4,11 @@
    Detalle (clic en un usuario): por día, con rango de fechas, timeline de
    sesiones (login/logout) y de acciones (qué hizo, en qué módulo, cuándo).
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
+import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { RankedBarChart, BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { dateTime } from '@/shared/lib/format';
@@ -197,6 +198,7 @@ function DetalleUsuario({ email, nombre, desde, hasta, sesiones, actividad, cone
   sesiones: UserSession[]; actividad: ActividadEvento[]; conectado: boolean; onVolver: () => void;
 }) {
   const [dia, setDia] = useState<string | null>(null); // filtro por día (clic en la barra)
+  const [selEvento, setSelEvento] = useState<ActividadEvento | null>(null); // detalle de una acción
   const msTotal = sesiones.reduce((a, s) => a + duracionSesionMs(s), 0);
 
   // Por día: tiempo conectado y acciones.
@@ -285,7 +287,7 @@ function DetalleUsuario({ email, nombre, desde, hasta, sesiones, actividad, cone
                 {actividadFiltrada.map((a, i) => {
                   const info = moduloDeTabla(a.tabla);
                   return (
-                    <tr key={`${a.tabla}-${a.ts}-${i}`}>
+                    <tr key={`${a.tabla}-${a.ts}-${i}`} style={{ cursor: 'pointer' }} onClick={() => setSelEvento(a)} title="Ver detalle de la acción">
                       <td className="muted" style={{ whiteSpace: 'nowrap' }}>{dt(a.ts)}</td>
                       <td><span title={a.tabla}>{info.icon} {info.modulo}</span></td>
                       <td><span className="badge">{iconoAccion(a.accion)} {a.accion}</span></td>
@@ -297,6 +299,32 @@ function DetalleUsuario({ email, nombre, desde, hasta, sesiones, actividad, cone
           </div>
         </div>
       </div>
+
+      {selEvento && (() => {
+        const info = moduloDeTabla(selEvento.tabla);
+        const fila = (k: string, v: ReactNode) => (
+          <div style={{ display: 'flex', gap: '.6rem', padding: '.45rem 0', borderBottom: '1px solid var(--border)' }}>
+            <span className="muted" style={{ minWidth: 130, fontSize: '.82rem' }}>{k}</span>
+            <span style={{ fontWeight: 600 }}>{v}</span>
+          </div>
+        );
+        return (
+          <Modal title="Detalle de la acción" size="sm" onClose={() => setSelEvento(null)}
+            footer={<button className="btn btn-primary" onClick={() => setSelEvento(null)}>Cerrar</button>}>
+            <div style={{ fontSize: '.9rem', lineHeight: 1.5 }}>
+              <p style={{ margin: '0 0 .6rem' }}>
+                <strong>{selEvento.actor_name || nombre || selEvento.actor}</strong> {iconoAccion(selEvento.accion)} <strong>{selEvento.accion}</strong> en <strong>{info.modulo}</strong>.
+              </p>
+              {fila('Qué hizo', <span className="badge">{iconoAccion(selEvento.accion)} {selEvento.accion}</span>)}
+              {fila('Módulo', <span>{info.icon} {info.modulo}</span>)}
+              {fila('Usuario', selEvento.actor_name || '—')}
+              {fila('Correo', <span className="mono" style={{ fontSize: '.82rem' }}>{selEvento.actor}</span>)}
+              {fila('Fecha y hora', dt(selEvento.ts))}
+              {fila('Registro (técnico)', <span className="mono" style={{ fontSize: '.8rem' }}>{selEvento.tabla}</span>)}
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }
