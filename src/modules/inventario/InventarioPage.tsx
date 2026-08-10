@@ -1318,7 +1318,9 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
               entidadLabel: 'producto',
               terminoSingular: 'medida',
               onRenombrar: (o, n) => renombrarUnidad(o, n, productoActor),
-              onEliminar: (n) => eliminarUnidad(n),
+              // Borrar una medida ya existente es acción de FULL CONTROL: los analistas
+              // (escritura, sin full) pueden agregar/renombrar pero NO eliminar medidas.
+              onEliminar: can('inventario', 'full') ? (n) => eliminarUnidad(n) : undefined,
               onAgregar: (n) => addUnidad(n, productoActor),
               onCambioAplicado: async () => {
                 await reload();
