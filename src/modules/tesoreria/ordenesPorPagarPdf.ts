@@ -20,7 +20,11 @@ const esBsMoneda = (m: string | null | undefined): boolean => /bs|ves/i.test(Str
 /** Una fila normalizada del reporte (sirve para OC, servicios y directos). */
 interface FilaRep { codigo: string; nombre: string; detalle: string; estado: string; montoUsd: number }
 
-export async function descargarResumenPorPagarPdf(rows: OrdenPorPagar[], directos: DirectoFila[] = []): Promise<void> {
+export async function descargarResumenPorPagarPdf(
+  rows: OrdenPorPagar[],
+  directos: DirectoFila[] = [],
+  creditos: OrdenPorPagar[] = [], // OC a crédito (cuenta abierta): se listan aparte, saldo pendiente
+): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -128,11 +132,53 @@ export async function descargarResumenPorPagarPdf(rows: OrdenPorPagar[], directo
   doc.setFontSize(9); doc.setFont('helvetica', 'normal');
   doc.text(tasa > 0 ? `Convertido a la tasa BCV del día (Bs ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })}/$)` : '', MARGIN + 16, y + 52);
   doc.setTextColor(0, 0, 0);
-  y += 66;
+  y += 66 + 16;
+
+  // ── CUENTAS A CRÉDITO (OC con cuenta abierta) ── se muestran APARTE del total por pagar:
+  //    son deudas que se saldan con abonos, no un egreso inmediato de caja.
+  const CRED_COLOR: [number, number, number] = [220, 38, 38]; // rojo
+  if (creditos.length > 0) {
+    if (y > H - 120) { doc.addPage(); y = MARGIN; }
+    const filasCred = creditos.map((r) => {
+      const total = Number(r.montoAPagar) || 0;
+      const abon = Math.max(0, Number(r.orden.abonado_total) || 0);
+      const saldo = Math.round(Math.max(0, total - abon) * 100) / 100;
+      return {
+        codigo: r.orden.oc_codigo ?? r.orden.codigo,
+        nombre: r.proveedorNombre,
+        detalle: `Abonado ${usd(abon)} de ${usd(total)}`,
+        saldo,
+      };
+    });
+    const subCred = filasCred.reduce((a, f) => a + f.saldo, 0);
+    autoTable(doc, {
+      startY: y,
+      head: [[{ content: 'CUENTAS A CRÉDITO (cuenta abierta · se saldan con abonos)', colSpan: 6, styles: { fillColor: CRED_COLOR, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 10 } }],
+             ['#', 'CÓDIGO', 'PROVEEDOR / CONCEPTO', 'ABONOS', 'SALDO $', 'SALDO Bs']],
+      body: filasCred.map((f, i) => [String(i + 1), f.codigo, f.nombre, f.detalle, ...montoCol(f.saldo)]),
+      foot: [[{ content: 'TOTAL A CRÉDITO (saldo pendiente)', colSpan: 4, styles: { halign: 'right' } }, usd(subCred), tasa > 0 ? bs(aBs(subCred, tasa)) : '—']],
+      styles: { fontSize: 8, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { fillColor: [225, 225, 225], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
+      footStyles: { fillColor: CRED_COLOR, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right', fontSize: 9 },
+      tableWidth: CW,
+      columnStyles: {
+        0: { halign: 'center', cellWidth: wNum },
+        1: { halign: 'center', cellWidth: wCod },
+        2: { cellWidth: wProv },
+        3: { cellWidth: wDet },
+        4: { halign: 'right', cellWidth: wUsd },
+        5: { halign: 'right', cellWidth: wBs },
+      },
+      margin: { top: MARGIN, bottom: MARGIN + 40, left: MARGIN, right: MARGIN },
+    });
+    // @ts-expect-error jspdf-autotable agrega lastAutoTable en runtime
+    y = (doc.lastAutoTable?.finalY ?? y) + 8;
+  }
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
   const nTotal = rows.length + directos.length;
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${nTotal} pendiente(s) · Mineral Group Guayana C.A.`, MARGIN, H - 16);
+  const credTxt = creditos.length > 0 ? ` · ${creditos.length} cuenta(s) a crédito` : ' · sin cuentas a crédito';
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${nTotal} pendiente(s)${credTxt} · Mineral Group Guayana C.A.`, MARGIN, H - 16);
 
   previewPdfDoc(doc, 'pendientes-por-pagar.pdf');
 }
