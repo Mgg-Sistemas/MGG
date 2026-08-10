@@ -7,6 +7,9 @@ import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { Produccion, ProduccionRefinacion } from '@/shared/lib/types';
 import { getProduccionConMateriales } from './produccion.repository';
 import { getRefinacion } from './refinacion.repository';
+import { listColadaAnalisis } from './coladaAnalisis.repository';
+import { listMinerales, type RecepcionMineral, type RecepcionAnalisis } from '@/modules/recepciones/recepciones.repository';
+import { renderAnalisisQuimicoPdf } from './analisisQuimicoPdf';
 
 const ORANGE: [number, number, number] = [214, 90, 24];
 const GREY: [number, number, number] = [90, 90, 90];
@@ -26,7 +29,7 @@ function fmtFecha(iso: string | null | undefined): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : txt(iso);
 }
 
-async function construir(prod: Produccion, ref: ProduccionRefinacion | null) {
+async function construir(prod: Produccion, ref: ProduccionRefinacion | null, analisis: RecepcionAnalisis[] = [], minerales: RecepcionMineral[] = []) {
   const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -125,6 +128,9 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null) {
   // @ts-expect-error lastAutoTable
   y = (doc.lastAutoTable?.finalY ?? y) + 10;
 
+  // ── ANÁLISIS QUÍMICO DE LABORATORIO ── (solo si la refinación tiene análisis)
+  y = renderAnalisisQuimicoPdf(doc, autoTable, { analisis, minerales, y, MARGIN, CW, ORANGE, GREY });
+
   // ── PARÁMETROS DE OPERACIÓN ──
   barra('PARÁMETROS DE OPERACIÓN Y PROCESO');
   ficha([
@@ -196,8 +202,11 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null) {
 
 /** Genera y muestra (vista previa) el reporte de refinación MGG-FR-002 de una orden. */
 export async function descargarRefinacionPdf(produccionId: string): Promise<void> {
-  const [prod, ref] = await Promise.all([getProduccionConMateriales(produccionId), getRefinacion(produccionId)]);
+  const [prod, ref, analisis, minerales] = await Promise.all([
+    getProduccionConMateriales(produccionId), getRefinacion(produccionId),
+    listColadaAnalisis(produccionId).catch(() => []), listMinerales(true).catch(() => []),
+  ]);
   if (!prod) throw new Error('Refinación no encontrada');
-  const { doc, filename } = await construir(prod, ref);
+  const { doc, filename } = await construir(prod, ref, analisis, minerales);
   previewPdfDoc(doc, filename);
 }

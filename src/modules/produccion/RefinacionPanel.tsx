@@ -9,6 +9,7 @@ import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import type { ProduccionRefinacion, RefinacionEtapa } from '@/shared/lib/types';
 import { getRefinacion, actualizarRefinacionDatos } from './refinacion.repository';
+import { ColadaAnalisisQuimico } from './ColadaAnalisisQuimico';
 
 const secStyle: CSSProperties = { margin: '0 0 .7rem', padding: '.65rem .8rem', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-1)' };
 const tituloSec: CSSProperties = { fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', marginBottom: '.5rem' };
@@ -77,6 +78,9 @@ export function RefinacionPanel({ produccionId, editable }: { produccionId: stri
           </div>
         )}
       </div>
+
+      {/* Análisis químico de laboratorio de la refinación (desplegable, realtime) */}
+      <ColadaAnalisisQuimico produccionId={produccionId} editable={editable} modulo="refinacion" />
 
       {/* Parámetros */}
       {(d.metodo_agitacion || d.desespumado) && (
