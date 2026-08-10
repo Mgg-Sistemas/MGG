@@ -74,6 +74,29 @@ export async function getConsumoBigBags(excluirColadaId?: string | null): Promis
   return acc;
 }
 
+/** Consumo por big bag CON el detalle de en qué coladas se usó (para el inventario). */
+export interface ConsumoBigBagDetalle { kg: number; coladas: { num: number; kg: number }[] }
+export async function getConsumoBigBagsDetallado(): Promise<Map<string, ConsumoBigBagDetalle>> {
+  const { data, error } = await supabase.from(TABLE).select('colada_num, datos');
+  if (error) throw error;
+  const acc = new Map<string, ConsumoBigBagDetalle>();
+  for (const row of data ?? []) {
+    const num = Number((row as { colada_num?: number }).colada_num) || 0;
+    const bags = ((row as { datos?: ColadaDatos }).datos?.big_bags ?? []);
+    for (const b of bags) {
+      const id = b.origen_detalle_id;
+      const kg = Number(b.kg) || 0;
+      if (!id || kg <= 0) continue;
+      const cur = acc.get(id) ?? { kg: 0, coladas: [] };
+      cur.kg = round2(cur.kg + kg);
+      const ex = cur.coladas.find((c) => c.num === num);
+      if (ex) ex.kg = round2(ex.kg + kg); else cur.coladas.push({ num, kg });
+      acc.set(id, cur);
+    }
+  }
+  return acc;
+}
+
 /** Próximo Colada N° (correlativo GLOBAL): el máximo + 1. La primera se ingresa a mano. */
 export async function proximaColadaNum(): Promise<number> {
   const { data, error } = await supabase.from(TABLE)
