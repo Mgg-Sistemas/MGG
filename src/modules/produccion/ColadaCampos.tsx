@@ -29,6 +29,16 @@ function Chips({ value, options, onChange }: { value?: string; options: string[]
   );
 }
 
+/** Mini-tarjeta del resumen en vivo (etiqueta + valor). */
+function Stat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div style={{ flex: '1 1 120px', minWidth: 110, padding: '.25rem .5rem', borderRight: '1px solid var(--border)' }}>
+      <div className="muted" style={{ fontSize: '.66rem', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+      <div className="mono" style={{ fontSize: strong ? '1.05rem' : '.92rem', fontWeight: strong ? 800 : 600, color: strong ? 'var(--primary-3)' : undefined }}>{value}</div>
+    </div>
+  );
+}
+
 const secStyle: CSSProperties = { margin: '0 0 .8rem', padding: '.7rem .85rem', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-1)' };
 const tituloSec: CSSProperties = { fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', marginBottom: '.55rem' };
 const numInput: CSSProperties = { textAlign: 'right' };
@@ -112,6 +122,15 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
   return (
     <div className="card" style={{ padding: '.85rem', margin: '.5rem 0 .2rem', borderLeft: '3px solid var(--primary)' }}>
       <div style={{ fontWeight: 700, marginBottom: '.6rem' }}>🔥 Reporte de colada <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>· MGG-FR-001 (horno de fundición primaria)</span></div>
+
+      {/* Resumen en vivo (fijo arriba): los totales calculados se ven mientras se carga. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 3, display: 'flex', gap: '.45rem', flexWrap: 'wrap', padding: '.5rem .55rem', margin: '0 0 .75rem', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 2px 6px rgba(0,0,0,.15)' }}>
+        <Stat label="Total casiterita" value={totalBigBags ? `${totalBigBags} kg` : '—'} />
+        <Stat label="Ley global" value={leyGlobal ? `${leyGlobal.toFixed(2)} %` : '—'} strong />
+        <Stat label="Sn contenido" value={snTotal ? `${snTotal} kg` : '—'} />
+        <Stat label="Costo casiterita" value={costoCasiterita ? `$ ${costoCasiterita.toFixed(2)}` : '—'} />
+        <Stat label="Jornada" value={jornadaH != null ? fmtJornada(jornadaH) : '—'} />
+      </div>
 
       {/* Identificación */}
       <div style={secStyle}>
@@ -216,6 +235,34 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
 
         {/* Materiales / fundentes: unidos en el MISMO bloque, debajo de la casiterita */}
         {slotMaterial && <div style={{ marginTop: '.7rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>{slotMaterial}</div>}
+      </div>
+
+      {/* Fundentes (detalle del formato MGG-FR-001): coque, CaCO₃ y otro fundente,
+          con proveedor y granulometrías. Es DESCRIPTIVO del formato; el descuento real
+          del inventario se hace con la receta (materiales) del bloque de arriba. */}
+      <div style={secStyle}>
+        <div style={tituloSec}>Fundentes (detalle del formato)</div>
+        <div className="form-grid">
+          <div className="form-row"><label>Coque (kg)</label><input className="input mono" type="number" step="any" value={numVal(datos.coque_kg)} onChange={(e) => set('coque_kg', toNum(e.target.value))} style={numInput} /></div>
+          <div className="form-row"><label>CaCO₃ (kg)</label><input className="input mono" type="number" step="any" value={numVal(datos.caco3_kg)} onChange={(e) => set('caco3_kg', toNum(e.target.value))} style={numInput} /></div>
+        </div>
+        <div className="form-row">
+          <label>Proveedor de coque</label>
+          <Chips value={datos.coque_proveedor} options={['CARBOMORCA', 'CIVCA']} onChange={(v) => set('coque_proveedor', v)} />
+        </div>
+        <div className="form-row">
+          <label>Granulometría coque</label>
+          <Chips value={datos.coque_granulometria} options={['2–6 mm', '25–50 mm', '25–100 mm']} onChange={(v) => set('coque_granulometria', v)} />
+        </div>
+        <div className="form-row">
+          <label>Granulometría CaCO₃ (malla)</label>
+          <Chips value={datos.caco3_granulometria} options={['4', '6', '10', '20', '200']} onChange={(v) => set('caco3_granulometria', v)} />
+        </div>
+        <div className="form-grid">
+          <div className="form-row"><label>Otro fundente</label><input className="input" value={datos.otro_fundente ?? ''} onChange={(e) => set('otro_fundente', e.target.value)} placeholder="Ej.: PIRULITA" /></div>
+          <div className="form-row"><label>Otro fundente (kg)</label><input className="input mono" type="number" step="any" value={numVal(datos.otro_fundente_kg)} onChange={(e) => set('otro_fundente_kg', toNum(e.target.value))} style={numInput} /></div>
+        </div>
+        <small className="muted" style={{ fontSize: '.72rem' }}>Describe los fundentes usados (van en el PDF del reporte). El <strong>descuento del inventario</strong> se hace con la receta de materiales del bloque de arriba.</small>
       </div>
 
       {/* Proceso */}
