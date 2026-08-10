@@ -382,6 +382,108 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
 }
 
 /**
+ * Edita los MATERIALES (y, opcional, cantidad producida / mano de obra / indirectos)
+ * de una orden EN CURSO (no finalizada). Es seguro para el inventario:
+ *  1) revierte el consumo anterior con un 'ajuste' de +cantidad y precio_unitario null
+ *     → restaura el stock a su costo vigente SIN tocar el PMP del almacén;
+ *  2) reemplaza produccion_materiales;
+ *  3) valida y consume los materiales nuevos (contra el stock ya restaurado);
+ *  4) recalcula costo_material, costo_unitario y ganancia de la orden.
+ * Los materiales MANUALES (sin producto_id) no tocan inventario (igual que al crear).
+ */
+export async function editarMaterialesProduccion(input: {
+  produccionId: string;
+  cantidad?: number | null;
+  manoObra?: number | null;
+  costosIndirectos?: number | null;
+  materiales: MaterialInput[];
+  actor: string;
+  actorName?: string | null;
+}): Promise<Produccion> {
+  const { data: prodData, error: pErr0 } = await supabase.from('produccion').select('*').eq('id', input.produccionId).maybeSingle();
+  if (pErr0) throw pErr0;
+  if (!prodData) throw new Error('Orden no encontrada.');
+  const prodActual = prodData as Produccion;
+  if (prodActual.estado === 'finalizado') throw new Error('No se puede editar una orden ya finalizada.');
+  const tipo: ProduccionTipo = (prodActual.tipo as ProduccionTipo) ?? 'fundicion';
+
+  // 1) Revertir el consumo anterior (restaura stock a su costo vigente; precio_unitario null → no toca PMP).
+  const { data: matViejos, error: mErr0 } = await supabase
+    .from('produccion_materiales').select('producto_id, material_nombre, almacen, cantidad').eq('produccion_id', input.produccionId);
+  if (mErr0) throw mErr0;
+  for (const m of (matViejos ?? []) as Array<{ producto_id: string | null; material_nombre: string; almacen: string; cantidad: number }>) {
+    if (!m.producto_id || !((Number(m.cantidad) || 0) > 0)) continue;
+    await registrarMovimiento({
+      producto_id: m.producto_id, tipo: 'ajuste', delta: Number(m.cantidad) || 0, almacen: m.almacen,
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'produccion_edicion', ref_id: input.produccionId,
+      detalle: `Reversa de consumo por edición de ${tipo === 'refinacion' ? 'refinación' : 'colada'} (${m.material_nombre})`,
+    });
+  }
+
+  // 2) Borrar los materiales viejos.
+  const { error: delErr } = await supabase.from('produccion_materiales').delete().eq('produccion_id', input.produccionId);
+  if (delErr) throw delErr;
+
+  // 3) Validar + costear los nuevos contra el stock YA restaurado.
+  const cantidad = input.cantidad != null && Number(input.cantidad) > 0 ? Number(input.cantidad) : (Number(prodActual.cantidad) || 0);
+  if (cantidad <= 0) throw new Error('La cantidad a producir debe ser mayor que 0.');
+  const validos = input.materiales.filter((m) => (Number(m.cantidad) || 0) > 0);
+  if (!validos.length) throw new Error('Seleccioná al menos un material con cantidad.');
+  const existencias = await Promise.all(validos.map((m) => (m.producto_id ? getExistencia(m.producto_id, m.almacen) : Promise.resolve(null))));
+  const detalles: Array<MaterialInput & { costo_unitario: number; subtotal: number }> = [];
+  let costoMaterial = 0;
+  validos.forEach((m, i) => {
+    const cant = Number(m.cantidad) || 0;
+    const ex = existencias[i];
+    if (m.producto_id) {
+      const stock = Number(ex?.stock) || 0;
+      if (stock < cant) throw new Error(`Stock insuficiente de "${m.material_nombre}" en ${m.almacen}. Disponible: ${stock}.`);
+    }
+    const override = m.costo != null && Number.isFinite(Number(m.costo)) && Number(m.costo) >= 0 ? Number(m.costo) : null;
+    const costo = override ?? (Number(ex?.costo_promedio) || 0);
+    const subtotal = round2(cant * costo);
+    costoMaterial += subtotal;
+    detalles.push({ ...m, cantidad: cant, costo_unitario: costo, subtotal });
+  });
+  costoMaterial = round2(costoMaterial);
+
+  const manoObra = input.manoObra != null ? Number(input.manoObra) || 0 : (Number(prodActual.mano_obra) || 0);
+  const indirectos = input.costosIndirectos != null ? Number(input.costosIndirectos) || 0 : (Number(prodActual.costos_indirectos) || 0);
+  const cp = costoMaterial + manoObra + indirectos;
+  const costoUnitario = round2(cp / cantidad);
+  const precioVenta = prodActual.precio_venta != null ? Number(prodActual.precio_venta) : null;
+  const ganancia = precioVenta != null ? round2((precioVenta - costoUnitario) * cantidad) : null;
+
+  // 4) Insertar los materiales nuevos (solo los de inventario van a la tabla).
+  const detallesInv = detalles.filter((d) => d.producto_id);
+  const matRows = detallesInv.map((d) => ({
+    produccion_id: input.produccionId, producto_id: d.producto_id, material_nombre: d.material_nombre,
+    almacen: d.almacen, cantidad: d.cantidad, costo_unitario: d.costo_unitario, subtotal: d.subtotal,
+  }));
+  if (matRows.length) {
+    const { error: insErr } = await supabase.from('produccion_materiales').insert(matRows);
+    if (insErr) throw insErr;
+  }
+
+  // 5) Consumir los nuevos.
+  await Promise.all(detallesInv.map((d) => registrarMovimiento({
+    producto_id: d.producto_id as string, tipo: 'consumo', delta: -d.cantidad, almacen: d.almacen,
+    actor: input.actor, actor_name: input.actorName ?? null,
+    ref_tipo: 'produccion', ref_id: input.produccionId,
+    detalle: `Consumo (edición) para ${tipo === 'refinacion' ? 'refinación' : 'fundición'} de ${prodActual.producto_nombre}`,
+  })));
+
+  // 6) Actualizar la orden con los nuevos costos.
+  const { data: upd, error: uErr } = await supabase.from('produccion').update({
+    cantidad, costo_material: costoMaterial, mano_obra: manoObra, costos_indirectos: indirectos,
+    costo_unitario: costoUnitario, ganancia,
+  }).eq('id', input.produccionId).select('*').single();
+  if (uErr) throw uErr;
+  return upd as Produccion;
+}
+
+/**
  * Finaliza una fundición: el producto terminado entra al inventario en el
  * almacén destino con su costo de fundición unitario (recalcula su PMP).
  */
