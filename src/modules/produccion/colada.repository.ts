@@ -51,6 +51,29 @@ export function coladaDatosVacios(): ColadaDatos {
   };
 }
 
+/**
+ * Kg ya CONSUMIDOS de cada big bag del inventario detallado de casiterita, sumando
+ * los big bags de TODAS las coladas que lo referencian (por `origen_detalle_id`).
+ * Con esto el disponible de un big bag = peso_casiterita − Σ consumido, y se puede
+ * usar un % o una parte, dejando el saldo para otra colada. `excluirColadaId` omite
+ * una colada puntual (p. ej. al editar la propia, para no contarse a sí misma).
+ */
+export async function getConsumoBigBags(excluirColadaId?: string | null): Promise<Map<string, number>> {
+  const { data, error } = await supabase.from(TABLE).select('id, datos');
+  if (error) throw error;
+  const acc = new Map<string, number>();
+  for (const row of data ?? []) {
+    if (excluirColadaId && (row as { id: string }).id === excluirColadaId) continue;
+    const bags = ((row as { datos?: ColadaDatos }).datos?.big_bags ?? []);
+    for (const b of bags) {
+      const id = b.origen_detalle_id;
+      if (!id) continue;
+      acc.set(id, round2((acc.get(id) ?? 0) + (Number(b.kg) || 0)));
+    }
+  }
+  return acc;
+}
+
 /** Próximo Colada N° (correlativo GLOBAL): el máximo + 1. La primera se ingresa a mano. */
 export async function proximaColadaNum(): Promise<number> {
   const { data, error } = await supabase.from(TABLE)

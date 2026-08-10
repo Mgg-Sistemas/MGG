@@ -56,9 +56,11 @@ interface Props {
   slotMaterial?: ReactNode;
   /** Inventario detallado de casiterita: para "traer" un big bag ya cargado (o dejarlo manual). */
   casiteritaDetalle?: CasiteritaDetalle[];
+  /** Kg ya consumidos por OTRAS coladas, por id de big bag (disponible = peso − consumido). */
+  consumoBigBags?: Map<string, number>;
 }
 
-export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos, slotMaterial, casiteritaDetalle = [] }: Props) {
+export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos, slotMaterial, casiteritaDetalle = [], consumoBigBags }: Props) {
   const set = <K extends keyof ColadaDatos>(key: K, val: ColadaDatos[K]) => setDatos((p) => ({ ...p, [key]: val }));
   const numVal = (v: number | null | undefined) => (v == null ? '' : String(v));
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s));
@@ -107,18 +109,41 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
       return { ...p, big_bags: arr };
     });
 
-  // Opciones del inventario detallado de casiterita + autollenado de un big bag.
-  const detalleOpts = casiteritaDetalle.map((d) => ({
-    value: d.id,
-    label: `${d.procedencia}${d.precinto ? ` · precinto ${d.precinto}` : ''} · ${round2(d.peso_casiterita_kgs)} kg${d.prom_sn != null ? ` · ${round2(d.prom_sn)}%` : ''}${d.tasa != null ? ` · $${round2(d.tasa)}/kg` : ''}`,
-  }));
+  // ── Inventario detallado de casiterita: disponibilidad por big bag ──
+  // Un big bag NO se puede usar dos veces, pero SÍ una parte: disponible = peso_casiterita
+  // − consumido por otras coladas − lo ya tomado por otras bolsas de ESTA colada.
+  const detalleById = new Map(casiteritaDetalle.map((d) => [d.id, d]));
+  const consumido = (id: string) => Number(consumoBigBags?.get(id)) || 0;
+  // Kg de ese big bag ya tomados por otras filas del formulario actual (excluye la fila `exclude`).
+  const tomadoEnForm = (id: string, exclude: number) =>
+    (datos.big_bags ?? []).reduce((a, b, k) => (k !== exclude && b.origen_detalle_id === id ? a + (Number(b.kg) || 0) : a), 0);
+  // Disponible para una fila dada (lo que puede tomar esa bolsa como máximo).
+  const disponiblePara = (id: string, exclude: number) => {
+    const d = detalleById.get(id); if (!d) return 0;
+    return round2(Math.max(0, round2(d.peso_casiterita_kgs) - consumido(id) - tomadoEnForm(id, exclude)));
+  };
+
+  // Opciones para la fila `i`: big bags con saldo disponible (+ el ya elegido en esa fila).
+  const opcionesPara = (i: number) => casiteritaDetalle
+    .filter((d) => disponiblePara(d.id, i) > 0.01 || bigBags[i]?.origen_detalle_id === d.id)
+    .map((d) => {
+      const disp = disponiblePara(d.id, i);
+      const total = round2(d.peso_casiterita_kgs);
+      const saldoTxt = disp < total ? ` · disp. ${disp} de ${total} kg` : ` · ${total} kg`;
+      return {
+        value: d.id,
+        label: `${d.procedencia}${d.precinto ? ` · precinto ${d.precinto}` : ''}${saldoTxt}${d.prom_sn != null ? ` · ${round2(d.prom_sn)}%` : ''}${d.tasa != null ? ` · $${round2(d.tasa)}/kg` : ''}`,
+      };
+    });
+
   const traerDetalle = (i: number, id: string) => {
     if (!id) { setBag(i, { origen_detalle_id: null }); return; }
-    const d = casiteritaDetalle.find((x) => x.id === id);
+    const d = detalleById.get(id);
     if (!d) return;
+    const disp = disponiblePara(id, i); // por defecto toma TODO el saldo disponible del big bag
     setBag(i, {
       origen_detalle_id: d.id,
-      kg: d.peso_casiterita_kgs ?? null,
+      kg: disp || null,
       aliado: d.procedencia ?? '',
       precinto: d.precinto ?? '',
       analisis: d.n_analisis ?? '',
@@ -126,6 +151,16 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
       tasa: d.tasa ?? null,
       leyes: [], // usa el promedio traído como ley manual del big bag
     });
+  };
+  // Cambio de kg de una bolsa traída del inventario: capea al disponible (no puede exceder el saldo).
+  const setKgBag = (i: number) => (raw: string) => {
+    const id = bigBags[i]?.origen_detalle_id;
+    let v = toNum(raw);
+    if (id && v != null) {
+      const max = disponiblePara(id, i);
+      if (v > max) v = max;
+    }
+    setBag(i, { kg: v });
   };
   const addBag = () => setDatos((p) => ({ ...p, big_bags: [...(p.big_bags ?? []), { kg: null, precinto: '', leyes: [] }] }));
   const delBag = (i: number) => setDatos((p) => ({ ...p, big_bags: (p.big_bags ?? []).filter((_, k) => k !== i) }));
@@ -201,23 +236,37 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
                   {bigBags.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => delBag(i)} style={{ color: 'var(--danger)' }}>✕ Quitar</button>}
                 </div>
                 {/* Traer del inventario detallado de casiterita (o dejarlo manual). */}
-                {detalleOpts.length > 0 && (
+                {casiteritaDetalle.length > 0 && (
                   <div className="form-row" style={{ marginBottom: '.4rem' }}>
-                    <label>📦 Traer del inventario de casiterita <span className="muted" style={{ fontWeight: 400 }}>(opcional · autollena los campos)</span></label>
+                    <label>📦 Traer del inventario de casiterita <span className="muted" style={{ fontWeight: 400 }}>(opcional · autollena y controla el saldo)</span></label>
                     <SearchSelect
                       value={b.origen_detalle_id ?? ''}
                       onChange={(v) => traerDetalle(i, v)}
-                      options={detalleOpts}
+                      options={opcionesPara(i)}
                       placeholder="🔎 Elegí un big bag del inventario…"
-                      emptyText="Sin big bags en el inventario detallado de casiterita."
+                      emptyText="Sin big bags con saldo disponible."
                     />
                     <small className="muted" style={{ fontSize: '.7rem' }}>
-                      {b.origen_detalle_id ? 'Traído del inventario — podés editar cualquier campo.' : 'O cargá los datos a mano abajo.'}
+                      {b.origen_detalle_id ? 'Traído del inventario — podés usar solo una parte; el saldo queda para otra colada.' : 'O cargá los datos a mano abajo. Un big bag no se puede usar dos veces, pero sí por partes.'}
                     </small>
                   </div>
                 )}
                 <div className="form-grid">
-                  <div className="form-row"><label>Peso casiterita (kg)</label><input className="input mono" type="number" step="any" value={numVal(b.kg)} onChange={(e) => setBag(i, { kg: toNum(e.target.value) })} style={numInput} /></div>
+                  <div className="form-row">
+                    <label>Peso casiterita (kg)</label>
+                    <input className="input mono" type="number" step="any" value={numVal(b.kg)}
+                      onChange={(e) => (b.origen_detalle_id ? setKgBag(i)(e.target.value) : setBag(i, { kg: toNum(e.target.value) }))}
+                      style={numInput} />
+                    {b.origen_detalle_id && (() => {
+                      const d = detalleById.get(b.origen_detalle_id); if (!d) return null;
+                      const total = round2(d.peso_casiterita_kgs);
+                      const disp = disponiblePara(b.origen_detalle_id, i); // sin contar esta bolsa
+                      const usa = Number(b.kg) || 0;
+                      const pct = total > 0 ? round2((usa / total) * 100) : 0;
+                      const queda = round2(Math.max(0, disp - usa));
+                      return <small className="muted" style={{ fontSize: '.7rem' }}>Usás <strong>{usa} kg</strong> ({pct}% del big bag) · disponible hasta <strong>{round2(disp)} kg</strong> · quedará <strong>{queda} kg</strong> para otra colada.</small>;
+                    })()}
+                  </div>
                   <div className="form-row"><label>Aliado / centro de acopio</label><input className="input" value={b.aliado ?? ''} onChange={(e) => setBag(i, { aliado: e.target.value })} placeholder="Ej.: JUAN BODEGA" /></div>
                 </div>
                 <div className="form-grid">
