@@ -10,6 +10,7 @@ import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.r
 import { listProducciones, type ProduccionTipo } from './produccion.repository';
 import { getNombresHornosActivos } from './hornos.repository';
 import { MaterialAProducirModal } from './MaterialAProducirModal';
+import { EditarMaterialesModal } from './EditarMaterialesModal';
 import { FinalizarColadaModal } from './FinalizarColadaModal';
 import { FinalizarRefinacionModal } from './FinalizarRefinacionModal';
 import { ProduccionDetalle, duracionProd } from './ProduccionDetalle';
@@ -63,6 +64,7 @@ type Modal =
   | { kind: 'recetas' }
   | { kind: 'ver-receta'; id: string; productoId: string }
   | { kind: 'hornos' }
+  | { kind: 'editar-materiales'; id: string }
   | { kind: 'finalizar'; prod: Produccion };
 
 export function ProduccionPage() { return <ProduccionModulo tipo="fundicion" />; }
@@ -211,6 +213,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
                     <div className="muted" style={{ fontSize: '.75rem' }}>Inicio: {dateTime(p.inicio_at)} · destino {p.almacen_destino}</div>
                     <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem', flexWrap: 'wrap' }}>
                       <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'ver', id: p.id })}>Ver</button>
+                      {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'editar-materiales', id: p.id })} title="Cambiar/quitar materiales">✎ Editar</button>}
                       {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setModal({ kind: 'finalizar', prod: p })}>{cfg.finalizarBtn}</button>}
                     </div>
                   </div>
@@ -281,6 +284,9 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
                   <td className="actions">
                     <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'ver', id: p.id })}>Ver</button>
                     {canWrite && p.estado === 'produccion' && (
+                      <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'editar-materiales', id: p.id })} title="Cambiar/quitar materiales">✎ Editar</button>
+                    )}
+                    {canWrite && p.estado === 'produccion' && (
                       <button className="btn btn-sm btn-primary" onClick={() => setModal({ kind: 'finalizar', prod: p })}>Finalizar</button>
                     )}
                   </td>
@@ -315,6 +321,19 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
         />
       )}
       {modal.kind === 'ver' && <ProduccionDetalle id={modal.id} defaultEmail={actor} onClose={() => setModal({ kind: 'none' })} />}
+      {modal.kind === 'editar-materiales' && (
+        <EditarMaterialesModal
+          produccionId={modal.id}
+          tipo={tipo}
+          productos={productos}
+          existencias={existencias}
+          almacenesList={almacenesList}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setModal({ kind: 'none' })}
+          onSaved={() => { setModal({ kind: 'none' }); void reload(); }}
+        />
+      )}
       {modal.kind === 'recetas' && (
         <RecetasModal
           tipo={tipo}
