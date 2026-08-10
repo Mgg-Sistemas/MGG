@@ -9,7 +9,7 @@
    (aparece en Control de Mantenimiento / bitácora del equipo).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId, eliminarMovimientoCaja } from '@/modules/tesoreria/tesoreria.repository';
+import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { crearCuentaPorPagarDeuda } from '@/modules/tesoreria/cuentasPorPagar.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -547,22 +547,13 @@ export async function editarServicioDirectoFinalizado(input: EditarServicioFinal
 }
 
 /**
- * Elimina un servicio directo en CUALQUIER estado y deja todo consistente:
- *  · FINALIZADO: reversa el egreso de caja (devuelve el dinero a la caja y recomputa la cadena).
- *    Si se pagó con multimoneda (varios movimientos), pide reversarlo antes desde Tesorería.
- *  · POR PAGAR / EN PROCESO: no tocaron caja, solo se borra.
- *  En todos los casos devuelve al inventario los repuestos que se habían descontado al crear.
+ * Elimina un servicio directo. Solo se permite en estados NO finalizados:
+ *  · FINALIZADO: NO se elimina (ya movió caja e inventario; queda como registro definitivo).
+ *  · POR PAGAR / EN PROCESO: no tocaron caja, se borra y se devuelven los repuestos al inventario.
  */
 export async function eliminarServicioDirecto(servicio: ServicioDirecto): Promise<void> {
-  if (servicio.estado === 'finalizada' && servicio.caja_mov_id) {
-    const mov = await getMovimientoCajaPorId(servicio.caja_mov_id);
-    if (mov) {
-      const total = Math.round(Number(servicio.gasto || 0) * 100) / 100;
-      if (Math.round(Number(mov.monto) * 100) / 100 !== total) {
-        throw new Error('Este servicio se pagó con multimoneda (varias monedas). Reversá el egreso desde Tesorería y luego eliminá.');
-      }
-      await eliminarMovimientoCaja(mov);   // devuelve el dinero a la caja + recomputa saldos
-    }
+  if (servicio.estado === 'finalizada') {
+    throw new Error('No se puede eliminar un servicio directo FINALIZADO.');
   }
   // Devuelve al inventario los repuestos que se habían descontado al crear el servicio.
   await restituirRepuestos(servicio);

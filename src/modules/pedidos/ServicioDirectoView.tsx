@@ -216,7 +216,8 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                     {s.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(s)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
                     {s.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(s)} title="Editar factura/monto (en Tesorería para pagar)">✎ Factura/monto</button>}
-                    <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑</button>
+                    {/* Un servicio directo FINALIZADO no se puede eliminar (registro definitivo). */}
+                    {s.estado !== 'finalizada' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑</button>}
                     {(s.estado === 'finalizada' || s.estado === 'por_pagar') && <AdjuntoLink servicio={s} />}
                   </td>
                 </tr>
@@ -236,7 +237,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
       )}
       {eliminar && (
         <ConfirmDialog title="Eliminar servicio directo"
-          message={`¿Eliminar el servicio directo ${eliminar.codigo ? `${eliminar.codigo} · ` : ''}"${eliminar.descripcion}"?${eliminar.estado === 'finalizada' ? ' Ya está PAGADO: se reversará el egreso (el dinero vuelve a la caja).' : ''} Los repuestos tomados del inventario se devuelven. Esta acción no se puede deshacer.`}
+          message={`¿Eliminar el servicio directo ${eliminar.codigo ? `${eliminar.codigo} · ` : ''}"${eliminar.descripcion}"? Los repuestos tomados del inventario se devuelven. Esta acción no se puede deshacer.`}
           confirmText="Eliminar" danger onConfirm={confirmarEliminar} onCancel={() => setEliminar(null)} />
       )}
       {facturas && (
@@ -345,7 +346,8 @@ function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEdita
         {servicio.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>}
         {servicio.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/monto (en Tesorería para pagar)">✎ Factura/monto</button>}
-        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar">🗑 Eliminar</button>
+        {/* Un servicio directo FINALIZADO no se puede eliminar (registro definitivo). */}
+        {servicio.estado !== 'finalizada' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar">🗑 Eliminar</button>}
       </div>
     </div>
   );
