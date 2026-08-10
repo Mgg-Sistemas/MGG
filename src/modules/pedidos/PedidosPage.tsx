@@ -45,8 +45,6 @@ import {
   getCurrentUsuario,
   getHistoricoPreciosPorSku,
   listOrdenes,
-  listOrdenesPorPagar,
-  listOrdenesEnCredito,
   listProductosActivos,
   listProveedoresActivos,
   listProveedores,
@@ -92,7 +90,7 @@ import { SolicitudMercadoModal } from './SolicitudMercadoModal';
 // (al generar) para no cargar jsPDF al abrir Pedidos.
 import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
-import { cargarDirectosPorPagar } from './DirectosPorPagarModal';
+import { PendientesPorPagarModal } from './PendientesPorPagarModal';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
@@ -295,31 +293,10 @@ export function PedidosPage() {
   useEffect(() => { void loadAlertas(); }, [loadAlertas]);
   useRealtime(['alertas_mercado'], () => { void loadAlertas(); });
 
-  // ── Pendientes por pagar (PDF, vista previa) ──
-  // Agrupa TODO lo pendiente de pago (OC, servicios, compras/servicios directos) e indica
-  // las CUENTAS A CRÉDITO (cuenta abierta). Se genera con datos FRESCOS en cada clic, así
-  // refleja al instante cualquier pago recién hecho (realtime por lectura en vivo).
-  const [genPorPagar, setGenPorPagar] = useState(false);
-  const generarPendientesPorPagar = useCallback(async () => {
-    setGenPorPagar(true);
-    try {
-      const [rows, directos, creditos, { descargarResumenPorPagarPdf }] = await Promise.all([
-        listOrdenesPorPagar().catch(() => []),
-        cargarDirectosPorPagar().catch(() => []),
-        listOrdenesEnCredito().catch(() => []),
-        import('@/modules/tesoreria/ordenesPorPagarPdf'),
-      ]);
-      if (!rows.length && !directos.length && !creditos.length) {
-        toast('No hay pendientes por pagar en este momento.', 'info');
-        return;
-      }
-      await descargarResumenPorPagarPdf(rows, directos, creditos);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error');
-    } finally {
-      setGenPorPagar(false);
-    }
-  }, []);
+  // ── Pendientes por pagar (modal en pantalla + PDF) ──
+  // Unifica TODO lo pendiente de pago (OC, servicios, compras/servicios directos) e indica
+  // las CUENTAS A CRÉDITO. El modal lee en vivo (realtime) y adentro genera el PDF.
+  const [porPagarOpen, setPorPagarOpen] = useState(false);
 
   // Al cerrar cualquier modal, traer lo que haya cambiado mientras estuvo pausado.
   const modalKindPrev = useRef(modal.kind);
@@ -480,11 +457,10 @@ export function PedidosPage() {
           </Link>
           <button
             className="btn btn-ghost"
-            onClick={() => void generarPendientesPorPagar()}
-            disabled={genPorPagar}
-            title="PDF de todo lo pendiente por pagar (OC, servicios, compras/servicios directos) + cuentas a crédito"
+            onClick={() => setPorPagarOpen(true)}
+            title="Ver todo lo pendiente por pagar (OC, servicios, compras/servicios directos) + cuentas a crédito"
           >
-            {genPorPagar ? '⏳ Generando…' : '📄 Pendientes por pagar'}
+            💰 Pendientes por pagar
           </button>
           {scope !== 'compra_directa' && scope !== 'oc_lote' && scope !== 'servicio_directo' && (
             <>
@@ -764,6 +740,8 @@ export function PedidosPage() {
       )}
 
       {/* Modal: SOLICITUD DE MERCADO (botón independiente · COCINA · urgente · Víveres y Art. de Limpieza) */}
+      {porPagarOpen && <PendientesPorPagarModal onClose={() => setPorPagarOpen(false)} />}
+
       {modal.kind === 'mercado' && (
         <SolicitudMercadoModal
           productos={productos}
