@@ -328,34 +328,6 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         {slotMaterial && <div style={{ marginTop: '.7rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>{slotMaterial}</div>}
       </div>
 
-      {/* Fundentes (detalle del formato MGG-FR-001): coque, CaCO₃ y otro fundente,
-          con proveedor y granulometrías. Es DESCRIPTIVO del formato; el descuento real
-          del inventario se hace con la receta (materiales) del bloque de arriba. */}
-      <div style={secStyle}>
-        <div style={tituloSec}>Fundentes (detalle del formato)</div>
-        <div className="form-grid">
-          <div className="form-row"><label>Coque (kg)</label><input className="input mono" type="number" step="any" value={numVal(datos.coque_kg)} onChange={(e) => set('coque_kg', toNum(e.target.value))} style={numInput} /></div>
-          <div className="form-row"><label>CaCO₃ (kg)</label><input className="input mono" type="number" step="any" value={numVal(datos.caco3_kg)} onChange={(e) => set('caco3_kg', toNum(e.target.value))} style={numInput} /></div>
-        </div>
-        <div className="form-row">
-          <label>Proveedor de coque</label>
-          <Chips value={datos.coque_proveedor} options={['CARBOMORCA', 'CIVCA']} onChange={(v) => set('coque_proveedor', v)} />
-        </div>
-        <div className="form-row">
-          <label>Granulometría coque</label>
-          <Chips value={datos.coque_granulometria} options={['2–6 mm', '25–50 mm', '25–100 mm']} onChange={(v) => set('coque_granulometria', v)} />
-        </div>
-        <div className="form-row">
-          <label>Granulometría CaCO₃ (malla)</label>
-          <Chips value={datos.caco3_granulometria} options={['4', '6', '10', '20', '200']} onChange={(v) => set('caco3_granulometria', v)} />
-        </div>
-        <div className="form-grid">
-          <div className="form-row"><label>Otro fundente</label><input className="input" value={datos.otro_fundente ?? ''} onChange={(e) => set('otro_fundente', e.target.value)} placeholder="Ej.: PIRULITA" /></div>
-          <div className="form-row"><label>Otro fundente (kg)</label><input className="input mono" type="number" step="any" value={numVal(datos.otro_fundente_kg)} onChange={(e) => set('otro_fundente_kg', toNum(e.target.value))} style={numInput} /></div>
-        </div>
-        <small className="muted" style={{ fontSize: '.72rem' }}>Describe los fundentes usados (van en el PDF del reporte). El <strong>descuento del inventario</strong> se hace con la receta de materiales del bloque de arriba.</small>
-      </div>
-
       {/* Proceso */}
       <div style={secStyle}>
         <div style={tituloSec}>Proceso</div>
@@ -452,6 +424,26 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
           <button type="button" className="btn btn-sm btn-ghost" onClick={addTemp} style={{ marginTop: '.4rem' }}>＋ Lectura de temperatura</button>
         </div>
       </details>
+
+      {/* Observaciones y resultados (se pueden cargar acá y salen en el reporte;
+          al finalizar la colada se confirman/actualizan) */}
+      <div style={{ ...secStyle, marginTop: '.8rem', marginBottom: 0 }}>
+        <div style={tituloSec}>Observaciones y resultados</div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>N° de lingotes</label>
+            <input className="input mono" type="number" step="1" min={0} value={datos.n_lingotes ?? ''} onChange={(e) => set('n_lingotes', toNum(e.target.value))} style={numInput} placeholder="Ej.: 42" />
+          </div>
+          <div className="form-row">
+            <label>Escoria obtenida (kg)</label>
+            <DecimalInput className="input mono" value={datos.escoria_kg} onChange={(n) => set('escoria_kg', n)} style={numInput} placeholder="0,00" />
+          </div>
+        </div>
+        <div className="form-row">
+          <label>Observaciones de la colada</label>
+          <textarea className="input" rows={3} value={datos.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Notas / incidencias de la colada (salen en el reporte)…" style={{ resize: 'vertical' }} />
+        </div>
+      </div>
     </div>
   );
 }
