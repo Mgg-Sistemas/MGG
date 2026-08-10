@@ -170,6 +170,7 @@ export function MaterialAProducirModal({
   const [hornoNuevo, setHornoNuevo] = useState('');
   const [hornoSaving, setHornoSaving] = useState(false);
   const [manoObra, setManoObra] = useState('0');
+  const [sumarInventario, setSumarInventario] = useState(true); // ¿el producto entra al inventario al finalizar?
   // Costos indirectos POR CONCEPTO (cada uno con su costo; ninguno obligatorio).
   const [indirectos, setIndirectos] = useState<Record<string, string>>({});
   const indirectosTotal = CONCEPTOS_INDIRECTOS.reduce((a, c) => a + (Number(indirectos[c]) || 0), 0);
@@ -453,6 +454,7 @@ export function MaterialAProducirModal({
         precio_venta: posiblePrecioVenta,
         materiales: matInput,
         tipo,
+        sumarInventario,
         actor,
         actor_name: actorName,
       });
@@ -707,6 +709,10 @@ export function MaterialAProducirModal({
         <div className="card" style={{ padding: '.6rem .85rem', marginBottom: '.6rem', background: 'var(--bg-1)', borderLeft: '3px solid var(--primary)' }}>
           <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Entra al inventario como</div>
           <div style={{ fontWeight: 700 }}>{nombreFijo} <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>· almacén {nombreFijo} · Matanzas · se acumula</span></div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', marginTop: '.55rem', cursor: 'pointer', fontSize: '.86rem' }}>
+            <input type="checkbox" checked={sumarInventario} onChange={(e) => setSumarInventario(e.target.checked)} />
+            <span><strong>Sumar al inventario</strong> al finalizar <span className="muted" style={{ fontSize: '.76rem' }}>· si lo destildás, esta {esRef ? 'refinación' : 'colada'} queda como registro/reporte y NO suma stock del producto</span></span>
+          </label>
         </div>
 
         <div className="form-row">

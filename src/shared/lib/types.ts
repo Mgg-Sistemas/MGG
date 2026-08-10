@@ -1184,6 +1184,9 @@ export interface Produccion {
   receta_num?: number | null;   // nº de receta secuencial por producto (1, 2, 3…)
   horno?: string | null;        // nombre del horno utilizado
   tipo?: 'fundicion' | 'refinacion'; // 'fundicion' (default) | 'refinacion' (refinación de material)
+  /** Si el producto terminado ENTRA al inventario al finalizar (default true).
+   *  En false: la colada/refinación queda como registro/reporte sin sumar stock. */
+  sumar_inventario?: boolean;
   inicio_at: string;
   fin_at?: string | null;
   created_by?: string | null;

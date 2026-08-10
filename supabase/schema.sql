@@ -294,6 +294,9 @@ alter table public.produccion add column if not exists horno text;
 -- ('fundicion' = órdenes de fundición; 'refinacion' = refinación de material).
 alter table public.produccion add column if not exists tipo text not null default 'fundicion'
   check (tipo in ('fundicion', 'refinacion'));
+-- ¿El producto terminado ENTRA al inventario al finalizar? (default true). En false,
+-- la colada/refinación queda como registro/reporte sin sumar stock del producto.
+alter table public.produccion add column if not exists sumar_inventario boolean not null default true;
 create index if not exists idx_prod_estado on public.produccion(estado, created_at desc);
 create index if not exists idx_prod_producto on public.produccion(producto_id, created_at desc);
 create index if not exists idx_prod_tipo on public.produccion(tipo, estado, created_at desc);
