@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -1324,6 +1324,22 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
     if (hay) { yaResolvio.done = true; void resolverVinculos(true); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // EN VIVO: cuando cambian los datos de las cajas/aliados de acopio (recepciones,
+  // cierres, cobros…), re-resolvé los vínculos para que el preliminar coincida
+  // SIEMPRE con la tarjeta del centro/aliado (Kg recibidos, saldo casiterita, tasa).
+  // Solo refresca las celdas VINCULADAS; las cargadas a mano no se tocan.
+  const reResolviendo = useRef(false);
+  useRealtime(
+    ['acopio_caja_movimientos', 'acopio_aliado_movimientos', 'acopio_cajas', 'acopio_aliado_cierres', 'acopio_cuentas_cobrar', 'acopio_cobrar_abonos', 'acopio_recepciones', 'acopio_recepcion_lotes'],
+    () => {
+      if (reResolviendo.current) return;
+      const hay = sectores.some((s) => s.fuente_saldo || s.fuente_precio || s.centros.some((c) => c.fuente || c.fuente_cobrar));
+      if (!hay) return;
+      reResolviendo.current = true;
+      void resolverVinculos(true).finally(() => { reResolviendo.current = false; });
+    },
+  );
   const addCentro = (si: number) =>
     setSectores((prev) => prev.map((s, i) => i !== si ? s : { ...s, centros: [...s.centros, { centro: '', kg_cobrar: 0, kg_disponible: 0 }] }));
   const delCentro = (si: number, ci: number) =>
