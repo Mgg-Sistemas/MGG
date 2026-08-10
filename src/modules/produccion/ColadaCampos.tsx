@@ -8,6 +8,7 @@
 import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import type { ColadaDatos, ColadaBigBag, ColadaBigBagLey } from '@/shared/lib/types';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { DecimalInput } from '@/shared/ui/DecimalInput';
 import type { CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
 
@@ -278,7 +279,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
                   {(b.leyes ?? []).map((l, li) => (
                     <div key={li} style={{ display: 'flex', alignItems: 'center', gap: '.2rem' }}>
                       <span className="mono muted" style={{ fontSize: '.74rem', width: 12 }}>{l.letra || String.fromCharCode(65 + li)}</span>
-                      <input className="input mono" type="number" step="any" value={l.valor ?? ''} onChange={(e) => setLey(i, li, { valor: toNum(e.target.value) })} style={{ width: 76, textAlign: 'right' }} />
+                      <DecimalInput className="input mono" value={l.valor} onChange={(n) => setLey(i, li, { valor: n })} style={{ width: 76, textAlign: 'right' }} />
                       <button type="button" className="btn btn-sm btn-ghost" onClick={() => delLey(i, li)} style={{ color: 'var(--danger)', padding: '0 .3rem' }}>✕</button>
                     </div>
                   ))}
@@ -288,7 +289,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
                 {!(b.leyes ?? []).length && (
                   <div className="form-row" style={{ marginTop: '.35rem', maxWidth: 220 }}>
                     <label>Ley / Prom. (%) — manual</label>
-                    <input className="input mono" type="number" step="any" value={numVal(b.ley_prom)} onChange={(e) => setBag(i, { ley_prom: toNum(e.target.value) })} style={numInput} />
+                    <DecimalInput className="input mono" value={b.ley_prom} onChange={(n) => setBag(i, { ley_prom: n })} style={numInput} />
                   </div>
                 )}
                 <div className="form-grid" style={{ marginTop: '.35rem' }}>
