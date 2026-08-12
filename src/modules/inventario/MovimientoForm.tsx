@@ -13,6 +13,10 @@ interface MovimientoFormProps {
   almacenesList: string[];
   /** Si viene, el almacén queda fijo (ej. desde el detalle de un almacén). */
   fixedAlmacen?: string | null;
+  /** Almacén PRESELECCIONADO (editable) cuando se abre dentro de una sede/centro:
+   *  así una Entrada en la vista de La Esperanza arranca en el almacén de esa sede,
+   *  no en el almacén global del producto. El usuario aún puede cambiarlo. */
+  preferAlmacen?: string | null;
   actorEmail: string;
   actorName?: string | null;
   onClose: () => void;
@@ -39,8 +43,8 @@ const OPCIONES: { value: TipoManual; label: string; sign: 'pos' | 'neg' | 'any' 
   { value: 'ajuste',        label: 'Ajuste manual (cualquier signo)',     sign: 'any' },
 ];
 
-export function MovimientoForm({ producto, existencias, almacenesList, fixedAlmacen, actorEmail, actorName, onClose, onSubmit }: MovimientoFormProps) {
-  const almacenInicial = fixedAlmacen || producto.almacen || almacenesList[0] || 'General';
+export function MovimientoForm({ producto, existencias, almacenesList, fixedAlmacen, preferAlmacen, actorEmail, actorName, onClose, onSubmit }: MovimientoFormProps) {
+  const almacenInicial = fixedAlmacen || preferAlmacen || producto.almacen || almacenesList[0] || 'General';
   const [almacen, setAlmacen] = useState(almacenInicial);
   const [tipo, setTipo] = useState<TipoManual>('entrada');
   const [cantidad, setCantidad] = useState('1');
