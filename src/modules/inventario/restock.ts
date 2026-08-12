@@ -129,14 +129,18 @@ export function decorate(
   policy: RestockPolicy = DEFAULT_POLICY,
 ): ProductoDecorado[] {
   const classMap = classifyABC(productos);
-  return productos.map((p) => ({
-    ...p,
-    _klass: classMap.get(p.id) ?? 'C',
-    _threshold: effectiveThreshold(p, policy, classMap),
-    _pct: effectivePct(p, policy, classMap),
-    _hasCustom: hasCustomPct(p),
-    _needsRestock: needsRestock(p, policy, classMap),
-    _critical: isCritical(p),
-    _valor: (p.stock ?? 0) * (p.precio ?? 0),
-  }));
+  return productos
+    .map((p) => ({
+      ...p,
+      _klass: classMap.get(p.id) ?? 'C',
+      _threshold: effectiveThreshold(p, policy, classMap),
+      _pct: effectivePct(p, policy, classMap),
+      _hasCustom: hasCustomPct(p),
+      _needsRestock: needsRestock(p, policy, classMap),
+      _critical: isCritical(p),
+      _valor: (p.stock ?? 0) * (p.precio ?? 0),
+    }))
+    // Listas de inventario / depósito / centros / almacenes SIEMPRE alfabéticas A→Z
+    // (insensible a mayúsculas y acentos, con orden natural para los números).
+    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { numeric: true, sensitivity: 'base' }));
 }
