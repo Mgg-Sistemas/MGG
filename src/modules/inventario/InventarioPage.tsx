@@ -461,6 +461,25 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       .sort((x, y) => x.label.localeCompare(y.label, 'es'));
   }, [almacenesDeScope, almacenesScopeActual, almacenes]);
 
+  // Almacén PRESELECCIONADO al registrar un movimiento (Entrada/Salida/…) dentro de una
+  // sede/centro: prioriza el subalmacén filtrado; si no, el almacén de ESA sede donde el
+  // producto YA tiene existencia (el que más stock tiene); si no, el principal del scope.
+  // Evita que una Entrada hecha en la vista de un centro (ej. La Esperanza) caiga en el
+  // almacén global del producto, que suele ser de otra sede (ej. Los Pinos).
+  const preferAlmacenMovimiento = (productoId: string): string | null => {
+    if (!almacenesDeScope || !almacenesScopeActual.length) return null;
+    if (ui.filterAlmacen && almacenesScopeActual.includes(ui.filterAlmacen)) return ui.filterAlmacen;
+    const scopeSet = new Set(almacenesScopeActual);
+    const exs = existMap.get(productoId) ?? [];
+    const conStock = exs
+      .filter((e) => scopeSet.has(e.almacen) && (Number(e.stock) || 0) > 0)
+      .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0))[0];
+    if (conStock) return conStock.almacen;
+    const conRow = exs.find((e) => scopeSet.has(e.almacen));
+    if (conRow) return conRow.almacen;
+    return almacenesScopeActual[0] ?? null;
+  };
+
   // Opciones del filtro por almacén, JERÁRQUICAS: primero el almacén PADRE (elegirlo
   // "sin subalmacén" trae TODOS sus productos y los de sus subalmacenes vía roll-up) y
   // debajo, indentados, sus subalmacenes por si se quiere acotar a uno. Incluye nombres
@@ -1127,6 +1146,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           existencias={existMap.get(modal.producto.id) ?? []}
           almacenesList={almacenes.map((a) => a.nombre)}
           fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
+          preferAlmacen={preferAlmacenMovimiento(modal.producto.id)}
           actorEmail={productoActor}
           actorName={actorName}
           onClose={() => setModal({ kind: 'none' })}
