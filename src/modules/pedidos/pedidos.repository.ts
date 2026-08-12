@@ -711,6 +711,10 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       iva: ivaA || null,
       igtf: igtfA || null,
       estado: 'oc_creada' as EstadoOrden,
+      // La sub-OC hereda la CLASE del padre: un servicio (SV) genera sub-órdenes de
+      // servicio, no de producto. Sin esto tomaba el default 'producto' y el SV
+      // aparecía en el kanban de OC en vez de en la pestaña de Servicios.
+      clase: op.clase ?? 'producto',
       motivo: op.motivo ?? null,
       finalidad: op.finalidad ?? null,
       clasificacion: op.clasificacion ?? null,
