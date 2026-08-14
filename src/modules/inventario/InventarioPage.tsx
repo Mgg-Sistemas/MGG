@@ -435,8 +435,16 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   // "General" invisible (que lo dejaba fuera de todas las vistas por centro).
   const defaultAlmacenCrear = useMemo<string | null>(() => {
     if (ui.filterAlmacen && almacenesScopeActual.includes(ui.filterAlmacen)) return ui.filterAlmacen;
-    return almacenesScopeActual[0] ?? null;
-  }, [ui.filterAlmacen, almacenesScopeActual]);
+    if (almacenesScopeActual[0]) return almacenesScopeActual[0];
+    // Estricto en un centro/Matanza: si la sub-vista no tiene almacén (p.ej. un centro sin
+    // sub-almacén de casiterita), NO caer en el "General" suelto de Matanza. Se usa cualquier
+    // almacén de ESA sede, para que el producto quede SIEMPRE en el centro donde lo creás.
+    if (almacenesDeScope) {
+      const todosDelScope = [...almacenesDeScope.resto, ...almacenesDeScope.cas, ...almacenesDeScope.refinado, ...almacenesDeScope.bruto];
+      return todosDelScope[0] ?? null;
+    }
+    return null;
+  }, [ui.filterAlmacen, almacenesScopeActual, almacenesDeScope]);
   const filtered = useMemo<ProductoDecorado[]>(() => {
     // En un centro/Matanzas la base son los productos de ESE scope; si además se eligió
     // un SUBALMACÉN en el filtro (dentro del centro), se acota a ese subalmacén para
