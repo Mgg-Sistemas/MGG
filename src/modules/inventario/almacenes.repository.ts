@@ -201,6 +201,25 @@ export async function listExistencias(): Promise<Existencia[]> {
   }, { tables: ['existencias'], ttl: 15_000 });
 }
 
+/** Crea (si no existe) la existencia en 0 de un producto en su almacén hogar.
+ *  Las vistas por sede/almacén listan desde `existencias`, así que un producto
+ *  recién creado SIN stock quedaba invisible ahí (solo vivía en el catálogo).
+ *  Esta fila "ancla" el producto a su almacén y fija el PMP base (costo). No
+ *  pisa una existencia previa: si ya hay fila, la deja tal cual. */
+export async function crearExistenciaInicial(productoId: string, almacen: string, costo = 0): Promise<void> {
+  const alm = (almacen || 'General').trim() || 'General';
+  const previa = await getExistencia(productoId, alm);
+  if (previa) return;
+  const { error } = await supabase.from('existencias').insert({
+    producto_id: productoId,
+    almacen: alm,
+    stock: 0,
+    costo_promedio: costo || 0,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw error;
+}
+
 /** Existencia de un producto en un almacén (null si no hay fila). */
 export async function getExistencia(productoId: string, almacen: string): Promise<Existencia | null> {
   const { data, error } = await supabase
