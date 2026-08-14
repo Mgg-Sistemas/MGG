@@ -54,7 +54,7 @@ export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Con
         </>
       }
     >
-      <p style={{ margin: 0 }}>{message}</p>
+      <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{message}</p>
     </Modal>
   );
 }

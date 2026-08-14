@@ -2802,6 +2802,8 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
 }) {
   const [sel, setSel] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  // Transferencia saliente pendiente de conciliar (abre el modal de confirmación con formato).
+  const [aConciliar, setAConciliar] = useState<TransferenciaInter | null>(null);
 
   // Entrantes que Tesorería aún no aceptó (el Centro de Acopio las acepta por separado).
   const entrantes = transfers.filter((t) => t.direccion === 'entrante' && !t.recibida_tesoreria);
@@ -2838,7 +2840,6 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
   }
 
   async function conciliar(t: TransferenciaInter) {
-    if (!window.confirm(`¿Marcar como RECIBIDA la transferencia de ${t.resumen} a ${t.empresa_destino}?\n\nUsalo solo si el otro sistema YA la aceptó (en Tesorería o en el Centro de Acopio) pero acá siguió "en tránsito". No mueve dinero: el monto ya salió de la caja al enviarse.`)) return;
     setBusy(t.id);
     try {
       await marcarSalienteRecibida(t);
@@ -2902,7 +2903,7 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
                     </button>
                   )}
                   {canWrite && t.estado === 'enviada' && (
-                    <button className="btn btn-sm btn-ghost" disabled={busy === t.id} onClick={() => conciliar(t)}
+                    <button className="btn btn-sm btn-ghost" disabled={busy === t.id} onClick={() => setAConciliar(t)}
                       title="El otro sistema ya la aceptó pero acá siguió en tránsito: marcarla como recibida.">
                       {busy === t.id ? 'Conciliando…' : '✓ Ya recibida'}
                     </button>
@@ -2918,6 +2919,17 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.5rem' }}>
           {recibidas === 1 ? 'Confirmado' : `${recibidas} confirmadas`} por {destinosRecibidos}.
         </div>
+      )}
+
+      {aConciliar && (
+        <ConfirmDialog
+          title="Conciliar transferencia"
+          message={`¿Marcar como RECIBIDA la transferencia de ${aConciliar.resumen} a ${aConciliar.empresa_destino}?\n\nUsalo solo si el otro sistema YA la aceptó (en Tesorería o en el Centro de Acopio) pero acá siguió "en tránsito". No mueve dinero: el monto ya salió de la caja al enviarse.`}
+          confirmText="Sí, marcar recibida"
+          success
+          onConfirm={() => { const t = aConciliar; setAConciliar(null); void conciliar(t); }}
+          onCancel={() => setAConciliar(null)}
+        />
       )}
     </div>
   );
