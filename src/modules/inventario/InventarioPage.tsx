@@ -66,6 +66,7 @@ import {
   consumoDeAlmacen,
   consumoPorProductoEnAlmacen,
   crearAlmacen,
+  crearExistenciaInicial,
   actualizarAlmacen,
   eliminarAlmacen,
   renombrarSede,
@@ -622,6 +623,12 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           // Costo inicial: fija la línea base del PMP del almacén y queda en la traza.
           precio_unitario: data.precio,
         });
+      } else {
+        // Sin stock inicial: aun así anclamos el producto a su almacén con una
+        // existencia en 0. Las vistas por sede/almacén (inventario, centros) listan
+        // desde `existencias`; sin esta fila el producto quedaba invisible ahí y solo
+        // aparecía en el catálogo global. Así "creado en inventario → visible en inventario".
+        await crearExistenciaInicial(created.id, data.almacen, data.precio);
       }
       notify(`Producto creado: ${data.sku} · ${data.nombre}`, 'success', { link: basePath });
       await reload();
