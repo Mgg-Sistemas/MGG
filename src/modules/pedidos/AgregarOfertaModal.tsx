@@ -43,8 +43,11 @@ interface FormItem extends ItemOrden {
 let _ridSeq = 0;
 const nextRid = () => `r${++_ridSeq}`;
 
+// Redondea a 2 decimales (los precios de compra siempre van a 2 decimales).
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 // Muestra vacío cuando el número es 0 (así no aparece el "0" que estorba al escribir).
-const numToStr = (n: number) => (n > 0 ? String(n) : '');
+// Los precios se muestran redondeados a 2 decimales (sin colas largas tipo 6.7138554…).
+const numToStr = (n: number) => (n > 0 ? String(round2(n)) : '');
 // Deja solo dígitos y UN separador decimal (acepta punto o coma), conservando el que se escribe.
 function sanitizeDecimal(s: string): string {
   let out = s.replace(/[^\d.,]/g, '');
@@ -109,8 +112,8 @@ export function AgregarOfertaModal({
   const [items, setItems] = useState<FormItem[]>(
     ofertaEdit
       ? ofertaEdit.items.map((i) => {
-          const precio = Number(i.precio) || 0;
-          const precioUsd = Number(i.precio_usd) || 0;
+          const precio = round2(Number(i.precio) || 0);
+          const precioUsd = round2(Number(i.precio_usd) || 0);
           return { ...i, precio, precio_usd: precioUsd, precioStr: numToStr(precio), precioUsdStr: numToStr(precioUsd), _rid: nextRid() };
         })
       : orden.items
@@ -260,6 +263,9 @@ export function AgregarOfertaModal({
       void _rid; void _variante; void precioStr; void precioUsdStr;
       return {
         ...rest,
+        // Precios de compra siempre a 2 decimales (evita colas largas al guardar).
+        precio: round2(Number(rest.precio) || 0),
+        precio_usd: round2(Number(rest.precio_usd) || 0),
         marca: (rest.marca ?? '').toString().trim() || null,
         modelo: (rest.modelo ?? '').toString().trim() || null,
       };
