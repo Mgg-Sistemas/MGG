@@ -386,21 +386,25 @@ export function OfertasComparativa({
                           );
                         })()}
                         {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
+                        {/* Editar (precios por producto, condición, datos…): disponible en CUALQUIER
+                            estado, también en aceptada/descartada, para corregir precios sin re-crear la
+                            oferta. actualizarOferta no cambia el estado, así que una aceptada sigue aceptada. */}
+                        {!esHija && canCrearOferta && (
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            title="Editar esta oferta (precios por producto, condición, datos…)"
+                            style={{ padding: '0 .35rem' }}
+                            onClick={(e) => { e.stopPropagation(); setEditando(s.oferta); }}
+                          >✎</button>
+                        )}
+                        {/* Eliminar solo mientras esté pendiente (una aceptada ya definió la compra). */}
                         {!esHija && canCrearOferta && s.oferta.estado === 'pendiente' && (
-                          <>
-                            <button
-                              className="btn btn-sm btn-ghost"
-                              title="Editar esta oferta (precios, condición, datos…)"
-                              style={{ padding: '0 .35rem' }}
-                              onClick={(e) => { e.stopPropagation(); setEditando(s.oferta); }}
-                            >✎</button>
-                            <button
-                              className="btn btn-sm btn-ghost"
-                              title="Eliminar esta oferta"
-                              style={{ padding: '0 .35rem', color: 'var(--danger)' }}
-                              onClick={(e) => { e.stopPropagation(); setEliminando(s.oferta); }}
-                            >🗑</button>
-                          </>
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            title="Eliminar esta oferta"
+                            style={{ padding: '0 .35rem', color: 'var(--danger)' }}
+                            onClick={(e) => { e.stopPropagation(); setEliminando(s.oferta); }}
+                          >🗑</button>
                         )}
                       </span>
                     </td>
