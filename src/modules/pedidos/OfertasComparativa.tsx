@@ -387,9 +387,10 @@ export function OfertasComparativa({
                         })()}
                         {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
                         {/* Editar (precios por producto, condición, datos…): disponible en CUALQUIER
-                            estado, también en aceptada/descartada, para corregir precios sin re-crear la
-                            oferta. actualizarOferta no cambia el estado, así que una aceptada sigue aceptada. */}
-                        {!esHija && canCrearOferta && (
+                            estado (también aceptada/descartada) y TAMBIÉN en sub-órdenes (hijas): la
+                            oferta vive en el padre, así que se edita la misma oferta desde donde se abra.
+                            actualizarOferta no cambia el estado, así que una aceptada sigue aceptada. */}
+                        {canCrearOferta && (
                           <button
                             className="btn btn-sm btn-ghost"
                             title="Editar esta oferta (precios por producto, condición, datos…)"
