@@ -74,7 +74,7 @@ export function AlmacenSelectAgrupado({
  * `value` es un almacén legado que no está en la tabla, se acepta igual.
  */
 export function AlmacenPicker({
-  value, onChange, almacenes: provided, label = 'Almacén', sedeLabel = 'Sede', required, disabled, extraOpciones, preferirPrincipal,
+  value, onChange, almacenes: provided, label = 'Almacén', sedeLabel = 'Sede', required, disabled, extraOpciones, preferirPrincipal, excluirCasiterita,
 }: {
   value: string;
   onChange: (nombre: string) => void;
@@ -88,6 +88,10 @@ export function AlmacenPicker({
   /** Al elegir una sede, autoselecciona su almacén PRINCIPAL (general, sin padre)
    *  en vez de dejar el almacén vacío. El usuario puede cambiarlo a un subalmacén. */
   preferirPrincipal?: boolean;
+  /** Oculta los almacenes de casiterita (los que llevan "casiterita" en el nombre).
+   *  Se usa en la recepción de compras: la mercancía comprada va a Matanza / almacenes
+   *  normales, NUNCA a casiterita (ese inventario entra por su propio flujo, Los Pinos). */
+  excluirCasiterita?: boolean;
 }) {
   const [rows, setRows] = useState<Almacen[]>(provided ?? []);
   useEffect(() => {
@@ -97,7 +101,10 @@ export function AlmacenPicker({
     return () => { cancel = true; };
   }, [provided]);
 
-  const activos = useMemo(() => rows.filter((a) => a.estado === 'activo'), [rows]);
+  const activos = useMemo(() => {
+    const base = rows.filter((a) => a.estado === 'activo');
+    return excluirCasiterita ? base.filter((a) => !/casiterita/i.test(a.nombre)) : base;
+  }, [rows, excluirCasiterita]);
   const extras = extraOpciones ?? [];
 
   const sedes = useMemo(() => {
