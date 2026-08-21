@@ -49,7 +49,8 @@ export function ClientePicker({ value, onChange, actor, actorName }: {
       {value && (value.rif || value.telefono) && (
         <small className="muted">{value.rif ? <>RIF: <strong>{value.rif}</strong></> : null}{value.rif && value.telefono ? ' · ' : ''}{value.telefono ? <>Tel: <strong>{value.telefono}</strong></> : null}</small>
       )}
-      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
+      {/* Alta inline: acá Enter significa "añadir", no "siguiente campo" → fuera del recorrido. */}
+      <div data-enter-omitir="" style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
         <input className="input" value={nNombre} onChange={(e) => setNNombre(e.target.value)} placeholder="¿No está? Nombre / razón social"
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addCliente(); } }} style={{ flex: '2 1 160px', fontSize: '.82rem' }} />
         <input className="input mono" value={nRif} onChange={(e) => setNRif(e.target.value)} placeholder="RIF"

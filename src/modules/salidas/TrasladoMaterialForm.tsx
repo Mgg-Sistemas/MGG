@@ -3,6 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
+import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
@@ -126,6 +127,9 @@ export function TrasladoMaterialForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    // Enter en el último campo usa requestSubmit(), que ignora el botón deshabilitado:
+    // sin esta guarda, dos Enter seguidos crearían dos solicitudes.
+    if (saving) return;
     setError(null);
     if (!destino) { setError('Elegí la sede y el almacén de destino.'); return; }
     if (esCliente && !cliente) { setError('Elegí (o agregá) el cliente para la cuenta por cobrar.'); return; }
@@ -183,7 +187,7 @@ export function TrasladoMaterialForm({
 
   return (
     <Modal title="Nueva solicitud de traslado de material" size="lg" onClose={onClose} footer={footer}>
-      <form id="traslado-mat-form" onSubmit={handleSubmit}>
+      <form id="traslado-mat-form" onSubmit={handleSubmit} onKeyDown={enterAvanzaCampo({ enviando: saving })}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         {/* ¿Es para un CLIENTE? — visible desde el inicio. Genera cuenta por cobrar. */}

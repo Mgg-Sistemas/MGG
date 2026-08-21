@@ -78,7 +78,8 @@ export function ChoferVehiculoPicker({ chofer, vehiculo, onChofer, onVehiculo, a
         <SearchSelect value={chofer?.id ?? ''} onChange={(id) => onChofer(choferes.find((c) => c.id === id) ?? null)}
           options={opChoferes} placeholder="🔎 Buscá el chofer…" emptyText="Sin choferes guardados." />
         {chofer?.cedula && <small className="muted">C.I.: <strong>{chofer.cedula}</strong></small>}
-        <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
+        {/* Alta inline: acá Enter significa "añadir", no "siguiente campo" → fuera del recorrido. */}
+        <div data-enter-omitir="" style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
           <input className="input" value={nChofer} onChange={(e) => setNChofer(e.target.value)} placeholder="¿No está? Nombre del chofer"
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addChofer(); } }} style={{ flex: '2 1 140px', fontSize: '.82rem' }} />
           <input className="input mono" value={nCedula} onChange={(e) => setNCedula(e.target.value)} placeholder="Cédula"
@@ -95,7 +96,8 @@ export function ChoferVehiculoPicker({ chofer, vehiculo, onChofer, onVehiculo, a
         <SearchSelect value={vehiculo?.id ?? ''} onChange={(id) => onVehiculo(vehiculos.find((v) => v.id === id) ?? null)}
           options={opVehiculos} placeholder="🔎 Buscá el vehículo…" emptyText="Sin vehículos guardados." />
         {vehiculo?.placa && <small className="muted">Placa: <strong>{vehiculo.placa}</strong></small>}
-        <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
+        {/* Alta inline: acá Enter significa "añadir", no "siguiente campo" → fuera del recorrido. */}
+        <div data-enter-omitir="" style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
           <input className="input" value={nVehiculo} onChange={(e) => setNVehiculo(e.target.value)} placeholder="¿No está? Vehículo (marca/modelo)"
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addVehiculo(); } }} style={{ flex: '2 1 140px', fontSize: '.82rem' }} />
           <input className="input mono" value={nPlaca} onChange={(e) => setNPlaca(e.target.value)} placeholder="Placa"
