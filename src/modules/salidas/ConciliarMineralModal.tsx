@@ -3,6 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
+import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, MovimientoCaja, Producto } from '@/shared/lib/types';
 import { conciliarConMineral } from './cajas.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
@@ -39,6 +40,9 @@ export function ConciliarMineralModal({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    // Enter en el último campo usa requestSubmit(), que ignora el botón deshabilitado:
+    // sin esta guarda, dos Enter seguidos conciliarían dos veces.
+    if (saving) return;
     setError(null);
     if (modo === 'existente' && !productoId) { setError('Elegí el mineral.'); return; }
     if (modo === 'nuevo' && !nombreNuevo.trim()) { setError('Escribí el nombre del mineral.'); return; }
@@ -74,7 +78,7 @@ export function ConciliarMineralModal({
 
   return (
     <Modal title="Conciliar con recepción de mineral" size="lg" onClose={onClose} footer={footer}>
-      <form id="conciliar-form" onSubmit={handleSubmit}>
+      <form id="conciliar-form" onSubmit={handleSubmit} onKeyDown={enterAvanzaCampo({ enviando: saving })}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         <div className="card" style={{ padding: '.6rem .85rem', marginBottom: '.75rem', background: 'var(--bg-1)', borderLeft: '3px solid var(--primary)' }}>
@@ -93,7 +97,7 @@ export function ConciliarMineralModal({
           {modo === 'existente' ? (
             <SearchSelect value={productoId} onChange={setProductoId}
               options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))}
-              placeholder="🔎 Buscá el mineral…" emptyText="Sin productos." />
+              placeholder="🔎 Buscá el mineral…" emptyText="Sin productos." sinPreseleccion />
           ) : (
             <input className="input" value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value.toUpperCase())} placeholder="Nombre del mineral" />
           )}

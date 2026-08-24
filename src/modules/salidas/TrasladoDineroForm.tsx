@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
+import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Caja } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 
@@ -38,6 +39,9 @@ export function TrasladoDineroForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    // Enter en el último campo usa requestSubmit(), que ignora el botón deshabilitado:
+    // sin esta guarda, dos Enter seguidos crearían dos traslados.
+    if (saving) return;
     setError(null);
     if (!origenId || !destinoValido) { setError('Elegí caja origen y destino (misma moneda).'); return; }
     if (montoNum <= 0) { setError('El monto debe ser mayor que 0.'); return; }
@@ -73,7 +77,7 @@ export function TrasladoDineroForm({
 
   return (
     <Modal title="Nueva solicitud de traslado de dinero" size="lg" onClose={onClose} footer={footer}>
-      <form id="traslado-dinero-form" onSubmit={handleSubmit}>
+      <form id="traslado-dinero-form" onSubmit={handleSubmit} onKeyDown={enterAvanzaCampo({ enviando: saving })}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         <div className="form-grid">

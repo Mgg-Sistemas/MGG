@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
+import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Caja } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { DestinoSelect } from './DestinoSelect';
@@ -31,6 +32,9 @@ export function SalidaDineroForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    // Enter en el último campo usa requestSubmit(), que ignora el botón deshabilitado:
+    // sin esta guarda, dos Enter seguidos crearían dos solicitudes.
+    if (saving) return;
     setError(null);
     if (!cajaId) { setError('Elegí la caja.'); return; }
     if (montoNum <= 0) { setError('El monto debe ser mayor que 0.'); return; }
@@ -64,7 +68,7 @@ export function SalidaDineroForm({
 
   return (
     <Modal title="Nueva solicitud de salida de dinero" size="lg" onClose={onClose} footer={footer}>
-      <form id="salida-dinero-form" onSubmit={handleSubmit}>
+      <form id="salida-dinero-form" onSubmit={handleSubmit} onKeyDown={enterAvanzaCampo({ enviando: saving })}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         <div className="card" style={{ padding: '.6rem .85rem', marginBottom: '.75rem', background: 'var(--bg-1)', borderLeft: '3px solid var(--primary)' }}>
