@@ -373,6 +373,10 @@ export function AgregarOfertaModal({
         precio_total: precioTotal,
         precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
         descuento: descuentoObt > 0 ? descuentoObt : null,
+        // IVA/IGTF: faltaban en la CREACIÓN (solo se guardaban al editar), por eso una
+        // oferta nueva no "tomaba" el IVA y la OC salía sin impuestos. Ahora se persisten.
+        iva: ivaMonto > 0 ? ivaMonto : null,
+        igtf: igtfMonto > 0 ? igtfMonto : null,
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
         notas: notas.trim() || null,
