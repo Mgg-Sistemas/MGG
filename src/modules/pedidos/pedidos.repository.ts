@@ -498,6 +498,62 @@ export function reprecioPorEfectivo(
 }
 
 /**
+ * Re-sincroniza una OC YA CREADA con los datos de su oferta aceptada tras editarla.
+ * El `total` de la orden es un snapshot que se congela al crear la OC; si luego se
+ * edita la oferta (precios, IVA, IGTF, descuento) el total quedaba desfasado (la
+ * tarjeta del kanban seguía mostrando el monto viejo). Esto recalcula ítems, total,
+ * IVA, IGTF y descuento EXACTAMENTE igual que `aprobarOrdenConOferta`.
+ *
+ * Solo actúa si la orden está en `oc_creada` (oferta elegida, aún sin aprobar ni
+ * pagar): más adelante el monto ya entró a Tesorería/inventario y NO se toca solo.
+ * Devuelve la orden actualizada, o null si no correspondía re-sincronizar.
+ */
+export async function resincronizarOcDesdeOferta(
+  orden: Orden,
+  oferta: {
+    items: ItemOrden[];
+    precio_total: number;
+    precio_efectivo: number | null;
+    descuento: number | null;
+    iva: number | null;
+    igtf: number | null;
+  },
+): Promise<Orden | null> {
+  if (orden.estado !== 'oc_creada') return null;
+  // Se conserva la finalidad/área/comprar que puso el solicitante (por SKU), igual
+  // que al crear la OC. Solo entran los ítems a comprar con precio > 0.
+  const origBySku = new Map(orden.items.map((it) => [it.sku, it]));
+  const itemsConContexto = oferta.items
+    .map((of) => {
+      const orig = origBySku.get(of.sku);
+      return orig
+        ? { ...of, finalidad: of.finalidad ?? orig.finalidad, area: of.area ?? orig.area, comprar: of.comprar ?? orig.comprar }
+        : of;
+    })
+    .filter((it) => it.comprar !== false && (Number(it.precio) || 0) > 0);
+  if (!itemsConContexto.length) return null;
+  const efectivoOf = oferta.precio_efectivo != null ? Number(oferta.precio_efectivo) : null;
+  const descObt = oferta.descuento != null ? Math.max(0, Math.round(Number(oferta.descuento) * 100) / 100) : 0;
+  const ivaOf = oferta.iva != null ? Math.max(0, Math.round(Number(oferta.iva) * 100) / 100) : 0;
+  const igtfOf = oferta.igtf != null ? Math.max(0, Math.round(Number(oferta.igtf) * 100) / 100) : 0;
+  const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
+  const subtotalOc = repEf ? repEf.total : Math.round((Number(oferta.precio_total) || 0) * 100) / 100;
+  const totalOc = Math.round((Math.max(0, subtotalOc - descObt) + ivaOf + igtfOf) * 100) / 100;
+  const patch = {
+    items: repEf ? repEf.items : itemsConContexto,
+    total: totalOc,
+    descuento_obtenido: descObt || null,
+    iva: ivaOf || null,
+    igtf: igtfOf || null,
+    oferta_precio_efectivo: efectivoOf,
+    oferta_precio_bcv: repEf ? repEf.bcv : null,
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', orden.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
+/**
  * Elige la oferta ganadora sobre una OP ya APROBADA → crea la Orden de Compra
  * (estado `oc_creada`, "sin confirmar"). Casa el proveedor, hereda items/total
  * de la oferta, genera el código OC y deja registro en el historial.

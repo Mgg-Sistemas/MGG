@@ -8,6 +8,7 @@ import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico, OfertaProveedor } from '@/shared/lib/types';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, type EditarOfertaInput } from './ofertas.repository';
+import { resincronizarOcDesdeOferta } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 
@@ -328,6 +329,25 @@ export function AgregarOfertaModal({
           detalle,
           ...adjuntosPatch,
         });
+        // Si la orden ya tiene su OC creada (esperando aprobación) y esta es su oferta
+        // aceptada, el `total` de la orden es un snapshot viejo: se re-sincroniza con lo
+        // recién editado (precios/IVA/IGTF/descuento) para que la tarjeta del kanban y la
+        // OC muestren el monto correcto y no queden en el valor anterior.
+        if (orden.estado === 'oc_creada' && ofertaEdit.estado === 'aceptada') {
+          try {
+            await resincronizarOcDesdeOferta(orden, {
+              items: itemsLimpios,
+              precio_total: precioTotal,
+              precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
+              descuento: descuentoObt > 0 ? descuentoObt : null,
+              iva: ivaMonto > 0 ? ivaMonto : null,
+              igtf: igtfMonto > 0 ? igtfMonto : null,
+            });
+          } catch (e) {
+            // No romper el guardado de la oferta si la re-sincronización falla.
+            console.error('No se pudo re-sincronizar el total de la OC:', e);
+          }
+        }
         notify(`Oferta actualizada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
         onCreated();
         return;
