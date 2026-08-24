@@ -311,7 +311,7 @@ export function SalidaMaterialForm({
                 <div className="form-row">
                   <label>Producto</label>
                   <SearchSelect value={l.productoId} onChange={(id) => elegirProducto(l.id, id)}
-                    options={opcionesProducto} placeholder="🔎 Buscá el material…" emptyText="Sin productos." />
+                    options={opcionesProducto} placeholder="🔎 Buscá el material…" emptyText="Sin productos." sinPreseleccion />
                   <small className="muted">
                     {l.productoId
                       ? (stock > 0

@@ -24,6 +24,7 @@ export function SearchSelect({
   id,
   disabled = false,
   allowCreate = false,
+  sinPreseleccion = false,
 }: {
   options: SearchOption[];
   value: string;
@@ -35,6 +36,14 @@ export function SearchSelect({
   disabled?: boolean;
   /** Si true, permite escribir un valor que no está en la lista y crearlo (combobox creable). */
   allowCreate?: boolean;
+  /**
+   * Si true, al enfocar NO queda ninguna opción resaltada, así Enter no elige nada:
+   * el evento burbujea y el formulario lo usa para pasar al campo siguiente.
+   * Para elegir con el teclado hay que escribir (resalta la primera coincidencia)
+   * o bajar con ↓. Sin esta prop el comportamiento es el de siempre.
+   * Lo usan los modales de salidas, donde Enter recorre los campos.
+   */
+  sinPreseleccion?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -125,7 +134,7 @@ export function SearchSelect({
         disabled={disabled}
         value={open ? query : (selected?.label ?? value ?? '')}
         placeholder={selected ? selected.label : (value || placeholder)}
-        onFocus={() => { if (disabled) return; setOpen(true); setQuery(''); setHi(0); updateRect(); }}
+        onFocus={() => { if (disabled) return; setOpen(true); setQuery(''); setHi(sinPreseleccion ? -1 : 0); updateRect(); }}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setHi(0); }}
         onKeyDown={onKeyDown}
       />

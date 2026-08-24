@@ -240,7 +240,7 @@ export function TrasladoMaterialForm({
                 <div className="form-row">
                   <label>Producto a trasladar</label>
                   <SearchSelect value={l.productoId} onChange={(id) => elegirProducto(l.id, id)}
-                    options={opcionesProducto} placeholder="🔎 Buscá el material…" emptyText="Sin productos." />
+                    options={opcionesProducto} placeholder="🔎 Buscá el material…" emptyText="Sin productos." sinPreseleccion />
                   <small className="muted">
                     {l.productoId
                       ? (l.almacen

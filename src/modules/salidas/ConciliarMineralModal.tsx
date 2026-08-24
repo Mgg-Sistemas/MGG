@@ -97,7 +97,7 @@ export function ConciliarMineralModal({
           {modo === 'existente' ? (
             <SearchSelect value={productoId} onChange={setProductoId}
               options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))}
-              placeholder="🔎 Buscá el mineral…" emptyText="Sin productos." />
+              placeholder="🔎 Buscá el mineral…" emptyText="Sin productos." sinPreseleccion />
           ) : (
             <input className="input" value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value.toUpperCase())} placeholder="Nombre del mineral" />
           )}
