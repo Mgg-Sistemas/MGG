@@ -26,6 +26,10 @@ coverage/
 
 # Documentation interna (NUNCA commitear)
 docs/
+# Todo .md queda fuera del repo salvo que se indique lo contrario:
+# el repositorio es publico y la documentacion interna describe el
+# modelo de datos y los permisos. Para versionar uno: git add -f <archivo>.md
+*.md
 
 # Claude
 .claude/
