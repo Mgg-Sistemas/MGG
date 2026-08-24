@@ -184,7 +184,11 @@ export function AgregarOfertaModal({
   const ahorroEfectivo = descuentoEfectivo(precioTotal, precioEfectivo);
   // Descuento obtenido y monto de la factura resultante (sobre el efectivo si hay, si no el BCV).
   const descuentoObt = Math.max(0, Math.round((Number(descuentoStr) || 0) * 100) / 100);
-  const baseFactura = precioEfectivo > 0 ? precioEfectivo : precioTotal;
+  // Base imponible del IVA/IGTF = precio BCV (la base legal de la factura), NO el precio
+  // efectivo con descuento. El descuento por pago en efectivo es un beneficio de pago y
+  // NO reduce la base del impuesto. (Antes se usaba el efectivo y el IVA salía más bajo:
+  // p.ej. 58,32 sobre efectivo cuando correspondía 67,28 sobre BCV.)
+  const baseFactura = precioTotal > 0 ? precioTotal : precioEfectivo;
   const facturaNeta = Math.round(Math.max(0, baseFactura - descuentoObt) * 100) / 100;
 
   // Impuestos: se calculan sobre la factura neta. % ↔ monto sincronizados.
