@@ -14,6 +14,7 @@ import type { Cliente } from '@/modules/ventas/clientes.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCentrosAcopio } from './cajas.repository';
 import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type AsignacionSalida } from './asignacionPrioridad';
+import { sedesPermitidasSalida, almacenPermitidoSalida } from './restriccionAlmacen';
 
 interface LineaUI { id: number; productoId: string; cantidad: string; precio: string; almacen: string }
 
@@ -43,11 +44,17 @@ export function SalidaMaterialForm({
     return m;
   }, [almacenesObj]);
 
+  // Restricción por usuario (se casa por correo): ISNER solo Los Pinos, KELVIN solo
+  // Matanzas. `null` = sin restricción. Filtra los almacenes candidatos por sede.
+  const sedesPermitidas = useMemo(() => sedesPermitidasSalida(actor), [actor]);
+
   // Candidatos de un producto: todos sus almacenes con stock, con su sede y costo.
+  // Bajo restricción, solo se consideran los almacenes de la(s) sede(s) permitida(s).
   const candidatosDe = (productoId: string): CandidatoAlmacen[] =>
     existencias
       .filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0)
-      .map((e) => ({ almacen: e.almacen, sede: sedePorAlmacen.get(e.almacen) ?? null, stock: Number(e.stock) || 0, costo: Number(e.costo_promedio) || 0 }));
+      .map((e) => ({ almacen: e.almacen, sede: sedePorAlmacen.get(e.almacen) ?? null, stock: Number(e.stock) || 0, costo: Number(e.costo_promedio) || 0 }))
+      .filter((c) => almacenPermitidoSalida(c.sede, sedesPermitidas));
 
   // Varias líneas de producto (como una OC). Cada una: producto + cantidad. El/los almacén(es) se resuelven por prioridad.
   const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', precio: '', almacen: '' }]);
@@ -191,6 +198,14 @@ export function SalidaMaterialForm({
         items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: t.cantidad, precio_unit: precioEditado ?? t.costo ?? null, unidad: p?.unidad ?? null, almacen: t.almacen, observacion: null });
       }
     }
+    // Guarda de seguridad: bajo restricción, ningún ítem puede salir de una sede no permitida.
+    if (sedesPermitidas) {
+      const invalido = items.find((it) => !almacenPermitidoSalida(sedePorAlmacen.get(it.almacen ?? '') ?? null, sedesPermitidas));
+      if (invalido) {
+        setError(`Solo podés hacer salidas de: ${sedesPermitidas.join(', ')}. Revisá el almacén de "${invalido.producto_nombre}".`);
+        return;
+      }
+    }
     setSaving(true);
     try {
       await crearSolicitudSalida({
@@ -234,6 +249,12 @@ export function SalidaMaterialForm({
     <Modal title="Nueva solicitud de salida de material" size="lg" onClose={onClose} footer={footer}>
       <form id="salida-mat-form" onSubmit={handleSubmit} onKeyDown={enterAvanzaCampo({ enviando: saving })}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {sedesPermitidas && (
+          <div className="card" style={{ padding: '.5rem .8rem', margin: '0 0 .8rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)' }}>
+            <span style={{ fontSize: '.82rem' }}>🔒 Estás limitado a sacar material de <strong>{sedesPermitidas.join(', ')}</strong>. Solo aparecen los almacenes de {sedesPermitidas.length > 1 ? 'esas sedes' : 'esa sede'}.</span>
+          </div>
+        )}
 
         {/* 0) ¿Es para un CLIENTE? — visible desde el inicio. Genera cuenta por cobrar. */}
         <div className="card" style={{ padding: '.6rem .85rem', margin: '0 0 .8rem', borderLeft: '3px solid var(--warning)' }}>
