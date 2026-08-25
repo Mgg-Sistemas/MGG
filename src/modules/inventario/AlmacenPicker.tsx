@@ -74,7 +74,7 @@ export function AlmacenSelectAgrupado({
  * `value` es un almacén legado que no está en la tabla, se acepta igual.
  */
 export function AlmacenPicker({
-  value, onChange, almacenes: provided, label = 'Almacén', sedeLabel = 'Sede', required, disabled, extraOpciones, preferirPrincipal, excluirCasiterita,
+  value, onChange, almacenes: provided, label = 'Almacén', sedeLabel = 'Sede', required, disabled, extraOpciones, preferirPrincipal, excluirCasiterita, soloSedes,
 }: {
   value: string;
   onChange: (nombre: string) => void;
@@ -92,6 +92,9 @@ export function AlmacenPicker({
    *  Se usa en la recepción de compras: la mercancía comprada va a Matanza / almacenes
    *  normales, NUNCA a casiterita (ese inventario entra por su propio flujo, Los Pinos). */
   excluirCasiterita?: boolean;
+  /** Limita el selector a estas sedes (por usuario/correo). Solo se muestran esas
+   *  sedes y sus almacenes; el usuario no puede recibir/elegir en otra sede. */
+  soloSedes?: string[];
 }) {
   const [rows, setRows] = useState<Almacen[]>(provided ?? []);
   useEffect(() => {
@@ -102,9 +105,11 @@ export function AlmacenPicker({
   }, [provided]);
 
   const activos = useMemo(() => {
-    const base = rows.filter((a) => a.estado === 'activo');
-    return excluirCasiterita ? base.filter((a) => !/casiterita/i.test(a.nombre)) : base;
-  }, [rows, excluirCasiterita]);
+    let base = rows.filter((a) => a.estado === 'activo');
+    if (excluirCasiterita) base = base.filter((a) => !/casiterita/i.test(a.nombre));
+    if (soloSedes && soloSedes.length) base = base.filter((a) => soloSedes.includes(a.sede?.trim() || SIN_SEDE));
+    return base;
+  }, [rows, excluirCasiterita, soloSedes]);
   const extras = extraOpciones ?? [];
 
   const sedes = useMemo(() => {

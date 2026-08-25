@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
@@ -8,6 +8,7 @@ import { date, money, num } from '@/shared/lib/format';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
 import { recibirCompraDirecta, anularCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { AlmacenPicker } from './AlmacenPicker';
+import { destinoRecepcionPorUsuario } from '@/modules/salidas/restriccionAlmacen';
 import type { Almacen, Orden } from '@/shared/lib/types';
 
 /** Sede a la que pertenece un almacén (por su nombre). Si no se encuentra, devuelve
@@ -223,8 +224,10 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
   onClose: () => void; onSaved: () => void;
 }) {
   const items = compra.items ?? [];
-  // Almacén destino (Sede → Almacén): se precarga el sugerido de la compra.
-  const [almacenFinal, setAlmacenFinal] = useState(compra.almacen ?? '');
+  // Restricción por usuario (correo): recibe directo a su sede/almacén (Isner→Los Pinos, Kelvin→Matanzas).
+  const restr = useMemo(() => destinoRecepcionPorUsuario(actor, almacenes), [actor, almacenes]);
+  // Almacén destino (Sede → Almacén): con restricción, el almacén del usuario; si no, el sugerido de la compra.
+  const [almacenFinal, setAlmacenFinal] = useState(restr?.almacen ?? compra.almacen ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -265,8 +268,10 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
         </div>
 
         {/* Asignación de almacén: Sede → Almacén (subalmacén). Por defecto el general de la sede.
-            excluirCasiterita: una compra directa nunca entra a un almacén de casiterita. */}
-        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita />
+            excluirCasiterita: una compra directa nunca entra a un almacén de casiterita.
+            soloSedes: si el usuario está limitado por correo, recibe directo a su sede. */}
+        {restr && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>🔒 Recibís directo a tu sede: <strong>{restr.sedes.join(', ')}</strong>.</p>}
+        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita soloSedes={restr?.sedes} />
         {almacenFinal && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .75rem' }}>Los materiales entrarán a: <strong>📦 {almacenFinal}</strong></p>}
 
         {/* Detalle de la compra: materiales, cantidad y costo unitario */}
@@ -302,8 +307,10 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
 }) {
   const items = Array.isArray(orden.items) ? orden.items : [];
 
-  // Almacén destino (se elige por Sede → Almacén).
-  const [almacenFinal, setAlmacenFinal] = useState('');
+  // Restricción por usuario (correo): recibe directo a su sede/almacén (Isner→Los Pinos, Kelvin→Matanzas).
+  const restr = useMemo(() => destinoRecepcionPorUsuario(actor, almacenes), [actor, almacenes]);
+  // Almacén destino (se elige por Sede → Almacén). Con restricción, arranca en el almacén del usuario.
+  const [almacenFinal, setAlmacenFinal] = useState(restr?.almacen ?? '');
   // Cantidad recibida por ítem (por defecto, lo pedido).
   const [recibidas, setRecibidas] = useState<Record<string, string>>(
     () => Object.fromEntries(items.map((it) => [it.sku, String(it.cantidad ?? 0)])),
@@ -351,8 +358,10 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
 
         {/* Asignación de almacén: Sede → Almacén. Por defecto el general de la sede.
             excluirCasiterita: la mercancía comprada NO puede ir a un almacén de casiterita
-            (ese inventario entra por su propio flujo, directo a Los Pinos). */}
-        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita />
+            (ese inventario entra por su propio flujo, directo a Los Pinos).
+            soloSedes: si el usuario está limitado por correo, recibe directo a su sede. */}
+        {restr && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>🔒 Recibís directo a tu sede: <strong>{restr.sedes.join(', ')}</strong>.</p>}
+        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita soloSedes={restr?.sedes} />
         {almacenFinal && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .75rem' }}>La mercancía entrará a: <strong>📦 {almacenFinal}</strong></p>}
 
         {/* Cantidades recibidas por ítem */}
