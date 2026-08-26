@@ -22,7 +22,7 @@ function useAlmacenes(provided?: Almacen[]): Almacen[] {
  * entra. Opcionalmente agrega una opción "Todos" (filtros) y nombres legados.
  */
 export function AlmacenSelectAgrupado({
-  value, onChange, almacenes: provided, todosLabel, extraNombres, style, required, disabled, className,
+  value, onChange, almacenes: provided, todosLabel, extraNombres, style, required, disabled, className, soloSedes,
 }: {
   value: string;
   onChange: (nombre: string) => void;
@@ -33,9 +33,15 @@ export function AlmacenSelectAgrupado({
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  /** Si se pasa, limita las opciones a los almacenes de ESAS sedes (evita saltar a otra sede). */
+  soloSedes?: string[];
 }) {
   const rows = useAlmacenes(provided);
-  const activos = useMemo(() => rows.filter((a) => a.estado === 'activo'), [rows]);
+  const activos = useMemo(() => {
+    const base = rows.filter((a) => a.estado === 'activo');
+    if (soloSedes && soloSedes.length) return base.filter((a) => soloSedes.includes(a.sede?.trim() || SIN_SEDE));
+    return base;
+  }, [rows, soloSedes]);
   const porSede = useMemo(() => {
     const m = new Map<string, Almacen[]>();
     activos.forEach((a) => {

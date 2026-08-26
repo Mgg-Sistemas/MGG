@@ -1145,6 +1145,9 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
           /* En un centro/scope (lista normal): arranca en el almacén del scope, no en "General". */
           defaultAlmacen={defaultAlmacenCrear}
+          /* Parado en una sede/centro: el selector se limita a ESA sede (Matanza→Matanza,
+             La Esperanza→La Esperanza…), así el producto no salta por error a otra sede. */
+          soloSede={sedeScope}
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={handleCreateOrUpdate}
         />

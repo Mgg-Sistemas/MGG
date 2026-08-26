@@ -29,6 +29,10 @@ interface ProductoFormProps {
   /** Almacén por defecto al crear (según el centro/scope actual): siembra el picker
    *  pero SÍ se puede cambiar. Evita que el producto caiga en el "General" invisible. */
   defaultAlmacen?: string | null;
+  /** Si se crea parado en una sede/centro, limita el selector de almacén a ESA sede.
+   *  Así "si estoy en Matanza se registra en Matanza, en La Esperanza en La Esperanza",
+   *  y no se puede saltar por error a otra sede con nombre parecido. */
+  soloSede?: string | null;
   onClose: () => void;
   onSubmit: (data: ProductoInput) => Promise<void>;
 }
@@ -105,7 +109,7 @@ function initialState(p: Producto | null, cats: string[], unids: string[], fixed
   };
 }
 
-export function ProductoForm({ producto, productos = [], espacio = 'principal', fixedAlmacen, defaultAlmacen, onClose, onSubmit }: ProductoFormProps) {
+export function ProductoForm({ producto, productos = [], espacio = 'principal', fixedAlmacen, defaultAlmacen, soloSede, onClose, onSubmit }: ProductoFormProps) {
   const isEdit = !!producto;
   // Ubicación fija: solo al CREAR desde dentro de un almacén concreto.
   const ubicacionFija = !isEdit && !!(fixedAlmacen && fixedAlmacen.trim());
@@ -471,11 +475,17 @@ export function ProductoForm({ producto, productos = [], espacio = 'principal', 
           </div>
         ) : (
           <div className="form-row">
-            <label>Almacén</label>
-            <AlmacenSelectAgrupado value={form.almacen} onChange={(v) => update('almacen', v)} almacenes={almacenesObj} required />
+            <label>Almacén{soloSede ? ` · ${soloSede}` : ''}</label>
+            <AlmacenSelectAgrupado
+              value={form.almacen}
+              onChange={(v) => update('almacen', v)}
+              almacenes={almacenesObj}
+              soloSedes={soloSede ? [soloSede] : undefined}
+              required
+            />
             {!isEdit && (form.almacen ? (
               <div className="card" style={{ marginTop: '.5rem', padding: '.5rem .75rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)' }}>
-                <span style={{ fontSize: '.84rem' }}>📦 Se creará en: <strong>{form.almacen}</strong>. Verificá que sea el almacén correcto.</span>
+                <span style={{ fontSize: '.84rem' }}>📦 Se creará en: <strong>{form.almacen}</strong>{soloSede ? <> ({soloSede})</> : null}. Verificá que sea el almacén correcto.</span>
               </div>
             ) : (
               <div className="card" style={{ marginTop: '.5rem', padding: '.5rem .75rem', borderLeft: '3px solid var(--danger)', background: 'var(--bg-1)' }}>
