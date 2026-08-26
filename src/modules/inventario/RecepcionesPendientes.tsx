@@ -11,6 +11,11 @@ import { AlmacenPicker } from './AlmacenPicker';
 import { destinoRecepcionPorUsuario } from '@/modules/salidas/restriccionAlmacen';
 import type { Almacen, Orden } from '@/shared/lib/types';
 
+/** La recepción de COMPRAS solo entra a Matanza o Los Pinos. Los centros de acopio
+ *  (La Esperanza, etc.) NO reciben compras: su mercancía entra por Traslados/acopio.
+ *  (Usuarios casados por correo ya vienen con su sede; esto es el tope para el resto.) */
+const SEDES_RECEPCION = ['CENTRO DE FUNDICION - MATANZAS', 'LOS PINOS'];
+
 /** Sede a la que pertenece un almacén (por su nombre). Si no se encuentra, devuelve
  *  el propio nombre como respaldo. Se usa para mostrar la SEDE en vez del almacén. */
 function sedeDeAlmacen(nombre: string | null | undefined, almacenes: Almacen[]): string {
@@ -271,7 +276,7 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
             excluirCasiterita: una compra directa nunca entra a un almacén de casiterita.
             soloSedes: si el usuario está limitado por correo, recibe directo a su sede. */}
         {restr && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>🔒 Recibís directo a tu sede: <strong>{restr.sedes.join(', ')}</strong>.</p>}
-        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita soloSedes={restr?.sedes} />
+        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita soloSedes={restr?.sedes ?? SEDES_RECEPCION} />
         {almacenFinal && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .75rem' }}>Los materiales entrarán a: <strong>📦 {almacenFinal}</strong></p>}
 
         {/* Detalle de la compra: materiales, cantidad y costo unitario */}
@@ -361,7 +366,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
             (ese inventario entra por su propio flujo, directo a Los Pinos).
             soloSedes: si el usuario está limitado por correo, recibe directo a su sede. */}
         {restr && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>🔒 Recibís directo a tu sede: <strong>{restr.sedes.join(', ')}</strong>.</p>}
-        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita soloSedes={restr?.sedes} />
+        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita soloSedes={restr?.sedes ?? SEDES_RECEPCION} />
         {almacenFinal && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .75rem' }}>La mercancía entrará a: <strong>📦 {almacenFinal}</strong></p>}
 
         {/* Cantidades recibidas por ítem */}

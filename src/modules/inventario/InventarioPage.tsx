@@ -398,15 +398,24 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   // Sede que "scopea" el inventario. Inventario principal = Matanzas; cada centro del
   // submenú = su propia sede; el Depósito conserva su espacio aparte (sin scope de sede).
   const sedeScope = centroMode ? centroSede : (esDeposito ? null : 'CENTRO DE FUNDICION - MATANZAS');
+  // Solo Matanza y Los Pinos segmentan por subalmacén (casiterita, estaño en bruto/refinado).
+  // El resto de los centros (acopio: La Esperanza, El Burro, Pijiguaos, Parguaza) muestran
+  // TODOS sus productos juntos en una sola lista (sin separar por subalmacén): al estar en
+  // ese centro se ve TODO su inventario.
+  const segmentaSubalmacenes = sedeScope === 'CENTRO DE FUNDICION - MATANZAS' || sedeScope === 'LOS PINOS';
   const almacenesDeScope = useMemo(() => {
     if (!sedeScope) return null;
     const alms = almacenes.filter((a) => (a.sede?.trim() || '') === sedeScope);
+    // Centro de acopio: sin segmentación → todos los almacenes van a "resto" (una vista con todo).
+    if (!segmentaSubalmacenes) {
+      return { cas: [], bruto: [], refinado: [], resto: alms.map((a) => a.nombre) };
+    }
     // Clasifica el almacén por su nombre: casiterita, estaño refinado, estaño en bruto, o el resto (general).
     const clase = (n: string): 'cas' | 'refinado' | 'bruto' | 'resto' =>
       /casiterita/i.test(n) ? 'cas' : /refinad/i.test(n) ? 'refinado' : /bruto/i.test(n) ? 'bruto' : 'resto';
     const nombres = (c: 'cas' | 'refinado' | 'bruto' | 'resto') => alms.filter((a) => clase(a.nombre) === c).map((a) => a.nombre);
     return { cas: nombres('cas'), bruto: nombres('bruto'), refinado: nombres('refinado'), resto: nombres('resto') };
-  }, [sedeScope, almacenes]);
+  }, [sedeScope, almacenes, segmentaSubalmacenes]);
   // Lista de almacenes que corresponde a la sub-vista actual.
   const almsDeSubvista = (sv: typeof subVista, s: NonNullable<typeof almacenesDeScope>) =>
     sv === 'casiterita' ? s.cas : sv === 'bruto' ? s.bruto : sv === 'refinado' ? s.refinado : s.resto;
