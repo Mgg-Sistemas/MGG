@@ -136,6 +136,12 @@ export function ProductoForm({ producto, productos = [], espacio = 'principal', 
     () => (ubicacionFija ? (almacenesObj.find((a) => a.nombre === fixedAlmacen)?.sede?.trim() || '') : ''),
     [ubicacionFija, almacenesObj, fixedAlmacen],
   );
+  // Sede del almacén elegido en el picker (para AVISAR dónde se va a crear el producto
+  // y evitar cargarlo en la sede equivocada sin darse cuenta, p.ej. Matanza en vez de La Esperanza).
+  const sedeDelAlmacenSel = useMemo(
+    () => almacenesObj.find((a) => a.nombre === form.almacen)?.sede?.trim() || '',
+    [almacenesObj, form.almacen],
+  );
   const [nuevaCat, setNuevaCat] = useState('');
   const [nuevaUnid, setNuevaUnid] = useState('');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
@@ -472,6 +478,15 @@ export function ProductoForm({ producto, productos = [], espacio = 'principal', 
         ) : (
           <div className="form-row">
             <AlmacenPicker value={form.almacen} onChange={(v) => update('almacen', v)} almacenes={almacenesObj} />
+            {!isEdit && (form.almacen ? (
+              <div className="card" style={{ marginTop: '.5rem', padding: '.5rem .75rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)' }}>
+                <span style={{ fontSize: '.84rem' }}>📦 Se creará en: <strong>🏭 {sedeDelAlmacenSel || 'sin sede'} · {form.almacen}</strong>. Verificá que sea el almacén y la sede correctos.</span>
+              </div>
+            ) : (
+              <div className="card" style={{ marginTop: '.5rem', padding: '.5rem .75rem', borderLeft: '3px solid var(--danger)', background: 'var(--bg-1)' }}>
+                <span style={{ fontSize: '.84rem' }}>⚠️ Elegí la <strong>sede</strong> y el <strong>almacén</strong> donde se crea el producto.</span>
+              </div>
+            ))}
             <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
               <input
                 className="input"
