@@ -5,7 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { mismaTaxonomia } from '@/shared/lib/taxonomias';
 import type { Almacen, Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
-import { AlmacenPicker } from './AlmacenPicker';
+import { AlmacenSelectAgrupado } from './AlmacenPicker';
 import {
   addCategoria,
   addUnidad,
@@ -135,12 +135,6 @@ export function ProductoForm({ producto, productos = [], espacio = 'principal', 
   const sedeFija = useMemo(
     () => (ubicacionFija ? (almacenesObj.find((a) => a.nombre === fixedAlmacen)?.sede?.trim() || '') : ''),
     [ubicacionFija, almacenesObj, fixedAlmacen],
-  );
-  // Sede del almacén elegido en el picker (para AVISAR dónde se va a crear el producto
-  // y evitar cargarlo en la sede equivocada sin darse cuenta, p.ej. Matanza en vez de La Esperanza).
-  const sedeDelAlmacenSel = useMemo(
-    () => almacenesObj.find((a) => a.nombre === form.almacen)?.sede?.trim() || '',
-    [almacenesObj, form.almacen],
   );
   const [nuevaCat, setNuevaCat] = useState('');
   const [nuevaUnid, setNuevaUnid] = useState('');
@@ -477,14 +471,15 @@ export function ProductoForm({ producto, productos = [], espacio = 'principal', 
           </div>
         ) : (
           <div className="form-row">
-            <AlmacenPicker value={form.almacen} onChange={(v) => update('almacen', v)} almacenes={almacenesObj} />
+            <label>Almacén</label>
+            <AlmacenSelectAgrupado value={form.almacen} onChange={(v) => update('almacen', v)} almacenes={almacenesObj} required />
             {!isEdit && (form.almacen ? (
               <div className="card" style={{ marginTop: '.5rem', padding: '.5rem .75rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)' }}>
-                <span style={{ fontSize: '.84rem' }}>📦 Se creará en: <strong>🏭 {sedeDelAlmacenSel || 'sin sede'} · {form.almacen}</strong>. Verificá que sea el almacén y la sede correctos.</span>
+                <span style={{ fontSize: '.84rem' }}>📦 Se creará en: <strong>{form.almacen}</strong>. Verificá que sea el almacén correcto.</span>
               </div>
             ) : (
               <div className="card" style={{ marginTop: '.5rem', padding: '.5rem .75rem', borderLeft: '3px solid var(--danger)', background: 'var(--bg-1)' }}>
-                <span style={{ fontSize: '.84rem' }}>⚠️ Elegí la <strong>sede</strong> y el <strong>almacén</strong> donde se crea el producto.</span>
+                <span style={{ fontSize: '.84rem' }}>⚠️ Elegí el <strong>almacén</strong> donde se crea el producto.</span>
               </div>
             ))}
             <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
