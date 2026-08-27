@@ -7,6 +7,7 @@ import { listOfertasByOrden } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas } from './score';
 import { asignarProveedoresAOrden, listSubOcs, type AsignacionProveedor } from './pedidos.repository';
+import { recortarOfertaAHija } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 
 /**
@@ -80,23 +81,9 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     return val > 0 ? val : null;
   }, [ofertaDe]);
   const precioDe = (provId: string, sku: string): number | null => precioEnMoneda(provId, sku, monedaDe(provId));
-  // IVA/IGTF (montos) de una oferta, PRORRATEADOS por la fracción que compra esta hija
-  // (gross asignado / gross total de la oferta). Así una sub-OC que toma solo parte de
-  // los ítems del proveedor recibe la parte proporcional del impuesto, no el total.
-  const impuestosDe = useCallback((provId: string, grossAsignado: number): { iva: number; igtf: number } => {
-    // Directo en divisa: el precio USD es el monto final, sin IVA/IGTF en Bs.
-    if (monedaDe(provId) === 'usd') return { iva: 0, igtf: 0 };
-    const o = ofertaDe.get(provId);
-    const ivaOf = Number(o?.iva) || 0;
-    const igtfOf = Number(o?.igtf) || 0;
-    if (ivaOf <= 0 && igtfOf <= 0) return { iva: 0, igtf: 0 };
-    const grossOferta = Number(o?.precio_total) || (o?.items ?? []).reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
-    const frac = grossOferta > 0 ? Math.min(1, grossAsignado / grossOferta) : 1;
-    return {
-      iva: Math.round(ivaOf * frac * 100) / 100,
-      igtf: Math.round(igtfOf * frac * 100) / 100,
-    };
-  }, [ofertaDe, monedaDe]);
+  // El prorrateo de IVA/IGTF/descuento/efectivo por la fracción que compra cada hija vive
+  // en recortarOfertaAHija (subOc.ts): una sola regla para el preview, la creación de la
+  // sub-OC y su re-sincronización.
   // Ítems ya asignados a una sub-OC previa (bloqueados): sku → proveedor_id.
   const bloqueado = useMemo(() => {
     const m = new Map<string, string>();
@@ -131,14 +118,31 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
       cur.total += (Number(it.cantidad) || 0) * precio;
       m.set(prov, cur);
     }
-    // Prorratea IVA/IGTF de cada oferta por lo asignado (para que el preview iguale a la OC creada).
+    // Prorratea IVA/IGTF (y descuento/efectivo) de cada oferta por lo asignado, con la MISMA
+    // regla con la que se crea la sub-OC (recortarOfertaAHija): así el preview iguala a la OC.
     for (const [prov, r] of m) {
-      const imp = impuestosDe(prov, r.total);
-      r.iva = imp.iva; r.igtf = imp.igtf;
+      const of = ofertaDe.get(prov);
+      const enDivisa = monedaDe(prov) === 'usd';
+      const rec = recortarOfertaAHija(
+        {
+          items: of?.items ?? [],
+          precio_total: Number(of?.precio_total) || 0,
+          precio_efectivo: enDivisa ? null : of?.precio_efectivo,
+          descuento: enDivisa ? null : of?.descuento,
+          iva: enDivisa ? null : of?.iva,
+          igtf: enDivisa ? null : of?.igtf,
+        },
+        opItems.filter((it) => asignado[it.sku] === prov).map((it) => it.sku),
+      );
+      r.iva = rec.iva ?? 0;
+      r.igtf = rec.igtf ?? 0;
+      // Efectivo (si es menor que el BCV asignado) reemplaza el subtotal; el descuento lo reduce.
+      const base = rec.precio_efectivo != null && rec.precio_efectivo < r.total ? rec.precio_efectivo : r.total;
+      r.total = Math.max(0, base - (rec.descuento ?? 0));
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asignado, opItems, ofertaDe, impuestosDe, monedaSel]);
+  }, [asignado, opItems, ofertaDe, monedaDe, monedaSel]);
 
   const sinAsignar = opItems.filter((it) => !asignado[it.sku] && !bloqueado.has(it.sku));
   const nuevos = Object.keys(asignado).length;
@@ -160,16 +164,29 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     const asignaciones: AsignacionProveedor[] = Array.from(porProv.entries()).map(([proveedorId, items]) => {
       const of = ofertaDe.get(proveedorId);
       const enDivisa = monedaDe(proveedorId) === 'usd';
-      const gross = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
-      const imp = impuestosDe(proveedorId, gross);
+      // La hija toma SOLO su parte de la oferta: IVA/IGTF/descuento/efectivo prorrateados por
+      // la fracción que representa (misma regla que recortarOfertaAHija en el repositorio,
+      // así lo que muestra el preview es lo que queda guardado). Directo en divisa: el precio
+      // USD ya es el final; sin IVA/IGTF ni descuento efectivo (son en Bs).
+      const rec = recortarOfertaAHija(
+        {
+          items: of?.items ?? [],
+          precio_total: Number(of?.precio_total) || 0,
+          precio_efectivo: enDivisa ? null : of?.precio_efectivo,
+          descuento: enDivisa ? null : of?.descuento,
+          iva: enDivisa ? null : of?.iva,
+          igtf: enDivisa ? null : of?.igtf,
+        },
+        items.map((i) => i.sku),
+      );
       return {
         proveedorId, items,
         condiciones_pago: of?.condiciones_pago ?? null,
         oferta_detalle: of?.detalle ?? null,
-        // Directo en divisa: el precio USD ya es el final; no se aplica el descuento efectivo (Bs).
-        oferta_precio_efectivo: enDivisa ? null : (of?.precio_efectivo ?? null),
-        iva: imp.iva > 0 ? imp.iva : null,
-        igtf: imp.igtf > 0 ? imp.igtf : null,
+        oferta_precio_efectivo: rec.precio_efectivo,
+        descuento: rec.descuento,
+        iva: rec.iva,
+        igtf: rec.igtf,
       };
     });
     setSaving(true);
