@@ -3178,7 +3178,10 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 
   const subtotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
   const descuentoObt = Math.max(0, Math.round((Number(descuentoStr) || 0) * 100) / 100);
-  const total = Math.round(Math.max(0, subtotal - descuentoObt) * 100) / 100;
+  // Mismo cálculo que actualizarOc(): el IVA/IGTF de la OC se conservan al editar.
+  const ivaOc = Math.max(0, Number(orden.iva) || 0);
+  const igtfOc = Math.max(0, Number(orden.igtf) || 0);
+  const total = Math.round((Math.max(0, subtotal - descuentoObt) + ivaOc + igtfOc) * 100) / 100;
   const upd = (idx: number, patch: Partial<ItemOrden>) =>
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
   const quitarItem = (idx: number) => setItems((prev) => prev.filter((_, k) => k !== idx));
@@ -3251,6 +3254,8 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
             {descuentoObt > 0 && (
               <>
                 <tr><td colSpan={3} style={{ textAlign: 'right' }}>Subtotal</td><td className="mono" style={{ textAlign: 'right' }}>{money(subtotal)}</td><td></td></tr>
+                {ivaOc > 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>IVA</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(ivaOc)}</td><td></td></tr>}
+                {igtfOc > 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>IGTF</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(igtfOc)}</td><td></td></tr>}
                 <tr><td colSpan={3} style={{ textAlign: 'right', color: 'var(--success)' }}>Descuento obtenido</td><td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>− {money(descuentoObt)}</td><td></td></tr>
               </>
             )}
