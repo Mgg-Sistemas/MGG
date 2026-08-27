@@ -3687,8 +3687,11 @@ begin
 end;
 $$;
 
--- La función es SECURITY DEFINER: que no sea invocable desde la API pública (anon).
-revoke execute on function public.sync_orden_total_desde_oferta() from anon;
+-- La función es SECURITY DEFINER: que no sea invocable desde la API pública. El EXECUTE
+-- de anon viene heredado del rol PUBLIC, así que se revoca ahí; los triggers siguen
+-- disparando (el privilegio se comprueba al crear el trigger, no al ejecutarlo).
+revoke execute on function public.sync_orden_total_desde_oferta() from public, anon;
+grant execute on function public.sync_orden_total_desde_oferta() to authenticated, service_role;
 
 drop trigger if exists trg_sync_orden_total on public.ofertas_proveedor;
 create trigger trg_sync_orden_total
