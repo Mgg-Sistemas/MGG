@@ -3,6 +3,7 @@ import { cachedQuery } from '@/shared/lib/queryCache';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
+import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
 import type {
   AbonoCredito,
   CuentaCaja,
@@ -517,13 +518,30 @@ export async function resincronizarOcDesdeOferta(
     descuento: number | null;
     iva: number | null;
     igtf: number | null;
+    /** Proveedor de la oferta: en una hija solo se re-sincroniza la de su propio proveedor. */
+    proveedor_id?: string | null;
   },
 ): Promise<Orden | null> {
   if (orden.estado !== 'oc_creada') return null;
+  // Hija: la oferta editada es la de la MADRE (cotiza todos los ítems); esta sub-OC solo
+  // toma sus SKUs y la parte proporcional de impuestos/descuento/efectivo. Y solo si la
+  // oferta es la de SU proveedor: desde una hija se pueden editar las ofertas de los otros
+  // proveedores de la madre, y esas pertenecen a otras hijas.
+  if (orden.parent_orden_id && oferta.proveedor_id && orden.proveedor_id && oferta.proveedor_id !== orden.proveedor_id) return null;
+  const ofBase = orden.parent_orden_id
+    ? recortarOfertaAHija(oferta, orden.items.map((it) => it.sku))
+    : oferta;
+  if (orden.parent_orden_id) {
+    const faltan = skusSinCotizar(orden.items, ofBase.items);
+    if (faltan.length) {
+      const nombres = faltan.map((sku) => orden.items.find((it) => it.sku === sku)?.nombre ?? sku);
+      throw new Error(`La oferta ya no cotiza ${nombres.join(', ')}: la sub-OC ${orden.codigo} no se re-sincronizó.`);
+    }
+  }
   // Se conserva la finalidad/área/comprar que puso el solicitante (por SKU), igual
   // que al crear la OC. Solo entran los ítems a comprar con precio > 0.
   const origBySku = new Map(orden.items.map((it) => [it.sku, it]));
-  const itemsConContexto = oferta.items
+  const itemsConContexto = ofBase.items
     .map((of) => {
       const orig = origBySku.get(of.sku);
       return orig
@@ -532,12 +550,12 @@ export async function resincronizarOcDesdeOferta(
     })
     .filter((it) => it.comprar !== false && (Number(it.precio) || 0) > 0);
   if (!itemsConContexto.length) return null;
-  const efectivoOf = oferta.precio_efectivo != null ? Number(oferta.precio_efectivo) : null;
-  const descObt = oferta.descuento != null ? Math.max(0, Math.round(Number(oferta.descuento) * 100) / 100) : 0;
-  const ivaOf = oferta.iva != null ? Math.max(0, Math.round(Number(oferta.iva) * 100) / 100) : 0;
-  const igtfOf = oferta.igtf != null ? Math.max(0, Math.round(Number(oferta.igtf) * 100) / 100) : 0;
+  const efectivoOf = ofBase.precio_efectivo != null ? Number(ofBase.precio_efectivo) : null;
+  const descObt = ofBase.descuento != null ? Math.max(0, Math.round(Number(ofBase.descuento) * 100) / 100) : 0;
+  const ivaOf = ofBase.iva != null ? Math.max(0, Math.round(Number(ofBase.iva) * 100) / 100) : 0;
+  const igtfOf = ofBase.igtf != null ? Math.max(0, Math.round(Number(ofBase.igtf) * 100) / 100) : 0;
   const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
-  const subtotalOc = repEf ? repEf.total : Math.round((Number(oferta.precio_total) || 0) * 100) / 100;
+  const subtotalOc = repEf ? repEf.total : Math.round((Number(ofBase.precio_total) || 0) * 100) / 100;
   const totalOc = Math.round((Math.max(0, subtotalOc - descObt) + ivaOf + igtfOf) * 100) / 100;
   const patch = {
     items: repEf ? repEf.items : itemsConContexto,
@@ -580,9 +598,11 @@ export async function aprobarOrdenConOferta(
   // Copiamos las condiciones de pago de la oferta elegida a la orden.
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
+  // En una sub-OC (hija) las ofertas viven en la orden MADRE.
+  const esHija = !!o.parent_orden_id;
   const { data: ofRow } = await supabase
     .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo, descuento, iva, igtf')
-    .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
+    .eq('orden_id', o.parent_orden_id ?? o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -601,8 +621,51 @@ export async function aprobarOrdenConOferta(
   const totalBase = soloUsd
     ? Math.round(itemsBase.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0) * 100) / 100
     : ofertaPrecioTotal;
-  const origBySku = new Map(o.items.map((it) => [it.sku, it]));
-  const itemsConContexto = itemsBase.map((of) => {
+  // Hija: la oferta cotiza TODOS los ítems de la madre, pero esta sub-OC compra solo una
+  // parte → se recorta y se prorratean impuestos/descuento/efectivo. Sin este recorte la
+  // hija heredaba los 4 ítems y el total completo de la oferta (caso SP-2026-0116-1).
+  // Qué parte puede tomar: sus propios SKUs más los de la madre que ninguna otra hija VIVA
+  // cubra (si se canceló una hermana, sus productos quedan libres y esta hija puede
+  // absorberlos con esta oferta; nunca lo que otra hija ya compra).
+  let itemsMadre: ItemOrden[] = [];
+  let skusPermitidos = o.items.map((it) => it.sku);
+  if (esHija) {
+    const [madre, hermanas] = await Promise.all([getOrdenById(o.parent_orden_id!), listSubOcs(o.parent_orden_id!)]);
+    itemsMadre = (madre?.items ?? []).filter((it) => it.comprar !== false);
+    const cubiertos = new Set<string>();
+    for (const h of hermanas) {
+      if (h.id === o.id || ['cancelada', 'anulada'].includes(h.estado)) continue;
+      for (const it of h.items ?? []) cubiertos.add(it.sku);
+    }
+    skusPermitidos = skusAbsorbiblesPorHija(skusPermitidos, itemsMadre.map((it) => it.sku), cubiertos);
+  }
+  const recorte = esHija
+    ? recortarOfertaAHija(
+        { items: itemsBase, precio_total: totalBase, precio_efectivo: ofRow?.precio_efectivo, descuento: ofRow?.descuento, iva: ofRow?.iva, igtf: ofRow?.igtf },
+        skusPermitidos,
+      )
+    : null;
+  if (recorte) {
+    // Una oferta que no cotiza (o cotiza en $0) alguno de los ítems PROPIOS de la hija NO
+    // sirve para esta hija: si se dejara pasar, ese ítem desaparecería de la sub-OC en
+    // silencio y la madre lo seguiría dando por cubierto. (Los absorbidos son opcionales.)
+    const faltan = skusSinCotizar(o.items, recorte.items);
+    if (faltan.length) {
+      const nombres = faltan.map((sku) => o.items.find((it) => it.sku === sku)?.nombre ?? sku);
+      throw new Error(`Esta oferta no cotiza ${nombres.length === 1 ? 'el producto' : 'los productos'} ${nombres.join(', ')} de esta sub-OC. Elegí otra oferta o cargá esos precios primero.`);
+    }
+  }
+  // Los ítems absorbidos (de la hermana cancelada) solo entran si la oferta los cotiza con
+  // precio: uno en $0 dejaría un renglón sin costo que la madre daría por comprado.
+  const propios = new Set(o.items.map((it) => it.sku));
+  const itemsHija = recorte ? recorte.items.filter((it) => propios.has(it.sku) || (Number(it.precio) || 0) > 0) : itemsBase;
+  const subtotalBase = recorte ? recorte.precio_total : totalBase;
+  const impuestosBase = recorte
+    ? { precio_efectivo: recorte.precio_efectivo, descuento: recorte.descuento, iva: recorte.iva, igtf: recorte.igtf }
+    : { precio_efectivo: ofRow?.precio_efectivo ?? null, descuento: ofRow?.descuento ?? null, iva: ofRow?.iva ?? null, igtf: ofRow?.igtf ?? null };
+  // Finalidad/área/comprar por SKU: los de la hija, y para los absorbidos los de la madre.
+  const origBySku = new Map([...itemsMadre, ...o.items].map((it) => [it.sku, it]));
+  const itemsConContexto = itemsHija.map((of) => {
     const orig = origBySku.get(of.sku);
     return orig
       ? { ...of, finalidad: of.finalidad ?? orig.finalidad, area: of.area ?? orig.area, comprar: of.comprar ?? orig.comprar }
@@ -612,14 +675,14 @@ export async function aprobarOrdenConOferta(
   // los ítems se reprecian al efectivo y el total pasa a ser el efectivo (el BCV original
   // queda en oferta_precio_bcv para mostrar el ahorro). Así el inventario recibe el costo real.
   // En solo-USD el precio YA es la divisa: no hay "descuento por efectivo" que aplicar.
-  const efectivoOf = soloUsd ? null : (ofRow?.precio_efectivo != null ? Number(ofRow.precio_efectivo) : null);
+  const efectivoOf = soloUsd ? null : (impuestosBase.precio_efectivo != null ? Number(impuestosBase.precio_efectivo) : null);
   // Descuento OBTENIDO (negociado): reduce el total de la OC (la factura) sin re-preciar
   // los ítems → total = Σ ítems − descuento. Se arrastra a la OC para mostrarlo/editarlo.
-  const descObt = ofRow?.descuento != null ? Math.max(0, Math.round(Number(ofRow.descuento) * 100) / 100) : 0;
+  const descObt = impuestosBase.descuento != null ? Math.max(0, Math.round(Number(impuestosBase.descuento) * 100) / 100) : 0;
   // IVA / IGTF (montos) de la oferta: se SUMAN al total de la OC (ya vienen calculados
   // sobre la factura neta al cargar la oferta). Se arrastran a la OC para mostrarlos.
-  const ivaOf = ofRow?.iva != null ? Math.max(0, Math.round(Number(ofRow.iva) * 100) / 100) : 0;
-  const igtfOf = ofRow?.igtf != null ? Math.max(0, Math.round(Number(ofRow.igtf) * 100) / 100) : 0;
+  const ivaOf = impuestosBase.iva != null ? Math.max(0, Math.round(Number(impuestosBase.iva) * 100) / 100) : 0;
+  const igtfOf = impuestosBase.igtf != null ? Math.max(0, Math.round(Number(impuestosBase.igtf) * 100) / 100) : 0;
 
   // Productos en $0 (sin precio en la oferta) NO entran a la OC. Si quedan productos
   // con precio, se crea la OC solo con esos y la SP madre conserva los $0 en
@@ -629,9 +692,10 @@ export async function aprobarOrdenConOferta(
   if (!conPrecio.length) {
     throw new Error('No se puede crear la OC: todos los productos están en $0. Cargá al menos un precio antes de aceptar la oferta.');
   }
-  if (conPrecio.length < aComprar.length) {
+  if (!esHija && conPrecio.length < aComprar.length) {
     // Hay productos en $0 → se reparte: OC hija con los que SÍ tienen precio, y la SP
     // madre queda en "Pendiente (cargar ofertas)" con los productos sin precio.
+    // (Una hija nunca se vuelve a repartir: ya es el reparto.)
     await asignarProveedoresAOrden(o, [{
       proveedorId: ofertaProveedorId,
       items: conPrecio,
@@ -650,7 +714,7 @@ export async function aprobarOrdenConOferta(
   }
 
   const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
-  const subtotalOc = repEf ? repEf.total : totalBase;
+  const subtotalOc = repEf ? repEf.total : subtotalBase;
   // Total de la OC = (Σ ítems − descuento) + IVA + IGTF.
   const totalOc = Math.round((Math.max(0, subtotalOc - descObt) + ivaOf + igtfOf) * 100) / 100;
   const patch = {
@@ -674,7 +738,7 @@ export async function aprobarOrdenConOferta(
     oc_creada_en: nowIso,
     historial: appendHistorial(o, 'oc_creada', actorEmail, {
       proveedorId: ofertaProveedorId,
-      precio: totalBase,
+      precio: subtotalBase,
       score: scoreCalculado,
       oc_codigo: ocCodigo,
     }),
@@ -784,13 +848,26 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       oc_creada_en: nowIso,
       historial: [{ at: nowIso, evento: 'oc_creada', actor: actorEmail, oc_codigo: ocCodigo, proveedorId: a.proveedorId, precio: total, parent: op.codigo }],
     };
+    // Marca la oferta del proveedor como aceptada ANTES de crear la hija (sin descartar las
+    // demás: pueden cubrir lo que falta). Se resuelve UNA oferta concreta (la última
+    // pendiente de ese proveedor): si un proveedor tiene dos pendientes, aceptar ambas
+    // chocaría con el índice único (orden, proveedor). Si falla, no se creó nada; si ya
+    // estaba aceptada (reintento), no hay nada que marcar y se sigue.
+    // Antes este error se ignoraba: el índice único viejo (una sola oferta aceptada por
+    // orden) rechazaba al segundo proveedor y la oferta quedaba 'pendiente' en silencio.
+    const { data: ofPend, error: ofSelErr } = await supabase.from('ofertas_proveedor').select('id')
+      .eq('orden_id', op.id).eq('proveedor_id', a.proveedorId).eq('estado', 'pendiente')
+      .order('registrada_en', { ascending: false }).limit(1).maybeSingle();
+    if (ofSelErr) throw ofSelErr;
+    if (ofPend?.id) {
+      const { error: ofErr } = await supabase.from('ofertas_proveedor')
+        .update({ estado: 'aceptada', decidida_por_email: actorEmail, decidida_en: nowIso })
+        .eq('id', ofPend.id);
+      if (ofErr) throw new Error(`No se pudo marcar aceptada la oferta del proveedor (no se creó la sub-OC): ${ofErr.message}`);
+    }
     const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
     if (error) throw error;
     creadas.push(data as Orden);
-    // Marca la oferta del proveedor como aceptada (sin descartar las demás: pueden cubrir lo que falta).
-    await supabase.from('ofertas_proveedor')
-      .update({ estado: 'aceptada', decidida_por_email: actorEmail, decidida_en: nowIso })
-      .eq('orden_id', op.id).eq('proveedor_id', a.proveedorId).eq('estado', 'pendiente');
   }
 
   // ¿Quedó cubierto todo lo "a comprar"? → OP 'asignada'; si no, sigue 'aprobada'.
@@ -1819,12 +1896,20 @@ export async function reabrirOcAOfertas(
   if (o.estado !== 'oc_creada')
     throw new Error('Solo se modifica una OC pendiente de aprobación del gerente');
   // Reabrir todas las ofertas (la aceptada y las descartadas) para re-elegir.
-  const { error: reopenErr } = await supabase
-    .from('ofertas_proveedor')
-    .update({ estado: 'pendiente', motivo_descarte: null, decidida_por_email: null, decidida_en: null })
-    .eq('orden_id', o.id)
-    .in('estado', ['aceptada', 'descartada']);
-  if (reopenErr) throw reopenErr;
+  // En una sub-OC (hija) las ofertas viven en la MADRE: se reabre solo la de SU proveedor
+  // (las de los demás proveedores respaldan a las otras hijas). Antes se buscaban por el
+  // id de la hija, no había ninguna, y la oferta quedaba 'aceptada' para siempre.
+  // Una hija sin proveedor no tiene oferta que reabrir: no se toca ninguna de la madre.
+  if (!o.parent_orden_id || o.proveedor_id) {
+    let reopen = supabase
+      .from('ofertas_proveedor')
+      .update({ estado: 'pendiente', motivo_descarte: null, decidida_por_email: null, decidida_en: null })
+      .eq('orden_id', o.parent_orden_id ?? o.id)
+      .in('estado', ['aceptada', 'descartada']);
+    if (o.parent_orden_id && o.proveedor_id) reopen = reopen.eq('proveedor_id', o.proveedor_id);
+    const { error: reopenErr } = await reopen;
+    if (reopenErr) throw reopenErr;
+  }
   const patch = {
     estado: 'aprobada' as EstadoOrden,
     proveedor_id: null,

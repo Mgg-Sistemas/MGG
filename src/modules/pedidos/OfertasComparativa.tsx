@@ -14,6 +14,7 @@ import { urlAdjuntoOc, listSubOcs, getOrdenById } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
+import { skusSinCotizar } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { AceptarOfertaModal } from './AceptarOfertaModal';
 import type { ItemOrden } from '@/shared/lib/types';
@@ -55,6 +56,8 @@ export function OfertasComparativa({
   // Oferta aceptada → sub-OC creada por ese proveedor (cuántos ítems tomó + su código),
   // para mostrar "Aceptada · orden de N ítem(s)" en la comparativa.
   const [subOcPorProv, setSubOcPorProv] = useState<Map<string, { items: number; codigo: string }>>(new Map());
+  // Proveedores con otra sub-OC VIVA (para no dejar que una hija re-elija la oferta de un hermano).
+  const [provOcupados, setProvOcupados] = useState<Set<string>>(new Set());
 
   const toggleExpand = (id: string) => setExpandido((prev) => {
     const next = new Set(prev);
@@ -106,6 +109,13 @@ export function OfertasComparativa({
           });
         }
         setSubOcPorProv(subMap);
+        // Proveedores que YA tiene otra hija viva: una hija sin proveedor no puede re-elegir
+        // la oferta de esos (compraría dos veces lo mismo). Canceladas/anuladas no cuentan.
+        setProvOcupados(new Set(
+          hijas
+            .filter((h) => h.proveedor_id && h.id !== orden.id && !['cancelada', 'anulada'].includes(h.estado))
+            .map((h) => h.proveedor_id as string),
+        ));
         // Artículos de la OP madre que no quedaron en ninguna sub-OC = pendientes por asignar.
         setPendientesMadre(esHija && madre ? (madre.items ?? []).filter((it) => !locked.has(it.sku)) : []);
       })
@@ -177,6 +187,17 @@ export function OfertasComparativa({
           precio_total: montoFinal,
           precio_efectivo: efectivo,
         });
+      }
+      // Sub-OC (hija): la oferta tiene que cotizar TODOS sus productos propios. Se valida
+      // ANTES de aceptarla, porque aceptar ya descarta las demás ofertas de la madre y no
+      // habría forma de volver atrás si el repositorio rechazara la orden después.
+      if (orden.parent_orden_id) {
+        const faltan = skusSinCotizar(orden.items, itemsElegidos);
+        if (faltan.length) {
+          const nombres = faltan.map((sku) => orden.items.find((it) => it.sku === sku)?.nombre ?? sku);
+          toast(`Esta oferta no cotiza ${nombres.join(', ')}. Elegí otra oferta o cargá esos precios primero.`, 'error');
+          return;
+        }
       }
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
       await aprobarOrdenConOferta(
@@ -283,7 +304,11 @@ export function OfertasComparativa({
               const prov = proveedorMap.get(s.oferta.proveedor_id);
               const recomendada = s.recomendada && s.oferta.estado === 'pendiente';
               const aceptada = s.oferta.estado === 'aceptada';
-              const seleccionable = s.oferta.estado === 'pendiente' && puedeDecidir;
+              // Una hija SIN proveedor (reabierta) puede volver a elegir una oferta de la madre
+              // aunque ya figure 'aceptada', siempre que ningún hermana viva tenga ese proveedor.
+              // Sin esto, al reabrir una hija su propia oferta quedaba fuera de alcance.
+              const reelegible = esHija && !orden.proveedor_id && aceptada && !provOcupados.has(s.oferta.proveedor_id);
+              const seleccionable = (s.oferta.estado === 'pendiente' || reelegible) && puedeDecidir;
               const rowBg = recomendada
                 ? 'var(--grad-primary-soft)'
                 : aceptada

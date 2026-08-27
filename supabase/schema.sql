@@ -3626,3 +3626,74 @@ end $$;
 
 grant execute on function public.auditoria_actividad(timestamptz,timestamptz,text,int) to authenticated;
 
+-- ============================================================
+-- 27/08/2026 · Compras multi-proveedor: índice y trigger de totales
+-- ------------------------------------------------------------
+-- Contexto (caso SP-2026-0116): al repartir una OP entre varios proveedores, cada
+-- sub-OC (hija) toma SOLO parte de los ítems, pero las ofertas viven en la madre y
+-- cotizan TODO. Dos objetos de la base rompían ese flujo:
+--   (1) `uniq_oferta_aceptada_por_orden` admitía UNA sola oferta aceptada por orden,
+--       así que el segundo proveedor nunca podía quedar 'aceptada'.
+--   (2) `trg_sync_orden_total` (existía en producción sin estar en este archivo) copiaba
+--       a cada hija el total COMPLETO de la oferta, no la parte que le corresponde.
+-- Decisión: el trigger se queda SOLO con el caso directo (un proveedor). Las sub-OC las
+-- gobierna el front (recortarOfertaAHija en src/modules/pedidos/subOc.ts), que sí sabe
+-- en qué moneda se creó cada hija y qué parte de la oferta le toca; el SQL no puede
+-- saberlo y por eso pisaba lo que el modal acababa de calcular.
+-- ============================================================
+
+-- (1) Una oferta aceptada POR PROVEEDOR por orden (antes: una por orden).
+drop index if exists public.uniq_oferta_aceptada_por_orden;
+create unique index if not exists uniq_oferta_aceptada_por_orden_proveedor
+  on public.ofertas_proveedor (orden_id, proveedor_id)
+  where (estado = 'aceptada');
+
+-- (2) Sincroniza el total de la OC PROPIA cuando cambia su oferta ACEPTADA (solo en
+--     'oc_creada', pendiente de aprobación). Las sub-OC (hijas) NO se tocan desde acá.
+create or replace function public.sync_orden_total_desde_oferta()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  nuevo_total numeric;
+begin
+  -- Solo la oferta ACEPTADA define el total de la OC.
+  if NEW.estado is distinct from 'aceptada' then
+    return NEW;
+  end if;
+
+  nuevo_total := round(
+    greatest(0, coalesce(NEW.precio_efectivo, NEW.precio_total, 0) - coalesce(NEW.descuento, 0))
+    + coalesce(NEW.iva, 0) + coalesce(NEW.igtf, 0)
+  , 2);
+
+  -- Caso directo (un solo proveedor): la propia orden de la oferta está en oc_creada.
+  update ordenes o
+     set total = nuevo_total,
+         iva = NEW.iva,
+         igtf = NEW.igtf,
+         descuento_obtenido = NEW.descuento,
+         oferta_precio_efectivo = NEW.precio_efectivo
+   where o.id = NEW.orden_id
+     and o.estado = 'oc_creada';
+
+  -- Multiproveedor: las hijas NO se recalculan acá. Las crea AsignarProveedoresModal con
+  -- su parte prorrateada, y las re-sincroniza el front al editar la oferta desde la hija
+  -- (resincronizarOcDesdeOferta). Recalcularlas en SQL pisaba sub-OC en divisa y
+  -- desalineaba total e ítems (ver docs/INFORME-BASE-DE-DATOS.md, frente 3).
+  return NEW;
+end;
+$$;
+
+-- La función es SECURITY DEFINER: que no sea invocable desde la API pública. El EXECUTE
+-- de anon viene heredado del rol PUBLIC, así que se revoca ahí; los triggers siguen
+-- disparando (el privilegio se comprueba al crear el trigger, no al ejecutarlo).
+revoke execute on function public.sync_orden_total_desde_oferta() from public, anon;
+grant execute on function public.sync_orden_total_desde_oferta() to authenticated, service_role;
+
+drop trigger if exists trg_sync_orden_total on public.ofertas_proveedor;
+create trigger trg_sync_orden_total
+  after update on public.ofertas_proveedor
+  for each row execute function public.sync_orden_total_desde_oferta();
