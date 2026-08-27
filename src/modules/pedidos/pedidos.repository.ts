@@ -406,7 +406,11 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
   const descObt = input.descuentoObtenido !== undefined
     ? Math.max(0, Math.round((Number(input.descuentoObtenido) || 0) * 100) / 100)
     : (o.descuento_obtenido != null ? Math.max(0, Number(o.descuento_obtenido)) : 0);
-  const total = Math.round(Math.max(0, subtotal - descObt) * 100) / 100;
+  // El IVA/IGTF de la OC (vienen de la oferta) se conservan: editar cantidades, precios o la
+  // nota NO puede hacerlos desaparecer del total (bug que dejaba total ≠ ítems + IVA).
+  const ivaOc = Math.max(0, Number(o.iva) || 0);
+  const igtfOc = Math.max(0, Number(o.igtf) || 0);
+  const total = Math.round((Math.max(0, subtotal - descObt) + ivaOc + igtfOc) * 100) / 100;
   // Cambio de proveedor (opcional): si difiere del actual, la OC se reabre a aprobación.
   const cambiaProveedor = input.proveedorId !== undefined && input.proveedorId !== o.proveedor_id;
   const reabre = o.estado === 'confirmada_metodo' || cambiaProveedor;
@@ -820,6 +824,9 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
     const row = {
       codigo: `${op.codigo}-${n}`,
       parent_orden_id: op.id,
+      // La hija hereda la nota de la madre (quien aprueba/paga la necesita en la sub-OC);
+      // cada hija puede después editar la suya desde «Editar OC».
+      notas: op.notas ?? null,
       oc_codigo: ocCodigo,
       proveedor_id: a.proveedorId,
       solicitante_email: op.solicitante_email,
