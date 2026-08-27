@@ -40,3 +40,9 @@ supabase/.branches/
 
 # Playwright MCP artifacts
 .playwright-mcp/
+
+# Respaldos de la base de datos (dump_database_sql): datos reales de produccion,
+# NUNCA al repo. La unica excepcion .sql versionada es supabase/schema.sql.
+*respaldo*.sql
+*backup*.sql
+*.dump
