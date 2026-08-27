@@ -336,6 +336,7 @@ export function AgregarOfertaModal({
         if (orden.estado === 'oc_creada' && ofertaEdit.estado === 'aceptada') {
           try {
             await resincronizarOcDesdeOferta(orden, {
+              proveedor_id: ofertaEdit.proveedor_id,
               items: itemsLimpios,
               precio_total: precioTotal,
               precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
