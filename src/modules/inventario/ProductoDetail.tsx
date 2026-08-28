@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
-import { date, dateTime, money, num } from '@/shared/lib/format';
+import { date, money, num } from '@/shared/lib/format';
 import type { Almacen, Existencia, Movimiento, Producto } from '@/shared/lib/types';
 import { listMovimientosPorProducto, TIPOS_MOVIMIENTO } from './movimientos.repository';
 import { listAlmacenes, listExistenciasDeProducto } from './almacenes.repository';
@@ -281,74 +281,67 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
           <EmptyState message={`Sin movimientos (${ambito}).`} icon="✨" />
         </div>
       ) : (
-        <div className="timeline">
-          {movsVisibles.map((m) => {
+        <div className="kardex">
+          {movsVisibles.map((m, i) => {
             const meta = TIPOS_MOVIMIENTO[m.tipo] ?? { label: m.tipo, icon: '◔', color: 'info' as const };
             const isIn = m.delta > 0;
             const isOut = m.delta < 0;
             const deltaTxt = isIn ? `+${num(m.delta)}` : isOut ? `−${num(Math.abs(m.delta))}` : '0';
-            const deltaCol = isIn ? 'var(--success)' : isOut ? 'var(--danger)' : 'var(--text-muted)';
-            const dotCls =
-              meta.color === 'success' ? 'ok'
-              : meta.color === 'warning' ? 'warn'
-              : meta.color === 'danger' ? 'err'
-              : 'info';
             const global = sinAlmacen(m);
+            // Cabecera por día: la fecha no se repite en cada línea (queda la hora).
+            const dia = date(m.at);
+            const nuevoDia = i === 0 || date(movsVisibles[i - 1].at) !== dia;
+            const aj = ajustes.get(m.id);
+            const muestraAjuste = aj && aj.antes != null && aj.antes !== aj.despues;
+            const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit' });
 
             return (
-              <div className="tl-item" key={m.id}>
-                <div className={`tl-dot ${dotCls}`} />
-                <div className="tl-body">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem' }}>
-                    <div className="tl-title">{meta.icon} {meta.label}</div>
-                    <div className="mono" style={{ fontWeight: 700, fontSize: '.95rem', color: deltaCol }}>
-                      {deltaTxt}
-                    </div>
+              <div key={m.id} style={{ display: 'contents' }}>
+                {nuevoDia && <div className="kx-dia">{dia}</div>}
+                <div className={`kx-row ${isIn ? 'in' : isOut ? 'out' : ''} ${i % 2 ? 'alt' : ''}`}>
+                  {/* 1) La cantidad, primero y grande: es lo que el almacenista busca. */}
+                  <div className="kx-delta">
+                    {deltaTxt}
+                    <small>{unidad}</small>
                   </div>
-                  {m.detalle && (
-                    <div style={{ fontSize: '.82rem', color: 'var(--text)', marginTop: '.15rem' }}>
-                      {m.detalle}
+
+                  {/* 2) Qué pasó */}
+                  <div className="kx-main">
+                    <div className="kx-tipo">
+                      <span>{meta.icon} {meta.label}</span>
+                      {global
+                        ? <span className="badge warning" style={{ fontSize: '.62rem' }}>sin almacén · recepción de compra</span>
+                        : m.almacen && <span className="badge" style={{ fontSize: '.62rem' }}>▣ {etiquetaAlmacen((m.almacen ?? '').trim(), almacenes)}</span>}
+                      {m.consumo_interno && <span className="badge info" style={{ fontSize: '.62rem' }}>🏭 Consumo interno</span>}
                     </div>
-                  )}
-                  {m.destino && (
-                    <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: '.15rem' }}>
-                      {m.almacen && <>Origen: <strong style={{ color: 'var(--text)' }}>{m.almacen}</strong> → </>}
-                      Destino: <strong style={{ color: 'var(--text)' }}>{m.destino}</strong>
-                      {m.fecha_entrega && <> · {date(m.fecha_entrega)}</>}
-                    </div>
-                  )}
-                  {m.consumo_interno && (
-                    <div style={{ marginTop: '.2rem' }}>
-                      <span className="badge info" style={{ fontSize: '.66rem' }}>🏭 Consumo interno</span>
-                    </div>
-                  )}
-                  {m.ref_codigo && (
-                    <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: '.15rem' }}>
-                      Ref: <span className="mono">{m.ref_codigo}</span>
-                    </div>
-                  )}
-                  {(m.precio_unitario != null || m.costo_promedio != null) && (
-                    <div className="mono" style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: '.15rem' }}>
-                      {m.precio_unitario != null && <>Costo unit: <strong style={{ color: 'var(--text)' }}>{money(m.precio_unitario)}</strong></>}
-                      {m.precio_unitario != null && m.costo_promedio != null && ' · '}
-                      {m.costo_promedio != null && <>{global ? 'PMP global' : 'PMP del almacén'}: <strong style={{ color: 'var(--primary-3)' }}>{money(m.costo_promedio)}</strong></>}
-                    </div>
-                  )}
-                  {(() => {
-                    const aj = ajustes.get(m.id);
-                    if (!aj || aj.antes == null || aj.antes === aj.despues) return null;
-                    const subio = aj.despues > aj.antes;
-                    return (
-                      <div className="mono" style={{ fontSize: '.78rem', marginTop: '.15rem', color: subio ? 'var(--danger)' : 'var(--success)' }}>
-                        💱 {global ? 'PMP global' : 'PMP del almacén'} ajustado por recompra{aj.compra != null ? ` (compra a ${money(aj.compra)})` : ''}: {money(aj.antes)} → <strong>{money(aj.despues)}</strong> {subio ? '▲' : '▼'}
+                    {m.detalle && <div className="kx-detalle">{m.detalle}</div>}
+                    {m.destino && (
+                      <div className="kx-sub">
+                        {m.almacen && <>Origen: <strong style={{ color: 'var(--text)' }}>{m.almacen}</strong> → </>}
+                        Destino: <strong style={{ color: 'var(--text)' }}>{m.destino}</strong>
+                        {m.fecha_entrega && <> · {date(m.fecha_entrega)}</>}
                       </div>
-                    );
-                  })()}
-                  <div className="tl-meta">
-                    {dateTime(m.at)} · por {m.actor_name || m.actor || '—'}
-                    {global
-                      ? <> · <span className="badge warning" style={{ fontSize: '.62rem' }}>sin almacén · recepción de compra</span> · saldo total (todas las sedes): <span className="mono">{num(m.stock_despues)}</span></>
-                      : <> · <span className="badge" style={{ fontSize: '.62rem' }}>▣ {etiquetaAlmacen((m.almacen ?? '').trim(), almacenes)}</span> · saldo en {m.almacen}: <span className="mono">{num(m.stock_despues)}</span></>}
+                    )}
+                    {(m.precio_unitario != null || m.costo_promedio != null || m.ref_codigo) && (
+                      <div className="kx-sub mono">
+                        {m.precio_unitario != null && <>Costo unit: <strong style={{ color: 'var(--text)' }}>{money(m.precio_unitario)}</strong></>}
+                        {m.precio_unitario != null && m.costo_promedio != null && ' · '}
+                        {m.costo_promedio != null && <>{global ? 'PMP global' : 'PMP del almacén'}: <strong style={{ color: 'var(--primary-3)' }}>{money(m.costo_promedio)}</strong></>}
+                        {m.ref_codigo && <>{(m.precio_unitario != null || m.costo_promedio != null) && ' · '}Ref: {m.ref_codigo}</>}
+                      </div>
+                    )}
+                    {muestraAjuste && aj && (
+                      <div className="kx-sub mono" style={{ color: aj.despues > (aj.antes ?? 0) ? 'var(--danger)' : 'var(--success)' }}>
+                        💱 {global ? 'PMP global' : 'PMP del almacén'} ajustado por recompra{aj.compra != null ? ` (compra a ${money(aj.compra)})` : ''}: {money(aj.antes)} → <strong>{money(aj.despues)}</strong> {aj.despues > (aj.antes ?? 0) ? '▲' : '▼'}
+                      </div>
+                    )}
+                    <div className="kx-meta">{hora(m.at)} · por {m.actor_name || m.actor || '—'}</div>
+                  </div>
+
+                  {/* 3) Saldo después del movimiento, en su ámbito */}
+                  <div className="kx-saldo">
+                    <small>{global ? 'saldo total' : `saldo en ${m.almacen}`}</small>
+                    <strong>{num(m.stock_despues)}</strong>
                   </div>
                 </div>
               </div>
