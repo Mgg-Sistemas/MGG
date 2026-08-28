@@ -87,7 +87,7 @@ export function SalidaMaterialDetalle({
       </div>
 
       {traza && producto && (
-        <ProductoDetail producto={producto} onClose={() => setTraza(false)} />
+        <ProductoDetail producto={producto} origen={{ almacen: mov.almacen ?? null }} onClose={() => setTraza(false)} />
       )}
 
       {correoOpen && (
