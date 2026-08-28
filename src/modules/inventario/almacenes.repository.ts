@@ -187,6 +187,10 @@ export async function eliminarAlmacen(id: string, nombre: string): Promise<void>
   if ((hijos ?? []).length > 0) {
     throw new Error(`No se puede eliminar: este almacén tiene ${(hijos ?? []).length} subalmacén(es). Eliminá o reasigná los subalmacenes primero.`);
   }
+  // Filas de existencias en 0 (fantasmas) que apuntan a este nombre: se limpian para que el
+  // almacén no reaparezca en las vistas por sede después de borrado.
+  const { error: fErr } = await supabase.from('existencias').delete().eq('almacen', nombre).lte('stock', 0);
+  if (fErr) throw fErr;
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
 }
