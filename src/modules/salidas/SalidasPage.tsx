@@ -319,10 +319,16 @@ function Historial({
   onVerMaterial: (mov: Movimiento, esTraslado: boolean) => void;
   onVerDinero: (mov: MovimientoCaja, esTraslado: boolean) => void;
 }) {
-  // Filtro del historial: texto (producto/motivo/destino…) + rango de fechas.
+  // Filtro del historial: texto (producto/motivo/destino…) + rango de fechas + unidad
+  // solicitante + producto. Con unidad y producto se responde «¿cuántos guantes le
+  // despachamos a Fundición?» con la línea de totales de abajo.
   const [q, setQ] = useState('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
+  const [fUnidad, setFUnidad] = useState('');
+  const [fProducto, setFProducto] = useState('');
+  const hayFiltro = !!(q || desde || hasta || fUnidad || fProducto);
+  const limpiar = () => { setQ(''); setDesde(''); setHasta(''); setFUnidad(''); setFProducto(''); };
   const enRango = (iso: string) => {
     const t = iso ? iso.slice(0, 10) : '';
     if (desde && t < desde) return false;
@@ -339,17 +345,52 @@ function Historial({
       <input className="input" placeholder="🔎 Buscar (producto, motivo, destino…)" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 300 }} />
       <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>Desde <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
       <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>Hasta <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
-      {(q || desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setQ(''); setDesde(''); setHasta(''); }}>✕ Limpiar</button>}
+      {hayFiltro && <button className="btn btn-sm btn-ghost" onClick={limpiar}>✕ Limpiar</button>}
     </div>
   );
 
   // Material
   if (tipo === 'material') {
-    const rows = (scope === 'salidas' ? salMat : trasMat).filter((m) => enRango(m.at) && matchTxt(m.producto?.nombre, m.producto?.sku, m.almacen, m.destino, m.solicitante, m.actor_name, m.actor, m.detalle));
     const esTraslado = scope === 'traslados';
+    const base = scope === 'salidas' ? salMat : trasMat;
+    // Opciones de los desplegables, sacadas de lo que hay en el historial.
+    const unidades = Array.from(new Set(base.map((m) => (m.destino ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'));
+    const productos = Array.from(new Map(base.filter((m) => m.producto?.sku).map((m) => [m.producto!.sku, m.producto!.nombre])).entries()).sort((a, b) => a[1].localeCompare(b[1], 'es'));
+    const rows = base.filter((m) =>
+      enRango(m.at)
+      && (!fUnidad || (m.destino ?? '').trim() === fUnidad)
+      && (!fProducto || m.producto?.sku === fProducto)
+      && matchTxt(m.producto?.nombre, m.producto?.sku, m.almacen, m.destino, m.solicitante, m.actor_name, m.actor, m.detalle));
+    // Totales de lo filtrado: despachos, unidades (solo tiene sentido con un producto) y $.
+    const totalCant = rows.reduce((a, m) => a + Math.abs(Number(m.delta) || 0), 0);
+    const totalUsd = rows.reduce((a, m) => a + Math.abs(Number(m.delta) || 0) * (Number(m.precio_unitario) || 0), 0);
+    const unidadProd = fProducto ? (rows[0]?.producto?.unidad ?? '') : '';
     return (
       <>
       {FilterBar}
+      <div className="filterbar" style={{ gap: '.5rem', marginBottom: '.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+          {esTraslado ? '🏭 Destino' : '🏷 Dirigido a / unidad'}
+          <select className="select" value={fUnidad} onChange={(e) => setFUnidad(e.target.value)} style={{ minWidth: 200 }}>
+            <option value="">Todas</option>
+            {unidades.map((u) => <option key={u} value={u}>{u}</option>)}
+          </select>
+        </label>
+        <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+          📦 Producto
+          <select className="select" value={fProducto} onChange={(e) => setFProducto(e.target.value)} style={{ minWidth: 220 }}>
+            <option value="">Todos</option>
+            {productos.map(([sku, nombre]) => <option key={sku} value={sku}>{nombre} · {sku}</option>)}
+          </select>
+        </label>
+        {(fUnidad || fProducto) && (
+          <span className="chip chip-active" style={{ cursor: 'default' }}>
+            <strong>{rows.length}</strong>&nbsp;{esTraslado ? 'traslado(s)' : 'despacho(s)'}{fUnidad ? <>&nbsp;a <strong>{fUnidad}</strong></> : null}
+            {fProducto && <>&nbsp;· <strong>{num(totalCant)} {unidadProd}</strong></>}
+            {totalUsd > 0 && <>&nbsp;· <strong>{money(totalUsd)}</strong></>}
+          </span>
+        )}
+      </div>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead>
