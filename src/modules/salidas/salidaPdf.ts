@@ -219,7 +219,10 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     ['Fecha de solicitud', fmt.dateTime(sol.created_at)],
     ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
     ...(sol.consumo_interno ? [['Consumo interno', 'Sí'] as [string, string]] : []),
-    ['Estado', SOL_ESTADO_TXT[sol.estado] ?? sol.estado],
+    // Cerrada sin descontar (mov_ref manual_externo) no es lo mismo que Ejecutada: el papel debe decirlo.
+    ['Estado', sol.estado === 'ejecutada' && sol.mov_ref === 'manual_externo'
+      ? (sol.scope === 'traslado' ? 'Cerrada sin mover stock' : 'Cerrada sin descontar')
+      : (SOL_ESTADO_TXT[sol.estado] ?? sol.estado)],
     ['Autorizado por', autorizoEmail ? AUTORIZA_SALIDAS.toUpperCase() : '— (pendiente de aprobación) —'],
   ];
   let dy = y;
