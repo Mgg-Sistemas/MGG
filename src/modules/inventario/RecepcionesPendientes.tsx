@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
@@ -6,7 +6,8 @@ import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
-import { recibirCompraDirecta, anularCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
+import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
+import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedidos/compraDirectaMoneda';
 import { AlmacenPicker } from './AlmacenPicker';
 import { destinoRecepcionPorUsuario } from '@/modules/salidas/restriccionAlmacen';
 import type { Almacen, Orden } from '@/shared/lib/types';
@@ -223,6 +224,15 @@ function AnularCompraModal({ compra, actor, onClose, onSaved }: {
   );
 }
 
+/** Texto corto de dónde salió la tasa con la que se convierte una compra en Bs. */
+type TasaInfo = TasaCompraResuelta | null | 'cargando';
+function origenTasaTxt(info: TasaInfo): string {
+  if (!info || info === 'cargando') return '';
+  if (info.origen === 'montaje') return 'la que cargó Compras al montar la factura';
+  if (info.origen === 'fecha') return `tasa BCV del ${info.fecha ? date(info.fecha) : '—'}, ${info.anclaje === 'pago' ? 'día del pago' : 'día en que se creó la compra'}`;
+  return 'tasa de hoy';
+}
+
 /* ───────── Modal: recibir una COMPRA DIRECTA (ver detalle + elegir almacén) ───────── */
 function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSaved }: {
   compra: CompraDirecta; almacenes: Almacen[]; actor: string; actorName?: string | null;
@@ -235,14 +245,31 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
   const [almacenFinal, setAlmacenFinal] = useState(restr?.almacen ?? compra.almacen ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Compra en Bs: el inventario está en $, así que se muestra (y se escribe) el costo convertido
+  // con la tasa BCV de la compra. Sin tasa no se puede recibir (antes entraba el monto en Bs como $).
+  const enBs = esCompraEnBs(compra.moneda);
+  const [tasaInfo, setTasaInfo] = useState<TasaInfo>(enBs ? 'cargando' : null);
+  useEffect(() => {
+    if (!enBs) return;
+    let vivo = true;
+    resolverTasaCompra(compra).then((t) => { if (vivo) setTasaInfo(t); }).catch(() => { if (vivo) setTasaInfo(null); });
+    return () => { vivo = false; };
+  }, [compra, enBs]);
+  const tasa = tasaInfo && tasaInfo !== 'cargando' ? tasaInfo.tasa : null;
+  const origenTasa = tasaInfo && tasaInfo !== 'cargando' ? tasaInfo.origen : null;
+  // Total en $ que entra al inventario (suma de cada renglón convertido), para validar de un vistazo.
+  const totalUsd = enBs && tasa
+    ? items.reduce((a, it) => { const c = Number(it.cantidad) || 0; return a + costoUnitarioUsd(Number(it.gasto) || 0, c, 'Bs', tasa) * c; }, 0)
+    : 0;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!almacenFinal) { setError('Elegí la sede y el almacén destino.'); return; }
+    if (enBs && !tasa) { setError('Esta compra está en bolívares y no hay tasa BCV para convertirla a dólares. Pedile a Compras que cargue la tasa en «✎ Factura/precios» y volvé a intentar.'); return; }
     setSaving(true);
     try {
-      await recibirCompraDirecta({ compra, almacen: almacenFinal, actor, actorName });
+      await recibirCompraDirecta({ compra, almacen: almacenFinal, tasaBs: tasa, tasaOrigen: origenTasa, actor, actorName });
       notify(`Compra directa ${compra.codigo ?? ''} recibida → 🏭 ${sedeDeAlmacen(almacenFinal, almacenes)}`, 'success', { link: '#/app/inventario' });
       toast('Materiales ingresados al inventario', 'success');
       onSaved();
@@ -254,7 +281,7 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="recibir-compra-form" className="btn btn-primary" disabled={saving || !almacenFinal}>
+      <button type="submit" form="recibir-compra-form" className="btn btn-primary" disabled={saving || !almacenFinal || (enBs && !tasa)}>
         {saving ? 'Recibiendo…' : 'Confirmar entrada al inventario'}
       </button>
     </>
@@ -270,6 +297,17 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
           <div className="muted" style={{ fontSize: '.78rem' }}>
             Total: <strong className="mono">{money(compra.gasto, compra.moneda)}</strong>{compra.pagada_por ? ` · pagó ${compra.pagada_por}` : ''}
           </div>
+          {enBs && (
+            <div style={{ fontSize: '.8rem', marginTop: '.35rem' }}>
+              {tasaInfo === 'cargando'
+                ? <span className="muted">Buscando la tasa BCV de la compra…</span>
+                : tasa && origenTasa === 'hoy'
+                  ? <span style={{ color: 'var(--warning, #f5a524)' }}>⚠ Compra del <strong>{date(compra.created_at)}</strong> sin tasa guardada y sin tasa BCV registrada para su fecha: se usa la de <strong>hoy</strong> (<strong className="mono">{fmtTasa(tasa)}</strong>) y entran <strong className="mono">{fmtUsd4(totalUsd)}</strong> al inventario. Si no corresponde, avisá a Compras antes de recibir.</span>
+                : tasa
+                  ? <>🧮 Compra en <strong>Bs</strong>: los materiales entran al inventario <strong>en dólares</strong>, a <strong className="mono">{fmtTasa(tasa)}</strong> <span className="muted">({origenTasaTxt(tasaInfo)})</span>. Total que entra: <strong className="mono">{fmtUsd4(totalUsd)}</strong>.</>
+                  : <span style={{ color: 'var(--danger)' }}>⚠ Esta compra está en bolívares y no hay tasa BCV para convertirla a dólares. Pedile a Compras que cargue la tasa en «✎ Factura/precios» y volvé a intentar.</span>}
+            </div>
+          )}
         </div>
 
         {/* Asignación de almacén: Sede → Almacén (subalmacén). Por defecto el general de la sede.
@@ -282,7 +320,7 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
         {/* Detalle de la compra: materiales, cantidad y costo unitario */}
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Costo unit.</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Costo unit.</th><th style={{ textAlign: 'right' }}>Monto</th>{enBs && <th style={{ textAlign: 'right' }}>Entra al inventario ($/u)</th>}</tr></thead>
             <tbody>
               {items.map((it, i) => {
                 const cant = Number(it.cantidad) || 0;
@@ -294,6 +332,7 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
                     <td className="mono" style={{ textAlign: 'right' }}>{num(cant)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(cu, compra.moneda)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(monto, compra.moneda)}</td>
+                    {enBs && <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{tasa ? fmtUsd4(costoUnitarioUsd(monto, cant, 'Bs', tasa)) : '—'}</td>}
                   </tr>
                 );
               })}
