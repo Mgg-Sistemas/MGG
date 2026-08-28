@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Movimiento, Producto } from '@/shared/lib/types';
 
 export type BucketKind = 'day' | 'week' | 'month';
@@ -87,16 +88,19 @@ export function generarBuckets(rango: RangoFechas): SeriePoint[] {
  * retrocede en el tiempo aplicando los deltas de cada movimiento.
  */
 export async function getSerieValorInventario(rango: RangoFechas): Promise<SeriePoint[]> {
-  const [{ data: prods, error: pErr }, { data: movs, error: mErr }] = await Promise.all([
-    supabase.from('productos').select('id, stock, precio, precio_promedio'),
-    supabase
-      .from('movimientos')
-      .select('producto_id, delta, at')
-      .gte('at', rango.desde.toISOString())
-      .order('at', { ascending: true }),
+  // Por páginas: productos supera las 1.000 filas y los movimientos de un rango largo también.
+  const [prods, movs] = await Promise.all([
+    todasLasFilas<{ id: string; stock: number | null; precio: number | null; precio_promedio: number | null }>((d, h) =>
+      supabase.from('productos').select('id, stock, precio, precio_promedio').order('id').range(d, h)),
+    todasLasFilas<{ producto_id: string; delta: number; at: string }>((d, h) =>
+      supabase
+        .from('movimientos')
+        .select('producto_id, delta, at')
+        .gte('at', rango.desde.toISOString())
+        .order('at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(d, h)),
   ]);
-  if (pErr) throw pErr;
-  if (mErr) throw mErr;
 
   const productos = (prods ?? []) as Pick<Producto, 'id' | 'stock' | 'precio' | 'precio_promedio'>[];
   const movimientos = (movs ?? []) as Pick<Movimiento, 'producto_id' | 'delta' | 'at'>[];

@@ -6,6 +6,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { cachedQuery } from '@/shared/lib/queryCache';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 import type { Espacio } from './inventario.repository';
 
@@ -195,9 +196,10 @@ export async function listExistencias(): Promise<Existencia[]> {
   // Cacheada (SWR) con TTL corto: el stock cambia seguido, pero realtime
   // (tabla `existencias`) la invalida al instante ante cualquier movimiento.
   return cachedQuery('inv:existencias', async () => {
-    const { data, error } = await supabase.from('existencias').select('*');
-    if (error) throw error;
-    return (data ?? []) as Existencia[];
+    // Por páginas: en producción hay más de 1.000 existencias (tope por respuesta de
+    // Supabase); una sola llamada las cortaba y esos productos «no aparecían» en su sede.
+    return todasLasFilas<Existencia>((desde, hasta) =>
+      supabase.from('existencias').select('*').order('producto_id').order('almacen').range(desde, hasta));
   }, { tables: ['existencias'], ttl: 15_000 });
 }
 

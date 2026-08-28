@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Movimiento, Producto } from '@/shared/lib/types';
 
 export interface DashboardKpis {
@@ -18,13 +19,9 @@ export interface MovimientoConProducto extends Movimiento {
  * para evitar tres round-trips a Supabase y mantener consistencia entre cifras.
  */
 export async function getProductosActivos(): Promise<Producto[]> {
-  const { data, error } = await supabase
-    .from('productos')
-    .select('*')
-    .eq('estado', 'activo');
-
-  if (error) throw error;
-  return (data ?? []) as Producto[];
+  // Por páginas: los activos ya rondan las 1.000 filas (tope por respuesta de Supabase).
+  return todasLasFilas<Producto>((d, h) =>
+    supabase.from('productos').select('*').eq('estado', 'activo').order('id').range(d, h));
 }
 
 export async function getOrdenesPendientesCount(): Promise<number> {
