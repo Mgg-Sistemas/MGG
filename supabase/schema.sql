@@ -669,6 +669,10 @@ alter table public.compras_directas add column if not exists retencion_finalizad
 -- Se marca al montar (factura + precios) y lo ve Tesorería al pagar (el egreso reintegra a la persona).
 alter table public.compras_directas add column if not exists pago_externo       boolean not null default false;
 alter table public.compras_directas add column if not exists pago_externo_datos text;
+-- Tasa BCV (Bs por $) con la que se valora una compra en Bs: el inventario está en $, así que
+-- al recibir cada material entra a (gasto/cantidad)/tasa_bcv. Se guarda al montar (obligatoria
+-- en Bs); las compras viejas sin tasa la resuelven por fecha (tasa_cambio) al recibir.
+alter table public.compras_directas add column if not exists tasa_bcv numeric;
 -- RLS: lectura para autenticados, escritura para operativo (admin/analista/obrero).
 -- Bucket privado 'compras-directas' (storage) con políticas para autenticados.
 -- (Ver migración aplicada; políticas: compra_directa read/write + cd_obj_* en storage.objects.)

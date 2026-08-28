@@ -55,15 +55,23 @@ type Modal =
   | { kind: 'cajas' }
   | { kind: 'choferes-vehiculos' };
 
-const SOL_COLS: { key: EstadoSolicitudSalida; label: string }[] = [
-  { key: 'por_aprobar', label: 'Por aprobar' },
-  { key: 'aprobada', label: 'Aprobada' },
-  { key: 'ejecutada', label: 'Ejecutada' },
-  { key: 'cancelada', label: 'Cancelada' },
+// Columnas del kanban. «Ejecutada» se parte en dos: la que SÍ descontó stock/caja y la
+// que se cerró «sin descontar» (mov_ref = 'manual_externo', el descuento se hizo por fuera).
+// Es la misma fila de la base (estado 'ejecutada'): la diferencia vive en mov_ref, no en un
+// estado nuevo. Los almacenistas confundían ambos botones porque el kanban las mezclaba.
+type SolColKey = EstadoSolicitudSalida | 'ejecutada_sin_descuento';
+const SOL_COLS: { key: SolColKey; label: string; labelTraslado?: string; badge: string; match: (s: SolicitudSalida) => boolean }[] = [
+  { key: 'por_aprobar', label: 'Por aprobar', badge: 'warning', match: (s) => s.estado === 'por_aprobar' },
+  { key: 'aprobada', label: 'Aprobada', badge: 'info', match: (s) => s.estado === 'aprobada' },
+  { key: 'ejecutada', label: 'Ejecutada (descontó)', labelTraslado: 'Ejecutada (movió stock)', badge: 'success', match: (s) => s.estado === 'ejecutada' && s.mov_ref !== 'manual_externo' },
+  { key: 'ejecutada_sin_descuento', label: 'Cerrada sin descontar', labelTraslado: 'Cerrada sin mover', badge: 'warning', match: (s) => s.estado === 'ejecutada' && s.mov_ref === 'manual_externo' },
+  { key: 'cancelada', label: 'Cancelada', badge: 'danger', match: (s) => s.estado === 'cancelada' },
 ];
-const SOL_ESTADO_CLASS: Record<EstadoSolicitudSalida, string> = {
-  por_aprobar: 'warning', aprobada: 'info', ejecutada: 'success', cancelada: 'danger',
-};
+/** Columna (etiqueta + color) que le corresponde a una solicitud. */
+const colDe = (s: SolicitudSalida) => SOL_COLS.find((c) => c.match(s));
+/** Etiqueta de la columna según la pestaña: en Traslados el stock se «mueve», no se «descuenta». */
+const etiquetaCol = (col: (typeof SOL_COLS)[number] | undefined, scope: ScopeSalida): string => (scope === 'traslado' && col?.labelTraslado) || col?.label || '';
+const etiquetaDe = (s: SolicitudSalida): string => etiquetaCol(colDe(s), s.scope);
 
 export function SalidasPage() {
   const { can, appUser, isAdmin, role } = usePermissions();
@@ -227,7 +235,7 @@ export function SalidasPage() {
       ) : (vista === 'resumen' && esSalida && esMaterial) ? (
         <ResumenSalidas solicitudes={solicitudes} actor={actor} />
       ) : vista === 'kanban' ? (
-        <SolicitudesKanban sols={solsFiltradas} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
+        <SolicitudesKanban sols={solsFiltradas} scope={scopeSol} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
       ) : (
         <Historial
           scope={scope} tipo={tipo}
@@ -446,17 +454,66 @@ function resumenSolicitud(s: SolicitudSalida): string {
   return `${monto} ${s.moneda ?? ''} → ${s.destino ?? '—'}`;
 }
 
-function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s: SolicitudSalida) => void }) {
-  if (!sols.length) return <EmptyState message="No hay solicitudes en esta vista. Creá una con el botón de arriba." icon="🗂" />;
+/* Columnas del kanban que el usuario decidió ocultar. Cada almacenista elige las que
+   necesita ver (p. ej. solo «Aprobada» para ejecutar) y se recuerda en este navegador.
+   Sin almacenamiento disponible se muestran todas: nunca se pierde nada. */
+const LS_COLS_OCULTAS = 'mgg.salidas.kanban.ocultas';
+function leerColsOcultas(): SolColKey[] {
+  try {
+    const raw = localStorage.getItem(LS_COLS_OCULTAS);
+    const arr: unknown = raw ? JSON.parse(raw) : [];
+    const validas = new Set<string>(SOL_COLS.map((c) => c.key));
+    return Array.isArray(arr) ? arr.filter((k): k is SolColKey => typeof k === 'string' && validas.has(k)) : [];
+  } catch {
+    return [];
+  }
+}
+function guardarColsOcultas(keys: SolColKey[]) {
+  try { localStorage.setItem(LS_COLS_OCULTAS, JSON.stringify(keys)); } catch { /* sin localStorage: queda solo en memoria */ }
+}
+
+function SolicitudesKanban({ sols, scope, onVer }: { sols: SolicitudSalida[]; scope: ScopeSalida; onVer: (s: SolicitudSalida) => void }) {
+  const [ocultas, setOcultas] = useState<SolColKey[]>(leerColsOcultas);
+  const alternar = (key: SolColKey) =>
+    setOcultas((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      guardarColsOcultas(next);
+      return next;
+    });
+  const mostrarTodas = () => { setOcultas([]); guardarColsOcultas([]); };
+  const visibles = SOL_COLS.filter((c) => !ocultas.includes(c.key));
   return (
+    <div>
+      {/* Selector de columnas: el conteo se ve aunque la columna esté oculta, para no perder de vista lo pendiente. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.4rem', marginBottom: '.6rem' }}>
+        <span className="muted" style={{ fontSize: '.78rem' }}>Mostrar:</span>
+        {SOL_COLS.map((col) => {
+          const activa = !ocultas.includes(col.key);
+          const n = sols.filter(col.match).length;
+          return (
+            <button key={col.key} type="button" className={`chip ${activa ? 'chip-active' : ''}`} aria-pressed={activa}
+              title={activa ? 'Ocultar esta columna' : 'Mostrar esta columna'} onClick={() => alternar(col.key)}>
+              {activa ? '☑' : '☐'} {etiquetaCol(col, scope)} <span className="dim">· {n}</span>
+            </button>
+          );
+        })}
+        {ocultas.length > 0 && (
+          <button type="button" className="btn btn-sm btn-ghost" onClick={mostrarTodas}>Mostrar todas</button>
+        )}
+      </div>
+      {!sols.length ? (
+        <EmptyState message="No hay solicitudes en esta vista. Creá una con el botón de arriba." icon="🗂" />
+      ) : !visibles.length ? (
+        <EmptyState message="Todas las columnas están ocultas. Elegí al menos una arriba." icon="🗂" />
+      ) : (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '.75rem' }}>
-      {SOL_COLS.map((col) => {
-        const items = sols.filter((s) => s.estado === col.key);
+      {visibles.map((col) => {
+        const items = sols.filter(col.match);
         return (
           <div key={col.key} className="card" style={{ margin: 0, padding: '.6rem', background: 'var(--bg-1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
-              <strong style={{ fontSize: '.82rem' }}>{col.label}</strong>
-              <span className={`badge ${SOL_ESTADO_CLASS[col.key]}`}>{items.length}</span>
+              <strong style={{ fontSize: '.82rem' }}>{etiquetaCol(col, scope)}</strong>
+              <span className={`badge ${col.badge}`}>{items.length}</span>
             </div>
             {/* Lista con scroll propio: la columna no empuja la página aunque tenga muchas. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', maxHeight: 'max(320px, calc(100vh - 300px))', overflowY: 'auto', paddingRight: '.15rem' }}>
@@ -485,6 +542,8 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
           </div>
         );
       })}
+    </div>
+      )}
     </div>
   );
 }
@@ -657,6 +716,10 @@ function SolicitudDetalleModal({
     sol.tipo === 'dinero'
       ? (sol.scope === 'traslado' ? 'Ejecutar (traslado de caja)' : 'Ejecutar (egreso de caja)')
       : (sol.scope === 'traslado' ? 'Ejecutar (mueve stock)' : 'Ejecutar (descuenta stock)');
+  // «Cerrar sin descontar» habla de descontar en Salidas y de mover en Traslados.
+  const esTraslado = sol.scope === 'traslado';
+  const verboCierre = esTraslado ? 'mover' : 'descontar';
+  const cerrarLabel = esTraslado ? '⚠ Cerrar sin mover stock (ya se movió a mano)' : '⚠ Cerrar sin descontar (ya se descontó a mano)';
 
   async function run(fn: () => Promise<void>, okMsg: string) {
     setBusy(true);
@@ -712,8 +775,8 @@ function SolicitudDetalleModal({
       )}
       {puedeEjecutar && sol.estado === 'aprobada' && (
         <button className="btn btn-ghost" disabled={busy} onClick={() => setSinDescOpen(true)}
-          title="La salida ya se hizo por fuera (ej.: salida manual de inventario): la cierra como ejecutada sin volver a descontar">
-          ✔ Marcar ejecutada (ya descontado)
+          title={`NO ${esTraslado ? 'mueve' : 'descuenta'} stock. Solo para cerrar la solicitud cuando el ${esTraslado ? 'movimiento' : 'descuento'} ya se hizo a mano en Inventario`}>
+          {cerrarLabel}
         </button>
       )}
       {sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
@@ -733,7 +796,7 @@ function SolicitudDetalleModal({
     return (
       <ModalUI title={`Editar nota · ${sol.codigo}`} size="md" onClose={() => setEditandoNota(false)} footer={notaFooter}>
         <div className="card" style={{ marginBottom: '.7rem', fontSize: '.82rem' }}>
-          Esta solicitud ya está <strong>ejecutada</strong>. Solo se edita la <strong>nota / motivo</strong> (una anotación adicional);
+          Esta solicitud ya está cerrada (<strong>{etiquetaDe(sol)}</strong>). Solo se edita la <strong>nota / motivo</strong> (una anotación adicional);
           <strong> no cambia</strong> lo despachado, el stock ni el estado.
         </div>
         <div className="form-row">
@@ -752,7 +815,7 @@ function SolicitudDetalleModal({
     return (
       <ModalUI title={`Editar solicitud ${sol.codigo}`} size="lg" onClose={() => setEditando(false)} footer={footer}>
         <div className="muted" style={{ fontSize: '.82rem', marginBottom: '.6rem' }}>
-          {sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de material · estado <strong>{SOL_COLS.find((c) => c.key === sol.estado)?.label}</strong>. Editás antes de ejecutar (todavía no tocó stock).
+          {sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de material · estado <strong>{etiquetaDe(sol)}</strong>. Editás antes de ejecutar (todavía no tocó stock).
         </div>
         <div className="form-row">
           <label>Solicitante</label>
@@ -928,7 +991,7 @@ function SolicitudDetalleModal({
       <table className="table" style={{ fontSize: '.85rem' }}>
         <tbody>
           <tr><td className="muted">Tipo</td><td>{sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de {sol.tipo === 'dinero' ? 'dinero' : 'material'}</td></tr>
-          <tr><td className="muted">Estado</td><td><span className={`badge ${SOL_ESTADO_CLASS[sol.estado]}`}>{SOL_COLS.find((c) => c.key === sol.estado)?.label}</span></td></tr>
+          <tr><td className="muted">Estado</td><td><span className={`badge ${colDe(sol)?.badge ?? 'info'}`}>{etiquetaDe(sol)}</span></td></tr>
           <tr><td className="muted">Solicitante</td><td>{sol.solicitante}</td></tr>
           {sol.tipo === 'material' ? (
             <>
@@ -973,9 +1036,9 @@ function SolicitudDetalleModal({
           {sol.nota_entrega && <tr><td className="muted">Nota</td><td>{sol.nota_entrega}</td></tr>}
           <tr><td className="muted">Creada</td><td>{dateTime(sol.created_at)}</td></tr>
           {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {sol.aprobada_por ?? ''}</td></tr>}
-          {sol.ejecutada_en && <tr><td className="muted">Ejecutada</td><td>{dateTime(sol.ejecutada_en)} · {sol.ejecutada_por ?? ''}</td></tr>}
+          {sol.ejecutada_en && <tr><td className="muted">{sol.mov_ref === 'manual_externo' ? 'Cerrada' : 'Ejecutada'}</td><td>{dateTime(sol.ejecutada_en)} · {sol.ejecutada_por ?? ''}</td></tr>}
           {sol.estado === 'ejecutada' && sol.mov_ref === 'manual_externo' && (
-            <tr><td className="muted">Traza</td><td>⚠️ Cerrada <strong>sin descontar</strong> — el descuento se hizo por fuera (ej.: salida manual de inventario).</td></tr>
+            <tr><td className="muted">Traza</td><td>⚠️ Cerrada <strong>sin {esTraslado ? 'mover stock' : 'descontar'}</strong> — {esTraslado ? 'el movimiento se hizo por fuera (ej.: traslado manual de inventario)' : 'el descuento se hizo por fuera (ej.: salida manual de inventario)'}.</td></tr>
           )}
         </tbody>
       </table>
@@ -993,10 +1056,11 @@ function SolicitudDetalleModal({
 
       {sinDescOpen && (
         <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--primary, #ff8a00)' }}>
-          <strong style={{ fontSize: '.85rem' }}>Marcar como ejecutada SIN descontar</strong>
+          <strong style={{ fontSize: '.85rem' }}>⚠ Cerrar SIN {verboCierre} stock</strong>
           <p className="muted" style={{ fontSize: '.78rem', margin: '.3rem 0 .5rem' }}>
-            Usá esto solo si la salida <strong>ya se hizo por fuera</strong> (por ejemplo, con una <strong>salida manual de inventario</strong>).
-            La solicitud queda <strong>Ejecutada</strong> para la traza, pero <strong>no</strong> vuelve a descontar stock ni caja.
+            Usá esto <strong>solo</strong> si el stock <strong>ya se {esTraslado ? 'movió' : 'descontó'} a mano</strong> (por ejemplo, con {esTraslado ? <>un <strong>traslado manual de inventario</strong></> : <>una <strong>salida manual de inventario</strong></>}).
+            La solicitud pasa a <strong>{esTraslado ? 'Cerrada sin mover' : 'Cerrada sin descontar'}</strong> para la traza, pero <strong>no</strong> mueve stock ni caja.
+            Si el stock todavía <strong>no</strong> se {esTraslado ? 'movió' : 'descontó'}, volvé y usá <strong>«{ejecutarLabel}»</strong>.
           </p>
           <label className="muted" style={{ fontSize: '.8rem' }}>Motivo / referencia (queda en el historial)</label>
           <textarea className="input" rows={2} value={motivoSinDesc} onChange={(e) => setMotivoSinDesc(e.target.value)}
@@ -1004,8 +1068,8 @@ function SolicitudDetalleModal({
           <div className="actions" style={{ marginTop: '.5rem' }}>
             <button className="btn btn-sm btn-ghost" onClick={() => setSinDescOpen(false)} disabled={busy}>Volver</button>
             <button className="btn btn-sm btn-primary" disabled={busy || !motivoSinDesc.trim()}
-              onClick={() => run(() => cerrarSolicitudSinDescontar(sol, motivoSinDesc.trim(), actor), `Solicitud ${sol.codigo} marcada como ejecutada (sin descontar)`)}>
-              ✔ Confirmar (sin descontar)
+              onClick={() => run(() => cerrarSolicitudSinDescontar(sol, motivoSinDesc.trim(), actor), `Solicitud ${sol.codigo} cerrada SIN ${verboCierre} stock`)}>
+              ⚠ Cerrar sin {verboCierre}
             </button>
           </div>
         </div>

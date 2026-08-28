@@ -6,6 +6,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { cachedQuery } from '@/shared/lib/queryCache';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 import type { Espacio } from './inventario.repository';
 
@@ -195,9 +196,10 @@ export async function listExistencias(): Promise<Existencia[]> {
   // Cacheada (SWR) con TTL corto: el stock cambia seguido, pero realtime
   // (tabla `existencias`) la invalida al instante ante cualquier movimiento.
   return cachedQuery('inv:existencias', async () => {
-    const { data, error } = await supabase.from('existencias').select('*');
-    if (error) throw error;
-    return (data ?? []) as Existencia[];
+    // Por páginas: en producción hay más de 1.000 existencias (tope por respuesta de
+    // Supabase); una sola llamada las cortaba y esos productos «no aparecían» en su sede.
+    return todasLasFilas<Existencia>((desde, hasta) =>
+      supabase.from('existencias').select('*').order('producto_id').order('almacen').range(desde, hasta));
   }, { tables: ['existencias'], ttl: 15_000 });
 }
 
@@ -206,6 +208,17 @@ export async function listExistencias(): Promise<Existencia[]> {
  *  recién creado SIN stock quedaba invisible ahí (solo vivía en el catálogo).
  *  Esta fila "ancla" el producto a su almacén y fija el PMP base (costo). No
  *  pisa una existencia previa: si ya hay fila, la deja tal cual. */
+/** Existencias de UN producto (todas las sedes y espacios). Consulta acotada por producto:
+ *  no depende de `listExistencias()`, que trae la tabla entera y en producción supera el
+ *  tope de 1.000 filas por respuesta. */
+export async function listExistenciasDeProducto(productoId: string): Promise<Existencia[]> {
+  return cachedQuery(`inv:existencias:prod:${productoId}`, async () => {
+    const { data, error } = await supabase.from('existencias').select('*').eq('producto_id', productoId);
+    if (error) throw error;
+    return (data ?? []) as Existencia[];
+  }, { tables: ['existencias'], ttl: 15_000 });
+}
+
 export async function crearExistenciaInicial(productoId: string, almacen: string, costo = 0): Promise<void> {
   const alm = (almacen || 'General').trim() || 'General';
   const previa = await getExistencia(productoId, alm);

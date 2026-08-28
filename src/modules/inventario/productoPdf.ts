@@ -1,26 +1,35 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
-import type { Movimiento, Producto } from '@/shared/lib/types';
+import type { Almacen, Existencia, Movimiento, Producto } from '@/shared/lib/types';
+import { desglosePorSede } from './stockPorAlmacen';
 import { TIPOS_MOVIMIENTO } from './movimientos.repository';
 
 interface Data {
   producto: Producto;
   movimientos: Movimiento[];
+  existencias: Existencia[];
+  almacenes: Pick<Almacen, 'nombre' | 'sede'>[];
 }
 
 async function cargar(productoId: string): Promise<Data> {
-  const [{ data: producto, error: pe }, { data: movs, error: me }] = await Promise.all([
+  const [{ data: producto, error: pe }, { data: movs, error: me }, { data: exs }, { data: alms }] = await Promise.all([
     supabase.from('productos').select('*').eq('id', productoId).single(),
     supabase.from('movimientos').select('*').eq('producto_id', productoId).order('at', { ascending: false }).limit(500),
+    // Dónde está el stock (sede → almacén): el papel debe decir lo mismo que el modal.
+    supabase.from('existencias').select('*').eq('producto_id', productoId),
+    supabase.from('almacenes').select('nombre, sede'),
   ]);
   if (pe || !producto) throw pe ?? new Error('Producto no encontrado');
   if (me) throw me;
-  return { producto: producto as Producto, movimientos: (movs ?? []) as Movimiento[] };
+  return {
+    producto: producto as Producto, movimientos: (movs ?? []) as Movimiento[],
+    existencias: (exs ?? []) as Existencia[], almacenes: (alms ?? []) as Pick<Almacen, 'nombre' | 'sede'>[],
+  };
 }
 
 export async function descargarProductoPdf(productoId: string): Promise<void> {
-  const [{ producto, movimientos }, logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ producto, movimientos, existencias, almacenes }, logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargar(productoId),
     loadLogoDataUrl().catch(() => null),
     import('jspdf'),
@@ -78,18 +87,18 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
   const ficha: Array<[string, string]> = [
     ['Categoría', producto.categoria],
     ['Unidad', producto.unidad],
-    ['Almacén', producto.almacen],
+    ['Almacén principal (catálogo)', producto.almacen],
     ['Estado', producto.estado],
     ['Receta de fundición', producto.receta_fundicion ?? '—'],
     ['En proceso de fundición', producto.en_fundicion ? 'Sí' : 'No'],
-    ['Stock actual', num(producto.stock)],
+    ['Stock total (todas las sedes)', num(producto.stock)],
     ['Stock mínimo', num(producto.stock_min)],
     ['Costo inicial', costoInicial != null ? money(costoInicial) : '—'],
     ['Precio UND', money(producto.precio)],
     ['Costo base (PMP) actual', money(producto.precio_promedio ?? producto.precio)],
     ['Valor en inventario', money(valor)],
-    ['Total entradas históricas', num(totalIn)],
-    ['Total salidas históricas', num(totalOut)],
+    ['Total entradas históricas (todas las sedes)', num(totalIn)],
+    ['Total salidas históricas (todas las sedes)', num(totalOut)],
     ['Creado', dateTime(producto.created_at)],
     ['Última actualización', producto.updated_at ? dateTime(producto.updated_at) : '—'],
   ];
@@ -102,6 +111,34 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
+
+  // Dónde está el stock: una fila por almacén con stock, agrupada por sede.
+  const desglose = desglosePorSede(existencias, almacenes, null);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('Stock por sede y almacén', MARGIN, y);
+  y += 4;
+  if (!desglose.sedes.length) {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(10);
+    doc.text('Sin stock en ningún almacén.', MARGIN, y + 14);
+    y += 28;
+  } else {
+    autoTable(doc, {
+      startY: y + 4,
+      head: [['Sede', 'Almacén', 'Stock', 'PMP del almacén', 'Valor']],
+      body: [
+        ...desglose.sedes.flatMap((sd) => sd.almacenes.map((a) => [sd.etiqueta, a.almacen, num(a.stock), money(a.costo), money(a.stock * a.costo)])),
+        ['Suma por almacén', 'todas las sedes', num(desglose.total), '', ''],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 9 },
+      styles: { fontSize: 8, cellPadding: 3 },
+      columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
+  }
 
   // Movimientos
   doc.setFont('helvetica', 'bold');
@@ -116,10 +153,11 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
   } else {
     autoTable(doc, {
       startY: y + 4,
-      head: [['Fecha', 'Tipo', 'Δ', 'Stock desp.', 'Costo unit.', 'Costo base (PMP)', 'Ref.', 'Detalle']],
+      head: [['Fecha', 'Tipo', 'Almacén', 'Δ', 'Saldo', 'Costo unit.', 'PMP', 'Ref.', 'Detalle']],
       body: movimientos.map((m) => [
         dateTime(m.at),
         TIPOS_MOVIMIENTO[m.tipo]?.label ?? m.tipo,
+        m.almacen?.trim() ? m.almacen : '(sin almacén)',
         (m.delta > 0 ? '+' : '') + num(m.delta),
         num(m.stock_despues),
         m.precio_unitario != null ? money(m.precio_unitario) : '—',
@@ -131,13 +169,21 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 9 },
       styles: { fontSize: 8, cellPadding: 3 },
       columnStyles: {
-        2: { halign: 'right' },
         3: { halign: 'right' },
         4: { halign: 'right' },
         5: { halign: 'right' },
+        6: { halign: 'right' },
       },
       margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     });
+    // Saldo y PMP son del almacén de cada línea; las recepciones de compra no registran
+    // almacén y llevan el saldo y el PMP de TODAS las sedes. El papel debe decirlo.
+    const yNota = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(90);
+    doc.text('Saldo y PMP corresponden al almacén de cada línea. En las líneas «(sin almacén)» (recepciones de compra) son el saldo y el PMP de todas las sedes.', MARGIN, yNota, { maxWidth: PAGE_W - 2 * MARGIN });
+    doc.setTextColor(0);
   }
 
   const pageH = doc.internal.pageSize.getHeight();

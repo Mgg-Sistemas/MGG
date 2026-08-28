@@ -12,6 +12,7 @@ import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import type { Producto, Proveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos, updateProducto, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { fmtTasa } from './compraDirectaMoneda';
 import {
   crearCompraDirecta, editarCompraDirectaEnProceso, montarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
   urlAdjuntoCompra, gestionarFacturasCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
@@ -220,6 +221,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
             ['Almacén', detalle.almacen || '—'],
             ['Proveedor', detalle.proveedor_nombre || '—'],
             ['Moneda', detalle.moneda === 'Bs' ? 'Bolívares (Bs)' : 'Dólares ($)'],
+            ...(detalle.moneda === 'Bs' && detalle.tasa_bcv ? [['Tasa BCV', `${fmtTasa(detalle.tasa_bcv)} · valora los materiales en $ al entrar al inventario`] as [string, string]] : []),
             ...(detalle.descuento_monto > 0 ? [['Descuento', `${detalle.descuento_pct ? `${detalle.descuento_pct}% · ` : ''}${montoCaja(detalle.descuento_monto, detalle.moneda)}`] as [string, string]] : []),
             ...(detalle.iva > 0 ? [['IVA', montoCaja(detalle.iva, detalle.moneda)] as [string, string]] : []),
             ...(detalle.igtf > 0 ? [['IGTF', montoCaja(detalle.igtf, detalle.moneda)] as [string, string]] : []),
@@ -570,9 +572,9 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
   const [pagoExternoDatos, setPagoExternoDatos] = useState(compra.pago_externo_datos ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Tasa BCV (Bs/$) para el equivalente en $ cuando la compra es en Bs. Se precarga
-  // con la del día pero es MODIFICABLE.
-  const [tasaStr, setTasaStr] = useState('');
+  // Tasa BCV (Bs/$) de la compra. En Bs es OBLIGATORIA: con ella se valoran los materiales
+  // en $ al entrar al inventario. Se precarga con la guardada o la del día; es MODIFICABLE.
+  const [tasaStr, setTasaStr] = useState(compra.tasa_bcv ? String(compra.tasa_bcv) : '');
   const [tasaBcv, setTasaBcv] = useState(0);
   useEffect(() => {
     getTasaHoy().then((t) => {
@@ -697,6 +699,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     if (lineas.some((l) => (Number(l.cantidad) || 0) <= 0)) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
     if (subtotal <= 0) { setError('Indicá el costo unitario de cada material.'); return; }
     if (total <= 0) { setError('El total no puede quedar en 0 (revisá el descuento).'); return; }
+    if (moneda === 'Bs' && tasaUsd <= 0) { setError('Colocá la tasa BCV (Bs por $): el inventario se valora en dólares y cada material entrará convertido con esa tasa.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
     if (pagoExterno && !pagoExternoDatos.trim()) { setError('Ingresá los datos de la persona externa que pagó (para reintegrarle).'); return; }
     const items: CompraDirectaItem[] = lineas.map((l) => ({
@@ -707,7 +710,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     try {
       await montarCompraDirecta({
         compra, items, file, nota, actor, actorName,
-        moneda, descuentoMonto: descMonto, iva, igtf, retencionPct: retPct,
+        moneda, tasaBcv: moneda === 'Bs' ? tasaUsd : undefined, descuentoMonto: descMonto, iva, igtf, retencionPct: retPct,
         pagoExterno, pagoExternoDatos,
       });
       notify(`Compra enviada a Tesorería · ${montoCaja(total, monedaLbl)} por pagar`, 'success', { link: '#/app/tesoreria' });
@@ -747,17 +750,22 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
           {moneda === 'Bs' && <small className="muted">En Bs se suma el IVA (16%) al total y podés registrar la retención de IVA.</small>}
           {/* Convertir los costos a la otra moneda a la tasa (del día o la que ponga el usuario). */}
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.45rem' }}>
-            <span className="muted" style={{ fontSize: '.78rem' }}>Tasa (Bs/$)</span>
-            <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 140 }} value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} placeholder="0,00" />
-            {tasaBcv > 0 && Number(tasaStr) !== tasaBcv && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaStr(String(tasaBcv))}>↻ Hoy ({tasaBcv.toLocaleString('es-VE')})</button>}
+            {/* En Bs la tasa es la del campo «Tasa BCV» de abajo: un solo campo, una sola tasa. */}
+            {moneda === 'USD' && (
+              <>
+                <span className="muted" style={{ fontSize: '.78rem' }}>Tasa (Bs por $)</span>
+                <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 140 }} value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} placeholder="0,00" />
+                {tasaBcv > 0 && Number(tasaStr) !== tasaBcv && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaStr(String(tasaBcv))}>↻ Hoy ({tasaBcv.toLocaleString('es-VE')})</button>}
+              </>
+            )}
             <button type="button" className="btn btn-sm btn-primary" onClick={convertirMoneda}>⇄ Convertir a {moneda === 'USD' ? 'Bs' : '$'}</button>
           </div>
-          <small className="muted">Convierte los costos cargados a {moneda === 'USD' ? 'Bs' : '$'} a esa tasa. El total convertido es el que va a Tesorería.</small>
+          <small className="muted">Convierte los costos cargados a {moneda === 'USD' ? 'Bs' : '$'} a {moneda === 'USD' ? 'esa tasa' : 'la tasa BCV de abajo'}. El total convertido es el que va a Tesorería.</small>
         </div>
 
         {moneda === 'Bs' && (
           <div className="form-row">
-            <label>Tasa BCV (Bs por $) {tasaBcv > 0 && <span className="muted" style={{ fontWeight: 400 }}>· hoy {montoCaja(tasaBcv, 'Bs')}</span>}</label>
+            <label>Tasa BCV (Bs por $) <span style={{ color: 'var(--danger)' }}>*</span> {tasaBcv > 0 && <span className="muted" style={{ fontWeight: 400 }}>· hoy {montoCaja(tasaBcv, 'Bs')}</span>}</label>
             <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 180 }}
                 value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} placeholder="0,00" />
@@ -765,7 +773,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
                 <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaStr(String(tasaBcv))}>↻ Usar BCV ({montoCaja(tasaBcv, 'Bs')})</button>
               )}
             </div>
-            <small className="muted">Se usa para mostrar el equivalente en $. Es modificable.</small>
+            <small className="muted">Cargá la tasa BCV de la <strong>fecha de la factura</strong> (se precarga la de hoy: cambiala si la factura es de otro día). Con esta tasa los materiales se valoran <strong>en dólares</strong> al entrar al inventario.</small>
           </div>
         )}
 

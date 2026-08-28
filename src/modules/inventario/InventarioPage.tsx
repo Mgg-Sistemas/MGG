@@ -42,6 +42,7 @@ import { DEFAULT_POLICY, decorate, type ProductoDecorado } from './restock';
 import { ProductosTable } from './ProductosTable';
 import { ProductoForm } from './ProductoForm';
 import { ProductoDetail } from './ProductoDetail';
+import { nombreSedeCorto } from './stockPorAlmacen';
 import { MovimientoForm } from './MovimientoForm';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
@@ -466,6 +467,14 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       : (ui.filterAlmacen ? rollupAlmacen(ui.filterAlmacen) : decorated);
     return base.filter((p) => coincideFiltros(p, ui));
   }, [decorated, decoratedScope, almacenesDeScope, almacenesScopeActual, productosDeAlmacenes, rollupAlmacen, ui]);
+  // Ámbito REAL de la columna de stock (lo que suman las filas de `filtered`): subalmacén
+  // filtrado > sub-vista > sede > Depósito. La etiqueta debe decir lo mismo que el número.
+  const filtroAlmEnScope = ui.filterAlmacen && (almacenesDeScope ? almacenesScopeActual.includes(ui.filterAlmacen) : true) ? ui.filterAlmacen : null;
+  const etiquetaStock = filtroAlmEnScope
+    ? (almacenesDeScope ? `Stock en ${filtroAlmEnScope}` : `Stock en ${filtroAlmEnScope} (con subalmacenes)`)
+    : sedeScope
+      ? `Stock en ${nombreSedeCorto(sedeScope)}${subVista === 'casiterita' ? ' · Casiterita' : subVista === 'bruto' ? ' · Estaño en bruto' : subVista === 'refinado' ? ' · Estaño refinado' : ''}`
+      : 'Stock en Depósito';
 
   // Opciones del filtro de SUBALMACÉN cuando estamos dentro de un centro/Matanzas:
   // los subalmacenes del scope actual (General o Casiterita), con nombre corto.
@@ -997,6 +1006,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
                 canWrite={canWrite}
                 movStats={movStats}
                 onMover={canWrite ? setMoverProd : undefined}
+                stockLabel={`Stock en ${almacenSel ?? 'almacén'}`}
               />
             )}
           </>
@@ -1122,6 +1132,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
               onMovimiento={openMovimiento}
               onToggleEstado={askToggleEstado}
               canWrite={canWrite}
+              stockLabel={etiquetaStock}
             />
           )}
         </>
@@ -1164,6 +1175,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       {modal.kind === 'detalle' && (
         <ProductoDetail
           producto={modal.producto}
+          origen={{ sede: sedeScope, almacen: ui.view === 'almacenes' ? almacenSel : (almacenesDeScope ? filtroAlmEnScope : null) }}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}

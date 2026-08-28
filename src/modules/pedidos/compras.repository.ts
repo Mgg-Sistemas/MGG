@@ -5,7 +5,8 @@
    Al completar se adjunta la factura, se colocan los precios por material
    y la CAJA de la que sale el dinero (pasa por Tesorería: egreso en el
    Libro Mayor); cada material entra al inventario como ENTRADA
-   (costo = gasto/cant → PMP).
+   (costo = gasto/cant → PMP). El inventario está en $: una compra en Bs
+   entra convertida con su tasa BCV (ver compraDirectaMoneda.ts).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { createProducto, siguienteSku } from '@/modules/inventario/inventario.repository';
@@ -13,6 +14,8 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId, eliminarMovimientoCaja } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Producto, CuentaCaja } from '@/shared/lib/types';
+import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
+import { costoUnitarioUsd, esCompraEnBs, fechaTasaCompra, fmtTasa, tasaValida, type AnclajeTasa } from './compraDirectaMoneda';
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
 export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; /** Caja de la que sale esta pata (multipago cross-caja); si falta, usa la caja principal. */ cajaId?: string; }
@@ -71,6 +74,10 @@ export interface CompraDirecta {
   retencion_finalizada_en: string | null;
   /** Total (incluye IVA cuando aplica). Es lo que paga Tesorería. */
   gasto: number | null;
+  /** Tasa BCV (Bs por $) con la que se valora la compra cuando es en Bs: el inventario
+   *  está en dólares, así que cada material entra a (gasto/cantidad)/tasa. Se guarda al
+   *  montar; las compras viejas sin tasa la resuelven por fecha al recibir. */
+  tasa_bcv: number | null;
   /** Etiquetas de gasto: las elige TESORERÍA al pagar (ya no en el montaje). */
   gasto_categoria: string | null;
   gasto_subcategoria: string | null;
@@ -127,6 +134,7 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
     ...r, items, facturas,
     credito_cxp_id: r.credito_cxp_id ?? null,
     moneda: r.moneda ?? 'USD',
+    tasa_bcv: Number(r.tasa_bcv) > 0 ? Number(r.tasa_bcv) : null,
     descuento_pct: Number(r.descuento_pct) || 0,
     descuento_monto: Number(r.descuento_monto) || 0,
     iva: Number(r.iva) || 0,
@@ -416,6 +424,8 @@ export interface MontarCompraInput {
   descuentoMonto?: number;
   /** Monto de IVA (se suma al total cuando la compra es en Bs). */
   iva?: number;
+  /** Tasa BCV (Bs por $). OBLIGATORIA en Bs: con ella se valoran los materiales en $ al recibir. */
+  tasaBcv?: number;
   /** Monto de IGTF (se suma al total; sugerido 3%). Aplica al pagar en divisas ($). */
   igtf?: number;
   /** Retención de IVA: % aplicado sobre el IVA (el monto retenido se calcula acá). */
@@ -459,6 +469,9 @@ export async function montarCompraDirecta(input: MontarCompraInput): Promise<voi
   // Moneda + IVA + retención. El IVA (y por ende la retención) sólo aplican en Bs.
   const moneda = input.moneda === 'Bs' ? 'Bs' : 'USD';
   const iva = moneda === 'Bs' ? Math.round(Math.max(0, Number(input.iva) || 0) * 100) / 100 : 0;
+  // Tasa BCV: en Bs es obligatoria (el inventario se valora en $ con ella). En $ no aplica.
+  const tasaBcv = moneda === 'Bs' ? Math.round((Number(input.tasaBcv) || 0) * 10000) / 10000 : null;
+  if (moneda === 'Bs' && !tasaValida(tasaBcv)) throw new Error('Indicá la tasa BCV (Bs por $) de la compra: el inventario se valora en dólares y cada material entra convertido con esa tasa.');
   const retencionPct = iva > 0 ? Math.max(0, Number(input.retencionPct) || 0) : 0;
   const retencionMonto = Math.round(iva * (retencionPct / 100) * 100) / 100;
   // IGTF: segmento que se suma al total (aplica en $ o Bs; lo carga el analista por % o manual).
@@ -483,7 +496,11 @@ export async function montarCompraDirecta(input: MontarCompraInput): Promise<voi
       // descarta las finalizadas).
       estado: 'abierta',
       gasto: total, items, cantidad: cantidadTotal,
-      moneda, descuento_pct: descuentoPct, descuento_monto: descuentoMonto,
+      moneda,
+      // La columna solo viaja cuando hace falta: un montaje en $ no depende de que la migración
+      // `tasa_bcv` esté aplicada (si la compra tenía tasa y pasa a $, se limpia).
+      ...(moneda === 'Bs' ? { tasa_bcv: tasaBcv } : compra.tasa_bcv != null ? { tasa_bcv: null } : {}),
+      descuento_pct: descuentoPct, descuento_monto: descuentoMonto,
       iva, igtf, retencion_pct: retencionPct, retencion_monto: retencionMonto,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
       nota: input.nota?.trim() || null,
@@ -595,12 +612,39 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   if (error) throw error;
 }
 
+/** Tasa BCV con la que se valora una compra en Bs, y de dónde salió:
+ *  'montaje' (la guardó Compras al montar) → 'fecha' (tasa_cambio al día del PAGO o, si no se
+ *  pagó, al de creación de la compra) → 'hoy' (última opción, para compras viejas sin historial).
+ *  null si la compra no es en Bs o no hay ninguna tasa disponible. */
+export type OrigenTasaCompra = 'montaje' | 'fecha' | 'hoy';
+export interface TasaCompraResuelta { tasa: number; origen: OrigenTasaCompra; fecha: string | null; anclaje: AnclajeTasa | null }
+export async function resolverTasaCompra(
+  compra: Pick<CompraDirecta, 'moneda' | 'tasa_bcv' | 'created_at' | 'caja_mov_id'>,
+): Promise<TasaCompraResuelta | null> {
+  if (!esCompraEnBs(compra.moneda)) return null;
+  if (tasaValida(compra.tasa_bcv)) return { tasa: compra.tasa_bcv, origen: 'montaje', fecha: null, anclaje: null };
+  // Día del pago (si ya se pagó): los bolívares salieron de la caja a la tasa de ese día.
+  const pago = compra.caja_mov_id ? await getMovimientoCajaPorId(compra.caja_mov_id).catch(() => null) : null;
+  const ancla = fechaTasaCompra(compra, pago?.at ?? null);
+  if (ancla) {
+    const h = await tasaBcvEnFecha(ancla.fecha).catch(() => null);
+    if (h && tasaValida(h.tasa)) return { tasa: h.tasa, origen: 'fecha', fecha: h.fecha, anclaje: ancla.anclaje };
+  }
+  const hoy = await getTasaHoy().catch(() => null);
+  if (hoy && tasaValida(hoy.usd)) return { tasa: hoy.usd, origen: 'hoy', fecha: hoy.fecha ?? null, anclaje: null };
+  return null;
+}
+
 /* ───────── Recibir (Inventario: almacenista → ENTRADA al inventario → FINALIZADA) ───────── */
 
 export interface RecibirCompraInput {
   compra: CompraDirecta;
   /** Almacén/subalmacén destino (elegido con el picker Sede → Almacén). */
   almacen: string;
+  /** Tasa BCV (Bs por $) con la que el modal mostró la vista previa; en Bs se escribe con esta misma. */
+  tasaBs?: number | null;
+  /** De dónde salió esa tasa (queda en el detalle del kardex para que sea auditable). */
+  tasaOrigen?: OrigenTasaCompra | null;
   actor: string;
   actorName?: string | null;
 }
@@ -620,17 +664,27 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
   if (!almacen) throw new Error('Elegí el almacén / subalmacén donde entran los materiales.');
   const items = compra.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
 
-  // Entrada al inventario por cada material (costo = gasto / cantidad).
+  // Compra en Bs: el inventario está en $, así que cada costo se convierte con la tasa BCV
+  // de la compra (la que mostró el modal, la guardada al montar o la de su fecha). Sin tasa
+  // no entra nada: antes entraba el monto en Bs como si fueran dólares (CD-2026-0054).
+  const enBs = esCompraEnBs(compra.moneda);
+  const resuelta = enBs && !tasaValida(input.tasaBs) ? await resolverTasaCompra(compra) : null;
+  const tasa: number | null = enBs ? (tasaValida(input.tasaBs) ? input.tasaBs : resuelta?.tasa ?? null) : null;
+  const origen: OrigenTasaCompra | null = enBs ? (tasaValida(input.tasaBs) ? (input.tasaOrigen ?? 'montaje') : resuelta?.origen ?? null) : null;
+  if (enBs && !tasaValida(tasa)) throw new Error('Esta compra está en bolívares y no hay tasa BCV para convertirla a dólares. Pedile a Compras que cargue la tasa en «✎ Factura/precios» y volvé a intentar.');
+  const notaTasa = origen === 'hoy' ? ' (tasa de hoy: la compra no guardó tasa)' : origen === 'fecha' ? ' (tasa de la fecha de la compra)' : '';
+
+  // Entrada al inventario por cada material (costo en $ = gasto / cantidad, ÷ tasa si es Bs).
   let primerMov: string | null = null;
   for (const it of items) {
     const cantidad = Number(it.cantidad) || 0;
     if (cantidad <= 0 || !it.producto_id) continue;
-    const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 100) / 100 : 0;
+    const costoUnit = costoUnitarioUsd(it.gasto, cantidad, compra.moneda, tasa);
     const mov = await registrarMovimiento({
       producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
       ref_tipo: 'compra_directa', ref_id: compra.id,
-      detalle: `Compra directa · ${it.producto_nombre}`, precio_unitario: costoUnit,
+      detalle: `Compra directa · ${it.producto_nombre}${enBs ? ` · Bs→$ a ${fmtTasa(tasa)}${notaTasa}` : ''}`, precio_unitario: costoUnit,
     });
     if (!primerMov) primerMov = mov.id;
   }
@@ -643,6 +697,8 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
     .from('compras_directas')
     .update({
       estado: yaPagada ? 'finalizada' : 'abierta', almacen, mov_id: primerMov,
+      // Queda registrada la tasa con la que entró (para la traza y para una edición posterior).
+      ...(enBs && tasa && !tasaValida(compra.tasa_bcv) ? { tasa_bcv: tasa } : {}),
       recibida_por: input.actorName || input.actor, recibida_at: nowIso,
       finalizada_at: yaPagada ? nowIso : null, updated_at: nowIso,
     })
@@ -750,6 +806,8 @@ export interface EditarCompraFinalizadaInput {
  *    nuevo costo (cantidad igual), recalculando el PMP del almacén.
  * Solo soporta pagos en una sola moneda (el movimiento guardado debe coincidir con el
  * total previo). Si se pagó con multimoneda, hay que corregir el egreso desde Tesorería.
+ * ⚠ Hoy ninguna pantalla la llama (quedó sin uso desde d5e66e9 «sin editar cuando Finalizada»);
+ *   se mantiene coherente con la recepción por si se vuelve a cablear.
  */
 export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizadaInput): Promise<void> {
   const { compra } = input;
@@ -778,6 +836,11 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
   if (nuevoTotal <= 0) throw new Error('El total debe ser mayor que 0.');
   const totalPrevio = Math.round(Number(compra.gasto || 0) * 100) / 100;
 
+  // Compra en Bs: el reingreso también se convierte a $ (misma regla que al recibir). Se resuelve
+  // ANTES de tocar Tesorería: si no hay tasa, no se ajusta nada (la secuencia no es transaccional).
+  const tasaEdicion: number | null = esCompraEnBs(compra.moneda) ? ((await resolverTasaCompra(compra))?.tasa ?? null) : null;
+  if (esCompraEnBs(compra.moneda) && !tasaValida(tasaEdicion)) throw new Error('Esta compra está en bolívares y no hay tasa BCV para convertirla a dólares. Pedile a Compras que cargue la tasa en «✎ Factura/precios» y volvé a intentar.');
+
   // 1) Tesorería: ajustar el egreso al nuevo total.
   if (!compra.caja_mov_id) throw new Error('La compra no tiene egreso de caja asociado.');
   const mov = await getMovimientoCajaPorId(compra.caja_mov_id);
@@ -804,7 +867,7 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
       detalle: `Ajuste por edición · reversa ${it.producto_nombre}`,
     });
     // Reingreso al nuevo costo (recalcula el PMP del almacén hacia adelante).
-    const costoNuevo = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 100) / 100 : 0;
+    const costoNuevo = costoUnitarioUsd(it.gasto, cantidad, compra.moneda, tasaEdicion);
     await registrarMovimiento({
       producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
