@@ -4,6 +4,7 @@ import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
+import { cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
 import type {
   AbonoCredito,
   CuentaCaja,
@@ -388,14 +389,15 @@ export interface EditarOcInput {
 }
 
 /**
- * Edita una OC mientras está en `oc_creada` (antes de ser aprobada/confirmada por
- * el GG): ajusta cantidades y precios de cada ítem, las condiciones de pago y la
- * nota. Recalcula el total. Una vez aprobada/confirmada ya no se edita por aquí.
+ * Edita una OC: ítems (cantidades, precios, nombres), proveedor, condición de pago,
+ * descuento y nota. Recalcula el total conservando IVA/IGTF. Si no cambió nada, no
+ * escribe. Devuelve la misma referencia `o` cuando no hubo nada que guardar.
  */
 export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: string): Promise<Orden> {
   // Editable mientras no se haya pagado/recibido: «OC creada» (por aprobar),
   // «Confirmada (indicar método de pago)» o «Confirmada pagar» (ya en Tesorería).
-  // Si estaba en «Confirmada (indicar método)», editarla la REABRE a «OC creada».
+  // En «Confirmada (indicar método)» solo un cambio MATERIAL (ítems, precios, proveedor,
+  // condición, descuento) la REABRE a «OC creada»; la nota y los nombres se guardan sin reabrir.
   // En «Confirmada pagar» los cambios de precio se aplican EN SITIO (sigue en pago,
   // se sincroniza con Tesorería); solo un cambio de PROVEEDOR la reabre a aprobación.
   const editable = o.estado === 'oc_creada' || o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada';
@@ -412,15 +414,28 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
   const igtfOc = Math.max(0, Number(o.igtf) || 0);
   const total = Math.round((Math.max(0, subtotal - descObt) + ivaOc + igtfOc) * 100) / 100;
   // Cambio de proveedor (opcional): si difiere del actual, la OC se reabre a aprobación.
-  const cambiaProveedor = input.proveedorId !== undefined && input.proveedorId !== o.proveedor_id;
-  const reabre = o.estado === 'confirmada_metodo' || cambiaProveedor;
+  const cambiaProveedor = cambiaProveedorOc(o, input);
+  // Solo un cambio MATERIAL (ítems, variantes, cantidades, precios, proveedor, condición,
+  // descuento) devuelve a aprobación una OC ya confirmada. Guardar sin tocar nada, corregir
+  // la nota o el nombre de un producto no la reabre: antes lo hacía siempre, y borraba la
+  // firma del Gerente (caso SP-2026-0124).
+  const cambioMaterial = hayCambiosMateriales(o, input);
+  const cambioTexto = cambiaTexto(o, input);
+  // Un total desfasado (p. ej. una OC vieja a la que «Editar OC» le había borrado el IVA)
+  // también es algo que vale la pena guardar: abrir y guardar la repara sin reabrirla.
+  const totalDesfasado = Math.abs(total - (Number(o.total) || 0)) > 0.005;
+  if (!cambioMaterial && !cambioTexto && !totalDesfasado) return o; // nada que guardar: sin evento
+  const reabre = cambiaProveedor || (o.estado === 'confirmada_metodo' && cambioMaterial);
+  const evento = reabre ? 'oc_reabierta_edicion'
+    : (cambioMaterial || totalDesfasado || cambianNombres(o, input)) ? 'oc_editada'
+    : 'nota_editada';
   const patch: Record<string, unknown> = {
     items: input.items,
     total,
     descuento_obtenido: descObt || null,
     condiciones_pago: input.condiciones_pago ?? o.condiciones_pago ?? null,
     notas: input.notas?.trim() || null,
-    historial: appendHistorial(o, reabre ? 'oc_reabierta_edicion' : 'oc_editada', actorEmail),
+    historial: appendHistorial(o, evento, actorEmail),
   };
   if (cambiaProveedor) patch.proveedor_id = input.proveedorId ?? null;
   if (reabre) {

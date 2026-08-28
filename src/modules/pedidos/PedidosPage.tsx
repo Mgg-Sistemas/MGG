@@ -159,6 +159,7 @@ function eventLabel(ev: string): string {
       cantidades_editadas: 'Cantidades editadas',
       oc_creada: 'OC creada (oferta elegida)',
       oc_editada: 'OC editada',
+      nota_editada: 'Nota de la OC editada',
       oc_reabierta_edicion: 'OC modificada · vuelve a aprobación del Gerente',
       confirmada_metodo: 'OC confirmada · indicar método de pago',
       confirmada_por_recibir: 'OC confirmada · pendiente por recepción',
@@ -185,6 +186,7 @@ function eventClass(ev: string): string {
       cantidades_editadas: 'info',
       oc_creada: 'info',
       oc_editada: 'info',
+      nota_editada: 'info',
       oc_reabierta_edicion: 'warn',
       confirmada_metodo: 'info',
       confirmada_por_recibir: 'info',
@@ -793,7 +795,7 @@ export function PedidosPage() {
         />
       )}
 
-      {/* Modal: editar OC (solo oc_creada, antes de aprobarla) */}
+      {/* Modal: editar OC (oc_creada, confirmada_metodo u oc_aprobada; solo un cambio material la reabre) */}
       {modal.kind === 'edit-oc' && (
         <EditarOcModal
           orden={modal.orden}
@@ -2363,7 +2365,7 @@ function OrdenDetailModal({
       {isConfirmadaMetodo && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
-          <button className="btn btn-ghost" onClick={onEditarOc} title="Editar la OC. Al guardar, vuelve a aprobación del Gerente General">✎ Modificar OC</button>
+          <button className="btn btn-ghost" onClick={onEditarOc} title="Editar la OC. Si cambian ítems, precios, proveedor o condición, vuelve a aprobación del Gerente General; la nota no la reabre">✎ Modificar OC</button>
           <button className="btn btn-primary" onClick={onEnviarPagar} title="Indicar método de pago y enviar a Tesorería">
             💳 Indicar método de pago / Enviar para Pagar
           </button>
@@ -3195,7 +3197,14 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   async function guardar() {
     setError(null); setSaving(true);
     try {
-      await actualizarOc(orden, { items, condiciones_pago: cond || null, notas, proveedorId: proveedorId || null, descuentoObtenido: descuentoObt }, actorEmail);
+      const guardada = await actualizarOc(orden, { items, condiciones_pago: cond || null, notas, proveedorId: proveedorId || null, descuentoObtenido: descuentoObt }, actorEmail);
+      if (guardada === orden) {
+        // No había nada que guardar (mismos ítems, precios, proveedor, condición, nota):
+        // no se toca la OC ni su estado, y tampoco se sincronizan nombres.
+        toast('Sin cambios que guardar', 'info');
+        onSaved();
+        return;
+      }
       // Sincroniza con inventario los nombres que cambiaron respecto al original.
       const orig = new Map(orden.items.map((i) => [i.sku, i.nombre]));
       const cambios = items
@@ -3216,7 +3225,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
         {orden.estado === 'oc_aprobada'
           ? <>Ajustá <strong>precios y cantidades</strong>: el nuevo total se <strong>sincroniza con Tesorería</strong> y la OC <strong>sigue en «Confirmada pagar»</strong> (queda en la trazabilidad). Si cambiás el <strong>proveedor</strong>, la OC vuelve a aprobación del Gerente General.</>
-          : <>Ajustá el proveedor, cantidades, precios y la condición de pago. El total se recalcula solo. Si cambiás algo, la OC vuelve a aprobación del Gerente General.</>}
+          : <>Ajustá el proveedor, cantidades, precios y la condición de pago. El total se recalcula solo. Si cambiás <strong>ítems, precios, proveedor, condición o descuento</strong>, la OC vuelve a aprobación del Gerente General; corregir la <strong>nota</strong> o un <strong>nombre</strong> no la reabre.</>}
       </p>
       {proveedoresSel.length > 0 && (
         <div className="form-row" style={{ marginBottom: '.6rem' }}>
