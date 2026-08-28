@@ -1354,7 +1354,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           actorName={actorName}
           canFull={can(meta.modulo, 'full')}
           onClose={() => setModal({ kind: 'none' })}
-          onChanged={reload}
+          onChanged={async () => { setAlmacenSel(null); setSedeSel(centroSede); await reload(); }}
         />
       )}
       {modal.kind === 'sedeEditar' && (

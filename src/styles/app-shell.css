@@ -466,7 +466,9 @@
 .kx-saldo strong { font-size: 1rem; color: var(--text); }
 @media (max-width: 768px) {
   .kx-row { grid-template-columns: 6rem minmax(0, 1fr); }
-  .kx-saldo { grid-column: 1 / -1; text-align: left; border-top: 1px dashed var(--border); padding-top: .3rem; }
+  /* El rótulo lleva el nombre del almacén (puede ser largo): en móvil se deja partir
+     o desbordaría la fila y el modal ganaría scroll horizontal. */
+  .kx-saldo { grid-column: 1 / -1; text-align: left; border-top: 1px dashed var(--border); padding-top: .3rem; white-space: normal; }
   .kx-saldo small { display: inline; margin-right: .4rem; }
 }
 

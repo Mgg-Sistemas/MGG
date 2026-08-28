@@ -12,6 +12,12 @@ import {
 } from './stockPorAlmacen';
 // descargarProductoPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
+/* Formateadores creados UNA vez: `toLocaleDateString/TimeString` con `timeZone` construye
+   un Intl.DateTimeFormat en cada llamada (~0,15 ms). Con kardex de cientos de filas y
+   re-renders por realtime, eso costaba cientos de ms por render. */
+const FMT_DIA = new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: 'short', year: 'numeric' });
+const FMT_HORA = new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit' });
+
 /** Desde dónde se abrió el modal: esa sede/almacén va primero y filtra el kardex por defecto. */
 export interface OrigenDetalle { sede?: string | null; almacen?: string | null }
 
@@ -94,6 +100,17 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
     : filtroAlm && almacenesKardex.includes(filtroAlm) ? filtroAlm
     : null;
   const movsVisibles = useMemo(() => filtrarKardex(movs, filtroEfectivo), [movs, filtroEfectivo]);
+  /** Día y hora ya formateados + si la fila abre un día nuevo (cabecera del kardex). */
+  const lineas = useMemo(() => {
+    let diaPrevio = '';
+    return movsVisibles.map((m) => {
+      const d = new Date(m.at);
+      const dia = Number.isNaN(d.getTime()) ? '—' : FMT_DIA.format(d);
+      const nuevoDia = dia !== diaPrevio;
+      diaPrevio = dia;
+      return { m, dia, nuevoDia, hora: Number.isNaN(d.getTime()) ? '' : FMT_HORA.format(d) };
+    });
+  }, [movsVisibles]);
   const { entradas: totalIn, salidas: totalOut } = useMemo(() => entradasSalidas(movs, filtroEfectivo), [movs, filtroEfectivo]);
   const ambito = !filtroEfectivo ? 'todas las sedes' : filtroEfectivo === FILTRO_SIN_ALMACEN ? 'recepciones de compra' : `▣ ${filtroEfectivo}`;
   const unidad = esBruto || esRefinado ? 'kg' : producto.unidad;
@@ -282,18 +299,14 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
         </div>
       ) : (
         <div className="kardex">
-          {movsVisibles.map((m, i) => {
+          {lineas.map(({ m, dia, nuevoDia, hora }, i) => {
             const meta = TIPOS_MOVIMIENTO[m.tipo] ?? { label: m.tipo, icon: '◔', color: 'info' as const };
             const isIn = m.delta > 0;
             const isOut = m.delta < 0;
             const deltaTxt = isIn ? `+${num(m.delta)}` : isOut ? `−${num(Math.abs(m.delta))}` : '0';
             const global = sinAlmacen(m);
-            // Cabecera por día: la fecha no se repite en cada línea (queda la hora).
-            const dia = date(m.at);
-            const nuevoDia = i === 0 || date(movsVisibles[i - 1].at) !== dia;
             const aj = ajustes.get(m.id);
             const muestraAjuste = aj && aj.antes != null && aj.antes !== aj.despues;
-            const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit' });
 
             return (
               <div key={m.id} style={{ display: 'contents' }}>
@@ -335,7 +348,7 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
                         💱 {global ? 'PMP global' : 'PMP del almacén'} ajustado por recompra{aj.compra != null ? ` (compra a ${money(aj.compra)})` : ''}: {money(aj.antes)} → <strong>{money(aj.despues)}</strong> {aj.despues > (aj.antes ?? 0) ? '▲' : '▼'}
                       </div>
                     )}
-                    <div className="kx-meta">{hora(m.at)} · por {m.actor_name || m.actor || '—'}</div>
+                    <div className="kx-meta">{hora} · por {m.actor_name || m.actor || '—'}</div>
                   </div>
 
                   {/* 3) Saldo después del movimiento, en su ámbito */}
