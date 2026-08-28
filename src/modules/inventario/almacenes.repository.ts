@@ -206,6 +206,17 @@ export async function listExistencias(): Promise<Existencia[]> {
  *  recién creado SIN stock quedaba invisible ahí (solo vivía en el catálogo).
  *  Esta fila "ancla" el producto a su almacén y fija el PMP base (costo). No
  *  pisa una existencia previa: si ya hay fila, la deja tal cual. */
+/** Existencias de UN producto (todas las sedes y espacios). Consulta acotada por producto:
+ *  no depende de `listExistencias()`, que trae la tabla entera y en producción supera el
+ *  tope de 1.000 filas por respuesta. */
+export async function listExistenciasDeProducto(productoId: string): Promise<Existencia[]> {
+  return cachedQuery(`inv:existencias:prod:${productoId}`, async () => {
+    const { data, error } = await supabase.from('existencias').select('*').eq('producto_id', productoId);
+    if (error) throw error;
+    return (data ?? []) as Existencia[];
+  }, { tables: ['existencias'], ttl: 15_000 });
+}
+
 export async function crearExistenciaInicial(productoId: string, almacen: string, costo = 0): Promise<void> {
   const alm = (almacen || 'General').trim() || 'General';
   const previa = await getExistencia(productoId, alm);

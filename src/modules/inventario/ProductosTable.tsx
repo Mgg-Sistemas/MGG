@@ -5,6 +5,8 @@ import { StatusBadge } from '@/shared/ui/StatusBadge';
 import type { ProductoDecorado } from './restock';
 
 interface ProductosTableProps {
+  /** Etiqueta de la columna de stock: «Stock en Los Pinos», «Stock en General», «Stock total (todas las sedes)»… */
+  stockLabel?: string;
   rows: ProductoDecorado[];
   onView: (id: string) => void;
   onEdit: (id: string) => void;
@@ -18,7 +20,7 @@ interface ProductosTableProps {
   onMover?: (p: ProductoDecorado) => void;
 }
 
-export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdit, onMovimiento, onToggleEstado, canWrite = true, movStats, onMover }: ProductosTableProps) {
+export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdit, onMovimiento, onToggleEstado, canWrite = true, movStats, onMover, stockLabel }: ProductosTableProps) {
   if (!rows.length) {
     return (
       <div className="card">
@@ -39,7 +41,7 @@ export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdi
             <th title="Clasificación ABC (Pareto)">ABC</th>
             {movStats && <th style={{ textAlign: 'right' }} title="Total de entradas históricas">Entradas</th>}
             {movStats && <th style={{ textAlign: 'right' }} title="Total de salidas históricas">Salidas</th>}
-            <th style={{ textAlign: 'right' }}>Stock</th>
+            <th style={{ textAlign: 'right' }} title={stockLabel ? `${stockLabel}: solo lo que hay en ese ámbito. El total de todas las sedes se ve en la trazabilidad (📋).` : 'Stock'}>{stockLabel ?? 'Stock'}</th>
             <th style={{ textAlign: 'right' }} title="Umbral efectivo según la política">Umbral</th>
             <th style={{ textAlign: 'right' }}>Precio UND</th>
             <th style={{ textAlign: 'right' }} title="Precio total = stock × precio UND">Valor</th>
