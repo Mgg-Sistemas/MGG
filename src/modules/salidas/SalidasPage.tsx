@@ -238,6 +238,7 @@ export function SalidasPage() {
         <SolicitudesKanban sols={solsFiltradas} scope={scopeSol} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
       ) : (
         <Historial
+          key={`${scope}-${tipo}`}
           scope={scope} tipo={tipo}
           salMat={salMat} trasMat={trasMat} salDin={salDin} trasDin={trasDin}
           canWrite={canWrite}
@@ -364,6 +365,8 @@ function Historial({
     // Totales de lo filtrado: despachos, unidades (solo tiene sentido con un producto) y $.
     const totalCant = rows.reduce((a, m) => a + Math.abs(Number(m.delta) || 0), 0);
     const totalUsd = rows.reduce((a, m) => a + Math.abs(Number(m.delta) || 0) * (Number(m.precio_unitario) || 0), 0);
+    // Un renglón = un producto de una salida; una misma solicitud puede tener varios.
+    const sinPrecio = rows.filter((m) => !(Number(m.precio_unitario) > 0)).length;
     const unidadProd = fProducto ? (rows[0]?.producto?.unidad ?? '') : '';
     return (
       <>
@@ -385,9 +388,9 @@ function Historial({
         </label>
         {(fUnidad || fProducto) && (
           <span className="chip chip-active" style={{ cursor: 'default' }}>
-            <strong>{rows.length}</strong>&nbsp;{esTraslado ? 'traslado(s)' : 'despacho(s)'}{fUnidad ? <>&nbsp;a <strong>{fUnidad}</strong></> : null}
+            <strong>{rows.length}</strong>&nbsp;renglón(es){fUnidad ? <>&nbsp;{esTraslado ? 'hacia' : 'a'} <strong>{fUnidad}</strong></> : null}
             {fProducto && <>&nbsp;· <strong>{num(totalCant)} {unidadProd}</strong></>}
-            {totalUsd > 0 && <>&nbsp;· <strong>{money(totalUsd)}</strong></>}
+            {totalUsd > 0 && <>&nbsp;· <strong>{money(totalUsd)}</strong>{sinPrecio > 0 ? <span className="muted">&nbsp;(sin precio: {sinPrecio})</span> : null}</>}
           </span>
         )}
       </div>

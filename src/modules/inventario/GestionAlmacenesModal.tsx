@@ -13,6 +13,10 @@
      · con secciones: primero se eliminan o reasignan las secciones.
    El nombre del almacén es la llave textual del stock en 11 tablas:
    renombrar pasa SIEMPRE por `actualizarAlmacen` → RPC `rename_almacen`.
+   El modal trabaja SOLO sobre el espacio de la página (Inventario o Depósito):
+   el permiso se evalúa con el módulo de esa página y las jerarquías no pueden
+   cruzar espacios (un subalmacén de Depósito colgado de Inventario quedaba
+   invisible en las dos vistas).
    ============================================================ */
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
@@ -21,11 +25,12 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { bustCache } from '@/shared/lib/queryCache';
 import { money, num } from '@/shared/lib/format';
-import type { Almacen, Existencia } from '@/shared/lib/types';
-import { actualizarAlmacen, crearAlmacen, eliminarAlmacen, listAlmacenes, listExistencias, renombrarSede, type AlmacenInput } from './almacenes.repository';
-import type { Espacio } from './inventario.repository';
+import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
+import { actualizarAlmacen, crearAlmacen, eliminarAlmacen, getExistencia, listAlmacenes, listExistencias, renombrarSede, type AlmacenInput } from './almacenes.repository';
+import { listProductos, type Espacio } from './inventario.repository';
 import { transferir } from './movimientos.repository';
 import { AlmacenForm } from './AlmacenForm';
+import { nombreCortoAlmacen } from './almacenes.repository';
 import { nombreSedeCorto, SIN_SEDE } from './stockPorAlmacen';
 
 interface Props {
@@ -33,7 +38,7 @@ interface Props {
   espacio: Espacio;
   actor: string;
   actorName?: string | null;
-  /** Permiso completo de Inventario: habilita cerrar almacenes con stock (moviéndolo). */
+  /** Permiso completo del módulo de ESTA página: habilita cerrar almacenes con stock (moviéndolo). */
   canFull: boolean;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
@@ -66,6 +71,9 @@ function descendencia(rootId: string, almacenes: Almacen[]): Set<string> {
 export function GestionAlmacenesModal({ espacio, actor, actorName, canFull, onClose, onChanged }: Props) {
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
+  // Productos: para mostrar SKU y nombre de lo que se va a mover, y para detectar los que
+  // tienen este almacén como "hogar" (productos.almacen).
+  const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
   const [sub, setSub] = useState<Sub>({ kind: 'none' });
   const [filtro, setFiltro] = useState('');
@@ -73,9 +81,10 @@ export function GestionAlmacenesModal({ espacio, actor, actorName, canFull, onCl
   async function cargar() {
     setLoading(true);
     try {
-      const [a1, a2, ex] = await Promise.all([listAlmacenes('principal'), listAlmacenes('deposito'), listExistencias()]);
-      setAlmacenes([...a1, ...a2]);
+      const [alms, ex, prods] = await Promise.all([listAlmacenes(espacio), listExistencias(), listProductos(espacio)]);
+      setAlmacenes(alms);
       setExistencias(ex);
+      setProductos(prods);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron cargar los almacenes', 'error');
     } finally { setLoading(false); }
@@ -84,7 +93,7 @@ export function GestionAlmacenesModal({ espacio, actor, actorName, canFull, onCl
 
   async function despuesDeCambiar(msg: string) {
     bustCache(['almacenes', 'existencias', 'productos', 'movimientos']);
-    notify(msg, 'success', { link: '#/app/inventario' });
+    notify(msg, 'success', { link: espacio === 'deposito' ? '#/app/deposito' : '#/app/inventario' });
     await cargar();
     await onChanged();
   }
@@ -129,8 +138,7 @@ export function GestionAlmacenesModal({ espacio, actor, actorName, canFull, onCl
           <td style={{ paddingLeft: `${0.6 + nivel * 1.4}rem` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
               <span className="muted">{nivel === 0 ? '▣' : '└'}</span>
-              <strong>{a.nombre}</strong>
-              {(a.espacio ?? 'principal') === 'deposito' && <span className="badge info" style={{ fontSize: '.6rem' }}>Depósito</span>}
+              <strong>{nombreCortoAlmacen(a, almacenes)}</strong>
               {hijos.length > 0 && <span className="badge" style={{ fontSize: '.6rem' }}>{hijos.length} sección(es)</span>}
             </div>
             {a.ubicacion && <div className="muted" style={{ fontSize: '.72rem' }}>{a.ubicacion}</div>}
@@ -231,7 +239,9 @@ export function GestionAlmacenesModal({ espacio, actor, actorName, canFull, onCl
           almacen={sub.almacen}
           almacenes={almacenes}
           existencias={existencias.filter((e) => e.almacen === sub.almacen.nombre)}
+          productos={productos}
           canFull={canFull}
+          onRecargar={cargar}
           actor={actor}
           actorName={actorName ?? null}
           onClose={() => setSub({ kind: 'none' })}
@@ -291,13 +301,16 @@ function RenombrarSedePanel({ sede, onClose, onSaved }: { sede: string; onClose:
 }
 
 /** Cierre de un almacén: vacío → eliminar; con stock → (solo permiso completo) mover a otro y eliminar. */
-function CerrarAlmacenPanel({ almacen, almacenes, existencias, canFull, actor, actorName, onClose, onDone }: {
-  almacen: Almacen; almacenes: Almacen[]; existencias: Existencia[]; canFull: boolean;
-  actor: string; actorName: string | null; onClose: () => void; onDone: (msg: string) => Promise<void>;
+function CerrarAlmacenPanel({ almacen, almacenes, existencias, productos, canFull, actor, actorName, onClose, onDone, onRecargar }: {
+  almacen: Almacen; almacenes: Almacen[]; existencias: Existencia[]; productos: Producto[]; canFull: boolean;
+  actor: string; actorName: string | null; onClose: () => void; onDone: (msg: string) => Promise<void>; onRecargar: () => Promise<void>;
 }) {
   const hijos = almacenes.filter((a) => a.parent_id === almacen.id);
   const conStock = existencias.filter((e) => (Number(e.stock) || 0) > 0);
   const unidades = conStock.reduce((a, e) => a + (Number(e.stock) || 0), 0);
+  // Productos que tienen este almacén como "hogar": también hay que reasignarlos.
+  const prodPorId = useMemo(() => new Map(productos.map((p) => [p.id, p])), [productos]);
+  const conHogar = productos.filter((p) => (p.almacen ?? '') === almacen.nombre);
   const excluidos = descendencia(almacen.id, almacenes);
   const destinos = almacenes
     .filter((a) => !excluidos.has(a.id) && (a.espacio ?? 'principal') === (almacen.espacio ?? 'principal'))
@@ -309,7 +322,8 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, canFull, actor, a
   const nombreOk = texto.trim() !== '' && normalizar(texto) === normalizar(almacen.nombre);
   const bloqueadoPorHijos = hijos.length > 0;
   const requiereMover = conStock.length > 0;
-  const puede = !bloqueadoPorHijos && nombreOk && (!requiereMover || (canFull && !!destino));
+  const requiereDestino = requiereMover || conHogar.length > 0;
+  const puede = !bloqueadoPorHijos && nombreOk && (!requiereDestino || (!requiereMover && !!destino) || (canFull && !!destino));
 
   async function confirmar() {
     if (!puede) return;
@@ -320,21 +334,30 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, canFull, actor, a
         for (const e of conStock) {
           i += 1;
           setBusy(`Moviendo ${i}/${conStock.length} a ${destino}…`);
+          // Se relee el stock REAL de cada producto: si la secuencia falló antes y se
+          // reintenta, los ya movidos están en 0 y se saltan (antes el reintento moría
+          // con «Stock insuficiente: 0»). También cubre el stock que cambió mientras tanto.
+          const actualEx = await getExistencia(e.producto_id, almacen.nombre);
+          const cantidad = Number(actualEx?.stock) || 0;
+          if (cantidad <= 0) continue;
           await transferir({
             producto_id: e.producto_id, almacenOrigen: almacen.nombre, almacenDestino: destino,
-            cantidad: Number(e.stock) || 0, actor, actor_name: actorName,
+            cantidad, actor, actor_name: actorName,
             detalle: `Cierre del almacén ${almacen.nombre}`,
           });
         }
       }
       setBusy('Eliminando almacén…');
-      await eliminarAlmacen(almacen.id, almacen.nombre);
+      await eliminarAlmacen(almacen.id, almacen.nombre, destino || null);
       await onDone(requiereMover
         ? `Almacén ${almacen.nombre} cerrado: ${conStock.length} producto(s) movidos a ${destino}`
         : `Almacén eliminado: ${almacen.nombre}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cerrar el almacén');
       setBusy(null);
+      // El traslado pudo quedar a mitad: se recarga el estado real para que el reintento
+      // parta de lo que de verdad quedó en el almacén.
+      await onRecargar().catch(() => { /* el error ya está en pantalla */ });
     }
   }
 
@@ -360,7 +383,7 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, canFull, actor, a
             Este almacén tiene <strong>{conStock.length} producto(s)</strong> con <strong>{num(unidades)} unidades</strong> en stock.
             {canFull
               ? <> Para cerrarlo, el stock se <strong>traslada</strong> a otro almacén (cada producto queda en el kardex como transferencia) y después se elimina.</>
-              : <> Solo un usuario con <strong>permiso completo de Inventario</strong> puede cerrarlo moviendo el stock. Pedíselo, o trasladá el stock desde Salidas → Traslados y volvé.</>}
+              : <> Solo un usuario con <strong>permiso completo de este módulo</strong> puede cerrarlo moviendo el stock. Pedíselo, o trasladá el stock desde Salidas → Traslados y volvé.</>}
           </div>
           {canFull && (
             <div className="form-row">
@@ -375,17 +398,41 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, canFull, actor, a
             <table className="table" style={{ fontSize: '.78rem' }}>
               <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Stock</th><th style={{ textAlign: 'right' }}>PMP</th></tr></thead>
               <tbody>
-                {conStock.map((e) => (
-                  <tr key={e.producto_id}><td className="mono">{e.producto_id.slice(0, 8)}…</td><td className="mono" style={{ textAlign: 'right' }}>{num(e.stock)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(e.costo_promedio)}</td></tr>
-                ))}
+                {conStock.map((e) => {
+                  const p = prodPorId.get(e.producto_id);
+                  return (
+                    <tr key={e.producto_id}>
+                      <td>{p ? <>{p.nombre} <span className="muted mono" style={{ fontSize: '.7rem' }}>{p.sku}</span></> : <span className="muted mono">producto no encontrado</span>}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{num(e.stock)} {p?.unidad ?? ''}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{money(e.costo_promedio)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </>
       ) : (
         <p style={{ marginTop: 0, fontSize: '.85rem' }}>
-          El almacén está vacío. Se elimina de la lista; su historial en el kardex se conserva con el nombre <strong>{almacen.nombre}</strong>. <strong>Esta acción no se puede deshacer.</strong>
+          El almacén está vacío (sin stock). Se elimina de la lista; su historial en el kardex se conserva con el nombre <strong>{almacen.nombre}</strong>. <strong>Esta acción no se puede deshacer.</strong>
         </p>
+      )}
+
+      {!bloqueadoPorHijos && conHogar.length > 0 && (
+        <>
+          <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.6rem', fontSize: '.82rem' }}>
+            <strong>{conHogar.length} producto(s)</strong> tienen a «{almacen.nombre}» como su <strong>almacén principal</strong> (el del catálogo). Se reasignan al almacén que elijas; si no, el nombre borrado seguiría apareciendo en los desplegables.
+          </div>
+          {!requiereMover && (
+            <div className="form-row">
+              <label>Reasignar esos productos a</label>
+              <select className="select" value={destino} onChange={(e) => setDestino(e.target.value)}>
+                <option value="">— Elegí el almacén —</option>
+                {destinos.map((a) => <option key={a.id} value={a.nombre}>{a.sede ? `${nombreSedeCorto(a.sede)} › ` : ''}{a.nombre}</option>)}
+              </select>
+            </div>
+          )}
+        </>
       )}
 
       {!bloqueadoPorHijos && (!requiereMover || canFull) && (
