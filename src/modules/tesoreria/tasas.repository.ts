@@ -155,6 +155,25 @@ export async function listHistorialTasas(filtros: { desde?: string; hasta?: stri
   return (data ?? []) as TasaCambio[];
 }
 
+/** Tasa BCV del USD vigente en una fecha: la última registrada en `tasa_cambio` con
+ *  fecha <= la pedida (si hay bcv y manual el mismo día, gana la MANUAL: es la corrección
+ *  que cargó Tesorería, igual que en el snapshot de hoy). Sirve para valorar
+ *  compras directas en Bs que no guardaron su tasa al montar. */
+export async function tasaBcvEnFecha(fecha: string): Promise<{ tasa: number; fecha: string } | null> {
+  const { data, error } = await supabase
+    .from('tasa_cambio')
+    .select('tasa, fecha')
+    .eq('moneda', 'USD')
+    .lte('fecha', fecha)
+    .order('fecha', { ascending: false })
+    .order('fuente', { ascending: false })   // 'manual' > 'bcv'
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return { tasa: Number(data.tasa), fecha: String(data.fecha) };
+}
+
 /* ───────────── Tasas de mercado (USDT/VES Binance, COP/USD) ───────────── */
 
 /** Tasas vigentes para el módulo multimoneda. */
