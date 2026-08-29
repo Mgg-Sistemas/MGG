@@ -1386,7 +1386,7 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
       await eliminarCombustible(borrando.id);
       setBorrando(null);
       await onChanged();
-      toast('Combustible eliminado (el histórico se conserva)', 'success');
+      toast('Combustible eliminado', 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
     finally { setBusy(false); }
   }
@@ -1420,7 +1420,7 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
                 <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => abrirRenombrar(c.id, c.nombre)}>✎</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => toggleEstado(c.id, c.estado)}>{c.estado === 'activo' ? 'Deshabilitar' : 'Habilitar'}</button>
-                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} title="Eliminar combustible (conserva el histórico)" onClick={() => setBorrando(c)}>🗑</button>
+                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} title="Eliminar combustible (solo si nunca se usó)" onClick={() => setBorrando(c)}>🗑</button>
                 </td>
               </tr>
             ))}
@@ -1456,7 +1456,7 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
       {borrando && (
         <ConfirmDialog
           title="Eliminar combustible"
-          message={`¿Eliminar el combustible "${borrando.nombre}"? Se quita de esta sede pero el HISTÓRICO se conserva (movimientos de tanque, solicitudes e inventario quedan intactos). Los tanques que lo usaban quedan sin combustible asignado. Esta acción no se puede deshacer.`}
+          message={`¿Eliminar el combustible "${borrando.nombre}"? Solo se puede si NUNCA se usó: sin movimientos, tanques ni solicitudes. Si ya tiene histórico, el sistema lo va a rechazar y hay que usar «Deshabilitar», que lo saca de los desplegables sin perder nada. Esta acción no se puede deshacer.`}
           confirmText="Eliminar"
           danger
           onConfirm={confirmarBorrar}
@@ -1490,6 +1490,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null);
   // Confirmación de borrado: hay que escribir el nombre del tanque.
   const [borrarOpen, setBorrarOpen] = useState(false);
+  const [errorBorrar, setErrorBorrar] = useState<string | null>(null);
   const [confirmNombre, setConfirmNombre] = useState('');
 
   const capNum = Number(capacidad) || 0;
@@ -1518,7 +1519,12 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
     setError(null);
     if (!nombre.trim()) { setError('Indicá el nombre del tanque.'); return; }
     if (capNum <= 0) { setError('La capacidad debe ser mayor que 0.'); return; }
-    if (litNum > capNum) { setError('Los litros actuales no pueden superar la capacidad.'); return; }
+    if (litNum > capNum) {
+      setError(esEdicion
+        ? `La capacidad no puede quedar por debajo de los ${num(litNum)} L que el tanque tiene ahora: los litros de más se recortarían solos en el próximo movimiento.`
+        : 'Los litros iniciales no pueden superar la capacidad.');
+      return;
+    }
     setSaving(true);
     try {
       const geo = {
@@ -1532,7 +1538,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
       };
       if (esEdicion && tanque) {
         await actualizarTanque(tanque.id, {
-          nombre, combustibleId: combustibleId || null, capacidadLitros: capNum, litros: litNum, ubicacion, ...geo,
+          nombre, combustibleId: combustibleId || null, capacidadLitros: capNum, ubicacion, ...geo,
         });
         notify(`Tanque "${nombre.trim()}" actualizado`, 'success', { link: '#/app/combustible' });
       } else {
@@ -1552,8 +1558,15 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
   async function borrar() {
     if (!tanque || !nombreOk) return;
     setSaving(true);
+    setErrorBorrar(null);
     try { await eliminarTanque(tanque.id); notify(`Tanque "${tanque.nombre}" eliminado`, 'info', { link: '#/app/combustible' }); onSaved(); }
-    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo eliminar'); setSaving(false); setBorrarOpen(false); }
+    catch (e) {
+      // El diálogo NO se cierra: si el guard rechaza (tanque con litros), el motivo tiene que
+      // verse acá. Cerrándolo, el error quedaba arriba del formulario de 94vh y parecía que
+      // el tanque se había borrado.
+      setErrorBorrar(e instanceof Error ? e.message : 'No se pudo eliminar');
+      setSaving(false);
+    }
   }
 
   const footer = (
@@ -1580,8 +1593,21 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
             <input className="input mono" type="number" min={0} step="any" value={capacidad} onChange={(e) => setCapacidad(e.target.value)} required />
           </div>
           <div className="form-row">
-            <label>Litros actuales</label>
-            <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} />
+            <label>{esEdicion ? 'Litros actuales' : 'Litros iniciales'}</label>
+            {esEdicion ? (
+              <>
+                {/* De solo lectura al editar: cambiar el nivel acá movía la cuenta del tanque sin
+                    movimiento en el kardex, sin tocar el inventario, y pisaba lo que otro hubiera
+                    despachado con el modal abierto. El nivel se corrige con un movimiento. */}
+                <input className="input mono" value={`${num(litNum)} L`} readOnly tabIndex={-1} style={{ opacity: .75 }} />
+                <small className="muted">
+                  El nivel se mueve con <strong>movimientos</strong> (ingreso, consumo o merma), que quedan en el
+                  histórico y ajustan también el combustible y el inventario. Para corregirlo, registrá uno.
+                </small>
+              </>
+            ) : (
+              <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} />
+            )}
             {capNum > 0 && <small className="muted">Nivel: <strong>{Math.min(100, Math.round((litNum / capNum) * 100))}%</strong></small>}
           </div>
         </div>
@@ -1687,13 +1713,17 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
       </form>
 
       {borrarOpen && tanque && (
-        <Modal title="Eliminar tanque" size="md" onClose={() => { if (!saving) setBorrarOpen(false); }} footer={
+        <Modal title="Eliminar tanque" size="md" onClose={() => { if (!saving) { setBorrarOpen(false); setErrorBorrar(null); } }} footer={
           <>
-            <button className="btn btn-ghost" onClick={() => setBorrarOpen(false)} disabled={saving}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => { setBorrarOpen(false); setErrorBorrar(null); }} disabled={saving}>Cancelar</button>
             <button className="btn btn-danger" onClick={() => void borrar()} disabled={saving || !nombreOk}>{saving ? 'Eliminando…' : 'Eliminar tanque'}</button>
           </>
         }>
-          <p style={{ marginTop: 0 }}>¿Seguro que deseás eliminar el tanque <strong>{tanque.nombre}</strong>? Esta acción no se puede deshacer.</p>
+          {errorBorrar && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>No se puede eliminar:</strong> {errorBorrar}</div>}
+          <p style={{ marginTop: 0 }}>
+            ¿Seguro que deseás eliminar el tanque <strong>{tanque.nombre}</strong>? Solo se puede si está <strong>vacío</strong>
+            {' '}(sus movimientos históricos se conservan). Esta acción no se puede deshacer.
+          </p>
           <div className="form-row">
             <label>Para confirmar, escribí el nombre del tanque: <strong>{tanque.nombre}</strong></label>
             <input className="input" value={confirmNombre} onChange={(e) => setConfirmNombre(e.target.value)} placeholder={tanque.nombre} autoFocus
