@@ -354,14 +354,51 @@ function Historial({
   if (tipo === 'material') {
     const esTraslado = scope === 'traslados';
     const base = scope === 'salidas' ? salMat : trasMat;
-    // Opciones de los desplegables, sacadas de lo que hay en el historial.
-    const unidades = Array.from(new Set(base.map((m) => (m.destino ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'));
-    const productos = Array.from(new Map(base.filter((m) => m.producto?.sku).map((m) => [m.producto!.sku, m.producto!.nombre])).entries()).sort((a, b) => a[1].localeCompare(b[1], 'es'));
-    const rows = base.filter((m) =>
-      enRango(m.at)
-      && (!fUnidad || (m.destino ?? '').trim() === fUnidad)
-      && (!fProducto || m.producto?.sku === fProducto)
-      && matchTxt(m.producto?.nombre, m.producto?.sku, m.almacen, m.destino, m.solicitante, m.actor_name, m.actor, m.detalle));
+    // Filas que pasan los filtros comunes (fecha + texto). De acá salen las dos listas.
+    const baseComun = base.filter((m) => enRango(m.at) && matchTxt(m.producto?.nombre, m.producto?.sku, m.almacen, m.destino, m.solicitante, m.actor_name, m.actor, m.detalle));
+    const unidadDe = (m: Movimiento) => (m.destino ?? '').trim();
+    // Listas FACETADAS: cada desplegable ofrece solo lo que existe con el OTRO filtro puesto,
+    // así ninguna opción devuelve una tabla vacía. Antes se armaban con todo el histórico y
+    // ofrecían unidades sin un solo registro en el rango elegido.
+    const opcionesUnidad = (() => {
+      const conteo = new Map<string, number>();
+      for (const m of baseComun) {
+        if (fProducto && m.producto?.sku !== fProducto) continue;
+        const u = unidadDe(m);
+        if (u) conteo.set(u, (conteo.get(u) ?? 0) + 1);
+      }
+      const opts = [...conteo.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0], 'es'))
+        .map(([u, n]) => ({ value: u, label: `${u} (${n})` }));
+      // El valor elegido se conserva aunque el resto de filtros lo deje sin filas: si no,
+      // desaparecería del cuadro y no habría cómo quitarlo.
+      if (fUnidad && !conteo.has(fUnidad)) opts.push({ value: fUnidad, label: `${fUnidad} (0)` });
+      // «Todas» primero: SearchSelect no tiene botón de limpiar, sin esta opción el
+      // filtro se quedaría puesto para siempre. El número son los RENGLONES que se verían
+      // al quitar el filtro (como el resto de la lista), no cuántas unidades hay: si contara
+      // unidades, «Todas (14)» quedaría por debajo de «FUNDICION (228)».
+      const filasSinFiltro = baseComun.filter((m) => !fProducto || m.producto?.sku === fProducto).length;
+      return [{ value: '', label: `Todas (${filasSinFiltro})` }, ...opts];
+    })();
+    const opcionesProducto = (() => {
+      const conteo = new Map<string, { nombre: string; n: number }>();
+      for (const m of baseComun) {
+        if (fUnidad && unidadDe(m) !== fUnidad) continue;
+        const sku = m.producto?.sku;
+        if (!sku) continue;
+        const prev = conteo.get(sku);
+        conteo.set(sku, { nombre: m.producto?.nombre ?? sku, n: (prev?.n ?? 0) + 1 });
+      }
+      const opts = [...conteo.entries()]
+        .sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'))
+        .map(([sku, v]) => ({ value: sku, label: `${v.nombre} · ${sku} (${v.n})` }));
+      if (fProducto && !conteo.has(fProducto)) opts.push({ value: fProducto, label: `${fProducto} (0)` });
+      const filasSinFiltro = baseComun.filter((m) => !fUnidad || unidadDe(m) === fUnidad).length;
+      return [{ value: '', label: `Todos (${filasSinFiltro})` }, ...opts];
+    })();
+    const rows = baseComun.filter((m) =>
+      (!fUnidad || unidadDe(m) === fUnidad)
+      && (!fProducto || m.producto?.sku === fProducto));
     // Totales de lo filtrado: despachos, unidades (solo tiene sentido con un producto) y $.
     const totalCant = rows.reduce((a, m) => a + Math.abs(Number(m.delta) || 0), 0);
     const totalUsd = rows.reduce((a, m) => a + Math.abs(Number(m.delta) || 0) * (Number(m.precio_unitario) || 0), 0);
@@ -372,19 +409,31 @@ function Historial({
       <>
       {FilterBar}
       <div className="filterbar" style={{ gap: '.5rem', marginBottom: '.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* Buscadores (SearchSelect): con muchas unidades y cientos de productos, escribir
+            es más rápido que desplegar. Cada opción muestra cuántos renglones tiene. */}
         <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
           {esTraslado ? '🏭 Destino' : '🏷 Dirigido a / unidad'}
-          <select className="select" value={fUnidad} onChange={(e) => setFUnidad(e.target.value)} style={{ minWidth: 200 }}>
-            <option value="">Todas</option>
-            {unidades.map((u) => <option key={u} value={u}>{u}</option>)}
-          </select>
+          <SearchSelect
+            value={fUnidad}
+            onChange={setFUnidad}
+            options={opcionesUnidad}
+            sinPreseleccion
+            placeholder="Escribí para buscar…"
+            emptyText="Ninguna unidad coincide"
+            style={{ minWidth: 230 }}
+          />
         </label>
         <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
           📦 Producto
-          <select className="select" value={fProducto} onChange={(e) => setFProducto(e.target.value)} style={{ minWidth: 220 }}>
-            <option value="">Todos</option>
-            {productos.map(([sku, nombre]) => <option key={sku} value={sku}>{nombre} · {sku}</option>)}
-          </select>
+          <SearchSelect
+            value={fProducto}
+            onChange={setFProducto}
+            options={opcionesProducto}
+            sinPreseleccion
+            placeholder="Escribí para buscar…"
+            emptyText="Ningún producto coincide"
+            style={{ minWidth: 260 }}
+          />
         </label>
         {(fUnidad || fProducto) && (
           <span className="chip chip-active" style={{ cursor: 'default' }}>
