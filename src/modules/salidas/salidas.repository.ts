@@ -5,6 +5,7 @@
    (`movimientos`) y la lógica de existencias por almacén.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type {
   Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, ItemSolicitudSalida,
 } from '@/shared/lib/types';
@@ -184,25 +185,30 @@ export async function listDirectorioUsuarios(): Promise<PersonaDirectorio[]> {
 /* ───────────── Listados (historial) ───────────── */
 
 export async function listSalidasMaterial(): Promise<Movimiento[]> {
-  const { data, error } = await supabase
-    .from('movimientos')
-    .select('*, producto:productos(sku, nombre, unidad)')
-    .eq('ref_tipo', 'salida_modulo')
-    .order('at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as Movimiento[];
+  // Por páginas: `movimientos` de salidas ya va en 609 filas y crece ~300/mes; con una
+  // sola llamada Supabase corta en 1.000 sin avisar y el historial (y sus totales)
+  // quedarían incompletos en silencio.
+  return todasLasFilas<Movimiento>((desde, hasta) =>
+    supabase
+      .from('movimientos')
+      .select('*, producto:productos(sku, nombre, unidad)')
+      .eq('ref_tipo', 'salida_modulo')
+      .order('at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(desde, hasta));
 }
 
 /** Traslados de material: solo el lado de salida (delta<0) para no duplicar. */
 export async function listTrasladosMaterial(): Promise<Movimiento[]> {
-  const { data, error } = await supabase
-    .from('movimientos')
-    .select('*, producto:productos(sku, nombre, unidad)')
-    .eq('ref_tipo', 'traslado_modulo')
-    .lt('delta', 0)
-    .order('at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as Movimiento[];
+  return todasLasFilas<Movimiento>((desde, hasta) =>
+    supabase
+      .from('movimientos')
+      .select('*, producto:productos(sku, nombre, unidad)')
+      .eq('ref_tipo', 'traslado_modulo')
+      .lt('delta', 0)
+      .order('at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(desde, hasta));
 }
 
 /* ============================================================

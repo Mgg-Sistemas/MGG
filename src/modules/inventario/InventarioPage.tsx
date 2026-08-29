@@ -59,6 +59,7 @@ import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { AlmacenKanban } from './AlmacenKanban';
 // Los generadores de PDF/Excel de almacén se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
 import { AlmacenForm } from './AlmacenForm';
+import { GestionAlmacenesModal } from './GestionAlmacenesModal';
 import {
   listAlmacenes,
   listExistencias,
@@ -137,6 +138,7 @@ type ModalState =
   | { kind: 'almacenEditar'; almacen: Almacen }
   | { kind: 'almacenEliminar'; almacen: Almacen }
   | { kind: 'sedeEditar'; sede: string }
+  | { kind: 'gestionAlmacenes' }
   | { kind: 'reporteFiltro' }
   | { kind: 'resumen' };
 
@@ -847,6 +849,11 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
               />
             </>
           )}
+          {canWrite && (
+            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'gestionAlmacenes' })} title="Crear, renombrar, organizar y cerrar almacenes y sus secciones">
+              🏗 Almacenes
+            </button>
+          )}
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen de inventario: almacenes, productos nuevos, salidas y traslados">
             📊 Resumen
           </button>
@@ -1338,6 +1345,16 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           almacen={modal.almacen}
           onCancel={() => setModal({ kind: 'none' })}
           onConfirm={() => handleEliminarAlmacen(modal.almacen)}
+        />
+      )}
+      {modal.kind === 'gestionAlmacenes' && (
+        <GestionAlmacenesModal
+          espacio={espacio}
+          actor={productoActor}
+          actorName={actorName}
+          canFull={can(meta.modulo, 'full')}
+          onClose={() => setModal({ kind: 'none' })}
+          onChanged={async () => { setAlmacenSel(null); setSedeSel(centroSede); await reload(); }}
         />
       )}
       {modal.kind === 'sedeEditar' && (

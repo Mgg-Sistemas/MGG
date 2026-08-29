@@ -429,6 +429,49 @@
 .tl-title { font-size: .88rem; color: var(--text); font-weight: 500; }
 .tl-meta  { font-size: .72rem; color: var(--text-muted); margin-top: .15rem; font-family: var(--font-mono); }
 
+/* Kardex como libro de asientos (trazabilidad de producto).
+   La cantidad va PRIMERO y pegada al tipo de movimiento: en el timeline anterior quedaba
+   en el extremo derecho y, con varias líneas, el almacenista no sabía qué +N era de cuál.
+   Cada fila lleva barra lateral verde/roja y fondo alternado para que se lea como una unidad. */
+.kardex { display: flex; flex-direction: column; gap: .35rem; }
+.kx-dia {
+  display: flex; align-items: center; gap: .6rem;
+  margin: .55rem 0 .1rem; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.kx-dia::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.kx-row {
+  display: grid; grid-template-columns: 7.5rem minmax(0, 1fr) auto; gap: .25rem .9rem; align-items: start;
+  padding: .55rem .8rem .55rem .7rem;
+  border: 1px solid var(--border); border-left: 4px solid var(--border-strong);
+  border-radius: var(--r-md); background: var(--bg-1);
+}
+.kx-row.alt { background: var(--bg-2); }
+.kx-row.in  { border-left-color: var(--success); }
+.kx-row.out { border-left-color: var(--danger); }
+.kx-delta {
+  font-family: var(--font-mono); font-size: 1.25rem; font-weight: 800; line-height: 1.1;
+  white-space: nowrap; color: var(--text-muted);
+}
+.kx-row.in  .kx-delta { color: var(--success); }
+.kx-row.out .kx-delta { color: var(--danger); }
+.kx-delta small { display: block; font-size: .66rem; font-weight: 500; color: var(--text-muted); letter-spacing: .02em; }
+.kx-main { min-width: 0; }
+.kx-tipo { font-size: .9rem; font-weight: 600; color: var(--text); display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; }
+.kx-detalle { font-size: .82rem; color: var(--text); margin-top: .15rem; }
+.kx-sub { font-size: .76rem; color: var(--text-muted); margin-top: .15rem; }
+.kx-meta { font-size: .72rem; color: var(--text-muted); margin-top: .25rem; font-family: var(--font-mono); }
+.kx-saldo { text-align: right; white-space: nowrap; font-family: var(--font-mono); }
+.kx-saldo small { display: block; font-size: .64rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.kx-saldo strong { font-size: 1rem; color: var(--text); }
+@media (max-width: 768px) {
+  .kx-row { grid-template-columns: 6rem minmax(0, 1fr); }
+  /* El rótulo lleva el nombre del almacén (puede ser largo): en móvil se deja partir
+     o desbordaría la fila y el modal ganaría scroll horizontal. */
+  .kx-saldo { grid-column: 1 / -1; text-align: left; border-top: 1px dashed var(--border); padding-top: .3rem; white-space: normal; }
+  .kx-saldo small { display: inline; margin-right: .4rem; }
+}
+
 /* View toggle (Lista | Kanban) */
 .view-toggle {
   display: inline-flex;
