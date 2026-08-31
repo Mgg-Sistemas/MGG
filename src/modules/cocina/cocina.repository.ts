@@ -173,6 +173,15 @@ export async function listViveresGlobal(preferAlmacen?: string | null): Promise<
     const arr = porProducto.get(e.producto_id) ?? [];
     arr.push(e); porProducto.set(e.producto_id, arr);
   }
+  // Los víveres NO viven en subalmacenes (los únicos subalmacenes son casiterita y
+  // estaño). La cocina surte del almacén PRINCIPAL de su sede: el raíz que NO es de
+  // casiterita ni estaño (ej. "La Esperanza", "Los Pinos"). Si ahí no hay stock del
+  // víver, cae al almacén vinculado y, por último, al de más stock del centro.
+  const esSegmentado = (n: string) => /casiterita|esta[nñ]o|sno|refinad|bruto/i.test(n);
+  const principalSede = sedeObjetivo
+    ? (almacenes.find((a) => (a.sede ?? null) === sedeObjetivo && !a.parent_id && !esSegmentado(a.nombre))?.nombre ?? null)
+    : null;
+
   const out: ViverDisponible[] = [];
   for (const p of productos) {
     if (p.estado !== 'activo') continue;
@@ -182,8 +191,10 @@ export async function listViveresGlobal(preferAlmacen?: string | null): Promise<
     if (almacenesScope && exs.length === 0) continue;
     const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
     const conStock = exs.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock));
-    // Descuento: el almacén de la cocina si ahí hay stock; si no, el que más tenga (dentro del centro).
-    const preferido = preferAlmacen ? conStock.find((e) => e.almacen === preferAlmacen) : undefined;
+    // Descuento: el PRINCIPAL de la sede; si no, el almacén vinculado a la cocina; y
+    // como último recurso el que más stock tenga dentro del centro.
+    const preferido = (principalSede ? conStock.find((e) => e.almacen === principalSede) : undefined)
+      ?? (preferAlmacen ? conStock.find((e) => e.almacen === preferAlmacen) : undefined);
     const mejor = preferido ?? conStock[0];
     out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
   }
