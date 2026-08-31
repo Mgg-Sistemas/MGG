@@ -5,6 +5,8 @@ import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
 import { cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
+import { fechaVE, tasaValida } from './compraDirectaMoneda';
+import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
 import type {
   AbonoCredito,
   CuentaCaja,
@@ -1608,6 +1610,18 @@ export async function recibirOrdenParcial(
   if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0))
     throw new Error('Indicá al menos una cantidad recibida.');
 
+  // Orden en Bs: el inventario está en $, así que el precio de cada ítem se convierte con
+  // la tasa BCV (la de la fecha de la orden; si no hay, la de hoy). Sin tasa no se recibe:
+  // NUNCA se deja entrar un precio en Bs como si fueran dólares (evita inflar el costo ×tasa).
+  let tasaOrden: number | null = null;
+  if (!omitirInventario && o.moneda === 'Bs') {
+    const fecha = fechaVE(o.created_at);
+    const t = fecha ? await tasaBcvEnFecha(fecha).catch(() => null) : null;
+    tasaOrden = t && tasaValida(t.tasa) ? t.tasa : ((await getTasaHoy().catch(() => null))?.usd ?? null);
+    if (!tasaValida(tasaOrden))
+      throw new Error('Esta orden está en bolívares y no hay tasa BCV para convertirla a dólares. Cargá la tasa del día en Tesorería y volvé a recibir.');
+  }
+
   // Entradas al inventario solo por lo recibido (>0), recalculando PMP por ítem.
   // Si la orden está marcada "sin inventario" (carga manual previa), se omite.
   if (!omitirInventario) await Promise.all(o.items.map(async (it) => {
@@ -1623,7 +1637,10 @@ export async function recibirOrdenParcial(
     const stockDespues = stockAntes + rec;
     const almacenProd = destinoFinal || (prod?.almacen as string) || 'General';
     const precioActual = Number(prod?.precio_promedio ?? prod?.precio ?? 0);
-    const precioCompra = Number(it.precio);
+    // Costo en $: si la orden es en Bs, se divide por la tasa BCV (nunca entra el Bs crudo como $).
+    const precioCompra = o.moneda === 'Bs' && tasaOrden
+      ? Number((Number(it.precio) / tasaOrden).toFixed(4))
+      : Number(it.precio);
     const precioPromedio = stockDespues > 0
       ? Number(((stockAntes * precioActual + rec * precioCompra) / stockDespues).toFixed(4))
       : precioCompra;
