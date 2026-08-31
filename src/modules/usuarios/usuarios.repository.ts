@@ -138,6 +138,10 @@ export interface ActualizarUsuarioInput {
   telefono?: string;
   departamento?: string;
   role?: Role | string;
+  /** Sectorización de almacén: sedes donde puede MOVER inventario ([] = sin restricción). */
+  sedes_asignadas?: string[] | null;
+  /** Almacén destino por defecto al recepcionar compras. */
+  almacen_recepcion?: string | null;
 }
 
 /** Actualiza datos editables del usuario (no toca email ni password). */
@@ -149,6 +153,13 @@ export async function actualizarUsuario(id: string, input: ActualizarUsuarioInpu
   if (input.telefono != null) payload.telefono = input.telefono.trim() || null;
   if (input.departamento != null) payload.departamento = input.departamento.trim() || null;
   if (input.role != null) payload.role = String(input.role);
+  // La lista vacía se guarda como null: «sin restricción» y «nunca se configuró» son
+  // lo mismo para el guard, y así no queda un array vacío que confunda al leer la tabla.
+  if (input.sedes_asignadas !== undefined) {
+    const s = (input.sedes_asignadas ?? []).map((x) => String(x).trim()).filter(Boolean);
+    payload.sedes_asignadas = s.length ? s : null;
+  }
+  if (input.almacen_recepcion !== undefined) payload.almacen_recepcion = input.almacen_recepcion?.trim() || null;
   const { error } = await supabase.from(TABLE).update(payload).eq('id', id);
   if (error) throw error;
 }

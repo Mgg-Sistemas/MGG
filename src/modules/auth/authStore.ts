@@ -11,6 +11,9 @@ export interface AppUser {
   nombre: string;
   role: Role;
   ci?: string | null;
+  /** Sectorización de almacén (ver `modules/inventario/sectorizacion.ts`). */
+  sedes_asignadas?: string[] | null;
+  almacen_recepcion?: string | null;
 }
 
 export function useSession() {
@@ -58,12 +61,22 @@ export async function signOutLocal() {
 }
 
 export async function getAppUser(user: User): Promise<AppUser | null> {
+  // Las columnas de sectorización son nuevas: si el build llega a un entorno donde
+  // todavía no se corrió la migración, PostgREST devuelve error 42703 y el usuario
+  // no podría ni entrar. Por eso se reintenta sin ellas en vez de fallar.
+  const CON_SECTOR = 'id, email, nombre, role, ci, sedes_asignadas, almacen_recepcion';
   const { data, error } = await supabase
+    .from('usuarios')
+    .select(CON_SECTOR)
+    .eq('id', user.id)
+    .single();
+  if (!error) return data as AppUser;
+
+  const { data: base, error: eBase } = await supabase
     .from('usuarios')
     .select('id, email, nombre, role, ci')
     .eq('id', user.id)
     .single();
-
-  if (error) return null;
-  return data as AppUser;
+  if (eBase) return null;
+  return base as AppUser;
 }

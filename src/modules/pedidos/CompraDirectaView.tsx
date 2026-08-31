@@ -8,7 +8,8 @@ import { notify } from '@/shared/lib/notify';
 import { dateTime, num } from '@/shared/lib/format';
 // descargarCompraDirectaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir la vista.
 import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
-import { opcionesRecepcion } from '@/modules/salidas/restriccionAlmacen';
+import { opcionesRecepcion } from '@/modules/inventario/sectorizacion';
+import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import type { Producto, Proveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos, updateProducto, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
@@ -328,6 +329,10 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
   actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
+  // Sectorización: el almacenista solo puede mandar la compra a SU sede. Acá el
+  // desplegable ofrecía siempre las dos (Los Pinos y Matanza), sin mirar quién carga.
+  const { sedes: sedesPermitidas } = useSectorizacion();
+  const destinosRecepcion = useMemo(() => opcionesRecepcion(sedesPermitidas), [sedesPermitidas]);
   // El modo (Inventario / Nuevo) es POR RENGLÓN: se pueden mezclar materiales del
   // inventario con materiales nuevos sin que uno pise al otro.
   const nuevaLinea = (id: number): LineaUI => ({
@@ -435,8 +440,8 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
           <label>Almacén destino</label>
           <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
             <option value="">— elegí el destino —</option>
-            {opcionesRecepcion().map((d) => <option key={d.almacen} value={d.almacen}>{d.label}</option>)}
-            {almacen && !opcionesRecepcion().some((d) => d.almacen === almacen) && <option value={almacen}>{almacen} (actual)</option>}
+            {destinosRecepcion.map((d) => <option key={d.almacen} value={d.almacen}>{d.label}</option>)}
+            {almacen && !destinosRecepcion.some((d) => d.almacen === almacen) && <option value={almacen}>{almacen} (actual)</option>}
           </select>
         </div>
 

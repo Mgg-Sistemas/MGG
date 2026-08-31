@@ -8,7 +8,8 @@ import { date, money, num } from '@/shared/lib/format';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
 import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
 import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedidos/compraDirectaMoneda';
-import { destinoRecepcionPorUsuario, opcionesRecepcion } from '@/modules/salidas/restriccionAlmacen';
+import { destinoRecepcionPorUsuario, opcionesRecepcion } from './sectorizacion';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Almacen, Orden } from '@/shared/lib/types';
 
 /** Sede a la que pertenece un almacén (por su nombre). Si no se encuentra, devuelve
@@ -233,8 +234,10 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
   onClose: () => void; onSaved: () => void;
 }) {
   const items = compra.items ?? [];
-  // Restricción por usuario (correo): recibe directo a su sede/almacén (Isner→Los Pinos, Kelvin→Matanzas).
-  const restr = useMemo(() => destinoRecepcionPorUsuario(actor, almacenes), [actor, almacenes]);
+  // Sectorización: el almacenista recibe directo a su sede/almacén (se configura en Usuarios).
+  // Mientras el perfil no terminó de cargar se usa el correo, que es lo que lee el respaldo.
+  const { appUser } = usePermissions();
+  const restr = useMemo(() => destinoRecepcionPorUsuario(appUser ?? { email: actor }, almacenes), [appUser, actor, almacenes]);
   // Destino de recepción: SOLO Los Pinos / Matanza (o la única sede del usuario limitado).
   const opciones = useMemo(() => opcionesRecepcion(restr?.sedes), [restr]);
   // Si hay una sola opción (usuario limitado), queda fija; si no, arranca vacío para elegir.
@@ -354,8 +357,10 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
 }) {
   const items = Array.isArray(orden.items) ? orden.items : [];
 
-  // Restricción por usuario (correo): recibe directo a su sede/almacén (Isner→Los Pinos, Kelvin→Matanzas).
-  const restr = useMemo(() => destinoRecepcionPorUsuario(actor, almacenes), [actor, almacenes]);
+  // Sectorización: el almacenista recibe directo a su sede/almacén (se configura en Usuarios).
+  // Mientras el perfil no terminó de cargar se usa el correo, que es lo que lee el respaldo.
+  const { appUser } = usePermissions();
+  const restr = useMemo(() => destinoRecepcionPorUsuario(appUser ?? { email: actor }, almacenes), [appUser, actor, almacenes]);
   // Destino de recepción: SOLO Los Pinos / Matanza (o la única sede del usuario limitado).
   const opciones = useMemo(() => opcionesRecepcion(restr?.sedes), [restr]);
   const [almacenFinal, setAlmacenFinal] = useState(

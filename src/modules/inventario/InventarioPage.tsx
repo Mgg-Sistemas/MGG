@@ -1158,6 +1158,11 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         <ProductoForm
           producto={null}
           productos={productos}
+          /* Anti-duplicados: para mostrar DÓNDE tiene stock un producto que ya existe. */
+          existencias={existencias}
+          /* «Usar este»: en vez de crear un SKU nuevo, se abre el movimiento del que ya
+             existe para cargarle stock en el almacén que haga falta. */
+          onUsarExistente={(p) => setModal({ kind: 'movimiento', producto: p })}
           espacio={espacio}
           /* Dentro de un almacén/sub-almacén: el nuevo producto entra ahí y la ubicación queda fija. */
           fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
