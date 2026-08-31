@@ -1733,6 +1733,19 @@ alter table public.usuarios    add column if not exists estado       estado_gene
 alter table public.usuarios    add column if not exists updated_at   timestamptz;
 alter table public.usuarios    add column if not exists ci           text;
 
+-- Sectorización de almacén (31/08/2026). Sedes en las que este usuario puede MOVER
+-- inventario: despachar, trasladar, ajustar, recibir compras y dar de alta productos.
+-- VER el inventario completo lo puede ver siempre; la restricción solo limita mover.
+-- null o vacío = sin restricción (admin, analistas, gerencia). Se edita en Usuarios.
+-- Antes esto vivía cableado por correo en el front y solo lo consultaban 2 de los 7
+-- caminos que mueven stock, así que los almacenistas despachaban de la sede ajena.
+-- Los valores son los mismos textos que `almacenes.sede` (el almacén se referencia
+-- por NOMBRE en 11 tablas; la sede, igual, es texto).
+alter table public.usuarios    add column if not exists sedes_asignadas   text[];
+-- Almacén destino por defecto al recepcionar compras, dentro de sus sedes_asignadas.
+-- Si está vacío o el almacén no existe, se cae al almacén principal de la primera sede.
+alter table public.usuarios    add column if not exists almacen_recepcion text;
+
 alter table public.proveedores add column if not exists updated_at   timestamptz;
 alter table public.productos   add column if not exists updated_at   timestamptz;
 alter table public.productos   add column if not exists tipo         text check (tipo in ('inicial','proceso','final'));

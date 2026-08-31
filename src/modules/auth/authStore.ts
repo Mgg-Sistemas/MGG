@@ -72,6 +72,15 @@ export async function getAppUser(user: User): Promise<AppUser | null> {
     .single();
   if (!error) return data as AppUser;
 
+  // El reintento es SOLO para el caso «la columna no existe». Reintentar ante cualquier
+  // error sería peligroso: un fallo de red devolvería un perfil sin `sedes_asignadas` y
+  // el usuario quedaría sin sectorización —o con la del respaldo, que puede ser más
+  // vieja— sin que nada lo avise. Ante cualquier otro error se devuelve null, igual que
+  // antes de que existieran estas columnas.
+  const faltaColumna = error.code === '42703' || error.code === 'PGRST204'
+    || /sedes_asignadas|almacen_recepcion/.test(error.message ?? '');
+  if (!faltaColumna) return null;
+
   const { data: base, error: eBase } = await supabase
     .from('usuarios')
     .select('id, email, nombre, role, ci')
