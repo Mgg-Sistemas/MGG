@@ -265,6 +265,11 @@ export async function eliminarCombustible(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Litros con hasta 2 decimales, sin la cola de la coma flotante (para mensajes y kardex). */
+function redondear(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 /** Promedio móvil ponderado por litro. */
 function pmpLitro(litrosPrev: number, costoPrev: number, litros: number, costo: number): number {
   const total = litrosPrev + litros;
@@ -538,7 +543,8 @@ export async function salidaCombustibleDirecta(input: {
 
   let tanqueLitrosAntes: number | null = null;
   if (input.tanqueId) {
-    const { data: tq } = await supabase.from('combustible_tanques').select('litros, nombre').eq('id', input.tanqueId).maybeSingle();
+    const { data: tq, error: tqLeerErr } = await supabase.from('combustible_tanques').select('litros, nombre').eq('id', input.tanqueId).maybeSingle();
+    if (tqLeerErr) throw tqLeerErr;
     if (tq) {
       tanqueLitrosAntes = Number(tq.litros) || 0;
       if (litros > tanqueLitrosAntes) throw new Error(`El tanque "${tq.nombre}" no tiene litros suficientes. Disponible: ${tanqueLitrosAntes} L.`);
@@ -575,7 +581,7 @@ export async function salidaCombustibleDirecta(input: {
       litros_antes: litrosAntes,
       litros_despues: litrosDespues,
       detalle: `${input.motivo ?? 'Salida'} → ${input.destino} · ${almacen}`
-        + (faltanEnTarjeta > 0 ? ` · ⚠ la tarjeta solo tenía ${litrosAntes} L (faltaban ${faltanEnTarjeta})` : ''),
+        + (faltanEnTarjeta > 0 ? ` · ⚠ la tarjeta solo tenía ${redondear(litrosAntes)} L (faltaban ${redondear(faltanEnTarjeta)})` : ''),
       actor: input.actor,
       actor_name: input.actorName ?? null,
     })
@@ -708,6 +714,36 @@ export async function actualizarTanque(id: string, input: {
     const n = input.nombre.trim();
     if (!n) throw new Error('El nombre no puede estar vacío.');
     patch.nombre = n;
+  }
+  // Con litros adentro, dos cambios harían desaparecer combustible sin dejar rastro:
+  //  · cambiar de combustible movería esos litros de una tarjeta a otra sin movimiento;
+  //  · bajar la capacidad por debajo del contenido haría que el próximo ajuste los recorte
+  //    (`ajustarBalancesTanqueMov` topa en la capacidad).
+  // La validación vive acá y no solo en el formulario, que compara contra una foto vieja.
+  const cambiaCombustible = input.combustibleId !== undefined;
+  const cambiaCapacidad = input.capacidadLitros !== undefined;
+  if (cambiaCombustible || cambiaCapacidad) {
+    const { data: actual, error: aErr } = await supabase
+      .from('combustible_tanques').select('nombre, litros, combustible_id').eq('id', id).maybeSingle();
+    if (aErr) throw aErr;
+    const litrosActuales = Number((actual as { litros?: number } | null)?.litros) || 0;
+    const nombreTq = (actual as { nombre?: string } | null)?.nombre ?? 'el tanque';
+    if (litrosActuales > 0) {
+      const combActual = (actual as { combustible_id?: string | null } | null)?.combustible_id ?? null;
+      if (cambiaCombustible && (input.combustibleId || null) !== combActual) {
+        throw new Error(
+          `No se puede cambiar el combustible de "${nombreTq}" mientras tenga ${redondear(litrosActuales)} L: esos litros pasarían `
+          + 'de una tarjeta a otra sin movimiento. Vaciá el tanque con un consumo o una merma y volvé a intentar.',
+        );
+      }
+      const capNueva = Number(input.capacidadLitros) || 0;
+      if (cambiaCapacidad && capNueva > 0 && capNueva < litrosActuales) {
+        throw new Error(
+          `La capacidad de "${nombreTq}" no puede quedar por debajo de los ${redondear(litrosActuales)} L que tiene ahora: `
+          + 'el próximo ajuste recortaría la diferencia sin avisar.',
+        );
+      }
+    }
   }
   if (input.combustibleId !== undefined) patch.combustible_id = input.combustibleId || null;
   if (input.capacidadLitros !== undefined) patch.capacidad_litros = Number(input.capacidadLitros) || 0;
@@ -1048,7 +1084,8 @@ async function ajustarBalancesTanqueMov(
 ): Promise<void> {
   if (Math.abs(delta) < 0.00001) return;
   if (tanqueId) {
-    const { data: tq } = await supabase.from('combustible_tanques').select('litros, capacidad_litros').eq('id', tanqueId).maybeSingle();
+    const { data: tq, error: tqLeerErr } = await supabase.from('combustible_tanques').select('litros, capacidad_litros').eq('id', tanqueId).maybeSingle();
+    if (tqLeerErr) throw tqLeerErr;
     if (tq) {
       const cap = Number((tq as { capacidad_litros?: number }).capacidad_litros) || 0;
       const actual = Number((tq as { litros?: number }).litros) || 0;
@@ -1058,7 +1095,8 @@ async function ajustarBalancesTanqueMov(
     }
   }
   if (combustibleId) {
-    const { data: comb } = await supabase.from('combustibles').select('litros, producto_id').eq('id', combustibleId).maybeSingle();
+    const { data: comb, error: cbLeerErr } = await supabase.from('combustibles').select('litros, producto_id').eq('id', combustibleId).maybeSingle();
+    if (cbLeerErr) throw cbLeerErr;
     if (comb) {
       const actual = Number((comb as { litros?: number }).litros) || 0;
       const nuevo = Math.max(0, actual + delta);
@@ -1437,7 +1475,10 @@ export async function crearSolicitudCombustible(input: {
 
 export async function aprobarSolicitudCombustible(s: SolicitudCombustible, actor: string): Promise<void> {
   if (s.estado !== 'por_aprobar') throw new Error('Solo se aprueban solicitudes por aprobar.');
-  const { error } = await supabase
+  // Mismo guard de servidor que finalizar y cancelar: el detalle abierto es una foto vieja.
+  // Sin el filtro, aprobar una solicitud ya finalizada la devolvía a 'aprobada' y habilitaba
+  // que se volviera a finalizar, descontando los litros por segunda vez.
+  const { data, error } = await supabase
     .from('combustible_solicitudes')
     .update({
       estado: 'aprobada',
@@ -1445,8 +1486,13 @@ export async function aprobarSolicitudCombustible(s: SolicitudCombustible, actor
       aprobada_en: new Date().toISOString(),
       historial: appendHistorial(s, 'aprobada', actor),
     })
-    .eq('id', s.id);
+    .eq('id', s.id)
+    .eq('estado', 'por_aprobar')
+    .select('id');
   if (error) throw error;
+  if (!data || !data.length) {
+    throw new Error('No se pudo aprobar: otra persona ya aprobó, finalizó o canceló esta solicitud. Actualizá la pantalla para ver cómo quedó.');
+  }
 }
 
 /**
@@ -1520,19 +1566,13 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
     throw new Error('Esta solicitud ya fue finalizada o cancelada por otra persona. Actualizá la pantalla para ver cómo quedó.');
   }
 
-  // De acá en adelante cada paso ESCRIBE. Si algo falla después de la primera escritura la
-  // reserva NO se suelta: soltarla dejaría la solicitud lista para reintentar, y el reintento
-  // volvería a descontar los mismos litros (el doble descuento que esto viene a evitar).
-  let huboEscritura = false;
-  const liberarReserva = async () => {
-    await supabase.from('combustible_solicitudes')
-      .update({ estado: 'aprobada', finalizada_por: null, finalizada_en: null })
-      .eq('id', s.id).eq('estado', 'finalizada');
-  };
-
+  // De acá en adelante cada paso ESCRIBE, y `registrarMovimiento` son tres escrituras que
+  // tampoco son atómicas entre sí: no existe un punto donde se pueda afirmar «no se movió
+  // nada todavía». Por eso la reserva NO se suelta nunca: soltarla dejaría la solicitud
+  // lista para reintentar y el reintento volvería a descontar los mismos litros, que es
+  // justo lo que esto viene a evitar. Si algo falla, queda finalizada y se avisa.
   try {
     // ── 3. Sale del INVENTARIO (salida en el almacén de origen). Primera escritura ──
-    huboEscritura = true;
     await registrarMovimiento({
       producto_id: productoId,
       tipo: 'salida',
@@ -1559,7 +1599,7 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
         litros_despues: litrosDespues,
         ref_solicitud_id: s.id,
         detalle: `Salida ${s.codigo} → ${s.destino} · ${almacen}`
-          + (faltanEnTarjeta > 0 ? ` · ⚠ la tarjeta solo tenía ${litrosAntes} L (faltaban ${faltanEnTarjeta})` : ''),
+          + (faltanEnTarjeta > 0 ? ` · ⚠ la tarjeta solo tenía ${redondear(litrosAntes)} L (faltaban ${redondear(faltanEnTarjeta)})` : ''),
         actor,
         actor_name: actorName ?? null,
       })
@@ -1621,17 +1661,14 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
       .eq('id', s.id);
     if (sErr) throw sErr;
   } catch (e) {
-    if (!huboEscritura) {
-      // No se movió nada todavía: se suelta la reserva y la solicitud vuelve a estar disponible.
-      await liberarReserva().catch(() => { /* si tampoco se puede liberar, manda el error original */ });
-      throw e;
-    }
-    // Ya se descontaron litros: la solicitud queda finalizada A PROPÓSITO, para que un
-    // reintento no vuelva a descontarlos. Hay que revisar a mano qué quedó a medias.
+    // La solicitud queda finalizada A PROPÓSITO: un reintento volvería a descontar. No se
+    // afirma qué alcanzó a escribirse (depende de dónde cortó), así que el mensaje manda a
+    // mirar el kardex, que es donde está la respuesta.
     const detalle = e instanceof Error ? e.message : String(e);
     throw new Error(
-      `La finalización de ${s.codigo} quedó a medias: los litros YA se descontaron pero no se pudo completar el registro (${detalle}). `
-      + 'La solicitud queda finalizada para no descontar dos veces. Revisá el tanque y el kardex antes de tocar nada.',
+      `La finalización de ${s.codigo} se cortó a mitad (${detalle}). Puede que los litros ya se hayan descontado, `
+      + 'así que la solicitud queda finalizada para no descontarlos dos veces. Revisá el kardex del tanque y el '
+      + 'inventario para ver qué alcanzó a registrarse antes de tocar nada.',
     );
   }
 }
@@ -1770,9 +1807,10 @@ export async function crearPlantaMovimiento(input: {
   } else {
     const disp = Number(tq.litros) || 0;
     if (litros > disp) throw new Error(`El tanque "${tq.nombre}" solo tiene ${disp} L y el consumo es ${litros} L.`);
-    await supabase.from('combustible_tanques')
+    const { error: plUpErr } = await supabase.from('combustible_tanques')
       .update({ litros: Math.max(0, disp - litros), updated_at: new Date().toISOString() })
       .eq('id', input.tanqueId);
+    if (plUpErr) throw plUpErr;
   }
 
   // Acumulado de consumo del tanque (suma de movimientos previos + este).

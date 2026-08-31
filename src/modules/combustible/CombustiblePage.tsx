@@ -1077,6 +1077,7 @@ function MovimientosModal({ tanques, vehiculos, tanqueId, actor, actorName, canW
   const [mes, setMes] = useState<string>(mesActual);
   const [editMov, setEditMov] = useState<TanqueMovimiento | null>(null);
   const [borrarMov, setBorrarMov] = useState<TanqueMovimiento | null>(null);
+  const [errorBorrarMov, setErrorBorrarMov] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const recargar = useCallback(() => {
@@ -1093,13 +1094,18 @@ function MovimientosModal({ tanques, vehiculos, tanqueId, actor, actorName, canW
   async function confirmarBorrar() {
     if (!borrarMov) return;
     setBusy(true);
+    setErrorBorrarMov(null);
     try {
       await eliminarTanqueMovimiento(borrarMov.id, actor, actorName);
       toast('Movimiento eliminado y revertido en las tarjetas', 'success');
       setBorrarMov(null);
       recargar();
       await onChanged?.();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    } catch (e) {
+      // El diálogo sigue abierto: el motivo del rechazo (p. ej. «este consumo lo generó una
+      // solicitud») no puede quedar en un toast que se va en 3 segundos.
+      setErrorBorrarMov(e instanceof Error ? e.message : 'No se pudo eliminar');
+    }
     finally { setBusy(false); }
   }
 
@@ -1187,10 +1193,13 @@ function MovimientosModal({ tanques, vehiculos, tanqueId, actor, actorName, canW
       {borrarMov && (
         <ConfirmDialog
           title="Eliminar movimiento"
-          message={`¿Eliminar este movimiento de ${TIPO_TANQUE_LABEL[borrarMov.tipo]} de ${num(borrarMov.litros)} L? Se revertirá en el tanque, el combustible y el inventario.`}
+          message={(errorBorrarMov ? `⚠ ${errorBorrarMov}
+
+` : '')
+            + `¿Eliminar este movimiento de ${TIPO_TANQUE_LABEL[borrarMov.tipo]} de ${num(borrarMov.litros)} L? Se revertirá en el tanque, el combustible y el inventario.`}
           confirmText={busy ? 'Eliminando…' : 'Eliminar y revertir'}
           danger
-          onCancel={() => setBorrarMov(null)}
+          onCancel={() => { setBorrarMov(null); setErrorBorrarMov(null); }}
           onConfirm={() => void confirmarBorrar()}
         />
       )}
@@ -1336,6 +1345,7 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
   const [renombrando, setRenombrando] = useState<{ id: string; actual: string } | null>(null);
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [borrando, setBorrando] = useState<Combustible | null>(null);
+  const [errorBorrar, setErrorBorrar] = useState<string | null>(null);
 
   async function crear() {
     setOkMsg(null);
@@ -1382,12 +1392,17 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
   async function confirmarBorrar() {
     if (!borrando) return;
     setBusy(true);
+    setErrorBorrar(null);
     try {
       await eliminarCombustible(borrando.id);
       setBorrando(null);
       await onChanged();
       toast('Combustible eliminado', 'success');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    } catch (e) {
+      // El diálogo sigue abierto: el guard explica qué histórico tiene y qué hacer en su
+      // lugar, y eso no entra en un toast de 3 segundos.
+      setErrorBorrar(e instanceof Error ? e.message : 'No se pudo eliminar');
+    }
     finally { setBusy(false); }
   }
 
@@ -1456,11 +1471,14 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
       {borrando && (
         <ConfirmDialog
           title="Eliminar combustible"
-          message={`¿Eliminar el combustible "${borrando.nombre}"? Solo se puede si NUNCA se usó: sin movimientos, tanques ni solicitudes. Si ya tiene histórico, el sistema lo va a rechazar y hay que usar «Deshabilitar», que lo saca de los desplegables sin perder nada. Esta acción no se puede deshacer.`}
+          message={(errorBorrar ? `⚠ ${errorBorrar}
+
+` : '')
+            + `¿Eliminar el combustible "${borrando.nombre}"? Solo se puede si NUNCA se usó: sin movimientos, tanques ni solicitudes. Si ya tiene histórico, el sistema lo rechaza; en ese caso usá «Deshabilitar», que lo oculta de los desplegables de carga sin borrar nada y se puede revertir. Esta acción no se puede deshacer.`}
           confirmText="Eliminar"
           danger
           onConfirm={confirmarBorrar}
-          onCancel={() => setBorrando(null)}
+          onCancel={() => { setBorrando(null); setErrorBorrar(null); }}
         />
       )}
     </Modal>
@@ -1521,7 +1539,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
     if (capNum <= 0) { setError('La capacidad debe ser mayor que 0.'); return; }
     if (litNum > capNum) {
       setError(esEdicion
-        ? `La capacidad no puede quedar por debajo de los ${num(litNum)} L que el tanque tiene ahora: los litros de más se recortarían solos en el próximo movimiento.`
+        ? `La capacidad no puede quedar por debajo de los ${num(litNum)} L que el tanque tiene ahora: al reajustar los balances, la diferencia se recortaría sin avisar.`
         : 'Los litros iniciales no pueden superar la capacidad.');
       return;
     }
@@ -1719,7 +1737,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
             <button className="btn btn-danger" onClick={() => void borrar()} disabled={saving || !nombreOk}>{saving ? 'Eliminando…' : 'Eliminar tanque'}</button>
           </>
         }>
-          {errorBorrar && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>No se puede eliminar:</strong> {errorBorrar}</div>}
+          {errorBorrar && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}>⚠ {errorBorrar}</div>}
           <p style={{ marginTop: 0 }}>
             ¿Seguro que deseás eliminar el tanque <strong>{tanque.nombre}</strong>? Solo se puede si está <strong>vacío</strong>
             {' '}(sus movimientos históricos se conservan). Esta acción no se puede deshacer.
