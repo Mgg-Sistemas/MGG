@@ -8,9 +8,9 @@ import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMantenimientoModal } from './ResumenMantenimientoModal';
 import { listEquipos, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
+import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, ultimoServicioPorEquipo, type SolicitudServicioEquipo, type UltimoServicio } from './maquinariaMant.repository';
 import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo } from '@/modules/combustible/combustible.repository';
-import { claveEquipo, UMBRAL_ALERTA_HRS, UMBRAL_ALERTA_KM } from '@/modules/combustible/equipoVinculo';
+import { claveEquipo, enAlertaServicio, estadoServicio, ultimoServicioHrs, UMBRAL_ALERTA_HRS, UMBRAL_ALERTA_KM, type EstadoServicio } from '@/modules/combustible/equipoVinculo';
 
 /** Etiqueta del estado de un servicio (alineada con la pestaña Servicios de Pedidos). */
 const SERVICIO_ESTADO_LABEL: Record<string, string> = {
@@ -43,15 +43,6 @@ const GRUPO_ICON: Record<string, string> = {
 };
 
 /**
- * HRS restantes hasta el próximo mantenimiento (cada N horas de horómetro):
- * restantes = N − (horómetro mod N). null si falta algún dato.
- */
-function hrsRestantes(frecuencia: number | null, horometro: number | null): number | null {
-  if (!frecuencia || frecuencia <= 0 || horometro == null) return null;
-  return ((frecuencia - (horometro % frecuencia)) % frecuencia);
-}
-
-/**
  * Submódulo «Servicio de Mantenimiento» de Control de Maquinaria. Los equipos se
  * agrupan en switches (FLOTA PESADA / VEHÍCULOS DE CARGA / PLANTAS ELÉCTRICAS) según
  * el grupo asignado en su ficha; cada switch muestra los equipos de ese grupo con su
@@ -74,37 +65,42 @@ export function ServicioMantenimientoPage() {
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
   const [resumenOpen, setResumenOpen] = useState(false);
   const [solDe, setSolDe] = useState<MaquinariaEquipo | null>(null);
+  const [ultimoServ, setUltimoServ] = useState<Map<string, UltimoServicio>>(new Map());   // bitácora: horómetro del último servicio
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, bit, sol, km] = await Promise.all([
+      const [eqs, horos, bit, sol, km, us] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
         solicitudesServicioPorEquipo().catch(() => new Map<string, SolicitudServicioEquipo[]>()),
         kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>()),
+        ultimoServicioPorEquipo().catch(() => new Map<string, UltimoServicio>()),
       ]);
       setEquipos(eqs);
       setHorometros(horos);
       setBitMap(bit);
       setSolMap(sol);
       setKmMap(km);
+      setUltimoServ(us);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
   useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes', 'servicios_directos'], () => { void cargar(); });
 
-  // Horómetro vigente + HRS restantes por equipo (igual que en Control de Maquinaria).
+  // Horómetro vigente + HRS restantes por equipo. Mismo cálculo que Control de Maquinaria:
+  // sale del módulo compartido, porque acá vivía una segunda copia con el bug del módulo
+  // (un equipo pasado de servicio «daba la vuelta» y apagaba su propia alerta).
   const infoEquipo = useMemo(() => {
-    const m = new Map<string, { restantes: number | null; alerta: boolean; horometro: number | null }>();
+    const m = new Map<string, { estado: EstadoServicio | null; restantes: number | null; alerta: boolean; horometro: number | null }>();
     for (const e of equipos) {
-      const horo = (e.combustible_equipo ? horometros.get(e.combustible_equipo.trim()) : undefined)
+      const horo = (e.combustible_equipo ? horometros.get(claveEquipo(e.combustible_equipo)) : undefined)
         ?? bitMap.get(e.id)?.ultimoHorometro ?? null;
-      const restantes = hrsRestantes(e.mantenimiento_cada_hrs, horo);
-      m.set(e.id, { restantes, horometro: horo, alerta: restantes != null && restantes <= UMBRAL_ALERTA_HRS });
+      const estado = estadoServicio(e.mantenimiento_cada_hrs, horo, ultimoServicioHrs(ultimoServ.get(e.id)));
+      m.set(e.id, { estado, restantes: estado?.restantes ?? null, horometro: horo, alerta: enAlertaServicio(estado) });
     }
     return m;
-  }, [equipos, horometros, bitMap]);
+  }, [equipos, horometros, bitMap, ultimoServ]);
 
   // Conteo por grupo + equipos sin clasificar.
   const porGrupo = useMemo(() => {
@@ -189,7 +185,7 @@ export function ServicioMantenimientoPage() {
 
       {enAlerta.length > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
-          ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
+          ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS) o vencido: {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
         </div>
       )}
 
@@ -244,11 +240,15 @@ export function ServicioMantenimientoPage() {
                     <td className="mono" style={{ textAlign: 'right' }}>{info?.horometro != null ? fmtNum(info.horometro) : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{e.mantenimiento_cada_hrs != null ? fmtNum(e.mantenimiento_cada_hrs) : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {info?.restantes == null
+                      {info?.estado == null
                         ? <span className="muted" title={!e.mantenimiento_cada_hrs ? 'Definí «Mantenimiento cada (hrs)» en la ficha' : 'Sin horómetro registrado'}>—</span>
-                        : info.alerta
-                          ? <span style={{ color: 'var(--warning)', fontWeight: 700 }} title={`Faltan ${fmtNum(info.restantes)} h`}>⚠️ {fmtNum(info.restantes)} h</span>
-                          : <span>{fmtNum(info.restantes)} h</span>}
+                        : info.estado.sinReferencia
+                          ? <span className="muted" title="No hay ningún servicio de este equipo en la bitácora, así que no se puede calcular.">sin servicio previo</span>
+                          : info.estado.vencido
+                            ? <span style={{ color: 'var(--danger)', fontWeight: 700 }} title={`El servicio se pasó por ${fmtNum(Math.abs(info.estado.restantes ?? 0))} h`}>🔴 vencido ({fmtNum(Math.abs(info.estado.restantes ?? 0))} h)</span>
+                            : info.alerta
+                              ? <span style={{ color: 'var(--warning)', fontWeight: 700 }} title={`Faltan ${fmtNum(info.estado.restantes)} h`}>⚠️ {fmtNum(info.estado.restantes)} h</span>
+                              : <span>{fmtNum(info.estado.restantes)} h</span>}
                     </td>
                     <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                       {sols.length === 0 ? (

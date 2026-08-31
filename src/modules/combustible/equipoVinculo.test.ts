@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claveEquipo, enAlertaServicio, estadoServicio, parecido, vinculosRotos, UMBRAL_ALERTA_HRS } from './equipoVinculo';
+import { claveEquipo, enAlertaServicio, estadoServicio, parecido, ultimoServicioHrs, vinculosRotos, UMBRAL_ALERTA_HRS } from './equipoVinculo';
 
 // Nombres reales de producción: los vehículos se renombraron en Combustible (venían de
 // Golden Touch con prefijo «GT»/«MGG») y Maquinaria se quedó con el nombre viejo.
@@ -58,40 +58,65 @@ describe('vinculosRotos', () => {
     expect(rotos).toHaveLength(1);
     expect(rotos[0].candidatos).toEqual([]);
   });
+
+  it('sin lista de vehículos no acusa a nadie (la consulta pudo fallar)', () => {
+    expect(vinculosRotos(equipos, [])).toEqual([]);
+  });
+});
+
+describe('ultimoServicioHrs', () => {
+  it('toma el servicio más reciente entre aceite y filtros', () => {
+    expect(ultimoServicioHrs({ aceite: 1000, filtro: 1180 })).toBe(1180);
+    expect(ultimoServicioHrs({ aceite: 1200, filtro: null })).toBe(1200);
+    expect(ultimoServicioHrs({ aceite: null, filtro: 900 })).toBe(900);
+  });
+
+  it('sin ningún servicio registrado no hay referencia', () => {
+    expect(ultimoServicioHrs({ aceite: null, filtro: null })).toBeNull();
+    expect(ultimoServicioHrs(null)).toBeNull();
+  });
 });
 
 describe('estadoServicio', () => {
   it('cuenta desde el último servicio registrado', () => {
     // Servicio hecho a las 1.000 h, frecuencia 250 → el próximo a las 1.250.
-    expect(estadoServicio(250, 1100, 1000)).toEqual({ restantes: 150, vencido: false, estimado: false });
-    expect(estadoServicio(250, 1240, 1000)).toEqual({ restantes: 10, vencido: false, estimado: false });
+    expect(estadoServicio(250, 1100, 1000)).toEqual({ restantes: 150, desdeUltimo: 100, vencido: false, sinReferencia: false });
+    expect(estadoServicio(250, 1240, 1000)).toEqual({ restantes: 10, desdeUltimo: 240, vencido: false, sinReferencia: false });
   });
 
   it('el servicio pasado queda VENCIDO, no vuelve a empezar la cuenta', () => {
     // Este es el bug que se corrige: con `frecuencia − (horómetro mod frecuencia)`,
     // 1.260 h sobre un servicio de 1.000 daba «faltan 240» y apagaba la alerta.
     const e = estadoServicio(250, 1260, 1000);
-    expect(e).toEqual({ restantes: -10, vencido: true, estimado: false });
+    expect(e).toEqual({ restantes: -10, desdeUltimo: 260, vencido: true, sinReferencia: false });
     expect(enAlertaServicio(e)).toBe(true);
   });
 
-  it('sin servicio registrado estima desde el horómetro y avisa pasada la primera frecuencia', () => {
-    expect(estadoServicio(250, 100, null)).toEqual({ restantes: 150, vencido: false, estimado: true });
-    expect(estadoServicio(250, 260, null)).toEqual({ restantes: -10, vencido: true, estimado: true });
+  it('sin servicio registrado NO se inventa un vencimiento', () => {
+    // Estimar desde el horómetro absoluto declaraba «vencido hace 12.900 h» a una
+    // máquina de 13.150 h que quizá se acaba de atender: ruido, no información.
+    const e = estadoServicio(250, 13150, null);
+    expect(e).toEqual({ restantes: null, desdeUltimo: null, vencido: false, sinReferencia: true });
+    expect(enAlertaServicio(e)).toBe(false);
   });
 
   it('sin frecuencia o sin horómetro no se puede decir nada', () => {
-    expect(estadoServicio(null, 100, null)).toBeNull();
-    expect(estadoServicio(250, null, null)).toBeNull();
-    expect(estadoServicio(0, 100, null)).toBeNull();
+    expect(estadoServicio(null, 100, 50)).toBeNull();
+    expect(estadoServicio(250, null, 50)).toBeNull();
+    expect(estadoServicio(0, 100, 50)).toBeNull();
   });
 });
 
 describe('enAlertaServicio', () => {
+  const base = { desdeUltimo: 0, sinReferencia: false };
   it('avisa dentro del umbral y cuando ya venció', () => {
-    expect(enAlertaServicio({ restantes: UMBRAL_ALERTA_HRS, vencido: false, estimado: false })).toBe(true);
-    expect(enAlertaServicio({ restantes: UMBRAL_ALERTA_HRS + 1, vencido: false, estimado: false })).toBe(false);
-    expect(enAlertaServicio({ restantes: -300, vencido: true, estimado: false })).toBe(true);
+    expect(enAlertaServicio({ ...base, restantes: UMBRAL_ALERTA_HRS, vencido: false })).toBe(true);
+    expect(enAlertaServicio({ ...base, restantes: UMBRAL_ALERTA_HRS + 1, vencido: false })).toBe(false);
+    expect(enAlertaServicio({ ...base, restantes: -300, vencido: true })).toBe(true);
     expect(enAlertaServicio(null)).toBe(false);
+  });
+
+  it('sin referencia no avisa nada', () => {
+    expect(enAlertaServicio({ restantes: null, desdeUltimo: null, vencido: false, sinReferencia: true })).toBe(false);
   });
 });

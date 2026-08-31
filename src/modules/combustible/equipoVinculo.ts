@@ -76,6 +76,11 @@ export interface VinculoRoto {
  * adivinar el vínculo reescribiría el historial de consumo de un equipo).
  */
 export function vinculosRotos(equipos: EquipoVinculable[], vehiculos: string[]): VinculoRoto[] {
+  // Sin lista de vehículos no se puede afirmar que un vínculo esté roto: si la consulta
+  // falló (o el módulo está vacío), acusar a los 14 equipos sería ruido puro. Además la
+  // lista tiene que traer TODOS los vehículos, activos y desactivados: un vehículo dado
+  // de baja sigue siendo el dueño legítimo del historial y no es un vínculo «inexistente».
+  if (!vehiculos.length) return [];
   const existentes = new Map(vehiculos.map((v) => [claveEquipo(v), v]));
   const out: VinculoRoto[] = [];
   for (const e of equipos) {
@@ -94,25 +99,41 @@ export function vinculosRotos(equipos: EquipoVinculable[], vehiculos: string[]):
 }
 
 export interface EstadoServicio {
-  /** Horas que faltan para el próximo servicio. Negativo = vencido. */
-  restantes: number;
+  /** Horas que faltan para el próximo servicio. Negativo = vencido. `null` si no hay referencia. */
+  restantes: number | null;
+  /** Horas corridas desde el último servicio registrado. `null` si no hay ninguno. */
+  desdeUltimo: number | null;
   /** true si el servicio ya debió hacerse. */
   vencido: boolean;
-  /** true si no hay ningún servicio registrado y se estimó desde el horómetro. */
-  estimado: boolean;
+  /** true si la bitácora no tiene ningún servicio de este equipo: no se puede afirmar nada. */
+  sinReferencia: boolean;
 }
 
 /**
- * Horas hasta el próximo mantenimiento.
+ * Horómetro del último SERVICIO de un equipo: el más reciente entre el cambio de
+ * aceite y el de filtros. No se mira el gasoil: cargar combustible no es un servicio,
+ * y tomarlo como referencia daba «vencido» apenas se cargaba el tanque.
+ */
+export function ultimoServicioHrs(
+  u: { aceite?: number | null; filtro?: number | null } | null | undefined,
+): number | null {
+  const vals = [u?.aceite, u?.filtro]
+    .map((x) => (x == null ? NaN : Number(x)))
+    .filter((x) => Number.isFinite(x));
+  return vals.length ? Math.max(...vals) : null;
+}
+
+/**
+ * Horas hasta el próximo mantenimiento, contadas desde el ÚLTIMO SERVICIO registrado.
  *
  * Antes se calculaba `frecuencia − (horómetro mod frecuencia)`, que asume que los
- * servicios se hacen SIEMPRE en el múltiplo exacto. Con un equipo que pasó su
- * servicio, el módulo «da la vuelta» y la alerta se apaga justo cuando más hace
- * falta: con frecuencia 250 y horómetro 260, decía «faltan 240».
+ * servicios se hacen SIEMPRE en el múltiplo exacto del horómetro. Con un equipo que
+ * ya pasó su servicio el módulo «da la vuelta» y la alerta se apaga justo cuando más
+ * hace falta: con frecuencia 250 y horómetro 260, decía «faltan 240».
  *
- * Si hay un servicio registrado (horómetro de la última bitácora), se cuenta desde
- * ahí. Si no lo hay, se estima desde el horómetro, pero pasada la primera
- * frecuencia se marca como vencido en vez de reiniciar la cuenta.
+ * Si la bitácora NO tiene ningún servicio del equipo, no se inventa nada: se devuelve
+ * `sinReferencia`. Estimar desde el horómetro absoluto declaraba vencida a toda la
+ * flota vieja («vencido hace 12.000 h»), que es ruido, no información.
  */
 export function estadoServicio(
   frecuencia: number | null | undefined,
@@ -122,17 +143,17 @@ export function estadoServicio(
   const f = Number(frecuencia) || 0;
   if (f <= 0 || horometro == null) return null;
   const h = Number(horometro) || 0;
-  if (ultimoServicio != null && Number.isFinite(Number(ultimoServicio))) {
-    const restantes = Math.round((Number(ultimoServicio) + f - h) * 100) / 100;
-    return { restantes, vencido: restantes < 0, estimado: false };
+  const ult = ultimoServicio == null ? NaN : Number(ultimoServicio);
+  if (!Number.isFinite(ult)) {
+    return { restantes: null, desdeUltimo: null, vencido: false, sinReferencia: true };
   }
-  // Sin servicio registrado: hasta la primera frecuencia se cuenta normal; pasada
-  // esa marca, está vencido (y se dice hace cuánto), no «faltan casi f horas».
-  if (h < f) return { restantes: Math.round((f - h) * 100) / 100, vencido: false, estimado: true };
-  return { restantes: Math.round((f - h) * 100) / 100, vencido: true, estimado: true };
+  const desdeUltimo = Math.round((h - ult) * 100) / 100;
+  const restantes = Math.round((f - desdeUltimo) * 100) / 100;
+  return { restantes, desdeUltimo, vencido: restantes < 0, sinReferencia: false };
 }
 
 /** ¿Hay que avisar por este servicio? (vencido o dentro del umbral). */
 export function enAlertaServicio(e: EstadoServicio | null): boolean {
-  return !!e && (e.vencido || e.restantes <= UMBRAL_ALERTA_HRS);
+  if (!e || e.sinReferencia || e.restantes == null) return false;
+  return e.vencido || e.restantes <= UMBRAL_ALERTA_HRS;
 }

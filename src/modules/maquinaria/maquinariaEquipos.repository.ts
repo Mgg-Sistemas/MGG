@@ -7,6 +7,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { ultimoHorometroEquipo, consumoCombustiblePorEquipo } from '@/modules/combustible/combustible.repository';
+import { claveEquipo } from '@/modules/combustible/equipoVinculo';
 
 export interface MaquinariaEquipo {
   id: string;
@@ -148,6 +149,10 @@ export async function datosCombustibleDeEquipo(
     ultimoHorometroEquipo(nombre).catch(() => null),
     consumoCombustiblePorEquipo(d, h).catch(() => [] as { nombre: string; cantidad: number; valor: number }[]),
   ]);
-  const fila = consumo.find((c) => c.nombre.trim().toLowerCase() === nombre.toLowerCase());
+  // Se cruza por CLAVE normalizada: `consumoCombustiblePorEquipo` agrupa las variantes
+  // («Camión NHR», «CAMION NHR») en una sola fila y expone como `nombre` la primera que
+  // encontró, que es arbitraria. Comparar el texto crudo dejaba el gasoil del equipo en 0.
+  const clave = claveEquipo(nombre);
+  const fila = consumo.find((c) => claveEquipo(c.nombre) === clave);
   return { horometro, gasoilLts: fila?.cantidad ?? 0, gasoilUsd: fila?.valor ?? 0 };
 }
