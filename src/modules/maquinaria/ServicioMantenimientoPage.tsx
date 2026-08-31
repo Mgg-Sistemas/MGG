@@ -10,6 +10,7 @@ import { ResumenMantenimientoModal } from './ResumenMantenimientoModal';
 import { listEquipos, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
 import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo } from '@/modules/combustible/combustible.repository';
+import { claveEquipo, UMBRAL_ALERTA_HRS, UMBRAL_ALERTA_KM } from '@/modules/combustible/equipoVinculo';
 
 /** Etiqueta del estado de un servicio (alineada con la pestaña Servicios de Pedidos). */
 const SERVICIO_ESTADO_LABEL: Record<string, string> = {
@@ -26,10 +27,9 @@ const STATUS_COLOR: Record<string, string> = {
   'FUERA DE SERVICIO': 'var(--danger)', 'INACTIVO': 'var(--muted)',
 };
 
-/** Umbral de alerta: si faltan ≤ 250 HRS para el próximo mantenimiento, se avisa. */
-const UMBRAL_ALERTA_HRS = 250;
-/** Umbral de alerta por kilometraje: si faltan ≤ 1.000 km para el objetivo indicado, se avisa. */
-const UMBRAL_ALERTA_KM = 1000;
+// Los umbrales vienen del módulo compartido: acá estaban en 250 h contra las 30 h de
+// Control de Maquinaria, así que el mismo equipo aparecía «en alerta» en una pantalla
+// y no en la otra (y con 250 la alerta quedaba encendida casi siempre).
 
 /** Pestaña virtual: equipos sin grupo asignado que YA tienen solicitudes de servicio. */
 const TAB_CON_SOLICITUDES = 'CON SOLICITUDES';
@@ -137,8 +137,8 @@ export function ServicioMantenimientoPage() {
   const proximosKm = useMemo(() => {
     const out: Array<{ equipo: MaquinariaEquipo; km: number; alertaKm: number; faltan: number }> = [];
     for (const e of equipos) {
-      if (e.alerta_km == null) continue;
-      const km = e.combustible_equipo ? kmMap.get(e.combustible_equipo.trim()) : undefined;
+      if (!e.activo || e.alerta_km == null) continue;   // un equipo dado de baja no necesita servicio
+      const km = e.combustible_equipo ? kmMap.get(claveEquipo(e.combustible_equipo)) : undefined;
       if (km == null) continue;
       const faltan = Math.round(Number(e.alerta_km) - km);
       if (faltan <= UMBRAL_ALERTA_KM) out.push({ equipo: e, km, alertaKm: Number(e.alerta_km), faltan });

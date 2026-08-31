@@ -19,6 +19,7 @@ import type {
 } from '@/shared/lib/types';
 import { createProducto, listProductos, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { claveEquipo } from './equipoVinculo';
 
 /** Categoría y unidad con que se da de alta cada combustible en el inventario. */
 const CATEGORIA_COMBUSTIBLE = 'Combustible';
@@ -440,10 +441,11 @@ export async function consumoCombustiblePorEquipo(desde: Date, hasta: Date): Pro
   for (const row of (data ?? []) as Array<Record<string, unknown>>) {
     const litros = Math.abs(Number(row.litros) || 0);
     if (litros <= 0) continue;
-    const equipo = ((row.equipo as string) || '').trim() || '(Sin equipo)';
+    const nombreEquipo = ((row.equipo as string) || '').trim() || '(Sin equipo)';
+    const equipo = claveEquipo(nombreEquipo) || '(Sin equipo)';
     const comb = (row.combustible ?? {}) as { costo_litro?: number };
     const costo = Number(row.costo_litro) || Number(comb.costo_litro) || 0;
-    const cur = acc.get(equipo) ?? { id: equipo, nombre: equipo, cantidad: 0, valor: 0 };
+    const cur = acc.get(equipo) ?? { id: equipo, nombre: nombreEquipo, cantidad: 0, valor: 0 };
     cur.cantidad += litros;
     cur.valor += litros * costo;
     acc.set(equipo, cur);
@@ -823,14 +825,52 @@ export async function actualizarVehiculo(id: string, input: {
   descripcion?: string | null;
 }): Promise<void> {
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  // El nombre del vehículo es la LLAVE TEXTUAL con la que Maquinaria lee su horómetro,
+  // su kilometraje y su gasoil. Renombrarlo sin propagar dejaba el nombre viejo huérfano
+  // en los movimientos y en la ficha del equipo: así fue como 7 de 14 equipos quedaron
+  // sin ver su combustible. Se propaga a las tres tablas que lo referencian.
+  let nombreViejo: string | null = null;
+  let nombreNuevo: string | null = null;
   if (input.nombre !== undefined) {
     const n = input.nombre.trim();
     if (!n) throw new Error('El nombre no puede estar vacío.');
     patch.nombre = n;
+    const { data: actual, error: aErr } = await supabase
+      .from('combustible_vehiculos').select('nombre').eq('id', id).maybeSingle();
+    if (aErr) throw aErr;
+    const previo = (actual as { nombre?: string } | null)?.nombre ?? null;
+    if (previo && previo !== n) { nombreViejo = previo; nombreNuevo = n; }
   }
   if (input.descripcion !== undefined) patch.descripcion = input.descripcion?.trim() || null;
   const { error } = await supabase.from('combustible_vehiculos').update(patch).eq('id', id);
   if (error) throw error;
+
+  if (nombreViejo && nombreNuevo) await propagarNombreEquipo(nombreViejo, nombreNuevo);
+}
+
+/**
+ * Lleva el nombre nuevo del vehículo a todo lo que lo referencia por texto: los
+ * movimientos de tanque (de donde salen el horómetro y el consumo), el destino de las
+ * solicitudes y la ficha del equipo en Maquinaria. Best-effort por tabla: si una falla,
+ * se avisa cuál quedó sin actualizar en vez de dejar el rastro a medias en silencio.
+ */
+async function propagarNombreEquipo(viejo: string, nuevo: string): Promise<void> {
+  const fallos: string[] = [];
+  const { error: e1 } = await supabase
+    .from('combustible_tanque_movimientos').update({ equipo: nuevo }).eq('equipo', viejo);
+  if (e1) fallos.push('los movimientos de tanque');
+  const { error: e2 } = await supabase
+    .from('combustible_solicitudes').update({ destino: nuevo }).eq('destino', viejo);
+  if (e2) fallos.push('las solicitudes');
+  const { error: e3 } = await supabase
+    .from('maquinaria_equipos').update({ combustible_equipo: nuevo }).eq('combustible_equipo', viejo);
+  if (e3) fallos.push('la ficha del equipo en Maquinaria');
+  if (fallos.length) {
+    throw new Error(
+      `El vehículo se renombró a "${nuevo}", pero no se pudo actualizar ${fallos.join(' ni ')}. `
+      + `Ahí sigue figurando "${viejo}": avisá a Sistemas para que lo corrija, o el equipo va a quedar sin su historial.`,
+    );
+  }
 }
 
 export async function setEstadoVehiculo(id: string, estado: 'activo' | 'inactivo'): Promise<void> {
@@ -839,6 +879,28 @@ export async function setEstadoVehiculo(id: string, estado: 'activo' | 'inactivo
 }
 
 export async function eliminarVehiculo(id: string): Promise<void> {
+  // Igual que el renombre: el nombre es la llave del historial. Si el vehículo ya tiene
+  // movimientos, borrarlo deja esos litros sin dueño y a Maquinaria sin lectura.
+  const { data: v, error: vErr } = await supabase
+    .from('combustible_vehiculos').select('nombre').eq('id', id).maybeSingle();
+  if (vErr) throw vErr;
+  const nombre = (v as { nombre?: string } | null)?.nombre ?? null;
+  if (nombre) {
+    const [{ count: movs, error: e1 }, { count: fichas, error: e2 }] = await Promise.all([
+      supabase.from('combustible_tanque_movimientos').select('id', { count: 'exact', head: true }).eq('equipo', nombre),
+      supabase.from('maquinaria_equipos').select('id', { count: 'exact', head: true }).eq('combustible_equipo', nombre),
+    ]);
+    if (e1 ?? e2) throw e1 ?? e2;
+    const partes: string[] = [];
+    if (movs) partes.push(`${movs} movimiento(s) de combustible`);
+    if (fichas) partes.push(`${fichas} equipo(s) de Maquinaria vinculado(s)`);
+    if (partes.length) {
+      throw new Error(
+        `No se puede eliminar "${nombre}": tiene ${partes.join(' y ')}. Borrarlo dejaría esos litros sin equipo `
+        + 'y a Maquinaria sin su horómetro. Desactivalo en su lugar.',
+      );
+    }
+  }
   const { error } = await supabase.from('combustible_vehiculos').delete().eq('id', id);
   if (error) throw error;
 }
@@ -914,7 +976,10 @@ export async function ultimoHorometroEquipo(equipo: string): Promise<number | nu
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
     .select('horometro_final')
-    .eq('equipo', e)
+    // `ilike` en vez de `eq`: el nombre se teclea a mano y la diferencia de mayúsculas
+    // dejaba el horómetro sin encontrar (los acentos los cubre `claveEquipo` en las
+    // lecturas masivas, que son las que alimentan las pantallas).
+    .ilike('equipo', e)
     .not('horometro_final', 'is', null)
     .order('fecha', { ascending: false })
     .limit(1)
@@ -936,9 +1001,11 @@ export async function horometrosVigentesPorEquipo(): Promise<Map<string, number>
     .not('horometro_final', 'is', null)
     .order('fecha', { ascending: false });
   if (error) throw error;
+  // La clave va NORMALIZADA (sin acentos ni mayúsculas): el nombre se teclea a mano en
+  // los movimientos y cualquier diferencia de formato rompía el cruce con Maquinaria.
   const out = new Map<string, number>();
   for (const r of (data ?? []) as Array<{ equipo: string | null; horometro_final: number | null }>) {
-    const eq = (r.equipo ?? '').trim();
+    const eq = claveEquipo(r.equipo);
     if (!eq || r.horometro_final == null) continue;
     if (!out.has(eq)) out.set(eq, Number(r.horometro_final)); // orden desc por fecha: el primero es el vigente
   }
@@ -959,7 +1026,7 @@ export async function kilometrajesVigentesPorEquipo(): Promise<Map<string, numbe
   if (error) throw error;
   const out = new Map<string, number>();
   for (const r of (data ?? []) as Array<{ equipo: string | null; kilometraje_final: number | null }>) {
-    const eq = (r.equipo ?? '').trim();
+    const eq = claveEquipo(r.equipo);
     if (!eq || r.kilometraje_final == null) continue;
     if (!out.has(eq)) out.set(eq, Number(r.kilometraje_final)); // desc por fecha: el primero es el vigente
   }
