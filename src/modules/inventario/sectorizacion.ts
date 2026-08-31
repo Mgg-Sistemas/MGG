@@ -60,6 +60,11 @@ export function sedesDeUsuario(u: UsuarioSectorizable | null | undefined): strin
   if (!u) return null;
   const enBase = limpiarSedes(u.sedes_asignadas);
   if (enBase.length) return enBase;
+  // Un ARREGLO VACÍO es una decisión explícita: «este usuario no tiene restricción».
+  // Solo cuando la columna está en null (nunca se configuró) entra el respaldo por
+  // correo. Sin esta distinción, un admin destildaba todas las sedes de ISNER, guardaba,
+  // y el mapa cableado se las volvía a poner: la restricción no se podía levantar.
+  if (Array.isArray(u.sedes_asignadas)) return null;
   const respaldo = RESPALDO_POR_CORREO[(u.email ?? '').toLowerCase().trim()];
   return respaldo ? [...respaldo.sedes] : null;
 }

@@ -49,10 +49,18 @@ export function useSectorizacion(): Sectorizacion {
   useEffect(() => {
     if (!sedes) { setAlmacenes([]); return; }      // sin restricción: no hace falta resolver nada
     let cancel = false;
+    // Si la consulta FALLA no se marca «listo»: con la lista vacía, `sedeDeAlmacen`
+    // no puede ubicar ningún almacén y el guard bloquearía TODO para el almacenista
+    // por un problema de red. Sin `listo`, no bloquea nada y el submit avisa que
+    // todavía no se pudo resolver.
     Promise.all([
-      listAlmacenes('principal').catch(() => [] as Almacen[]),
-      listAlmacenes('deposito').catch(() => [] as Almacen[]),
-    ]).then(([p, d]) => { if (!cancel) setAlmacenes([...p, ...d]); });
+      listAlmacenes('principal').catch(() => null),
+      listAlmacenes('deposito').catch(() => null),
+    ]).then(([p, d]) => {
+      if (cancel) return;
+      if (p === null && d === null) return;          // las dos fallaron: sigue «no listo»
+      setAlmacenes([...(p ?? []), ...(d ?? [])]);
+    });
     return () => { cancel = true; };
   }, [sedes]);
 

@@ -27,8 +27,15 @@ describe('sedesDeUsuario', () => {
 
   it('sin fila en la base, cae al respaldo por correo (no deja suelto al almacenista)', () => {
     expect(sedesDeUsuario({ email: 'ALMACEN.PZO.LOSPINOS@gmail.com' })).toEqual(['LOS PINOS']);
-    expect(sedesDeUsuario({ email: 'almacenmatanzas2026@gmail.com', sedes_asignadas: [] }))
+    expect(sedesDeUsuario({ email: 'almacenmatanzas2026@gmail.com', sedes_asignadas: null }))
       .toEqual(['CENTRO DE FUNDICION - MATANZAS']);
+  });
+
+  it('la lista VACÍA libera al usuario: el respaldo no la puede pisar', () => {
+    // Un admin destilda todas las sedes en Usuarios y guarda. Si el respaldo se
+    // impusiera, la restricción de ISNER y KELVIN no se podría levantar nunca.
+    expect(sedesDeUsuario({ email: 'almacenmatanzas2026@gmail.com', sedes_asignadas: [] })).toBeNull();
+    expect(estaSectorizado({ email: 'almacen.pzo.lospinos@gmail.com', sedes_asignadas: [] })).toBe(false);
   });
 
   it('quien no está en ningún lado no tiene restricción', () => {

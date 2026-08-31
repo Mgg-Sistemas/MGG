@@ -153,11 +153,12 @@ export async function actualizarUsuario(id: string, input: ActualizarUsuarioInpu
   if (input.telefono != null) payload.telefono = input.telefono.trim() || null;
   if (input.departamento != null) payload.departamento = input.departamento.trim() || null;
   if (input.role != null) payload.role = String(input.role);
-  // La lista vacía se guarda como null: «sin restricción» y «nunca se configuró» son
-  // lo mismo para el guard, y así no queda un array vacío que confunda al leer la tabla.
+  // La lista vacía se guarda COMO LISTA VACÍA, no como null. Son cosas distintas:
+  // `[]` es «un admin decidió que este usuario no tiene restricción» y `null` es
+  // «nunca se configuró», que es lo único que deja entrar al respaldo por correo.
+  // Guardando null, destildar todas las sedes de un almacenista no lo liberaba.
   if (input.sedes_asignadas !== undefined) {
-    const s = (input.sedes_asignadas ?? []).map((x) => String(x).trim()).filter(Boolean);
-    payload.sedes_asignadas = s.length ? s : null;
+    payload.sedes_asignadas = (input.sedes_asignadas ?? []).map((x) => String(x).trim()).filter(Boolean);
   }
   if (input.almacen_recepcion !== undefined) payload.almacen_recepcion = input.almacen_recepcion?.trim() || null;
 

@@ -7,7 +7,6 @@ import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
-import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
@@ -53,16 +52,17 @@ export function TrasladoMaterialForm({
   }, [almacenesObj]);
 
   // Para un producto, el almacén con MÁS stock distinto del destino (de ahí sale).
-  // Sectorización: el traslado se PIDE desde tu almacén. El destino puede ser
-  // cualquiera (para eso existe la solicitud), pero el origen tiene que ser tuyo:
-  // antes el sistema elegía solo «el almacén con más stock», aunque fuera de la otra sede.
-  const { sedes: sedesPermitidas, sectorizado } = useSectorizacion();
-  const sedeDe = (almacen: string) => almacenesObj.find((a) => a.nombre === almacen)?.sede ?? null;
+  // Sectorización: acá el origen es DELIBERADAMENTE LIBRE. Un traslado es una
+  // SOLICITUD que pasa por aprobación, y es justamente el camino que se le ofrece al
+  // almacenista para pedir material que está en la otra sede («no lo podés mover vos:
+  // pedí un traslado»). Acotar el origen dejaba ese camino sin salida: se le prohibía
+  // mover lo ajeno Y se le prohibía pedirlo. La restricción va donde el stock se mueve
+  // de verdad, que es el botón «Ejecutar» de la solicitud ya aprobada.
+  const { sectorizado } = useSectorizacion();
 
   const mejorOrigen = (productoId: string, excluir: string): { almacen: string; stock: number } | null => {
     const exs = existencias
       .filter((e) => e.producto_id === productoId && e.almacen !== excluir && (Number(e.stock) || 0) > 0)
-      .filter((e) => puedeMoverEnSede(sedeDe(e.almacen), sedesPermitidas))
       .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
     const ex = exs[0];
     return ex ? { almacen: ex.almacen, stock: Number(ex.stock) || 0 } : null;
@@ -150,16 +150,7 @@ export function TrasladoMaterialForm({
       const p = prodDe(l.productoId);
       const cant = Number(l.cantidad) || 0;
       if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
-      if (!l.almacen) {
-        setError(sectorizado
-          ? `${p?.nombre ?? 'El material'} no tiene stock en tus almacenes (${(sedesPermitidas ?? []).join(', ')}) para trasladar.`
-          : `${p?.nombre ?? 'El material'} no tiene stock en otro almacén para trasladar.`);
-        return;
-      }
-      if (!puedeMoverEnSede(sedeDe(l.almacen), sedesPermitidas)) {
-        setError(`No podés trasladar desde «${l.almacen}»: es de otra sede. Solo podés sacar de ${(sedesPermitidas ?? []).join(', ')}.`);
-        return;
-      }
+      if (!l.almacen) { setError(`${p?.nombre ?? 'El material'} no tiene stock en otro almacén para trasladar.`); return; }
       if (l.almacen === destino) { setError(`${p?.nombre ?? 'El material'}: el origen no puede ser igual al destino.`); return; }
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
       if (cant > stockDe(l)) { setError(`No hay stock suficiente de ${p?.nombre} en ${l.almacen}. Disponible: ${num(stockDe(l))}.`); return; }
@@ -207,6 +198,14 @@ export function TrasladoMaterialForm({
   return (
     <Modal title="Nueva solicitud de traslado de material" size="lg" onClose={onClose} footer={footer}>
       <form id="traslado-mat-form" onSubmit={handleSubmit} onKeyDown={enterAvanzaCampo({ enviando: saving })}>
+        {sectorizado && (
+          <div className="card" style={{ borderColor: 'var(--info, #38bdf8)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.5rem .75rem' }}>
+            <span style={{ fontSize: '.82rem' }}>
+              📄 Esto es una <strong>solicitud</strong>: podés pedir material de cualquier sede, también de la que no es la tuya.
+              El stock se mueve recién cuando alguien la aprueba y la ejecuta desde el almacén de origen.
+            </span>
+          </div>
+        )}
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         {/* ¿Es para un CLIENTE? — visible desde el inicio. Genera cuenta por cobrar. */}

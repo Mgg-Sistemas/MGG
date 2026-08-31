@@ -19,7 +19,7 @@ import {
 } from './inventario.repository';
 import { listAlmacenes, crearAlmacen } from './almacenes.repository';
 import { useSectorizacion } from './useSectorizacion';
-import { productosSimilares, type Duplicado } from './duplicados';
+import { normalizarNombre, productosSimilares, type Duplicado } from './duplicados';
 
 interface ProductoFormProps {
   producto: Producto | null; // null => crear
@@ -154,16 +154,24 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
   const sector = useSectorizacion();
   // Se cruza con el scope de la vista (`soloSede`): manda la intersección, la más chica.
   const sedesDelPicker = useMemo(() => {
+    // Al EDITAR no se recorta: el producto ya está donde está, y dejarlo fuera de la
+    // lista obligaba al almacenista a moverlo de sede para poder guardar un cambio de
+    // nombre o de precio. La sectorización aplica al ALTA, que es cuando se decide
+    // dónde nace la existencia.
+    if (isEdit) return soloSede ? [soloSede] : undefined;
     if (soloSede && sector.sedes) return sector.sedes.includes(soloSede) ? [soloSede] : [];
     if (soloSede) return [soloSede];
     return sector.sedes ?? undefined;
-  }, [soloSede, sector.sedes]);
+  }, [isEdit, soloSede, sector.sedes]);
 
   // Anti-duplicados: mientras se escribe el nombre se buscan los productos que ya
   // existen y se parecen. No se impide crear —hay materiales legítimamente parecidos—,
   // se ofrece el existente: una harina que ya está en Matanzas no tiene por qué volver
   // a nacer para La Esperanza, porque eso parte el kardex y el costo promedio.
-  const [duplicadosVistos, setDuplicadosVistos] = useState(false);
+  // Se guarda PARA QUÉ NOMBRE se avisó, no un simple sí/no: con una bandera, el
+  // usuario gastaba el aviso en el primer nombre que escribía y después podía crear
+  // un duplicado real sin que nada lo frenara.
+  const [avisadoPara, setAvisadoPara] = useState('');
   // Solo al CREAR: editando, el nombre ya es el del producto y avisaría de sí mismo.
   const similares = useMemo<Duplicado<Producto>[]>(
     () => (isEdit ? [] : productosSimilares(form.nombre, productos)),
@@ -311,8 +319,8 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
     // Duplicado con el MISMO nombre: se frena una vez y se explica. Si el usuario
     // vuelve a apretar Crear, se respeta su decisión (puede haber materiales que de
     // verdad se llaman igual y se distinguen por medida o presentación).
-    if (!isEdit && !duplicadosVistos && similares.some((d) => d.nivel === 'exacto')) {
-      setDuplicadosVistos(true);
+    if (!isEdit && avisadoPara !== normalizarNombre(form.nombre) && similares.some((d) => d.nivel === 'exacto')) {
+      setAvisadoPara(normalizarNombre(form.nombre));
       setError('Ya hay un producto con este mismo nombre (mirá la lista de arriba). Si es el mismo material, usalo en vez de duplicarlo. Si de verdad es otro, volvé a apretar «Crear».');
       return;
     }
@@ -450,7 +458,12 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
                           <td>
                             <strong>{sp.nombre}</strong>
                             {nivel === 'exacto' && <span className="badge" style={{ marginLeft: '.35rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}>mismo nombre</span>}
-                            <div className="muted" style={{ fontSize: '.72rem' }}>{sp.categoria ?? '—'} · {sp.unidad ?? '—'}{sp.estado !== 'activo' ? ' · dado de baja' : ''}</div>
+                            <div className="muted" style={{ fontSize: '.72rem' }}>
+                              {sp.categoria ?? '—'} · {sp.unidad ?? '—'}
+                              {sp.estado !== 'activo' && (
+                                <span className="badge" style={{ marginLeft: '.35rem', color: 'var(--warning)', borderColor: 'var(--warning)' }}>dado de baja</span>
+                              )}
+                            </div>
                           </td>
                           <td className="mono" style={{ fontSize: '.74rem' }}>
                             {ubic.length === 0
@@ -458,12 +471,19 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
                               : ubic.map((u) => `${u.almacen}: ${num(u.stock)}`).join(' · ')}
                           </td>
                           <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            {onUsarExistente && (
+                            {/* Cargarle stock a una ficha dada de baja lo deja invisible en el
+                                inventario y sin poder despacharse: hay que reactivarla primero
+                                desde su detalle, así que acá no se ofrece el atajo. */}
+                            {onUsarExistente && (sp.estado === 'activo' ? (
                               <button type="button" className="btn btn-sm" onClick={() => onUsarExistente(sp)}
                                 title="Abrir el movimiento de este producto para cargarle stock en tu almacén">
                                 Usar este
                               </button>
-                            )}
+                            ) : (
+                              <span className="dim" style={{ fontSize: '.72rem' }} title="Reactivalo desde su detalle en Inventario y después cargale stock">
+                                reactivalo primero
+                              </span>
+                            ))}
                           </td>
                         </tr>
                       );
