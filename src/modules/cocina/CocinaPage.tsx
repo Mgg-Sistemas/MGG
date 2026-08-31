@@ -16,6 +16,8 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { dateTime, money, num } from '@/shared/lib/format';
 import type { CocinaComida, TipoComida, Cocina, Almacen } from '@/shared/lib/types';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
+import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
+import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import {
   listComidas, crearComida, editarComida, eliminarComida, listViveresGlobal, resumirComidas,
   listCocinas, crearCocina, actualizarCocina, eliminarCocina, listAlmacenesParaCocina,
@@ -126,15 +128,26 @@ function CocinaFormModal({ cocina, almacenes, actor, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Sectorización: la cocina descuenta stock del almacén vinculado, así que vincularla
+  // es decidir de qué almacén va a salir la comida. Un almacenista solo puede apuntarla
+  // a los suyos; el consumo diario después no elige nada, sale de esta configuración.
+  const { sedes: sedesPermitidas } = useSectorizacion();
+
   // Opciones de almacén ordenadas por sede, mostrando el nombre corto del subalmacén.
   const opciones = useMemo(() => [...almacenes]
+    .filter((a) => puedeMoverEnSede(a.sede, sedesPermitidas))
     .sort((a, b) => `${a.sede ?? ''} ${a.nombre}`.localeCompare(`${b.sede ?? ''} ${b.nombre}`, 'es'))
-    .map((a) => ({ value: a.id, label: `${a.sede ? `${a.sede} · ` : ''}${nombreCortoAlmacen(a, almacenes)}` })), [almacenes]);
+    .map((a) => ({ value: a.id, label: `${a.sede ? `${a.sede} · ` : ''}${nombreCortoAlmacen(a, almacenes)}` })), [almacenes, sedesPermitidas]);
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!nombre.trim()) { setError('Indicá el nombre de la cocina.'); return; }
     if (!almacenId) { setError('Vinculá la cocina a un almacén / subalmacén.'); return; }
+    const elegido = almacenes.find((a) => a.id === almacenId);
+    if (!puedeMoverEnSede(elegido?.sede, sedesPermitidas)) {
+      setError(`Solo podés vincular la cocina a un almacén de ${(sedesPermitidas ?? []).join(', ')}.`);
+      return;
+    }
     setSaving(true);
     try {
       if (cocina) await actualizarCocina(cocina.id, { nombre, almacenId });

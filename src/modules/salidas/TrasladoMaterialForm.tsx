@@ -7,6 +7,7 @@ import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
+import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
@@ -51,6 +52,14 @@ export function TrasladoMaterialForm({
   }, [almacenesObj]);
 
   // Para un producto, el almacén con MÁS stock distinto del destino (de ahí sale).
+  // Sectorización: acá el origen es DELIBERADAMENTE LIBRE. Un traslado es una
+  // SOLICITUD que pasa por aprobación, y es justamente el camino que se le ofrece al
+  // almacenista para pedir material que está en la otra sede («no lo podés mover vos:
+  // pedí un traslado»). Acotar el origen dejaba ese camino sin salida: se le prohibía
+  // mover lo ajeno Y se le prohibía pedirlo. La restricción va donde el stock se mueve
+  // de verdad, que es el botón «Ejecutar» de la solicitud ya aprobada.
+  const { sectorizado } = useSectorizacion();
+
   const mejorOrigen = (productoId: string, excluir: string): { almacen: string; stock: number } | null => {
     const exs = existencias
       .filter((e) => e.producto_id === productoId && e.almacen !== excluir && (Number(e.stock) || 0) > 0)
@@ -189,6 +198,14 @@ export function TrasladoMaterialForm({
   return (
     <Modal title="Nueva solicitud de traslado de material" size="lg" onClose={onClose} footer={footer}>
       <form id="traslado-mat-form" onSubmit={handleSubmit} onKeyDown={enterAvanzaCampo({ enviando: saving })}>
+        {sectorizado && (
+          <div className="card" style={{ borderColor: 'var(--info, #38bdf8)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.5rem .75rem' }}>
+            <span style={{ fontSize: '.82rem' }}>
+              📄 Esto es una <strong>solicitud</strong>: podés pedir material de cualquier sede, también de la que no es la tuya.
+              El stock se mueve recién cuando alguien la aprueba y la ejecuta desde el almacén de origen.
+            </span>
+          </div>
+        )}
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         {/* ¿Es para un CLIENTE? — visible desde el inicio. Genera cuenta por cobrar. */}

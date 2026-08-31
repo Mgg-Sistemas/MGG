@@ -15,7 +15,8 @@ import { SolicitudRepuestosModal } from './SolicitudRepuestosModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo, consumosPorEquipo, ultimoServicioPorEquipo, type ConsumoMant, type UltimoServicio } from './maquinariaMant.repository';
-import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo } from '@/modules/combustible/combustible.repository';
+import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo, listVehiculos } from '@/modules/combustible/combustible.repository';
+import { claveEquipo, enAlertaServicio, estadoServicio, ultimoServicioHrs, vinculosRotos, UMBRAL_ALERTA_HRS, UMBRAL_ALERTA_KM, type EstadoServicio, type VinculoRoto } from '@/modules/combustible/equipoVinculo';
 // generadores de ./maquinariaReportes: import dinámico (al generar) para no cargar jsPDF/xlsx al abrir.
 
 const STATUS_COLOR: Record<string, string> = {
@@ -23,25 +24,10 @@ const STATUS_COLOR: Record<string, string> = {
   'FUERA DE SERVICIO': 'var(--danger)', 'INACTIVO': 'var(--muted)',
 };
 
-/** Umbral de alerta: si faltan ≤ 30 HRS para el próximo mantenimiento, se avisa
- *  (ej. servicio cada 250 h → la alerta salta al llegar a 220 h de horómetro).
- *  Da margen para pedir/comprar los repuestos justo antes del servicio. */
-const UMBRAL_ALERTA_HRS = 30;
-/** Umbral de alerta por kilometraje: si faltan ≤ 1.000 km al objetivo, se avisa. */
-const UMBRAL_ALERTA_KM = 1000;
 
 /** Quita acentos y pasa a minúsculas para una búsqueda tolerante. */
 const normTxt = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-/**
- * HRS restantes hasta el próximo mantenimiento. El mantenimiento se hace cada N horas
- * de horómetro (N = mantenimiento_cada_hrs); el próximo toca en el siguiente múltiplo de N.
- * restantes = N − (horómetro mod N). Devuelve null si falta el dato.
- */
-function hrsRestantes(frecuencia: number | null, horometro: number | null): number | null {
-  if (!frecuencia || frecuencia <= 0 || horometro == null) return null;
-  return ((frecuencia - (horometro % frecuencia)) % frecuencia);
-}
 
 /** Un motivo por el que un equipo está en estado crítico (ítem vencido / sin registro / fuera de servicio). */
 interface CritIssue {
@@ -87,6 +73,7 @@ export function MaquinariaPage() {
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [horometros, setHorometros] = useState<Map<string, number>>(new Map());     // combustible: nombre→horómetro
   const [kmVig, setKmVig] = useState<Map<string, number>>(new Map());                // combustible: nombre→kilometraje
+  const [vehiculos, setVehiculos] = useState<string[]>([]);                          // combustible: nombres de vehículo activos
   const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map()); // bitácora: equipo_id→…
   const [consumos, setConsumos] = useState<Map<string, ConsumoMant>>(new Map());     // bitácora: equipo_id→consumos
   const [ultimoServ, setUltimoServ] = useState<Map<string, UltimoServicio>>(new Map()); // bitácora: equipo_id→último servicio
@@ -108,12 +95,15 @@ export function MaquinariaPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, bit, cons, us, kms] = await Promise.all([
+      const [eqs, horos, bit, cons, us, vehs, kms] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
         consumosPorEquipo().catch(() => new Map<string, ConsumoMant>()),
         ultimoServicioPorEquipo().catch(() => new Map<string, UltimoServicio>()),
+        // TODOS los vehículos, no solo los activos: uno dado de baja sigue siendo el
+        // dueño legítimo del historial, y tratarlo como «no existe» era un falso positivo.
+        listVehiculos().then((vs) => vs.map((v) => v.nombre)).catch(() => [] as string[]),
         kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>()),
       ]);
       setEquipos(eqs);
@@ -122,6 +112,7 @@ export function MaquinariaPage() {
       setConsumos(cons);
       setUltimoServ(us);
       setKmVig(kms);
+      setVehiculos(vehs);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -131,15 +122,24 @@ export function MaquinariaPage() {
   // HRS restantes + alerta por equipo. Horómetro vigente: el de Combustible (si está
   // vinculado), si no el último de la bitácora.
   const infoEquipo = useMemo(() => {
-    const m = new Map<string, { restantes: number | null; alerta: boolean; horometro: number | null }>();
+    const m = new Map<string, { estado: EstadoServicio | null; restantes: number | null; alerta: boolean; horometro: number | null }>();
     for (const e of equipos) {
-      const horo = (e.combustible_equipo ? horometros.get(e.combustible_equipo.trim()) : undefined)
+      // El horómetro sale de Combustible (cruce por clave normalizada: el nombre se teclea
+      // a mano y antes cualquier acento o mayúscula rompía el vínculo); si no hay, la bitácora.
+      const horo = (e.combustible_equipo ? horometros.get(claveEquipo(e.combustible_equipo)) : undefined)
         ?? bitMap.get(e.id)?.ultimoHorometro ?? null;
-      const restantes = hrsRestantes(e.mantenimiento_cada_hrs, horo);
-      m.set(e.id, { restantes, horometro: horo, alerta: restantes != null && restantes <= UMBRAL_ALERTA_HRS });
+      // Se cuenta desde el ÚLTIMO SERVICIO real (aceite), no desde el módulo del horómetro:
+      // con el módulo, un equipo que se pasó del servicio «daba la vuelta» y apagaba su alerta.
+      const estado = estadoServicio(e.mantenimiento_cada_hrs, horo, ultimoServicioHrs(ultimoServ.get(e.id)));
+      m.set(e.id, { estado, restantes: estado?.restantes ?? null, horometro: horo, alerta: enAlertaServicio(estado) });
     }
     return m;
-  }, [equipos, horometros, bitMap]);
+  }, [equipos, horometros, bitMap, ultimoServ]);
+
+  // Equipos que hoy NO pueden leer su combustible: sin vínculo, o apuntando a un vehículo
+  // que ya no existe. No se corrigen solos —adivinar reescribiría el historial de consumo—:
+  // se listan con los candidatos para que Almacén los confirme desde la ficha del equipo.
+  const rotos = useMemo<VinculoRoto[]>(() => vinculosRotos(equipos, vehiculos), [equipos, vehiculos]);
 
   const lista = useMemo(() => {
     const q = normTxt(filtro.trim());
@@ -183,7 +183,7 @@ export function MaquinariaPage() {
     const out: Array<{ equipo: MaquinariaEquipo; km: number; alertaKm: number; faltan: number }> = [];
     for (const e of equipos) {
       if (!e.activo || e.alerta_km == null) continue;
-      const km = e.combustible_equipo ? kmVig.get(e.combustible_equipo.trim()) : undefined;
+      const km = e.combustible_equipo ? kmVig.get(claveEquipo(e.combustible_equipo)) : undefined;
       if (km == null) continue;
       const faltan = Math.round(Number(e.alerta_km) - km);
       if (faltan <= UMBRAL_ALERTA_KM) out.push({ equipo: e, km, alertaKm: Number(e.alerta_km), faltan });
@@ -292,10 +292,41 @@ export function MaquinariaPage() {
       {seccion === 'equipos' && (<>
       <button className="btn btn-ghost" style={{ marginBottom: '.7rem' }} onClick={() => setSeccion('landing')}>← Volver</button>
 
+      {rotos.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--warning, #f5a524)', marginBottom: '.75rem' }}>
+          <div style={{ fontSize: '.88rem' }}>
+            ⚠️ <strong>{rotos.length} equipo(s)</strong> no pueden leer su combustible: su vínculo con el módulo de
+            Combustible está vacío o apunta a un vehículo que ya no existe. Mientras tanto su gasoil figura en 0 L y el
+            horómetro sale de la bitácora (si alguien lo cargó a mano) o no sale.
+          </div>
+          <div className="muted" style={{ fontSize: '.78rem', marginTop: '.35rem' }}>
+            Se corrige en la ficha del equipo (✎ → «Equipo en Combustible»). No se vinculan solos: confirmalo vos, porque
+            elegir mal mezclaría el historial de consumo de dos equipos.
+          </div>
+          <div className="table-wrap" style={{ marginTop: '.5rem' }}>
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr><th>Equipo</th><th>Vinculado hoy</th><th>Se parece a</th></tr></thead>
+              <tbody>
+                {rotos.map((r) => (
+                  <tr key={r.equipo.id}>
+                    <td><strong>{r.equipo.equipo}</strong></td>
+                    <td>{r.guardado
+                      ? <span className="mono" style={{ color: 'var(--danger)' }}>{r.guardado} (no existe)</span>
+                      : <span className="dim">— sin vincular —</span>}</td>
+                    <td>{r.candidatos.length
+                      ? <span className="mono">{r.candidatos.join(' · ')}</span>
+                      : <span className="dim">sin sugerencias</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {enAlerta.length > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
           <div style={{ marginBottom: canWrite ? '.4rem' : 0 }}>
-            ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS al servicio).
+            ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS al servicio) o ya vencido.
             {canWrite && <span className="muted"> Generá la solicitud de pedido de repuestos:</span>}
           </div>
           {canWrite && (
@@ -362,11 +393,15 @@ export function MaquinariaPage() {
                   <td>{e.ubicacion ?? '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{e.mantenimiento_cada_hrs != null ? fmtNum(e.mantenimiento_cada_hrs) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {info?.restantes == null
+                    {info?.estado == null
                       ? <span className="muted" title={!e.mantenimiento_cada_hrs ? 'Definí «Mantenimiento cada (hrs)» en la ficha' : 'Sin horómetro registrado'}>—</span>
-                      : info.alerta
-                        ? <span style={{ color: 'var(--warning)', fontWeight: 700 }} title={`Faltan ${fmtNum(info.restantes)} h · horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>⚠️ {fmtNum(info.restantes)} h</span>
-                        : <span title={`horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>{fmtNum(info.restantes)} h</span>}
+                      : info.estado.sinReferencia
+                        ? <span className="muted" title={`No hay ningún servicio de este equipo en la bitácora, así que no se puede calcular. Horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>sin servicio previo</span>
+                        : info.estado.vencido
+                          ? <span style={{ color: 'var(--danger)', fontWeight: 700 }} title={`El servicio se pasó por ${fmtNum(Math.abs(info.estado.restantes ?? 0))} h · horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>🔴 vencido ({fmtNum(Math.abs(info.estado.restantes ?? 0))} h)</span>
+                          : info.alerta
+                            ? <span style={{ color: 'var(--warning)', fontWeight: 700 }} title={`Faltan ${fmtNum(info.estado.restantes)} h · horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>⚠️ {fmtNum(info.estado.restantes)} h</span>
+                            : <span title={`horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>{fmtNum(info.estado.restantes)} h</span>}
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     {canWrite && info?.alerta && (

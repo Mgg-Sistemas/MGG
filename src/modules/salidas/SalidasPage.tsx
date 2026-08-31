@@ -33,6 +33,7 @@ import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
 import { SalidasTemporalesView } from './SalidasTemporalesView';
 import { SalidaDineroDetalle } from './SalidaDineroDetalle';
 import { ClientePicker } from './ClientePicker';
+import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
 import {
   descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
@@ -658,6 +659,24 @@ function SolicitudDetalleModal({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // Sectorización: ejecutar es el ÚNICO momento en que el stock se mueve de verdad.
+  // La solicitud la puede pedir cualquiera desde cualquier sede (para eso existe), pero
+  // sacar el material del almacén lo hace quien responde por ese almacén. Sin esto la
+  // sectorización quedaba en los formularios y el descuento real seguía siendo libre.
+  const sector = useSectorizacion();
+  const almacenesDeLaSolicitud = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of sol.items ?? []) { const a = (it.almacen ?? '').trim(); if (a) set.add(a); }
+    const suelto = (sol.almacen_origen ?? '').trim();
+    if (!set.size && suelto) set.add(suelto);
+    return Array.from(set);
+  }, [sol]);
+  // Se mira el ORIGEN: un traslado que entra a mi sede lo ejecuta quien saca, no quien recibe.
+  const origenAjeno = useMemo(
+    () => almacenesDeLaSolicitud.find((a) => !sector.puedeMover(a)) ?? null,
+    [almacenesDeLaSolicitud, sector],
+  );
+  const bloqueoEjecutar = origenAjeno ? sector.motivo(origenAjeno) : null;
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancel, setMotivoCancel] = useState('');
   // Cierre SIN descontar (la salida ya se hizo por fuera, ej.: una salida manual de inventario).
@@ -861,13 +880,14 @@ function SolicitudDetalleModal({
         </button>
       )}
       {puedeEjecutar && sol.estado === 'aprobada' && (
-        <button className="btn btn-primary" disabled={busy}
+        <button className="btn btn-primary" disabled={busy || !!bloqueoEjecutar}
+          title={bloqueoEjecutar ?? undefined}
           onClick={() => run(() => ejecutarSolicitudSalida(sol, actor, actorName), `Solicitud ${sol.codigo} ejecutada`)}>
           {busy ? 'Ejecutando…' : ejecutarLabel}
         </button>
       )}
       {puedeEjecutar && sol.estado === 'aprobada' && (
-        <button className="btn btn-ghost" disabled={busy} onClick={() => setSinDescOpen(true)}
+        <button className="btn btn-ghost" disabled={busy || !!bloqueoEjecutar} onClick={() => setSinDescOpen(true)}
           title={`NO ${esTraslado ? 'mueve' : 'descuenta'} stock. Solo para cerrar la solicitud cuando el ${esTraslado ? 'movimiento' : 'descuento'} ya se hizo a mano en Inventario`}>
           {cerrarLabel}
         </button>

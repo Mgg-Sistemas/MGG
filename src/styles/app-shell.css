@@ -809,6 +809,11 @@ tr.row-selectable:active { transform: scale(0.998); }
    ============================================================ */
 @media (max-width: 480px) {
   :root { --sidebar-w: 56px; }
+  /* La topbar no alcanza para hamburguesa + "MGG · Sistema" + tasas + notif:
+     el rótulo es nowrap y no encoge, así que empuja el botón de notificaciones
+     fuera de la pantalla. En teléfono se oculta (la marca vive en el drawer y
+     el título de la sección ya está en el <h1> de cada página). */
+  .topbar .crumb > span { display: none; }
   .kpi-grid { grid-template-columns: 1fr; }
   .page-head .actions { flex-wrap: wrap; }
   /* Cada botón conserva el ancho de su etiqueta (min-width: max-content): así los
