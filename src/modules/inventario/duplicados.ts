@@ -44,6 +44,9 @@ export function normalizarNombre(nombre: string | null | undefined): string {
     .trim().replace(/\s+/g, ' ');
 }
 
+/** Tokens ya calculados, por nombre crudo (ver el comentario dentro de `tokensNombre`). */
+const CACHE_TOKENS = new Map<string, string[]>();
+
 /**
  * Tokens significativos de un nombre.
  *
@@ -54,11 +57,22 @@ export function normalizarNombre(nombre: string | null | undefined): string {
  * Las letras sueltas sí se descartan: la «X» de «7" X .045"» no distingue nada.
  */
 export function tokensNombre(nombre: string | null | undefined): string[] {
-  return normalizarNombre(nombre)
+  const clave = String(nombre ?? '');
+  const memo = CACHE_TOKENS.get(clave);
+  if (memo) return memo;
+  const out = normalizarNombre(nombre)
     .split(' ')
     .filter((t) => (t.length > 1 || /^[0-9]$/.test(t)) && !RUIDO.has(t))
     .map(raiz);
+  // Esto corre en CADA tecla del campo «Nombre» contra todo el catálogo (~700 productos
+  // hoy, y crece). Los nombres del catálogo son siempre los mismos, así que se recuerdan;
+  // lo único que varía es lo que el usuario está escribiendo. El tope evita que la caché
+  // crezca sin control con las variantes intermedias de lo tecleado.
+  if (CACHE_TOKENS.size > 4000) CACHE_TOKENS.clear();
+  CACHE_TOKENS.set(clave, out);
+  return out;
 }
+
 
 /**
  * Raíz aproximada de una palabra, para que el singular y el plural sean el mismo
