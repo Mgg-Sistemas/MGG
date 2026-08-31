@@ -3,6 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { RankedBarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { num as fmtNum } from '@/shared/lib/format';
+import { claveEquipo } from '@/modules/combustible/equipoVinculo';
 import { consumoCombustiblePorEquipo as consumoPorEquipo } from '@/modules/combustible/combustible.repository';
 import { horasUltimoPorEquipo } from './maquinariaMant.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
@@ -60,9 +61,10 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
   // Detalle del equipo seleccionado (al hacer click en su barra de gasoil).
   const detalleData = useMemo(() => {
     if (!detalle) return null;
-    const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
-    const g = gasoil.find((x) => norm(x.nombre) === norm(detalle));
-    const eq = equipos.find((e) => norm(e.combustible_equipo) === norm(detalle));
+    // Misma clave normalizada que usa el resto del cruce: `trim().toLowerCase()` no
+    // quita acentos, así que «Camión NHR» no encontraba su fila ni su equipo.
+    const g = gasoil.find((x) => claveEquipo(x.nombre) === claveEquipo(detalle));
+    const eq = equipos.find((e) => claveEquipo(e.combustible_equipo) === claveEquipo(detalle));
     const hm = eq ? horasMap.get(eq.id) : null;
     return { nombre: detalle, cantidad: g?.cantidad ?? 0, valor: g?.valor ?? 0, eq: eq ?? null, hm: hm ?? null };
   }, [detalle, gasoil, equipos, horasMap]);

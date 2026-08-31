@@ -19,6 +19,7 @@ import type {
 } from '@/shared/lib/types';
 import { createProducto, listProductos, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { claveEquipo } from './equipoVinculo';
 
 /** Categoría y unidad con que se da de alta cada combustible en el inventario. */
 const CATEGORIA_COMBUSTIBLE = 'Combustible';
@@ -440,10 +441,11 @@ export async function consumoCombustiblePorEquipo(desde: Date, hasta: Date): Pro
   for (const row of (data ?? []) as Array<Record<string, unknown>>) {
     const litros = Math.abs(Number(row.litros) || 0);
     if (litros <= 0) continue;
-    const equipo = ((row.equipo as string) || '').trim() || '(Sin equipo)';
+    const nombreEquipo = ((row.equipo as string) || '').trim() || '(Sin equipo)';
+    const equipo = claveEquipo(nombreEquipo) || '(Sin equipo)';
     const comb = (row.combustible ?? {}) as { costo_litro?: number };
     const costo = Number(row.costo_litro) || Number(comb.costo_litro) || 0;
-    const cur = acc.get(equipo) ?? { id: equipo, nombre: equipo, cantidad: 0, valor: 0 };
+    const cur = acc.get(equipo) ?? { id: equipo, nombre: nombreEquipo, cantidad: 0, valor: 0 };
     cur.cantidad += litros;
     cur.valor += litros * costo;
     acc.set(equipo, cur);
@@ -473,15 +475,22 @@ export interface MovimientoEquipo {
 
 /** Movimientos de un equipo/vehículo en el período (todos los tipos), para el detalle. */
 export async function movimientosDeEquipo(equipo: string, desde: Date, hasta: Date): Promise<MovimientoEquipo[]> {
+  // El grafico agrupa por CLAVE NORMALIZADA, asi que el detalle tiene que filtrar por
+  // la misma clave: con .eq('equipo', ...) byte a byte, «CAMION NHR» no encontraba las
+  // filas guardadas como «Camion NHR» y la tarjeta se abria vacia. El filtro va en
+  // memoria (la consulta ya esta acotada por fecha y la tabla es chica) porque Postgres
+  // no puede comparar sin acentos sin una funcion que no existe en esta base.
+  const clave = claveEquipo(equipo) || '(Sin equipo)';
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('id, fecha, tipo, litros, costo_litro, tanque_nombre, destino, autorizado_por, observacion, horometro_inicial, horometro_final')
-    .eq('equipo', equipo)
+    .select('id, fecha, tipo, litros, costo_litro, tanque_nombre, equipo, destino, autorizado_por, observacion, horometro_inicial, horometro_final')
     .gte('fecha', desde.toISOString())
     .lte('fecha', hasta.toISOString())
     .order('fecha', { ascending: false });
   if (error) throw error;
-  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
+  return ((data ?? []) as Array<Record<string, unknown>>)
+    .filter((r) => (claveEquipo(r.equipo as string) || '(Sin equipo)') === clave)
+    .map((r) => {
     const litros = Math.abs(Number(r.litros) || 0);
     const costo = Number(r.costo_litro) || 0;
     return {
@@ -823,14 +832,81 @@ export async function actualizarVehiculo(id: string, input: {
   descripcion?: string | null;
 }): Promise<void> {
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  // El nombre del vehículo es la LLAVE TEXTUAL con la que Maquinaria lee su horómetro,
+  // su kilometraje y su gasoil. Renombrarlo sin propagar dejaba el nombre viejo huérfano
+  // en los movimientos y en la ficha del equipo: así fue como 7 de 14 equipos quedaron
+  // sin ver su combustible. Se propaga a las tres tablas que lo referencian.
+  let nombreViejo: string | null = null;
+  let nombreNuevo: string | null = null;
   if (input.nombre !== undefined) {
     const n = input.nombre.trim();
     if (!n) throw new Error('El nombre no puede estar vacío.');
     patch.nombre = n;
+    const { data: todos, error: aErr } = await supabase
+      .from('combustible_vehiculos').select('id, nombre');
+    if (aErr) throw aErr;
+    const filas = (todos ?? []) as Array<{ id: string; nombre: string | null }>;
+    const previo = filas.find((v) => v.id === id)?.nombre ?? null;
+    // Renombrar a un nombre que ya usa OTRO vehículo fundiría los dos historiales
+    // (y la cadena de horómetro, que se encadena por equipo) sin forma de deshacerlo.
+    const choque = filas.find((v) => v.id !== id && claveEquipo(v.nombre) === claveEquipo(n));
+    if (choque) {
+      throw new Error(
+        'Ya existe otro equipo llamado "' + (choque.nombre ?? '') + '". Si son el mismo, unificalos desde Sistemas: '
+        + 'renombrarlo acá fundiría los dos historiales de combustible y de horómetro.',
+      );
+    }
+    if (previo && claveEquipo(previo) !== claveEquipo(n)) { nombreViejo = previo; nombreNuevo = n; }
   }
   if (input.descripcion !== undefined) patch.descripcion = input.descripcion?.trim() || null;
+
+  // ORDEN IMPORTANTE: primero se propaga y al final se renombra el vehículo. Si algo
+  // falla a mitad, el vehículo conserva el nombre VIEJO, así que al reintentar se
+  // vuelve a detectar el renombre y la propagación se repite (lo ya movido no vuelve
+  // a aparecer: es idempotente y converge). Al revés —renombrar primero— el reintento
+  // veía «el nombre ya es el nuevo», no propagaba nada y devolvía OK con el rastro
+  // huérfano intacto, que es justo el estado que dejó equipos sin ver su gasoil.
+  if (nombreViejo && nombreNuevo) await propagarNombreEquipo(nombreViejo, nombreNuevo);
+
   const { error } = await supabase.from('combustible_vehiculos').update(patch).eq('id', id);
   if (error) throw error;
+}
+
+/**
+ * Lleva el nombre nuevo del vehículo a todo lo que lo referencia por texto: los
+ * movimientos de tanque (de donde salen el horómetro y el consumo), el destino de las
+ * solicitudes y la ficha del equipo en Maquinaria. Best-effort por tabla: si una falla,
+ * se avisa cuál quedó sin actualizar en vez de dejar el rastro a medias en silencio.
+ */
+async function propagarNombreEquipo(viejo: string, nuevo: string): Promise<void> {
+  const clave = claveEquipo(viejo);
+  const fallos: string[] = [];
+
+  /** Renombra por CLAVE normalizada: se leen los ids que apuntan al nombre viejo en
+   *  cualquier variante de mayúsculas o acentos y se actualizan por id. Con
+   *  .eq(viejo) se quedaban afuera justamente las variantes tecleadas a mano, que
+   *  son las que motivaron toda la Fase 2. */
+  async function renombrar(tabla: string, columna: string): Promise<boolean> {
+    const { data, error } = await supabase.from(tabla).select('id, ' + columna);
+    if (error) return false;
+    // El `select` es dinámico, así que PostgREST no puede tipar la fila: se pasa por unknown.
+    const ids = ((data ?? []) as unknown as Array<Record<string, unknown>>)
+      .filter((r) => claveEquipo(r[columna] as string) === clave)
+      .map((r) => r.id as string);
+    if (!ids.length) return true;                       // nada que mover: ya está al día
+    const { error: uErr } = await supabase.from(tabla).update({ [columna]: nuevo }).in('id', ids);
+    return !uErr;
+  }
+
+  if (!(await renombrar('combustible_tanque_movimientos', 'equipo'))) fallos.push('los movimientos de tanque');
+  if (!(await renombrar('combustible_solicitudes', 'destino'))) fallos.push('las solicitudes');
+  if (!(await renombrar('maquinaria_equipos', 'combustible_equipo'))) fallos.push('la ficha del equipo en Maquinaria');
+  if (fallos.length) {
+    throw new Error(
+      `El vehículo se renombró a "${nuevo}", pero no se pudo actualizar ${fallos.join(' ni ')}. `
+      + `Ahí sigue figurando "${viejo}": avisá a Sistemas para que lo corrija, o el equipo va a quedar sin su historial.`,
+    );
+  }
 }
 
 export async function setEstadoVehiculo(id: string, estado: 'activo' | 'inactivo'): Promise<void> {
@@ -839,6 +915,39 @@ export async function setEstadoVehiculo(id: string, estado: 'activo' | 'inactivo
 }
 
 export async function eliminarVehiculo(id: string): Promise<void> {
+  // Igual que el renombre: el nombre es la llave del historial. Si el vehículo ya tiene
+  // movimientos, borrarlo deja esos litros sin dueño y a Maquinaria sin lectura.
+  const { data: v, error: vErr } = await supabase
+    .from('combustible_vehiculos').select('nombre').eq('id', id).maybeSingle();
+  if (vErr) throw vErr;
+  const nombre = (v as { nombre?: string } | null)?.nombre ?? null;
+  if (nombre) {
+    // Se cuenta por CLAVE normalizada (igual que el resto del cruce) y se incluyen las
+    // solicitudes: con .eq exacto una variante tecleada a mano quedaba sin contar y el
+    // vehículo se borraba igual, dejando esos litros sin dueño.
+    const clave = claveEquipo(nombre);
+    const cuenta = async (tabla: string, columna: string) => {
+      const { data, error } = await supabase.from(tabla).select(columna);
+      if (error) throw error;
+      return ((data ?? []) as unknown as Array<Record<string, unknown>>)
+        .filter((r) => claveEquipo(r[columna] as string) === clave).length;
+    };
+    const [movs, fichas, sols] = await Promise.all([
+      cuenta('combustible_tanque_movimientos', 'equipo'),
+      cuenta('maquinaria_equipos', 'combustible_equipo'),
+      cuenta('combustible_solicitudes', 'destino'),
+    ]);
+    const partes: string[] = [];
+    if (movs) partes.push(`${movs} movimiento(s) de combustible`);
+    if (fichas) partes.push(`${fichas} equipo(s) de Maquinaria vinculado(s)`);
+    if (sols) partes.push(`${sols} solicitud(es) de combustible`);
+    if (partes.length) {
+      throw new Error(
+        `No se puede eliminar "${nombre}": tiene ${partes.join(' y ')}. Borrarlo dejaría esos litros sin equipo `
+        + 'y a Maquinaria sin su horómetro. Desactivalo en su lugar.',
+      );
+    }
+  }
   const { error } = await supabase.from('combustible_vehiculos').delete().eq('id', id);
   if (error) throw error;
 }
@@ -911,17 +1020,19 @@ export async function listTanqueMovimientos(filtros?: { tanqueId?: string; tipo?
 export async function ultimoHorometroEquipo(equipo: string): Promise<number | null> {
   const e = equipo.trim();
   if (!e) return null;
+  // Se compara por CLAVE NORMALIZADA, igual que el resto del cruce. `ilike` cubria
+  // las mayusculas pero no los acentos («Camion NHR») y ademas trataba % y _ del
+  // nombre como comodines, que puede traer el horometro de OTRO equipo.
+  const clave = claveEquipo(e);
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('horometro_final')
-    .eq('equipo', e)
+    .select('equipo, horometro_final')
     .not('horometro_final', 'is', null)
-    .order('fecha', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order('fecha', { ascending: false });
   if (error) return null;
-  const hf = (data as { horometro_final?: number } | null)?.horometro_final;
-  return hf != null ? Number(hf) : null;
+  const fila = ((data ?? []) as Array<{ equipo: string | null; horometro_final: number | null }>)
+    .find((r) => claveEquipo(r.equipo) === clave);
+  return fila?.horometro_final != null ? Number(fila.horometro_final) : null;
 }
 
 /**
@@ -936,9 +1047,11 @@ export async function horometrosVigentesPorEquipo(): Promise<Map<string, number>
     .not('horometro_final', 'is', null)
     .order('fecha', { ascending: false });
   if (error) throw error;
+  // La clave va NORMALIZADA (sin acentos ni mayúsculas): el nombre se teclea a mano en
+  // los movimientos y cualquier diferencia de formato rompía el cruce con Maquinaria.
   const out = new Map<string, number>();
   for (const r of (data ?? []) as Array<{ equipo: string | null; horometro_final: number | null }>) {
-    const eq = (r.equipo ?? '').trim();
+    const eq = claveEquipo(r.equipo);
     if (!eq || r.horometro_final == null) continue;
     if (!out.has(eq)) out.set(eq, Number(r.horometro_final)); // orden desc por fecha: el primero es el vigente
   }
@@ -959,7 +1072,7 @@ export async function kilometrajesVigentesPorEquipo(): Promise<Map<string, numbe
   if (error) throw error;
   const out = new Map<string, number>();
   for (const r of (data ?? []) as Array<{ equipo: string | null; kilometraje_final: number | null }>) {
-    const eq = (r.equipo ?? '').trim();
+    const eq = claveEquipo(r.equipo);
     if (!eq || r.kilometraje_final == null) continue;
     if (!out.has(eq)) out.set(eq, Number(r.kilometraje_final)); // desc por fecha: el primero es el vigente
   }
