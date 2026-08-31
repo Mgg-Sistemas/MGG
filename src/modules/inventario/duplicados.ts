@@ -1,10 +1,18 @@
 /* ============================================================
    MGG · Inventario · detectar productos duplicados al darlos de alta
-   Cuando una sede necesita un material que YA existe en otra, lo que
-   corresponde es cargarle stock al producto existente, no crear un SKU
-   nuevo: una harina que está en Matanzas no tiene por qué volver a nacer
-   para La Esperanza. Duplicar el SKU parte el kardex, parte el costo
-   promedio y hace que los reportes de consumo no cuadren.
+
+   OJO CON QUÉ ES «DUPLICADO» ACÁ. Que un material esté en Los Pinos Y en
+   Matanzas es NORMAL y esperado: un producto es UNA ficha con existencias
+   en varios almacenes (mascarillas en las dos sedes es el caso sano).
+   El problema es otro: que se cree la MISMA ficha DOS VECES, una por
+   almacén. Ahí el material queda partido en dos SKU, cada uno con su
+   kardex y su costo promedio, los reportes de consumo no cuadran y nadie
+   ve el stock completo. En producción ya pasó con PAÑO DE COCINA (una
+   ficha en La Esperanza y otra en Los Pinos) y con CASITERITA, que tiene
+   48.780 Kg en un SKU y 11.665 Kg en otro.
+
+   Por eso el aviso no dice «no lo cargues acá», dice «esta ficha ya
+   existe, sumale stock en tu almacén».
 
    `createProducto` no valida nada (un insert pelado), y en producción hay
    13 grupos duplicados: PINTURA EPOXICA GRIS ×3, DIESEL ×3, CASITERITA ×2

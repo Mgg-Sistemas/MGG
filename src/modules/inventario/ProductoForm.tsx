@@ -433,8 +433,10 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
                 ⚠️ {similares.length === 1 ? 'Ya existe un producto parecido' : `Ya existen ${similares.length} productos parecidos`}
               </div>
               <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.45rem' }}>
-                Si es el mismo material, usá el que ya está y cargale stock en tu almacén: crear un SKU nuevo
-                parte el kardex y el costo promedio del producto. Si de verdad es otro material, seguí y creálo.
+                Que el mismo material esté en tu almacén <strong>y</strong> en el de la otra sede está bien: un
+                producto lleva stock en varios almacenes a la vez. Lo que no hay que hacer es cargarlo dos veces.
+                Si es este mismo material, usá <strong>«Usar este»</strong> y cargale stock en tu almacén; dos fichas
+                del mismo producto parten el kardex y el costo promedio. Si de verdad es otro material, seguí y creálo.
               </div>
               <div className="table-wrap">
                 <table className="table" style={{ fontSize: '.8rem' }}>
