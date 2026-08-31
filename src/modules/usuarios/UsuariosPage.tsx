@@ -7,7 +7,8 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import type { Usuario } from '@/shared/lib/types';
+import type { Almacen, Usuario } from '@/shared/lib/types';
+import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import {
   crearUsuario,
   actualizarUsuario,
@@ -739,6 +740,11 @@ function UsuarioEditModal({
   const [telefono, setTelefono] = useState(usuario.telefono ?? '');
   const [departamento, setDepartamento] = useState(usuario.departamento ?? '');
   const [role, setRole] = useState<string>(usuario.role);
+  // Sectorización de almacén: en qué sedes puede MOVER inventario este usuario.
+  // Lista vacía = sin restricción (ve y mueve todo), que es lo normal para admin,
+  // analistas y gerencia. Antes esto vivía cableado por correo dentro del código.
+  const [sedesAsignadas, setSedesAsignadas] = useState<string[]>(usuario.sedes_asignadas ?? []);
+  const [almacenRecepcion, setAlmacenRecepcion] = useState<string>(usuario.almacen_recepcion ?? '');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -768,6 +774,8 @@ function UsuarioEditModal({
         telefono: telefono.trim(),
         departamento: departamento.trim(),
         role,
+        sedes_asignadas: sedesAsignadas,
+        almacen_recepcion: sedesAsignadas.length ? almacenRecepcion : null,
       });
       // El correo es la identidad de login: se cambia vía Edge Function (solo admin),
       // que actualiza Auth + la tabla usuarios.
@@ -926,6 +934,14 @@ function UsuarioEditModal({
         </div>
       </div>
 
+      <SectorAlmacenFields
+        sedes={sedesAsignadas}
+        onSedes={setSedesAsignadas}
+        almacenRecepcion={almacenRecepcion}
+        onAlmacenRecepcion={setAlmacenRecepcion}
+        disabled={submitting}
+      />
+
       <p className="hint muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
         El correo no es editable. Si necesitás cambiarlo, deshabilitá este usuario y creá uno nuevo.
       </p>
@@ -943,6 +959,97 @@ function UsuarioEditModal({
         />
       )}
     </Modal>
+  );
+}
+
+/**
+ * Sectorización de almacén de un usuario: en qué SEDES puede mover inventario
+ * (despachar, trasladar, ajustar, recibir compras y dar de alta productos) y a qué
+ * almacén recibe las compras por defecto.
+ *
+ * Ver, ve todo el inventario siempre: la restricción solo limita MOVER. Sin ninguna
+ * sede marcada el usuario queda sin restricción, que es lo correcto para admin,
+ * analistas y gerencia. Se sectoriza a los almacenistas, que estaban despachando
+ * ítems de la otra sede por error humano.
+ */
+function SectorAlmacenFields({ sedes, onSedes, almacenRecepcion, onAlmacenRecepcion, disabled }: {
+  sedes: string[];
+  onSedes: (s: string[]) => void;
+  almacenRecepcion: string;
+  onAlmacenRecepcion: (a: string) => void;
+  disabled?: boolean;
+}) {
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  useEffect(() => {
+    let cancel = false;
+    Promise.all([
+      listAlmacenes('principal').catch(() => [] as Almacen[]),
+      listAlmacenes('deposito').catch(() => [] as Almacen[]),
+    ]).then(([p, d]) => { if (!cancel) setAlmacenes([...p, ...d]); });
+    return () => { cancel = true; };
+  }, []);
+
+  // Sedes existentes + las que ya tenga asignadas (aunque su almacén se haya borrado:
+  // así una asignación vieja no desaparece en silencio del formulario).
+  const opcionesSede = useMemo(() => {
+    const set = new Set<string>(sedes);
+    almacenes.forEach((a) => { const v = a.sede?.trim(); if (v) set.add(v); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [almacenes, sedes]);
+
+  // Almacenes de las sedes marcadas, para elegir dónde recibe las compras.
+  const opcionesRecepcion = useMemo(
+    () => almacenes
+      .filter((a) => a.estado === 'activo' && !a.parent_id && sedes.includes(a.sede?.trim() ?? ''))
+      .map((a) => a.nombre)
+      .sort((a, b) => a.localeCompare(b, 'es')),
+    [almacenes, sedes],
+  );
+
+  const toggle = (sede: string) => {
+    onSedes(sedes.includes(sede) ? sedes.filter((x) => x !== sede) : [...sedes, sede]);
+  };
+
+  return (
+    <div className="card" style={{ marginTop: '.75rem', padding: '.7rem .9rem' }}>
+      <div style={{ fontWeight: 600, marginBottom: '.15rem' }}>📦 Almacenes asignados</div>
+      <p className="muted" style={{ fontSize: '.78rem', margin: '0 0 .5rem' }}>
+        Sedes donde este usuario puede <strong>mover</strong> inventario: despachar, trasladar, ajustar,
+        recibir compras y dar de alta productos. <strong>Ver el inventario completo lo puede ver siempre</strong>;
+        lo de otra sede se pide por solicitud de traslado.
+        {' '}Sin ninguna marcada, <strong>no tiene restricción</strong> (admin, analistas, gerencia).
+      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem .9rem' }}>
+        {opcionesSede.length === 0 && <span className="dim" style={{ fontSize: '.82rem' }}>No se pudieron cargar las sedes.</span>}
+        {opcionesSede.map((sede) => (
+          <label key={sede} style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: disabled ? 'default' : 'pointer', fontSize: '.84rem' }}>
+            <input type="checkbox" checked={sedes.includes(sede)} onChange={() => toggle(sede)} disabled={disabled} />
+            <span>{sede}</span>
+          </label>
+        ))}
+      </div>
+      {sedes.length > 0 && (
+        <div className="form-row" style={{ marginTop: '.6rem' }}>
+          <label>Recibe las compras en</label>
+          <select
+            className="select"
+            value={almacenRecepcion}
+            onChange={(e) => onAlmacenRecepcion(e.target.value)}
+            disabled={disabled}
+          >
+            <option value="">— el almacén principal de su sede —</option>
+            {opcionesRecepcion.map((n) => <option key={n} value={n}>{n}</option>)}
+            {almacenRecepcion && !opcionesRecepcion.includes(almacenRecepcion) && (
+              <option value={almacenRecepcion}>{almacenRecepcion} (ya no existe en esas sedes)</option>
+            )}
+          </select>
+          <small className="muted" style={{ fontSize: '.72rem' }}>
+            Destino por defecto al recepcionar una compra. Las compras solo entran a Matanzas o Los Pinos:
+            los centros de acopio reciben por Traslados.
+          </small>
+        </div>
+      )}
+    </div>
   );
 }
 

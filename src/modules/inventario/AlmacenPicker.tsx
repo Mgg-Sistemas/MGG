@@ -39,7 +39,9 @@ export function AlmacenSelectAgrupado({
   const rows = useAlmacenes(provided);
   const activos = useMemo(() => {
     const base = rows.filter((a) => a.estado === 'activo');
-    if (soloSedes && soloSedes.length) return base.filter((a) => soloSedes.includes(a.sede?.trim() || SIN_SEDE));
+    // Un arreglo VACÍO también filtra (deja cero opciones): es «este usuario no puede
+    // elegir ninguna sede acá», no «mostrale todas». Para no filtrar se pasa undefined.
+    if (soloSedes) return base.filter((a) => soloSedes.includes(a.sede?.trim() || SIN_SEDE));
     return base;
   }, [rows, soloSedes]);
   const porSede = useMemo(() => {
@@ -113,7 +115,8 @@ export function AlmacenPicker({
   const activos = useMemo(() => {
     let base = rows.filter((a) => a.estado === 'activo');
     if (excluirCasiterita) base = base.filter((a) => !/casiterita/i.test(a.nombre));
-    if (soloSedes && soloSedes.length) base = base.filter((a) => soloSedes.includes(a.sede?.trim() || SIN_SEDE));
+    // Ídem: el arreglo vacío deja cero opciones a propósito (ver AlmacenSelectAgrupado).
+    if (soloSedes) base = base.filter((a) => soloSedes.includes(a.sede?.trim() || SIN_SEDE));
     return base;
   }, [rows, excluirCasiterita, soloSedes]);
   const extras = extraOpciones ?? [];

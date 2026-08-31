@@ -4,6 +4,7 @@ import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto, TipoMovimiento } from '@/shared/lib/types';
 import { calcularPMP, type MovimientoInput } from './movimientos.repository';
 import { AlmacenPicker } from './AlmacenPicker';
+import { useSectorizacion } from './useSectorizacion';
 
 interface MovimientoFormProps {
   producto: Producto;
@@ -53,6 +54,12 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const [detalle, setDetalle] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sectorización: este era el camino MÁS libre del sistema. El picker no miraba
+  // quién estaba cargando, así que un almacenista podía sumar, restar o ajustar
+  // stock en el almacén de la otra sede sin que nada se lo impidiera.
+  const sector = useSectorizacion();
+  const bloqueoOrigen = sector.motivo(almacen);
 
   // Existencia (stock + costo) del almacén seleccionado.
   const exSel = existencias.find((e) => e.almacen === almacen);
@@ -143,6 +150,23 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
       setError('El producto no está marcado como en proceso de fundición.');
       return;
     }
+    // Un ajuste manual es la única entrada que cambia el stock sin documento detrás:
+    // sin un motivo escrito no hay forma de reconstruir después qué pasó.
+    if (tipo === 'ajuste' && detalle.trim().length < 5) {
+      setError('Un ajuste manual necesita un motivo (conteo físico, rotura, corrección de carga…). Escribilo en «Motivo del movimiento».');
+      return;
+    }
+    if (sector.sectorizado) {
+      if (!sector.listo) {
+        setError('Todavía se están cargando los almacenes. Probá de nuevo en un momento.');
+        return;
+      }
+      if (bloqueoOrigen) { setError(bloqueoOrigen); return; }
+      // El destino de una transferencia directa también tiene que ser tuyo: mandar
+      // material a la otra sede sin aprobación es justamente lo que se quiere evitar.
+      const bloqueoDestino = esTransferencia ? sector.motivo(almacenDestino) : null;
+      if (bloqueoDestino) { setError(`Destino: ${bloqueoDestino}`); return; }
+    }
 
     setSaving(true);
     try {
@@ -204,6 +228,14 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
           </div>
         )}
 
+        {/* Almacén de otra sede: no se esconde, se explica por dónde se pide. */}
+        {bloqueoOrigen && (
+          <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.75rem' }}>
+            🔒 {bloqueoOrigen}{' '}
+            <a href="#/app/salidas" className="btn btn-sm btn-ghost" style={{ marginLeft: '.4rem' }}>Solicitar traslado</a>
+          </div>
+        )}
+
         <div className="card" style={{ marginBottom: '.75rem', padding: '.75rem 1rem' }}>
           <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
             Producto
@@ -228,7 +260,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
             <input className="input" value={almacen} readOnly tabIndex={-1} />
           </div>
         ) : (
-          <AlmacenPicker value={almacen} onChange={onChangeAlmacen} />
+          <AlmacenPicker value={almacen} onChange={onChangeAlmacen} soloSedes={sector.soloSedes} />
         )}
         <div className="form-row">
           <label>Tipo de movimiento</label>
@@ -321,7 +353,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
 
         {esTransferencia && (
           <div>
-            <AlmacenPicker value={almacenDestino} onChange={setAlmacenDestino} sedeLabel="Sede destino" label="Almacén destino" />
+            <AlmacenPicker value={almacenDestino} onChange={setAlmacenDestino} sedeLabel="Sede destino" label="Almacén destino" soloSedes={sector.soloSedes} />
             <small className="muted" style={{ fontSize: '.72rem' }}>
               Se descuenta de {almacen} y se suma al destino llevando su costo (PMP).
             </small>
@@ -329,12 +361,13 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
         )}
 
         <div className="form-row">
-          <label>Detalle (opcional)</label>
+          <label>Motivo del movimiento {tipo === 'ajuste' ? <span style={{ color: 'var(--danger)' }}>*</span> : <span className="muted">(opcional)</span>}</label>
           <input
             className="input"
             value={detalle}
             onChange={(e) => setDetalle(e.target.value)}
-            placeholder="Motivo, referencia, observación…"
+            required={tipo === 'ajuste'}
+            placeholder={tipo === 'ajuste' ? 'Conteo físico, rotura, corrección de carga…' : 'Motivo, referencia, observación…'}
           />
         </div>
 

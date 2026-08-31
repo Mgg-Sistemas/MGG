@@ -7,6 +7,8 @@ import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
+import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
+import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
@@ -51,9 +53,16 @@ export function TrasladoMaterialForm({
   }, [almacenesObj]);
 
   // Para un producto, el almacén con MÁS stock distinto del destino (de ahí sale).
+  // Sectorización: el traslado se PIDE desde tu almacén. El destino puede ser
+  // cualquiera (para eso existe la solicitud), pero el origen tiene que ser tuyo:
+  // antes el sistema elegía solo «el almacén con más stock», aunque fuera de la otra sede.
+  const { sedes: sedesPermitidas, sectorizado } = useSectorizacion();
+  const sedeDe = (almacen: string) => almacenesObj.find((a) => a.nombre === almacen)?.sede ?? null;
+
   const mejorOrigen = (productoId: string, excluir: string): { almacen: string; stock: number } | null => {
     const exs = existencias
       .filter((e) => e.producto_id === productoId && e.almacen !== excluir && (Number(e.stock) || 0) > 0)
+      .filter((e) => puedeMoverEnSede(sedeDe(e.almacen), sedesPermitidas))
       .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
     const ex = exs[0];
     return ex ? { almacen: ex.almacen, stock: Number(ex.stock) || 0 } : null;
@@ -141,7 +150,16 @@ export function TrasladoMaterialForm({
       const p = prodDe(l.productoId);
       const cant = Number(l.cantidad) || 0;
       if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
-      if (!l.almacen) { setError(`${p?.nombre ?? 'El material'} no tiene stock en otro almacén para trasladar.`); return; }
+      if (!l.almacen) {
+        setError(sectorizado
+          ? `${p?.nombre ?? 'El material'} no tiene stock en tus almacenes (${(sedesPermitidas ?? []).join(', ')}) para trasladar.`
+          : `${p?.nombre ?? 'El material'} no tiene stock en otro almacén para trasladar.`);
+        return;
+      }
+      if (!puedeMoverEnSede(sedeDe(l.almacen), sedesPermitidas)) {
+        setError(`No podés trasladar desde «${l.almacen}»: es de otra sede. Solo podés sacar de ${(sedesPermitidas ?? []).join(', ')}.`);
+        return;
+      }
       if (l.almacen === destino) { setError(`${p?.nombre ?? 'El material'}: el origen no puede ser igual al destino.`); return; }
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
       if (cant > stockDe(l)) { setError(`No hay stock suficiente de ${p?.nombre} en ${l.almacen}. Disponible: ${num(stockDe(l))}.`); return; }

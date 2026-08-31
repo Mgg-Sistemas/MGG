@@ -14,7 +14,8 @@ import type { Cliente } from '@/modules/ventas/clientes.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCentrosAcopio } from './cajas.repository';
 import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type AsignacionSalida } from './asignacionPrioridad';
-import { sedesPermitidasSalida, almacenPermitidoSalida } from './restriccionAlmacen';
+import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
+import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 
 interface LineaUI { id: number; productoId: string; cantidad: string; precio: string; almacen: string }
 
@@ -44,9 +45,9 @@ export function SalidaMaterialForm({
     return m;
   }, [almacenesObj]);
 
-  // Restricción por usuario (se casa por correo): ISNER solo Los Pinos, KELVIN solo
-  // Matanzas. `null` = sin restricción. Filtra los almacenes candidatos por sede.
-  const sedesPermitidas = useMemo(() => sedesPermitidasSalida(actor), [actor]);
+  // Sectorización del almacenista: solo puede sacar de SUS sedes (se configura en
+  // Usuarios; antes era un mapa por correo dentro del código). `null` = sin restricción.
+  const { sedes: sedesPermitidas } = useSectorizacion();
 
   // Candidatos de un producto: todos sus almacenes con stock, con su sede y costo.
   // Bajo restricción, solo se consideran los almacenes de la(s) sede(s) permitida(s).
@@ -54,7 +55,7 @@ export function SalidaMaterialForm({
     existencias
       .filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0)
       .map((e) => ({ almacen: e.almacen, sede: sedePorAlmacen.get(e.almacen) ?? null, stock: Number(e.stock) || 0, costo: Number(e.costo_promedio) || 0 }))
-      .filter((c) => almacenPermitidoSalida(c.sede, sedesPermitidas));
+      .filter((c) => puedeMoverEnSede(c.sede, sedesPermitidas));
 
   // Varias líneas de producto (como una OC). Cada una: producto + cantidad. El/los almacén(es) se resuelven por prioridad.
   const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', precio: '', almacen: '' }]);
@@ -200,7 +201,7 @@ export function SalidaMaterialForm({
     }
     // Guarda de seguridad: bajo restricción, ningún ítem puede salir de una sede no permitida.
     if (sedesPermitidas) {
-      const invalido = items.find((it) => !almacenPermitidoSalida(sedePorAlmacen.get(it.almacen ?? '') ?? null, sedesPermitidas));
+      const invalido = items.find((it) => !puedeMoverEnSede(sedePorAlmacen.get(it.almacen ?? '') ?? null, sedesPermitidas));
       if (invalido) {
         setError(`Solo podés hacer salidas de: ${sedesPermitidas.join(', ')}. Revisá el almacén de "${invalido.producto_nombre}".`);
         return;

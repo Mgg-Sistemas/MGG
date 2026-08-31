@@ -32,6 +32,11 @@ export interface Usuario {
   departamento?: string | null;
   estado: EstadoGenerico;
   must_change_password?: boolean;
+  /** Sedes donde este usuario puede MOVER inventario. null/vacío = sin restricción.
+   *  Ver, ve todo: la sectorización solo limita despachar, trasladar, ajustar y recibir. */
+  sedes_asignadas?: string[] | null;
+  /** Almacén destino por defecto al recepcionar compras (dentro de sus sedes). */
+  almacen_recepcion?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
