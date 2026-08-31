@@ -33,6 +33,24 @@ describe('tokensNombre', () => {
     expect(tokensNombre('HARINA DE MAIZ x KG')).toEqual(['HARINA', 'MAIZ']);
     expect(tokensNombre('SACO DE CEMENTO')).toEqual(['CEMENTO']);
   });
+
+  it('CONSERVA la medida, que es lo único que distingue medio catálogo', () => {
+    // «3/8» normaliza a «3 8»: descartándolos por cortos, TORNILLO 3/8 y TORNILLO 1/2
+    // quedaban los dos en «TORNILLO» a secas y el sistema los daba por el mismo.
+    expect(tokensNombre('TORNILLO 3/8')).toEqual(['TORNILLO', '3', '8']);
+    expect(tokensNombre('DISCO DE CORTE 7\"')).toEqual(['DISCO', 'CORT', '7']);
+  });
+
+  it('las letras sueltas sí se descartan', () => {
+    expect(tokensNombre('DISCO 7\" X .045\"')).toEqual(['DISCO', '7', '045']);
+  });
+
+  it('el singular y el plural son el mismo token', () => {
+    expect(tokensNombre('SARDINAS')).toEqual(tokensNombre('SARDINA'));
+    expect(tokensNombre('GUANTES')).toEqual(tokensNombre('GUANTE'));
+    expect(tokensNombre('MARCADORES')).toEqual(tokensNombre('MARCADOR'));
+    expect(tokensNombre('TORNILLOS')).toEqual(tokensNombre('TORNILLO'));
+  });
 });
 
 describe('parecidoNombre', () => {
@@ -41,13 +59,51 @@ describe('parecidoNombre', () => {
   });
 
   it('reconoce el genérico dentro del nombre largo', () => {
-    expect(parecidoNombre('HARINA PAN', 'HARINA DE MAIZ PAN')).toBe(1);
+    // HARINA y PAN compartidos sobre {HARINA, PAN, MAIZ} = 2/3.
+    expect(parecidoNombre('HARINA PAN', 'HARINA DE MAIZ PAN')).toBeCloseTo(2 / 3, 5);
   });
 
   it('no confunde materiales distintos que comparten una palabra', () => {
-    // FILTRO y CATERPILLAR se comparten, ACEITE/AIRE no: 2 de 3 tokens.
-    expect(parecidoNombre('FILTRO DE ACEITE CATERPILLAR', 'FILTRO DE AIRE CATERPILLAR')).toBeCloseTo(2 / 3, 5);
+    // FILTRO y CATERPILLAR compartidos sobre {FILTRO, CATERPILLAR, ACEIT, AIRE} = 2/4.
+    expect(parecidoNombre('FILTRO DE ACEITE CATERPILLAR', 'FILTRO DE AIRE CATERPILLAR')).toBeCloseTo(0.5, 5);
     expect(parecidoNombre('TORNILLO', 'CEMENTO')).toBe(0);
+  });
+
+  it('NO da por iguales dos materiales que solo se diferencian en la medida', () => {
+    // Este es el falso positivo que hacía inservible el aviso: dividiendo por el
+    // nombre más corto, «TORNILLO 1/2» daba 1 contra CUALQUIER tornillo del catálogo
+    // y encima frenaba el alta.
+    expect(parecidoNombre('TORNILLO 3/8', 'TORNILLO 1/2')).toBeLessThan(0.5);
+    expect(parecidoNombre('TORNILLO 1/2', 'TORNILLO AUTOTALADRANTE')).toBeLessThan(0.5);
+    expect(parecidoNombre('DISCO DE CORTE 4 1/2\"', 'DISCO DE CORTE 7\"')).toBeLessThan(0.5);
+    expect(parecidoNombre('MANGUERA 5/8', 'MANGUERA HIDRAULICA 1/2\" ALTA PRESION')).toBeLessThan(0.5);
+    expect(parecidoNombre('ELECTRODO 7018 1/8', 'ELECTRODO 7018 5/32')).toBeLessThan(0.5);
+  });
+
+  it('las familias que solo cambian la MEDIDA no se marcan entre sí', () => {
+    // Casos reales del catálogo: 12 tubos EMT, 9 brocas Tolsen, 6 dados de roscado.
+    expect(parecidoNombre(
+      'TUBO EMT ACERO GALVANIZADO 3/4" 0.9MTS',
+      'TUBO EMT ACERO GALVANIZADO 3/4" 1.18MTS',
+    )).toBeLessThan(0.5);
+    expect(parecidoNombre(
+      'BROCA DE ALTA VELOCIDAD TOLSEN 1/16\'\'',
+      'BROCA DE ALTA VELOCIDAD TOLSEN 1/4\'\'',
+    )).toBeLessThan(0.5);
+    expect(parecidoNombre("DADO DE ROSCADO 1'' ULUSTOOL", "DADO DE ROSCADO 1/2'' ULUSTOOL")).toBeLessThan(0.5);
+    expect(parecidoNombre('CARBONATO DE CALCIO (CACO3) M10', 'CARBONATO DE CALCIO (CACO3) M20')).toBeLessThan(0.5);
+    expect(parecidoNombre('AGUA NEVADA 355 ML', 'AGUA NEVADA 600 ML')).toBeLessThan(0.5);
+  });
+
+  it('pero la MISMA medida sigue contando como parecido', () => {
+    expect(parecidoNombre('DISCO DE ESMERIL 7"', 'DISCO DE ESMERIL 7" X 1/4" X 7/8" EXXEL')).toBeGreaterThan(0);
+    // Idéntico salvo espacios: sigue siendo el mismo nombre.
+    expect(parecidoNombre('TIRRAJE 45293113/45293123', 'TIRRAJE 45293113 / 45293123')).toBe(1);
+  });
+
+  it('el plural NO esconde un duplicado', () => {
+    expect(parecidoNombre('SARDINA', 'SARDINAS')).toBe(1);
+    expect(parecidoNombre('GUANTE DE CARNAZA', 'GUANTES DE CARNAZA')).toBe(1);
   });
 
   it('un nombre vacío no se parece a nada', () => {
@@ -66,6 +122,25 @@ describe('productosSimilares', () => {
     expect(dups.filter((d) => d.nivel === 'exacto')).toHaveLength(2);
   });
 
+  it('«exacto» significa MISMO NOMBRE: es lo único que frena el alta', () => {
+    // Un parecido alto avisa pero NO bloquea: bloquear un material legítimamente
+    // parecido enseña al operador a saltarse el aviso.
+    const dups = productosSimilares('FILTRO DE ACEITE CATERPILLAR 1R-0716', CATALOGO);
+    expect(hayExacto(dups)).toBe(false);
+  });
+
+  it('la familia de tornillos y discos NO se marca entre sí', () => {
+    const familia = [
+      p('t1', 'FER-001', 'TORNILLO AUTOTALADRANTE'),
+      p('t2', 'FER-002', 'TORNILLO TIRA FONDO 12X3'),
+      p('t3', 'FER-003', 'DISCO DE CORTE 7\"'),
+      p('t4', 'FER-004', 'MANGUERA HIDRAULICA 1/2\" ALTA PRESION'),
+    ];
+    expect(productosSimilares('TORNILLO 1/2', familia)).toEqual([]);
+    expect(productosSimilares('DISCO DE CORTE 4 1/2\"', familia)).toEqual([]);
+    expect(productosSimilares('MANGUERA 5/8', familia)).toEqual([]);
+  });
+
   it('el caso de la harina: ya existe en otra sede, no hay que crearla de nuevo', () => {
     const dups = productosSimilares('HARINA PAN', CATALOGO);
     expect(dups.map((d) => d.producto.sku)).toContain('VIV-012');
@@ -79,6 +154,28 @@ describe('productosSimilares', () => {
 
   it('no avisa por un material realmente nuevo', () => {
     expect(productosSimilares('GUANTES DE CARNAZA', CATALOGO)).toEqual([]);
+  });
+
+  it('los duplicados REALES del catálogo de producción siguen detectándose', () => {
+    // Pares que hoy existen en la base con dos SKU distintos. Todos tienen que dar
+    // 'exacto', que es el único nivel que frena el alta.
+    const pares = [
+      ['PINTURA EPOXICA GRIS', 'PINTURA EPOXICA GRIS'],
+      ['ARROZ', 'ARROZ'],
+      ['PAÑO DE COCINA', 'PAÑO DE COCINA'],
+      ['CASITERITA', 'CASITERITA'],
+      ['DISCO DE CORTE 7"', 'DISCO DE CORTE 7"'],
+      ['ADAPTADOR HEMBRA DE 1"', 'ADAPTADOR HEMBRA DE 1"'],
+      ['AZUCAR KONFIT 1KG', 'AZUCAR KONFIT 1KG'],
+      ["BROCHA DE 4''", 'BROCHA DE (4")'],                        // mismo material, escrito distinto
+      ['TIRRAJE 45293113/45293123', 'TIRRAJE 45293113 / 45293123'],
+      ['LENTE DE SEGURIDAD BÁSICO', 'LENTE DE SEGURIDAD BASICO'],  // solo cambia el acento
+    ];
+    for (const [a, b] of pares) {
+      const dups = productosSimilares(a, [p('x', 'SKU-X', b)]);
+      expect(dups, `${a} vs ${b}`).toHaveLength(1);
+      expect(dups[0].nivel, `${a} vs ${b}`).toBe('exacto');
+    }
   });
 
   it('con menos de 3 letras todavía no se molesta al usuario', () => {

@@ -44,9 +44,39 @@ export function normalizarNombre(nombre: string | null | undefined): string {
     .trim().replace(/\s+/g, ' ');
 }
 
-/** Tokens significativos de un nombre (sin las palabras de ruido). */
+/**
+ * Tokens significativos de un nombre.
+ *
+ * Los números de UN SOLO dígito se conservan a propósito. En este catálogo la medida
+ * es casi siempre lo ÚNICO que distingue dos materiales: «TORNILLO 3/8» y
+ * «TORNILLO 1/2» normalizan a «TORNILLO 3 8» y «TORNILLO 1 2». Descartándolos por
+ * cortos, los dos quedaban en «TORNILLO» a secas y el sistema los daba por el mismo.
+ * Las letras sueltas sí se descartan: la «X» de «7" X .045"» no distingue nada.
+ */
 export function tokensNombre(nombre: string | null | undefined): string[] {
-  return normalizarNombre(nombre).split(' ').filter((t) => t.length > 1 && !RUIDO.has(t));
+  return normalizarNombre(nombre)
+    .split(' ')
+    .filter((t) => (t.length > 1 || /^[0-9]$/.test(t)) && !RUIDO.has(t))
+    .map(raiz);
+}
+
+/**
+ * Raíz aproximada de una palabra, para que el singular y el plural sean el mismo
+ * token: SARDINA/SARDINAS y GUANTE/GUANTES son el mismo material, y cargarlos dos
+ * veces con y sin «s» es de las formas más comunes de duplicar una ficha.
+ *
+ * En español el plural es «-s» tras vocal y «-es» tras consonante, así que se saca la
+ * «s» final y después la «e» final: GUANTES→GUANTE→GUANT y GUANTE→GUANT caen en lo
+ * mismo, igual que MARCADORES→MARCADORE→MARCADOR y MARCADOR. No importa que la raíz
+ * no sea una palabra real: solo se usa para comparar, y se aplica igual a los dos
+ * lados. Los números no se tocan.
+ */
+function raiz(t: string): string {
+  if (/[0-9]/.test(t)) return t;
+  let r = t;
+  if (r.length > 3 && r.endsWith('S')) r = r.slice(0, -1);
+  if (r.length > 4 && r.endsWith('E')) r = r.slice(0, -1);
+  return r;
 }
 
 /** Lo mínimo que hace falta de un producto para compararlo. */
@@ -72,9 +102,15 @@ export interface Duplicado<T extends ProductoComparable = ProductoComparable> {
 }
 
 /**
- * Parecido entre dos nombres: proporción de tokens significativos compartidos
- * sobre el nombre más corto. «HARINA DE TRIGO PAN» y «HARINA PAN» comparten
- * HARINA y PAN sobre 2 tokens del más corto → 1.
+ * Parecido entre dos nombres: tokens compartidos sobre el TOTAL de tokens distintos
+ * de los dos (Jaccard). 1 = mismo nombre, 0 = nada que ver.
+ *
+ * Antes se dividía por el nombre más CORTO, y eso hacía que cualquier nombre corto
+ * contenido en uno largo diera 1: escribir «TORNILLO 1/2» marcaba «TORNILLO
+ * AUTOTALADRANTE», «TORNILLO TIRA FONDO 12X3» y dos más como el MISMO producto, y
+ * encima frenaba el alta. Un aviso que salta con materiales distintos se vuelve ruido
+ * y el operador aprende a ignorarlo, que es la peor forma de perder la función.
+ * Con Jaccard, «TORNILLO 1 2» vs «TORNILLO AUTOTALADRANTE» comparten 1 de 4 → 0,25.
  */
 export function parecidoNombre(a: string | null | undefined, b: string | null | undefined): number {
   const na = normalizarNombre(a);
@@ -84,13 +120,42 @@ export function parecidoNombre(a: string | null | undefined, b: string | null | 
   const ta = tokensNombre(a);
   const tb = tokensNombre(b);
   if (!ta.length || !tb.length) return 0;
+  const setA = new Set(ta);
   const setB = new Set(tb);
-  const comunes = ta.filter((t) => setB.has(t)).length;
-  return comunes / Math.min(ta.length, tb.length);
+  let comunes = 0;
+  for (const t of setA) if (setB.has(t)) comunes += 1;
+  const union = setA.size + setB.size - comunes;
+  if (union <= 0) return 0;
+  const score = comunes / union;
+
+  // LA MEDIDA MANDA. En este catálogo hay familias enteras que solo se distinguen por
+  // un número: 12 variantes de «TUBO EMT ACERO GALVANIZADO 3/4" X,XXMTS», 9 de «BROCA
+  // DE ALTA VELOCIDAD TOLSEN x/y''», los DADO DE ROSCADO, los CARBONATO DE CALCIO M10
+  // /M20/M200, las TAPA DE TOMACORRIENTE de 1 y 2 tomas. Comparten casi todas las
+  // palabras, así que Jaccard las da por parecidas y el aviso saltaría cada vez que se
+  // agrega una medida nueva. Si LOS DOS nombres traen números y esos números NO son los
+  // mismos, son productos distintos: se penaliza el puntaje a la mitad.
+  const numeros = (ts: string[]) => new Set(ts.filter((t) => /[0-9]/.test(t)));
+  const na2 = numeros(ta);
+  const nb2 = numeros(tb);
+  if (na2.size && nb2.size) {
+    let igualesNum = 0;
+    for (const t of na2) if (nb2.has(t)) igualesNum += 1;
+    const mismosNumeros = igualesNum === na2.size && igualesNum === nb2.size;
+    if (!mismosNumeros) return score / 2;
+  }
+  return score;
 }
 
-/** Umbral a partir del cual vale la pena avisar. */
-const UMBRAL_AVISO = 0.6;
+/** ¿Los dos nombres son el MISMO nombre (ignorando acentos, signos y espacios)? */
+export function mismoNombre(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = normalizarNombre(a);
+  return !!na && na === normalizarNombre(b);
+}
+
+/** Umbral a partir del cual vale la pena avisar. Solo muestra la tarjeta; lo único que
+ *  frena el alta es el nombre IDÉNTICO, así que un aviso de más es barato. */
+const UMBRAL_AVISO = 0.5;
 
 /**
  * Productos del catálogo que se parecen al nombre que se está escribiendo,
@@ -119,7 +184,10 @@ export function productosSimilares<T extends ProductoComparable>(
       p.marca ? parecidoNombre(nombre, `${p.marca} ${p.nombre}`) : 0,
     );
     if (score < UMBRAL_AVISO) continue;
-    const nivel: NivelParecido = score >= 1 ? 'exacto' : score >= 0.8 ? 'muy_parecido' : 'parecido';
+    // «exacto» se decide por el NOMBRE, no por el puntaje: es el único nivel que frena
+    // el alta, así que tiene que significar exactamente «esta ficha ya existe».
+    const exacto = mismoNombre(nombre, p.nombre) || mismoNombre(nombre, p.nombre_busqueda);
+    const nivel: NivelParecido = exacto ? 'exacto' : score >= 0.8 ? 'muy_parecido' : 'parecido';
     out.push({ producto: p, nivel, score });
   }
   return out
