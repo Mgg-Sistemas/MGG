@@ -13,6 +13,25 @@ export interface RestriccionUsuario {
   almacenRecepcion?: string;
 }
 
+/** La recepción/compra SOLO entra a Matanza o Los Pinos. Los centros de acopio
+ *  (La Esperanza, etc.) NO reciben compras: su mercancía entra por Traslados. */
+export const SEDES_RECEPCION = ['CENTRO DE FUNDICION - MATANZAS', 'LOS PINOS'];
+
+/** Recepción/compra: ÚNICOS dos destinos, el almacén principal de cada sede. Se
+ *  muestra un solo desplegable con dos opciones (LOS PINOS / MATANZA), sin
+ *  subalmacenes. Matanza recibe en su almacén "General". */
+export const DESTINOS_RECEPCION: { label: string; almacen: string; sede: string }[] = [
+  { label: 'LOS PINOS', almacen: 'Los Pinos', sede: 'LOS PINOS' },
+  { label: 'MATANZA', almacen: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+];
+
+/** Opciones de destino visibles para este usuario: si está limitado por correo, solo
+ *  su sede; si no, las dos (Los Pinos y Matanza). */
+export function opcionesRecepcion(sedesPermitidas?: string[] | null): typeof DESTINOS_RECEPCION {
+  const permit = sedesPermitidas ?? SEDES_RECEPCION;
+  return DESTINOS_RECEPCION.filter((d) => permit.includes(d.sede));
+}
+
 /** correo (en minúsculas) → restricción. */
 export const RESTRICCION_POR_USUARIO: Record<string, RestriccionUsuario> = {
   // ISNER → Los Pinos

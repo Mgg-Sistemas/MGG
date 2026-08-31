@@ -8,7 +8,7 @@ import { notify } from '@/shared/lib/notify';
 import { dateTime, num } from '@/shared/lib/format';
 // descargarCompraDirectaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir la vista.
 import { list as listProveedores, crearProveedorRapido } from '@/modules/proveedores/proveedores.repository';
-import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
+import { opcionesRecepcion } from '@/modules/salidas/restriccionAlmacen';
 import type { Producto, Proveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos, updateProducto, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
@@ -430,7 +430,15 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
       <form id="cd-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-        <AlmacenPicker value={almacen} onChange={setAlmacen} sedeLabel="Sede destino" label="Almacén destino" />
+        {/* Destino de la compra: SOLO Los Pinos / Matanza (sin subalmacenes ni acopio). */}
+        <div className="form-row">
+          <label>Almacén destino</label>
+          <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
+            <option value="">— elegí el destino —</option>
+            {opcionesRecepcion().map((d) => <option key={d.almacen} value={d.almacen}>{d.label}</option>)}
+            {almacen && !opcionesRecepcion().some((d) => d.almacen === almacen) && <option value={almacen}>{almacen} (actual)</option>}
+          </select>
+        </div>
 
         {/* El modo se elige POR RENGLÓN: podés mezclar inventario + materiales nuevos. */}
         <div className="form-row" style={{ marginBottom: '.3rem' }}>

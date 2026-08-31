@@ -33,10 +33,11 @@ export function TrasladoMaterialForm({
 
   const [destino, setDestino] = useState('');
 
-  // Destino: CUALQUIER almacén activo (principal o subalmacén), agrupado por sede.
-  // El usuario elige a dónde va el material exactamente, no solo la sede padre.
+  // Destino: SOLO almacenes PADRE (raíz, sin parent_id), agrupado por sede.
+  // Se ocultan los subalmacenes para no ensuciar la lista: el material se traslada al
+  // almacén principal de cada sede (Los Pinos, La Esperanza, El Burro, …).
   const destinosPorSede = useMemo(() => {
-    const activos = almacenesObj.filter((a) => a.estado === 'activo');
+    const activos = almacenesObj.filter((a) => a.estado === 'activo' && !a.parent_id);
     const grupos = new Map<string, { nombre: string; label: string }[]>();
     activos
       .map((a) => ({ nombre: a.nombre, sede: a.sede?.trim() || 'Sin sede', label: nombreCortoAlmacen(a, almacenesObj) }))

@@ -8,14 +8,8 @@ import { date, money, num } from '@/shared/lib/format';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
 import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
 import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedidos/compraDirectaMoneda';
-import { AlmacenPicker } from './AlmacenPicker';
-import { destinoRecepcionPorUsuario } from '@/modules/salidas/restriccionAlmacen';
+import { destinoRecepcionPorUsuario, opcionesRecepcion } from '@/modules/salidas/restriccionAlmacen';
 import type { Almacen, Orden } from '@/shared/lib/types';
-
-/** La recepción de COMPRAS solo entra a Matanza o Los Pinos. Los centros de acopio
- *  (La Esperanza, etc.) NO reciben compras: su mercancía entra por Traslados/acopio.
- *  (Usuarios casados por correo ya vienen con su sede; esto es el tope para el resto.) */
-const SEDES_RECEPCION = ['CENTRO DE FUNDICION - MATANZAS', 'LOS PINOS'];
 
 /** Sede a la que pertenece un almacén (por su nombre). Si no se encuentra, devuelve
  *  el propio nombre como respaldo. Se usa para mostrar la SEDE en vez del almacén. */
@@ -241,8 +235,12 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
   const items = compra.items ?? [];
   // Restricción por usuario (correo): recibe directo a su sede/almacén (Isner→Los Pinos, Kelvin→Matanzas).
   const restr = useMemo(() => destinoRecepcionPorUsuario(actor, almacenes), [actor, almacenes]);
-  // Almacén destino (Sede → Almacén): con restricción, el almacén del usuario; si no, el sugerido de la compra.
-  const [almacenFinal, setAlmacenFinal] = useState(restr?.almacen ?? compra.almacen ?? '');
+  // Destino de recepción: SOLO Los Pinos / Matanza (o la única sede del usuario limitado).
+  const opciones = useMemo(() => opcionesRecepcion(restr?.sedes), [restr]);
+  // Si hay una sola opción (usuario limitado), queda fija; si no, arranca vacío para elegir.
+  const [almacenFinal, setAlmacenFinal] = useState(
+    restr?.almacen ?? (opciones.length === 1 ? opciones[0].almacen : ''),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Compra en Bs: el inventario está en $, así que se muestra (y se escribe) el costo convertido
@@ -310,11 +308,16 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
           )}
         </div>
 
-        {/* Asignación de almacén: Sede → Almacén (subalmacén). Por defecto el general de la sede.
-            excluirCasiterita: una compra directa nunca entra a un almacén de casiterita.
-            soloSedes: si el usuario está limitado por correo, recibe directo a su sede. */}
+        {/* Destino de recepción: SOLO Los Pinos / Matanza (un desplegable de dos opciones,
+            sin subalmacenes). Usuario limitado por correo → su única sede, fija. */}
         {restr && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>🔒 Recibís directo a tu sede: <strong>{restr.sedes.join(', ')}</strong>.</p>}
-        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita soloSedes={restr?.sedes ?? SEDES_RECEPCION} />
+        <div className="form-row">
+          <label>Almacén destino</label>
+          <select className="select" value={almacenFinal} onChange={(e) => setAlmacenFinal(e.target.value)} required disabled={opciones.length === 1}>
+            {opciones.length !== 1 && <option value="">— elegí el destino —</option>}
+            {opciones.map((d) => <option key={d.almacen} value={d.almacen}>{d.label}</option>)}
+          </select>
+        </div>
         {almacenFinal && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .75rem' }}>Los materiales entrarán a: <strong>📦 {almacenFinal}</strong></p>}
 
         {/* Detalle de la compra: materiales, cantidad y costo unitario */}
@@ -353,8 +356,11 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
 
   // Restricción por usuario (correo): recibe directo a su sede/almacén (Isner→Los Pinos, Kelvin→Matanzas).
   const restr = useMemo(() => destinoRecepcionPorUsuario(actor, almacenes), [actor, almacenes]);
-  // Almacén destino (se elige por Sede → Almacén). Con restricción, arranca en el almacén del usuario.
-  const [almacenFinal, setAlmacenFinal] = useState(restr?.almacen ?? '');
+  // Destino de recepción: SOLO Los Pinos / Matanza (o la única sede del usuario limitado).
+  const opciones = useMemo(() => opcionesRecepcion(restr?.sedes), [restr]);
+  const [almacenFinal, setAlmacenFinal] = useState(
+    restr?.almacen ?? (opciones.length === 1 ? opciones[0].almacen : ''),
+  );
   // Cantidad recibida por ítem (por defecto, lo pedido).
   const [recibidas, setRecibidas] = useState<Record<string, string>>(
     () => Object.fromEntries(items.map((it) => [it.sku, String(it.cantidad ?? 0)])),
@@ -400,12 +406,16 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
       <form id="recibir-form" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-        {/* Asignación de almacén: Sede → Almacén. Por defecto el general de la sede.
-            excluirCasiterita: la mercancía comprada NO puede ir a un almacén de casiterita
-            (ese inventario entra por su propio flujo, directo a Los Pinos).
-            soloSedes: si el usuario está limitado por correo, recibe directo a su sede. */}
+        {/* Destino de recepción: SOLO Los Pinos / Matanza (un desplegable de dos opciones,
+            sin subalmacenes). Usuario limitado por correo → su única sede, fija. */}
         {restr && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .5rem' }}>🔒 Recibís directo a tu sede: <strong>{restr.sedes.join(', ')}</strong>.</p>}
-        <AlmacenPicker value={almacenFinal} onChange={setAlmacenFinal} almacenes={almacenes} required preferirPrincipal excluirCasiterita soloSedes={restr?.sedes ?? SEDES_RECEPCION} />
+        <div className="form-row">
+          <label>Almacén destino</label>
+          <select className="select" value={almacenFinal} onChange={(e) => setAlmacenFinal(e.target.value)} required disabled={opciones.length === 1}>
+            {opciones.length !== 1 && <option value="">— elegí el destino —</option>}
+            {opciones.map((d) => <option key={d.almacen} value={d.almacen}>{d.label}</option>)}
+          </select>
+        </div>
         {almacenFinal && <p className="hint muted" style={{ fontSize: '.8rem', margin: '0 0 .75rem' }}>La mercancía entrará a: <strong>📦 {almacenFinal}</strong></p>}
 
         {/* Cantidades recibidas por ítem */}
