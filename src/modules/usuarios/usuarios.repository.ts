@@ -160,8 +160,27 @@ export async function actualizarUsuario(id: string, input: ActualizarUsuarioInpu
     payload.sedes_asignadas = s.length ? s : null;
   }
   if (input.almacen_recepcion !== undefined) payload.almacen_recepcion = input.almacen_recepcion?.trim() || null;
+
   const { error } = await supabase.from(TABLE).update(payload).eq('id', id);
-  if (error) throw error;
+  if (!error) return;
+
+  // Las dos columnas de sectorización son nuevas. Si el build llegó a un entorno donde
+  // todavía no se corrió la migración, PostgREST rechaza el update entero (42703 /
+  // PGRST204) y editar CUALQUIER usuario dejaría de funcionar. Se reintenta sin ellas
+  // para no romper la pantalla; la asignación de almacenes es lo único que no se guarda.
+  const faltaColumna = /sedes_asignadas|almacen_recepcion/.test(error.message ?? '')
+    || error.code === '42703' || error.code === 'PGRST204';
+  if (!faltaColumna) throw error;
+  delete payload.sedes_asignadas;
+  delete payload.almacen_recepcion;
+  const { error: e2 } = await supabase.from(TABLE).update(payload).eq('id', id);
+  if (e2) throw e2;
+  if (input.sedes_asignadas !== undefined || input.almacen_recepcion !== undefined) {
+    throw new Error(
+      'Los datos se guardaron, pero los ALMACENES ASIGNADOS no: la base todavía no tiene esas columnas. '
+      + 'Avisá a Sistemas para que corran la migración de sectorización.',
+    );
+  }
 }
 
 /** Llama a la Edge Function cambiar-correo (solo admin): cambia el correo en Auth

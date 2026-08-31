@@ -33,7 +33,15 @@ export interface Sectorizacion {
  */
 export function useSectorizacion(): Sectorizacion {
   const { appUser } = usePermissions();
-  const sedes = useMemo(() => sedesDeUsuario(appUser), [appUser]);
+  // La clave es el CONTENIDO de la asignación, no la identidad del objeto: el realtime
+  // de `usuarios` reemplaza `appUser` en cada evento y, dependiendo del objeto, el
+  // efecto de abajo se relanzaría por cambios que no tienen nada que ver con el sector.
+  const claveSector = `${(appUser?.sedes_asignadas ?? []).join('|')}#${appUser?.email ?? ''}`;
+  const sedes = useMemo(
+    () => sedesDeUsuario(appUser),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [claveSector],
+  );
 
   // Los dos espacios: un almacén de depósito también tiene sede, y si no estuviera
   // en la lista se leería como «sede desconocida» y quedaría bloqueado sin motivo.
