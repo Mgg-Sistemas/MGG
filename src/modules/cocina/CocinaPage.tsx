@@ -13,7 +13,7 @@ import { notify } from '@/shared/lib/notify';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { dateTime, money, num } from '@/shared/lib/format';
+import { money, num } from '@/shared/lib/format';
 import type { CocinaComida, TipoComida, Cocina, Almacen } from '@/shared/lib/types';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
@@ -25,6 +25,8 @@ import {
 } from './cocina.repository';
 // descargarReporteCocinaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { crearAlertaMercado, listAlertasMercadoPendientes } from './alertasMercado.repository';
+import { mercadoActivo, resumenMercado, iniciarMercado, type MercadoCocina, type ResumenMercado } from './mercados.repository';
+import { MercadoPanel } from './MercadoPanel';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -188,7 +190,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
   const almacen = info.almacenNombre;
 
   const [comidas, setComidas] = useState<CocinaComida[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);   // se carga en segundo plano (para PDF y edición); el mercado tiene su propio loading
   const [modal, setModal] = useState<'none' | 'add' | 'resumen'>('none');
   const [editComida, setEditComida] = useState<CocinaComida | null>(null);
   const [delComida, setDelComida] = useState<CocinaComida | null>(null);
@@ -208,11 +210,22 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
     } finally { setAlertando(false); }
   }
 
-  // Filtros de la tabla
-  const [q, setQ] = useState('');
-  const [fTipo, setFTipo] = useState<TipoComida | ''>('');
-  const [fFecha, setFFecha] = useState('');     // YYYY-MM-DD
-  const [fHora, setFHora] = useState('');       // HH
+  // Mercado (ciclo de 21 días) de esta cocina.
+  const [mercado, setMercado] = useState<MercadoCocina | null>(null);
+  const [resumen, setResumen] = useState<ResumenMercado | null>(null);
+  const [mercadoLoading, setMercadoLoading] = useState(true);
+  const [iniciando, setIniciando] = useState(false);
+  const [fechaInicioMercado, setFechaInicioMercado] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const loadMercado = useCallback(async () => {
+    setMercadoLoading(true);
+    try {
+      const m = await mercadoActivo(cocinaId);
+      setMercado(m);
+      setResumen(m ? await resumenMercado(m, almacen) : null);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el mercado', 'error'); }
+    finally { setMercadoLoading(false); }
+  }, [cocinaId, almacen]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -220,38 +233,17 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
     finally { setLoading(false); }
   }, [cocinaId]);
-  useEffect(() => { void reload(); }, [reload]);
-  useRealtime(['cocina_comidas', 'productos', 'existencias', 'movimientos'], () => { void reload(); });
+  useEffect(() => { void reload(); void loadMercado(); }, [reload, loadMercado]);
+  useRealtime(['cocina_comidas', 'productos', 'existencias', 'movimientos', 'mercados_cocina'], () => { void reload(); void loadMercado(); });
 
-  const horasPresentes = useMemo(() => {
-    const set = new Set<string>();
-    comidas.forEach((c) => set.add((c.at ?? '').slice(11, 13)));
-    return Array.from(set).filter(Boolean).sort();
-  }, [comidas]);
-
-  const filtradas = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    return comidas.filter((c) => {
-      if (fTipo && c.tipo_comida !== fTipo) return false;
-      if (fFecha && (c.at ?? '').slice(0, 10) !== fFecha) return false;
-      if (fHora && (c.at ?? '').slice(11, 13) !== fHora) return false;
-      if (term) {
-        const hay = `${c.codigo} ${labelTipoComida(c.tipo_comida)} ${(c.items ?? []).map((i) => i.nombre).join(' ')}`.toLowerCase();
-        if (!hay.includes(term)) return false;
-      }
-      return true;
-    });
-  }, [comidas, q, fTipo, fFecha, fHora]);
-
-  const totalFiltrado = useMemo(() => ({
-    platos: filtradas.reduce((a, c) => a + (Number(c.platos) || 0), 0),
-    valor: r2(filtradas.reduce((a, c) => a + (Number(c.valor_total) || 0), 0)),
-  }), [filtradas]);
-
-  function rangoLabel(): string {
-    if (fFecha) return `Día ${fFecha}${fHora ? ` · ${fHora}:00` : ''}${fTipo ? ` · ${labelTipoComida(fTipo)}` : ''}`;
-    if (fTipo) return `Filtro: ${labelTipoComida(fTipo)}`;
-    return 'Todas las comidas registradas';
+  async function iniciar() {
+    setIniciando(true);
+    try {
+      await iniciarMercado({ cocinaId, almacen, fechaInicio: fechaInicioMercado, actor, actorName: userEmail });
+      toast('Mercado iniciado', 'success');
+      await loadMercado();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo iniciar el mercado', 'error'); }
+    finally { setIniciando(false); }
   }
 
   return (
@@ -266,7 +258,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
       <div className="filterbar" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen / Consumo</button>
-          <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(filtradas, rangoLabel())).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!filtradas.length}>↓ Reporte PDF</button>
+          <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(comidas, 'Todas las comidas registradas')).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!comidas.length}>↓ Reporte PDF</button>
           {canWrite && (
             <button className="btn btn-ghost" style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
               onClick={enviarAlertaMercado} disabled={alertando} title="Avisar a Pedidos/Compras que hay que reponer víveres">
@@ -277,74 +269,34 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
         {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>＋ Añadir movimiento</button>}
       </div>
 
-      {/* Filtros */}
-      <div className="filterbar" style={{ gap: '.5rem', flexWrap: 'wrap' }}>
-        <input className="input" style={{ flex: '1 1 220px' }} placeholder="Buscar por correlativo, comida o víver…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="select" value={fTipo} onChange={(e) => setFTipo(e.target.value as TipoComida | '')} style={{ maxWidth: 180 }}>
-          <option value="">Todas las comidas</option>
-          {TIPOS_COMIDA.map((t) => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
-        </select>
-        <input className="input" type="date" value={fFecha} onChange={(e) => setFFecha(e.target.value)} style={{ maxWidth: 170 }} />
-        <select className="select" value={fHora} onChange={(e) => setFHora(e.target.value)} style={{ maxWidth: 130 }}>
-          <option value="">Toda hora</option>
-          {horasPresentes.map((h) => <option key={h} value={h}>{h}:00 – {h}:59</option>)}
-        </select>
-        {(q || fTipo || fFecha || fHora) && <button className="btn btn-ghost btn-sm" onClick={() => { setQ(''); setFTipo(''); setFFecha(''); setFHora(''); }}>Limpiar</button>}
-      </div>
-
-      {loading ? (
-        <EmptyState message="Cargando…" icon="◔" />
-      ) : !filtradas.length ? (
-        <div className="card"><EmptyState message="No hay comidas registradas con estos filtros." icon="🍽" /></div>
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr>
-              <th>Correlativo</th><th>Comida</th><th>Fecha · hora</th>
-              <th style={{ textAlign: 'right' }}>Platos</th><th>Víveres</th>
-              <th style={{ textAlign: 'right' }}>Valor</th><th style={{ textAlign: 'right' }}>Prom./plato</th>
-              {canWrite && <th style={{ textAlign: 'right' }}>Acciones</th>}
-            </tr></thead>
-            <tbody>
-              {filtradas.map((c) => {
-                const t = TIPOS_COMIDA.find((x) => x.value === c.tipo_comida);
-                const prom = Number(c.platos) > 0 ? Number(c.valor_total) / Number(c.platos) : 0;
-                return (
-                  <tr key={c.id}>
-                    <td className="mono">{c.codigo}</td>
-                    <td><span className="badge">{t?.icon} {labelTipoComida(c.tipo_comida)}</span></td>
-                    <td>{dateTime(c.at)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(c.platos)}</td>
-                    <td className="muted" style={{ fontSize: '.82rem' }}>{(c.items ?? []).map((i) => `${i.nombre} ×${num(i.cantidad)}`).join(', ')}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(c.valor_total)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(prom)}</td>
-                    {canWrite && (
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <button className="btn btn-sm btn-ghost" onClick={() => setEditComida(c)} title="Editar movimiento">✎</button>
-                        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setDelComida(c)} title="Eliminar movimiento">🗑</button>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot><tr style={{ fontWeight: 700 }}>
-              <td colSpan={3} style={{ textAlign: 'right' }}>{filtradas.length} comida(s) · Total</td>
-              <td className="mono" style={{ textAlign: 'right' }}>{num(totalFiltrado.platos)}</td>
-              <td></td>
-              <td className="mono" style={{ textAlign: 'right' }}>{money(totalFiltrado.valor)}</td>
-              <td className="mono" style={{ textAlign: 'right' }}>{money(totalFiltrado.platos > 0 ? totalFiltrado.valor / totalFiltrado.platos : 0)}</td>
-              {canWrite && <td></td>}
-            </tr></tfoot>
-          </table>
+      {/* Mercado (ciclo de 21 días): tarjetas + disponible + kardex, o iniciar */}
+      {mercadoLoading ? (
+        <EmptyState message="Cargando mercado…" icon="◔" />
+      ) : !mercado ? (
+        <div className="card" style={{ borderColor: 'var(--primary)' }}>
+          <div className="card-title">🛒 Iniciar mercado (ciclo de 21 días)</div>
+          <p className="hint muted" style={{ marginTop: 0 }}>Todavía no hay un mercado activo para esta cocina. Al iniciarlo, el <strong>stock actual de víveres</strong> cuenta como saldo inicial y arranca el conteo de 21 días. Al llegar el día 22 vas a poder <strong>cerrarlo</strong> (con PDF y arrastre de lo que queda).</p>
+          {canWrite ? (
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
+              <div className="form-row" style={{ margin: 0, maxWidth: 200 }}>
+                <label style={{ fontSize: '.75rem' }}>Fecha de inicio</label>
+                <input className="input" type="date" value={fechaInicioMercado} onChange={(e) => setFechaInicioMercado(e.target.value)} />
+              </div>
+              <button className="btn btn-primary" onClick={iniciar} disabled={iniciando || !almacen}>{iniciando ? 'Iniciando…' : '🛒 Iniciar mercado'}</button>
+            </div>
+          ) : <p className="hint muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
         </div>
-      )}
+      ) : resumen ? (
+        <MercadoPanel resumen={resumen} cocinaNombre={info.cocina.nombre} almacen={almacen} canWrite={canWrite} actor={actor} userEmail={userEmail}
+          onReload={async () => { await loadMercado(); await reload(); }}
+          onEditComida={(c) => setEditComida(c)} onDelComida={(c) => setDelComida(c)} />
+      ) : null}
 
       {(modal === 'add' || editComida) && (
         <AnadirMovimientoModal cocinaId={cocinaId} almacen={almacen} actor={actor} actorName={userEmail}
           comida={editComida}
           onClose={() => { setModal('none'); setEditComida(null); }}
-          onSaved={async () => { setModal('none'); setEditComida(null); await reload(); }} />
+          onSaved={async () => { setModal('none'); setEditComida(null); await reload(); await loadMercado(); }} />
       )}
       {delComida && (
         <ConfirmDialog title="Eliminar movimiento"
@@ -353,7 +305,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
           onCancel={() => setDelComida(null)}
           onConfirm={async () => {
             const c = delComida; setDelComida(null);
-            try { await eliminarComida(c.id, actor, userEmail); toast('Movimiento eliminado', 'success'); await reload(); }
+            try { await eliminarComida(c.id, actor, userEmail); toast('Movimiento eliminado', 'success'); await reload(); await loadMercado(); }
             catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
           }} />
       )}
