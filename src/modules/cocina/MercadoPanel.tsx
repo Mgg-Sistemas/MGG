@@ -247,7 +247,7 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
 }) {
   const { mercado, kpis, disponible } = resumen;
   const remanente = disponible.filter((d) => d.queda > 0);
-  const [correos, setCorreos] = useState(userEmail ?? '');
+  const [correos, setCorreos] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -268,18 +268,27 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
-  async function confirmar(conCorreo: boolean) {
+  async function confirmar() {
     setError(null); setSaving(true);
     try {
       const { cerrado, snapshot } = await cerrarMercado(mercado, almacen, actor, userEmail);
-      if (conCorreo) {
-        const lista = correos.split(/[;,\s]+/).map((s) => s.trim()).filter(Boolean);
-        if (!lista.length) throw new Error('Indicá al menos un correo, o cerrá sin enviar.');
-        const { enviarCierrePorCorreo } = await import('./enviarCierreCocina');
-        const { destinatarios } = await enviarCierrePorCorreo(cocinaNombre, cerrado, snapshot, lista);
-        toast(`Cierre enviado a ${destinatarios.join(', ')}`, 'success');
+      // Siempre genera el PDF del cierre (vista previa).
+      try {
+        const { descargarCierrePdf } = await import('./mercadoCierrePdf');
+        await descargarCierrePdf(cocinaNombre, cerrado, snapshot);
+      } catch { /* si el PDF falla, el cierre igual quedó hecho */ }
+      // Correo OPCIONAL: solo si se cargaron destinatarios.
+      const lista = correos.split(/[;,\s]+/).map((s) => s.trim()).filter(Boolean);
+      if (lista.length) {
+        try {
+          const { enviarCierrePorCorreo } = await import('./enviarCierreCocina');
+          const { destinatarios } = await enviarCierrePorCorreo(cocinaNombre, cerrado, snapshot, lista);
+          toast(`Mercado cerrado · PDF generado · enviado a ${destinatarios.join(', ')}`, 'success');
+        } catch (e) {
+          toast(`Mercado cerrado y PDF generado, pero el correo falló: ${e instanceof Error ? e.message : ''}`, 'warning');
+        }
       } else {
-        toast('Mercado cerrado. Se abrió el siguiente con el saldo arrastrado.', 'success');
+        toast('Mercado cerrado · PDF generado. Se abrió el siguiente con el saldo arrastrado.', 'success');
       }
       notify(`🔒 Cocina · mercado #${mercado.numero} de ${cocinaNombre} cerrado`, 'info', { link: '#/app/cocina' });
       await onDone();
@@ -291,20 +300,19 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button className="btn btn-ghost" onClick={verPdf} disabled={saving}>↓ Ver PDF</button>
-        <button className="btn btn-ghost" onClick={() => void confirmar(false)} disabled={saving}>{saving ? 'Cerrando…' : 'Cerrar sin enviar'}</button>
-        <button className="btn btn-primary" onClick={() => void confirmar(true)} disabled={saving}>{saving ? 'Cerrando…' : 'Cerrar y enviar correo'}</button>
+        <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving}>{saving ? 'Cerrando…' : '🔒 Cerrar mercado'}</button>
       </>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
       <p className="hint muted" style={{ marginTop: 0 }}>
-        Se cierra el mercado <strong>#{mercado.numero}</strong> ({fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)}), se genera el PDF y <strong>lo que queda pasa como saldo inicial del próximo mercado</strong>. No mueve el inventario real.
+        Se cierra el mercado <strong>#{mercado.numero}</strong> ({fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)}), se <strong>genera el PDF</strong> del cierre y <strong>lo que queda pasa como saldo inicial del próximo mercado</strong>. No mueve el inventario real. El correo es opcional.
       </p>
       <div className="card" style={{ margin: '0 0 .8rem', background: 'var(--bg-2)' }}>
         <div style={{ fontSize: '.88rem' }}>Platos: <strong className="mono">{num(kpis.platos)}</strong> · Consumo: <strong className="mono" style={{ color: 'var(--danger)' }}>{money(kpis.consumoValor)}</strong> · Remanente: <strong className="mono" style={{ color: 'var(--primary-3, #2ecc71)' }}>{money(kpis.disponibleValor)}</strong></div>
         <div className="muted" style={{ fontSize: '.8rem', marginTop: '.2rem' }}>{remanente.length} víver(es) pasan al próximo mercado.</div>
       </div>
       <div className="form-row">
-        <label>Enviar a (correos separados por coma) <span className="muted" style={{ fontWeight: 400 }}>· opcional</span></label>
+        <label>📧 Enviar por correo <span className="muted" style={{ fontWeight: 400 }}>· opcional (dejalo vacío para solo cerrar y generar el PDF)</span></label>
         <input className="input" value={correos} onChange={(e) => setCorreos(e.target.value)} placeholder="correo1@mgg.com, correo2@mgg.com" />
       </div>
     </Modal>
