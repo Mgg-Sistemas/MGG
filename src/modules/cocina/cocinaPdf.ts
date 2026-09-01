@@ -48,7 +48,7 @@ export async function descargarReporteCocinaPdf(comidas: CocinaComida[], rangoLa
     autoTable(doc, {
       startY: y + 6,
       head: [['VÍVERES MÁS CONSUMIDOS', 'CANTIDAD', 'VALOR $']],
-      body: r.topViveres.slice(0, 15).map((v) => [`${v.nombre} (${v.sku})`, `${num(v.cantidad)} ${v.unidad}`, money(v.valor)]),
+      body: r.topViveres.slice(0, 15).map((v) => [`${v.nombre} (${v.sku})`, num(v.cantidad), money(v.valor)]),
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 360 }, 1: { halign: 'right', cellWidth: 160 }, 2: { halign: 'right', cellWidth: 120 } },

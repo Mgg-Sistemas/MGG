@@ -48,7 +48,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
     startY: y + 6,
     head: [['CONSUMIDO POR ÍTEM', 'CANTIDAD', 'VALOR $']],
     body: snap.consumos.length
-      ? snap.consumos.map((v) => [`${v.nombre} (${v.sku})`, `${num(v.cantidad)} ${v.unidad}`, money(v.valor)])
+      ? snap.consumos.map((v) => [`${v.nombre} (${v.sku})`, num(v.cantidad), money(v.valor)])
       : [['Sin consumos en el período', '', '']],
     styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
@@ -67,7 +67,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
     startY: y + 6,
     head: [['VÍVER', 'DISPONIBLE PARA EL PRÓXIMO MERCADO']],
     body: snap.remanente.length
-      ? snap.remanente.map((v) => [`${v.nombre} (${v.sku})`, `${num(v.cantidad)} ${v.unidad}`])
+      ? snap.remanente.map((v) => [`${v.nombre} (${v.sku})`, num(v.cantidad)])
       : [['Sin remanente', '—']],
     styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
     headStyles: { fillColor: [46, 160, 80], textColor: [255, 255, 255], fontStyle: 'bold' },
@@ -83,7 +83,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
     autoTable(doc, {
       startY: y + 6,
       head: [['VÍVER', 'CANTIDAD', 'VALOR $']],
-      body: snap.entradas.map((v) => [`${v.nombre} (${v.sku})`, `${num(v.cantidad)} ${v.unidad}`, money(v.valor)]),
+      body: snap.entradas.map((v) => [`${v.nombre} (${v.sku})`, num(v.cantidad), money(v.valor)]),
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
