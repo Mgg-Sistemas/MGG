@@ -173,7 +173,11 @@ export interface LineaServicioInput {
 /** Normaliza una lista de detalle: recorta descripciones vacías y saca cantidades válidas. */
 export function limpiarDetalleItems(items?: DetalleServicioItem[] | null): DetalleServicioItem[] {
   return (items ?? [])
-    .map((d) => ({ descripcion: (d.descripcion ?? '').trim(), cantidad: d.cantidad != null && Number(d.cantidad) > 0 ? Number(d.cantidad) : null }))
+    .map((d) => ({
+      descripcion: (d.descripcion ?? '').trim(),
+      cantidad: d.cantidad != null && Number(d.cantidad) > 0 ? Number(d.cantidad) : null,
+      precio: d.precio != null && Number(d.precio) > 0 ? Number(d.precio) : null,
+    }))
     .filter((d) => d.descripcion.length > 0);
 }
 

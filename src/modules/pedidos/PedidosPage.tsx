@@ -27,7 +27,7 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import { ChatOC } from './ChatOC';
-import { DetalleItemsEditor } from './DetalleItemsEditor';
+import { DetalleItemsEditor, sumaDetallePrecios } from './DetalleItemsEditor';
 import { noLeidosPorOrden } from './ocChat.repository';
 import {
   aprobarOrden,
@@ -3326,10 +3326,14 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 /* ───────────── Nuevo Servicio (clase='servicio') ───────────── */
 interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; electro: string; cantidad: string; precio: string; bombonas: string; kg: string; repuestoId: string; repuestoCant: string; detalle: DetalleServicioItem[]; }
 
-/** Recorta el detalle: descripciones vacías fuera, cantidades válidas. */
+/** Recorta el detalle: descripciones vacías fuera, cantidades y precios válidos. */
 function limpiarDetalle(items?: DetalleServicioItem[] | null): DetalleServicioItem[] {
   return (items ?? [])
-    .map((d) => ({ descripcion: (d.descripcion ?? '').trim(), cantidad: d.cantidad != null && Number(d.cantidad) > 0 ? Number(d.cantidad) : null }))
+    .map((d) => ({
+      descripcion: (d.descripcion ?? '').trim(),
+      cantidad: d.cantidad != null && Number(d.cantidad) > 0 ? Number(d.cantidad) : null,
+      precio: d.precio != null && Number(d.precio) > 0 ? Number(d.precio) : null,
+    }))
     .filter((d) => d.descripcion.length > 0);
 }
 
@@ -3505,7 +3509,9 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
   const setLinea = (id: number, patch: Partial<Omit<LineaServicio, 'id'>>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const delLinea = (id: number) => setLineas((ls) => ls.filter((l) => l.id !== id));
 
-  const total = lineas.reduce((a, l) => a + (Number(l.cantidad) || 0) * (Number(l.precio) || 0), 0);
+  // Precio efectivo de la línea: si el detalle lleva precios, su suma manda; si no, el precio manual.
+  const precioLinea = (l: LineaServicio) => { const s = sumaDetallePrecios(l.detalle); return s > 0 ? s : (Number(l.precio) || 0); };
+  const total = lineas.reduce((a, l) => a + (Number(l.cantidad) || 0) * precioLinea(l), 0);
 
   // Convierte los precios estimados a la otra moneda ($↔Bs) a la tasa y cambia la moneda.
   function convertirMoneda() {
@@ -3513,7 +3519,14 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
     if (r <= 0) { setError('Colocá la tasa (Bs por $) para convertir.'); return; }
     const toBs = moneda === 'USD';
     const conv = (n: number) => Math.round((toBs ? n * r : n / r) * 100) / 100;
-    setLineas((ls) => ls.map((l) => { const p = Number(l.precio) || 0; return p > 0 ? { ...l, precio: String(conv(p)) } : l; }));
+    setLineas((ls) => ls.map((l) => {
+      // Si el precio viene del detalle, convierto cada pieza; si es precio manual, convierto ese.
+      if (sumaDetallePrecios(l.detalle) > 0) {
+        return { ...l, detalle: l.detalle.map((d) => (Number(d.precio) > 0 ? { ...d, precio: conv(Number(d.precio)) } : d)) };
+      }
+      const p = Number(l.precio) || 0;
+      return p > 0 ? { ...l, precio: String(conv(p)) } : l;
+    }));
     setModeda(toBs ? 'Bs' : 'USD');
     setError(null);
     toast(`Precios convertidos a ${toBs ? 'Bs' : '$'} a la tasa ${r.toLocaleString('es-VE')}`, 'success');
@@ -3539,7 +3552,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
       const kgTotal = Math.round(bombonas * medidaPorUnidad * 100) / 100;
       const cant = recargaCat ? bombonas : (Number(l.cantidad) || 0);
       if (cant <= 0) { setError(recargaCat ? (aguaCat ? 'Indicá la cantidad (botellones o cisternas; 1 si es una cisterna).' : 'Indicá la cantidad de bombonas.') : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
-      const precio = Number(l.precio) || 0;
+      const precio = precioLinea(l);
       const recarga = recargaCat ? { bombonas, kg_recarga: kgTotal } : {};
       // Sufijo visible (tablero + PDF): gas "· 2 BOMBONA(S) · 86 KG" · agua "· 100 L DE AGUA (5 UND)".
       const recargaSuf = recargaCat
@@ -3702,6 +3715,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
             const mant = mantTipo !== null;
             const electro = esMantenimientoElectrodomestico(l.categoria);
             const equiposLista = equiposDeTipo(equipos, mantTipo);
+            const sumDet = sumaDetallePrecios(l.detalle); // >0 ⇒ el precio de la línea lo manda el detalle
             return (
               <div key={l.id} className="card" style={{ margin: 0, padding: '.6rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
@@ -3808,7 +3822,8 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                       </div>
                       <div className="form-row" style={{ margin: 0 }}>
                         <label style={{ fontSize: '.74rem' }}>Precio estimado ({monedaSym}, opcional)</label>
-                        <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
+                        <input className="input mono" type="number" min={0} step="any" value={sumDet > 0 ? String(sumDet) : l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" disabled={sumDet > 0} title={sumDet > 0 ? 'Tomado de la suma del detalle' : undefined} />
+                        {sumDet > 0 && <small className="muted" style={{ fontSize: '.72rem' }}>Precio tomado del detalle: {fmtMonto(sumDet, moneda)}.</small>}
                       </div>
                     </div>
                   </>
@@ -3820,7 +3835,8 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                     </div>
                     <div className="form-row" style={{ margin: 0 }}>
                       <label style={{ fontSize: '.74rem' }}>Precio estimado ({monedaSym}, opcional)</label>
-                      <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" />
+                      <input className="input mono" type="number" min={0} step="any" value={sumDet > 0 ? String(sumDet) : l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" disabled={sumDet > 0} title={sumDet > 0 ? 'Tomado de la suma del detalle' : undefined} />
+                      {sumDet > 0 && <small className="muted" style={{ fontSize: '.72rem' }}>Precio tomado del detalle: {fmtMonto(sumDet, moneda)}.</small>}
                     </div>
                   </div>
                 )}

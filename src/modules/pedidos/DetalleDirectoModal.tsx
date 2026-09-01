@@ -77,7 +77,7 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
                     {it.nombre}
                     {det.length > 0 && (
                       <ul className="muted" style={{ margin: '.25rem 0 0', paddingLeft: '1rem', fontSize: '.78rem' }}>
-                        {det.map((d, j) => <li key={j}>{d.descripcion}{d.cantidad != null ? ` · ${num(d.cantidad)}` : ''}</li>)}
+                        {det.map((d, j) => <li key={j}>{d.descripcion}{d.cantidad != null ? ` · ${num(d.cantidad)}` : ''}{d.precio != null ? ` · ${montoCaja(d.precio, moneda)}` : ''}</li>)}
                       </ul>
                     )}
                   </td>

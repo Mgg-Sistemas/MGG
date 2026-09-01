@@ -379,7 +379,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       // Marca/Modelo en su propia columna: solo aparece poblada cuando el usuario la cargó en la oferta.
       body: o.items.map((it) => {
         const det = (it.detalle_items ?? []).filter((d) => (d.descripcion ?? '').trim());
-        const detTxt = det.length ? `\n` + det.map((d) => `  • ${d.descripcion}${d.cantidad != null ? ` · ${num(Number(d.cantidad))}` : ''}`).join('\n') : '';
+        const detTxt = det.length ? `\n` + det.map((d) => `  • ${d.descripcion}${d.cantidad != null ? ` · ${num(Number(d.cantidad))}` : ''}${d.precio != null ? ` · ${money(Number(d.precio))}` : ''}`).join('\n') : '';
         return [
         it.sku,
         it.nombre + detTxt,
