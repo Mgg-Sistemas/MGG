@@ -259,6 +259,8 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
         <EmptyState message="Sin movimientos. Al cerrar un contrato de producción, se reflejará aquí." icon="📋" />
       ) : (
         <div className="table-wrap">
+          {/* ~10 filas visibles; el resto se recorre con scroll (el encabezado queda fijo). */}
+          <div style={{ maxHeight: 440, overflowY: 'auto' }}>
           <table className="table" style={{ fontSize: '.8rem' }}>
             <thead>
               <tr>
@@ -340,6 +342,7 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
               </tr>
             </tfoot>
           </table>
+          </div>
           <p className="hint muted" style={{ fontSize: '.74rem', marginTop: '.5rem' }}>
             <strong>Saldo en Kg de casiterita</strong> = saldo anterior + Kg Cerrados − Kg Recibidos por MGG (acumulado corrido; admite negativo).
           </p>
