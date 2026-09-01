@@ -15,9 +15,11 @@ import {
   listAlertasMercadoPendientes, marcarTodasAtendidas, type AlertaMercado,
 } from '@/modules/cocina/alertasMercado.repository';
 import type {
+  DetalleServicioItem,
   EstadoOrden,
   EventoHistorial,
   ItemOrden,
+  OfertaAdjunto,
   Orden,
   PagoMetodo,
   Producto,
@@ -25,6 +27,7 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import { ChatOC } from './ChatOC';
+import { DetalleItemsEditor } from './DetalleItemsEditor';
 import { noLeidosPorOrden } from './ocChat.repository';
 import {
   aprobarOrden,
@@ -35,10 +38,12 @@ import {
   cancelarOrden,
   crearOrden,
   actualizarOrden,
+  guardarAnticipoOrden,
   actualizarOc,
   sincronizarNombreProductos,
   listSubOcs,
-  adjuntarImagenOrden,
+  guardarImagenesOrden,
+  MAX_IMAGENES_OP,
   desistirProveedor,
   reabrirOcAOfertas,
   finalizarPedido,
@@ -166,6 +171,7 @@ function eventLabel(ev: string): string {
       confirmada_cuenta_abierta: 'OC confirmada · crédito (cuenta abierta)',
       metodo_pago: 'Método de pago indicado · enviada a pagar',
       oc_aprobada: 'Confirmada pagar',
+      anticipo: 'Pago anticipado',
       abono: 'Abono registrado (crédito)',
       credito_saldado: 'Crédito saldado · pendiente por recepción',
       pagada: 'Pago registrado (Tesorería)',
@@ -189,6 +195,7 @@ function eventClass(ev: string): string {
       nota_editada: 'info',
       oc_reabierta_edicion: 'warn',
       confirmada_metodo: 'info',
+      anticipo: 'info',
       confirmada_por_recibir: 'info',
       confirmada_cuenta_abierta: 'warn',
       metodo_pago: 'ok',
@@ -2082,6 +2089,12 @@ const KanbanCard = memo(function KanbanCard({
         </span>
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
+      {orden.anticipo_monto != null && (
+        <div className="meta" style={{ fontSize: '.7rem', marginTop: '.15rem', flexWrap: 'wrap' }} title="Pago anticipado y pendiente (crédito en Tesorería)">
+          <span style={{ color: 'var(--success)' }}>💳 Anticipo {money(orden.anticipo_monto, orden.anticipo_moneda ?? orden.moneda)}</span>
+          <span style={{ color: 'var(--warning)' }}>· Pendiente {(orden.anticipo_moneda ?? orden.moneda ?? 'USD') === (orden.moneda ?? 'USD') ? money(Math.max(0, Number(orden.total) - Number(orden.anticipo_monto)), orden.moneda) : 'crédito'}</span>
+        </div>
+      )}
       <div className="foot">
         <span className="total">{money(orden.total, orden.moneda)}</span>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
@@ -2490,17 +2503,24 @@ function OrdenDetailModal({
           🚨 ORDEN URGENTE — solicitud marcada como prioritaria.
         </div>
       )}
-      {o.imagen_path && (
-        <div className="detail-row">
-          <div className="k">Imagen de referencia</div>
-          <div className="v">
-            <button className="btn btn-sm btn-ghost" onClick={async () => {
-              try { const url = await urlAdjuntoOc(o.imagen_path!); window.open(url, '_blank', 'noopener'); }
-              catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir la imagen', 'error'); }
-            }}>📷 Ver imagen</button>
+      {(() => {
+        // Galería: las imágenes nuevas (jsonb `imagenes`) o, si no hay, la legada `imagen_path`.
+        const imgs = (o.imagenes?.length ? o.imagenes : (o.imagen_path ? [{ path: o.imagen_path, filename: 'imagen' }] : []));
+        if (!imgs.length) return null;
+        return (
+          <div className="detail-row">
+            <div className="k">Imágenes de referencia</div>
+            <div className="v" style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+              {imgs.map((a, i) => (
+                <button key={a.path} className="btn btn-sm btn-ghost" onClick={async () => {
+                  try { const url = await urlAdjuntoOc(a.path); window.open(url, '_blank', 'noopener'); }
+                  catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir la imagen', 'error'); }
+                }}>📷 Ver imagen{imgs.length > 1 ? ` ${i + 1}` : ''}</button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       <div className="detail-row">
         <div className="k">Código</div>
         <div className="v mono">{o.codigo}</div>
@@ -3304,7 +3324,14 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 }
 
 /* ───────────── Nuevo Servicio (clase='servicio') ───────────── */
-interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; electro: string; cantidad: string; precio: string; bombonas: string; kg: string; repuestoId: string; repuestoCant: string; }
+interface LineaServicio { id: number; categoria: string; tipo: string; equipoId: string; electro: string; cantidad: string; precio: string; bombonas: string; kg: string; repuestoId: string; repuestoCant: string; detalle: DetalleServicioItem[]; }
+
+/** Recorta el detalle: descripciones vacías fuera, cantidades válidas. */
+function limpiarDetalle(items?: DetalleServicioItem[] | null): DetalleServicioItem[] {
+  return (items ?? [])
+    .map((d) => ({ descripcion: (d.descripcion ?? '').trim(), cantidad: d.cantidad != null && Number(d.cantidad) > 0 ? Number(d.cantidad) : null }))
+    .filter((d) => d.descripcion.length > 0);
+}
 
 /** ¿La categoría es de recarga (gas / oxígeno / extintores)? → pide bombonas + KG. */
 function esRecargaGas(cat: string): boolean {
@@ -3434,9 +3461,9 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
         tipo = full.startsWith(pref) ? full.slice(pref.length).replace(/^\s*·\s*/, '') : tipo;
       }
       const electro = esMantenimientoElectrodomestico(cat) ? (it.equipo_nombre ?? '') : '';
-      return { id: i + 1, categoria: cat, tipo, equipoId: it.equipo_id ?? '', electro, cantidad: String(it.cantidad ?? 1), precio: String(it.precio ?? ''), bombonas: String(it.bombonas ?? ''), kg: String(it.kg_recarga ?? ''), repuestoId: it.repuesto_producto_id ?? '', repuestoCant: it.repuesto_cantidad != null ? String(it.repuesto_cantidad) : '1' };
+      return { id: i + 1, categoria: cat, tipo, equipoId: it.equipo_id ?? '', electro, cantidad: String(it.cantidad ?? 1), precio: String(it.precio ?? ''), bombonas: String(it.bombonas ?? ''), kg: String(it.kg_recarga ?? ''), repuestoId: it.repuesto_producto_id ?? '', repuestoCant: it.repuesto_cantidad != null ? String(it.repuesto_cantidad) : '1', detalle: Array.isArray(it.detalle_items) ? it.detalle_items : [] };
     });
-    return out.length ? out : [{ id: 1, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }];
+    return out.length ? out : [{ id: 1, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1', detalle: [] }];
   };
 
   const [codigo, setCodigo] = useState(orden?.codigo ?? 'SV-…');
@@ -3455,12 +3482,16 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
   const [tasaConv, setTasaConv] = useState('');
   const [tasaBcv, setTasaBcv] = useState(0);
   useEffect(() => { getTasaHoy().then((t) => { const v = Number(t.usd) || 0; if (v > 0) { setTasaBcv(v); setTasaConv((p) => p || String(v)); } }).catch(() => { /* sin tasa */ }); }, []);
-  const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]);
+  const [lineas, setLineas] = useState<LineaServicio[]>(esEdicion ? lineasDeOrden(orden!) : [{ id: 1, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1', detalle: [] }]);
   const [productosStock, setProductosStock] = useState<ProductoConStock[]>([]);
   useEffect(() => { listProductosConStock().then(setProductosStock).catch(() => setProductosStock([])); }, []);
   const [seq, setSeq] = useState(() => (esEdicion ? lineasDeOrden(orden!).length + 1 : 2));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Pago anticipado (opcional): se registra y genera un crédito por el pendiente = total − anticipo.
+  const [anticipoOn, setAnticipoOn] = useState(esEdicion && orden!.anticipo_monto != null);
+  const [anticipoMonto, setAnticipoMonto] = useState(esEdicion && orden!.anticipo_monto != null ? String(orden!.anticipo_monto) : '');
+  const [anticipoMoneda, setAnticipoMoneda] = useState<'USD' | 'Bs'>((esEdicion && (orden!.anticipo_moneda === 'Bs' || orden!.anticipo_moneda === 'USD')) ? orden!.anticipo_moneda : (esEdicion && orden!.moneda === 'Bs' ? 'Bs' : 'USD'));
 
   useEffect(() => {
     if (!esEdicion) nextCodigoServicio().then(setCodigo).catch(() => setCodigo('SV-?'));
@@ -3470,7 +3501,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
     listCatalogoPedido('unidad_solicitante', true).then((u) => setUnidades(u.map((x) => x.nombre))).catch(() => { /* sin catálogo */ });
   }, [esEdicion]);
 
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', precio: '', bombonas: '', kg: '', repuestoId: '', repuestoCant: '1', detalle: [] }]); setSeq((s) => s + 1); };
   const setLinea = (id: number, patch: Partial<Omit<LineaServicio, 'id'>>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const delLinea = (id: number) => setLineas((ls) => ls.filter((l) => l.id !== id));
 
@@ -3533,14 +3564,14 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
         if (prod && prodCant <= 0) { setError(`Indicá cuántas unidades de "${prod.nombre}" se toman del inventario.`); return; }
         if (prod && prodCant > prod.stock) { setError(`Solo hay ${prod.stock} ${prod.unidad} de "${prod.nombre}" en el inventario.`); return; }
         // equipo_id mantiene el vínculo con Control de Maquinaria (null en electrodomésticos: no son equipos del módulo).
-        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${equipoNombre}${desc ? ` · ${desc}` : ''}${recargaSuf}${prod && prodCant ? ` · ${prodCant} ${prod.nombre} (inventario)` : ''}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: desc.toUpperCase() || null, equipo_id: equipoId, equipo_nombre: equipoNombre, ...recarga, comprar: true, repuesto_producto_id: prod?.id ?? null, repuesto_nombre: prod?.nombre ?? null, repuesto_cantidad: prod ? prodCant : null, repuesto_almacen: prod?.almacen ?? null });
+        items.push({ sku: `SRV-${items.length + 1}`, nombre: `${cat} · ${equipoNombre}${desc ? ` · ${desc}` : ''}${recargaSuf}${prod && prodCant ? ` · ${prodCant} ${prod.nombre} (inventario)` : ''}`.toUpperCase(), cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: desc.toUpperCase() || null, equipo_id: equipoId, equipo_nombre: equipoNombre, ...recarga, comprar: true, repuesto_producto_id: prod?.id ?? null, repuesto_nombre: prod?.nombre ?? null, repuesto_cantidad: prod ? prodCant : null, repuesto_almacen: prod?.almacen ?? null, detalle_items: limpiarDetalle(l.detalle).length ? limpiarDetalle(l.detalle) : null });
         // El tipo de servicio elegido/escrito acá también alimenta el catálogo compartido.
         if (desc && !tipos.some((t) => t.nombre.toLowerCase() === desc.toLowerCase())) tiposNuevos.push(desc.toUpperCase());
       } else {
         const tipo = l.tipo.trim();
         if (!recargaCat && !tipo) { setError(`Indicá el servicio de "${cat}".`); return; }
         const nombre = recargaCat ? `${cat}${tipo ? ` · ${tipo}` : ''}${recargaSuf}`.toUpperCase() : tipo.toUpperCase();
-        items.push({ sku: `SRV-${items.length + 1}`, nombre, cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: tipo.toUpperCase() || null, ...recarga, comprar: true });
+        items.push({ sku: `SRV-${items.length + 1}`, nombre, cantidad: cant, precio, servicio_categoria: cat, servicio_tipo: tipo.toUpperCase() || null, ...recarga, comprar: true, detalle_items: limpiarDetalle(l.detalle).length ? limpiarDetalle(l.detalle) : null });
         if (tipo && !tipos.some((t) => t.nombre.toLowerCase() === tipo.toLowerCase())) tiposNuevos.push(tipo.toUpperCase());
       }
     }
@@ -3552,8 +3583,10 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
         try { await crearCatalogoPedido('servicio_tipo', t, authEmail); } catch { /* duplicado: no bloquea */ }
       }
       try { await ensureUnidadSolicitante(unidad, authEmail); } catch { /* ya existe */ }
+      const anticipoNum = anticipoOn ? (Number(anticipoMonto) || 0) : 0;
+      if (anticipoOn && anticipoNum > 0 && total <= 0) { setError('Cargá el precio estimado de los servicios antes del anticipo.'); setSaving(false); return; }
       if (esEdicion) {
-        await actualizarOrden(orden!, {
+        const upd = await actualizarOrden(orden!, {
           items,
           notas: nota.trim() || null,
           solicitante: unidad,
@@ -3561,6 +3594,12 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           ci_solicitante: orden!.ci_solicitante ?? null,
           moneda,
         }, authEmail);
+        // Anticipo: registrar/editar si está activo; quitar si se desactivó y existía.
+        if (anticipoOn && anticipoNum > 0) {
+          await guardarAnticipoOrden({ orden: upd, anticipoMonto: anticipoNum, anticipoMoneda, actor: authEmail });
+        } else if (!anticipoOn && upd.anticipo_monto != null) {
+          await guardarAnticipoOrden({ orden: upd, anticipoMonto: 0, anticipoMoneda, actor: authEmail });
+        }
         toast(`Servicio ${codigo} actualizado`, 'success');
       } else {
         const nueva = await crearOrden({
@@ -3589,6 +3628,11 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
               precio_unitario: null,
             });
           } catch { /* el descuento no bloquea la creación del servicio */ }
+        }
+        // Pago anticipado (opcional): genera el crédito por el pendiente.
+        if (anticipoOn && anticipoNum > 0) {
+          try { await guardarAnticipoOrden({ orden: nueva, anticipoMonto: anticipoNum, anticipoMoneda, actor: authEmail }); }
+          catch (e) { toast(e instanceof Error ? e.message : 'El servicio se creó pero no se pudo registrar el anticipo.', 'warning'); }
         }
         toast(`Servicio ${codigo} creado`, 'success');
       }
@@ -3780,6 +3824,8 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                     </div>
                   </div>
                 )}
+                {/* Detalle libre del renglón (piezas/reparaciones) — siempre disponible, opcional. */}
+                <DetalleItemsEditor value={l.detalle} onChange={(v) => setLinea(l.id, { detalle: v })} />
               </div>
             );
           })}
@@ -3795,6 +3841,28 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
       <div className="form-row">
         <label>Nota (opcional)</label>
         <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Detalle / referencia del servicio…" />
+      </div>
+
+      {/* Pago anticipado (opcional): se registra y genera un crédito por el pendiente. Editable. */}
+      <div className="form-row" style={{ borderTop: '1px solid var(--border)', paddingTop: '.8rem' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+          <input type="checkbox" checked={anticipoOn} onChange={(e) => setAnticipoOn(e.target.checked)} />
+          <span>💳 Pago anticipado <span className="muted" style={{ fontWeight: 400 }}>(se registra y genera un crédito por el pendiente; no descuenta de una caja real)</span></span>
+        </label>
+        {anticipoOn && (
+          <div style={{ marginTop: '.5rem' }}>
+            <div className="view-toggle" role="tablist" style={{ margin: '0 0 .4rem' }}>
+              <button type="button" className={anticipoMoneda === 'USD' ? 'active' : ''} onClick={() => setAnticipoMoneda('USD')}>$ Dólares</button>
+              <button type="button" className={anticipoMoneda === 'Bs' ? 'active' : ''} onClick={() => setAnticipoMoneda('Bs')}>Bs Bolívares</button>
+            </div>
+            <input className="input mono" type="number" min={0} step="any" value={anticipoMonto} onChange={(e) => setAnticipoMonto(e.target.value)} placeholder="Monto del anticipo" />
+            {anticipoMoneda !== moneda && <small className="muted" style={{ display: 'block' }}>Se convierte a {moneda === 'USD' ? '$' : 'Bs'} con la tasa BCV para calcular el pendiente.</small>}
+            {total > 0 && (Number(anticipoMonto) || 0) > 0 && anticipoMoneda === moneda && (
+              <small className="muted" style={{ display: 'block' }}>Pendiente: <strong className="mono">{fmtMonto(Math.max(0, total - (Number(anticipoMonto) || 0)), moneda)}</strong> — queda como crédito en Tesorería.</small>
+            )}
+            <small className="muted" style={{ display: 'block', fontSize: '.72rem' }}>Se puede editar o quitar mientras el servicio no esté pagado.</small>
+          </div>
+        )}
       </div>
 
       {total > 0 && <div className="muted" style={{ textAlign: 'right', fontSize: '.85rem' }}>Total estimado: <strong className="mono">{money(total)}</strong></div>}
@@ -3862,7 +3930,20 @@ function CrearOrdenModal({
   const notaRef = useRef<HTMLTextAreaElement>(null);
   const finalidadRef = useRef<Record<string, string>>({});
   const [urgente, setUrgente] = useState(orden?.urgente ?? false);
-  const [imagen, setImagen] = useState<File | null>(null);
+  // Imágenes de referencia de la OP (hasta 4). En edición se conservan las que ya tenía.
+  const [imagenes, setImagenes] = useState<File[]>([]);
+  const [imagenesExist] = useState<OfertaAdjunto[]>(() => (
+    orden?.imagenes?.length ? orden.imagenes : (orden?.imagen_path ? [{ path: orden.imagen_path, filename: 'imagen' }] : [])
+  ));
+  const [imagenesQuitar, setImagenesQuitar] = useState<string[]>([]);
+  const totalImg = imagenesExist.filter((a) => !imagenesQuitar.includes(a.path)).length + imagenes.length;
+  function agregarImagenes(files: FileList | null) {
+    if (!files?.length) return;
+    const cupo = Math.max(0, MAX_IMAGENES_OP - totalImg);
+    const nuevas = Array.from(files).filter((f) => !f.type || f.type.startsWith('image/')).slice(0, cupo);
+    if (Array.from(files).length > nuevas.length) toast(`Máximo ${MAX_IMAGENES_OP} imágenes.`, 'warning');
+    setImagenes((prev) => [...prev, ...nuevas]);
+  }
 
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
   // el resto se completa luego desde el módulo de inventario).
@@ -4006,9 +4087,9 @@ function CrearOrdenModal({
           .filter((i) => (i.nombre ?? '').trim() && i.nombre !== orig.get(i.sku))
           .map((i) => ({ productoId: i.productoId, sku: i.sku, nombre: i.nombre }));
         if (cambios.length) await sincronizarNombreProductos(cambios).catch(() => { /* no bloquear */ });
-        if (imagen) {
-          try { await adjuntarImagenOrden(saved.id, imagen); }
-          catch (e) { toast(`Orden guardada, pero no se pudo subir la imagen: ${e instanceof Error ? e.message : ''}`, 'warning'); }
+        if (imagenes.length || imagenesQuitar.length) {
+          try { await guardarImagenesOrden(saved.id, imagenes, imagenesExist, imagenesQuitar); }
+          catch (e) { toast(`Orden guardada, pero no se pudieron subir las imágenes: ${e instanceof Error ? e.message : ''}`, 'warning'); }
         }
         notify(`Orden ${saved.codigo} editada${urgente ? ' · URGENTE' : ''}`, 'success', { link: '#/app/pedidos' });
         onCreated();
@@ -4027,9 +4108,9 @@ function CrearOrdenModal({
         ci_solicitante: ciValor || null,
         urgente,
       });
-      if (imagen) {
-        try { await adjuntarImagenOrden(saved.id, imagen); }
-        catch (e) { toast(`Orden creada, pero no se pudo subir la imagen: ${e instanceof Error ? e.message : ''}`, 'warning'); }
+      if (imagenes.length) {
+        try { await guardarImagenesOrden(saved.id, imagenes); }
+        catch (e) { toast(`Orden creada, pero no se pudieron subir las imágenes: ${e instanceof Error ? e.message : ''}`, 'warning'); }
       }
       notify(`Nueva orden de pedido ${saved.codigo}${urgente ? ' · URGENTE' : ''} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
@@ -4266,10 +4347,22 @@ function CrearOrdenModal({
       </div>
 
       <div className="form-row" style={{ marginTop: '.2rem' }}>
-        <label>Imagen de referencia <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
-        <input type="file" accept="image/*" className="input" onChange={(e) => setImagen(e.target.files?.[0] ?? null)} />
-        {imagen && <small className="muted">📎 {imagen.name} ({(imagen.size / 1024 / 1024).toFixed(2)} MB)</small>}
-        <small className="muted">Foto del repuesto/modelo a comprar. Se adjunta a la orden y queda en su trazabilidad.</small>
+        <label>Imágenes de referencia <span className="muted" style={{ fontWeight: 400 }}>(hasta {MAX_IMAGENES_OP} · opcional)</span></label>
+        <input type="file" accept="image/*" multiple className="input" disabled={totalImg >= MAX_IMAGENES_OP} onChange={(e) => { agregarImagenes(e.target.files); e.target.value = ''; }} />
+        {/* Imágenes que ya tenía la OP (en edición): se pueden quitar. */}
+        {imagenesExist.filter((a) => !imagenesQuitar.includes(a.path)).map((a) => (
+          <div key={a.path} className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.4rem', marginTop: '.2rem' }}>
+            📎 {a.filename || 'imagen'}
+            <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', color: 'var(--danger)' }} onClick={() => setImagenesQuitar((p) => [...p, a.path])} title="Quitar">✕</button>
+          </div>
+        ))}
+        {imagenes.map((f, i) => (
+          <div key={`${f.name}-${i}`} className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.4rem', marginTop: '.2rem' }}>
+            ✓ {f.name} ({(f.size / 1024 / 1024).toFixed(2)} MB)
+            <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', color: 'var(--danger)' }} onClick={() => setImagenes((prev) => prev.filter((_, k) => k !== i))} title="Quitar">✕</button>
+          </div>
+        ))}
+        <small className="muted">Fotos del repuesto/modelo a comprar (máx. {MAX_IMAGENES_OP}). Se adjuntan a la orden y quedan en su trazabilidad.</small>
       </div>
 
       <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>

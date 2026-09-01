@@ -781,6 +781,15 @@ export interface ItemOrden {
   repuesto_nombre?: string | null;
   repuesto_cantidad?: number | null;
   repuesto_almacen?: string | null;
+  /** Servicios: detalle libre del renglón (piezas a reparar / trabajos a realizar).
+   *  Siempre opcional; se muestra al imprimir y es editable después de crear. */
+  detalle_items?: DetalleServicioItem[] | null;
+}
+
+/** Sub-ítem de detalle de un renglón de servicio (pieza/reparación/trabajo). */
+export interface DetalleServicioItem {
+  descripcion: string;
+  cantidad?: number | null;
 }
 
 export interface EventoHistorial {
@@ -897,6 +906,15 @@ export interface Orden {
   urgente?: boolean | null;
   /** Imagen de referencia adjunta a la OP (path en el bucket de adjuntos de OC). */
   imagen_path?: string | null;
+  /** Imágenes de referencia de la OP (hasta 4). `imagen_path` = primera (legado). */
+  imagenes?: OfertaAdjunto[] | null;
+  /** Pago anticipado (servicios): monto y moneda del anticipo. Solo se registra, no
+   *  mueve caja real; genera un crédito (cuenta por pagar) por el pendiente = total − anticipo. */
+  anticipo_monto?: number | null;
+  anticipo_moneda?: string | null;
+  anticipo_at?: string | null;
+  /** Cuenta por pagar (Tesorería) generada por el pendiente del anticipo. */
+  credito_cxp_id?: string | null;
   finalizada_por?: string | null;
   finalizada_en?: string | null;
   rechazada_por?: string | null;

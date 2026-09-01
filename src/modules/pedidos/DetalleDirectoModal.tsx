@@ -4,6 +4,7 @@ import { toast } from '@/shared/ui/Toast';
 import { num, dateTime } from '@/shared/lib/format';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { AdjuntoFactura } from './compras.repository';
+import type { DetalleServicioItem, EventoHistorial } from '@/shared/lib/types';
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,12 +16,12 @@ function montoCaja(n: number | null | undefined, moneda: string): string {
  * Se abre al hacer clic en la fila (lista) o la tarjeta (kanban). Los botones de acción
  * (PDF vista previa, editar, facturas, finalizar…) llegan por `footer`.
  */
-export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, items, moneda, total, nota, pagoExterno, facturas, urlFor, footer, onClose }: {
+export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, items, moneda, total, nota, pagoExterno, facturas, urlFor, footer, onClose, anticipo, historial }: {
   title: string;
   estadoLabel: string;
   ficha: Array<[string, string]>;
   itemsTitle: string;
-  items: { nombre: string; cantidad: number; gasto: number | null | undefined }[];
+  items: { nombre: string; cantidad: number; gasto: number | null | undefined; detalle?: DetalleServicioItem[] | null }[];
   moneda: string;
   total: number | null | undefined;
   nota?: string | null;
@@ -30,6 +31,10 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
   urlFor: (path: string) => Promise<string>;
   footer: ReactNode;
   onClose: () => void;
+  /** Pago anticipado (servicios): anticipo + pendiente para mostrar el resumen. */
+  anticipo?: { monto: number; moneda: string; pendiente: number | null; monedaServicio: string } | null;
+  /** Trazabilidad de eventos (anticipo, crédito…). */
+  historial?: EventoHistorial[];
 }) {
   async function abrir(a: AdjuntoFactura) {
     try { await previewFileUrl(await urlFor(a.path), a.filename); }
@@ -65,9 +70,17 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
             {items.map((it, i) => {
               const g = it.gasto != null ? Number(it.gasto) : null;
               const cu = g != null && it.cantidad > 0 ? g / it.cantidad : null;
+              const det = (it.detalle ?? []).filter((d) => (d.descripcion ?? '').trim());
               return (
                 <tr key={i}>
-                  <td>{it.nombre}</td>
+                  <td>
+                    {it.nombre}
+                    {det.length > 0 && (
+                      <ul className="muted" style={{ margin: '.25rem 0 0', paddingLeft: '1rem', fontSize: '.78rem' }}>
+                        {det.map((d, j) => <li key={j}>{d.descripcion}{d.cantidad != null ? ` · ${num(d.cantidad)}` : ''}</li>)}
+                      </ul>
+                    )}
+                  </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{cu != null ? montoCaja(cu, moneda) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{g != null ? montoCaja(g, moneda) : '—'}</td>
@@ -83,6 +96,29 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
           </tfoot>
         </table>
       </div>
+
+      {anticipo && (
+        <div className="card" style={{ margin: '.8rem 0 0', background: 'var(--bg-2)' }}>
+          <div style={{ color: 'var(--success)', fontSize: '.86rem' }}>💳 Pago anticipado: <strong className="mono">{montoCaja(anticipo.monto, anticipo.moneda)}</strong>{anticipo.moneda !== anticipo.monedaServicio && anticipo.pendiente != null ? <span className="muted"> (convertido a {anticipo.monedaServicio})</span> : null}</div>
+          <div style={{ color: 'var(--warning)', fontSize: '.86rem' }}>Pendiente (crédito en Tesorería): <strong className="mono">{anticipo.pendiente != null ? montoCaja(anticipo.pendiente, anticipo.monedaServicio) : '—'}</strong></div>
+        </div>
+      )}
+
+      {historial && historial.length > 0 && (
+        <>
+          <h4 style={{ margin: '.8rem 0 .4rem' }}>Trazabilidad</h4>
+          <div className="timeline">
+            {historial.map((h, i) => (
+              <div key={i} className="tl-item">
+                <span className="tl-dot info" />
+                <div className="tl-title">{h.evento === 'anticipo' ? '💳 Anticipo' : h.evento === 'credito_saldado' ? '🧾 Crédito generado' : h.evento}</div>
+                {h.motivo && <div className="muted" style={{ fontSize: '.8rem' }}>{h.motivo}</div>}
+                <div className="tl-meta">{dateTime(h.at)} · {h.actor}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {nota?.trim() && (
         <>

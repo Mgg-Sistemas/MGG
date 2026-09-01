@@ -163,10 +163,15 @@ export function AgregarOfertaModal({
       validos.push(f);
     }
     // Se acumulan (podés ir agregando fotos en varias selecciones), sin duplicar por nombre+tamaño.
+    // Tope de 4 adjuntos por cotización (contando los que ya tenía la oferta).
+    const MAX_ADJUNTOS = 4;
     setPdfFiles((prev) => {
       const key = (f: File) => `${f.name}-${f.size}`;
       const ya = new Set(prev.map(key));
-      return [...prev, ...validos.filter((f) => !ya.has(key(f)))];
+      const restantes = Math.max(0, MAX_ADJUNTOS - adjuntosExist.length - prev.length);
+      const aAgregar = validos.filter((f) => !ya.has(key(f))).slice(0, restantes);
+      if (validos.length > aAgregar.length) toast(`Máximo ${MAX_ADJUNTOS} imágenes por cotización.`, 'warning');
+      return [...prev, ...aAgregar];
     });
     e.target.value = '';
   }
@@ -823,7 +828,7 @@ export function AgregarOfertaModal({
       </div>
 
       <div className="form-row">
-        <label>Cargue la cotización del proveedor <span className="muted" style={{ fontWeight: 400 }}>(varias fotos/PDF · opcional)</span></label>
+        <label>Cargue la cotización del proveedor <span className="muted" style={{ fontWeight: 400 }}>(hasta 4 fotos/PDF · opcional)</span></label>
         <input type="file" className="input" accept="application/pdf,image/*" multiple onChange={handleFileChange} />
         {pdfFiles.length > 0 && (
           <div style={{ marginTop: '.35rem', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
@@ -855,7 +860,7 @@ export function AgregarOfertaModal({
           )
         )}
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-          PDF o imágenes · máximo 10 MB c/u. Podés seleccionar o ir agregando varias fotos de la cotización.
+          PDF o imágenes · máximo 4 archivos · 10 MB c/u. Podés ir agregando varias fotos de la cotización.
         </div>
       </div>
     </Modal>
