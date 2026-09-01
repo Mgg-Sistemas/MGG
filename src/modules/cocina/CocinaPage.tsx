@@ -27,6 +27,7 @@ import {
 import { crearAlertaMercado, listAlertasMercadoPendientes } from './alertasMercado.repository';
 import { mercadoActivo, resumenMercado, iniciarMercado, type MercadoCocina, type ResumenMercado } from './mercados.repository';
 import { MercadoPanel } from './MercadoPanel';
+import { MercadosHistoricoModal } from './MercadosHistorico';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -195,6 +196,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
   const [editComida, setEditComida] = useState<CocinaComida | null>(null);
   const [delComida, setDelComida] = useState<CocinaComida | null>(null);
   const [alertando, setAlertando] = useState(false);
+  const [histOpen, setHistOpen] = useState(false);
 
   // Alerta "a restablecer el mercado": avisa a Pedidos/Compras que hay que reponer víveres.
   async function enviarAlertaMercado() {
@@ -217,8 +219,10 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
   const [iniciando, setIniciando] = useState(false);
   const [fechaInicioMercado, setFechaInicioMercado] = useState(() => new Date().toISOString().slice(0, 10));
 
-  const loadMercado = useCallback(async () => {
-    setMercadoLoading(true);
+  // `background`: recarga sin poner el panel en "Cargando…" (para no parpadear en cada
+  // evento de realtime). Solo la PRIMERA carga muestra el spinner.
+  const loadMercado = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
+    if (!background) setMercadoLoading(true);
     try {
       const m = await mercadoActivo(cocinaId);
       setMercado(m);
@@ -234,7 +238,9 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
     finally { setLoading(false); }
   }, [cocinaId]);
   useEffect(() => { void reload(); void loadMercado(); }, [reload, loadMercado]);
-  useRealtime(['cocina_comidas', 'productos', 'existencias', 'movimientos', 'mercados_cocina'], () => { void reload(); void loadMercado(); });
+  // `existencias` no afecta al resumen del mercado (deriva de saldo + movimientos + comidas),
+  // así que no dispara recarga. El resto recarga en segundo plano (sin borrar el panel).
+  useRealtime(['cocina_comidas', 'productos', 'movimientos', 'mercados_cocina'], () => { void reload(); void loadMercado({ background: true }); });
 
   async function iniciar() {
     setIniciando(true);
@@ -259,6 +265,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen / Consumo</button>
           <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(comidas, 'Todas las comidas registradas')).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!comidas.length}>↓ Reporte PDF</button>
+          <button className="btn btn-ghost" onClick={() => setHistOpen(true)} title="Mercados cerrados: ver, reportes, reabrir">🔒 Mercados cerrados</button>
           {canWrite && (
             <button className="btn btn-ghost" style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
               onClick={enviarAlertaMercado} disabled={alertando} title="Avisar a Pedidos/Compras que hay que reponer víveres">
@@ -288,7 +295,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
         </div>
       ) : resumen ? (
         <MercadoPanel resumen={resumen} cocinaNombre={info.cocina.nombre} almacen={almacen} canWrite={canWrite} actor={actor} userEmail={userEmail}
-          onReload={async () => { await loadMercado(); await reload(); }}
+          onReload={async () => { await loadMercado({ background: true }); await reload(); }}
           onEditComida={(c) => setEditComida(c)} onDelComida={(c) => setDelComida(c)} />
       ) : null}
 
@@ -296,7 +303,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
         <AnadirMovimientoModal cocinaId={cocinaId} almacen={almacen} actor={actor} actorName={userEmail}
           comida={editComida}
           onClose={() => { setModal('none'); setEditComida(null); }}
-          onSaved={async () => { setModal('none'); setEditComida(null); await reload(); await loadMercado(); }} />
+          onSaved={async () => { setModal('none'); setEditComida(null); await reload(); await loadMercado({ background: true }); }} />
       )}
       {delComida && (
         <ConfirmDialog title="Eliminar movimiento"
@@ -305,11 +312,17 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
           onCancel={() => setDelComida(null)}
           onConfirm={async () => {
             const c = delComida; setDelComida(null);
-            try { await eliminarComida(c.id, actor, userEmail); toast('Movimiento eliminado', 'success'); await reload(); await loadMercado(); }
+            try { await eliminarComida(c.id, actor, userEmail); toast('Movimiento eliminado', 'success'); await reload(); await loadMercado({ background: true }); }
             catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
           }} />
       )}
       {modal === 'resumen' && <ResumenModal cocinaId={cocinaId} almacen={almacen} onClose={() => setModal('none')} />}
+      {histOpen && (
+        <MercadosHistoricoModal cocinaId={cocinaId} cocinaNombre={info.cocina.nombre} almacen={almacen}
+          canWrite={canWrite} actor={actor} userEmail={userEmail}
+          onClose={() => setHistOpen(false)}
+          onChanged={async () => { await loadMercado({ background: true }); await reload(); }} />
+      )}
     </div>
   );
 }

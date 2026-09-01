@@ -152,7 +152,9 @@ async function entradasDe(
 ): Promise<EntradasResult> {
   const { desde, hasta } = ventana(m);
   const scope = await almacenesScope(almacen);
-  let q = supabase.from('movimientos').select('*').gt('delta', 0).gte('at', desde).lte('at', hasta);
+  let q = supabase.from('movimientos')
+    .select('producto_id, delta, at, precio_unitario, detalle, almacen, ref_tipo')
+    .gt('delta', 0).gte('at', desde).lte('at', hasta);
   if (scope) q = q.in('almacen', Array.from(scope));
   const { data, error } = await q.order('at', { ascending: false });
   if (error) throw error;
@@ -356,4 +358,34 @@ export async function cerrarMercado(mercado: MercadoCocina, almacen: string | nu
   if (e2) throw e2;
 
   return { cerrado: normalizar(upd as Record<string, unknown>), siguiente: normalizar(sig as Record<string, unknown>), snapshot };
+}
+
+/**
+ * Reabre un mercado CERRADO para editarlo: vuelve a 'abierto' y borra el cierre.
+ * El mercado siguiente (que se había abierto al cerrar) se elimina — se regenerará
+ * al re-cerrar, con el saldo recalculado. Solo se puede reabrir el ÚLTIMO cerrado
+ * (si hay uno más nuevo cerrado, hay que reabrir ese primero). Respeta el índice
+ * único de "un solo abierto por cocina".
+ */
+export async function reabrirMercado(mercado: MercadoCocina): Promise<void> {
+  if (mercado.estado !== 'cerrado') throw new Error('Solo se puede reabrir un mercado cerrado.');
+  const todos = await listMercados(mercado.cocina_id);
+  const posteriores = todos.filter((x) => x.numero > mercado.numero);
+  const cerradoPosterior = posteriores.find((x) => x.estado === 'cerrado');
+  if (cerradoPosterior) throw new Error(`Primero reabrí el mercado #${cerradoPosterior.numero} (es más reciente).`);
+  const sucesorAbierto = posteriores.find((x) => x.estado === 'abierto');
+  if (sucesorAbierto) {
+    const { error } = await supabase.from(TABLE).delete().eq('id', sucesorAbierto.id);
+    if (error) throw error;
+  }
+  const { error } = await supabase.from(TABLE)
+    .update({ estado: 'abierto', cierre: null, cerrado_por: null, cerrado_por_nombre: null, cerrado_en: null })
+    .eq('id', mercado.id);
+  if (error) throw error;
+}
+
+/** Elimina un mercado del histórico (papelera). No toca comidas ni inventario. */
+export async function eliminarMercado(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE).delete().eq('id', id);
+  if (error) throw error;
 }
