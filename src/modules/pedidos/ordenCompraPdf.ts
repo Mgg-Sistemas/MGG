@@ -377,16 +377,20 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       startY: y,
       head: [['SKU', 'Descripción', 'Marca / Modelo', 'Categoría', 'Subcategoría', 'Cantidad', 'Precio unit.', 'Subtotal']],
       // Marca/Modelo en su propia columna: solo aparece poblada cuando el usuario la cargó en la oferta.
-      body: o.items.map((it) => [
+      body: o.items.map((it) => {
+        const det = (it.detalle_items ?? []).filter((d) => (d.descripcion ?? '').trim());
+        const detTxt = det.length ? `\n` + det.map((d) => `  • ${d.descripcion}${d.cantidad != null ? ` · ${num(Number(d.cantidad))}` : ''}`).join('\n') : '';
+        return [
         it.sku,
-        it.nombre,
+        it.nombre + detTxt,
         [it.marca, it.modelo].filter(Boolean).join(' · ') || '—',
         it.servicio_categoria?.trim() || '—',
         it.servicio_tipo?.trim() || '—',
         num(it.cantidad),
         money(it.precio),
         money(it.cantidad * it.precio),
-      ]),
+      ];
+      }),
       foot: [['', '', '', '', '', '', esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL', money(o.total)]],
       theme: 'grid',
       headStyles: { fillColor: [255, 138, 0], textColor: 255 },
@@ -410,6 +414,25 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
   }
   y += 20;
+
+  // Pago anticipado (servicios): anticipo + pendiente (el pendiente queda como crédito en Tesorería).
+  if (orden.anticipo_monto != null) {
+    const monedaOrden = orden.moneda === 'Bs' ? 'Bs' : 'USD';
+    const mismaMoneda = (orden.anticipo_moneda ?? monedaOrden) === monedaOrden;
+    const pend = mismaMoneda ? Math.max(0, Number(orden.total) - Number(orden.anticipo_monto)) : null;
+    autoTable(doc, {
+      startY: y,
+      body: [
+        ['Pago anticipado', money(orden.anticipo_monto, orden.anticipo_moneda ?? monedaOrden)],
+        ['Pendiente (crédito en Tesorería)', pend != null ? money(pend, monedaOrden) : 'según tasa BCV'],
+      ],
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: { 0: { fontStyle: 'bold', halign: 'right', cellWidth: 260 }, 1: { halign: 'right' } },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
+  }
 
   const pageH = doc.internal.pageSize.getHeight();
   const FOOTER_RESERVA = 100; // espacio reservado para firmas + pie

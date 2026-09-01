@@ -13,6 +13,7 @@ import type {
   EstadoOrden,
   EventoHistorial,
   ItemOrden,
+  OfertaAdjunto,
   Orden,
   PagoMetodo,
   Producto,
@@ -292,6 +293,90 @@ function appendHistorial(
     ...extra,
   };
   return [...(o.historial ?? []), entry];
+}
+
+/** Formato corto de moneda para notas de trazabilidad. */
+function fmtMonedaOrden(n: number, moneda: string): string {
+  const s = (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return moneda === 'Bs' ? `Bs ${s}` : `$ ${s}`;
+}
+
+export interface AnticipoOrdenInput {
+  orden: Orden;
+  /** Monto del anticipo (0 o vacío = quitar el anticipo). */
+  anticipoMonto: number;
+  /** Moneda del anticipo: 'USD' o 'Bs' (puede diferir de la moneda del servicio). */
+  anticipoMoneda: string;
+  actor: string;
+}
+
+/**
+ * Registra / EDITA / QUITA un PAGO ANTICIPADO de un Servicio (OP con clase='servicio').
+ * NO mueve caja real: solo deja asentado el anticipo y genera/actualiza una CUENTA POR PAGAR
+ * INDEPENDIENTE (crédito 1:1, visible en Tesorería) por el PENDIENTE = total − anticipo.
+ * Si el anticipo va en otra moneda que el servicio, se convierte con la tasa BCV del día.
+ * Editable mientras el servicio no esté pagado; el saldo pendiente vive en la Cuenta por Pagar.
+ */
+export async function guardarAnticipoOrden(input: AnticipoOrdenInput): Promise<Orden> {
+  const { orden } = input;
+  const monedaOrden = orden.moneda === 'Bs' ? 'Bs' : 'USD';
+  const monto = Math.round((Number(input.anticipoMonto) || 0) * 100) / 100;
+  const now = new Date().toISOString();
+
+  // Quitar anticipo (monto 0): borra el crédito si no tiene abonos y limpia los campos.
+  if (monto <= 0) {
+    if (orden.credito_cxp_id) {
+      const { data: cta } = await supabase.from('cuentas_por_pagar').select('abonado').eq('id', orden.credito_cxp_id).single();
+      if ((Number((cta as { abonado?: number } | null)?.abonado) || 0) > 0) throw new Error('El crédito del anticipo ya tiene abonos en Tesorería; no se puede quitar.');
+      await supabase.from('cuentas_por_pagar').delete().eq('id', orden.credito_cxp_id);
+    }
+    const { data, error } = await supabase.from(TABLE)
+      .update({ anticipo_monto: null, anticipo_moneda: null, anticipo_at: null, credito_cxp_id: null, historial: appendHistorial(orden, 'anticipo', input.actor, { motivo: 'Anticipo eliminado' }) })
+      .eq('id', orden.id).select('*').single();
+    if (error) throw error;
+    return data as Orden;
+  }
+
+  const total = Math.round((Number(orden.total) || 0) * 100) / 100;
+  if (total <= 0) throw new Error('El servicio no tiene total (agregá ítems con precio antes del anticipo).');
+  const monedaAnt = input.anticipoMoneda === 'Bs' ? 'Bs' : 'USD';
+  let antEnMoneda = monto;
+  if (monedaAnt !== monedaOrden) {
+    const tasa = (await getTasaHoy().catch(() => null))?.usd ?? null;
+    if (!tasa || tasa <= 0) throw new Error('No hay tasa BCV para convertir el anticipo a la moneda del servicio.');
+    antEnMoneda = monedaAnt === 'Bs' ? Math.round((monto / tasa) * 100) / 100 : Math.round((monto * tasa) * 100) / 100;
+  }
+  if (antEnMoneda >= total) throw new Error('El anticipo no puede ser igual o mayor al total del servicio.');
+  const pendiente = Math.round((total - antEnMoneda) * 100) / 100;
+
+  const contraparte = `Servicio ${orden.codigo}`;
+  const nota = `Servicio ${orden.codigo} · pendiente tras anticipo`;
+  let cuentaId = orden.credito_cxp_id ?? null;
+  if (cuentaId) {
+    const { data: cta, error: eCta } = await supabase.from('cuentas_por_pagar').select('abonado').eq('id', cuentaId).single();
+    if (eCta) throw eCta;
+    const abonado = Number((cta as { abonado?: number } | null)?.abonado) || 0;
+    if (pendiente < abonado) throw new Error(`El pendiente (${fmtMonedaOrden(pendiente, monedaOrden)}) no puede ser menor a lo ya abonado (${fmtMonedaOrden(abonado, monedaOrden)}).`);
+    const { error: eUpd } = await supabase.from('cuentas_por_pagar')
+      .update({ monto: pendiente, moneda: monedaOrden, estado: pendiente <= abonado ? 'saldada' : 'abierta', nota, updated_at: now })
+      .eq('id', cuentaId);
+    if (eUpd) throw eUpd;
+  } else {
+    const { data: nueva, error: eIns } = await supabase.from('cuentas_por_pagar')
+      .insert({ tipo: 'proveedor', contraparte, monto: pendiente, abonado: 0, moneda: monedaOrden, estado: 'abierta', nota, actor: input.actor, actor_name: null })
+      .select('id').single();
+    if (eIns) throw eIns;
+    cuentaId = (nueva as { id: string }).id;
+  }
+
+  const antTxt = monedaAnt !== monedaOrden
+    ? `Anticipo ${fmtMonedaOrden(monto, monedaAnt)} (= ${fmtMonedaOrden(antEnMoneda, monedaOrden)} BCV) · pendiente ${fmtMonedaOrden(pendiente, monedaOrden)}`
+    : `Anticipo ${fmtMonedaOrden(monto, monedaAnt)} · pendiente ${fmtMonedaOrden(pendiente, monedaOrden)}`;
+  const { data, error } = await supabase.from(TABLE)
+    .update({ anticipo_monto: monto, anticipo_moneda: monedaAnt, anticipo_at: now, credito_cxp_id: cuentaId, historial: appendHistorial(orden, 'anticipo', input.actor, { motivo: antTxt }) })
+    .eq('id', orden.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
 }
 
 export interface EditarOrdenInput {
@@ -1251,6 +1336,38 @@ export async function adjuntarImagenOrden(ordenId: string, file: File): Promise<
   const { error: uErr } = await supabase.from(TABLE).update({ imagen_path: path }).eq('id', ordenId);
   if (uErr) throw uErr;
   return path;
+}
+
+/** Máximo de imágenes de referencia por Solicitud de Pedido. */
+export const MAX_IMAGENES_OP = 4;
+
+/**
+ * Guarda hasta 4 imágenes de referencia de una OP (`ordenes.imagenes` jsonb): sube las nuevas,
+ * conserva las indicadas, borra del Storage las quitadas. `imagen_path` queda apuntando a la
+ * primera (compatibilidad con el visor legado). Reusa el bucket de adjuntos de OC.
+ */
+export async function guardarImagenesOrden(
+  ordenId: string,
+  nuevos: File[],
+  mantener: OfertaAdjunto[] = [],
+  quitarPaths: string[] = [],
+): Promise<OfertaAdjunto[]> {
+  const cupo = Math.max(0, MAX_IMAGENES_OP - mantener.filter((a) => !quitarPaths.includes(a.path)).length);
+  const subidas: OfertaAdjunto[] = [];
+  for (const f of nuevos.slice(0, cupo)) {
+    if (f.type && !f.type.startsWith('image/')) throw new Error(`"${f.name}": debe ser una imagen.`);
+    const safe = f.name.replace(/[^\w.\-]+/g, '_');
+    const path = `${ordenId}/op-img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safe}`;
+    const { error } = await supabase.storage.from(BUCKET_OC).upload(path, f, { upsert: true, contentType: f.type || 'image/jpeg' });
+    if (error) throw error;
+    subidas.push({ path, filename: f.name });
+  }
+  if (quitarPaths.length) { try { await supabase.storage.from(BUCKET_OC).remove(quitarPaths); } catch { /* el Storage no bloquea */ } }
+  const imagenes = [...mantener.filter((a) => !quitarPaths.includes(a.path)), ...subidas].slice(0, MAX_IMAGENES_OP);
+  const primera = imagenes[0]?.path ?? null;
+  const { error } = await supabase.from(TABLE).update({ imagenes, imagen_path: primera }).eq('id', ordenId);
+  if (error) throw error;
+  return imagenes;
 }
 
 export interface OrdenPorPagar {

@@ -46,6 +46,8 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     ...(servicio.solicitante_persona ? [['Quién lo solicita', servicio.solicitante_persona] as [string, string]] : []),
     ['Estado', servicio.estado === 'finalizada' ? 'Finalizada (pagada)' : 'En proceso'],
     ['Gasto total', totalGasto > 0 ? mc(totalGasto) : '—'],
+    ...(servicio.anticipo_monto != null ? [['Pago anticipado', `${servicio.anticipo_moneda === 'Bs' ? 'Bs' : '$'} ${Number(servicio.anticipo_monto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`] as [string, string]] : []),
+    ...(servicio.anticipo_monto != null && (servicio.anticipo_moneda ?? moneda) === moneda ? [['Pendiente (crédito)', mc(Math.max(0, totalGasto - Number(servicio.anticipo_monto)))] as [string, string]] : []),
     ...(servicio.pago_externo ? [['Pago a externo', 'Sí — reintegrar a la persona externa'] as [string, string]] : []),
     ['Generó', personaDe(servicio.actor, personas, servicio.actor_name)],
     ['Fecha de creación', fmt.dateTime(servicio.created_at)],
@@ -71,10 +73,14 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
       const cant = Number(it.cantidad) || 0;
       const g = it.gasto != null ? Number(it.gasto) : null;
       const cu = g != null && cant > 0 ? g / cant : null;
+      const det = (it.detalle_items ?? []).filter((d) => (d.descripcion ?? '').trim());
+      const detTxt = det.length
+        ? `\n` + det.map((d) => `  • ${d.descripcion}${d.cantidad != null ? ` · ${fmt.num(Number(d.cantidad))}` : ''}`).join('\n')
+        : '';
       return [
         it.servicio_categoria || '—',
         it.servicio_tipo || '—',
-        it.descripcion || '—',
+        (it.descripcion || '—') + detTxt,
         fmt.num(cant),
         cu != null ? mc(cu) : '—',
         g != null ? mc(g) : '—',

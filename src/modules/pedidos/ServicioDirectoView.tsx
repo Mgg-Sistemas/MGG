@@ -16,9 +16,14 @@ import {
   crearServicioDirecto, montarServicioDirecto, listServiciosDirectos, eliminarServicioDirecto,
   urlAdjuntoServicio, gestionarFacturasServicio, editarServicioDirectoFinalizado, esRecargaAgua, esRecarga, type ServicioDirecto, type ServicioDirectoItem, type LineaServicioInput,
 } from './serviciosDirectos.repository';
+import {
+  guardarDetalleServicioDirecto, guardarAnticipoServicioDirecto, limpiarDetalleItems,
+} from './serviciosDirectos.repository';
 import { FacturasModal } from './FacturasModal';
 import { EditarMontosModal } from './EditarMontosModal';
 import { DetalleDirectoModal } from './DetalleDirectoModal';
+import { DetalleItemsEditor } from './DetalleItemsEditor';
+import type { DetalleServicioItem } from '@/shared/lib/types';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 
 type Vista = 'kanban' | 'lista';
@@ -114,6 +119,8 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   const [facturas, setFacturas] = useState<ServicioDirecto | null>(null);
   const [editarMontos, setEditarMontos] = useState<ServicioDirecto | null>(null);
   const [detalle, setDetalle] = useState<ServicioDirecto | null>(null);
+  const [anticipo, setAnticipo] = useState<ServicioDirecto | null>(null);
+  const [editarDetalle, setEditarDetalle] = useState<ServicioDirecto | null>(null);
 
   // Solo la lista (los datos del equipo/proveedor van denormalizados en la fila):
   // una mutación o un evento realtime de servicios_directos pide UNA consulta.
@@ -187,7 +194,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
               <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((s) => (
-                  <ServicioCard key={s.id} servicio={s} onVer={() => setDetalle(s)} onFinalizar={() => setFinalizar(s)} onPdf={() => handlePdf(s)} onFacturas={() => setFacturas(s)} onEditarMontos={() => setEditarMontos(s)} onEliminar={() => setEliminar(s)} />
+                  <ServicioCard key={s.id} servicio={s} onVer={() => setDetalle(s)} onFinalizar={() => setFinalizar(s)} onPdf={() => handlePdf(s)} onFacturas={() => setFacturas(s)} onEditarMontos={() => setEditarMontos(s)} onEliminar={() => setEliminar(s)} onAnticipo={() => setAnticipo(s)} onEditarDetalle={() => setEditarDetalle(s)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -282,9 +289,11 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
             ['Pagado', detalle.finalizada_at ? dateTime(detalle.finalizada_at) : '—'],
           ]}
           itemsTitle="Servicios"
-          items={detalle.items.map((it) => ({ nombre: it.descripcion, cantidad: it.cantidad, gasto: it.gasto }))}
+          items={detalle.items.map((it) => ({ nombre: it.descripcion, cantidad: it.cantidad, gasto: it.gasto, detalle: it.detalle_items }))}
           moneda={detalle.moneda}
           total={detalle.gasto}
+          anticipo={detalle.anticipo_monto != null ? { monto: detalle.anticipo_monto, moneda: detalle.anticipo_moneda ?? detalle.moneda, pendiente: pendienteAnticipo(detalle), monedaServicio: detalle.moneda } : null}
+          historial={detalle.historial}
           nota={detalle.nota}
           pagoExterno={detalle.pago_externo ? (detalle.pago_externo_datos ?? '') : null}
           facturas={detalle.facturas}
@@ -302,11 +311,29 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           onClose={() => setDetalle(null)}
         />
       )}
+
+      {anticipo && (
+        <AnticipoModal servicio={anticipo} actor={actor} actorName={actorName}
+          onClose={() => setAnticipo(null)} onSaved={async () => { setAnticipo(null); await reloadLista(); }} />
+      )}
+
+      {editarDetalle && (
+        <DetalleEditModal servicio={editarDetalle}
+          onClose={() => setEditarDetalle(null)} onSaved={async () => { setEditarDetalle(null); await reloadLista(); }} />
+      )}
     </div>
   );
 }
 
-function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEditarMontos, onEliminar }: { servicio: ServicioDirecto; onVer: () => void; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEditarMontos: () => void; onEliminar: () => void }) {
+/** Pendiente de un servicio con anticipo, cuando anticipo y servicio van en la misma moneda. */
+function pendienteAnticipo(s: ServicioDirecto): number | null {
+  if (s.anticipo_monto == null || s.gasto == null) return null;
+  if ((s.anticipo_moneda ?? s.moneda) !== s.moneda) return null; // conversión BCV: el pendiente vive en el crédito
+  return Math.round((Number(s.gasto) - Number(s.anticipo_monto)) * 100) / 100;
+}
+
+function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEditarMontos, onEliminar, onAnticipo, onEditarDetalle }: { servicio: ServicioDirecto; onVer: () => void; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEditarMontos: () => void; onEliminar: () => void; onAnticipo: () => void; onEditarDetalle: () => void }) {
+  const pend = pendienteAnticipo(servicio);
   return (
     <div className="card" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver el detalle">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
@@ -336,16 +363,25 @@ function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEdita
       {servicio.estado === 'finalizada' && (
         <div style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
           <div>Monto: <strong className="mono">{servicio.gasto != null ? montoCaja(servicio.gasto, servicio.moneda) : '—'}</strong></div>
+          {servicio.anticipo_monto != null && (
+            <>
+              <div style={{ color: 'var(--success)' }}>Anticipo: <strong className="mono">{montoCaja(servicio.anticipo_monto, servicio.anticipo_moneda ?? servicio.moneda)}</strong></div>
+              <div style={{ color: 'var(--warning)' }}>Pendiente: <strong className="mono">{pend != null ? montoCaja(pend, servicio.moneda) : 'crédito en Tesorería'}</strong></div>
+            </>
+          )}
           {servicio.pagada_por && <div className="muted" style={{ fontSize: '.72rem' }}>Pagó: {servicio.pagada_por}</div>}
           <div className="muted"><AdjuntoLink servicio={servicio} /></div>
         </div>
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
+        <button className="btn btn-sm btn-ghost" onClick={onEditarDetalle} title="Detallar piezas/reparaciones de cada renglón">✎ Detalle</button>
         {servicio.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onEditarMontos} title="Editar montos (sincroniza Tesorería)">✎ Editar</button>}
         {servicio.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>}
         {servicio.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/monto (en Tesorería para pagar)">✎ Factura/monto</button>}
+        {servicio.estado === 'por_pagar' && !servicio.credito_cxp_id && <button className="btn btn-sm btn-ghost" onClick={onAnticipo} title="Registrar pago anticipado (genera crédito por el pendiente)">💳 Anticipo</button>}
+        {servicio.estado === 'finalizada' && servicio.anticipo_monto != null && <button className="btn btn-sm btn-ghost" onClick={onAnticipo} title="Editar el pago anticipado (ajusta el crédito pendiente)">💳 Editar anticipo</button>}
         {/* Un servicio directo FINALIZADO no se puede eliminar (registro definitivo). */}
         {servicio.estado !== 'finalizada' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar">🗑 Eliminar</button>}
       </div>
@@ -364,13 +400,13 @@ function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
 
 /* ───────── Modal: nuevo servicio directo (varios servicios) ───────── */
 
-interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; electro: string; cantidad: string; bombonas: string; kg: string; productoId: string; productoCant: string }
+interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; electro: string; cantidad: string; bombonas: string; kg: string; productoId: string; productoCant: string; detalle: DetalleServicioItem[] }
 
 function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, actorName, onClose, onSaved }: {
   categorias: CatalogoPedido[]; tipos: CatalogoPedido[]; equipos: MaquinariaEquipo[]; proveedores: Proveedor[];
   actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
-  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', bombonas: '', kg: '', productoId: '', productoCant: '1' });
+  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', bombonas: '', kg: '', productoId: '', productoCant: '1', detalle: [] });
   const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
   const [productos, setProductos] = useState<ProductoConStock[]>([]);
   useEffect(() => { listProductosConStock().then(setProductos).catch(() => setProductos([])); }, []);
@@ -444,6 +480,7 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
         cantidad: cant, bombonas: recargaCat ? bombonas : null, kgRecarga: kgTotal,
         productoId: prod?.id ?? null, productoNombre: prod?.nombre ?? null,
         productoCantidad: prod ? prodCant : null, productoAlmacen: prod?.almacen ?? null,
+        detalleItems: limpiarDetalleItems(l.detalle),
       });
     }
     setSaving(true);
@@ -632,6 +669,8 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                 </div>
               );
             })()}
+            {/* Detalle libre del renglón (piezas/reparaciones) — siempre disponible, opcional. */}
+            <DetalleItemsEditor value={l.detalle} onChange={(v) => set(l.id, { detalle: v })} />
           </div>
         ))}
 
@@ -794,6 +833,129 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
           )}
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/* ───────── Modal: PAGO ANTICIPADO (solo se registra; genera crédito por el pendiente) ───────── */
+
+function AnticipoModal({ servicio, actor, actorName, onClose, onSaved }: {
+  servicio: ServicioDirecto; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+}) {
+  const esEdicion = servicio.anticipo_monto != null;
+  const total = useMemo(() => Math.round(servicio.items.reduce((a, i) => a + (Number(i.gasto) || 0), 0) * 100) / 100, [servicio.items]);
+  const monedaServicio = servicio.moneda === 'Bs' ? 'Bs' : 'USD';
+  const [moneda, setMoneda] = useState<'USD' | 'Bs'>((servicio.anticipo_moneda === 'Bs' || servicio.anticipo_moneda === 'USD') ? servicio.anticipo_moneda : monedaServicio);
+  const [monto, setMonto] = useState(servicio.anticipo_monto != null ? String(servicio.anticipo_monto) : '');
+  const [tasa, setTasa] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { getTasaHoy().then((t) => setTasa(Number(t.usd) || 0)).catch(() => { /* sin tasa */ }); }, []);
+
+  // Anticipo convertido a la moneda del servicio (para el pendiente).
+  const antNum = Number(monto) || 0;
+  let antEnMoneda = antNum;
+  let sinTasa = false;
+  if (moneda !== monedaServicio) {
+    if (tasa > 0) antEnMoneda = moneda === 'Bs' ? Math.round((antNum / tasa) * 100) / 100 : Math.round((antNum * tasa) * 100) / 100;
+    else sinTasa = antNum > 0;
+  }
+  const pendiente = Math.round((total - antEnMoneda) * 100) / 100;
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (antNum <= 0) { setError('Indicá el monto del anticipo.'); return; }
+    if (sinTasa) { setError('No hay tasa BCV para convertir el anticipo a la moneda del servicio.'); return; }
+    if (antEnMoneda >= total) { setError('El anticipo no puede ser igual o mayor al total.'); return; }
+    setSaving(true);
+    try {
+      const r = await guardarAnticipoServicioDirecto({ servicio, anticipoMonto: antNum, anticipoMoneda: moneda, actor, actorName });
+      notify(`Anticipo ${esEdicion ? 'actualizado' : 'registrado'} · pendiente ${montoCaja(r.pendiente, monedaServicio)} (crédito en Tesorería)`, 'success', { link: '#/app/tesoreria' });
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar el anticipo.'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="sd-ant-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : (esEdicion ? 'Guardar cambios' : 'Registrar anticipo')}</button>
+    </>
+  );
+
+  return (
+    <Modal title={`${esEdicion ? 'Editar pago anticipado' : 'Pago anticipado'} · ${servicio.codigo ?? 'Servicio directo'}`} size="md" onClose={onClose} footer={footer}>
+      <form id="sd-ant-form" onSubmit={handleSubmit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+          El anticipo <strong>solo se registra</strong> (no descuenta de una caja real). Se genera automáticamente un <strong>crédito</strong> (Cuenta por Pagar) por el <strong>pendiente = total − anticipo</strong>, visible en <strong>Tesorería</strong>.
+        </p>
+        <div className="card" style={{ margin: '0 0 .6rem' }}>Total del servicio: <strong className="mono">{montoCaja(total, monedaServicio)}</strong></div>
+
+        <div className="form-row">
+          <label>Moneda del anticipo</label>
+          <div className="view-toggle" role="tablist" style={{ margin: 0 }}>
+            <button type="button" className={moneda === 'USD' ? 'active' : ''} onClick={() => setMoneda('USD')}>$ Dólares</button>
+            <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setMoneda('Bs')}>Bs Bolívares</button>
+          </div>
+          {moneda !== monedaServicio && (
+            <small className="muted">Se convierte a {monedaServicio} con la tasa BCV{tasa > 0 ? ` (${tasa.toLocaleString('es-VE')})` : ' (no disponible)'} para calcular el pendiente.</small>
+          )}
+        </div>
+
+        <div className="form-row">
+          <label>Monto del anticipo <span style={{ color: 'var(--danger)' }}>*</span></label>
+          <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0,00" required />
+        </div>
+
+        <div className="card" style={{ margin: '.4rem 0 0', background: 'var(--bg-2)' }}>
+          <div style={{ color: 'var(--success)' }}>Anticipo: <strong className="mono">{montoCaja(antNum, moneda)}</strong>{moneda !== monedaServicio && !sinTasa && antNum > 0 ? <span className="muted"> = {montoCaja(antEnMoneda, monedaServicio)}</span> : null}</div>
+          <div style={{ color: 'var(--warning)' }}>Pendiente (crédito): <strong className="mono">{sinTasa ? '—' : montoCaja(Math.max(0, pendiente), monedaServicio)}</strong></div>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/* ───────── Modal: editar el DETALLE (piezas/reparaciones) de un servicio ya creado ───────── */
+
+function DetalleEditModal({ servicio, onClose, onSaved }: {
+  servicio: ServicioDirecto; onClose: () => void; onSaved: () => void;
+}) {
+  const [items, setItems] = useState<ServicioDirectoItem[]>(() => servicio.items.map((it) => ({ ...it, detalle_items: it.detalle_items ?? [] })));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function setDetalle(i: number, v: DetalleServicioItem[]) {
+    setItems((arr) => arr.map((it, idx) => (idx === i ? { ...it, detalle_items: v } : it)));
+  }
+
+  async function handleSave() {
+    setError(null); setSaving(true);
+    try {
+      await guardarDetalleServicioDirecto(servicio.id, items);
+      toast('Detalle guardado', 'success');
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar el detalle.'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Guardando…' : 'Guardar detalle'}</button>
+    </>
+  );
+
+  return (
+    <Modal title={`Detalle · ${servicio.codigo ?? 'Servicio directo'}`} size="lg" onClose={onClose} footer={footer}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>Detallá las <strong>piezas / reparaciones / trabajos</strong> de cada renglón. Es opcional y sale en el PDF.</p>
+      {items.map((it, i) => (
+        <div key={i} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>
+          <strong style={{ fontSize: '.88rem' }}>{it.descripcion}</strong>
+          <span className="muted" style={{ fontSize: '.75rem' }}> · {num(it.cantidad)}</span>
+          <DetalleItemsEditor value={it.detalle_items ?? []} onChange={(v) => setDetalle(i, v)} />
+        </div>
+      ))}
     </Modal>
   );
 }

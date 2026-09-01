@@ -14,6 +14,8 @@ import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { crearCuentaPorPagarDeuda } from '@/modules/tesoreria/cuentasPorPagar.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import type { PagoLeg, AdjuntoFactura } from './compras.repository';
+import type { DetalleServicioItem, EventoHistorial } from '@/shared/lib/types';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 
 export type { AdjuntoFactura } from './compras.repository';
 
@@ -39,6 +41,8 @@ export interface ServicioDirectoItem {
   producto_nombre?: string | null;
   producto_cantidad?: number | null;
   producto_almacen?: string | null;
+  /** Detalle libre del renglón (piezas/reparaciones/trabajos). Opcional; sale en el PDF. */
+  detalle_items?: DetalleServicioItem[] | null;
 }
 
 /** ¿La categoría es de recarga (gas / oxígeno / extintores)? → pide bombonas + KG. */
@@ -84,6 +88,13 @@ export interface ServicioDirecto {
   con_abonos: boolean;
   /** Cuenta por pagar (Tesorería) que respalda el servicio a crédito. */
   credito_cxp_id: string | null;
+  /** Pago anticipado: monto + moneda del anticipo (solo se registra, no mueve caja real).
+   *  Genera un crédito por el pendiente = total − anticipo (convertido con tasa BCV si difiere la moneda). */
+  anticipo_monto: number | null;
+  anticipo_moneda: string | null;
+  anticipo_at: string | null;
+  /** Trazabilidad de eventos del servicio (anticipo, crédito, etc.). */
+  historial: EventoHistorial[];
   caja_id: string | null;
   caja_mov_id: string | null;
   adjunto_path: string | null;
@@ -113,6 +124,9 @@ function normalizar(row: Record<string, unknown>): ServicioDirecto {
     pago_externo: !!r.pago_externo, pago_externo_datos: r.pago_externo_datos ?? null,
     nota: r.nota ?? null, moneda: r.moneda ?? 'USD',
     con_abonos: !!r.con_abonos, credito_cxp_id: r.credito_cxp_id ?? null,
+    anticipo_monto: r.anticipo_monto ?? null, anticipo_moneda: r.anticipo_moneda ?? null,
+    anticipo_at: r.anticipo_at ?? null,
+    historial: Array.isArray(r.historial) ? r.historial : [],
   };
 }
 
@@ -152,6 +166,15 @@ export interface LineaServicioInput {
   productoNombre?: string | null;
   productoCantidad?: number | null;
   productoAlmacen?: string | null;
+  /** Detalle libre del renglón (piezas/reparaciones). Opcional. */
+  detalleItems?: DetalleServicioItem[] | null;
+}
+
+/** Normaliza una lista de detalle: recorta descripciones vacías y saca cantidades válidas. */
+export function limpiarDetalleItems(items?: DetalleServicioItem[] | null): DetalleServicioItem[] {
+  return (items ?? [])
+    .map((d) => ({ descripcion: (d.descripcion ?? '').trim(), cantidad: d.cantidad != null && Number(d.cantidad) > 0 ? Number(d.cantidad) : null }))
+    .filter((d) => d.descripcion.length > 0);
 }
 
 export interface CrearServicioDirectoInput {
@@ -189,6 +212,7 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
     const prodAlmacen = prodId ? (l.productoAlmacen?.trim() || null) : null;
     const desc = [cat, eq, tipo].filter(Boolean).join(' · ') + (extra ? ` · ${extra}` : '')
       + (prodId && prodCant ? ` · ${prodCant} ${prodNombre ?? 'repuesto'} del inventario` : '');
+    const detalle = limpiarDetalleItems(l.detalleItems);
     return {
       servicio_categoria: cat, servicio_tipo: tipo,
       equipo_id: l.equipoId ?? null, equipo_nombre: eq,
@@ -196,6 +220,7 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       bombonas, kg_recarga: kg,
       producto_id: prodId, producto_nombre: prodNombre,
       producto_cantidad: prodCant && prodCant > 0 ? prodCant : null, producto_almacen: prodAlmacen,
+      detalle_items: detalle.length ? detalle : null,
     };
   });
 
@@ -478,6 +503,118 @@ export async function dejarServicioACredito(input: DejarServicioACreditoInput): 
     })
     .eq('id', servicio.id);
   if (error) throw error;
+}
+
+/* ───────── Detalle de renglones (editable después de crear) ───────── */
+
+/**
+ * Guarda SOLO el detalle/ítems de los renglones (piezas/reparaciones) de un servicio ya creado,
+ * sin tocar montos ni estado. Sirve para agregar/editar el detalle en cualquier estado.
+ */
+export async function guardarDetalleServicioDirecto(servicioId: string, items: ServicioDirectoItem[]): Promise<ServicioDirecto> {
+  const limpios = items.map((i) => ({ ...i, detalle_items: limpiarDetalleItems(i.detalle_items).length ? limpiarDetalleItems(i.detalle_items) : null }));
+  const { data, error } = await supabase
+    .from('servicios_directos')
+    .update({ items: limpios, updated_at: new Date().toISOString() })
+    .eq('id', servicioId)
+    .select('*').single();
+  if (error) throw error;
+  return normalizar(data as Record<string, unknown>);
+}
+
+/* ───────── Pago anticipado (solo se registra, NO mueve caja) ───────── */
+
+export interface AnticipoServicioDirectoInput {
+  servicio: ServicioDirecto;
+  /** Monto del anticipo en la moneda elegida. */
+  anticipoMonto: number;
+  /** Moneda del anticipo: 'USD' o 'Bs' (puede diferir de la moneda del servicio). */
+  anticipoMoneda: string;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * Registra o EDITA un PAGO ANTICIPADO sobre un servicio: NO descuenta caja real, solo deja
+ * asentado el anticipo. Genera/actualiza una CUENTA POR PAGAR INDEPENDIENTE (crédito 1:1,
+ * visible en Tesorería) por el PENDIENTE = total − anticipo. Si el anticipo va en otra moneda
+ * que el servicio, se convierte con la tasa BCV del día. La primera vez (desde POR PAGAR) el
+ * servicio queda FINALIZADO y vinculado a esa cuenta (credito_cxp_id); en ediciones posteriores
+ * se ajusta el monto de la MISMA cuenta (respetando lo ya abonado).
+ */
+export async function guardarAnticipoServicioDirecto(input: AnticipoServicioDirectoInput): Promise<{ pendiente: number; anticipoEnMoneda: number }> {
+  const { servicio } = input;
+  const esEdicion = !!servicio.credito_cxp_id;
+  if (!esEdicion && servicio.estado !== 'por_pagar') throw new Error('Solo se registra un anticipo sobre un servicio que esté POR PAGAR.');
+  if (servicio.estado === 'en_proceso') throw new Error('Cargá primero la factura y el monto del servicio.');
+  const total = Math.round(servicio.items.reduce((a, i) => a + (Number(i.gasto) || 0), 0) * 100) / 100;
+  if (total <= 0) throw new Error('El servicio no tiene montos cargados.');
+
+  const monedaServicio = servicio.moneda === 'Bs' ? 'Bs' : 'USD';
+  const monedaAnticipo = input.anticipoMoneda === 'Bs' ? 'Bs' : 'USD';
+  const montoAnticipo = Math.round((Number(input.anticipoMonto) || 0) * 100) / 100;
+  if (montoAnticipo <= 0) throw new Error('Indicá el monto del anticipo.');
+
+  // Anticipo llevado a la moneda del servicio (conversión BCV solo si difieren).
+  let anticipoEnMoneda = montoAnticipo;
+  if (monedaAnticipo !== monedaServicio) {
+    const tasa = (await getTasaHoy().catch(() => null))?.usd ?? null;
+    if (!tasa || tasa <= 0) throw new Error('No hay tasa BCV para convertir el anticipo a la moneda del servicio.');
+    anticipoEnMoneda = monedaAnticipo === 'Bs'
+      ? Math.round((montoAnticipo / tasa) * 100) / 100   // Bs → USD
+      : Math.round((montoAnticipo * tasa) * 100) / 100;  // USD → Bs
+  }
+  if (anticipoEnMoneda >= total) throw new Error('El anticipo no puede ser igual o mayor al total. Para saldar todo, usá "pagar" o "a crédito".');
+  const pendiente = Math.round((total - anticipoEnMoneda) * 100) / 100;
+
+  const contraparte = (servicio.proveedor_nombre?.trim() || servicio.descripcion?.trim() || 'Servicio directo');
+  const nota = `Servicio directo ${servicio.codigo ?? ''} · ${servicio.descripcion} · pendiente tras anticipo`.trim();
+  const now = new Date().toISOString();
+
+  let cuentaId = servicio.credito_cxp_id;
+  if (esEdicion && cuentaId) {
+    // Editar el anticipo: ajusta el monto de la MISMA cuenta por pagar (respeta lo abonado).
+    const { data: cta, error: eCta } = await supabase.from('cuentas_por_pagar').select('abonado').eq('id', cuentaId).single();
+    if (eCta) throw eCta;
+    const abonado = Number((cta as { abonado?: number } | null)?.abonado) || 0;
+    if (pendiente < abonado) throw new Error(`El pendiente (${fmtMoneda(pendiente, monedaServicio)}) no puede ser menor a lo ya abonado (${fmtMoneda(abonado, monedaServicio)}).`);
+    const { error: eUpd } = await supabase.from('cuentas_por_pagar')
+      .update({ monto: pendiente, moneda: monedaServicio, estado: pendiente <= abonado ? 'saldada' : 'abierta', nota, updated_at: now })
+      .eq('id', cuentaId);
+    if (eUpd) throw eUpd;
+  } else {
+    // Crédito INDEPENDIENTE (1:1 con este servicio) para poder editarlo sin afectar otras deudas.
+    const { data: nueva, error: eIns } = await supabase.from('cuentas_por_pagar')
+      .insert({ tipo: 'proveedor', contraparte, monto: pendiente, abonado: 0, moneda: monedaServicio, estado: 'abierta', nota, actor: input.actor, actor_name: input.actorName ?? null })
+      .select('id').single();
+    if (eIns) throw eIns;
+    cuentaId = (nueva as { id: string }).id;
+  }
+
+  const antTxt = monedaAnticipo !== monedaServicio
+    ? `Anticipo ${fmtMoneda(montoAnticipo, monedaAnticipo)} (= ${fmtMoneda(anticipoEnMoneda, monedaServicio)} BCV) · pendiente ${fmtMoneda(pendiente, monedaServicio)}`
+    : `Anticipo ${fmtMoneda(montoAnticipo, monedaAnticipo)} · pendiente ${fmtMoneda(pendiente, monedaServicio)}`;
+  const historial: EventoHistorial[] = [
+    ...(servicio.historial ?? []),
+    { at: now, evento: 'anticipo', actor: input.actorName || input.actor, motivo: (esEdicion ? 'Anticipo editado · ' : '') + antTxt },
+  ];
+  if (!esEdicion) historial.push({ at: now, evento: 'credito_saldado', actor: input.actorName || input.actor, motivo: `Crédito por pendiente ${fmtMoneda(pendiente, monedaServicio)} generado en Tesorería` });
+
+  const patch: Record<string, unknown> = {
+    gasto: total, con_abonos: true, credito_cxp_id: cuentaId,
+    anticipo_monto: montoAnticipo, anticipo_moneda: monedaAnticipo, anticipo_at: now,
+    historial, updated_at: now,
+  };
+  if (!esEdicion) { patch.estado = 'finalizada'; patch.pagada_por = input.actorName || input.actor; patch.finalizada_at = now; }
+  const { error } = await supabase.from('servicios_directos').update(patch).eq('id', servicio.id);
+  if (error) throw error;
+  return { pendiente, anticipoEnMoneda };
+}
+
+/** Formato corto de moneda para notas de trazabilidad. */
+function fmtMoneda(n: number, moneda: string): string {
+  const s = (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return moneda === 'Bs' ? `Bs ${s}` : `$ ${s}`;
 }
 
 /** Servicios directos POR PAGAR (los monta el analista; Tesorería los paga). */
