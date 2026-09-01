@@ -790,6 +790,8 @@ export interface ItemOrden {
 export interface DetalleServicioItem {
   descripcion: string;
   cantidad?: number | null;
+  /** Precio OPCIONAL de esta pieza/trabajo. Si se cargan, su suma alimenta el precio de la línea. */
+  precio?: number | null;
 }
 
 export interface EventoHistorial {

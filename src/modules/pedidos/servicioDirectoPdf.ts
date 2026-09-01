@@ -75,7 +75,7 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
       const cu = g != null && cant > 0 ? g / cant : null;
       const det = (it.detalle_items ?? []).filter((d) => (d.descripcion ?? '').trim());
       const detTxt = det.length
-        ? `\n` + det.map((d) => `  • ${d.descripcion}${d.cantidad != null ? ` · ${fmt.num(Number(d.cantidad))}` : ''}`).join('\n')
+        ? `\n` + det.map((d) => `  • ${d.descripcion}${d.cantidad != null ? ` · ${fmt.num(Number(d.cantidad))}` : ''}${d.precio != null ? ` · ${mc(Number(d.precio))}` : ''}`).join('\n')
         : '';
       return [
         it.servicio_categoria || '—',
