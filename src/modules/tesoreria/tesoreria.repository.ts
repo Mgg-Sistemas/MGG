@@ -111,29 +111,18 @@ export async function registrarIngresoCaja(input: {
   const monedaPago = (input.moneda ?? caja.moneda) as string;
   const cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
 
-  const { data: saldoRow } = await supabase.from(SALDOS)
-    .select('id, saldo').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
-  const saldoAntes = saldoRow ? (Number(saldoRow.saldo) || 0) : 0;
-  const saldoDespues = round2(saldoAntes + monto);
-
-  const { data, error } = await supabase.from(LIBRO).insert({
-    caja_id: input.cajaId, tipo: 'entrada', monto, moneda: monedaPago,
-    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
-    motivo: input.concepto.trim(), categoria: input.categoria ?? 'ingreso',
-    cuenta: cuentaSel, actor: input.actor, actor_name: input.actorName ?? null,
-  }).select('*').single();
+  // Entrada atómica (caja_ingresar_cuenta): suma al saldo multimoneda (caja_saldos) con
+  // FOR UPDATE de la fila. Antes era read-modify-write: dos ingresos simultáneos leían el
+  // mismo saldo y uno pisaba al otro (caja descuadrada).
+  const { data: movId, error } = await supabase.rpc('caja_ingresar_cuenta', {
+    p_caja: input.cajaId, p_cuenta: cuentaSel, p_moneda: monedaPago, p_monto: monto,
+    p_concepto: input.concepto.trim(), p_categoria: input.categoria ?? 'ingreso',
+    p_actor: input.actor, p_actor_name: input.actorName ?? null,
+  });
   if (error) throw error;
 
-  if (saldoRow) {
-    const { error: uErr } = await supabase.from(SALDOS).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', saldoRow.id);
-    if (uErr) throw uErr;
-  } else {
-    const { error: iErr } = await supabase.from(SALDOS).insert({
-      caja_id: input.cajaId, cuenta: cuentaSel, moneda: monedaPago, saldo: saldoDespues,
-      tasa_prom: monedaPago === 'Bs' ? 1 : null, updated_at: new Date().toISOString(),
-    });
-    if (iErr) throw iErr;
-  }
+  const { data, error: eMov } = await supabase.from(LIBRO).select('*').eq('id', movId).single();
+  if (eMov) throw eMov;
   return data as MovimientoCaja;
 }
 

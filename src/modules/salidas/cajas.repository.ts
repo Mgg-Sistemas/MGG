@@ -115,15 +115,11 @@ export async function ingresarDinero(
 ): Promise<void> {
   const m = round2(Number(monto) || 0);
   if (m <= 0) throw new Error('El monto a ingresar debe ser mayor que 0.');
-  const caja = await getCaja(id);
-  const saldoAntes = Number(caja.saldo) || 0;
-  const saldoDespues = round2(saldoAntes + m);
-  await supabase.from(LIBRO).insert({
-    caja_id: id, tipo: 'ingreso', monto: m, moneda: caja.moneda,
-    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
-    motivo: motivo || 'Ingreso de dinero', actor, actor_name: actorName ?? null,
+  // Un RPC transaccional con `FOR UPDATE` de la caja: lee-suma-graba en un solo paso.
+  // Antes eran read-modify-write sueltos: doble clic contaba el ingreso dos veces.
+  const { error } = await supabase.rpc('caja_ingresar_dinero', {
+    p_caja: id, p_monto: m, p_motivo: motivo || null, p_actor: actor, p_actor_name: actorName ?? null,
   });
-  const { error } = await supabase.from(TABLE).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;
 }
 
@@ -141,23 +137,20 @@ export interface SalidaDineroInput {
 export async function salidaDinero(input: SalidaDineroInput): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
-  const caja = await getCaja(input.cajaId);
-  const saldoAntes = Number(caja.saldo) || 0;
-  if (monto > saldoAntes) throw new Error(`Saldo insuficiente en ${caja.nombre}. Disponible: ${saldoAntes} ${caja.moneda}.`);
-  const saldoDespues = round2(saldoAntes - monto);
-
-  const { data, error } = await supabase.from(LIBRO).insert({
-    caja_id: input.cajaId, tipo: 'salida', monto, moneda: caja.moneda,
-    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
-    motivo: input.motivo || null, destino: input.destino || null,
-    estado_mineral: 'pendiente',
-    actor: input.actor, actor_name: input.actorName ?? null,
-  }).select('*').single();
+  // Un RPC transaccional con `FOR UPDATE` de la caja: valida el saldo, descuenta y
+  // registra el anticipo en un solo paso. Antes era read-modify-write: dos salidas
+  // simultáneas leían el mismo saldo y una pisaba a la otra (caja descuadrada).
+  const { data: movId, error } = await supabase.rpc('caja_salida_dinero', {
+    p_caja: input.cajaId, p_monto: monto,
+    p_motivo: input.motivo?.trim() || null, p_destino: input.destino?.trim() || null,
+    p_actor: input.actor, p_actor_name: input.actorName ?? null,
+  });
   if (error) throw error;
 
-  const { error: uErr } = await supabase.from(TABLE).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', input.cajaId);
-  if (uErr) throw uErr;
-  return data as MovimientoCaja;
+  // El RPC devuelve el id del movimiento; se trae la fila para conciliar con la recepción.
+  const { data: mov, error: eMov } = await supabase.from(LIBRO).select('*').eq('id', movId).single();
+  if (eMov) throw eMov;
+  return mov as MovimientoCaja;
 }
 
 /* ───────────── Traslado de dinero entre cajas (misma moneda) ───────────── */
