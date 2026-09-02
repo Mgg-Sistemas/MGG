@@ -74,6 +74,9 @@ export interface MercadoCocina {
   fecha_inicio: string; fecha_fin: string; estado: 'abierto' | 'cerrado';
   saldo_inicial: SaldoItem[]; cierre: CierreSnapshot | null;
   cerrado_por: string | null; cerrado_por_nombre: string | null; cerrado_en: string | null;
+  /** Quién abrió el mercado. NULL en los anteriores a 02/09/2026: no se guardaba. */
+  abierto_por: string | null; abierto_por_nombre: string | null;
+  /** Cuándo se abrió. */
   created_at: string;
 }
 
@@ -142,8 +145,39 @@ function normalizar(row: Record<string, unknown>): MercadoCocina {
     cerrado_por: (row.cerrado_por as string) ?? null,
     cerrado_por_nombre: (row.cerrado_por_nombre as string) ?? null,
     cerrado_en: (row.cerrado_en as string) ?? null,
+    abierto_por: (row.abierto_por as string) ?? null,
+    abierto_por_nombre: (row.abierto_por_nombre as string) ?? null,
     created_at: String(row.created_at ?? ''),
   };
+}
+
+/**
+ * Inserta un mercado sin que la autoría pueda romper el ciclo.
+ *
+ * El mercado siguiente se inserta DESPUÉS de haber marcado el anterior como
+ * cerrado, y acá nada es transaccional: si ese insert fallara porque la base
+ * todavía no tiene las columnas de autoría, la cocina quedaría con el mercado
+ * anterior cerrado y ninguno abierto — o sea, rota, por un dato secundario.
+ *
+ * Por eso, si PostgREST rechaza las columnas nuevas, se reintenta sin ellas. En
+ * cuanto la migración esté aplicada, el primer intento pasa y la autoría se
+ * guarda sola: no hay nada que recordar hacer después.
+ */
+async function insertarMercado(
+  base: Record<string, unknown>,
+  autoria: { abierto_por: string; abierto_por_nombre: string | null },
+): Promise<MercadoCocina> {
+  const conAutoria = await supabase.from(TABLE).insert({ ...base, ...autoria }).select('*').single();
+  if (!conAutoria.error) return normalizar(conAutoria.data as Record<string, unknown>);
+
+  // PGRST204 = la columna no está en el schema cache de PostgREST.
+  const e = conAutoria.error;
+  const faltaColumna = e.code === 'PGRST204' || /abierto_por/.test(e.message ?? '');
+  if (!faltaColumna) throw e;
+
+  const { data, error } = await supabase.from(TABLE).insert(base).select('*').single();
+  if (error) throw error;
+  return normalizar(data as Record<string, unknown>);
 }
 
 /** Mercado abierto de una cocina (o null si no hay ninguno activo). */
@@ -370,12 +404,13 @@ export async function iniciarMercado(input: {
     ]);
     saldo = reconstruirSaldo(viveres, ent.agg, con.agg);
   }
-  const { data, error } = await supabase.from(TABLE).insert({
-    cocina_id: input.cocinaId, numero, fecha_inicio: inicio, fecha_fin: fin,
-    estado: 'abierto', saldo_inicial: saldo,
-  }).select('*').single();
-  if (error) throw error;
-  return normalizar(data as Record<string, unknown>);
+  return insertarMercado(
+    {
+      cocina_id: input.cocinaId, numero, fecha_inicio: inicio, fecha_fin: fin,
+      estado: 'abierto', saldo_inicial: saldo,
+    },
+    { abierto_por: input.actor, abierto_por_nombre: input.actorName ?? null },
+  );
 }
 
 export interface CerrarResult { cerrado: MercadoCocina; siguiente: MercadoCocina; snapshot: CierreSnapshot; }
@@ -452,13 +487,17 @@ export async function cerrarMercado(
 
   const inicioSig = addDaysStr(mercado.fecha_fin, 1);
   const finSig = addDaysStr(inicioSig, DURACION_MERCADO_DIAS - 1);
-  const { data: sig, error: e2 } = await supabase.from(TABLE).insert({
-    cocina_id: mercado.cocina_id, numero: mercado.numero + 1, fecha_inicio: inicioSig, fecha_fin: finSig,
-    estado: 'abierto', saldo_inicial: remanente,
-  }).select('*').single();
-  if (e2) throw e2;
+  // El mercado siguiente NACE de este cierre: su autor es quien cerró. No hay
+  // que preguntárselo a nadie ni inventar un «sistema» que no explica nada.
+  const siguiente = await insertarMercado(
+    {
+      cocina_id: mercado.cocina_id, numero: mercado.numero + 1, fecha_inicio: inicioSig, fecha_fin: finSig,
+      estado: 'abierto', saldo_inicial: remanente,
+    },
+    { abierto_por: actor, abierto_por_nombre: actorName ?? null },
+  );
 
-  return { cerrado: normalizar(upd as Record<string, unknown>), siguiente: normalizar(sig as Record<string, unknown>), snapshot };
+  return { cerrado: normalizar(upd as Record<string, unknown>), siguiente, snapshot };
 }
 
 /**

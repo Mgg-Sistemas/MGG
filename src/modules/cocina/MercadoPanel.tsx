@@ -21,6 +21,7 @@ import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
   cerrarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
+  type MercadoCocina,
 } from './mercados.repository';
 import { separarMovidos } from './mercadoComparar';
 
@@ -34,8 +35,11 @@ function cifra(n: number): string { return n === 0 ? '·' : num(n); }
 function fmtDia(iso: string): string { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
 function diaAntes(iso: string): string { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); }
 
-export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, userEmail, onReload, onEditComida, onDelComida }: {
+export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre, almacen, canWrite, actor, userEmail, onReload, onEditComida, onDelComida }: {
   resumen: ResumenMercado;
+  /** Todos los cortes de esta cocina, del más nuevo al más viejo. Alimenta el selector. */
+  mercados: MercadoCocina[];
+  onElegirMercado: (id: string) => void;
   cocinaNombre: string;
   almacen: string | null;
   canWrite: boolean;
@@ -103,12 +107,49 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
           Cinco números en el orden en que se leen. Reemplaza a las cuatro tarjetas
           que mezclaban bolívares con platos y no se sumaban entre sí. */}
       <div className="card" style={{ margin: '.3rem 0 .7rem', padding: '.8rem 1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
-          <strong style={{ fontSize: '.95rem' }}>Mercado #{mercado.numero}</strong>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.35rem' }}>
+          {/* Con un solo corte el selector sería un desplegable de un elemento: hasta
+              que exista el segundo, el título es texto. */}
+          {mercados.length > 1 ? (
+            <select
+              className="select"
+              style={{ width: 'auto', fontSize: '.9rem', fontWeight: 700, padding: '.15rem 1.6rem .15rem .4rem' }}
+              value={mercado.id}
+              onChange={(e) => onElegirMercado(e.target.value)}
+              title="Cambiar de mercado"
+            >
+              {mercados.map((m) => (
+                <option key={m.id} value={m.id}>
+                  Mercado #{m.numero}{m.estado === 'abierto' ? ' · en curso' : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <strong style={{ fontSize: '.95rem' }}>Mercado #{mercado.numero}</strong>
+          )}
           <span className="muted" style={{ fontSize: '.78rem' }}>
-            {fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)} · día {Math.min(dia, dias)} de {dias}
+            {fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)}
+            {mercado.estado === 'cerrado'
+              ? ' · cerrado'
+              : ` · día ${Math.min(dia, dias)} de ${dias}`}
           </span>
         </div>
+
+        {/* Autoría: sin protagonismo. Es un dato de respaldo para cuando alguien
+            pregunta quién movió el corte, no algo que haya que leer todos los días.
+            Los mercados anteriores al 02/09/2026 no la tienen guardada. */}
+        {(mercado.abierto_por_nombre || mercado.abierto_por || mercado.cerrado_por_nombre || mercado.cerrado_por) && (
+          <div className="dim" style={{ fontSize: '.71rem', marginBottom: '.55rem' }}>
+            {(mercado.abierto_por_nombre || mercado.abierto_por) && (
+              <>Abrió {mercado.abierto_por_nombre || mercado.abierto_por}</>
+            )}
+            {(mercado.abierto_por_nombre || mercado.abierto_por) && (mercado.cerrado_por_nombre || mercado.cerrado_por) && ' · '}
+            {(mercado.cerrado_por_nombre || mercado.cerrado_por) && (
+              <>Cerró {mercado.cerrado_por_nombre || mercado.cerrado_por}
+                {mercado.cerrado_en ? ` el ${fmtDia(mercado.cerrado_en.slice(0, 10))}` : ''}</>
+            )}
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '.5rem' }}>
           <Cifra rotulo="Saldo inicial" valor={num(totales.saldoInicial)} />
           <Cifra rotulo="+ Entradas" valor={num(totales.entradas)} color="var(--primary-3, #2ecc71)" />
@@ -154,8 +195,9 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
         ))}
       </div>
 
-      {/* Botón de cierre (resaltado desde el día 22) */}
-      {canWrite && (
+      {/* Botón de cierre (resaltado desde el día 22). Un mercado ya cerrado se está
+          CONSULTANDO desde el selector: ofrecerle «cerrar» sería una trampa. */}
+      {canWrite && mercado.estado === 'abierto' && (
         <div style={{ marginBottom: '.8rem' }}>
           <button
             className={`btn ${puedeCerrar ? 'btn-primary' : 'btn-ghost'}`}
