@@ -50,6 +50,7 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
   const [cerrar, setCerrar] = useState(false);
   const [busca, setBusca] = useState('');
   const [verQuietos, setVerQuietos] = useState(false);
+  const [soloDif, setSoloDif] = useState(false);
   const [vista, setVista] = useState<Vista>(() => {
     try { const v = localStorage.getItem(VISTA_KEY); if (v === 'disponible' || v === 'movimientos' || v === 'ambos') return v; } catch { /* modo privado */ }
     return 'disponible';
@@ -67,7 +68,26 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
     () => new Map(diferencias.map((d) => [d.producto_id, d] as const)),
     [diferencias],
   );
-  const filas = verQuietos ? [...movidos, ...quietos] : movidos;
+
+  // Un víver puede estar descuadrado SIN haberse movido en el ciclo: arrastra un
+  // saldo que el inventario no tiene. Escondido detrás de «ver los que no se
+  // movieron», la tira decía «10 víveres» y la tabla mostraba 7 — el descuadre se
+  // contaba pero no se podía encontrar. Los quietos con diferencia suben siempre.
+  const [quietosConDif, quietosOk] = useMemo(() => {
+    const con: DisponibleItem[] = [];
+    const sin: DisponibleItem[] = [];
+    for (const d of quietos) (difPorProducto.has(d.producto_id) ? con : sin).push(d);
+    return [con, sin] as const;
+  }, [quietos, difPorProducto]);
+
+  // Con 50 víveres y 10 descuadrados, encontrarlos a ojo entre las barras naranjas
+  // es el trabajo que el filtro evita: se pide «solo los descuadrados» y la tabla
+  // queda con esos y nada más.
+  const filas = useMemo(() => {
+    const base = [...movidos, ...quietosConDif];
+    if (soloDif) return base.filter((d) => difPorProducto.has(d.producto_id));
+    return verQuietos ? [...base, ...quietosOk] : base;
+  }, [movidos, quietosConDif, quietosOk, verQuietos, soloDif, difPorProducto]);
   const kardexFiltrado = useMemo(() => {
     const q = busca.trim().toLowerCase();
     if (!q) return kardex;
@@ -106,9 +126,20 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
               {totales.diferencia > 0 ? '+' : ''}{num(totales.diferencia)}
             </strong>
             {' en '}{totales.vieresConDiferencia} víver{totales.vieresConDiferencia === 1 ? '' : 'es'}
-            {vista === 'movimientos' && (
-              <button className="btn btn-sm btn-ghost" style={{ marginLeft: '.5rem' }} onClick={() => elegirVista('disponible')}>Ver cuáles</button>
-            )}
+            {/* Un solo botón lleva de la advertencia a los víveres concretos: enciende
+                el filtro y, si hacía falta, cambia a la vista que tiene la tabla.
+                Antes solo cambiaba de vista y dejaba al analista buscándolos a ojo. */}
+            <button
+              className={`btn btn-sm ${soloDif ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ marginLeft: '.5rem' }}
+              onClick={() => {
+                const activar = !soloDif;
+                setSoloDif(activar);
+                if (activar && vista === 'movimientos') elegirVista('disponible');
+              }}
+            >
+              {soloDif ? '↩ Ver todos' : 'Ver solo estos'}
+            </button>
           </div>
         )}
       </div>
@@ -141,8 +172,23 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
       {vista !== 'movimientos' && (
       <div className="card" style={{ marginBottom: '.9rem' }}>
         <div className="card-title" style={{ marginBottom: '.5rem' }}>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas − consumos · tocá un víver para el detalle</span></div>
+        {/* Una tabla filtrada que no lo dice se lee como si fuera todo el mercado, y
+            ahí el filtro deja de ayudar y empieza a engañar. El aviso lleva su propia
+            salida, para no tener que volver a la tira de arriba. */}
+        {soloDif && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem', padding: '.4rem .6rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-2, rgba(255,255,255,.03))', borderRadius: 'var(--r-sm, 4px)', fontSize: '.79rem' }}>
+            <span style={{ color: 'var(--warning)' }}>
+              Mostrando solo los <strong>{filas.length}</strong> víveres descuadrados de {disponible.length}
+            </span>
+            <button className="btn btn-sm btn-ghost" onClick={() => setSoloDif(false)}>↩ Ver todos</button>
+          </div>
+        )}
         {!filas.length ? (
-          <p className="hint muted" style={{ margin: 0 }}>Sin víveres movidos en este mercado todavía.</p>
+          <p className="hint muted" style={{ margin: 0 }}>
+            {soloDif
+              ? 'Ya no queda ningún víver descuadrado: el mercado y el inventario coinciden.'
+              : 'Sin víveres movidos en este mercado todavía.'}
+          </p>
         ) : (
           <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
             <table className="table" style={{ fontSize: '.83rem' }}>
@@ -195,10 +241,13 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
             </table>
           </div>
         )}
-        {/* Los que no se movieron no desaparecen: su stock sigue siendo real. */}
-        {quietos.length > 0 && (
+        {/* Los que no se movieron no desaparecen: su stock sigue siendo real. Se
+            cuentan los CUADRADOS: los que tienen diferencia ya están arriba, y
+            ofrecer «ver 12» para después mostrar 9 es una cuenta que no cierra.
+            Con el filtro encendido el botón no va: contradiría al filtro. */}
+        {!soloDif && quietosOk.length > 0 && (
           <button className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} onClick={() => setVerQuietos((v) => !v)}>
-            {verQuietos ? `Ocultar los ${quietos.length} que no se movieron` : `Ver los ${quietos.length} víveres que no se movieron`}
+            {verQuietos ? `Ocultar los ${quietosOk.length} que no se movieron` : `Ver los ${quietosOk.length} víveres que no se movieron`}
           </button>
         )}
       </div>
