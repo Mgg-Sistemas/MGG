@@ -170,3 +170,83 @@ export function ajustesPmpPorAlmacen(movs: Pick<Movimiento, 'id' | 'at' | 'delta
   }
   return { ajustes, costoInicial };
 }
+
+/* ── Reconstrucción del par origen → destino de un traslado ──────────────────
+   `transferir()` (movimientos.repository.ts) y `trasladoMaterial()` (salidas)
+   escriben DOS movimientos, y cada uno guarda en `almacen` SU PROPIO lado: el
+   otro extremo queda embutido en el texto de `detalle`. Así, la fila dice
+   «Traslado a X» y el badge muestra el almacén contrario, sin que nada aclare
+   cuál es cuál. Acá se reconstruye el par para poder mostrarlo explícito.
+
+   ⚠ EL SEPARADOR « · » NO SIRVE PARA CORTAR. `nombreUnicoSubalmacen()`
+   (almacenes.repository.ts) le pega « · <padre> » a un subalmacén cuyo nombre
+   ya estaba ocupado, así que hay nombres que LO CONTIENEN: con
+   «Traslado a Viveres y Art. Limpieza · La Esperanza · SOLICITUD DE TRASLADO»,
+   cortar por el primer « · » devuelve «Viveres y Art. Limpieza», que existe de
+   verdad pero es de OTRA SEDE. Son 31 movimientos reales en producción.
+   Por eso se compara contra los nombres de almacén reales, del MÁS LARGO al
+   más corto, y el corte por « · » queda solo como último recurso marcado. */
+
+/** Los cuatro prefijos que conviven en el histórico. El orden importa: «desde» antes que «a». */
+const PREFIJOS_TRASLADO: { txt: string; salida: boolean }[] = [
+  { txt: 'Transferencia desde ', salida: false },
+  { txt: 'Transferencia a ', salida: true },
+  { txt: 'Traslado desde ', salida: false },
+  { txt: 'Traslado a ', salida: true },
+];
+
+export interface TrasladoPar {
+  origen: string;
+  destino: string;
+  /** Lo que quedó del detalle una vez separado el nombre del almacén (el motivo). */
+  nota: string;
+  /** true si la contraparte coincidió con un almacén real; false = se cortó a ciegas. */
+  resuelto: boolean;
+}
+
+/**
+ * Par origen → destino de un movimiento de traslado, o `null` si no se puede afirmar.
+ *
+ * Devuelve `null` cuando el movimiento no es un traslado, cuando el detalle no trae
+ * ninguno de los prefijos conocidos, o cuando todavía no llegó la lista de almacenes
+ * (se carga async): preferimos no pintar nada antes que pintar un origen inventado.
+ */
+export function trasladoDeMovimiento(
+  m: Pick<Movimiento, 'almacen' | 'detalle'> & { tipo?: string | null },
+  almacenes: Pick<Almacen, 'nombre' | 'sede'>[],
+): TrasladoPar | null {
+  if (m.tipo != null && m.tipo !== 'transferencia') return null;
+  const detalle = (m.detalle ?? '').trim();
+  if (!detalle || !almacenes.length) return null;
+
+  const pref = PREFIJOS_TRASLADO.find((p) => detalle.startsWith(p.txt));
+  if (!pref) return null;
+  const resto = detalle.slice(pref.txt.length).trim();
+  if (!resto) return null;
+
+  // Coincidencia contra almacenes reales, del más largo al más corto: así
+  // «Viveres y Art. Limpieza · La Esperanza» le gana a «Viveres y Art. Limpieza».
+  let contraparte = '';
+  let nota = '';
+  let resuelto = false;
+  const nombres = almacenes
+    .map((a) => (a.nombre ?? '').trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  for (const n of nombres) {
+    if (resto === n) { contraparte = n; nota = ''; resuelto = true; break; }
+    if (resto.startsWith(`${n} · `)) { contraparte = n; nota = resto.slice(n.length + 3).trim(); resuelto = true; break; }
+  }
+  if (!resuelto) {
+    // Último recurso: cortar por el primer « · ». Queda marcado como no resuelto
+    // para que la pantalla muestre el texto crudo en vez de afirmar una sede.
+    const i = resto.indexOf(' · ');
+    contraparte = i >= 0 ? resto.slice(0, i).trim() : resto;
+    nota = i >= 0 ? resto.slice(i + 3).trim() : '';
+  }
+
+  const propio = (m.almacen ?? '').trim();
+  return pref.salida
+    ? { origen: propio, destino: contraparte, nota, resuelto }
+    : { origen: contraparte, destino: propio, nota, resuelto };
+}

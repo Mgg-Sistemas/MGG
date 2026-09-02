@@ -4001,7 +4001,11 @@ function CrearOrdenModal({
         stock: 0,
         stock_min: 0,
         precio: 0,
-        almacen: nuevoAlmacen.trim() || 'General',
+        // Sin fallback a 'General': ese es el almacén legado invisible (trampa INS-144)
+        // y ahí fueron a parar 55 de los 120 productos que hoy nadie encuentra. Si no se
+        // eligió almacén, se deja vacío y el producto queda sin ubicación de papel — que
+        // es lo honesto: la ubicación real nace cuando se recibe la mercancía.
+        almacen: nuevoAlmacen.trim(),
         estado: 'activo',
       });
       setExtraProductos((prev) => [...prev, creado]);

@@ -8,7 +8,7 @@ import { listMovimientosPorProducto, TIPOS_MOVIMIENTO } from './movimientos.repo
 import { listAlmacenes, listExistenciasDeProducto } from './almacenes.repository';
 import {
   ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
-  filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sinAlmacen, stockEn,
+  filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sinAlmacen, stockEn, trasladoDeMovimiento,
 } from './stockPorAlmacen';
 // descargarProductoPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
@@ -306,6 +306,9 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
             const deltaTxt = isIn ? `+${num(m.delta)}` : isOut ? `−${num(Math.abs(m.delta))}` : '0';
             const global = sinAlmacen(m);
             const aj = ajustes.get(m.id);
+            // Un traslado guarda en `almacen` SU PROPIO lado y el contrario en el texto,
+            // así que la fila sola no dice de dónde a dónde fue. Se reconstruye el par.
+            const tras = trasladoDeMovimiento(m, almacenes);
             const muestraAjuste = aj && aj.antes != null && aj.antes !== aj.despues;
 
             return (
@@ -327,8 +330,22 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
                         : m.almacen && <span className="badge" style={{ fontSize: '.62rem' }}>▣ {etiquetaAlmacen((m.almacen ?? '').trim(), almacenes)}</span>}
                       {m.consumo_interno && <span className="badge info" style={{ fontSize: '.62rem' }}>🏭 Consumo interno</span>}
                     </div>
-                    {m.detalle && <div className="kx-detalle">{m.detalle}</div>}
-                    {m.destino && (
+                    {(tras ? tras.nota : m.detalle) && <div className="kx-detalle">{tras ? tras.nota : m.detalle}</div>}
+                    {/* Traslado: el par completo, con la sede de cada lado. Sin esto la fila
+                        muestra un almacén en el badge y el OTRO en el texto, sin decir cuál es cuál
+                        — y hay 4 pares de almacenes cuyo nombre pelado es ambiguo entre sedes. */}
+                    {tras && (
+                      <div className="kx-sub">
+                        Origen: <strong style={{ color: 'var(--text)' }}>{tras.resuelto ? etiquetaAlmacen(tras.origen, almacenes) : tras.origen}</strong>
+                        {' → '}
+                        Destino: <strong style={{ color: 'var(--text)' }}>{tras.resuelto ? etiquetaAlmacen(tras.destino, almacenes) : tras.destino}</strong>
+                        {m.fecha_entrega && <> · {date(m.fecha_entrega)}</>}
+                      </div>
+                    )}
+                    {/* La línea de siempre, para salidas y traslados de dinero. Se apaga cuando ya
+                        la pintó el bloque de arriba, y cuando `destino` repite el propio almacén
+                        (las 129 entradas de traslado escritas con ese bug decían «X → X»). */}
+                    {!tras && m.destino && m.destino.trim() !== (m.almacen ?? '').trim() && (
                       <div className="kx-sub">
                         {m.almacen && <>Origen: <strong style={{ color: 'var(--text)' }}>{m.almacen}</strong> → </>}
                         Destino: <strong style={{ color: 'var(--text)' }}>{m.destino}</strong>

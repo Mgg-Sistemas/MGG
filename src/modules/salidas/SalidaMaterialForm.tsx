@@ -36,6 +36,19 @@ export function SalidaMaterialForm({
     return m;
   }, [existencias]);
 
+  // Solo se ofrece lo que el almacén PUEDE entregar. Un producto sin stock en ningún
+  // almacén es un callejón sin salida: se elige, la cantidad se clampa a 0 y el botón
+  // queda gris sin decir por qué. Peor todavía, hay 120 productos activos que ni
+  // siquiera tienen fila en `existencias` (se dan de alta al comprar y la fila nace
+  // recién al recibir): el almacén no los considera de ninguna forma, pero el
+  // desplegable los ofrecía igual. Se filtra por stock real, no por «tiene fila»,
+  // porque una fila en cero es igual de indespachable.
+  const conStock = useMemo(() => {
+    const total = new Map<string, number>();
+    for (const e of existencias) total.set(e.producto_id, (total.get(e.producto_id) ?? 0) + (Number(e.stock) || 0));
+    return new Set(Array.from(total.entries()).filter(([, s]) => s > 0).map(([id]) => id));
+  }, [existencias]);
+
   const [almacenesObj, setAlmacenesObj] = useState<Almacen[]>([]);
 
   // Almacén → sede, para ordenar por prioridad (Los Pinos → Matanzas → resto).
@@ -244,7 +257,9 @@ export function SalidaMaterialForm({
     </>
   );
 
-  const opcionesProducto = activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }));
+  const disponibles = activos.filter((p) => conStock.has(p.id));
+  const ocultos = activos.length - disponibles.length;
+  const opcionesProducto = disponibles.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }));
 
   return (
     <Modal title="Nueva solicitud de salida de material" size="lg" onClose={onClose} footer={footer}>
@@ -333,7 +348,10 @@ export function SalidaMaterialForm({
                 <div className="form-row">
                   <label>Producto</label>
                   <SearchSelect value={l.productoId} onChange={(id) => elegirProducto(l.id, id)}
-                    options={opcionesProducto} placeholder="🔎 Buscá el material…" emptyText="Sin productos." sinPreseleccion />
+                    options={opcionesProducto} placeholder="🔎 Buscá el material…" sinPreseleccion
+                    emptyText={ocultos > 0
+                      ? `Sin resultados. ${ocultos} material(es) no se listan porque no tienen stock en ningún almacén: no se pueden despachar.`
+                      : 'Sin productos.'} />
                   <small className="muted">
                     {l.productoId
                       ? (stock > 0

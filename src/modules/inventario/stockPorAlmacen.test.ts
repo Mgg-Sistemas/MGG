@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sedeDeAlmacen, stockEn,
+  trasladoDeMovimiento,
 } from './stockPorAlmacen';
 
 const almacenes = [
@@ -109,5 +110,97 @@ describe('kardex: chips, filtro y entradas/salidas', () => {
     expect(ajustes.get('e')).toEqual({ antes: null, despues: 3, compra: 3 });
     // 'g' (sin almacén): se sigue con la otra línea sin almacén ('a', PMP 1)
     expect(ajustes.get('g')).toEqual({ antes: 1, despues: 1.2, compra: 1.1 });
+  });
+});
+
+/* ── Reconstrucción del par origen → destino de un traslado ───────────────── */
+
+// Los almacenes REALES de producción que crean ambigüedad. Los nombres son
+// configuración del sistema, no datos de nadie.
+const ALMACENES_REALES = [
+  { nombre: 'Viveres y Art. Limpieza', sede: 'LOS PINOS' },
+  { nombre: 'Viveres y Art. Limpieza · La Esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA' },
+  { nombre: 'Viveves y Art. Limpieza', sede: 'CENTRO DE ACOPIO - PARGUAZA' },
+  { nombre: 'CASITERITA', sede: 'CENTRO DE ACOPIO - LA ESPERANZA' },
+  { nombre: 'CASITERITA ALMACEN', sede: 'CENTRO DE ACOPIO - PARGUAZA' },
+  { nombre: 'CASITERITA SNO₂', sede: 'CENTRO DE ACOPIO - EL BURRO' },
+  { nombre: 'GENERAL', sede: 'CENTRO DE ACOPIO - PARGUAZA' },
+  { nombre: 'GENERAL - EL BURRO', sede: 'CENTRO DE ACOPIO - EL BURRO' },
+  { nombre: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+  { nombre: 'Los Pinos', sede: 'LOS PINOS' },
+  { nombre: 'COMBUSTIBLE', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+];
+
+const mov = (almacen: string, detalle: string, tipo = 'transferencia') =>
+  ({ almacen, detalle, tipo } as Parameters<typeof trasladoDeMovimiento>[0]);
+
+describe('trasladoDeMovimiento', () => {
+  it('los cuatro prefijos históricos, en las dos direcciones', () => {
+    // «a X» = esta fila es la SALIDA: mi almacén es el origen.
+    expect(trasladoDeMovimiento(mov('Los Pinos', 'Transferencia a COMBUSTIBLE'), ALMACENES_REALES))
+      .toMatchObject({ origen: 'Los Pinos', destino: 'COMBUSTIBLE', nota: '', resuelto: true });
+    expect(trasladoDeMovimiento(mov('Los Pinos', 'Traslado a COMBUSTIBLE'), ALMACENES_REALES))
+      .toMatchObject({ origen: 'Los Pinos', destino: 'COMBUSTIBLE' });
+    // «desde X» = esta fila es la ENTRADA: mi almacén es el destino.
+    expect(trasladoDeMovimiento(mov('COMBUSTIBLE', 'Transferencia desde Los Pinos'), ALMACENES_REALES))
+      .toMatchObject({ origen: 'Los Pinos', destino: 'COMBUSTIBLE' });
+    expect(trasladoDeMovimiento(mov('COMBUSTIBLE', 'Traslado desde Los Pinos'), ALMACENES_REALES))
+      .toMatchObject({ origen: 'Los Pinos', destino: 'COMBUSTIBLE' });
+  });
+
+  it('EL CASO QUE JUSTIFICA TODO: no corta por el primer « · »', () => {
+    // 26 movimientos reales con este detalle. Cortar por el primer « · » daría
+    // «Viveres y Art. Limpieza», que existe pero es de LOS PINOS, otra sede.
+    const t = trasladoDeMovimiento(
+      mov('General', 'Traslado a Viveres y Art. Limpieza · La Esperanza · SOLICITUD DE TRASLADO'),
+      ALMACENES_REALES,
+    );
+    expect(t?.destino).toBe('Viveres y Art. Limpieza · La Esperanza');
+    expect(t?.destino).not.toBe('Viveres y Art. Limpieza');
+    expect(t?.nota).toBe('SOLICITUD DE TRASLADO');
+    expect(t?.resuelto).toBe(true);
+  });
+
+  it('el nombre exacto le gana al prefijo, y sin nota la nota queda vacía', () => {
+    const t = trasladoDeMovimiento(
+      mov('General', 'Traslado a Viveres y Art. Limpieza · La Esperanza'),
+      ALMACENES_REALES,
+    );
+    expect(t).toMatchObject({ destino: 'Viveres y Art. Limpieza · La Esperanza', nota: '', resuelto: true });
+  });
+
+  it('separa la nota de consolidación sin comérsele el nombre', () => {
+    const t = trasladoDeMovimiento(
+      mov('ALMACEN CASITERITA', 'Transferencia a GENERAL · Consolidación por cambio de almacén del producto'),
+      ALMACENES_REALES,
+    );
+    expect(t).toMatchObject({
+      origen: 'ALMACEN CASITERITA', destino: 'GENERAL',
+      nota: 'Consolidación por cambio de almacén del producto', resuelto: true,
+    });
+  });
+
+  it('no confunde almacenes cuyo nombre es prefijo de otro', () => {
+    expect(trasladoDeMovimiento(mov('Los Pinos', 'Traslado a CASITERITA ALMACEN'), ALMACENES_REALES)?.destino)
+      .toBe('CASITERITA ALMACEN');
+    expect(trasladoDeMovimiento(mov('Los Pinos', 'Traslado a CASITERITA'), ALMACENES_REALES)?.destino)
+      .toBe('CASITERITA');
+    expect(trasladoDeMovimiento(mov('Los Pinos', 'Traslado a GENERAL - EL BURRO'), ALMACENES_REALES)?.destino)
+      .toBe('GENERAL - EL BURRO');
+  });
+
+  it('una contraparte desconocida se corta a ciegas pero queda MARCADA', () => {
+    const t = trasladoDeMovimiento(mov('General', 'Traslado a ALMACEN BORRADO · motivo x'), ALMACENES_REALES);
+    expect(t).toMatchObject({ destino: 'ALMACEN BORRADO', nota: 'motivo x', resuelto: false });
+  });
+
+  it('devuelve null cuando no hay nada que afirmar', () => {
+    // Todavía no llegó la lista de almacenes: no se inventa un origen.
+    expect(trasladoDeMovimiento(mov('General', 'Traslado a COMBUSTIBLE'), [])).toBeNull();
+    // No es un traslado.
+    expect(trasladoDeMovimiento(mov('General', 'PARA REFINACION #5', 'salida'), ALMACENES_REALES)).toBeNull();
+    // Es transferencia pero el detalle no trae prefijo conocido.
+    expect(trasladoDeMovimiento(mov('General', 'Consolidacion por cambio de almacen'), ALMACENES_REALES)).toBeNull();
+    expect(trasladoDeMovimiento(mov('General', ''), ALMACENES_REALES)).toBeNull();
   });
 });
