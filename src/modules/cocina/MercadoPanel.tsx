@@ -12,7 +12,7 @@
    Los víveres que NO se movieron en el ciclo quedan detrás de un «ver los N
    restantes»: siguen ahí, pero no compiten con lo que sí pasó.
    ============================================================ */
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -158,8 +158,10 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
                 {filas.map((d) => {
                   const dif = difPorProducto.get(d.producto_id);
                   return (
-                    <>
-                      <tr key={d.producto_id} className="row-selectable"
+                    // El Fragment lleva la key, no el <tr>: la fila del víver y su
+                    // sub-línea de diferencia son DOS <tr> del mismo elemento de la lista.
+                    <Fragment key={d.producto_id}>
+                      <tr className="row-selectable"
                         style={{ cursor: 'pointer', ...(dif ? { borderLeft: '3px solid var(--warning)' } : {}) }}
                         onClick={() => setDrill(d)} title="Ver saldo, entradas y consumos">
                         {/* La unidad va UNA vez, con el nombre: repetirla en cada celda de
@@ -178,7 +180,7 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
                       {/* La diferencia se dice con NÚMEROS y palabras, no solo con un color:
                           así se lee igual en una captura en blanco y negro. */}
                       {dif && (
-                        <tr key={`${d.producto_id}-dif`} style={{ borderLeft: '3px solid var(--warning)' }}>
+                        <tr style={{ borderLeft: '3px solid var(--warning)' }}>
                           <td colSpan={6} style={{ paddingTop: 0, fontSize: '.76rem' }}>
                             <span style={{ color: 'var(--warning)' }}>⚠ en inventario hay <strong className="mono">{num(dif.inventario)}</strong></span>
                             {' · '}
@@ -186,7 +188,7 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>

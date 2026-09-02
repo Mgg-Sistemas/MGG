@@ -267,7 +267,12 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
   const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, con.agg, prodById);
   // El stock REAL del almacén, para contrastarlo con el libro del mercado. Es lo único
   // que puede contradecir al libro, y por eso es lo que hace visible el descuadre.
-  const stockPorProducto = stockDeViveres(viveres);
+  //
+  // SOLO para el mercado ABIERTO. Un mercado ya cerrado es una foto de su momento: el
+  // almacén siguió moviéndose después, así que compararlo contra el stock de HOY daría
+  // un descuadre inventado que crece con los días. Sus cifras verdaderas están en el
+  // snapshot del cierre (`remanente_inventario`, `diferencia`, `diferencias`).
+  const stockPorProducto = mercado.estado === 'abierto' ? stockDeViveres(viveres) : null;
   const disponibleValor = r2(disponible.reduce((a, d) => a + d.queda * d.precio, 0));
 
   const kardex: KardexRow[] = [
@@ -284,8 +289,15 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
     puedeCerrar: hoyStr() > mercado.fecha_fin,
     kpis: { platos: con.platos, consumoValor: con.valor, entradasValor: ent.valorTotal, disponibleValor },
     disponible, kardex,
-    totales: totalesDeMercado(disponible, stockPorProducto),
-    diferencias: diferenciasPorViver(disponible, stockPorProducto),
+    // Cerrado: los totales salen sin contraste y las diferencias se leen del cierre.
+    totales: mercado.estado === 'abierto'
+      ? totalesDeMercado(disponible, stockPorProducto)
+      : { ...totalesDeMercado(disponible), inventario: mercado.cierre?.remanente_inventario ?? null,
+          diferencia: mercado.cierre?.diferencia ?? null,
+          vieresConDiferencia: mercado.cierre?.diferencias?.length ?? 0 },
+    diferencias: mercado.estado === 'abierto'
+      ? diferenciasPorViver(disponible, stockPorProducto ?? new Map())
+      : (mercado.cierre?.diferencias ?? []),
   };
 }
 
