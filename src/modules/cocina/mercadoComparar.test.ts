@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  compararConsumos, diferenciasPorViver, separarMovidos, totalesDeMercado,
+  compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
+  separarMovidos, totalesDeMercado,
 } from './mercadoComparar';
-import type { DisponibleItem, ItemAgg } from './mercados.repository';
+import type { DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
 
 // Víveres reales de La Esperanza, con los números que muestra la pantalla hoy.
 const d = (
@@ -106,6 +107,55 @@ describe('separarMovidos', () => {
   it('no se pierde nada: movidos + quietos es el total', () => {
     const { movidos, quietos } = separarMovidos(MERCADO);
     expect(movidos.length + quietos.length).toBe(MERCADO.length);
+  });
+});
+
+describe('describirEvento', () => {
+  const ev = (e: Partial<EventoMercado>): EventoMercado =>
+    ({ at: '2026-09-02T10:00:00Z', evento: 'abierta', actor: 'a@mgg.com', ...e } as EventoMercado);
+
+  it('nombra a quien abrió y a quien cerró', () => {
+    expect(describirEvento(ev({ evento: 'abierta', actor_name: 'KELVIN' }))).toBe('Abrió KELVIN');
+    expect(describirEvento(ev({ evento: 'cerrado', actor_name: 'JESUS' }))).toBe('Cerró JESUS');
+    expect(describirEvento(ev({ evento: 'reabierto', actor_name: 'ANALISTA' }))).toBe('Reabrió ANALISTA');
+  });
+
+  it('al mercado que nace de un cierre NO le atribuye una apertura', () => {
+    // Quien cierra un mercado no es necesariamente quien abre o trabaja el siguiente:
+    // puede cerrar admin y abrir la analista. Decir «Abrió JESUS» sería inventar
+    // un acto que nunca ocurrió.
+    const texto = describirEvento(ev({ evento: 'generado_al_cerrar', actor_name: 'JESUS', al_cerrar: 1 }));
+    expect(texto).toBe('Generado al cerrar el #1 (JESUS)');
+    expect(texto).not.toContain('Abrió');
+  });
+
+  it('el cierre con ajuste dice cuántos víveres se tocaron', () => {
+    expect(describirEvento(ev({ evento: 'cerrado', actor_name: 'JESUS', ajustado: true, ajustados: ['p1', 'p2'] })))
+      .toBe('Cerró JESUS y ajustó 2 víveres');
+    expect(describirEvento(ev({ evento: 'cerrado', actor_name: 'JESUS', ajustado: true, ajustados: ['p1'] })))
+      .toBe('Cerró JESUS y ajustó 1 víver');
+  });
+
+  it('sin nombre cae al correo, y sin ninguno de los dos no inventa una persona', () => {
+    expect(describirEvento(ev({ evento: 'cerrado', actor: 'jefa@mgg.com' }))).toBe('Cerró jefa@mgg.com');
+    expect(describirEvento(ev({ evento: 'cerrado', actor: '', actor_name: '  ' }))).toBe('Cerró desconocido');
+  });
+});
+
+describe('productosAjustados', () => {
+  it('junta los víveres tocados por todas las intervenciones', () => {
+    const hist: EventoMercado[] = [
+      { at: '1', evento: 'abierta', actor: 'a' },
+      { at: '2', evento: 'cerrado', actor: 'b', ajustado: true, ajustados: ['p1', 'p4'] },
+      { at: '3', evento: 'reabierto', actor: 'c' },
+      { at: '4', evento: 'cerrado', actor: 'b', ajustado: true, ajustados: ['p4', 'p9'] },
+    ];
+    expect([...productosAjustados(hist)].sort()).toEqual(['p1', 'p4', 'p9']);
+  });
+
+  it('un mercado sin historial no marca nada', () => {
+    expect(productosAjustados([]).size).toBe(0);
+    expect(productosAjustados(null).size).toBe(0);
   });
 });
 

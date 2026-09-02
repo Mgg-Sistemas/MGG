@@ -23,7 +23,7 @@ import {
   cerrarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
   type MercadoCocina,
 } from './mercados.repository';
-import { separarMovidos } from './mercadoComparar';
+import { describirEvento, productosAjustados, separarMovidos } from './mercadoComparar';
 
 /** Qué bloque se está mirando. Se recuerda por usuario. */
 type Vista = 'disponible' | 'movimientos' | 'ambos';
@@ -55,6 +55,10 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   const [busca, setBusca] = useState('');
   const [verQuietos, setVerQuietos] = useState(false);
   const [soloDif, setSoloDif] = useState(false);
+  const [verHistorial, setVerHistorial] = useState(false);
+  // Víveres cuyo saldo cambió alguien a mano al ajustar. Se marcan en la tabla:
+  // «quién ajustó» sin «qué ajustó» obliga a cruzar dos pantallas.
+  const ajustados = useMemo(() => productosAjustados(resumen.mercado.historial), [resumen.mercado.historial]);
   const [vista, setVista] = useState<Vista>(() => {
     try { const v = localStorage.getItem(VISTA_KEY); if (v === 'disponible' || v === 'movimientos' || v === 'ambos') return v; } catch { /* modo privado */ }
     return 'disponible';
@@ -135,18 +139,29 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           </span>
         </div>
 
-        {/* Autoría: sin protagonismo. Es un dato de respaldo para cuando alguien
-            pregunta quién movió el corte, no algo que haya que leer todos los días.
-            Los mercados anteriores al 02/09/2026 no la tienen guardada. */}
-        {(mercado.abierto_por_nombre || mercado.abierto_por || mercado.cerrado_por_nombre || mercado.cerrado_por) && (
+        {/* Quién intervino: sin protagonismo. Es un dato de respaldo para cuando
+            alguien pregunta, no algo que haya que leer todos los días — así que va
+            en una línea tenue y el detalle con fechas queda a un clic.
+            Los mercados anteriores al 02/09/2026 no tienen historial. */}
+        {mercado.historial.length > 0 && (
           <div className="dim" style={{ fontSize: '.71rem', marginBottom: '.55rem' }}>
-            {(mercado.abierto_por_nombre || mercado.abierto_por) && (
-              <>Abrió {mercado.abierto_por_nombre || mercado.abierto_por}</>
-            )}
-            {(mercado.abierto_por_nombre || mercado.abierto_por) && (mercado.cerrado_por_nombre || mercado.cerrado_por) && ' · '}
-            {(mercado.cerrado_por_nombre || mercado.cerrado_por) && (
-              <>Cerró {mercado.cerrado_por_nombre || mercado.cerrado_por}
-                {mercado.cerrado_en ? ` el ${fmtDia(mercado.cerrado_en.slice(0, 10))}` : ''}</>
+            {mercado.historial.map(describirEvento).join(' · ')}
+            <button
+              className="btn btn-sm btn-ghost"
+              style={{ marginLeft: '.4rem', padding: '0 .3rem', fontSize: '.68rem' }}
+              onClick={() => setVerHistorial((v) => !v)}
+            >
+              {verHistorial ? 'ocultar' : 'cuándo'}
+            </button>
+            {verHistorial && (
+              <ul style={{ margin: '.3rem 0 0', paddingLeft: '1rem' }}>
+                {mercado.historial.map((e, i) => (
+                  <li key={`${e.at}-${i}`}>
+                    {fmtDia(e.at.slice(0, 10))} · {describirEvento(e)}
+                    {e.motivo ? ` · «${e.motivo}»` : ''}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         )}
@@ -245,12 +260,22 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
               <tbody>
                 {filas.map((d) => {
                   const dif = difPorProducto.get(d.producto_id);
+                  const fueAjustado = ajustados.has(d.producto_id);
                   return (
                     // El Fragment lleva la key, no el <tr>: la fila del víver y su
                     // sub-línea de diferencia son DOS <tr> del mismo elemento de la lista.
                     <Fragment key={d.producto_id}>
+                      {/* Dos marcas distintas y que no se pisan: el descuadre (naranja)
+                          es «esto no cuadra con el almacén»; el ajuste (azul) es
+                          «a esta fila la cambió una persona». Una fila puede tener
+                          las dos, así que el ajuste se dice además con una etiqueta:
+                          dos colores contiguos no se distinguen de memoria. */}
                       <tr className="row-selectable"
-                        style={{ cursor: 'pointer', ...(dif ? { borderLeft: '3px solid var(--warning)' } : {}) }}
+                        style={{
+                          cursor: 'pointer',
+                          ...(dif ? { borderLeft: '3px solid var(--warning)' }
+                            : fueAjustado ? { borderLeft: '3px solid var(--info)' } : {}),
+                        }}
                         onClick={() => setDrill(d)} title="Ver saldo, entradas y consumos">
                         {/* La unidad va UNA vez, con el nombre: repetirla en cada celda de
                             «Queda» partía el número en dos líneas y multiplicaba el ruido. */}
@@ -258,6 +283,10 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                           {d.nombre}{' '}
                           <span className="muted mono" style={{ fontSize: '.72rem' }}>{d.unidad}</span>
                           {' '}<span className="dim mono" style={{ fontSize: '.7rem' }}>{d.sku}</span>
+                          {fueAjustado && (
+                            <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.66rem', color: 'var(--info)', borderColor: 'var(--info)' }}
+                              title="El saldo de este víver se ajustó al inventario en un cierre">✎ ajustado</span>
+                          )}
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{cifra(d.saldoInicial)}</td>
                         <td className="mono" style={{ textAlign: 'right', color: d.entradas ? 'var(--primary-3, #2ecc71)' : undefined }}>{d.entradas ? `+${num(d.entradas)}` : '·'}</td>
