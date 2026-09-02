@@ -152,7 +152,9 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     actor: input.actor,
     actor_name: input.actorName ?? null,
     ref_tipo: 'traslado_modulo',
-    destino: input.almacenDestino,
+    // La pata de ENTRADA no lleva `destino`: su `almacen` YA ES el destino, así que
+    // repetirlo hacía que el kardex mostrara «Origen: X → Destino: X» (129 filas así
+    // en producción). De dónde vino se lee del par reconstruido por el detalle.
     nota_entrega: notaEntrega,
     fecha_entrega: input.fechaEntrega || null,
     detalle: motivo ? `Traslado desde ${input.almacenOrigen} · ${motivo}` : `Traslado desde ${input.almacenOrigen}`,

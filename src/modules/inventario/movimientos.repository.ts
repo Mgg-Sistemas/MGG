@@ -21,7 +21,9 @@ export const TIPOS_MOVIMIENTO: Record<TipoMovimiento, { label: string; icon: str
   entrada:       { label: 'Entrada',              icon: '⬇',  color: 'success' },
   salida:        { label: 'Salida',               icon: '⬆',  color: 'warning' },
   consumo:       { label: 'Consumo en proceso',   icon: '🔥', color: 'warning' },
-  transferencia: { label: 'Transferencia',        icon: '↔',  color: 'info' },
+  // «Traslado» y no «Transferencia»: es la palabra que usa el resto del sistema
+  // (menú «Salidas / Traslados», pestaña, botón, PDF «ORDEN DE TRASLADO»).
+  transferencia: { label: 'Traslado entre almacenes',        icon: '↔',  color: 'info' },
   fundicion:     { label: 'Inicio de fundición',  icon: '🔥', color: 'warning' },
   fin_fundicion: { label: 'Fin de fundición',     icon: '✓',  color: 'success' },
 };

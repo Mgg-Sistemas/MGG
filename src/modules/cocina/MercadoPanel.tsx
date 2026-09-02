@@ -1,9 +1,18 @@
 /* ============================================================
    MGG · Cocina · Panel del Mercado (ciclo de 21 días)
-   Tarjetas KPI del mercado actual + "Disponible a consumir" (saldo+entradas−consumos)
-   con drill-down por víver + kardex (entradas verde / consumos rojo) + cierre.
+
+   Se muestra POR CAPAS, de lo macro a lo micro:
+     1. La ecuación del ciclo (saldo + entradas = disponible − consumo = queda),
+        siempre visible, y el contraste contra el inventario SOLO si no cuadra.
+     2. Un selector de qué mirar: Disponible, Movimientos o ambos. Antes los dos
+        bloques venían encima sin alternativa y con 50 víveres el scroll era
+        abrumador; ahora lo elige el usuario y se recuerda.
+     3. El detalle: drill por víver y kardex.
+
+   Los víveres que NO se movieron en el ciclo quedan detrás de un «ver los N
+   restantes»: siguen ahí, pero no compiten con lo que sí pasó.
    ============================================================ */
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -13,6 +22,14 @@ import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
   cerrarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
 } from './mercados.repository';
+import { separarMovidos } from './mercadoComparar';
+
+/** Qué bloque se está mirando. Se recuerda por usuario. */
+type Vista = 'disponible' | 'movimientos' | 'ambos';
+const VISTA_KEY = 'mgg.cocina.mercado.vista';
+
+/** Un cero en una tabla de 50 filas es ruido: se muestra un punto tenue. */
+function cifra(n: number): string { return n === 0 ? '·' : num(n); }
 
 function fmtDia(iso: string): string { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
 function diaAntes(iso: string): string { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); }
@@ -28,15 +45,29 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
   onEditComida: (c: CocinaComida) => void;
   onDelComida: (c: CocinaComida) => void;
 }) {
-  const { mercado, dia, dias, puedeCerrar, kpis, disponible, kardex } = resumen;
+  const { mercado, dia, dias, puedeCerrar, disponible, kardex, totales, diferencias } = resumen;
   const [drill, setDrill] = useState<DisponibleItem | null>(null);
   const [cerrar, setCerrar] = useState(false);
   const [busca, setBusca] = useState('');
+  const [verQuietos, setVerQuietos] = useState(false);
+  const [vista, setVista] = useState<Vista>(() => {
+    try { const v = localStorage.getItem(VISTA_KEY); if (v === 'disponible' || v === 'movimientos' || v === 'ambos') return v; } catch { /* modo privado */ }
+    return 'disponible';
+  });
+  function elegirVista(v: Vista) {
+    setVista(v);
+    try { localStorage.setItem(VISTA_KEY, v); } catch { /* modo privado: no se recuerda, no importa */ }
+  }
 
-  const conMovimiento = useMemo(
-    () => disponible.filter((d) => d.saldoInicial || d.entradas || d.consumos),
-    [disponible],
+  // Los víveres que se movieron en el ciclo van primero; los que solo arrastran
+  // saldo quedan detrás de un botón. Con 50 víveres, mostrarlos todos es lo que
+  // hace que no se pueda leer nada.
+  const { movidos, quietos } = useMemo(() => separarMovidos(disponible), [disponible]);
+  const difPorProducto = useMemo(
+    () => new Map(diferencias.map((d) => [d.producto_id, d] as const)),
+    [diferencias],
   );
+  const filas = verQuietos ? [...movidos, ...quietos] : movidos;
   const kardexFiltrado = useMemo(() => {
     const q = busca.trim().toLowerCase();
     if (!q) return kardex;
@@ -48,27 +79,48 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
 
   return (
     <div>
-      {/* Tarjetas KPI del mercado actual */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.7rem', margin: '.3rem 0 .9rem' }}>
-        <div className="card" style={{ margin: 0, padding: '.8rem 1rem' }}>
-          <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.03em' }}>MERCADO #{mercado.numero} · DÍA</div>
-          <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800 }}>{Math.min(dia, dias)} <span className="muted" style={{ fontSize: '1rem', fontWeight: 500 }}>de {dias}</span></div>
-          <div className="muted" style={{ fontSize: '.72rem' }}>{fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)}</div>
+      {/* ── CAPA 1 · La ecuación del ciclo ─────────────────────────────────
+          Cinco números en el orden en que se leen. Reemplaza a las cuatro tarjetas
+          que mezclaban bolívares con platos y no se sumaban entre sí. */}
+      <div className="card" style={{ margin: '.3rem 0 .7rem', padding: '.8rem 1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+          <strong style={{ fontSize: '.95rem' }}>Mercado #{mercado.numero}</strong>
+          <span className="muted" style={{ fontSize: '.78rem' }}>
+            {fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)} · día {Math.min(dia, dias)} de {dias}
+          </span>
         </div>
-        <div className="card" style={{ margin: 0, padding: '.8rem 1rem' }}>
-          <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.03em' }}>CONSUMO DEL MERCADO</div>
-          <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--danger)' }}>{money(kpis.consumoValor)}</div>
-          <div className="muted" style={{ fontSize: '.72rem' }}>entradas: {money(kpis.entradasValor)}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '.5rem' }}>
+          <Cifra rotulo="Saldo inicial" valor={num(totales.saldoInicial)} />
+          <Cifra rotulo="+ Entradas" valor={num(totales.entradas)} color="var(--primary-3, #2ecc71)" />
+          <Cifra rotulo="= Disponible" valor={num(totales.disponible)} fuerte />
+          <Cifra rotulo="− Consumo" valor={num(totales.consumos)} color="var(--danger)" />
+          <Cifra rotulo="= Queda" valor={num(totales.queda)} fuerte color="var(--primary-3, #2ecc71)" />
         </div>
-        <div className="card" style={{ margin: 0, padding: '.8rem 1rem' }}>
-          <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.03em' }}>PLATOS DEL MERCADO</div>
-          <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800 }}>{num(kpis.platos)}</div>
-        </div>
-        <div className="card" style={{ margin: 0, padding: '.8rem 1rem', borderColor: 'var(--primary-3, #2ecc71)' }}>
-          <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.03em' }}>DISPONIBLE / LO QUE QUEDA</div>
-          <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary-3, #2ecc71)' }}>{money(kpis.disponibleValor)}</div>
-          <div className="muted" style={{ fontSize: '.72rem' }}>valor del remanente</div>
-        </div>
+        {/* El contraste con el inventario aparece SOLO si no cuadra. Un «0» que
+            tranquiliza ocupa lugar y enseña a no mirar. */}
+        {totales.diferencia != null && totales.vieresConDiferencia > 0 && (
+          <div style={{ marginTop: '.6rem', paddingTop: '.55rem', borderTop: '1px solid var(--border)', fontSize: '.83rem' }}>
+            ⚠ Según el inventario quedan <strong className="mono">{num(totales.inventario ?? 0)}</strong>
+            {' · diferencia '}
+            <strong className="mono" style={{ color: totales.diferencia < 0 ? 'var(--danger)' : 'var(--warning)' }}>
+              {totales.diferencia > 0 ? '+' : ''}{num(totales.diferencia)}
+            </strong>
+            {' en '}{totales.vieresConDiferencia} víver{totales.vieresConDiferencia === 1 ? '' : 'es'}
+            {vista === 'movimientos' && (
+              <button className="btn btn-sm btn-ghost" style={{ marginLeft: '.5rem' }} onClick={() => elegirVista('disponible')}>Ver cuáles</button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── CAPA 2 · Qué se quiere mirar ───────────────────────────────────── */}
+      <div className="view-switch" style={{ display: 'flex', gap: '.35rem', marginBottom: '.7rem', flexWrap: 'wrap' }}>
+        <span className="muted" style={{ fontSize: '.76rem', alignSelf: 'center', marginRight: '.2rem' }}>Ver:</span>
+        {([['disponible', 'Disponible'], ['movimientos', 'Movimientos'], ['ambos', 'Ambos']] as [Vista, string][]).map(([v, label]) => (
+          <button key={v} type="button" className={`btn btn-sm ${vista === v ? 'btn-primary' : 'btn-ghost'}`} onClick={() => elegirVista(v)}>
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Botón de cierre (resaltado desde el día 22) */}
@@ -85,13 +137,14 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
         </div>
       )}
 
-      {/* Disponible a consumir (saldo + entradas − consumos) */}
+      {/* ── CAPA 3a · Disponible a consumir ──────────────────────────────── */}
+      {vista !== 'movimientos' && (
       <div className="card" style={{ marginBottom: '.9rem' }}>
         <div className="card-title" style={{ marginBottom: '.5rem' }}>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas − consumos · tocá un víver para el detalle</span></div>
-        {!conMovimiento.length ? (
-          <p className="hint muted" style={{ margin: 0 }}>Sin víveres en este mercado todavía.</p>
+        {!filas.length ? (
+          <p className="hint muted" style={{ margin: 0 }}>Sin víveres movidos en este mercado todavía.</p>
         ) : (
-          <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
+          <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
             <table className="table" style={{ fontSize: '.83rem' }}>
               <thead><tr>
                 <th>Víver</th>
@@ -102,23 +155,57 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
                 <th style={{ textAlign: 'right' }}>Queda</th>
               </tr></thead>
               <tbody>
-                {conMovimiento.map((d) => (
-                  <tr key={d.producto_id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setDrill(d)} title="Ver saldo, entradas y consumos">
-                    <td>{d.nombre} <span className="muted mono" style={{ fontSize: '.72rem' }}>{d.sku}</span></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(d.saldoInicial)}</td>
-                    <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3, #2ecc71)' }}>+{num(d.entradas)}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(d.disponible)}</td>
-                    <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>−{num(d.consumos)}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: d.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(d.queda)} {d.unidad}</td>
-                  </tr>
-                ))}
+                {filas.map((d) => {
+                  const dif = difPorProducto.get(d.producto_id);
+                  return (
+                    // El Fragment lleva la key, no el <tr>: la fila del víver y su
+                    // sub-línea de diferencia son DOS <tr> del mismo elemento de la lista.
+                    <Fragment key={d.producto_id}>
+                      <tr className="row-selectable"
+                        style={{ cursor: 'pointer', ...(dif ? { borderLeft: '3px solid var(--warning)' } : {}) }}
+                        onClick={() => setDrill(d)} title="Ver saldo, entradas y consumos">
+                        {/* La unidad va UNA vez, con el nombre: repetirla en cada celda de
+                            «Queda» partía el número en dos líneas y multiplicaba el ruido. */}
+                        <td>
+                          {d.nombre}{' '}
+                          <span className="muted mono" style={{ fontSize: '.72rem' }}>{d.unidad}</span>
+                          {' '}<span className="dim mono" style={{ fontSize: '.7rem' }}>{d.sku}</span>
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{cifra(d.saldoInicial)}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: d.entradas ? 'var(--primary-3, #2ecc71)' : undefined }}>{d.entradas ? `+${num(d.entradas)}` : '·'}</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{cifra(d.disponible)}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: d.consumos ? 'var(--danger)' : undefined }}>{d.consumos ? `−${num(d.consumos)}` : '·'}</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: d.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(d.queda)}</td>
+                      </tr>
+                      {/* La diferencia se dice con NÚMEROS y palabras, no solo con un color:
+                          así se lee igual en una captura en blanco y negro. */}
+                      {dif && (
+                        <tr style={{ borderLeft: '3px solid var(--warning)' }}>
+                          <td colSpan={6} style={{ paddingTop: 0, fontSize: '.76rem' }}>
+                            <span style={{ color: 'var(--warning)' }}>⚠ en inventario hay <strong className="mono">{num(dif.inventario)}</strong></span>
+                            {' · '}
+                            {dif.diferencia < 0 ? 'faltan' : 'sobran'} <strong className="mono">{num(Math.abs(dif.diferencia))}</strong> {d.unidad.toLowerCase()}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
+        {/* Los que no se movieron no desaparecen: su stock sigue siendo real. */}
+        {quietos.length > 0 && (
+          <button className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} onClick={() => setVerQuietos((v) => !v)}>
+            {verQuietos ? `Ocultar los ${quietos.length} que no se movieron` : `Ver los ${quietos.length} víveres que no se movieron`}
+          </button>
+        )}
       </div>
+      )}
 
-      {/* Kardex de movimientos: entradas (verde) y consumos (rojo) */}
+      {/* ── CAPA 3b · Kardex: entradas (verde) y consumos (rojo) ─────────── */}
+      {vista !== 'disponible' && (
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
           <div className="card-title" style={{ margin: 0 }}>Movimientos del mercado <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· entradas y consumos</span></div>
@@ -134,6 +221,7 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
           </div>
         )}
       </div>
+      )}
 
       {drill && (
         <DrillModal item={drill} kardex={kardex} fechaInicio={mercado.fecha_inicio} onClose={() => setDrill(null)} />
@@ -143,6 +231,18 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
           onClose={() => setCerrar(false)}
           onDone={async () => { setCerrar(false); await onReload(); }} />
       )}
+    </div>
+  );
+}
+
+/** Un número de la ecuación del ciclo, con su rótulo debajo. */
+function Cifra({ rotulo, valor, color, fuerte }: { rotulo: string; valor: string; color?: string; fuerte?: boolean }) {
+  return (
+    <div>
+      {/* Cifras tabulares (.mono) para que los dígitos se alineen entre mercados
+          cuando se comparan dos cortes uno debajo del otro. */}
+      <div className="mono" style={{ fontSize: fuerte ? '1.35rem' : '1.15rem', fontWeight: fuerte ? 800 : 700, color }}>{valor}</div>
+      <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.02em' }}>{rotulo}</div>
     </div>
   );
 }
@@ -245,11 +345,16 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
   resumen: ResumenMercado; cocinaNombre: string; almacen: string | null; actor: string; userEmail: string | null;
   onClose: () => void; onDone: () => void | Promise<void>;
 }) {
-  const { mercado, kpis, disponible } = resumen;
+  const { mercado, kpis, disponible, totales, diferencias } = resumen;
   const remanente = disponible.filter((d) => d.queda > 0);
   const [correos, setCorreos] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // El ajuste solo EXISTE si hay diferencia. Cuando todo cuadra, el modal es un
+  // resumen y un botón: sin opciones, sin motivo, sin fricción.
+  const hayDiferencia = diferencias.length > 0;
+  const [ajustar, setAjustar] = useState(true);   // por defecto ajustar: es lo que ya se hacía a mano
+  const [motivo, setMotivo] = useState('');
 
   // Snapshot "previo" para la vista previa del PDF (mismos datos que persiste el cierre).
   const snapshotPreview = useMemo(() => ({
@@ -271,7 +376,8 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
   async function confirmar() {
     setError(null); setSaving(true);
     try {
-      const { cerrado, snapshot } = await cerrarMercado(mercado, almacen, actor, userEmail);
+      const { cerrado, snapshot } = await cerrarMercado(mercado, almacen, actor, userEmail,
+        hayDiferencia ? { ajustarAInventario: ajustar, motivo } : undefined);
       // Siempre genera el PDF del cierre (vista previa).
       try {
         const { descargarCierrePdf } = await import('./mercadoCierrePdf');
@@ -300,7 +406,11 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button className="btn btn-ghost" onClick={verPdf} disabled={saving}>↓ Ver PDF</button>
-        <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving}>{saving ? 'Cerrando…' : '🔒 Cerrar mercado'}</button>
+        <button className="btn btn-primary" onClick={() => void confirmar()}
+          disabled={saving || (hayDiferencia && ajustar && motivo.trim().length < 5)}
+          title={hayDiferencia && ajustar && motivo.trim().length < 5 ? 'Escribí el motivo del ajuste' : undefined}>
+          {saving ? 'Cerrando…' : '🔒 Cerrar mercado'}
+        </button>
       </>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
@@ -311,6 +421,72 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
         <div style={{ fontSize: '.88rem' }}>Platos: <strong className="mono">{num(kpis.platos)}</strong> · Consumo: <strong className="mono" style={{ color: 'var(--danger)' }}>{money(kpis.consumoValor)}</strong> · Remanente: <strong className="mono" style={{ color: 'var(--primary-3, #2ecc71)' }}>{money(kpis.disponibleValor)}</strong></div>
         <div className="muted" style={{ fontSize: '.8rem', marginTop: '.2rem' }}>{remanente.length} víver(es) pasan al próximo mercado.</div>
       </div>
+
+      {/* ── El ajuste: SOLO cuando el libro y el almacén no coinciden ──────────
+          No se escribe ningún movimiento de inventario. Si los dos difieren es
+          porque algo se movió por fuera del ciclo y el inventario YA lo contó:
+          escribirlo otra vez lo contaría dos veces. Lo único que se decide acá es
+          con qué número arranca el mercado siguiente. */}
+      {hayDiferencia && (
+        <div className="card" style={{ margin: '0 0 .8rem', borderColor: 'var(--warning)' }}>
+          <div style={{ fontWeight: 600, marginBottom: '.4rem' }}>
+            ⚠ El mercado y el inventario no coinciden
+          </div>
+          <div style={{ fontSize: '.86rem', marginBottom: '.5rem' }}>
+            Según el mercado quedan <strong className="mono">{num(totales.queda)}</strong> ·
+            {' '}según el inventario <strong className="mono">{num(totales.inventario ?? 0)}</strong> ·
+            {' diferencia '}
+            <strong className="mono" style={{ color: (totales.diferencia ?? 0) < 0 ? 'var(--danger)' : 'var(--warning)' }}>
+              {(totales.diferencia ?? 0) > 0 ? '+' : ''}{num(totales.diferencia ?? 0)}
+            </strong>
+            {' en '}{diferencias.length} víver{diferencias.length === 1 ? '' : 'es'}
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 180, overflowY: 'auto', marginBottom: '.6rem' }}>
+            <table className="table" style={{ fontSize: '.8rem' }}>
+              <thead><tr>
+                <th>Víver</th>
+                <th style={{ textAlign: 'right' }}>Mercado</th>
+                <th style={{ textAlign: 'right' }}>Inventario</th>
+                <th style={{ textAlign: 'right' }}>Diferencia</th>
+              </tr></thead>
+              <tbody>
+                {diferencias.map((d) => (
+                  <tr key={d.producto_id} style={{ borderLeft: '3px solid var(--warning)' }}>
+                    <td>{d.nombre} <span className="muted mono" style={{ fontSize: '.72rem' }}>{d.unidad}</span></td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(d.mercado)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(d.inventario)}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: d.diferencia < 0 ? 'var(--danger)' : 'var(--warning)' }}>
+                      {d.diferencia > 0 ? '+' : ''}{num(d.diferencia)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <label style={{ display: 'flex', gap: '.45rem', alignItems: 'flex-start', cursor: 'pointer', marginBottom: '.35rem' }}>
+            <input type="radio" checked={ajustar} onChange={() => setAjustar(true)} style={{ marginTop: '.25rem' }} />
+            <span style={{ fontSize: '.86rem' }}>
+              <strong>Ajustar al inventario</strong> ({num(totales.inventario ?? 0)}) — el mercado siguiente arranca del stock real
+            </span>
+          </label>
+          <label style={{ display: 'flex', gap: '.45rem', alignItems: 'flex-start', cursor: 'pointer' }}>
+            <input type="radio" checked={!ajustar} onChange={() => setAjustar(false)} style={{ marginTop: '.25rem' }} />
+            <span style={{ fontSize: '.86rem' }}>
+              Cerrar con el remanente del mercado ({num(totales.queda)}) — la diferencia queda anotada y se arrastra
+            </span>
+          </label>
+          {ajustar && (
+            <div className="form-row" style={{ marginTop: '.55rem' }}>
+              <label>Motivo del ajuste <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)}
+                placeholder="Ej.: conteo del 11/09 con la cocina · salida no imputada al ciclo" />
+              <small className="muted" style={{ fontSize: '.72rem' }}>
+                Queda guardado en el cierre. Sin esto, dentro de cuatro meses el número no se puede auditar.
+              </small>
+            </div>
+          )}
+        </div>
+      )}
       <div className="form-row">
         <label>📧 Enviar por correo <span className="muted" style={{ fontWeight: 400 }}>· opcional (dejalo vacío para solo cerrar y generar el PDF)</span></label>
         <input className="input" value={correos} onChange={(e) => setCorreos(e.target.value)} placeholder="correo1@mgg.com, correo2@mgg.com" />

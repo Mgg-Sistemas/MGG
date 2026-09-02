@@ -14,6 +14,7 @@ import type { CocinaComida, Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listComidas, listViveresGlobal, esCategoriaCocina } from './cocina.repository';
+import { diferenciasPorViver, totalesDeMercado, type DiferenciaViver, type TotalesMercado } from './mercadoComparar';
 
 const TABLE = 'mercados_cocina';
 /** Duración del ciclo de mercado, en días (ventana inclusiva). */
@@ -49,6 +50,23 @@ export interface CierreSnapshot {
   generado_en: string; desde: string; hasta: string;
   totales: { platos: number; valor: number; entradasValor: number; };
   consumos: ItemAgg[]; entradas: ItemAgg[]; remanente: SaldoItem[];
+  /* ── Contraste contra el inventario, agregado el 02/09/2026 ──
+     El remanente del libro del mercado (saldo + entradas − consumos) y el stock real
+     del almacén pueden diferir: cuando algo se movió por fuera del ciclo, el inventario
+     lo contó y el mercado no. Guardar las dos cifras es lo que permite, a los 4 cortes,
+     leer si el descuadre crece o se mantiene. Opcionales: los cierres viejos no las tienen. */
+  /** Suma del libro del mercado al cerrar. */
+  remanente_mercado?: number;
+  /** Suma del stock real de esos víveres al cerrar. */
+  remanente_inventario?: number;
+  /** inventario − mercado. Negativo = falta en el almacén. */
+  diferencia?: number;
+  /** Detalle por víver de lo que no cuadró. */
+  diferencias?: DiferenciaViver[];
+  /** true si el remanente congelado se tomó del INVENTARIO en vez del libro. */
+  ajustado?: boolean;
+  /** Por qué se ajustó. Obligatorio cuando `ajustado`. */
+  motivo_ajuste?: string | null;
 }
 
 export interface MercadoCocina {
@@ -68,6 +86,10 @@ export interface ResumenMercado {
   kpis: { platos: number; consumoValor: number; entradasValor: number; disponibleValor: number; };
   disponible: DisponibleItem[];
   kardex: KardexRow[];
+  /** Los cinco números del ciclo + el contraste contra el inventario. */
+  totales: TotalesMercado;
+  /** Víveres donde el libro y el almacén no coinciden. Vacío = todo cuadra. */
+  diferencias: DiferenciaViver[];
 }
 
 /* ───────── Fechas ───────── */
@@ -237,11 +259,20 @@ function armarDisponible(
 export async function resumenMercado(mercado: MercadoCocina, almacen: string | null): Promise<ResumenMercado> {
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
-  const [ent, con] = await Promise.all([
+  const [ent, con, viveres] = await Promise.all([
     entradasDe(mercado, almacen, prodById),
     consumosDe(mercado, mercado.cocina_id),
+    listViveresGlobal(almacen),
   ]);
   const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, con.agg, prodById);
+  // El stock REAL del almacén, para contrastarlo con el libro del mercado. Es lo único
+  // que puede contradecir al libro, y por eso es lo que hace visible el descuadre.
+  //
+  // SOLO para el mercado ABIERTO. Un mercado ya cerrado es una foto de su momento: el
+  // almacén siguió moviéndose después, así que compararlo contra el stock de HOY daría
+  // un descuadre inventado que crece con los días. Sus cifras verdaderas están en el
+  // snapshot del cierre (`remanente_inventario`, `diferencia`, `diferencias`).
+  const stockPorProducto = mercado.estado === 'abierto' ? stockDeViveres(viveres) : null;
   const disponibleValor = r2(disponible.reduce((a, d) => a + d.queda * d.precio, 0));
 
   const kardex: KardexRow[] = [
@@ -258,7 +289,23 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
     puedeCerrar: hoyStr() > mercado.fecha_fin,
     kpis: { platos: con.platos, consumoValor: con.valor, entradasValor: ent.valorTotal, disponibleValor },
     disponible, kardex,
+    // Cerrado: los totales salen sin contraste y las diferencias se leen del cierre.
+    totales: mercado.estado === 'abierto'
+      ? totalesDeMercado(disponible, stockPorProducto)
+      : { ...totalesDeMercado(disponible), inventario: mercado.cierre?.remanente_inventario ?? null,
+          diferencia: mercado.cierre?.diferencia ?? null,
+          vieresConDiferencia: mercado.cierre?.diferencias?.length ?? 0 },
+    diferencias: mercado.estado === 'abierto'
+      ? diferenciasPorViver(disponible, stockPorProducto ?? new Map())
+      : (mercado.cierre?.diferencias ?? []),
   };
+}
+
+/** Stock real por producto, a partir de los víveres del centro. */
+function stockDeViveres(viveres: Awaited<ReturnType<typeof listViveresGlobal>>): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const v of viveres) m.set(v.producto.id, r2(Number(v.stock) || 0));
+  return m;
 }
 
 /* ───────── Iniciar / cerrar ───────── */
@@ -286,8 +333,15 @@ function reconstruirSaldo(
 }
 
 /**
- * Inicia el mercado #N de una cocina. El saldo inicial es el stock actual de víveres
- * (lo que ya hay disponible cuenta como arranque del mercado).
+ * Inicia el mercado #N de una cocina.
+ *
+ * EL SALDO INICIAL SE HEREDA del remanente congelado del último mercado cerrado. Antes
+ * se re-deducía siempre del stock actual (`saldo = stock − entradas + consumos`), y con
+ * esa fórmula `queda = stock` SIEMPRE: el mercado era un espejo del inventario y el
+ * descuadre entre lo que reporta Cocina y lo que dice el sistema no podía aparecer nunca.
+ *
+ * Solo el PRIMER mercado de una cocina reconstruye el saldo, porque no hay nada anterior
+ * de dónde heredarlo.
  */
 export async function iniciarMercado(input: {
   cocinaId: string; almacen: string | null; fechaInicio?: string | null; actor: string; actorName?: string | null;
@@ -298,16 +352,24 @@ export async function iniciarMercado(input: {
   const fin = addDaysStr(inicio, DURACION_MERCADO_DIAS - 1);
   const previos = await listMercados(input.cocinaId);
   const numero = (previos[0]?.numero ?? 0) + 1;
-  // Saldo inicial reconstruido a la fecha de inicio, consistente con el panel (queda = stock real).
-  const productos = await listProductos();
-  const prodById = new Map(productos.map((p) => [p.id, p] as const));
-  const ventanaObj = { fecha_inicio: inicio, fecha_fin: fin };
-  const [viveres, ent, con] = await Promise.all([
-    listViveresGlobal(input.almacen),
-    entradasDe(ventanaObj, input.almacen, prodById),
-    consumosDe(ventanaObj, input.cocinaId),
-  ]);
-  const saldo = reconstruirSaldo(viveres, ent.agg, con.agg);
+
+  // El remanente congelado del último cierre manda. Si no hay ninguno (primer mercado de
+  // esta cocina), se reconstruye desde el stock: es la única referencia disponible.
+  const ultimoCerrado = previos.find((m) => m.estado === 'cerrado' && m.cierre);
+  let saldo: SaldoItem[];
+  if (ultimoCerrado?.cierre?.remanente?.length) {
+    saldo = ultimoCerrado.cierre.remanente;
+  } else {
+    const productos = await listProductos();
+    const prodById = new Map(productos.map((p) => [p.id, p] as const));
+    const ventanaObj = { fecha_inicio: inicio, fecha_fin: fin };
+    const [viveres, ent, con] = await Promise.all([
+      listViveresGlobal(input.almacen),
+      entradasDe(ventanaObj, input.almacen, prodById),
+      consumosDe(ventanaObj, input.cocinaId),
+    ]);
+    saldo = reconstruirSaldo(viveres, ent.agg, con.agg);
+  }
   const { data, error } = await supabase.from(TABLE).insert({
     cocina_id: input.cocinaId, numero, fecha_inicio: inicio, fecha_fin: fin,
     estado: 'abierto', saldo_inicial: saldo,
@@ -318,22 +380,55 @@ export async function iniciarMercado(input: {
 
 export interface CerrarResult { cerrado: MercadoCocina; siguiente: MercadoCocina; snapshot: CierreSnapshot; }
 
+export interface CerrarOpciones {
+  /**
+   * Congelar como remanente el STOCK REAL del almacén en vez del libro del mercado.
+   *
+   * Cuando los dos difieren es porque algo se movió por fuera del ciclo: el inventario
+   * lo contó y el mercado no. En ese caso el inventario es la mejor referencia, así que
+   * el ciclo siguiente arranca de ahí. NO se escribe ningún movimiento de inventario:
+   * el stock ya es el que es, y escribirlo lo contaría dos veces.
+   */
+  ajustarAInventario?: boolean;
+  /** Por qué se ajustó. Obligatorio cuando se ajusta: sin esto el número no se puede auditar. */
+  motivo?: string | null;
+}
+
 /**
- * Cierra el mercado: arma el snapshot (consumos + entradas + remanente), lo marca
- * 'cerrado' y abre el siguiente con saldo_inicial = remanente. No mueve inventario.
+ * Cierra el mercado: arma el snapshot (consumos + entradas + remanente + el contraste
+ * contra el inventario), lo marca 'cerrado' y abre el siguiente con
+ * saldo_inicial = remanente. No mueve inventario en ningún caso.
  */
-export async function cerrarMercado(mercado: MercadoCocina, almacen: string | null, actor: string, actorName?: string | null): Promise<CerrarResult> {
+export async function cerrarMercado(
+  mercado: MercadoCocina, almacen: string | null, actor: string, actorName?: string | null,
+  opciones?: CerrarOpciones,
+): Promise<CerrarResult> {
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
   const { desde, hasta } = ventana(mercado);
-  const [ent, con] = await Promise.all([
+  const [ent, con, viveres] = await Promise.all([
     entradasDe(mercado, almacen, prodById),
     consumosDe(mercado, mercado.cocina_id),
+    listViveresGlobal(almacen),
   ]);
   const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, con.agg, prodById);
+  const stockPorProducto = stockDeViveres(viveres);
+  const totales = totalesDeMercado(disponible, stockPorProducto);
+  const difs = diferenciasPorViver(disponible, stockPorProducto);
+
+  const ajustado = !!opciones?.ajustarAInventario && difs.length > 0;
+  const motivo = (opciones?.motivo ?? '').trim();
+  if (ajustado && motivo.length < 5) {
+    throw new Error('Para ajustar al inventario hace falta un motivo: sin eso, el número que arranca el mercado siguiente no se puede auditar.');
+  }
+
+  // El remanente que se CONGELA y arranca el mercado siguiente.
   const remanente: SaldoItem[] = disponible
-    .filter((d) => d.queda > 0)
-    .map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.queda }));
+    .map((d) => {
+      const cantidad = ajustado ? r2(stockPorProducto.get(d.producto_id) ?? 0) : d.queda;
+      return { producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad };
+    })
+    .filter((x) => x.cantidad > 0);
 
   const snapshot: CierreSnapshot = {
     generado_en: new Date().toISOString(), desde, hasta,
@@ -341,6 +436,12 @@ export async function cerrarMercado(mercado: MercadoCocina, almacen: string | nu
     consumos: Array.from(con.agg.values()).sort((a, b) => b.valor - a.valor),
     entradas: Array.from(ent.agg.values()).sort((a, b) => b.valor - a.valor),
     remanente,
+    remanente_mercado: totales.queda,
+    remanente_inventario: totales.inventario ?? undefined,
+    diferencia: totales.diferencia ?? undefined,
+    diferencias: difs,
+    ajustado,
+    motivo_ajuste: ajustado ? motivo : null,
   };
 
   const { data: upd, error: e1 } = await supabase.from(TABLE).update({
