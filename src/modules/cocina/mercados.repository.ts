@@ -74,7 +74,48 @@ export interface MercadoCocina {
   fecha_inicio: string; fecha_fin: string; estado: 'abierto' | 'cerrado';
   saldo_inicial: SaldoItem[]; cierre: CierreSnapshot | null;
   cerrado_por: string | null; cerrado_por_nombre: string | null; cerrado_en: string | null;
+  /**
+   * Intervenciones sobre el mercado, en orden y append-only.
+   *
+   * Existe porque `reabrirMercado` limpia `cerrado_por`/`cerrado_en` —el mercado
+   * vuelve a estar abierto y no puede seguir diciendo «cerró Fulano»—, así que sin
+   * esto reabrir borraba el rastro del cierre. Vacío en los mercados anteriores al
+   * 02/09/2026: no se registraba nada.
+   */
+  historial: EventoMercado[];
+  /** Cuándo se creó la fila. */
   created_at: string;
+}
+
+/** Una intervención sobre el mercado. `actor` es el correo; `actor_name`, el nombre visible. */
+export interface EventoMercado {
+  at: string;
+  evento: 'abierta' | 'generado_al_cerrar' | 'cerrado' | 'reabierto';
+  actor: string;
+  actor_name?: string | null;
+  /** En `generado_al_cerrar`: qué mercado se cerró para que naciera este. */
+  al_cerrar?: number;
+  /** En `cerrado`: si el remanente se tomó del inventario en vez del libro. */
+  ajustado?: boolean;
+  motivo?: string | null;
+  /** En `cerrado` con ajuste: los víveres cuyo saldo congelado se cambió. */
+  ajustados?: string[];
+}
+
+/**
+ * Agrega un evento al historial sin tocar los anteriores. Mismo patrón que
+ * `appendHistorial` de Pedidos y Combustible: es append-only por diseño, un
+ * historial que se puede reescribir no sirve para responder quién hizo qué.
+ */
+function appendHistorial(
+  m: Pick<MercadoCocina, 'historial'> | { historial?: EventoMercado[] },
+  evento: EventoMercado['evento'],
+  actor: string,
+  actorName: string | null,
+  extra: Partial<EventoMercado> = {},
+): EventoMercado[] {
+  const ev: EventoMercado = { at: new Date().toISOString(), evento, actor, actor_name: actorName, ...extra };
+  return [...(m.historial ?? []), ev];
 }
 
 /** Resumen en vivo del mercado abierto: KPIs + disponible por víver + kardex. */
@@ -142,8 +183,68 @@ function normalizar(row: Record<string, unknown>): MercadoCocina {
     cerrado_por: (row.cerrado_por as string) ?? null,
     cerrado_por_nombre: (row.cerrado_por_nombre as string) ?? null,
     cerrado_en: (row.cerrado_en as string) ?? null,
+    historial: Array.isArray(row.historial) ? (row.historial as EventoMercado[]) : [],
     created_at: String(row.created_at ?? ''),
   };
+}
+
+/**
+ * Inserta un mercado sin que la autoría pueda romper el ciclo.
+ *
+ * El mercado siguiente se inserta DESPUÉS de haber marcado el anterior como
+ * cerrado, y acá nada es transaccional: si ese insert fallara porque la base
+ * todavía no tiene las columnas de autoría, la cocina quedaría con el mercado
+ * anterior cerrado y ninguno abierto — o sea, rota, por un dato secundario.
+ *
+ * Por eso, si PostgREST rechaza las columnas nuevas, se reintenta sin ellas. En
+ * cuanto la migración esté aplicada, el primer intento pasa y la autoría se
+ * guarda sola: no hay nada que recordar hacer después.
+ */
+async function insertarMercado(
+  base: Record<string, unknown>,
+  historial: EventoMercado[],
+): Promise<MercadoCocina> {
+  const conHistorial = await supabase.from(TABLE).insert({ ...base, historial }).select('*').single();
+  if (!conHistorial.error) return normalizar(conHistorial.data as Record<string, unknown>);
+
+  // PGRST204 = la columna no está en el schema cache de PostgREST.
+  const e = conHistorial.error;
+  const faltaColumna = e.code === 'PGRST204' || /historial/.test(e.message ?? '');
+  if (!faltaColumna) throw e;
+
+  const { data, error } = await supabase.from(TABLE).insert(base).select('*').single();
+  if (error) throw error;
+  return normalizar(data as Record<string, unknown>);
+}
+
+/**
+ * Igual que `insertarMercado`, para los update. Cerrar un mercado no puede quedar
+ * bloqueado porque falte una columna de trazabilidad.
+ *
+ * `estadoEsperado` mantiene la guarda contra el doble cierre: el update solo pega
+ * si el mercado sigue en ese estado.
+ */
+async function actualizarMercado(
+  id: string,
+  campos: Record<string, unknown>,
+  historial: EventoMercado[],
+  estadoEsperado?: 'abierto' | 'cerrado',
+): Promise<Record<string, unknown>> {
+  const consulta = (payload: Record<string, unknown>) => {
+    const q = supabase.from(TABLE).update(payload).eq('id', id);
+    return estadoEsperado ? q.eq('estado', estadoEsperado) : q;
+  };
+
+  const conHistorial = await consulta({ ...campos, historial }).select('*').single();
+  if (!conHistorial.error) return conHistorial.data as Record<string, unknown>;
+
+  const e = conHistorial.error;
+  const faltaColumna = e.code === 'PGRST204' || /historial/.test(e.message ?? '');
+  if (!faltaColumna) throw e;
+
+  const { data, error } = await consulta(campos).select('*').single();
+  if (error) throw error;
+  return data as Record<string, unknown>;
 }
 
 /** Mercado abierto de una cocina (o null si no hay ninguno activo). */
@@ -370,12 +471,14 @@ export async function iniciarMercado(input: {
     ]);
     saldo = reconstruirSaldo(viveres, ent.agg, con.agg);
   }
-  const { data, error } = await supabase.from(TABLE).insert({
-    cocina_id: input.cocinaId, numero, fecha_inicio: inicio, fecha_fin: fin,
-    estado: 'abierto', saldo_inicial: saldo,
-  }).select('*').single();
-  if (error) throw error;
-  return normalizar(data as Record<string, unknown>);
+  // Acá SÍ hay alguien que abrió: una persona apretó «Iniciar mercado».
+  return insertarMercado(
+    {
+      cocina_id: input.cocinaId, numero, fecha_inicio: inicio, fecha_fin: fin,
+      estado: 'abierto', saldo_inicial: saldo,
+    },
+    appendHistorial({ historial: [] }, 'abierta', input.actor, input.actorName ?? null),
+  );
 }
 
 export interface CerrarResult { cerrado: MercadoCocina; siguiente: MercadoCocina; snapshot: CierreSnapshot; }
@@ -444,21 +547,41 @@ export async function cerrarMercado(
     motivo_ajuste: ajustado ? motivo : null,
   };
 
-  const { data: upd, error: e1 } = await supabase.from(TABLE).update({
-    estado: 'cerrado', cierre: snapshot, cerrado_por: actor, cerrado_por_nombre: actorName ?? null,
-    cerrado_en: new Date().toISOString(),
-  }).eq('id', mercado.id).eq('estado', 'abierto').select('*').single();
-  if (e1) throw e1;
+  // El ajuste cambia el saldo congelado de víveres concretos. Guardar CUÁLES es lo
+  // que después deja marcarlos en la tabla: «esta fila la tocó alguien» es una
+  // pregunta que se hace mirando la fila, no leyendo un motivo suelto.
+  const historialCierre = appendHistorial(mercado, 'cerrado', actor, actorName ?? null, {
+    ajustado,
+    motivo: ajustado ? motivo : null,
+    ...(ajustado ? { ajustados: difs.map((d) => d.producto_id) } : {}),
+  });
+
+  const upd = await actualizarMercado(
+    mercado.id,
+    {
+      estado: 'cerrado', cierre: snapshot, cerrado_por: actor, cerrado_por_nombre: actorName ?? null,
+      cerrado_en: new Date().toISOString(),
+    },
+    historialCierre,
+    'abierto',
+  );
 
   const inicioSig = addDaysStr(mercado.fecha_fin, 1);
   const finSig = addDaysStr(inicioSig, DURACION_MERCADO_DIAS - 1);
-  const { data: sig, error: e2 } = await supabase.from(TABLE).insert({
-    cocina_id: mercado.cocina_id, numero: mercado.numero + 1, fecha_inicio: inicioSig, fecha_fin: finSig,
-    estado: 'abierto', saldo_inicial: remanente,
-  }).select('*').single();
-  if (e2) throw e2;
+  // OJO: a este mercado NO lo abrió nadie. Lo genera el cierre del anterior, de
+  // forma automática. Anotar como «abierto por» a quien cerró sería inventar un
+  // acto que no ocurrió — y quien después abra o trabaje el corte puede ser otra
+  // persona. Por eso el evento es `generado_al_cerrar`: dice qué pasó y de quién
+  // fue el cierre que lo originó, sin atribuirle una apertura a nadie.
+  const siguiente = await insertarMercado(
+    {
+      cocina_id: mercado.cocina_id, numero: mercado.numero + 1, fecha_inicio: inicioSig, fecha_fin: finSig,
+      estado: 'abierto', saldo_inicial: remanente,
+    },
+    appendHistorial({ historial: [] }, 'generado_al_cerrar', actor, actorName ?? null, { al_cerrar: mercado.numero }),
+  );
 
-  return { cerrado: normalizar(upd as Record<string, unknown>), siguiente: normalizar(sig as Record<string, unknown>), snapshot };
+  return { cerrado: normalizar(upd), siguiente, snapshot };
 }
 
 /**
@@ -468,7 +591,7 @@ export async function cerrarMercado(
  * (si hay uno más nuevo cerrado, hay que reabrir ese primero). Respeta el índice
  * único de "un solo abierto por cocina".
  */
-export async function reabrirMercado(mercado: MercadoCocina): Promise<void> {
+export async function reabrirMercado(mercado: MercadoCocina, actor: string, actorName?: string | null): Promise<void> {
   if (mercado.estado !== 'cerrado') throw new Error('Solo se puede reabrir un mercado cerrado.');
   const todos = await listMercados(mercado.cocina_id);
   const posteriores = todos.filter((x) => x.numero > mercado.numero);
@@ -479,10 +602,15 @@ export async function reabrirMercado(mercado: MercadoCocina): Promise<void> {
     const { error } = await supabase.from(TABLE).delete().eq('id', sucesorAbierto.id);
     if (error) throw error;
   }
-  const { error } = await supabase.from(TABLE)
-    .update({ estado: 'abierto', cierre: null, cerrado_por: null, cerrado_por_nombre: null, cerrado_en: null })
-    .eq('id', mercado.id);
-  if (error) throw error;
+  // Las columnas del cierre SÍ se limpian: el mercado vuelve a estar abierto y no
+  // puede seguir diciendo «cerró Fulano». Pero antes eso borraba el único rastro
+  // que existía de ese cierre. Ahora queda en el historial, junto con quién reabrió
+  // y a quién le está pisando el cierre.
+  await actualizarMercado(
+    mercado.id,
+    { estado: 'abierto', cierre: null, cerrado_por: null, cerrado_por_nombre: null, cerrado_en: null },
+    appendHistorial(mercado, 'reabierto', actor, actorName ?? null),
+  );
 }
 
 /** Elimina un mercado del histórico (papelera). No toca comidas ni inventario. */

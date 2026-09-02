@@ -116,7 +116,7 @@ export function MercadosHistoricoModal({ cocinaId, cocinaNombre, almacen, canWri
   async function confirmarReabrir() {
     const m = reabrir; if (!m) return; setReabrir(null); setBusy(true);
     try {
-      await reabrirMercado(m);
+      await reabrirMercado(m, actor, userEmail);
       toast(`Mercado #${m.numero} reabierto para editar`, 'success');
       await reload(); await onChanged();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo reabrir', 'error'); }
@@ -144,7 +144,10 @@ export function MercadosHistoricoModal({ cocinaId, cocinaNombre, almacen, canWri
           </>
         }>
         <p className="hint muted" style={{ marginTop: 0 }}>Vista de solo lectura del mercado cerrado ({fmtDia(ver.mercado.fecha_inicio)} → {fmtDia(ver.mercado.fecha_fin)}). Para editarlo, reabrilo desde el histórico.</p>
-        <MercadoPanel resumen={ver.resumen} cocinaNombre={cocinaNombre} almacen={almacen} canWrite={false}
+        {/* Acá ya se eligió UN mercado desde la lista del histórico: un selector
+            dentro del modal sería una segunda forma de hacer lo mismo. */}
+        <MercadoPanel resumen={ver.resumen} mercados={[]} onElegirMercado={() => {}}
+          cocinaNombre={cocinaNombre} almacen={almacen} canWrite={false}
           actor={actor} userEmail={userEmail} onReload={() => {}} onEditComida={() => {}} onDelComida={() => {}} />
       </Modal>
     );

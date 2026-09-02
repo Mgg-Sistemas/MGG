@@ -21,8 +21,9 @@ import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
   cerrarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
+  type MercadoCocina,
 } from './mercados.repository';
-import { separarMovidos } from './mercadoComparar';
+import { describirEvento, productosAjustados, separarMovidos } from './mercadoComparar';
 
 /** Qué bloque se está mirando. Se recuerda por usuario. */
 type Vista = 'disponible' | 'movimientos' | 'ambos';
@@ -34,8 +35,11 @@ function cifra(n: number): string { return n === 0 ? '·' : num(n); }
 function fmtDia(iso: string): string { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
 function diaAntes(iso: string): string { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); }
 
-export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, userEmail, onReload, onEditComida, onDelComida }: {
+export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre, almacen, canWrite, actor, userEmail, onReload, onEditComida, onDelComida }: {
   resumen: ResumenMercado;
+  /** Todos los cortes de esta cocina, del más nuevo al más viejo. Alimenta el selector. */
+  mercados: MercadoCocina[];
+  onElegirMercado: (id: string) => void;
   cocinaNombre: string;
   almacen: string | null;
   canWrite: boolean;
@@ -50,6 +54,11 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
   const [cerrar, setCerrar] = useState(false);
   const [busca, setBusca] = useState('');
   const [verQuietos, setVerQuietos] = useState(false);
+  const [soloDif, setSoloDif] = useState(false);
+  const [verHistorial, setVerHistorial] = useState(false);
+  // Víveres cuyo saldo cambió alguien a mano al ajustar. Se marcan en la tabla:
+  // «quién ajustó» sin «qué ajustó» obliga a cruzar dos pantallas.
+  const ajustados = useMemo(() => productosAjustados(resumen.mercado.historial), [resumen.mercado.historial]);
   const [vista, setVista] = useState<Vista>(() => {
     try { const v = localStorage.getItem(VISTA_KEY); if (v === 'disponible' || v === 'movimientos' || v === 'ambos') return v; } catch { /* modo privado */ }
     return 'disponible';
@@ -67,7 +76,26 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
     () => new Map(diferencias.map((d) => [d.producto_id, d] as const)),
     [diferencias],
   );
-  const filas = verQuietos ? [...movidos, ...quietos] : movidos;
+
+  // Un víver puede estar descuadrado SIN haberse movido en el ciclo: arrastra un
+  // saldo que el inventario no tiene. Escondido detrás de «ver los que no se
+  // movieron», la tira decía «10 víveres» y la tabla mostraba 7 — el descuadre se
+  // contaba pero no se podía encontrar. Los quietos con diferencia suben siempre.
+  const [quietosConDif, quietosOk] = useMemo(() => {
+    const con: DisponibleItem[] = [];
+    const sin: DisponibleItem[] = [];
+    for (const d of quietos) (difPorProducto.has(d.producto_id) ? con : sin).push(d);
+    return [con, sin] as const;
+  }, [quietos, difPorProducto]);
+
+  // Con 50 víveres y 10 descuadrados, encontrarlos a ojo entre las barras naranjas
+  // es el trabajo que el filtro evita: se pide «solo los descuadrados» y la tabla
+  // queda con esos y nada más.
+  const filas = useMemo(() => {
+    const base = [...movidos, ...quietosConDif];
+    if (soloDif) return base.filter((d) => difPorProducto.has(d.producto_id));
+    return verQuietos ? [...base, ...quietosOk] : base;
+  }, [movidos, quietosConDif, quietosOk, verQuietos, soloDif, difPorProducto]);
   const kardexFiltrado = useMemo(() => {
     const q = busca.trim().toLowerCase();
     if (!q) return kardex;
@@ -83,12 +111,60 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
           Cinco números en el orden en que se leen. Reemplaza a las cuatro tarjetas
           que mezclaban bolívares con platos y no se sumaban entre sí. */}
       <div className="card" style={{ margin: '.3rem 0 .7rem', padding: '.8rem 1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
-          <strong style={{ fontSize: '.95rem' }}>Mercado #{mercado.numero}</strong>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.35rem' }}>
+          {/* Con un solo corte el selector sería un desplegable de un elemento: hasta
+              que exista el segundo, el título es texto. */}
+          {mercados.length > 1 ? (
+            <select
+              className="select"
+              style={{ width: 'auto', fontSize: '.9rem', fontWeight: 700, padding: '.15rem 1.6rem .15rem .4rem' }}
+              value={mercado.id}
+              onChange={(e) => onElegirMercado(e.target.value)}
+              title="Cambiar de mercado"
+            >
+              {mercados.map((m) => (
+                <option key={m.id} value={m.id}>
+                  Mercado #{m.numero}{m.estado === 'abierto' ? ' · en curso' : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <strong style={{ fontSize: '.95rem' }}>Mercado #{mercado.numero}</strong>
+          )}
           <span className="muted" style={{ fontSize: '.78rem' }}>
-            {fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)} · día {Math.min(dia, dias)} de {dias}
+            {fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)}
+            {mercado.estado === 'cerrado'
+              ? ' · cerrado'
+              : ` · día ${Math.min(dia, dias)} de ${dias}`}
           </span>
         </div>
+
+        {/* Quién intervino: sin protagonismo. Es un dato de respaldo para cuando
+            alguien pregunta, no algo que haya que leer todos los días — así que va
+            en una línea tenue y el detalle con fechas queda a un clic.
+            Los mercados anteriores al 02/09/2026 no tienen historial. */}
+        {mercado.historial.length > 0 && (
+          <div className="dim" style={{ fontSize: '.71rem', marginBottom: '.55rem' }}>
+            {mercado.historial.map(describirEvento).join(' · ')}
+            <button
+              className="btn btn-sm btn-ghost"
+              style={{ marginLeft: '.4rem', padding: '0 .3rem', fontSize: '.68rem' }}
+              onClick={() => setVerHistorial((v) => !v)}
+            >
+              {verHistorial ? 'ocultar' : 'cuándo'}
+            </button>
+            {verHistorial && (
+              <ul style={{ margin: '.3rem 0 0', paddingLeft: '1rem' }}>
+                {mercado.historial.map((e, i) => (
+                  <li key={`${e.at}-${i}`}>
+                    {fmtDia(e.at.slice(0, 10))} · {describirEvento(e)}
+                    {e.motivo ? ` · «${e.motivo}»` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '.5rem' }}>
           <Cifra rotulo="Saldo inicial" valor={num(totales.saldoInicial)} />
           <Cifra rotulo="+ Entradas" valor={num(totales.entradas)} color="var(--primary-3, #2ecc71)" />
@@ -106,9 +182,20 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
               {totales.diferencia > 0 ? '+' : ''}{num(totales.diferencia)}
             </strong>
             {' en '}{totales.vieresConDiferencia} víver{totales.vieresConDiferencia === 1 ? '' : 'es'}
-            {vista === 'movimientos' && (
-              <button className="btn btn-sm btn-ghost" style={{ marginLeft: '.5rem' }} onClick={() => elegirVista('disponible')}>Ver cuáles</button>
-            )}
+            {/* Un solo botón lleva de la advertencia a los víveres concretos: enciende
+                el filtro y, si hacía falta, cambia a la vista que tiene la tabla.
+                Antes solo cambiaba de vista y dejaba al analista buscándolos a ojo. */}
+            <button
+              className={`btn btn-sm ${soloDif ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ marginLeft: '.5rem' }}
+              onClick={() => {
+                const activar = !soloDif;
+                setSoloDif(activar);
+                if (activar && vista === 'movimientos') elegirVista('disponible');
+              }}
+            >
+              {soloDif ? '↩ Ver todos' : 'Ver solo estos'}
+            </button>
           </div>
         )}
       </div>
@@ -123,8 +210,9 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
         ))}
       </div>
 
-      {/* Botón de cierre (resaltado desde el día 22) */}
-      {canWrite && (
+      {/* Botón de cierre (resaltado desde el día 22). Un mercado ya cerrado se está
+          CONSULTANDO desde el selector: ofrecerle «cerrar» sería una trampa. */}
+      {canWrite && mercado.estado === 'abierto' && (
         <div style={{ marginBottom: '.8rem' }}>
           <button
             className={`btn ${puedeCerrar ? 'btn-primary' : 'btn-ghost'}`}
@@ -141,8 +229,23 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
       {vista !== 'movimientos' && (
       <div className="card" style={{ marginBottom: '.9rem' }}>
         <div className="card-title" style={{ marginBottom: '.5rem' }}>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas − consumos · tocá un víver para el detalle</span></div>
+        {/* Una tabla filtrada que no lo dice se lee como si fuera todo el mercado, y
+            ahí el filtro deja de ayudar y empieza a engañar. El aviso lleva su propia
+            salida, para no tener que volver a la tira de arriba. */}
+        {soloDif && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem', padding: '.4rem .6rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-2, rgba(255,255,255,.03))', borderRadius: 'var(--r-sm, 4px)', fontSize: '.79rem' }}>
+            <span style={{ color: 'var(--warning)' }}>
+              Mostrando solo los <strong>{filas.length}</strong> víveres descuadrados de {disponible.length}
+            </span>
+            <button className="btn btn-sm btn-ghost" onClick={() => setSoloDif(false)}>↩ Ver todos</button>
+          </div>
+        )}
         {!filas.length ? (
-          <p className="hint muted" style={{ margin: 0 }}>Sin víveres movidos en este mercado todavía.</p>
+          <p className="hint muted" style={{ margin: 0 }}>
+            {soloDif
+              ? 'Ya no queda ningún víver descuadrado: el mercado y el inventario coinciden.'
+              : 'Sin víveres movidos en este mercado todavía.'}
+          </p>
         ) : (
           <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
             <table className="table" style={{ fontSize: '.83rem' }}>
@@ -157,12 +260,22 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
               <tbody>
                 {filas.map((d) => {
                   const dif = difPorProducto.get(d.producto_id);
+                  const fueAjustado = ajustados.has(d.producto_id);
                   return (
                     // El Fragment lleva la key, no el <tr>: la fila del víver y su
                     // sub-línea de diferencia son DOS <tr> del mismo elemento de la lista.
                     <Fragment key={d.producto_id}>
+                      {/* Dos marcas distintas y que no se pisan: el descuadre (naranja)
+                          es «esto no cuadra con el almacén»; el ajuste (azul) es
+                          «a esta fila la cambió una persona». Una fila puede tener
+                          las dos, así que el ajuste se dice además con una etiqueta:
+                          dos colores contiguos no se distinguen de memoria. */}
                       <tr className="row-selectable"
-                        style={{ cursor: 'pointer', ...(dif ? { borderLeft: '3px solid var(--warning)' } : {}) }}
+                        style={{
+                          cursor: 'pointer',
+                          ...(dif ? { borderLeft: '3px solid var(--warning)' }
+                            : fueAjustado ? { borderLeft: '3px solid var(--info)' } : {}),
+                        }}
                         onClick={() => setDrill(d)} title="Ver saldo, entradas y consumos">
                         {/* La unidad va UNA vez, con el nombre: repetirla en cada celda de
                             «Queda» partía el número en dos líneas y multiplicaba el ruido. */}
@@ -170,6 +283,10 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
                           {d.nombre}{' '}
                           <span className="muted mono" style={{ fontSize: '.72rem' }}>{d.unidad}</span>
                           {' '}<span className="dim mono" style={{ fontSize: '.7rem' }}>{d.sku}</span>
+                          {fueAjustado && (
+                            <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.66rem', color: 'var(--info)', borderColor: 'var(--info)' }}
+                              title="El saldo de este víver se ajustó al inventario en un cierre">✎ ajustado</span>
+                          )}
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{cifra(d.saldoInicial)}</td>
                         <td className="mono" style={{ textAlign: 'right', color: d.entradas ? 'var(--primary-3, #2ecc71)' : undefined }}>{d.entradas ? `+${num(d.entradas)}` : '·'}</td>
@@ -195,10 +312,13 @@ export function MercadoPanel({ resumen, cocinaNombre, almacen, canWrite, actor, 
             </table>
           </div>
         )}
-        {/* Los que no se movieron no desaparecen: su stock sigue siendo real. */}
-        {quietos.length > 0 && (
+        {/* Los que no se movieron no desaparecen: su stock sigue siendo real. Se
+            cuentan los CUADRADOS: los que tienen diferencia ya están arriba, y
+            ofrecer «ver 12» para después mostrar 9 es una cuenta que no cierra.
+            Con el filtro encendido el botón no va: contradiría al filtro. */}
+        {!soloDif && quietosOk.length > 0 && (
           <button className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} onClick={() => setVerQuietos((v) => !v)}>
-            {verQuietos ? `Ocultar los ${quietos.length} que no se movieron` : `Ver los ${quietos.length} víveres que no se movieron`}
+            {verQuietos ? `Ocultar los ${quietosOk.length} que no se movieron` : `Ver los ${quietosOk.length} víveres que no se movieron`}
           </button>
         )}
       </div>

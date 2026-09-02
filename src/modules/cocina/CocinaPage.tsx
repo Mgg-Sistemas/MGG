@@ -25,7 +25,7 @@ import {
 } from './cocina.repository';
 // descargarReporteCocinaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { crearAlertaMercado, listAlertasMercadoPendientes } from './alertasMercado.repository';
-import { mercadoActivo, resumenMercado, iniciarMercado, type MercadoCocina, type ResumenMercado } from './mercados.repository';
+import { listMercados, resumenMercado, iniciarMercado, type MercadoCocina, type ResumenMercado } from './mercados.repository';
 import { MercadoPanel } from './MercadoPanel';
 import { MercadosHistoricoModal } from './MercadosHistorico';
 
@@ -214,22 +214,33 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
 
   // Mercado (ciclo de 21 días) de esta cocina.
   const [mercado, setMercado] = useState<MercadoCocina | null>(null);
+  const [mercados, setMercados] = useState<MercadoCocina[]>([]);
   const [resumen, setResumen] = useState<ResumenMercado | null>(null);
   const [mercadoLoading, setMercadoLoading] = useState(true);
   const [iniciando, setIniciando] = useState(false);
   const [fechaInicioMercado, setFechaInicioMercado] = useState(() => new Date().toISOString().slice(0, 10));
+  // Qué corte se está mirando. `null` = el que está en curso, que es lo que hay que
+  // ver al entrar; elegir otro en el selector es una consulta puntual, no una
+  // preferencia, así que NO se recuerda entre visitas.
+  const [verMercadoId, setVerMercadoId] = useState<string | null>(null);
 
   // `background`: recarga sin poner el panel en "Cargando…" (para no parpadear en cada
   // evento de realtime). Solo la PRIMERA carga muestra el spinner.
   const loadMercado = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     if (!background) setMercadoLoading(true);
     try {
-      const m = await mercadoActivo(cocinaId);
+      const todos = await listMercados(cocinaId);
+      setMercados(todos);
+      // Si el corte elegido dejó de existir (lo borraron, o se reabrió el anterior y
+      // este desapareció), se vuelve al que está en curso en vez de quedar en blanco.
+      const m = (verMercadoId ? todos.find((x) => x.id === verMercadoId) : null)
+        ?? todos.find((x) => x.estado === 'abierto')
+        ?? null;
       setMercado(m);
       setResumen(m ? await resumenMercado(m, almacen) : null);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el mercado', 'error'); }
     finally { setMercadoLoading(false); }
-  }, [cocinaId, almacen]);
+  }, [cocinaId, almacen, verMercadoId]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -294,7 +305,8 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
           ) : <p className="hint muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
         </div>
       ) : resumen ? (
-        <MercadoPanel resumen={resumen} cocinaNombre={info.cocina.nombre} almacen={almacen} canWrite={canWrite} actor={actor} userEmail={userEmail}
+        <MercadoPanel resumen={resumen} mercados={mercados} onElegirMercado={(id) => setVerMercadoId(id)}
+          cocinaNombre={info.cocina.nombre} almacen={almacen} canWrite={canWrite} actor={actor} userEmail={userEmail}
           onReload={async () => { await loadMercado({ background: true }); await reload(); }}
           onEditComida={(c) => setEditComida(c)} onDelComida={(c) => setDelComida(c)} />
       ) : null}

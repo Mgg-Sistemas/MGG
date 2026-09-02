@@ -18,7 +18,7 @@
    Acá viven las piezas puras: se testean sin base ni React.
    ============================================================ */
 
-import type { DisponibleItem, ItemAgg } from './mercados.repository';
+import type { DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -129,6 +129,47 @@ export function separarMovidos(items: DisponibleItem[]): { movidos: DisponibleIt
     else quietos.push(d);
   }
   return { movidos, quietos };
+}
+
+/* ───────── Quién intervino el mercado ───────── */
+
+/**
+ * Una intervención, en una línea.
+ *
+ * `generado_al_cerrar` NO dice «abrió Fulano»: al mercado siguiente no lo abre
+ * nadie, lo genera el cierre del anterior. Quien después trabaje ese corte puede
+ * ser otra persona, así que atribuirle la apertura al que cerró sería inventar un
+ * acto que no ocurrió. Se nombra el cierre que lo originó y ahí termina.
+ */
+export function describirEvento(e: EventoMercado): string {
+  const quien = (e.actor_name || e.actor || '').trim() || 'desconocido';
+  switch (e.evento) {
+    case 'abierta':
+      return `Abrió ${quien}`;
+    case 'generado_al_cerrar':
+      return `Generado al cerrar el #${e.al_cerrar ?? '?'} (${quien})`;
+    case 'cerrado': {
+      if (!e.ajustado) return `Cerró ${quien}`;
+      const n = e.ajustados?.length ?? 0;
+      return `Cerró ${quien} y ajustó ${n} víver${n === 1 ? '' : 'es'}`;
+    }
+    case 'reabierto':
+      return `Reabrió ${quien}`;
+    default:
+      return quien;
+  }
+}
+
+/**
+ * Los víveres cuyo saldo tocó una intervención, para poder marcarlos en la tabla.
+ *
+ * «Quién ajustó» sin «qué ajustó» obliga a comparar dos pantallas para saber si la
+ * fila que estás mirando es una de las que alguien cambió a mano.
+ */
+export function productosAjustados(historial: EventoMercado[] | null | undefined): Set<string> {
+  const out = new Set<string>();
+  for (const e of historial ?? []) for (const id of e.ajustados ?? []) out.add(id);
+  return out;
 }
 
 /* ───────── Comparar dos cortes ───────── */
