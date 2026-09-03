@@ -4105,7 +4105,9 @@ function CrearOrdenModal({
       setItems((prev) => prev.some((i) => i.productoId === creado.id)
         ? prev
         : [...prev, { productoId: creado.id, sku: creado.sku, nombre: creado.nombre, cantidad: 1, precio: 0, unidad: creado.unidad, comprar: true }]);
-      toast(`Producto "${creado.nombre}" creado en inventario · completá el resto luego`, 'success');
+      // Dos cosas pasaron de un saque: el producto nació en el inventario y además
+      // ya quedó cargado en la solicitud. Se dicen las dos, con el SKU que se le asignó.
+      toast(`Producto "${creado.nombre}" (${creado.sku}) creado en inventario y agregado a la solicitud`, 'success');
       setNuevoNombre('');
       setNuevoOpen(false);
     } catch (e) {
@@ -4140,6 +4142,10 @@ function CrearOrdenModal({
     if (!p) return;
     // El número manda tras (re)agregar: olvidamos el texto crudo de esa cantidad.
     setCantEdit((m) => { const n = { ...m }; delete n[p.id]; return n; });
+    // Se mira ANTES de actualizar para saber qué avisar: agregar el producto no daba
+    // ninguna señal, y re-agregar uno que ya estaba solo le subía la cantidad en
+    // silencio (fácil de no notar en una lista larga y de cargar de más sin querer).
+    const yaEstaba = items.find((i) => i.productoId === p.id);
     setItems((prev) => {
       const ex = prev.find((i) => i.productoId === p.id);
       if (ex) {
@@ -4154,6 +4160,12 @@ function CrearOrdenModal({
         { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true },
       ];
     });
+    if (yaEstaba) {
+      const nueva = (Number(yaEstaba.cantidad) || 0) + 1;
+      toast(`"${p.nombre}" ya estaba en la solicitud · cantidad ahora ${nueva}${p.unidad ? ` ${p.unidad}` : ''}`, 'warning');
+    } else {
+      toast(`"${p.nombre}" agregado a la solicitud`, 'success');
+    }
   }
 
   function updateItem(idx: number, patch: Partial<ItemOrden>) {
