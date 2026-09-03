@@ -254,14 +254,31 @@ export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ or
 }
 
 /** Ajusta (fija) el saldo y/o la tasa promedio de una (caja, cuenta, moneda). */
-export async function ajustarSaldoDivisa(input: {
-  cajaId: string; cuenta: CuentaCaja; moneda: string; saldo: number; tasaProm?: number | null;
+/**
+ * Crea una billetera/cuenta VACÍA (saldo 0) para que aparezca en los saldos antes de
+ * ingresarle dinero. Si ya existe, NO la toca.
+ *
+ * Antes esto era un `ajustarSaldoDivisa(saldo)` genérico: fijaba el saldo a CUALQUIER
+ * valor con un upsert y sin dejar movimiento en el libro. Nadie lo usaba así (su único
+ * llamador siempre mandaba 0), pero era una primitiva capaz de pisar un saldo real sin
+ * rastro de quién ni por qué — justo lo contrario del resto de Tesorería. Queda acotada
+ * a lo que de verdad hace, y de paso dos personas creando la misma billetera a la vez
+ * dejan de ser un problema.
+ *
+ * Si alguna vez hace falta un ajuste manual de saldo en divisas, va como el resto: RPC
+ * transaccional con `FOR UPDATE` Y su movimiento en el libro.
+ */
+export async function crearBilleteraEnCero(input: {
+  cajaId: string; cuenta: CuentaCaja; moneda: string;
 }): Promise<void> {
-  const saldo = round2(input.saldo);
-  const tasaProm = input.moneda === 'Bs' ? 1 : (input.tasaProm != null ? round4(input.tasaProm) : null);
   const { error } = await supabase.from(SALDOS).upsert(
-    { caja_id: input.cajaId, cuenta: input.cuenta, moneda: input.moneda, saldo, tasa_prom: tasaProm, updated_at: new Date().toISOString() },
-    { onConflict: 'caja_id,cuenta,moneda' },
+    {
+      caja_id: input.cajaId, cuenta: input.cuenta, moneda: input.moneda,
+      saldo: 0, tasa_prom: input.moneda === 'Bs' ? 1 : null,
+      updated_at: new Date().toISOString(),
+    },
+    // ignoreDuplicates: si la billetera ya existe se deja intacta (nunca pisa un saldo).
+    { onConflict: 'caja_id,cuenta,moneda', ignoreDuplicates: true },
   );
   if (error) throw error;
 }
