@@ -353,6 +353,17 @@ export function AgregarOfertaModal({
             // No romper el guardado de la oferta si la re-sincronización falla.
             console.error('No se pudo re-sincronizar el total de la OC:', e);
           }
+        } else if (ofertaEdit.estado === 'aceptada' && orden.estado !== 'oc_creada') {
+          // La OC ya pasó de 'oc_creada' (confirmada, aprobada, pagada…): su total NO se
+          // toca a propósito — cambiarlo por detrás alteraría un monto que el Gerente ya
+          // autorizó y que Tesorería puede estar por pagar. Pero callarlo dejaba la oferta
+          // y la OC divergiendo en silencio: la tarjeta del kanban mostraba el monto viejo
+          // (SP-2026-0123-1: OC en $206,56 con la oferta ya en $179,43). Se avisa.
+          notify(
+            `⚠ ${orden.codigo} ya está confirmada: su monto NO se actualizó con este cambio y puede diferir de la oferta. Si el total cambió, usá «Modificar OC» para reabrirla y recalcularla.`,
+            'warning',
+            { link: '#/app/pedidos' },
+          );
         }
         notify(`Oferta actualizada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
         onCreated();

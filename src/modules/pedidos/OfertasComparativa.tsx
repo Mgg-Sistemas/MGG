@@ -194,12 +194,28 @@ export function OfertasComparativa({
       // es el monto final. El efectivo solo es descuento cuando además hay BCV.
       const montoFinal = bcvTotal > 0 ? bcvTotal : usdTotal;
       const efectivo = bcvTotal > 0 && usdTotal > 0 ? usdTotal : null;
-      // Si el usuario descartó marcas (había variantes), la oferta ahora refleja solo lo elegido.
-      const huboSeleccion = itemsElegidos.length !== s.oferta.items.length;
-      if (huboSeleccion) {
+      // Colapso de MARCAS: si un producto venía cotizado en varias marcas, la oferta se
+      // queda con la elegida. OJO: solo se colapsan las marcas de los productos que se
+      // COMPRAN; los demás renglones de la oferta se conservan intactos. Antes se
+      // guardaba `itemsElegidos` tal cual, así que los productos que no se compraban
+      // (ya tomados por otra sub-OC, o destildados) se BORRABAN de la oferta y se perdía
+      // esa cotización para siempre (SP-2026-0123: FILTROS JK quedó con 2 de 4 ítems).
+      const elegidoPorSku = new Map(itemsElegidos.map((it) => [it.sku, it]));
+      const skusResueltos = new Set<string>();
+      const itemsOferta: ItemOrden[] = [];
+      for (const it of s.oferta.items ?? []) {
+        const elegido = elegidoPorSku.get(it.sku);
+        if (!elegido) { itemsOferta.push(it); continue; }   // no se compra: se conserva igual
+        if (skusResueltos.has(it.sku)) continue;            // variante descartada del producto comprado
+        skusResueltos.add(it.sku);
+        itemsOferta.push(elegido);
+      }
+      // Solo se reescribe si de verdad se colapsó alguna marca (cambió la cantidad de renglones).
+      if (itemsOferta.length !== (s.oferta.items ?? []).length) {
+        const totalOferta = itemsOferta.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0);
         await actualizarOferta(s.oferta.id, {
-          items: itemsElegidos,
-          precio_total: montoFinal,
+          items: itemsOferta,
+          precio_total: Math.round(totalOferta * 100) / 100,
           precio_efectivo: efectivo,
         });
       }
