@@ -162,6 +162,7 @@ function eventLabel(ev: string): string {
       proveedor_cambiado: 'Cambio de proveedor',
       editada: 'Orden editada',
       cantidades_editadas: 'Cantidades editadas',
+      items_eliminados: 'Productos eliminados',
       oc_creada: 'OC creada (oferta elegida)',
       oc_editada: 'OC editada',
       nota_editada: 'Nota de la OC editada',
@@ -2282,24 +2283,45 @@ function OrdenDetailModal({
   const [editandoCant, setEditandoCant] = useState(false);
   const [cantDraft, setCantDraft] = useState<Record<string, string>>({});
   const [savingCant, setSavingCant] = useState(false);
+  // Productos marcados para eliminar en esta edición (se aplica al guardar, así
+  // «Cancelar» los devuelve). El ítem en confirmación vive aparte.
+  const [skusAEliminar, setSkusAEliminar] = useState<Set<string>>(new Set());
+  const [porEliminar, setPorEliminar] = useState<ItemOrden | null>(null);
   function abrirEdicionCant() {
     const d: Record<string, string> = {};
     o.items.forEach((it) => { d[it.sku] = String(it.cantidad ?? 0); });
     setCantDraft(d);
+    setSkusAEliminar(new Set());
     setEditandoCant(true);
+  }
+  function cerrarEdicionCant() {
+    setEditandoCant(false);
+    setSkusAEliminar(new Set());
+    setPorEliminar(null);
   }
   async function guardarCantidades() {
     const mapa: Record<string, number> = {};
     for (const it of o.items) {
+      if (skusAEliminar.has(it.sku)) continue;   // se elimina: no se valida su cantidad
       const v = Number(cantDraft[it.sku]);
       if (!Number.isFinite(v) || v <= 0) { toast(`La cantidad de "${it.nombre}" debe ser mayor que 0.`, 'error'); return; }
       mapa[it.sku] = v;
     }
+    if (!Object.keys(mapa).length) {
+      toast('La orden debe conservar al menos un producto: no se pueden eliminar todos.', 'error');
+      return;
+    }
     setSavingCant(true);
     try {
-      await actualizarCantidadesOrden(o, mapa, actorEmail || 'sistema');
-      toast('Cantidades actualizadas · comparativa recalculada', 'success');
-      setEditandoCant(false);
+      const eliminados = Array.from(skusAEliminar);
+      await actualizarCantidadesOrden(o, mapa, actorEmail || 'sistema', eliminados);
+      toast(
+        eliminados.length
+          ? `${eliminados.length} producto(s) eliminado(s) · ofertas y presupuesto recalculados`
+          : 'Cantidades actualizadas · comparativa recalculada',
+        'success',
+      );
+      cerrarEdicionCant();
       await onAcceptedOffer(); // refresca la orden + recarga las ofertas
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron actualizar las cantidades', 'error');
@@ -2809,15 +2831,35 @@ function OrdenDetailModal({
         {/* Editar cantidades antes de aprobar la OC (OP y OC creada sin confirmar). */}
         {canEditarCant && (editandoCant ? (
           <span style={{ display: 'inline-flex', gap: '.4rem' }}>
-            <button className="btn btn-sm btn-ghost" onClick={() => setEditandoCant(false)} disabled={savingCant}>Cancelar</button>
-            <button className="btn btn-sm btn-primary" onClick={guardarCantidades} disabled={savingCant}>{savingCant ? 'Guardando…' : '✓ Guardar cantidades'}</button>
+            {skusAEliminar.size > 0 && (
+              <span className="badge danger" style={{ alignSelf: 'center' }}>
+                {skusAEliminar.size} por eliminar
+              </span>
+            )}
+            <button className="btn btn-sm btn-ghost" onClick={cerrarEdicionCant} disabled={savingCant}>Cancelar</button>
+            <button className="btn btn-sm btn-primary" onClick={guardarCantidades} disabled={savingCant}>{savingCant ? 'Guardando…' : '✓ Guardar cambios'}</button>
           </span>
         ) : (
-          <button className="btn btn-sm btn-ghost" onClick={abrirEdicionCant} title="Editar las cantidades de la SP antes de elegir el proveedor">
+          <button className="btn btn-sm btn-ghost" onClick={abrirEdicionCant} title="Editar las cantidades de la SP o eliminar productos antes de elegir el proveedor">
             ✎ Cantidades
           </button>
         ))}
       </div>
+      {/* Confirmación para sacar un producto de la solicitud. Se marca y se aplica al
+          guardar; las cotizaciones cargadas se recalculan sin ese producto. */}
+      {porEliminar && (
+        <ConfirmDialog
+          title="Eliminar producto de la solicitud"
+          message={`¿Eliminar "${porEliminar.nombre}"${porEliminar.sku ? ` (${porEliminar.sku})` : ''} de ${o.codigo}?\n\nSale de la solicitud y las ofertas cargadas se recalculan sin él: su presupuesto baja y el IVA/IGTF se ajusta a lo que queda.\n\nSe aplica al guardar los cambios.`}
+          confirmText="Eliminar producto"
+          danger
+          onCancel={() => setPorEliminar(null)}
+          onConfirm={() => {
+            setSkusAEliminar((s) => new Set(s).add(porEliminar.sku));
+            setPorEliminar(null);
+          }}
+        />
+      )}
       {/* En etapa OP (sin oferta aceptada) no hay precio: se oculta Precio/Subtotal
           y se marca cuáles se compran. Con oferta aceptada (total>0) se muestra todo. */}
       {(() => {
@@ -2847,10 +2889,12 @@ function OrdenDetailModal({
           </tr>
         </thead>
         <tbody>
-          {o.items.map((it, idx) => (
-            <tr key={`${it.sku}-${idx}`} style={{ opacity: !conPrecio && it.comprar === false ? 0.5 : 1 }}>
+          {o.items.map((it, idx) => {
+            const marcado = skusAEliminar.has(it.sku);
+            return (
+            <tr key={`${it.sku}-${idx}`} style={{ opacity: marcado ? 0.45 : (!conPrecio && it.comprar === false ? 0.5 : 1) }}>
               <td className="mono">{it.sku}</td>
-              <td>
+              <td style={marcado ? { textDecoration: 'line-through' } : undefined}>
                 {it.nombre}
                 {[it.marca, it.modelo].filter(Boolean).length > 0 && (
                   <div className="muted" style={{ fontSize: '.74rem' }}>🏷️ {[it.marca, it.modelo].filter(Boolean).join(' · ')}</div>
@@ -2896,16 +2940,37 @@ function OrdenDetailModal({
                 </td>
               )}
               <td>
-                <button
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => onSeePriceHistory(it.sku, it.nombre)}
-                  title="Comparativa histórica de precios"
-                >
-                  ⌁ histórico
-                </button>
+                <span style={{ display: 'inline-flex', gap: '.25rem' }}>
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => onSeePriceHistory(it.sku, it.nombre)}
+                    title="Comparativa histórica de precios"
+                  >
+                    ⌁ histórico
+                  </button>
+                  {/* Eliminar el producto de la solicitud (solo mientras se editan cantidades).
+                      Se marca acá y se aplica al guardar, así «Cancelar» lo devuelve. */}
+                  {editandoCant && (marcado ? (
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      disabled={savingCant}
+                      title="Deshacer: volver a incluir este producto"
+                      onClick={() => setSkusAEliminar((s) => { const n = new Set(s); n.delete(it.sku); return n; })}
+                    >↩ deshacer</button>
+                  ) : (
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      disabled={savingCant}
+                      style={{ color: 'var(--danger)' }}
+                      title="Eliminar este producto de la solicitud"
+                      onClick={() => setPorEliminar(it)}
+                    >🗑</button>
+                  ))}
+                </span>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
         {conPrecio && (
           <tfoot>
