@@ -1,5 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { ItemOrden, OfertaProveedor, OfertaDetalle, OfertaAdjunto } from '@/shared/lib/types';
+import { ofertaCubreTodoLoPendiente, type HijaCobertura } from './subOc';
 
 const TABLE = 'ofertas_proveedor';
 const BUCKET = 'ofertas-pdf';
@@ -250,10 +251,34 @@ export async function eliminarOferta(id: string): Promise<void> {
 }
 
 /**
+ * Trae de la base lo necesario para decidir el descarte y aplica la regla pura
+ * `ofertaCubreTodoLoPendiente` (vive en subOc.ts, con tests).
+ */
+async function cubreTodoLoPendiente(ordenId: string, itemsOferta: ItemOrden[]): Promise<boolean> {
+  const [{ data: orden, error }, { data: hijas, error: hErr }] = await Promise.all([
+    supabase.from('ordenes').select('items').eq('id', ordenId).maybeSingle(),
+    supabase.from('ordenes').select('items, estado').eq('parent_orden_id', ordenId),
+  ]);
+  if (error) throw error;
+  if (hErr) throw hErr;
+  return ofertaCubreTodoLoPendiente(
+    (orden?.items ?? []) as ItemOrden[],
+    (hijas ?? []) as HijaCobertura[],
+    itemsOferta ?? [],
+  );
+}
+
+/**
  * Acepta una oferta:
  *  - marca esta oferta como `aceptada`,
- *  - marca las demás de la misma orden como `descartada`,
+ *  - descarta las hermanas SOLO si esta oferta cubre todo lo que falta comprar,
  *  - retorna la oferta aceptada actualizada.
+ *
+ * En una compra MULTIPROVEEDOR cada oferta cubre apenas una parte de los ítems. Descartar
+ * a las hermanas dejaba los ítems restantes sin con qué comprarse, y la comparativa las
+ * pintaba en rojo («Descartada») como si ya no sirvieran. Por eso el descarte es
+ * CONDICIONAL: si al aceptar esta oferta quedan ítems sin cubrir, las demás siguen
+ * `pendiente` para cubrirlos — la misma regla que ya aplica `asignarProveedoresAOrden`.
  * No actualiza la orden — eso lo hace el caller (`pedidos.repository.aprobarOrdenConOferta`).
  */
 export async function aceptarOferta(
@@ -263,23 +288,26 @@ export async function aceptarOferta(
 ): Promise<OfertaProveedor> {
   const { data: oferta, error: fetchErr } = await supabase
     .from(TABLE)
-    .select('orden_id')
+    .select('orden_id, items')
     .eq('id', ofertaId)
     .single();
   if (fetchErr || !oferta) throw fetchErr ?? new Error('Oferta no encontrada');
+  const { orden_id: ordenId, items: itemsOferta } = oferta as { orden_id: string; items?: ItemOrden[] };
 
-  // Descartar todas las hermanas que no sean esta.
-  const { error: discardErr } = await supabase
-    .from(TABLE)
-    .update({
-      estado: 'descartada',
-      decidida_por_email: decididaPorEmail,
-      decidida_en: new Date().toISOString(),
-    })
-    .eq('orden_id', oferta.orden_id)
-    .neq('id', ofertaId)
-    .eq('estado', 'pendiente');
-  if (discardErr) throw discardErr;
+  // Descartar a las hermanas SOLO si esta oferta deja la compra completa.
+  if (await cubreTodoLoPendiente(ordenId, itemsOferta ?? [])) {
+    const { error: discardErr } = await supabase
+      .from(TABLE)
+      .update({
+        estado: 'descartada',
+        decidida_por_email: decididaPorEmail,
+        decidida_en: new Date().toISOString(),
+      })
+      .eq('orden_id', ordenId)
+      .neq('id', ofertaId)
+      .eq('estado', 'pendiente');
+    if (discardErr) throw discardErr;
+  }
 
   // Aceptar la elegida.
   const { data: accepted, error: acceptErr } = await supabase

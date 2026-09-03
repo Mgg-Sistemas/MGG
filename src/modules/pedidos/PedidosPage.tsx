@@ -694,6 +694,7 @@ export function PedidosPage() {
             setOffersReloadKey((k) => k + 1);
           }}
           onComprobanteSaved={async () => { await refresh(); }}
+          onAbrirOrden={openDetail}
           onClose={() => setModal({ kind: 'none' })}
           onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
           onEditar={() => setModal({ kind: 'edit', orden: currentDetail })}
@@ -2138,6 +2139,8 @@ interface OrdenDetailModalProps {
   onSeePriceHistory: (sku: string, nombre: string) => void;
   onAddOffer: () => void;
   onAcceptedOffer: () => void;
+  /** Abre el detalle de otra orden (salto de una sub-OC a su OP madre). */
+  onAbrirOrden: (ordenId: string) => void;
   onComprobanteSaved: () => Promise<void> | void;
   offersReloadKey: number;
   usuarioRole: string | null;
@@ -2172,6 +2175,7 @@ function OrdenDetailModal({
   onSeePriceHistory,
   onAddOffer,
   onAcceptedOffer,
+  onAbrirOrden,
   onComprobanteSaved,
   offersReloadKey,
   usuarioRole,
@@ -2768,6 +2772,7 @@ function OrdenDetailModal({
           reloadKey={offersReloadKey}
           onAccepted={onAcceptedOffer}
           onAddOferta={onAddOffer}
+          onAbrirOrden={onAbrirOrden}
         />
       )}
 

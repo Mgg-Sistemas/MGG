@@ -28,6 +28,8 @@ interface Props {
   reloadKey?: number;
   onAccepted: () => void;
   onAddOferta: () => void;
+  /** Abre el detalle de otra orden (se usa para saltar a la OP madre desde una sub-OC). */
+  onAbrirOrden?: (ordenId: string) => void;
 }
 
 export function OfertasComparativa({
@@ -39,6 +41,7 @@ export function OfertasComparativa({
   reloadKey,
   onAccepted,
   onAddOferta,
+  onAbrirOrden,
 }: Props) {
   const [ofertas, setOfertas] = useState<OfertaProveedor[]>([]);
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
@@ -271,6 +274,16 @@ export function OfertasComparativa({
                   <li key={it.sku}>{it.nombre}{it.cantidad ? <span className="muted"> · {it.cantidad} {it.unidad ?? ''}</span> : null}</li>
                 ))}
               </ul>
+              {/* Los pendientes se asignan DESDE LA MADRE (el asignador vive ahí). Sin este
+                  salto había que buscar la OP a mano y parecía que no se podían comprar. */}
+              {onAbrirOrden && orden.parent_orden_id && (
+                <button
+                  className="btn btn-sm btn-primary"
+                  style={{ marginTop: '.5rem' }}
+                  onClick={() => onAbrirOrden(orden.parent_orden_id as string)}
+                  title="Abre la OP madre, donde se reparten los productos que faltan entre los demás proveedores"
+                >🧩 Ir a {codigoMadre} y asignar lo que falta</button>
+              )}
             </>
           ) : (
             <div className="hint muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>Todos los artículos de la OP quedaron asignados a algún proveedor.</div>

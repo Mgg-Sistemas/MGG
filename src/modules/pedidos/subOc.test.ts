@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { grossDe, recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
+import { grossDe, ofertaCubreTodoLoPendiente, recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
 
 // Caso real SP-2026-0116 (27/08/2026).
 const TU_PUNTO = {
@@ -121,5 +121,53 @@ describe('recortarOfertaAHija', () => {
     const r = recortarOfertaAHija({ ...TU_PUNTO, precio_total: 10, iva: 1 }, ['NEW-346', 'NEW-347']);
     expect(r.fraccion).toBe(1);
     expect(r.iva).toBe(1);
+  });
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Descarte de ofertas hermanas al aceptar una (caso real SP-2026-0123):
+   se aceptó AZOCAR para 2 filtros y las otras 3 ofertas quedaron «Descartada»,
+   dejando los ítems restantes sin con qué comprarse. Solo se descarta cuando
+   la compra queda COMPLETA.
+   ────────────────────────────────────────────────────────────────────────── */
+describe('ofertaCubreTodoLoPendiente', () => {
+  const ORDEN = [
+    { sku: 'F-1' }, { sku: 'F-2' }, { sku: 'F-3' }, { sku: 'F-4' },
+  ];
+
+  it('no cubre todo si la oferta cotiza solo una parte (multiproveedor)', () => {
+    const azocar = [{ sku: 'F-1', precio: 59 }, { sku: 'F-2', precio: 59 }];
+    expect(ofertaCubreTodoLoPendiente(ORDEN, [], azocar)).toBe(false);
+  });
+
+  it('cubre todo si la oferta cotiza todos los ítems (proveedor único)', () => {
+    const completa = ORDEN.map((it) => ({ sku: it.sku, precio: 10 }));
+    expect(ofertaCubreTodoLoPendiente(ORDEN, [], completa)).toBe(true);
+  });
+
+  it('suma lo que ya compran las sub-OCs vivas', () => {
+    const hijas = [{ items: [{ sku: 'F-1' }, { sku: 'F-2' }], estado: 'oc_creada' }];
+    const resto = [{ sku: 'F-3', precio: 20 }, { sku: 'F-4', precio: 20 }];
+    expect(ofertaCubreTodoLoPendiente(ORDEN, hijas, resto)).toBe(true);
+  });
+
+  it('una sub-OC cancelada NO cubre: sus ítems vuelven a quedar libres', () => {
+    const hijas = [{ items: [{ sku: 'F-1' }, { sku: 'F-2' }], estado: 'cancelada' }];
+    const resto = [{ sku: 'F-3', precio: 20 }, { sku: 'F-4', precio: 20 }];
+    expect(ofertaCubreTodoLoPendiente(ORDEN, hijas, resto)).toBe(false);
+  });
+
+  it('un ítem cotizado en 0 no cuenta como cubierto', () => {
+    const conCero = [
+      { sku: 'F-1', precio: 10 }, { sku: 'F-2', precio: 10 },
+      { sku: 'F-3', precio: 10 }, { sku: 'F-4', precio: 0 },
+    ];
+    expect(ofertaCubreTodoLoPendiente(ORDEN, [], conCero)).toBe(false);
+  });
+
+  it('los ítems marcados «no comprar» no exigen cobertura', () => {
+    const orden = [{ sku: 'F-1' }, { sku: 'F-2' }, { sku: 'F-3', comprar: false }];
+    const oferta = [{ sku: 'F-1', precio: 5 }, { sku: 'F-2', precio: 5 }];
+    expect(ofertaCubreTodoLoPendiente(orden, [], oferta)).toBe(true);
   });
 });
