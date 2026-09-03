@@ -443,12 +443,19 @@ export async function _setStockRaw(id: string, nuevoStock: number): Promise<void
  * y las legadas (oc_emitida). Excluye las ya recibidas. Desde acá se asigna el
  * almacén destino (principal → subalmacén) y se da entrada al stock.
  */
+/**
+ * Órdenes con mercancía en camino, para que el almacén les asigne almacén y las reciba.
+ * Los SERVICIOS quedan FUERA: no entran al inventario — se prestan y su rastro vive en el
+ * equipo asociado (Control de Mantenimiento). Se cierran desde su propia orden (Pedidos),
+ * no desde esta cola, donde solo confundían pidiendo un almacén que no les corresponde.
+ */
 export async function listRecepcionesPendientes(): Promise<Orden[]> {
   const { data, error } = await supabase
     .from('ordenes')
     .select('*')
     .in('estado', ['por_recibir', 'pagada', 'oc_emitida'])
     .is('recibida_en', null)
+    .neq('clase', 'servicio')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as Orden[];

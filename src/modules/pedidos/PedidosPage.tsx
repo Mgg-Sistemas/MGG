@@ -1625,12 +1625,24 @@ function RecepcionParcialModal({
     return m;
   });
   const [nota, setNota] = useState('');
-  // "Sin inventario": los productos ya se ingresaron manualmente, no sumar stock al recibir.
-  const [sinInv, setSinInv] = useState<boolean>(orden.sin_inventario === true);
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
-  // Un SERVICIO no se almacena por sede: entra directo al inventario General (sin elegir almacén).
+  // Un SERVICIO no se almacena ni entra al inventario: se presta y su rastro queda en el
+  // equipo asociado. Por eso no elige almacén y va SIEMPRE sin movimiento de stock.
   const esServicio = orden.clase === 'servicio';
-  const [almacen, setAlmacen] = useState<string>(esServicio ? 'General' : (orden.almacen_destino ?? ''));
+  // "Sin inventario": los productos ya se ingresaron manualmente, no sumar stock al recibir.
+  // En un servicio es obligatorio, no una opción.
+  const [sinInv, setSinInv] = useState<boolean>(esServicio || orden.sin_inventario === true);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [almacen, setAlmacen] = useState<string>(esServicio ? '' : (orden.almacen_destino ?? ''));
+  // Equipos de maquinaria a los que se le hizo el servicio (cada renglón trae el suyo):
+  // son los que reciben el rastro en Control de Mantenimiento.
+  const equiposServicio = useMemo(
+    () => (esServicio
+      ? Array.from(new Set((orden.items ?? [])
+          .map((it) => it.equipo_nombre)
+          .filter((n): n is string => !!n && !!n.trim())))
+      : []),
+    [esServicio, orden.items],
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1693,7 +1705,7 @@ function RecepcionParcialModal({
 
   return (
     <Modal
-      title={`Confirmar recepción · ${orden.oc_codigo ?? orden.codigo}`}
+      title={esServicio ? `Servicio realizado · ${orden.codigo}` : `Confirmar recepción · ${orden.oc_codigo ?? orden.codigo}`}
       size="lg"
       onClose={onClose}
       footer={
@@ -1741,7 +1753,7 @@ function RecepcionParcialModal({
 
       {esServicio ? (
         <div className="form-row" style={{ marginTop: '.5rem' }}>
-          <small className="muted">🔧 Es un <strong>servicio</strong>: no se elige almacén — lo recibido entra directo al <strong>inventario General</strong>.</small>
+          <small className="muted">🔧 Es un <strong>servicio</strong>: <strong>no entra al inventario</strong> ni se le asigna almacén. Se registra como prestado y su rastro queda en el <strong>equipo asociado</strong>{equiposServicio.length ? <> (<strong>{equiposServicio.join(' · ')}</strong>)</> : null}.</small>
         </div>
       ) : (
       <div className="form-row" style={{ marginTop: '.5rem' }}>
@@ -1768,6 +1780,8 @@ function RecepcionParcialModal({
           placeholder="Diferencias, faltantes, observaciones de la recepción…" />
       </div>
 
+      {/* En un servicio no se ofrece la opción: nunca suma stock. */}
+      {!esServicio && (
       <div className="form-row" style={{ marginTop: '.5rem' }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={sinInv} onChange={(e) => setSinInv(e.target.checked)} style={{ cursor: 'pointer' }} />
@@ -1779,6 +1793,7 @@ function RecepcionParcialModal({
           </small>
         )}
       </div>
+      )}
       {orden.condiciones_pago === 'contra_entrega' && (
         <small className="muted" style={{ display: 'block' }}>
           Contra entrega: luego se indicará el método para pagar <strong>{money(recibidoTotal)}</strong> (lo recibido) en Tesorería.
@@ -2181,6 +2196,8 @@ function OrdenDetailModal({
   usuarioRole,
 }: OrdenDetailModalProps) {
   const isPendiente = o.estado === 'pendiente';
+  // Un SERVICIO no entra al inventario: se presta y queda en la traza del equipo asociado.
+  const esServicioDet = o.clase === 'servicio';
   // La OP la aprueba quien gestiona compras (admin o analista); al aprobarla pasa a
   // Órdenes de Compra. La elección de la oferta ganadora sí queda solo para el jefe/admin.
   const canApprove = canManageProcurement && isPendiente;  // Aprobar Orden de Pedido
@@ -2461,7 +2478,11 @@ function OrdenDetailModal({
       {isPagada && !o.recibida_en && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
-          <button className="btn btn-primary" onClick={onReceive}>Marcar recibida</button>
+          {/* Un servicio no se «recibe» en almacén: se deja constancia de que se prestó. */}
+          <button className="btn btn-primary" onClick={onReceive}
+            title={esServicioDet ? 'Dejar constancia de que el servicio se prestó (no entra al inventario)' : undefined}>
+            {esServicioDet ? '🔧 Servicio realizado' : 'Marcar recibida'}
+          </button>
         </>
       )}
       {/* Contra entrega pagada (ya recibida): solo queda el PDF; finaliza con el botón de abajo. */}
