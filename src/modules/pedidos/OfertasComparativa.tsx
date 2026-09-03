@@ -203,11 +203,22 @@ export function OfertasComparativa({
           precio_efectivo: efectivo,
         });
       }
-      // Sub-OC (hija): la oferta tiene que cotizar TODOS sus productos propios. Se valida
-      // ANTES de aceptarla, porque aceptar ya descarta las demás ofertas de la madre y no
-      // habría forma de volver atrás si el repositorio rechazara la orden después.
-      if (orden.parent_orden_id) {
-        const faltan = skusSinCotizar(orden.items, itemsElegidos);
+      // Sub-OC (hija): los productos que el analista DESTILDÓ no se le compran a este
+      // proveedor, así que salen de la sub-OC y vuelven a quedar pendientes en la madre
+      // (desde ahí se le asignan a otro). La sub-OC queda solo con lo tildado.
+      const skusElegidos = new Set(itemsElegidos.map((it) => it.sku));
+      const ordenParaOc = orden.parent_orden_id
+        ? { ...orden, items: orden.items.filter((it) => skusElegidos.has(it.sku)) }
+        : orden;
+      // La oferta tiene que cotizar todo lo que SÍ se le compra. Se valida ANTES de
+      // aceptarla: si el repositorio rechazara después, la oferta ya habría cambiado de
+      // estado y no habría forma de volver atrás.
+      if (ordenParaOc.parent_orden_id) {
+        if (!ordenParaOc.items.length) {
+          toast('Tildá al menos un producto de esta sub-OC para comprarle a este proveedor.', 'error');
+          return;
+        }
+        const faltan = skusSinCotizar(ordenParaOc.items, itemsElegidos);
         if (faltan.length) {
           const nombres = faltan.map((sku) => orden.items.find((it) => it.sku === sku)?.nombre ?? sku);
           toast(`Esta oferta no cotiza ${nombres.join(', ')}. Elegí otra oferta o cargá esos precios primero.`, 'error');
@@ -216,7 +227,7 @@ export function OfertasComparativa({
       }
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
       await aprobarOrdenConOferta(
-        orden,
+        ordenParaOc,
         s.oferta.proveedor_id,
         itemsElegidos,
         montoFinal,

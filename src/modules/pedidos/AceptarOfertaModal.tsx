@@ -67,6 +67,10 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
   const [sel, setSel] = useState<Record<string, number>>(() =>
     Object.fromEntries(grupos.map((g) => [g.key, 0])),
   );
+  // Qué productos se le compran a ESTA oferta. Por defecto todos los libres: se destildan
+  // los que se piensan comprar a otro proveedor (quedan pendientes para asignar aparte).
+  const [incluido, setIncluido] = useState<Record<string, boolean>>({});
+  const estaIncluido = (key: string) => incluido[key] !== false;
   // Observación del analista (por qué elige) + adjuntos (imágenes/PDF).
   const [motivo, setMotivo] = useState('');
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
@@ -88,13 +92,16 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
     e.target.value = '';
   }
 
-  const elegidos = gruposLibres.map((g) => g.opciones[Math.min(sel[g.key] ?? 0, g.opciones.length - 1)]);
+  const gruposElegidos = gruposLibres.filter((g) => estaIncluido(g.key));
+  const elegidos = gruposElegidos.map((g) => g.opciones[Math.min(sel[g.key] ?? 0, g.opciones.length - 1)]);
+  const nDestildados = gruposLibres.length - gruposElegidos.length;
   const bcvTotal = Math.round(elegidos.reduce((a, it) => { const u = unit(it); return a + u.cant * u.bcv; }, 0) * 100) / 100;
   const usdTotal = Math.round(elegidos.reduce((a, it) => { const u = unit(it); return a + u.cant * u.usd; }, 0) * 100) / 100;
   const sinPrecio = bcvTotal <= 0 && usdTotal <= 0;
+  const sinSeleccion = elegidos.length === 0;
 
   async function confirmar() {
-    if (sinPrecio || saving) return;
+    if (sinPrecio || sinSeleccion || saving) return;
     setSaving(true);
     try {
       await onConfirm(elegidos, bcvTotal, usdTotal > 0 ? usdTotal : 0, motivo.trim(), adjuntos);
@@ -106,8 +113,9 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onCancel} disabled={saving}>Cancelar</button>
-      <button className="btn btn-primary" onClick={confirmar} disabled={saving || sinPrecio}>
-        {saving ? 'Eligiendo…' : 'Elegir oferta'}
+      <button className="btn btn-primary" onClick={confirmar} disabled={saving || sinPrecio || sinSeleccion}
+        title={sinSeleccion ? 'Tildá al menos un producto para comprarle a este proveedor' : undefined}>
+        {saving ? 'Eligiendo…' : `Elegir oferta${elegidos.length ? ` · ${elegidos.length} producto(s)` : ''}`}
       </button>
     </>
   );
@@ -119,35 +127,57 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
           ? 'Este proveedor cotizó algún producto en varias marcas. Elegí cuál marca se compra de cada uno (no se compran todas). Se muestran los precios en Bs (BCV) y en $ (USD).'
           : 'Revisá los productos, marcas y precios (Bs y $). Al confirmar, la orden queda pendiente por aprobación del Gerente General.'}
       </p>
+      <p className="hint muted" style={{ marginTop: '-.4rem', fontSize: '.82rem' }}>
+        ☑️ Tildá los productos que le comprás <strong>a este proveedor</strong>. Si alguno lo vas a comprar a otro, <strong>destildalo</strong>: queda pendiente y se asigna aparte desde la OP.
+      </p>
       {nBloqueados > 0 && (
         <p className="hint muted" style={{ marginTop: '-.4rem', fontSize: '.82rem' }}>
           🧩 <strong>{nBloqueados}</strong> producto(s) de esta oferta ya se le compraron a otro proveedor: salen <strong>en gris</strong> y no se pueden marcar. Solo se compra —y se cobra— lo que queda pendiente.
+        </p>
+      )}
+      {nDestildados > 0 && (
+        <p className="hint" style={{ marginTop: '-.4rem', fontSize: '.82rem', color: 'var(--warning)' }}>
+          ⚠ <strong>{nDestildados}</strong> producto(s) destildado(s): <strong>no</strong> se le compran a este proveedor y quedan <strong>pendientes por asignar</strong> en la OP madre.
         </p>
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.7rem' }}>
         {grupos.map((g) => {
           const yaComprado = bloqueado(g.sku);
-          const multi = !yaComprado && g.opciones.length > 1;
+          const incl = !yaComprado && estaIncluido(g.key);
+          const multi = incl && g.opciones.length > 1;
           return (
             <div key={g.key} className="card"
-              style={{ margin: 0, padding: '.7rem .8rem', opacity: yaComprado ? 0.5 : 1 }}>
+              style={{ margin: 0, padding: '.7rem .8rem', opacity: yaComprado ? 0.5 : (incl ? 1 : 0.6) }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
-                <div>
-                  <strong style={yaComprado ? { textDecoration: 'line-through' } : undefined}>{g.nombre}</strong>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                  {/* Tildar = se le compra a este proveedor. Destildar = queda pendiente
+                      para comprárselo a otro (vuelve a la bolsa de la OP madre). */}
+                  {!yaComprado && (
+                    <input
+                      type="checkbox"
+                      checked={incl}
+                      onChange={(e) => setIncluido((m) => ({ ...m, [g.key]: e.target.checked }))}
+                      style={{ cursor: 'pointer', width: 17, height: 17 }}
+                      title={incl ? 'Se le compra a este proveedor · destildá para comprarlo a otro' : 'No se le compra a este proveedor'}
+                    />
+                  )}
+                  <strong style={yaComprado || !incl ? { textDecoration: 'line-through' } : undefined}>{g.nombre}</strong>
                   {g.sku ? <span className="muted mono" style={{ fontSize: '.78rem' }}> · {g.sku}</span> : null}
                 </div>
                 {yaComprado
                   ? <span className="badge">✓ Ya comprado a otro proveedor</span>
-                  : multi
-                    ? <span className="badge warning">{g.opciones.length} marcas · elegí una</span>
-                    : <span className="muted" style={{ fontSize: '.76rem' }}>marca única</span>}
+                  : !incl
+                    ? <span className="badge warning">Queda pendiente · se compra a otro</span>
+                    : multi
+                      ? <span className="badge warning">{g.opciones.length} marcas · elegí una</span>
+                      : <span className="muted" style={{ fontSize: '.76rem' }}>marca única</span>}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', marginTop: '.5rem' }}>
                 {g.opciones.map((it, i) => {
                   const u = unit(it);
-                  const elegida = !yaComprado && (sel[g.key] ?? 0) === i;
+                  const elegida = incl && (sel[g.key] ?? 0) === i;
                   return (
                     <label
                       key={i}
@@ -167,7 +197,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
                         type="radio"
                         name={`marca-${g.key}`}
                         checked={elegida}
-                        disabled={yaComprado || !multi}
+                        disabled={!incl || !multi}
                         onChange={() => setSel((m) => ({ ...m, [g.key]: i }))}
                       />
                       <div>
