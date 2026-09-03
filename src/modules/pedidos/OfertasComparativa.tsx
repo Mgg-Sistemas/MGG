@@ -61,6 +61,9 @@ export function OfertasComparativa({
   const [subOcPorProv, setSubOcPorProv] = useState<Map<string, { items: number; codigo: string }>>(new Map());
   // Proveedores con otra sub-OC VIVA (para no dejar que una hija re-elija la oferta de un hermano).
   const [provOcupados, setProvOcupados] = useState<Set<string>>(new Set());
+  // SKUs que ya compra OTRA sub-OC viva (no esta): al elegir una oferta salen en gris y no se
+  // pueden marcar, para no pagar dos veces el mismo producto.
+  const [skusAjenos, setSkusAjenos] = useState<Set<string>>(new Set());
 
   const toggleExpand = (id: string) => setExpandido((prev) => {
     const next = new Set(prev);
@@ -101,6 +104,15 @@ export function OfertasComparativa({
         const locked = new Set<string>();
         for (const h of hijas) for (const it of (h.items ?? [])) if (it.sku) locked.add(it.sku);
         setLockedSkus(esHija ? new Set() : locked);
+        // Lo que ya compran las OTRAS sub-OC vivas (excluye la propia): en el modal de elección
+        // sale en gris. Las muertas no cuentan: sus ítems volvieron a quedar libres.
+        const ajenos = new Set<string>();
+        for (const h of hijas) {
+          if (h.id === orden.id) continue;
+          if (['cancelada', 'anulada', 'rechazada', 'desistida_proveedor', 'reasignada'].includes(h.estado)) continue;
+          for (const it of (h.items ?? [])) if (it.sku) ajenos.add(it.sku);
+        }
+        setSkusAjenos(ajenos);
         // Sub-OC por proveedor: cuántos ítems tomó cada uno (suma si tiene varias) + su código.
         const subMap = new Map<string, { items: number; codigo: string }>();
         for (const h of hijas) {
@@ -601,6 +613,7 @@ export function OfertasComparativa({
         <AceptarOfertaModal
           oferta={confirmando.oferta}
           proveedorNombre={proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}
+          skusBloqueados={skusAjenos}
           onConfirm={(items, bcv, usd, motivo, files) => confirmarAceptacion(confirmando, items, bcv, usd, motivo, files)}
           onCancel={() => setConfirmando(null)}
         />

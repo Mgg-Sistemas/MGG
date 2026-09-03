@@ -46,15 +46,22 @@ const marcaLabel = (it: ItemOrden) =>
 interface Props {
   oferta: OfertaProveedor;
   proveedorNombre: string;
+  /** SKUs que YA compra otra sub-OC viva: se muestran en gris y no se pueden marcar
+   *  (comprarlos de nuevo sería pagar dos veces el mismo producto). */
+  skusBloqueados?: Set<string>;
   /** Devuelve los ítems elegidos (uno por producto) + totales en Bs y $ + la observación
    *  del analista (por qué elige la oferta) y sus adjuntos (imágenes/PDF). */
   onConfirm: (itemsElegidos: ItemOrden[], bcvTotal: number, usdTotal: number, motivo: string, adjuntos: File[]) => Promise<void> | void;
   onCancel: () => void;
 }
 
-export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCancel }: Props) {
+export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, onConfirm, onCancel }: Props) {
   const grupos = useMemo(() => agruparPorProducto(oferta.items), [oferta.items]);
-  const hayVariantes = grupos.some((g) => g.opciones.length > 1);
+  const bloqueado = (sku: string) => !!skusBloqueados?.has(sku);
+  // Solo se cotizan/compran los productos que quedan libres.
+  const gruposLibres = useMemo(() => grupos.filter((g) => !bloqueado(g.sku)), [grupos, skusBloqueados]);
+  const nBloqueados = grupos.length - gruposLibres.length;
+  const hayVariantes = gruposLibres.some((g) => g.opciones.length > 1);
 
   // Selección por producto: índice de la opción elegida (por defecto la 1ª cargada).
   const [sel, setSel] = useState<Record<string, number>>(() =>
@@ -81,7 +88,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCance
     e.target.value = '';
   }
 
-  const elegidos = grupos.map((g) => g.opciones[Math.min(sel[g.key] ?? 0, g.opciones.length - 1)]);
+  const elegidos = gruposLibres.map((g) => g.opciones[Math.min(sel[g.key] ?? 0, g.opciones.length - 1)]);
   const bcvTotal = Math.round(elegidos.reduce((a, it) => { const u = unit(it); return a + u.cant * u.bcv; }, 0) * 100) / 100;
   const usdTotal = Math.round(elegidos.reduce((a, it) => { const u = unit(it); return a + u.cant * u.usd; }, 0) * 100) / 100;
   const sinPrecio = bcvTotal <= 0 && usdTotal <= 0;
@@ -110,27 +117,37 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCance
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         {hayVariantes
           ? 'Este proveedor cotizó algún producto en varias marcas. Elegí cuál marca se compra de cada uno (no se compran todas). Se muestran los precios en Bs (BCV) y en $ (USD).'
-          : 'Revisá los productos, marcas y precios (Bs y $). Al confirmar, la orden queda pendiente por aprobación del Gerente General y las demás ofertas se descartan.'}
+          : 'Revisá los productos, marcas y precios (Bs y $). Al confirmar, la orden queda pendiente por aprobación del Gerente General.'}
       </p>
+      {nBloqueados > 0 && (
+        <p className="hint muted" style={{ marginTop: '-.4rem', fontSize: '.82rem' }}>
+          🧩 <strong>{nBloqueados}</strong> producto(s) de esta oferta ya se le compraron a otro proveedor: salen <strong>en gris</strong> y no se pueden marcar. Solo se compra —y se cobra— lo que queda pendiente.
+        </p>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.7rem' }}>
         {grupos.map((g) => {
-          const multi = g.opciones.length > 1;
+          const yaComprado = bloqueado(g.sku);
+          const multi = !yaComprado && g.opciones.length > 1;
           return (
-            <div key={g.key} className="card" style={{ margin: 0, padding: '.7rem .8rem' }}>
+            <div key={g.key} className="card"
+              style={{ margin: 0, padding: '.7rem .8rem', opacity: yaComprado ? 0.5 : 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
                 <div>
-                  <strong>{g.nombre}</strong>{g.sku ? <span className="muted mono" style={{ fontSize: '.78rem' }}> · {g.sku}</span> : null}
+                  <strong style={yaComprado ? { textDecoration: 'line-through' } : undefined}>{g.nombre}</strong>
+                  {g.sku ? <span className="muted mono" style={{ fontSize: '.78rem' }}> · {g.sku}</span> : null}
                 </div>
-                {multi
-                  ? <span className="badge warning">{g.opciones.length} marcas · elegí una</span>
-                  : <span className="muted" style={{ fontSize: '.76rem' }}>marca única</span>}
+                {yaComprado
+                  ? <span className="badge">✓ Ya comprado a otro proveedor</span>
+                  : multi
+                    ? <span className="badge warning">{g.opciones.length} marcas · elegí una</span>
+                    : <span className="muted" style={{ fontSize: '.76rem' }}>marca única</span>}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', marginTop: '.5rem' }}>
                 {g.opciones.map((it, i) => {
                   const u = unit(it);
-                  const elegida = (sel[g.key] ?? 0) === i;
+                  const elegida = !yaComprado && (sel[g.key] ?? 0) === i;
                   return (
                     <label
                       key={i}
@@ -150,7 +167,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, onConfirm, onCance
                         type="radio"
                         name={`marca-${g.key}`}
                         checked={elegida}
-                        disabled={!multi}
+                        disabled={yaComprado || !multi}
                         onChange={() => setSel((m) => ({ ...m, [g.key]: i }))}
                       />
                       <div>
