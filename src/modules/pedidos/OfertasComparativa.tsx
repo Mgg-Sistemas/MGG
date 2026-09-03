@@ -317,10 +317,14 @@ export function OfertasComparativa({
               const prov = proveedorMap.get(s.oferta.proveedor_id);
               const recomendada = s.recomendada && s.oferta.estado === 'pendiente';
               const aceptada = s.oferta.estado === 'aceptada';
-              // Una hija SIN proveedor (reabierta) puede volver a elegir una oferta de la madre
-              // aunque ya figure 'aceptada', siempre que ningún hermana viva tenga ese proveedor.
-              // Sin esto, al reabrir una hija su propia oferta quedaba fuera de alcance.
-              const reelegible = esHija && !orden.proveedor_id && aceptada && !provOcupados.has(s.oferta.proveedor_id);
+              // Una hija SIN proveedor (reabierta, o creada por el reparto sin adjudicar) puede
+              // volver a elegir CUALQUIER oferta ya decidida de la madre —'aceptada' o
+              // 'descartada'— mientras ninguna hermana viva tenga ese proveedor.
+              // La 'descartada' es clave: al aceptar una oferta se cerraban todas las demás, así
+              // que los ítems que quedaban sin proveedor se topaban con puras ofertas en rojo y
+              // no había con qué comprarlos (caso SP-2026-0123).
+              const decidida = aceptada || s.oferta.estado === 'descartada';
+              const reelegible = esHija && !orden.proveedor_id && decidida && !provOcupados.has(s.oferta.proveedor_id);
               const seleccionable = (s.oferta.estado === 'pendiente' || reelegible) && puedeDecidir;
               const rowBg = recomendada
                 ? 'var(--grad-primary-soft)'
