@@ -83,7 +83,31 @@ export function prefijoCategoria(categoria: string, productos: Producto[] = []):
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^A-Za-z]/g, '')
     .toUpperCase();
-  return norm.slice(0, 3) || 'GEN';
+  const palabras = categoria.normalize('NFD').replace(/[^A-Za-z ]/g, '').toUpperCase().split(/\s+/).filter(Boolean);
+  if (!norm) return 'GEN';
+
+  // Categoría nueva: el prefijo sale de su NOMBRE, pero no puede ser uno que ya use
+  // otra categoría. Cuatro categorías compartían MAT (MATERIALES, MATERIAL DE
+  // EMBALAJE, MATERIAL DE LIMPIEZA, MATERIALES DE OFICINA) y dos compartían HOR
+  // (HORNO y HORTALIZAS): con el prefijo compartido el correlativo de una avanzaba
+  // sobre el de la otra y el código dejaba de decir a qué categoría pertenece.
+  const ocupados = new Set<string>();
+  for (const p of productos) {
+    if (p.categoria === categoria) continue;
+    const m = String(p.sku ?? '').match(/^([A-Za-z]+)/);
+    if (m) ocupados.add(m[1].toUpperCase());
+  }
+  // 1) las tres primeras letras; 2) las iniciales de cada palabra (MATERIALES DE
+  //    OFICINA → MDO); 3) la primera letra + dos que van avanzando; 4) con dígito.
+  const iniciales = palabras.map((w) => w[0]).join('');
+  const candidatos = [norm.slice(0, 3), iniciales.slice(0, 3)];
+  for (let i = 1; i + 2 <= norm.length; i += 1) candidatos.push(norm[0] + norm.slice(i, i + 2));
+  for (const c of candidatos) if (c.length === 3 && !ocupados.has(c)) return c;
+  for (let n = 1; n < 100; n += 1) {
+    const c = `${norm.slice(0, 2)}${n}`;
+    if (!ocupados.has(c)) return c;
+  }
+  return norm.slice(0, 3);
 }
 
 /** Siguiente SKU correlativo para la categoría dada (p.ej. "LUB-003"),

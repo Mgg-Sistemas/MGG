@@ -81,6 +81,7 @@ import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.reposi
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSku, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
+import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
@@ -4056,7 +4057,11 @@ function CrearOrdenModal({
   // el resto se completa luego desde el módulo de inventario).
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState('');
-  const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
+  // Arranca VACÍA: antes venía en «GENERAL» y así nacieron 317 productos sin
+  // categoría real, todos con SKU NEW-. La categoría ahora es obligatoria.
+  const [nuevoCategoria, setNuevoCategoria] = useState('');
+  // Nombre para el que el usuario YA confirmó que quiere crear igual.
+  const [avisadoPara, setAvisadoPara] = useState('');
   const [nuevoUnidad, setNuevoUnidad] = useState('UNIDAD');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
   const [medidas, setMedidas] = useState<string[]>([]);
@@ -4071,14 +4076,46 @@ function CrearOrdenModal({
     getCategorias(productos).then(setCategoriasInv).catch(() => setCategoriasInv([]));
   }, [productos]);
 
+  /* Productos del inventario que se parecen al nombre que se está escribiendo.
+     El mismo detector que usa el alta de Inventario: acá hacía más falta todavía,
+     porque quien carga una solicitud no está mirando el catálogo. */
+  const nuevoSimilares = useMemo<Duplicado<Producto>[]>(
+    () => (nuevoOpen ? productosSimilares(nuevoNombre, allProductos) : []),
+    [nuevoOpen, nuevoNombre, allProductos],
+  );
+
+  /** Mete en la solicitud un producto que YA existe, en vez de crear uno nuevo. */
+  function usarExistente(p: Producto) {
+    setProdSelectId(p.id);
+    setItems((prev) => prev.some((i) => i.productoId === p.id)
+      ? prev
+      : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
+    toast(`"${p.nombre}" (${p.sku}) agregado a la solicitud`, 'success');
+    setNuevoNombre('');
+    setNuevoOpen(false);
+  }
+
   async function crearProductoNuevo() {
     const nombre = nuevoNombre.trim().toUpperCase();
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
+    if (!nuevoCategoria.trim()) { toast('Elegí la categoría: define el código del producto', 'error'); return; }
+    // Si hay parecidos, el primer clic avisa y el segundo crea. No se bloquea: puede
+    // ser de verdad otro material, y un aviso que no deja pasar se vuelve un estorbo.
+    if (nuevoSimilares.length && avisadoPara !== normalizarNombre(nombre)) {
+      setAvisadoPara(normalizarNombre(nombre));
+      toast(
+        nuevoSimilares.some((d) => d.nivel === 'exacto')
+          ? 'Ese producto ya existe con el mismo nombre. Mirá la lista de abajo: si es el mismo, usá «Usar este». Si de verdad es otro, tocá «Crear» de nuevo.'
+          : `Hay ${nuevoSimilares.length} producto(s) parecido(s) en el inventario. Revisá la lista y, si igual es otro material, tocá «Crear» de nuevo.`,
+        'warning',
+      );
+      return;
+    }
     setCreandoNuevo(true);
     try {
       // SKU correlativo por categoría: 3 primeras letras (o el prefijo ya usado en esa
       // categoría) + secuencia. Ej.: PROTEINA → PRO-001. (Antes usaba NEW-<slug>-<rand>.)
-      const categoria = nuevoCategoria.trim().toUpperCase() || 'GENERAL';
+      const categoria = nuevoCategoria.trim().toUpperCase();
       // Si la categoría es nueva, se registra en la taxonomía del inventario (sincroniza la lista).
       if (categoria && !categoriasInv.some((c) => c.toLowerCase() === categoria.toLowerCase())) {
         try { await addCategoria(categoria, authEmail); setCategoriasInv((prev) => [...prev, categoria]); } catch { /* duplicado/red: no bloquea */ }
@@ -4109,6 +4146,7 @@ function CrearOrdenModal({
       // ya quedó cargado en la solicitud. Se dicen las dos, con el SKU que se le asignó.
       toast(`Producto "${creado.nombre}" (${creado.sku}) creado en inventario y agregado a la solicitud`, 'success');
       setNuevoNombre('');
+      setAvisadoPara('');
       setNuevoOpen(false);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo crear el producto', 'error');
@@ -4423,10 +4461,67 @@ function CrearOrdenModal({
                 value={nuevoNombre}
                 onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
               />
+
+              {nuevoSimilares.length > 0 && (
+                <div className="card" style={{ padding: '.6rem .8rem', borderColor: 'var(--warning)', background: 'var(--bg-1)' }}>
+                  <div style={{ fontSize: '.86rem', fontWeight: 600, marginBottom: '.15rem' }}>
+                    ⚠️ {nuevoSimilares.length === 1 ? 'Ya existe un producto parecido' : `Ya existen ${nuevoSimilares.length} productos parecidos`}
+                  </div>
+                  <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.45rem' }}>
+                    Antes de crear uno nuevo, fijate si es alguno de estos. Dos fichas del mismo material
+                    parten el kardex y el costo promedio, y después nadie sabe cuál es el bueno. Si es el
+                    mismo, usá <strong>«Usar este»</strong> y va directo a la solicitud. Si de verdad es otro
+                    material, tocá <strong>«Crear»</strong> otra vez y sigue.
+                  </div>
+                  <div className="table-wrap">
+                    <table className="table" style={{ fontSize: '.8rem' }}>
+                      <thead><tr><th>SKU</th><th>Producto</th><th>Almacén</th><th /></tr></thead>
+                      <tbody>
+                        {nuevoSimilares.map(({ producto: sp, nivel }) => (
+                          <tr key={sp.id}>
+                            <td className="mono">{sp.sku}</td>
+                            <td>
+                              <strong>{sp.nombre}</strong>
+                              {nivel === 'exacto' && (
+                                <span className="badge" style={{ marginLeft: '.35rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}>mismo nombre</span>
+                              )}
+                              <div className="muted" style={{ fontSize: '.72rem' }}>
+                                {sp.categoria ?? '—'} · {sp.unidad ?? '—'}
+                                {sp.estado !== 'activo' && (
+                                  <span className="badge" style={{ marginLeft: '.35rem', color: 'var(--warning)', borderColor: 'var(--warning)' }}>dado de baja</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="mono" style={{ fontSize: '.74rem' }}>
+                              {sp.almacen ? sp.almacen : <span className="dim">sin ubicación</span>}
+                            </td>
+                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              {/* Una ficha dada de baja no se puede pedir: hay que reactivarla
+                                  primero desde Inventario, así que acá no se ofrece el atajo. */}
+                              {sp.estado === 'activo' ? (
+                                <button type="button" className="btn btn-sm" onClick={() => usarExistente(sp)}
+                                  title="Agregar este producto a la solicitud en vez de crear uno nuevo">
+                                  Usar este
+                                </button>
+                              ) : (
+                                <span className="dim" style={{ fontSize: '.72rem' }} title="Reactivalo desde Inventario y después pedilo">
+                                  reactivar en Inventario
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               <div className="form-grid">
                 <div>
-                  <input className="input" list="nuevo-prod-categorias" placeholder="Categoría (elegí o escribí una nueva)"
+                  <input className="input" list="nuevo-prod-categorias" placeholder="Categoría * (elegí o escribí una nueva)"
                     value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+                  <small className="muted" style={{ fontSize: '.72rem' }}>Define el código: PLOMERIA → PLO-044.</small>
                   <datalist id="nuevo-prod-categorias">
                     {categoriasInv.map((c) => <option key={c} value={c} />)}
                   </datalist>
@@ -4443,8 +4538,13 @@ function CrearOrdenModal({
                 label="Almacén destino"
               />
               <div>
-                <button type="button" className="btn btn-sm btn-primary" onClick={crearProductoNuevo} disabled={creandoNuevo}>
-                  {creandoNuevo ? 'Creando…' : 'Crear y añadir a la solicitud'}
+                <button type="button" className="btn btn-sm btn-primary" onClick={crearProductoNuevo}
+                  disabled={creandoNuevo || !nuevoNombre.trim() || !nuevoCategoria.trim()}>
+                  {creandoNuevo
+                    ? 'Creando…'
+                    : nuevoSimilares.length && avisadoPara !== normalizarNombre(nuevoNombre)
+                      ? 'Crear igual (hay parecidos)'
+                      : 'Crear y añadir a la solicitud'}
                 </button>
               </div>
             </div>

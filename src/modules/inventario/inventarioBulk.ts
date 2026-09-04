@@ -175,7 +175,7 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     if (m) { const pre = m[1].toUpperCase(); maxPorPrefijo.set(pre, Math.max(maxPorPrefijo.get(pre) ?? 0, parseInt(m[2], 10))); }
   }
   const genSku = (categoria: string): string => {
-    const pre = prefijoCategoria((categoria || 'GENERAL').toUpperCase(), prodsBd).toUpperCase();
+    const pre = prefijoCategoria(categoria.toUpperCase(), prodsBd).toUpperCase();
     const next = (maxPorPrefijo.get(pre) ?? 0) + 1;
     maxPorPrefijo.set(pre, next);
     return `${pre}-${String(next).padStart(3, '0')}`;
@@ -206,6 +206,10 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     const sumCol = (col: string) => { errorPorColumna[col] = (errorPorColumna[col] ?? 0) + 1; };
 
     if (!nombre) { errores.push('Nombre vacío'); sumCol('nombre'); }
+    // La categoría define el prefijo del SKU. Sin ella el producto caía en «GENERAL»
+    // y nacía como NEW-###: así entraron los 317 que después hubo que reclasificar
+    // a mano y renumerar reescribiendo todo el historial. Ahora la fila se rechaza.
+    if (!toStr(norm.categoria).trim()) { errores.push('Categoría vacía'); sumCol('categoria'); }
     // SKU: 1) el del archivo (compatibilidad); 2) si el NOMBRE ya existe en el inventario,
     // el SKU de ese producto (para reconocerlo como el mismo y no duplicarlo); 3) uno nuevo
     // por categoría. Así un material ya existente no entra con un SKU nuevo.
@@ -389,7 +393,7 @@ export async function aplicarImportacion(analisis: AnalisisImport, opts: ImportO
       payload: {
         sku: f.sku,
         nombre: f.nombre,
-        categoria: toStr(r.categoria).toUpperCase() || 'GENERAL',
+        categoria: toStr(r.categoria).toUpperCase(),
         unidad: toStr(r.unidad) || 'und',
         stock,
         stock_min: stockMin,
