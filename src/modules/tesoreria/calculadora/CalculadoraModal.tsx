@@ -45,6 +45,25 @@ const fmtResultado = (h: { result: number; enBs: boolean }) =>
  * decimal, que es la única forma que el motor lee sin ambigüedad. `toFixed`
  * además evita la notación científica, que el motor no entiende.
  */
+/**
+ * Deja de un texto pegado solo lo que la calculadora puede leer.
+ *
+ * Un monto copiado de una tabla o de un correo viene con «Bs», con espacios que
+ * no son espacios (el que separa los miles en es-VE es U+00A0), con saltos de
+ * línea o con paréntesis de contabilidad. Pegarlo tal cual solo produce un error,
+ * y pegar es de esas cosas que uno espera que funcionen.
+ */
+function limpiarPegado(texto: string): string {
+  return (texto ?? '')
+    .replace(/ /g, ' ')
+    .replace(/[×✕✖]/g, '×')
+    .replace(/[÷]/g, '÷')
+    .replace(/[^\d.,+\-*/()%×÷$€\sA-Za-zÁÉÍÓÚáéíóúÑñ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
+
 function paraReusar(n: number): string {
   if (!Number.isFinite(n)) return '0';
   const s = n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
@@ -105,25 +124,28 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
     if (val === 'C') { setExpr(''); setResult('0'); return; }
     if (val === '⌫') { setExpr((e) => e.slice(0, -1)); return; }
     if (val === '=') {
-      setExpr((e) => {
-        const cur = e.trim();
-        if (!cur) return e;
-        try {
-          const r = evaluar(cur);
-          if (!r) return e;
-          setResult(CALC_FMT(r.bs));
-          setHistory((h) => [{ expr: cur, result: r.bs, enBs: r.enBs, leida: r.leida }, ...h].slice(0, 200));
-          // Si el resultado es dinero, vuelve al renglón CON su unidad. Sin el
-          // «bs», seguir operando lo trataría como número suelto y la cuenta
-          // siguiente tomaría la moneda del otro sumando: 80.739 pasaría a ser
-          // dólares y el error sería de tres órdenes de magnitud.
-          return r.enBs ? `${paraReusar(r.bs)} bs` : paraReusar(r.bs);
-        } catch (err) { setError(err instanceof Error ? err.message : 'Error'); return e; }
-      });
+      /* Los efectos (guardar en la cinta, fijar el resultado) van ACÁ y no dentro
+         del updater de `setExpr`. Un updater tiene que ser una función pura de
+         estado a estado: React lo invoca dos veces en desarrollo para detectar
+         justamente esto, y con los efectos adentro cada «=» agregaba DOS
+         renglones idénticos a la cinta. */
+      const cur = expr.trim();
+      if (!cur) return;
+      try {
+        const r = evaluar(cur);
+        if (!r) return;
+        setResult(CALC_FMT(r.bs));
+        setHistory((h) => [{ expr: cur, result: r.bs, enBs: r.enBs, leida: r.leida }, ...h].slice(0, 200));
+        // Si el resultado es dinero, vuelve al renglón CON su unidad. Sin el
+        // «bs», seguir operando lo trataría como número suelto y la cuenta
+        // siguiente tomaría la moneda del otro sumando: 80.739 pasaría a ser
+        // dólares y el error sería de tres órdenes de magnitud.
+        setExpr(r.enBs ? `${paraReusar(r.bs)} bs` : paraReusar(r.bs));
+      } catch (err) { setError(err instanceof Error ? err.message : 'Error'); }
       return;
     }
     setExpr((e) => e + val);
-  }, [evaluar]);
+  }, [evaluar, expr]);
 
   /* Resultado en vivo mientras se escribe (sin presionar =).
      `incompleta` distingue «todavía no cierra» de «no hay nada escrito», y no es
@@ -149,12 +171,38 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       // calculadora. Ya pasaba con los dígitos; al aceptar letras sería peor.
       const dest = ev.target as HTMLElement | null;
       if (dest && (/^(INPUT|TEXTAREA|SELECT)$/.test(dest.tagName) || dest.isContentEditable)) return;
-      // Ctrl+C, Ctrl+V, Alt+Tab: son atajos, no dígitos. Sin esto, copiar metía
-      // una «c» en la cuenta.
-      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
 
       const k = ev.key;
-      if (/[0-9]/.test(k)) press(k);
+
+      /* Copiar y pegar. El visor es un div, así que el navegador no los ofrece
+         solo: hay que atenderlos. Copiar da el RESULTADO —que es lo que uno
+         quiere llevarse a otra parte— y pegar limpia lo que venga, porque un
+         monto copiado de una tabla trae «Bs», espacios raros y hasta saltos. */
+      if (ev.ctrlKey || ev.metaKey) {
+        const t = k.toLowerCase();
+        if (t === 'c') {
+          ev.preventDefault();
+          const texto = (expr.trim() && preview ? preview.texto : result).replace(/^Bs\s*/, '');
+          navigator.clipboard?.writeText(texto).then(
+            () => toast('Resultado copiado', 'success'),
+            () => toast('No se pudo copiar', 'error'),
+          );
+        } else if (t === 'v') {
+          ev.preventDefault();
+          navigator.clipboard?.readText().then(
+            (txt) => { const limpio = limpiarPegado(txt); if (limpio) press(limpio); },
+            () => toast('No se pudo pegar', 'error'),
+          );
+        }
+        return;
+      }
+      // El resto de los atajos (Alt+Tab y compañía) no son teclas de la cuenta.
+      if (ev.altKey) return;
+
+      // ANCLADO. Sin los delimitadores, /[0-9]/ pregunta si la tecla CONTIENE un
+      // dígito: «F2», «F3» y «F12» pasaban la prueba y se insertaban enteras en
+      // la cuenta.
+      if (/^[0-9]$/.test(k)) press(k);
       // Se escribe lo que se teclea: el motor entiende coma y punto, y ver en
       // pantalla algo distinto de lo que uno puso es la forma de desconfiar.
       else if (k === '.' || k === ',') press(k);
@@ -185,7 +233,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
     // `expr` y `mapas` entran a propósito: el filtro de letras mira lo que ya
     // está escrito, y sin ellos el manejador se quedaría con una copia vieja y
     // rechazaría teclas válidas. Resuscribir un listener por tecla no se nota.
-  }, [press, expr, mapas]);
+  }, [press, expr, mapas, preview, result]);
 
   async function exportarPdf() {
     if (!history.length) { setError('No hay operaciones para exportar.'); return; }
@@ -260,7 +308,10 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
           el espacio de sobra lo ocupa la cinta en vez de estirar el teclado. */}
       <div style={{
         display: 'grid', gap: '1rem', alignItems: 'start',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+        // `min(300px, 100%)` y no `300px` a secas: con el mínimo fijo, en un
+        // teléfono angosto la columna no puede achicarse por debajo de 300px y
+        // la pantalla se desborda a lo ancho. Con `min()` cede cuando hace falta.
+        gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))',
         maxWidth: 880, margin: '0 auto',
       }}>
       <div>
