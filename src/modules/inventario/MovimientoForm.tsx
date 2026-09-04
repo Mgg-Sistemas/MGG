@@ -156,6 +156,14 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
       setError('Un ajuste manual necesita un motivo (conteo físico, rotura, corrección de carga…). Escribilo en «Motivo del movimiento».');
       return;
     }
+    // Una entrada sin costo mete material que el inventario valora en $0: el stock
+    // aparece pero el almacén vale menos de lo que tiene, y el PMP queda mal para
+    // todas las compras siguientes. Si de verdad no hay costo (material donado,
+    // aparecido en un conteo), la vía es el «ajuste», que exige escribir el motivo.
+    if (esEntradaConCosto && !(costoUnitNum > 0)) {
+      setError('Una entrada necesita el costo unitario. Sin costo el producto entra valorado en $0 y descuadra el valor del almacén. Si no hay costo, registralo como «Ajuste» explicando el motivo.');
+      return;
+    }
     if (sector.sectorizado) {
       if (!sector.listo) {
         setError('Todavía se están cargando los almacenes. Probá de nuevo en un momento.');

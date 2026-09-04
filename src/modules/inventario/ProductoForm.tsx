@@ -316,6 +316,13 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
       setError('Indicá las “Unidades por caja/bulto” para convertir el stock a unidades.');
       return;
     }
+    // Alta CON stock inicial: ese stock entra al kardex como movimiento de creación
+    // valorado a `precio`. En 0 el producto nace sin costo y hay que rastrearlo
+    // después desde «Sin costo»; se pide acá, que es cuando se sabe cuánto costó.
+    if (!isEdit && stockUnidades > 0 && round2(form.precio) <= 0) {
+      setError('Indicá el costo unitario: estás dando de alta el producto CON stock, y en 0 entraría al inventario valorado en $0.');
+      return;
+    }
     // Duplicado con el MISMO nombre: se frena una vez y se explica. Si el usuario
     // vuelve a apretar Crear, se respeta su decisión (puede haber materiales que de
     // verdad se llaman igual y se distinguen por medida o presentación).

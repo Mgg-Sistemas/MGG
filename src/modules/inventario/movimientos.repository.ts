@@ -212,6 +212,72 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
   return data as Movimiento;
 }
 
+/**
+ * Le pone costo a una existencia que quedó valorada en $0 SIN mover stock.
+ *
+ * No se puede reusar `registrarMovimiento` para esto: ahí el PMP solo se
+ * recalcula cuando `delta > 0` (ver `aplicaPMP`), así que un movimiento de
+ * cantidad 0 dejaría el costo intacto y la corrección se perdería.
+ *
+ * Queda un `ajuste` de delta 0 en el kardex con el costo aplicado y el
+ * motivo, que es la traza que nunca tuvieron las cargas masivas.
+ */
+export async function valuarExistencia(input: {
+  producto_id: string;
+  almacen: string;
+  costo: number;
+  actor: string;
+  actor_name?: string | null;
+  detalle?: string | null;
+}): Promise<void> {
+  const costo = Math.round((Number(input.costo) || 0) * 10000) / 10000;
+  if (!(costo > 0)) throw new Error('El costo tiene que ser mayor que 0.');
+  const almacen = (input.almacen || '').trim();
+  if (!almacen) throw new Error('Falta el almacén de la existencia a valorar.');
+
+  const { data: ex, error: exErr } = await supabase
+    .from('existencias')
+    .select('stock, costo_promedio')
+    .eq('producto_id', input.producto_id)
+    .eq('almacen', almacen)
+    .maybeSingle();
+  if (exErr) throw exErr;
+  if (!ex) throw new Error('Esa existencia ya no está en el almacén.');
+  const stock = Number(ex.stock) || 0;
+  if (stock <= 0) throw new Error('No hay stock que valorar en ese almacén.');
+  // Otro usuario pudo haberlo valorado mientras la pantalla estaba abierta.
+  if ((Number(ex.costo_promedio) || 0) > 0) {
+    throw new Error('Ese producto ya tiene costo en este almacén. Refrescá la lista.');
+  }
+
+  const { error: mErr } = await supabase.from('movimientos').insert({
+    producto_id: input.producto_id,
+    tipo: 'ajuste',
+    delta: 0,
+    almacen,
+    stock_antes: stock,
+    stock_despues: stock,
+    actor: input.actor,
+    actor_name: input.actor_name ?? null,
+    ref_tipo: 'valuacion',
+    detalle: input.detalle ?? `Valuación de existencia sin costo · ${almacen}`,
+    precio_unitario: costo,
+    costo_promedio: costo,
+    at: new Date().toISOString(),
+  });
+  if (mErr) throw mErr;
+
+  const { error: uErr } = await supabase
+    .from('existencias')
+    .update({ costo_promedio: costo, updated_at: new Date().toISOString() })
+    .eq('producto_id', input.producto_id)
+    .eq('almacen', almacen);
+  if (uErr) throw uErr;
+
+  await recomputeProductoAgg(input.producto_id);
+  bustCache(['existencias', 'productos']);
+}
+
 export interface TransferirInput {
   producto_id: string;
   almacenOrigen: string;

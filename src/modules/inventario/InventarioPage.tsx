@@ -49,6 +49,8 @@ import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { CasiteritaResumen, CasiteritaDetalleView } from './CasiteritaDetalleView';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
+import { SinCostoModal } from './SinCostoModal';
+import { contarSinCosto } from './sinCosto.repository';
 import { ImportarExcelModal } from './ImportarExcelModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
@@ -140,7 +142,8 @@ type ModalState =
   | { kind: 'sedeEditar'; sede: string }
   | { kind: 'gestionAlmacenes' }
   | { kind: 'reporteFiltro' }
-  | { kind: 'resumen' };
+  | { kind: 'resumen' }
+  | { kind: 'sinCosto' };
 
 /** Metadatos de cada espacio (título, icono, ruta, clave de permiso). */
 const ESPACIOS: Record<Espacio, { titulo: string; icono: string; ruta: string; modulo: 'inventario' | 'deposito' }> = {
@@ -210,6 +213,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
+  // Cuántas existencias esperan que les carguen el costo (badge del botón «Sin costo»).
+  const [sinCosto, setSinCosto] = useState(0);
   const [conteoCats, setConteoCats] = useState<Record<string, number>>({});
   const [unidadesGestion, setUnidadesGestion] = useState<string[]>([]);
   const [conteoMedidas, setConteoMedidas] = useState<Record<string, number>>({});
@@ -223,6 +228,15 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
   useRealtime(['productos', 'movimientos', 'almacenes', 'existencias', 'ordenes', 'compras_directas'], () => { void reload(); });
+
+  // Cola de existencias con stock pero valoradas en $0. Se recuenta con cada
+  // recarga (incluida la de realtime), así el contador baja solo cuando otro
+  // usuario está cargando costos en paralelo.
+  useEffect(() => {
+    let vivo = true;
+    contarSinCosto().then((n) => { if (vivo) setSinCosto(n); }).catch(() => { if (vivo) setSinCosto(0); });
+    return () => { vivo = false; };
+  }, [productos]);
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -857,6 +871,16 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen de inventario: almacenes, productos nuevos, salidas y traslados">
             📊 Resumen
           </button>
+          {/* Cola de valuación: solo aparece si hay algo pendiente, y desaparece al vaciarse. */}
+          {sinCosto > 0 && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => setModal({ kind: 'sinCosto' })}
+              title="Existencias con stock pero valoradas en $0: cargales el costo unitario"
+            >
+              ⚠ Sin costo <span className="badge warning" style={{ marginLeft: '.35rem' }}>{sinCosto}</span>
+            </button>
+          )}
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
             ↓ Exportar
           </button>
@@ -1146,6 +1170,16 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       )}
 
       {/* Modales */}
+      {modal.kind === 'sinCosto' && (
+        <SinCostoModal
+          actor={productoActor}
+          actorName={actorName}
+          canWrite={canWrite}
+          onClose={() => setModal({ kind: 'none' })}
+          onValuado={() => { void reload(); }}
+        />
+      )}
+
       {modal.kind === 'resumen' && (
         <ResumenInventarioModal
           productos={productos}
