@@ -79,3 +79,40 @@ describe('textoOrdenPago', () => {
     expect(txt()).toContain('\r\n');
   });
 });
+
+describe('descripción y nota de la solicitud', () => {
+  it('salen las dos secciones con su título', () => {
+    const t = txt({ motivo: 'REPOSICION DE STOCK', notas: 'ENTREGAR EN PORTON 2' } as Partial<Orden>);
+    expect(t).toContain('DESCRIPCIÓN DE LA SOLICITUD');
+    expect(t).toContain('REPOSICION DE STOCK');
+    expect(t).toContain('NOTA');
+    expect(t).toContain('ENTREGAR EN PORTON 2');
+  });
+
+  it('un texto largo se corta en renglones sin partir palabras', () => {
+    const largo = 'SOLICITUD DE TERMOMETRO DIGITAL PARA EL PERSONAL DEL GALPON MATANZAS '
+      + 'NOTA LA ORDEN FUE MODIFICADA EL DIA 30/06/2026 DEBIDO A QUE LA LCDA LEYDIS RENGEL INFORMO';
+    const t = txt({ motivo: largo } as Partial<Orden>);
+    const renglones = t.split('\r\n').filter((l) => l.includes('TERMOMETRO') || l.includes('LEYDIS'));
+    expect(renglones.length).toBeGreaterThan(1);          // se envolvió
+    for (const l of t.split('\r\n')) expect(l.length).toBeLessThanOrEqual(62);
+    expect(t).toContain('LEYDIS RENGEL');                  // no se perdió nada
+  });
+
+  it('sin motivo ni nota no deja secciones vacías', () => {
+    const t = txt({ motivo: null, finalidad: null, notas: null } as Partial<Orden>);
+    expect(t).not.toContain('DESCRIPCIÓN DE LA SOLICITUD');
+    expect(t).not.toContain('\r\n  NOTA\r\n');
+  });
+
+  it('motivo y finalidad iguales no se imprimen dos veces', () => {
+    const t = txt({ motivo: 'REPUESTO PARA LA PLANTA', finalidad: 'REPUESTO PARA LA PLANTA' } as Partial<Orden>);
+    expect(t.split('REPUESTO PARA LA PLANTA').length - 1).toBe(1);
+  });
+
+  it('si difieren, salen las dos', () => {
+    const t = txt({ motivo: 'SE DAÑO LA BOMBA', finalidad: 'MANTENIMIENTO CORRECTIVO' } as Partial<Orden>);
+    expect(t).toContain('SE DAÑO LA BOMBA');
+    expect(t).toContain('MANTENIMIENTO CORRECTIVO');
+  });
+});

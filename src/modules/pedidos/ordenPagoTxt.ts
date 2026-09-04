@@ -25,6 +25,36 @@ function campo(etiqueta: string, valor: string): string {
 }
 
 /**
+ * Parte un texto largo en renglones de ANCHO columnas, sin cortar palabras.
+ * La descripción de una solicitud es texto libre y llega a varios párrafos
+ * («SOLICITUD DE TERMOMETRO DIGITAL PARA EL PERSONAL DEL GALPON… NOTA: LA ORDEN
+ * FUE MODIFICADA EL DIA…»): en una sola línea el archivo se vuelve ilegible.
+ */
+function envolver(texto: string, sangria = '  '): string[] {
+  const ancho = ANCHO - sangria.length;
+  const out: string[] = [];
+  for (const parrafo of String(texto).split(/\r?\n/)) {
+    const palabras = parrafo.trim().split(/\s+/).filter(Boolean);
+    if (!palabras.length) { out.push(''); continue; }
+    let linea = '';
+    for (const p of palabras) {
+      if (!linea) { linea = p; continue; }
+      if (`${linea} ${p}`.length <= ancho) linea += ` ${p}`;
+      else { out.push(sangria + linea); linea = p; }
+    }
+    if (linea) out.push(sangria + linea);
+  }
+  return out;
+}
+
+/** Una sección con título y su texto envuelto; vacía si no hay nada que decir. */
+function bloqueTexto(titulo: string, texto: string | null | undefined): string[] {
+  const t = (texto ?? '').trim();
+  if (!t) return [];
+  return [linea(), `  ${titulo}`, linea(), ...envolver(t), ''];
+}
+
+/**
  * Los datos del beneficiario, uno por línea y con su etiqueta.
  * En pantalla se muestran en una sola línea separados por puntos, pero acá el
  * archivo se lee para TIPEAR una transferencia: cada dato en su renglón se copia
@@ -80,6 +110,14 @@ export function textoOrdenPago(
   L.push(campo('UNIDAD SOLICITANTE', unidad));
   L.push(campo('PROVEEDOR', proveedorNombre || '—'));
   L.push('');
+
+  /* El porqué de la solicitud. `motivo` y `finalidad` son dos campos distintos
+     de la OP y no siempre están los dos cargados; si coinciden no se repite. */
+  const motivo = (orden.motivo ?? '').trim();
+  const finalidad = (orden.finalidad ?? '').trim();
+  const descripcion = [motivo, finalidad === motivo ? '' : finalidad].filter(Boolean).join('\n');
+  L.push(...bloqueTexto('DESCRIPCIÓN DE LA SOLICITUD', descripcion));
+  L.push(...bloqueTexto('NOTA', orden.notas));
 
   L.push(linea());
   L.push('  QUÉ SE SOLICITÓ');
