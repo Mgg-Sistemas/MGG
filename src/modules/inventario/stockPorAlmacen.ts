@@ -75,6 +75,41 @@ export function agregarExistencias(
   return out;
 }
 
+/**
+ * Cómo se rotula la columna «Almacén» de un export.
+ *
+ * NO se usa `producto.almacen`: ese es el almacén «hogar» de la ficha, que puede
+ * apuntar a un subalmacén de OTRA sede que la exportada. Por eso un reporte de
+ * Matanza salía con filas que decían «Viveres y Art. Limpieza» (Los Pinos)
+ * mezcladas con «DEPOSITO» (Matanza).
+ *
+ * Un export sale siempre de una sede y se rotula con ELLA —Matanza, Los Pinos,
+ * Acopio La Esperanza—, no con el subalmacén, que es detalle interno.
+ */
+export interface ExportRotulo {
+  /** Sede desde la que se exporta: rotula TODAS las filas. */
+  sede?: string | null;
+  /** Resuelve la sede por producto cuando no hay una sede fija (Depósito). */
+  almacenes?: Pick<Almacen, 'nombre' | 'sede'>[];
+}
+
+export function rotuloAlmacen(
+  // `almacen` se acepta nulo aunque `Producto` lo declare `string`: hay fichas
+  // viejas sin almacén hogar y no deben romper un export.
+  producto: { almacen: string | null | undefined },
+  rot?: ExportRotulo,
+): string {
+  const fija = (rot?.sede ?? '').trim();
+  if (fija) return fija;
+  const alms = rot?.almacenes ?? [];
+  const propio = producto.almacen ?? '';
+  if (!alms.length) return propio;
+  const sede = sedeDeAlmacen(propio, alms);
+  // Un almacén que ya no está en la tabla conserva su nombre crudo: mejor un
+  // dato viejo visible que una celda en blanco.
+  return sede === SIN_SEDE ? propio : nombreSedeCorto(sede);
+}
+
 /** «Matanzas › General»: el almacén con su sede, para que dos nombres parecidos no se confundan. */
 export function etiquetaAlmacen(nombre: string, almacenes: Pick<Almacen, 'nombre' | 'sede'>[]): string {
   const sede = sedeDeAlmacen(nombre, almacenes);

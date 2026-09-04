@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sedeDeAlmacen, stockEn,
-  trasladoDeMovimiento, almacenPrincipalDeSede, agregarExistencias,
+  trasladoDeMovimiento, almacenPrincipalDeSede, agregarExistencias, rotuloAlmacen,
 } from './stockPorAlmacen';
 
 const almacenes = [
@@ -341,5 +341,56 @@ describe('agregarExistencias', () => {
 
   it('tolera una lista vacia', () => {
     expect(agregarExistencias([], todo).size).toBe(0);
+  });
+});
+
+/* ── Rótulo de la columna «Almacén» en los exports ─────────────────────────
+   El Excel salía mezclando sedes: un reporte de Matanza traía filas que
+   decían «Viveres y Art. Limpieza» (que es de Los Pinos) porque se imprimía
+   el almacén HOGAR de la ficha, no la sede exportada. */
+describe('rotuloAlmacen', () => {
+  const TABLA = [
+    { nombre: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+    { nombre: 'Insumo y Consumibles', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+    { nombre: 'DEPOSITO', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+    { nombre: 'Los Pinos', sede: 'LOS PINOS' },
+    { nombre: 'Viveres y Art. Limpieza', sede: 'LOS PINOS' },
+    { nombre: 'La Esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA' },
+  ];
+
+  it('con sede fija, TODAS las filas dicen esa sede', () => {
+    const rot = { sede: 'Matanza' };
+    expect(rotuloAlmacen({ almacen: 'Insumo y Consumibles' }, rot)).toBe('Matanza');
+    expect(rotuloAlmacen({ almacen: 'DEPOSITO' }, rot)).toBe('Matanza');
+    // El caso del bug: la ficha apunta a Los Pinos pero el export es de Matanza.
+    expect(rotuloAlmacen({ almacen: 'Viveres y Art. Limpieza' }, rot)).toBe('Matanza');
+  });
+
+  it('sin sede fija resuelve la sede de cada producto', () => {
+    const rot = { almacenes: TABLA };
+    expect(rotuloAlmacen({ almacen: 'Insumo y Consumibles' }, rot)).toBe('Matanzas');
+    expect(rotuloAlmacen({ almacen: 'Viveres y Art. Limpieza' }, rot)).toBe('Los Pinos');
+    expect(rotuloAlmacen({ almacen: 'La Esperanza' }, rot)).toBe('Acopio La Esperanza');
+  });
+
+  it('nunca devuelve el subalmacen cuando puede dar la sede', () => {
+    expect(rotuloAlmacen({ almacen: 'DEPOSITO' }, { almacenes: TABLA })).not.toBe('DEPOSITO');
+  });
+
+  it('un almacen que ya no esta en la tabla conserva su nombre crudo', () => {
+    expect(rotuloAlmacen({ almacen: 'ALMACEN BORRADO' }, { almacenes: TABLA })).toBe('ALMACEN BORRADO');
+  });
+
+  it('sin rotulo alguno devuelve el almacen del producto', () => {
+    expect(rotuloAlmacen({ almacen: 'General' })).toBe('General');
+    expect(rotuloAlmacen({ almacen: 'General' }, {})).toBe('General');
+  });
+
+  it('una sede fija en blanco no pisa la resolucion por producto', () => {
+    expect(rotuloAlmacen({ almacen: 'Los Pinos' }, { sede: '   ', almacenes: TABLA })).toBe('Los Pinos');
+  });
+
+  it('tolera un producto sin almacen', () => {
+    expect(rotuloAlmacen({ almacen: null }, { almacenes: TABLA })).toBe('');
   });
 });

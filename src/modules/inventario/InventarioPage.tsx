@@ -145,6 +145,13 @@ type ModalState =
   | { kind: 'resumen' }
   | { kind: 'sinCosto' };
 
+/**
+ * «🏗 Almacenes» (gestor de almacenes y subalmacenes) queda OCULTO a pedido:
+ * no se usa por ahora y se quiere conservar para más adelante. El modal y su
+ * repositorio siguen enteros; poner esto en `true` lo devuelve a la barra.
+ */
+const MOSTRAR_GESTION_ALMACENES = false;
+
 /** Metadatos de cada espacio (título, icono, ruta, clave de permiso). */
 const ESPACIOS: Record<Espacio, { titulo: string; icono: string; ruta: string; modulo: 'inventario' | 'deposito' }> = {
   principal: { titulo: 'Inventario', icono: '⬢', ruta: 'inventario', modulo: 'inventario' },
@@ -847,7 +854,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
               />
             </>
           )}
-          {canWrite && (
+          {MOSTRAR_GESTION_ALMACENES && canWrite && (
             <button className="btn btn-ghost" onClick={() => setModal({ kind: 'gestionAlmacenes' })} title="Crear, renombrar, organizar y cerrar almacenes y sus secciones">
               🏗 Almacenes
             </button>
@@ -1336,6 +1343,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         <ExportInventarioModal
           productos={productos}
           scope={sedeScope ? { titulo: tituloInventario, general: scopeGeneral, casiterita: scopeCasiterita } : undefined}
+          almacenesTabla={almacenes}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
