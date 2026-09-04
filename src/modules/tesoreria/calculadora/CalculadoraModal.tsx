@@ -1,91 +1,75 @@
 /* ============================================================
    MGG · Tesorería · Calculadora
 
-   Sale de TesoreriaPage.tsx (6.820 líneas), donde vivía entre las líneas
-   3602 y 3866. Se mueve SIN cambiar una sola línea de lógica: lo que hay que
-   corregir va después, en su propio commit, para que el diff se pueda leer.
+   Salió de TesoreriaPage.tsx (6.820 líneas), donde vivía entre las 3602 y 3866.
+
+   El cálculo NO vive acá: lo hace `calcular()` de `@/shared/lib/calculo`, que es
+   puro y se testea sin React. Este archivo junta las tasas que MGG ya tiene,
+   se las pasa, y pinta el resultado.
+
+   ESTO INFORMA, NO VALORA. Ninguna cuenta hecha acá se guarda en un documento
+   ni decide cuánto vale una compra: es una herramienta de escritorio. Lo que
+   valora sigue siendo el camino de siempre.
    ============================================================ */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
-import { getTasasMercado, type TasasMercado } from '../tasas.repository';
-/* ───────────── Calculadora (cinta de operaciones · export PDF) ───────────── */
-
-/** Evalúa una expresión aritmética simple (+ − × ÷, decimales, paréntesis) sin usar eval. */
-function evalExpr(input: string): number {
-  const s = input.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/,/g, '.');
-  const tokens: string[] = [];
-  let i = 0;
-  while (i < s.length) {
-    const ch = s[i];
-    if (ch === ' ') { i++; continue; }
-    if ('+-*/()'.includes(ch)) {
-      // Menos unario: al inicio o tras un operador / '(' → se trata como 0 - n.
-      if (ch === '-' && (tokens.length === 0 || '+-*/('.includes(tokens[tokens.length - 1]))) tokens.push('0');
-      tokens.push(ch); i++; continue;
-    }
-    if (/[0-9.]/.test(ch)) {
-      let num = ch; i++;
-      while (i < s.length && /[0-9.]/.test(s[i])) { num += s[i]; i++; }
-      tokens.push(num); continue;
-    }
-    throw new Error('Operación inválida.');
-  }
-  // Shunting-yard → RPN.
-  const out: string[] = []; const ops: string[] = [];
-  const prec: Record<string, number> = { '+': 1, '-': 1, '*': 2, '/': 2 };
-  for (const t of tokens) {
-    if (/^[0-9.]+$/.test(t)) out.push(t);
-    else if (t === '(') ops.push(t);
-    else if (t === ')') {
-      while (ops.length && ops[ops.length - 1] !== '(') out.push(ops.pop()!);
-      if (!ops.length) throw new Error('Paréntesis desbalanceados.');
-      ops.pop();
-    } else {
-      while (ops.length && ops[ops.length - 1] !== '(' && prec[ops[ops.length - 1]] >= prec[t]) out.push(ops.pop()!);
-      ops.push(t);
-    }
-  }
-  while (ops.length) { const o = ops.pop()!; if (o === '(') throw new Error('Paréntesis desbalanceados.'); out.push(o); }
-  // Evaluar RPN.
-  const st: number[] = [];
-  for (const t of out) {
-    if (/^[0-9.]+$/.test(t)) { const n = Number(t); if (!isFinite(n)) throw new Error('Número inválido.'); st.push(n); }
-    else {
-      const b = st.pop(); const a = st.pop();
-      if (a === undefined || b === undefined) throw new Error('Operación incompleta.');
-      let r: number;
-      switch (t) {
-        case '+': r = a + b; break;
-        case '-': r = a - b; break;
-        case '*': r = a * b; break;
-        case '/': if (b === 0) throw new Error('División entre 0.'); r = a / b; break;
-        default: throw new Error('Operador inválido.');
-      }
-      st.push(r);
-    }
-  }
-  if (st.length !== 1 || !isFinite(st[0])) throw new Error('Operación inválida.');
-  return Math.round(st[0] * 1e6) / 1e6;
-}
+import { getTasaHoy, getTasasMercado, type TasasMercado } from '../tasas.repository';
+import { calcular } from '@/shared/lib/calculo';
+import { mapasDeCalculo, nombreDeCalculo, simboloDeCalculo } from './tasasParaCalculo';
+/* Acá vivía `evalExpr`, un shunting-yard sobre números planos, hasta el
+   04/09/2026. Hacía `replace(/,/g, '.')` sobre toda la expresión y leía con
+   `parseFloat`, así que «2.000» —dos mil, con el separador de miles de acá—
+   daba 2. Y no fallaba: devolvía el número equivocado con total confianza. */
 
 const CALC_FMT = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 6 });
+
+/**
+ * Un resultado de la cinta, escrito.
+ *
+ * `Bs 80.739` y `1,25` son cosas distintas: lo primero es plata y lo segundo una
+ * proporción. Mostrar las dos igual invita a leer una razón como si fuera un monto.
+ */
+const fmtResultado = (h: { result: number; enBs: boolean }) =>
+  (h.enBs ? `Bs ${CALC_FMT(h.result)}` : CALC_FMT(h.result));
 
 export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: () => void }) {
   const [expr, setExpr] = useState('');
   const [result, setResult] = useState('0');
   const [error, setError] = useState<string | null>(null);
-  const [history, setHistory] = useState<{ expr: string; result: number }[]>([]);
+  const [history, setHistory] = useState<{ expr: string; result: number; enBs: boolean; leida: string }[]>([]);
   const [exporting, setExporting] = useState(false);
   // Conversor rápido USD → Bs (BCV / Binance + margen de ahorro). Carga sus tasas.
   const [usdConv, setUsdConv] = useState('');
   const [mercadoCalc, setMercadoCalc] = useState<TasasMercado | null>(null);
+  const [bcvEur, setBcvEur] = useState<number | null>(null);
   useEffect(() => { getTasasMercado().then(setMercadoCalc).catch(() => setMercadoCalc(null)); }, []);
+  // El euro vive en `getTasaHoy()`, no en las tasas de mercado. Estaba disponible
+  // desde siempre y la calculadora no lo usaba.
+  useEffect(() => { getTasaHoy().then((t) => setBcvEur(t.eur)).catch(() => setBcvEur(null)); }, []);
   const bcv = mercadoCalc?.bcvUsd ?? null;
   const binance = mercadoCalc?.usdtVes ?? null;
   const fmtBs = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  /* ── El motor y sus tasas ──
+     Se rearma cuando llegan las tasas: hasta entonces solo entiende bolívares,
+     que es la verdad —sin tasa no se puede convertir— en vez de inventar una. */
+  const mapas = useMemo(() => mapasDeCalculo({
+    bcvUsd: bcv, bcvEur, usdtVes: binance, copPorUsd: mercadoCalc?.copUsd ?? null,
+  }), [bcv, bcvEur, binance, mercadoCalc]);
+
+  /**
+   * Evalúa una cuenta. Devuelve también si el resultado es DINERO, porque un
+   * monto y una proporción no se muestran igual: `1,25` es una razón y
+   * `Bs 1.234,56` es plata.
+   */
+  const evaluar = useCallback((texto: string) => {
+    const r = calcular(texto, mapas.alias, mapas.enBolivares, nombreDeCalculo, simboloDeCalculo);
+    if (!r) return null;
+    return { bs: r.valor.bs, enBs: r.valor.dim === 1, leida: r.comoSeLeyo };
+  }, [mapas]);
 
   const press = useCallback((val: string) => {
     setError(null);
@@ -96,23 +80,31 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
         const cur = e.trim();
         if (!cur) return e;
         try {
-          const r = evalExpr(cur);
-          setResult(CALC_FMT(r));
-          setHistory((h) => [{ expr: cur, result: r }, ...h].slice(0, 200));
-          return String(r);
+          const r = evaluar(cur);
+          if (!r) return e;
+          setResult(CALC_FMT(r.bs));
+          setHistory((h) => [{ expr: cur, result: r.bs, enBs: r.enBs, leida: r.leida }, ...h].slice(0, 200));
+          // Si el resultado es dinero, vuelve al renglón CON su unidad. Sin el
+          // «bs», seguir operando lo trataría como número suelto y la cuenta
+          // siguiente tomaría la moneda del otro sumando: 80.739 pasaría a ser
+          // dólares y el error sería de tres órdenes de magnitud.
+          return r.enBs ? `${r.bs} bs` : String(r.bs);
         } catch (err) { setError(err instanceof Error ? err.message : 'Error'); return e; }
       });
       return;
     }
     setExpr((e) => e + val);
-  }, []);
+  }, [evaluar]);
 
   // Resultado en vivo mientras se escribe (sin presionar =).
   const preview = useMemo(() => {
     const cur = expr.trim();
     if (!cur) return null;
-    try { return CALC_FMT(evalExpr(cur)); } catch { return null; }
-  }, [expr]);
+    try {
+      const r = evaluar(cur);
+      return r ? { texto: r.enBs ? `Bs ${CALC_FMT(r.bs)}` : CALC_FMT(r.bs), leida: r.leida } : null;
+    } catch { return null; }
+  }, [expr, evaluar]);
 
   // Soporte de teclado.
   useEffect(() => {
@@ -158,7 +150,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       doc.text('Mineral Group Guayana C.A. · Sistema de Gestión de Inventarios', MARGIN, y);
       doc.text(actor, PAGE_W - MARGIN, y, { align: 'right' });
       // Más viejas arriba (orden cronológico).
-      const filas = history.slice().reverse().map((h, idx) => [String(idx + 1), h.expr, CALC_FMT(h.result)]);
+      const filas = history.slice().reverse().map((h, idx) => [String(idx + 1), h.expr, fmtResultado(h)]);
       autoTable(doc, {
         startY: y + 8,
         head: [['#', 'Operación', 'Resultado']],
@@ -196,10 +188,27 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       <div className="card" style={{ padding: '.6rem .8rem', marginTop: 0, textAlign: 'right', minHeight: 60 }}>
         <div className="mono" style={{ fontSize: '.95rem', color: 'var(--muted)', minHeight: '1.2rem', wordBreak: 'break-all' }}>{expr || ' '}</div>
         <strong className="mono" style={{ fontSize: '1.7rem', color: 'var(--text, #fff)', display: 'block', wordBreak: 'break-all' }}>
-          {expr && preview != null ? preview : result}
+          {expr && preview != null ? preview.texto : result}
         </strong>
+        {/* CÓMO SE LEYÓ LA CUENTA. El motor anterior interpretaba mal una
+            expresión con monedas y devolvía un número con total confianza; ver
+            la cuenta reescrita es la única forma de enterarse de que se entendió
+            otra cosa. Solo aparece cuando difiere de lo tecleado. */}
+        {preview?.leida && preview.leida.replace(/\s+/g, '') !== expr.trim().replace(/\s+/g, '') && (
+          <div className="dim mono" style={{ fontSize: '.72rem', marginTop: '.15rem', wordBreak: 'break-all' }}>
+            se leyó: {preview.leida}
+          </div>
+        )}
       </div>
       {error && <div className="muted" style={{ color: 'var(--danger)', fontSize: '.82rem', margin: '.35rem 0' }}>{error}</div>}
+      {/* Las monedas sin tasa no se ofrecen: convertir a algo sin tasa no da un
+          número, da un error, y ofrecerlo enseña a chocarse. Pero hay que decir
+          por qué faltan, o parece que la calculadora no las conoce. */}
+      {mapas.sinTasa.length > 0 && (
+        <div className="dim" style={{ fontSize: '.72rem', margin: '.3rem 0' }}>
+          Sin tasa hoy, no se pueden usar: {mapas.sinTasa.map(nombreDeCalculo).join(', ')}
+        </div>
+      )}
 
       {/* Teclado. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.4rem', marginTop: '.6rem' }}>
@@ -267,7 +276,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
             {history.map((h, idx) => (
               <tr key={idx} style={{ cursor: 'pointer' }} onClick={() => setExpr(String(h.result))} title="Usar este resultado">
                 <td className="mono" style={{ color: 'var(--muted)' }}>{h.expr}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text, #fff)' }}>= {CALC_FMT(h.result)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text, #fff)' }}>= {fmtResultado(h)}</td>
               </tr>
             ))}
           </tbody>
