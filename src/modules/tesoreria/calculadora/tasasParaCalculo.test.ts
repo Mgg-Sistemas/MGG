@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapasDeCalculo, nombreDeCalculo, simboloDeCalculo } from './tasasParaCalculo';
+import { aceptaLetra, mapasDeCalculo, nombreDeCalculo, simboloDeCalculo } from './tasasParaCalculo';
 import { calcular } from '@/shared/lib/calculo';
 
 /* Valores reales de producción del 04/09/2026 (tabla `tasa_cambio`). */
@@ -55,6 +55,48 @@ describe('mapasDeCalculo', () => {
     expect(alias.get('DOLARES')).toBe('USD');
     expect(alias.get('€')).toBe('EUR');
     expect(alias.get('PESOS')).toBe('COP');
+  });
+});
+
+describe('aceptaLetra — solo entran las letras que pueden formar una moneda', () => {
+  const { alias } = mapasDeCalculo(REALES);
+  const ok = (expr: string, letra: string) => aceptaLetra(expr, letra, alias);
+
+  it('deja escribir las monedas del catálogo, letra por letra', () => {
+    expect(ok('100 ', 'u')).toBe(true);      // USD / USDT
+    expect(ok('100 u', 's')).toBe(true);
+    expect(ok('100 us', 'd')).toBe(true);
+    expect(ok('100 usd', 't')).toBe(true);   // USDT
+    expect(ok('40 ', 'p')).toBe(true);       // PESOS
+    expect(ok('5 ', 'e')).toBe(true);        // EUROS
+    expect(ok('1 ', 'v')).toBe(true);        // VES
+    expect(ok('1 ', 'b')).toBe(true);        // BS / BOLIVAR
+    expect(ok('1 bolivare', 's')).toBe(true);
+  });
+
+  it('corta la letra que no lleva a ninguna moneda', () => {
+    // «asdf» solo puede terminar en un error: mejor que la tecla no entre.
+    expect(ok('100 ', 'x')).toBe(false);
+    expect(ok('100 us', 'x')).toBe(false);
+    expect(ok('100 ', 'z')).toBe(false);
+    expect(ok('100 bol', 'x')).toBe(false);
+  });
+
+  it('los acentos no bloquean: dólar y dolar son lo mismo', () => {
+    expect(ok('100 d', 'ó')).toBe(true);
+    expect(ok('100 d', 'o')).toBe(true);
+  });
+
+  it('una moneda sin tasa deja de aceptarse', () => {
+    // Si Binance no respondió, USDT no está en el catálogo y su «t» no entra.
+    const { alias: sinUsdt } = mapasDeCalculo({ ...REALES, usdtVes: null });
+    expect(aceptaLetra('100 usd', 't', sinUsdt)).toBe(false);
+    expect(aceptaLetra('100 us', 'd', sinUsdt)).toBe(true);   // USD sigue
+  });
+
+  it('después de un símbolo o un operador se arranca de cero', () => {
+    expect(ok('100 $ + 50 ', 'e')).toBe(true);
+    expect(ok('100 $ + 50 ', 'x')).toBe(false);
   });
 });
 

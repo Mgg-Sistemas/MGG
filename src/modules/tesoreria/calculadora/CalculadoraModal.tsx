@@ -18,7 +18,7 @@ import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '../tasas.repository';
 import { calcular } from '@/shared/lib/calculo';
-import { mapasDeCalculo, nombreDeCalculo, simboloDeCalculo } from './tasasParaCalculo';
+import { aceptaLetra, mapasDeCalculo, nombreDeCalculo, simboloDeCalculo } from './tasasParaCalculo';
 /* Acá vivía `evalExpr`, un shunting-yard sobre números planos, hasta el
    04/09/2026. Hacía `replace(/,/g, '.')` sobre toda la expresión y leía con
    `parseFloat`, así que «2.000» —dos mil, con el separador de miles de acá—
@@ -35,6 +35,22 @@ const CALC_FMT = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigit
 const fmtResultado = (h: { result: number; enBs: boolean }) =>
   (h.enBs ? `Bs ${CALC_FMT(h.result)}` : CALC_FMT(h.result));
 
+/**
+ * El resultado, escrito de forma que el motor lo vuelva a leer EXACTAMENTE igual.
+ *
+ * `String(1234.567)` da «1234.567», y esa cadena releída es un millón doscientos
+ * mil: el punto con tres dígitos detrás es separador de miles acá. O sea que
+ * apretar «=» sobre un resultado de tres decimales lo multiplicaba por mil. Por
+ * eso no se reusa `String()`: se escribe sin separador de miles y con coma
+ * decimal, que es la única forma que el motor lee sin ambigüedad. `toFixed`
+ * además evita la notación científica, que el motor no entiende.
+ */
+function paraReusar(n: number): string {
+  if (!Number.isFinite(n)) return '0';
+  const s = n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+  return s.replace('.', ',');
+}
+
 export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: () => void }) {
   const [expr, setExpr] = useState('');
   const [result, setResult] = useState('0');
@@ -45,10 +61,23 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
   const [usdConv, setUsdConv] = useState('');
   const [mercadoCalc, setMercadoCalc] = useState<TasasMercado | null>(null);
   const [bcvEur, setBcvEur] = useState<number | null>(null);
-  useEffect(() => { getTasasMercado().then(setMercadoCalc).catch(() => setMercadoCalc(null)); }, []);
-  // El euro vive en `getTasaHoy()`, no en las tasas de mercado. Estaba disponible
-  // desde siempre y la calculadora no lo usaba.
-  useEffect(() => { getTasaHoy().then((t) => setBcvEur(t.eur)).catch(() => setBcvEur(null)); }, []);
+  // `cargando` evita el aviso más desconcertante posible: en el primer render
+  // ninguna tasa llegó todavía, así que la pantalla anunciaba que HOY no hay
+  // tasa de ninguna moneda. Es falso y dura menos de un segundo, pero es lo
+  // primero que se lee al abrir.
+  const [cargandoTasas, setCargandoTasas] = useState(true);
+  useEffect(() => {
+    let vivo = true;
+    Promise.allSettled([getTasasMercado(), getTasaHoy()]).then(([mercado, hoy]) => {
+      if (!vivo) return;
+      setMercadoCalc(mercado.status === 'fulfilled' ? mercado.value : null);
+      // El euro vive en `getTasaHoy()`, no en las tasas de mercado. Estaba
+      // disponible desde siempre y la calculadora no lo usaba.
+      setBcvEur(hoy.status === 'fulfilled' ? hoy.value.eur : null);
+      setCargandoTasas(false);
+    });
+    return () => { vivo = false; };
+  }, []);
   const bcv = mercadoCalc?.bcvUsd ?? null;
   const binance = mercadoCalc?.usdtVes ?? null;
   const fmtBs = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -88,7 +117,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
           // «bs», seguir operando lo trataría como número suelto y la cuenta
           // siguiente tomaría la moneda del otro sumando: 80.739 pasaría a ser
           // dólares y el error sería de tres órdenes de magnitud.
-          return r.enBs ? `${r.bs} bs` : String(r.bs);
+          return r.enBs ? `${paraReusar(r.bs)} bs` : paraReusar(r.bs);
         } catch (err) { setError(err instanceof Error ? err.message : 'Error'); return e; }
       });
       return;
@@ -96,14 +125,19 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
     setExpr((e) => e + val);
   }, [evaluar]);
 
-  // Resultado en vivo mientras se escribe (sin presionar =).
+  /* Resultado en vivo mientras se escribe (sin presionar =).
+     `incompleta` distingue «todavía no cierra» de «no hay nada escrito», y no es
+     un detalle: antes, con la cuenta a medias el visor caía al resultado
+     ANTERIOR y mostraba un número viejo como si fuera el de la cuenta en curso.
+     En una calculadora de plata, un número que no corresponde es peor que
+     ninguno — así que mientras no cierre se muestra un guion. */
   const preview = useMemo(() => {
     const cur = expr.trim();
     if (!cur) return null;
     try {
       const r = evaluar(cur);
       return r ? { texto: r.enBs ? `Bs ${CALC_FMT(r.bs)}` : CALC_FMT(r.bs), leida: r.leida } : null;
-    } catch { return null; }
+    } catch { return { texto: '—', leida: '', incompleta: true }; }
   }, [expr, evaluar]);
 
   // Soporte de teclado.
@@ -115,6 +149,9 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       // calculadora. Ya pasaba con los dígitos; al aceptar letras sería peor.
       const dest = ev.target as HTMLElement | null;
       if (dest && (/^(INPUT|TEXTAREA|SELECT)$/.test(dest.tagName) || dest.isContentEditable)) return;
+      // Ctrl+C, Ctrl+V, Alt+Tab: son atajos, no dígitos. Sin esto, copiar metía
+      // una «c» en la cuenta.
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
 
       const k = ev.key;
       if (/[0-9]/.test(k)) press(k);
@@ -129,16 +166,26 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       else if (k === 'Enter' || k === '=') { ev.preventDefault(); press('='); }
       else if (k === 'Backspace') press('⌫');
       else if (k === 'Escape') { press('C'); }
+      else if (k === '%') press('%');
       // Las monedas se escriben con letras y símbolos. Sin esto, «100 $» no se
       // puede teclear y el motor de monedas queda inalcanzable: el visor es un
       // div, así que TODO lo que se escribe pasa por acá.
-      else if (k === ' ') press(' ');
-      else if (k.length === 1 && /[a-zA-ZáéíóúÁÉÍÓÚñÑ$€]/.test(k)) press(k);
+      // La barra también activa el botón que quedó con el foco tras un clic, así
+      // que sin preventDefault se repetía la última tecla apretada con el mouse.
+      else if (k === ' ') { ev.preventDefault(); press(' '); }
+      else if (k === '$' || k === '€') press(k);
+      // Solo entran las letras que pueden llegar a formar una moneda del
+      // catálogo. Dejar pasar cualquiera permite escribir «asdf», que no puede
+      // terminar en otra cosa que un error del que uno se entera tarde.
+      else if (k.length === 1 && /\p{L}/u.test(k)) { if (aceptaLetra(expr, k, mapas.alias)) press(k); }
       else return;
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [press]);
+    // `expr` y `mapas` entran a propósito: el filtro de letras mira lo que ya
+    // está escrito, y sin ellos el manejador se quedaría con una copia vieja y
+    // rechazaría teclas válidas. Resuscribir un listener por tecla no se nota.
+  }, [press, expr, mapas]);
 
   async function exportarPdf() {
     if (!history.length) { setError('No hay operaciones para exportar.'); return; }
@@ -182,11 +229,11 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
   }
 
   const KEYS: { label: string; val: string; kind: 'num' | 'op' | 'act' | 'eq' }[] = [
-    { label: 'C', val: 'C', kind: 'act' }, { label: '⌫', val: '⌫', kind: 'act' }, { label: '(', val: '(', kind: 'op' }, { label: ')', val: ')', kind: 'op' },
-    { label: '7', val: '7', kind: 'num' }, { label: '8', val: '8', kind: 'num' }, { label: '9', val: '9', kind: 'num' }, { label: '÷', val: '÷', kind: 'op' },
-    { label: '4', val: '4', kind: 'num' }, { label: '5', val: '5', kind: 'num' }, { label: '6', val: '6', kind: 'num' }, { label: '×', val: '×', kind: 'op' },
-    { label: '1', val: '1', kind: 'num' }, { label: '2', val: '2', kind: 'num' }, { label: '3', val: '3', kind: 'num' }, { label: '−', val: '-', kind: 'op' },
-    { label: '0', val: '0', kind: 'num' }, { label: ',', val: ',', kind: 'num' }, { label: '=', val: '=', kind: 'eq' }, { label: '+', val: '+', kind: 'op' },
+    { label: 'C', val: 'C', kind: 'act' }, { label: '⌫', val: '⌫', kind: 'act' }, { label: '%', val: '%', kind: 'op' }, { label: '÷', val: '÷', kind: 'op' },
+    { label: '7', val: '7', kind: 'num' }, { label: '8', val: '8', kind: 'num' }, { label: '9', val: '9', kind: 'num' }, { label: '×', val: '×', kind: 'op' },
+    { label: '4', val: '4', kind: 'num' }, { label: '5', val: '5', kind: 'num' }, { label: '6', val: '6', kind: 'num' }, { label: '−', val: '-', kind: 'op' },
+    { label: '1', val: '1', kind: 'num' }, { label: '2', val: '2', kind: 'num' }, { label: '3', val: '3', kind: 'num' }, { label: '+', val: '+', kind: 'op' },
+    { label: '(', val: '(', kind: 'op' }, { label: '0', val: '0', kind: 'num' }, { label: ')', val: ')', kind: 'op' }, { label: ',', val: ',', kind: 'num' },
   ];
 
   /* Las monedas salen del CATÁLOGO DE TASAS, no de una lista escrita a mano:
@@ -203,6 +250,20 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
         </button>
       </>
     }>
+      {/* El Modal del sistema es de pantalla completa (96vw × 94vh) y sirve para
+          las pantallas con tablas. Una calculadora no tiene con qué llenar eso:
+          estirada a 1.200px los botones quedan enormes y el ojo no encuentra
+          dónde apoyarse. Se acota el ancho y se centra.
+
+          Las dos columnas salen con `auto-fit` + `minmax`, sin media query: en
+          un teléfono cae sola a una columna en el orden correcto, y en escritorio
+          el espacio de sobra lo ocupa la cinta en vez de estirar el teclado. */}
+      <div style={{
+        display: 'grid', gap: '1rem', alignItems: 'start',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+        maxWidth: 880, margin: '0 auto',
+      }}>
+      <div>
       {/* Visor: expresión + resultado en vivo. */}
       <div className="card" style={{ padding: '.6rem .8rem', marginTop: 0, textAlign: 'right', minHeight: 60 }}>
         <div className="mono" style={{ fontSize: '.95rem', color: 'var(--text-muted, #9aa4b2)', minHeight: '1.2rem', wordBreak: 'break-all' }}>{expr || ' '}</div>
@@ -223,7 +284,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       {/* Las monedas sin tasa no se ofrecen: convertir a algo sin tasa no da un
           número, da un error, y ofrecerlo enseña a chocarse. Pero hay que decir
           por qué faltan, o parece que la calculadora no las conoce. */}
-      {mapas.sinTasa.length > 0 && (
+      {!cargandoTasas && mapas.sinTasa.length > 0 && (
         <div className="dim" style={{ fontSize: '.72rem', margin: '.3rem 0' }}>
           Sin tasa hoy, no se pueden usar: {mapas.sinTasa.map(nombreDeCalculo).join(', ')}
         </div>
@@ -237,21 +298,24 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
             <button key={m.codigo} type="button" className="btn btn-ghost btn-sm"
               onClick={() => press(` ${m.simbolo} `)}
               title={`Agregar ${nombreDeCalculo(m.codigo)}`}
-              style={{ fontWeight: 700, color: 'var(--primary, #ff8a00)', minWidth: 52 }}>
+              style={{ justifyContent: 'center', fontWeight: 700, color: 'var(--primary, #ff8a00)', flex: '1 1 0', minWidth: 46, minHeight: 34 }}>
               {m.simbolo}
             </button>
           ))}
         </div>
       )}
 
-      {/* Teclado. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.4rem', marginTop: '.6rem' }}>
+      {/* Teclado. `.btn` es inline-flex SIN justify-content, así que al estirarse
+          en una celda de grilla la etiqueta se pega a la izquierda — que es como
+          se veía. Se centra acá; 44px de alto es el mínimo cómodo para el dedo. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.5rem', marginTop: '.6rem' }}>
         {KEYS.map((k) => (
           <button key={k.label} type="button"
             className={k.kind === 'eq' ? 'btn btn-primary' : 'btn btn-ghost'}
             onClick={() => press(k.val)}
             style={{
-              padding: '.7rem 0', fontSize: '1.05rem', fontWeight: 700,
+              justifyContent: 'center', padding: '0', minHeight: 46,
+              fontSize: '1.05rem', fontWeight: 700,
               ...(k.kind === 'op' ? { color: 'var(--primary, #ff8a00)' } : {}),
               ...(k.kind === 'act' ? { color: 'var(--danger)' } : {}),
             }}>
@@ -259,9 +323,18 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
           </button>
         ))}
       </div>
+      {/* La tecla más grande de la calculadora es la que se aprieta al final. */}
+      <button type="button" className="btn btn-primary" onClick={() => press('=')}
+        style={{ justifyContent: 'center', width: '100%', minHeight: 46, marginTop: '.5rem', fontSize: '1.1rem', fontWeight: 800 }}>
+        =
+      </button>
 
+      </div>
+
+      {/* Columna de referencia: lo que se consulta, no lo que se aprieta. */}
+      <div>
       {/* Conversor rápido USD → Bs (BCV / Binance + margen de ahorro). */}
-      <div className="card" style={{ padding: '.6rem .8rem', marginTop: '.7rem' }}>
+      <div className="card" style={{ padding: '.6rem .8rem', marginTop: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
           <strong style={{ fontSize: '.84rem' }}>💵 USD → Bs</strong>
           <span className="muted" style={{ fontSize: '.78rem' }}>Monto $</span>
@@ -308,13 +381,16 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
           <tbody>
             {!history.length && <tr><td className="muted" style={{ textAlign: 'center' }}>Sin operaciones aún.</td></tr>}
             {history.map((h, idx) => (
-              <tr key={idx} style={{ cursor: 'pointer' }} onClick={() => setExpr(String(h.result))} title="Usar este resultado">
+              <tr key={idx} style={{ cursor: 'pointer' }} onClick={() => setExpr(h.enBs ? `${paraReusar(h.result)} bs` : paraReusar(h.result))}
+                title="Usar este resultado">
                 <td className="mono" style={{ color: 'var(--text-muted, #9aa4b2)' }}>{h.expr}</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text, #fff)' }}>= {fmtResultado(h)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+      </div>
       </div>
     </Modal>
   );

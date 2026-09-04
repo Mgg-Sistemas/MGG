@@ -61,6 +61,32 @@ export function nombreDeCalculo(codigo: string): string {
   return ({ VES: 'bolívares', USD: 'dólares', EUR: 'euros', USDT: 'USDT', COP: 'pesos colombianos' })[codigo] ?? codigo;
 }
 
+/** Sin acentos y en mayúsculas, que es como se comparan los alias. */
+function plano(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+}
+
+/**
+ * ¿Tiene sentido agregar esta letra a lo que se viene escribiendo?
+ *
+ * El visor de la calculadora es un div, así que toda tecla pasa por el
+ * manejador. Dejar entrar cualquier letra permite escribir «asdf», que solo
+ * puede terminar en un error: el usuario teclea, no pasa nada raro en pantalla,
+ * y recién al calcular se entera. Mejor que la tecla no entre.
+ *
+ * La regla sale del CATÁLOGO, no de una lista escrita a mano: se mira la palabra
+ * que se está formando al final y se acepta la letra solo si lo que queda sigue
+ * siendo el principio de alguna moneda registrada. Escribiendo «u» → sirve para
+ * USD y USDT; «us» sigue; «usx» no, y esa «x» no entra.
+ */
+export function aceptaLetra(expresion: string, letra: string, alias: Map<string, string>): boolean {
+  const enCurso = plano((expresion.match(/[\p{L}]+$/u)?.[0] ?? '') + letra);
+  for (const forma of alias.keys()) {
+    if (plano(forma).startsWith(enCurso)) return true;
+  }
+  return false;
+}
+
 /**
  * Arma los mapas que consume `calcular()`.
  *

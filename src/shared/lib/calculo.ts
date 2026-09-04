@@ -50,6 +50,7 @@ type Nodo =
   | { t: 'num'; valor: number; moneda?: string }
   | { t: 'op'; op: '+' | '-' | '*' | '/'; a: Nodo; b: Nodo }
   | { t: 'neg'; a: Nodo }
+  | { t: 'pct'; a: Nodo }
 
 export class ErrorDeCuenta extends Error {}
 
@@ -83,9 +84,13 @@ function aNumero(crudo: string): number {
   const puntos = (crudo.match(/\./g) ?? []).length
   const comas = (crudo.match(/,/g) ?? []).length
 
-  // Varios separadores iguales y ninguno del otro tipo: todos son de miles.
+  // Varios separadores iguales y ninguno del otro tipo: son de miles, PERO solo
+  // si agrupan de a tres. «1.000.00» no es un número bien escrito y darlo por
+  // cien mil sería inventar; en ese caso se cae a la regla del último separador.
   if ((puntos > 1 && comas === 0) || (comas > 1 && puntos === 0)) {
-    return Number(crudo.replace(/[.,]/g, ''))
+    const partes = crudo.split(/[.,]/)
+    const agrupaBien = partes.slice(1).every((p) => /^\d{3}$/.test(p)) && /^\d{1,3}$/.test(partes[0])
+    if (agrupaBien) return Number(partes.join(''))
   }
 
   // Un punto solo: miles si le siguen exactamente tres dígitos y no viene de un 0.
@@ -164,8 +169,16 @@ function trocear(
       continue
     }
 
-    if ('+-*/()'.includes(c)) {
-      fichas.push({ t: 'sig', s: c })
+    /* Los glifos tipográficos valen igual que los ASCII. Un teclado en pantalla
+       muestra «×» y «÷» porque se leen mejor, y de ahí salen tal cual hacia acá;
+       el signo «−» de un texto pegado tampoco es el guion del teclado. Si el
+       motor solo aceptara ASCII, multiplicar y dividir sería imposible desde la
+       interfaz — pasó exactamente eso: la normalización vivía en el motor viejo
+       y se perdió al reemplazarlo, sin que ningún test lo notara. */
+    const ascii = ({ '×': '*', '÷': '/', '−': '-', '–': '-', '—': '-' } as Record<string, string>)[c] ?? c
+
+    if ('+-*/()%'.includes(ascii)) {
+      fichas.push({ t: 'sig', s: ascii })
       i++
       continue
     }
@@ -256,7 +269,17 @@ function analizar(fichas: Ficha[]): Nodo {
       i++
       return unario()
     }
-    return primario()
+    return posfijo()
+  }
+
+  /** El `%` va PEGADO DETRÁS de lo que afecta: `16 %`, `(10 + 6) %`. */
+  function posfijo(): Nodo {
+    let n = primario()
+    while (esSigno('%')) {
+      i++
+      n = { t: 'pct', a: n }
+    }
+    return n
   }
 
   function primario(): Nodo {
@@ -315,6 +338,31 @@ function evaluar(n: Nodo, enBolivares: Map<string, number>, nombre: (c: string) 
     return { ...a, bs: -a.bs }
   }
 
+  // Un porcentaje SUELTO es una fracción: `16 %` vale 0,16 y no es dinero.
+  if (n.t === 'pct') {
+    const a = evaluar(n.a, enBolivares, nombre)
+    if (a.dim !== 0) throw new ErrorDeCuenta('Un porcentaje se escribe con un número suelto, sin moneda.')
+    return { bs: a.bs / 100, dim: 0 }
+  }
+
+  /* EL PORCENTAJE DENTRO DE UNA CUENTA, como en cualquier calculadora.
+     En una suma o una resta, `16 %` significa «el 16 % DE lo que está a la
+     izquierda» — que es exactamente cómo se agrega el IVA: `1.000 $ + 16 %`
+     son 1.160 $, no 1.000,16. En un producto o un cociente no hay ambigüedad
+     y vale la fracción a secas. Sin este caso especial, la forma natural de
+     pedir el IVA daría un número absurdo sin avisar. */
+  if (n.b.t === 'pct') {
+    const base = evaluar(n.a, enBolivares, nombre)
+    const p = evaluar(n.b.a, enBolivares, nombre)
+    if (p.dim !== 0) throw new ErrorDeCuenta('Un porcentaje se escribe con un número suelto, sin moneda.')
+    const fraccion = p.bs / 100
+    if (n.op === '+') return { ...base, bs: base.bs * (1 + fraccion) }
+    if (n.op === '-') return { ...base, bs: base.bs * (1 - fraccion) }
+    if (n.op === '*') return { ...base, bs: base.bs * fraccion }
+    if (fraccion === 0) throw new ErrorDeCuenta('No se puede dividir entre cero.')
+    return { ...base, bs: base.bs / fraccion }
+  }
+
   const a = evaluar(n.a, enBolivares, nombre)
   const b = evaluar(n.b, enBolivares, nombre)
 
@@ -367,15 +415,29 @@ function evaluar(n: Nodo, enBolivares: Map<string, number>, nombre: (c: string) 
 // Devolver la cuenta escrita como se entendió
 // ---------------------------------------------------------------------------
 function escribir(n: Nodo, simbolo: (c: string) => string): string {
+  /* SIN separador de miles, a propósito. Esta línea existe para despejar cómo se
+     entendió la cuenta, y con agrupación «1.075» se escribiría igual que lo
+     tecleado — no despejaría nada. Sin agrupar, «1075» dice sin lugar a dudas
+     que se leyó mil setenta y cinco y no uno coma cero siete cinco. */
   const numero = (v: number) =>
-    new Intl.NumberFormat('es-VE', { maximumFractionDigits: 4 }).format(v)
+    new Intl.NumberFormat('es-VE', { maximumFractionDigits: 4, useGrouping: false }).format(v)
 
   if (n.t === 'num') {
     return n.moneda ? `${numero(n.valor)} ${simbolo(n.moneda)}` : numero(n.valor)
   }
   if (n.t === 'neg') return `−${escribir(n.a, simbolo)}`
+  if (n.t === 'pct') return `${escribir(n.a, simbolo)} %`
 
   const signos = { '+': '+', '-': '−', '*': '×', '/': '÷' } as const
+
+  /* «16 % DE QUÉ» es justo lo que hay que despejar: en una suma el porcentaje
+     se toma sobre lo de la izquierda, y verlo escrito es la diferencia entre
+     confiar en el número y adivinarlo. */
+  if (n.b.t === 'pct' && (n.op === '+' || n.op === '-')) {
+    const base = escribir(n.a, simbolo)
+    return `(${base} ${signos[n.op]} ${escribir(n.b.a, simbolo)} % de ${base})`
+  }
+
   const dentro = `${escribir(n.a, simbolo)} ${signos[n.op]} ${escribir(n.b, simbolo)}`
 
   // Solo lleva paréntesis lo que los necesita para leerse igual que se calcula.
