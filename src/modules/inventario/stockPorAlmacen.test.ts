@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sedeDeAlmacen, stockEn,
-  trasladoDeMovimiento, almacenPrincipalDeSede,
+  trasladoDeMovimiento, almacenPrincipalDeSede, agregarExistencias,
 } from './stockPorAlmacen';
 
 const almacenes = [
@@ -274,5 +274,72 @@ describe('almacenPrincipalDeSede', () => {
 
   it('tolera una lista vacia', () => {
     expect(almacenPrincipalDeSede('LOS PINOS', [])).toBeNull();
+  });
+});
+
+/* ── Costo de un producto agotado ──────────────────────────────────────────
+   Un producto en 0 debe seguir MOSTRANDO su costo, pero NO sumar valor.
+   El caso real: PEPINO (HOR-022) tiene costo 1,27 guardado en La Esperanza
+   con stock 0, y la tabla mostraba «$ 0,00» como si nunca hubiera tenido
+   precio, mezclándolo con los productos que de verdad no tienen costo. */
+describe('agregarExistencias', () => {
+  const todo = () => true;
+  const ex = (almacen: string, stock: number, costo: number) => ({
+    producto_id: 'p1', almacen, stock, costo_promedio: costo,
+  });
+
+  it('promedia ponderado cuando hay stock', () => {
+    const r = agregarExistencias([ex('A', 10, 2), ex('B', 10, 4)], todo);
+    expect(r.get('p1')).toEqual({ stock: 20, costo: 3 });
+  });
+
+  it('PEPINO agotado conserva su costo de 1,27', () => {
+    const r = agregarExistencias([ex('La Esperanza', 0, 1.27)], todo);
+    expect(r.get('p1')!.costo).toBe(1.27);
+    expect(r.get('p1')!.stock).toBe(0);
+  });
+
+  it('el valor de un agotado es 0 aunque tenga costo', () => {
+    const r = agregarExistencias([ex('La Esperanza', 0, 1.27)], todo)!.get('p1')!;
+    expect(r.stock * r.costo).toBe(0);
+  });
+
+  it('sin stock en ningun almacen usa el costo mas alto conocido', () => {
+    const r = agregarExistencias([ex('A', 0, 1.1), ex('B', 0, 2.4), ex('C', 0, 0)], todo);
+    expect(r.get('p1')!.costo).toBe(2.4);
+  });
+
+  it('con stock en uno solo, el agotado no arrastra el promedio a 0', () => {
+    // Antes: (3*1.27 + 0*1.27) / 3 = 1.27 estaba bien; el problema era el 0 total.
+    const r = agregarExistencias([ex('Los Pinos', 3, 1.27), ex('La Esperanza', 0, 1.27)], todo);
+    expect(r.get('p1')).toEqual({ stock: 3, costo: 1.27 });
+  });
+
+  it('sin costo en ningun lado devuelve 0 (queda para «Sin costo»)', () => {
+    const r = agregarExistencias([ex('A', 5, 0)], todo);
+    expect(r.get('p1')!.costo).toBe(0);
+  });
+
+  it('respeta el filtro de almacenes', () => {
+    const r = agregarExistencias([ex('A', 5, 2), ex('B', 7, 3)], (a) => a === 'B');
+    expect(r.get('p1')).toEqual({ stock: 7, costo: 3 });
+  });
+
+  it('separa productos distintos', () => {
+    const r = agregarExistencias([
+      { producto_id: 'x', almacen: 'A', stock: 2, costo_promedio: 5 },
+      { producto_id: 'y', almacen: 'A', stock: 0, costo_promedio: 9 },
+    ], todo);
+    expect(r.get('x')).toEqual({ stock: 2, costo: 5 });
+    expect(r.get('y')).toEqual({ stock: 0, costo: 9 });
+  });
+
+  it('tolera stock y costo nulos', () => {
+    const r = agregarExistencias([{ producto_id: 'p1', almacen: 'A', stock: null, costo_promedio: null }], todo);
+    expect(r.get('p1')).toEqual({ stock: 0, costo: 0 });
+  });
+
+  it('tolera una lista vacia', () => {
+    expect(agregarExistencias([], todo).size).toBe(0);
   });
 });

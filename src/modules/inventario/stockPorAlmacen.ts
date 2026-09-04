@@ -35,6 +35,42 @@ export function sedeDeAlmacen(nombre: string | null | undefined, almacenes: Pick
   return s || SIN_SEDE;
 }
 
+/**
+ * Agrega las existencias de un conjunto de almacenes por producto: stock sumado
+ * y costo unitario del conjunto.
+ *
+ * El costo NO se apaga cuando no hay stock. Un producto agotado sigue valiendo
+ * lo que costó la última vez, y ponerlo en 0 hacía parecer que nunca se le cargó
+ * precio: PEPINO tenía 1,27 guardado en La Esperanza y la tabla mostraba $0,00,
+ * mezclándolo visualmente con los productos que de verdad no tienen costo.
+ *
+ * El VALOR sí queda en cero, porque se calcula como stock × costo: un producto
+ * en cero muestra su precio pero no suma nada al inventario.
+ */
+export function agregarExistencias(
+  filas: Pick<Existencia, 'producto_id' | 'almacen' | 'stock' | 'costo_promedio'>[],
+  incluye: (almacen: string) => boolean,
+): Map<string, { stock: number; costo: number }> {
+  const agg = new Map<string, { stock: number; valor: number; ultimoCosto: number }>();
+  for (const e of filas ?? []) {
+    if (!incluye(e.almacen)) continue;
+    const cur = agg.get(e.producto_id) ?? { stock: 0, valor: 0, ultimoCosto: 0 };
+    const st = Number(e.stock) || 0;
+    const c = Number(e.costo_promedio) || 0;
+    cur.stock += st;
+    cur.valor += st * c;
+    // Sin stock en ninguno de los almacenes se muestra el costo MÁS ALTO de los
+    // conocidos: subvalorar el inventario es el error que se está corrigiendo.
+    if (c > cur.ultimoCosto) cur.ultimoCosto = c;
+    agg.set(e.producto_id, cur);
+  }
+  const out = new Map<string, { stock: number; costo: number }>();
+  for (const [id, v] of agg) {
+    out.set(id, { stock: v.stock, costo: v.stock > 0 ? v.valor / v.stock : v.ultimoCosto });
+  }
+  return out;
+}
+
 /** «Matanzas › General»: el almacén con su sede, para que dos nombres parecidos no se confundan. */
 export function etiquetaAlmacen(nombre: string, almacenes: Pick<Almacen, 'nombre' | 'sede'>[]): string {
   const sede = sedeDeAlmacen(nombre, almacenes);

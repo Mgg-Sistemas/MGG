@@ -42,7 +42,7 @@ import { DEFAULT_POLICY, decorate, type ProductoDecorado } from './restock';
 import { ProductosTable } from './ProductosTable';
 import { ProductoForm } from './ProductoForm';
 import { ProductoDetail } from './ProductoDetail';
-import { nombreSedeCorto, almacenPrincipalDeSede } from './stockPorAlmacen';
+import { nombreSedeCorto, almacenPrincipalDeSede, agregarExistencias } from './stockPorAlmacen';
 import { MovimientoForm } from './MovimientoForm';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
@@ -363,20 +363,14 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     // subalmacenes). Lo usa el detalle: al entrar a un almacén se ven sus productos,
     // y al entrar a un subalmacén, los del subalmacén (cada nivel por separado).
     const nombres = incluirSub ? new Set(descendientesDe(nombre)) : new Set([nombre]);
-    const agg = new Map<string, { stock: number; valor: number }>();
-    for (const e of existencias) {
-      if (!nombres.has(e.almacen)) continue;
-      const cur = agg.get(e.producto_id) ?? { stock: 0, valor: 0 };
-      const st = Number(e.stock) || 0;
-      cur.stock += st;
-      cur.valor += st * (Number(e.costo_promedio) || 0);
-      agg.set(e.producto_id, cur);
-    }
+    const agg = agregarExistencias(existencias, (a) => nombres.has(a));
     const virtuales = [...agg.entries()]
       .map(([pid, v]) => {
         const p = prodMap.get(pid);
-        const costo = v.stock > 0 ? v.valor / v.stock : 0;
-        return p ? ({ ...p, stock: v.stock, precio: costo, almacen: nombre } as Producto) : null;
+        if (!p) return null;
+        // Si ninguna existencia guardó costo, se cae al precio del maestro antes que a 0.
+        const costo = v.costo > 0 ? v.costo : (Number(p.precio) || 0);
+        return ({ ...p, stock: v.stock, precio: costo, almacen: nombre } as Producto);
       })
       .filter((p): p is Producto => p !== null);
     return decorate(virtuales, DEFAULT_POLICY);
@@ -394,19 +388,14 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     if (!nombres.length) return [];
     const prodMap = new Map(productos.map((p) => [p.id, p]));
     const set = new Set(nombres);
-    const agg = new Map<string, { stock: number; valor: number }>();
-    for (const e of existencias) {
-      if (!set.has(e.almacen)) continue;
-      const cur = agg.get(e.producto_id) ?? { stock: 0, valor: 0 };
-      const st = Number(e.stock) || 0;
-      cur.stock += st; cur.valor += st * (Number(e.costo_promedio) || 0);
-      agg.set(e.producto_id, cur);
-    }
+    const agg = agregarExistencias(existencias, (a) => set.has(a));
     const virtuales = [...agg.entries()]
       .map(([pid, v]) => {
         const p = prodMap.get(pid);
-        const costo = v.stock > 0 ? v.valor / v.stock : 0;
-        return p ? ({ ...p, stock: v.stock, precio: costo } as Producto) : null;
+        if (!p) return null;
+        // Si ninguna existencia guardó costo, se cae al precio del maestro antes que a 0.
+        const costo = v.costo > 0 ? v.costo : (Number(p.precio) || 0);
+        return ({ ...p, stock: v.stock, precio: costo } as Producto);
       })
       .filter((p): p is Producto => p !== null);
     return decorate(virtuales, DEFAULT_POLICY);
