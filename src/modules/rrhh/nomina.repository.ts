@@ -16,9 +16,7 @@ import { round2 } from '../tesoreria/tasas.repository';
 import type { Caja, NominaPeriodo, NominaRenglon, DeduccionRef, Personal, CuentaCaja } from '@/shared/lib/types';
 
 const BUCKET = 'nomina-comprobantes';
-const LIBRO = 'movimientos_caja';
 const CAJAS = 'cajas';
-const SALDOS = 'caja_saldos';
 
 /** Etiqueta legible del motivo según el tipo de período de nómina. */
 export function labelMotivoNomina(tipo?: string | null): string {
@@ -271,91 +269,52 @@ export async function pagarRenglon(input: PagarRenglonInput): Promise<void> {
   const montoPago = round2(Number(input.monto) || 0);
   if (montoPago <= 0) throw new Error('Indicá el monto a pagar.');
 
-  // Moneda/cuenta de pago. Si la caja maneja saldos multimoneda (caja_saldos),
-  // se descuenta del saldo elegido (cuenta+moneda); si no, del saldo legado de
-  // la caja (cajas.saldo). Esto permite pagar desde una caja Multimoneda.
+  // Moneda/cuenta de pago (con default de la caja). Si la caja maneja saldos multimoneda
+  // (caja_saldos) se descuenta del saldo elegido; si no, del saldo legado (cajas.saldo).
   const monedaPago = (input.moneda ?? caja.moneda) as string;
   const cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
-  const { data: saldoRow } = await supabase.from(SALDOS)
-    .select('id, saldo')
-    .eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago)
-    .maybeSingle();
-  const usaSaldos = !!saldoRow;
-  const saldoAntes = usaSaldos ? (Number(saldoRow!.saldo) || 0) : (Number(caja.saldo) || 0);
-  if (montoPago > saldoAntes)
-    throw new Error(`Saldo insuficiente en ${caja.nombre}${cuentaSel !== 'general' ? ` (${cuentaSel})` : ''}. Disponible: ${saldoAntes} ${monedaPago}.`);
-  const saldoDespues = round2(saldoAntes - montoPago);
-  const pagaEnBs = monedaPago === 'Bs';
-
   const seriales = limpiarSeriales(input.seriales);
 
-  // Comprobante (opcional).
+  // Comprobante (opcional) — la subida del archivo va acá porque el RPC no maneja archivos.
   let comprobantePath: string | null = null, comprobanteNombre: string | null = null;
   if (input.comprobante) {
     comprobantePath = await subirComprobanteNomina(r.id, input.comprobante);
     comprobanteNombre = input.comprobante.name;
   }
 
-  // 1) Egreso en el libro mayor casado con el renglón. Incluye el MOTIVO
-  // (Sueldo / Vacaciones / Liquidación) para que se vea en Tesorería.
+  // Concepto para el libro (incluye el MOTIVO: Sueldo / Vacaciones / Liquidación).
   const concepto = [
     `Pago nómina ${r.periodo?.codigo ?? ''}`.trim(),
     labelMotivoNomina(r.periodo?.tipo),
     r.nombre,
     seriales.length ? `billetes: ${seriales.join(', ')}` : '',
   ].filter(Boolean).join(' · ');
-  const { data: mov, error: mErr } = await supabase.from(LIBRO).insert({
-    caja_id: input.cajaId, tipo: 'salida', monto: montoPago, moneda: monedaPago,
-    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
-    motivo: concepto, categoria: 'pago_nomina',
-    beneficiario: r.nombre, beneficiario_id: r.personal_id ?? null,
-    ref_nomina_renglon_id: r.id,
-    cuenta: usaSaldos ? cuentaSel : (input.tasa && pagaEnBs ? 'general' : null),
-    tasa_bs: input.tasa && pagaEnBs ? round2(Number(input.tasa)) : null,
-    actor: input.actorEmail, actor_name: input.actorName ?? null,
-  }).select('id').single();
-  if (mErr) throw mErr;
 
-  // 2) Descuenta el saldo: caja_saldos (multimoneda) o el saldo legado de la caja.
-  if (usaSaldos) {
-    const { error: uSaldoErr } = await supabase.from(SALDOS).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', saldoRow!.id);
-    if (uSaldoErr) throw uSaldoErr;
-  } else {
-    const { error: uCajaErr } = await supabase.from(CAJAS).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', input.cajaId);
-    if (uCajaErr) throw uCajaErr;
-  }
-
-  // 3) Marca el renglón pagado.
-  const { error: rErr } = await supabase.from('nomina_renglones').update({
-    estado: 'pagada',
-    pagada_por: input.actorEmail,
-    pagada_en: new Date().toISOString(),
-    caja_id: input.cajaId,
-    caja_mov_id: (mov as { id: string }).id,
-    monto_pagado: montoPago,
-    moneda_pago: monedaPago,
-    tasa_pago: input.tasa ? round2(Number(input.tasa)) : null,
-    ...(seriales.length ? { seriales_billetes: seriales } : {}),
-    comprobante_path: comprobantePath, comprobante_nombre: comprobanteNombre,
-  }).eq('id', r.id);
-  if (rErr) throw rErr;
-
-  // 4) Descuenta los saldos de anticipos/préstamos deducidos en este renglón.
-  for (const d of r.deducciones ?? []) {
-    if (d.id && Number(d.monto) > 0) {
-      const { data: ant } = await supabase.from('anticipos_prestamos').select('saldo').eq('id', d.id).maybeSingle();
-      if (ant) {
-        const nuevo = Math.max(0, round2((Number(ant.saldo) || 0) - (Number(d.monto) || 0)));
-        await supabase.from('anticipos_prestamos').update({ saldo: nuevo, estado: nuevo <= 0 ? 'saldado' : 'activo' }).eq('id', d.id);
-      }
-    }
-  }
-
-  // 5) Recalcula el estado del período (pagada / en_pago).
-  const { data: regs } = await supabase.from('nomina_renglones').select('estado').eq('periodo_id', r.periodo_id);
-  const rows = (regs ?? []) as Array<{ estado: string }>;
-  const pendientes = rows.filter((x) => x.estado !== 'pagada').length;
-  await supabase.from('nomina_periodos').update({ estado: pendientes === 0 ? 'pagada' : 'en_pago' }).eq('id', r.periodo_id);
+  // Todo el pago —reserva del renglón con guard de estado, egreso de caja (con FOR UPDATE del
+  // saldo), descuento de anticipos y recálculo del período— ocurre en UN RPC transaccional.
+  // Dos clics o dos usuarios sobre el mismo renglón ya no pueden pagar dos veces: el segundo
+  // recibe error y NO mueve la caja (antes el guard miraba la copia en memoria).
+  const { error } = await supabase.rpc('nomina_pagar_renglon', {
+    p_renglon_id: r.id,
+    p_periodo_id: r.periodo_id,
+    p_caja_id: input.cajaId,
+    p_monto: montoPago,
+    p_moneda: monedaPago,
+    p_cuenta: cuentaSel,
+    p_tasa: input.tasa ? round2(Number(input.tasa)) : null,
+    p_concepto: concepto,
+    p_beneficiario: r.nombre,
+    p_beneficiario_id: r.personal_id ?? null,
+    p_seriales: seriales,
+    p_comprobante_path: comprobantePath,
+    p_comprobante_nombre: comprobanteNombre,
+    p_deducciones: (r.deducciones ?? [])
+      .filter((d) => d.id && Number(d.monto) > 0)
+      .map((d) => ({ id: d.id, monto: Number(d.monto) })),
+    p_actor: input.actorEmail,
+    p_actor_name: input.actorName ?? null,
+  });
+  if (error) throw error;
 }
 
 /** Elimina una nómina cargada (solo si ningún renglón fue pagado). */

@@ -81,6 +81,7 @@ import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.reposi
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSku, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
+import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
@@ -162,6 +163,7 @@ function eventLabel(ev: string): string {
       proveedor_cambiado: 'Cambio de proveedor',
       editada: 'Orden editada',
       cantidades_editadas: 'Cantidades editadas',
+      items_eliminados: 'Productos eliminados',
       oc_creada: 'OC creada (oferta elegida)',
       oc_editada: 'OC editada',
       nota_editada: 'Nota de la OC editada',
@@ -694,6 +696,7 @@ export function PedidosPage() {
             setOffersReloadKey((k) => k + 1);
           }}
           onComprobanteSaved={async () => { await refresh(); }}
+          onAbrirOrden={openDetail}
           onClose={() => setModal({ kind: 'none' })}
           onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
           onEditar={() => setModal({ kind: 'edit', orden: currentDetail })}
@@ -1624,12 +1627,24 @@ function RecepcionParcialModal({
     return m;
   });
   const [nota, setNota] = useState('');
-  // "Sin inventario": los productos ya se ingresaron manualmente, no sumar stock al recibir.
-  const [sinInv, setSinInv] = useState<boolean>(orden.sin_inventario === true);
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
-  // Un SERVICIO no se almacena por sede: entra directo al inventario General (sin elegir almacén).
+  // Un SERVICIO no se almacena ni entra al inventario: se presta y su rastro queda en el
+  // equipo asociado. Por eso no elige almacén y va SIEMPRE sin movimiento de stock.
   const esServicio = orden.clase === 'servicio';
-  const [almacen, setAlmacen] = useState<string>(esServicio ? 'General' : (orden.almacen_destino ?? ''));
+  // "Sin inventario": los productos ya se ingresaron manualmente, no sumar stock al recibir.
+  // En un servicio es obligatorio, no una opción.
+  const [sinInv, setSinInv] = useState<boolean>(esServicio || orden.sin_inventario === true);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [almacen, setAlmacen] = useState<string>(esServicio ? '' : (orden.almacen_destino ?? ''));
+  // Equipos de maquinaria a los que se le hizo el servicio (cada renglón trae el suyo):
+  // son los que reciben el rastro en Control de Mantenimiento.
+  const equiposServicio = useMemo(
+    () => (esServicio
+      ? Array.from(new Set((orden.items ?? [])
+          .map((it) => it.equipo_nombre)
+          .filter((n): n is string => !!n && !!n.trim())))
+      : []),
+    [esServicio, orden.items],
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1692,7 +1707,7 @@ function RecepcionParcialModal({
 
   return (
     <Modal
-      title={`Confirmar recepción · ${orden.oc_codigo ?? orden.codigo}`}
+      title={esServicio ? `Servicio realizado · ${orden.codigo}` : `Confirmar recepción · ${orden.oc_codigo ?? orden.codigo}`}
       size="lg"
       onClose={onClose}
       footer={
@@ -1740,7 +1755,7 @@ function RecepcionParcialModal({
 
       {esServicio ? (
         <div className="form-row" style={{ marginTop: '.5rem' }}>
-          <small className="muted">🔧 Es un <strong>servicio</strong>: no se elige almacén — lo recibido entra directo al <strong>inventario General</strong>.</small>
+          <small className="muted">🔧 Es un <strong>servicio</strong>: <strong>no entra al inventario</strong> ni se le asigna almacén. Se registra como prestado y su rastro queda en el <strong>equipo asociado</strong>{equiposServicio.length ? <> (<strong>{equiposServicio.join(' · ')}</strong>)</> : null}.</small>
         </div>
       ) : (
       <div className="form-row" style={{ marginTop: '.5rem' }}>
@@ -1767,6 +1782,8 @@ function RecepcionParcialModal({
           placeholder="Diferencias, faltantes, observaciones de la recepción…" />
       </div>
 
+      {/* En un servicio no se ofrece la opción: nunca suma stock. */}
+      {!esServicio && (
       <div className="form-row" style={{ marginTop: '.5rem' }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={sinInv} onChange={(e) => setSinInv(e.target.checked)} style={{ cursor: 'pointer' }} />
@@ -1778,6 +1795,7 @@ function RecepcionParcialModal({
           </small>
         )}
       </div>
+      )}
       {orden.condiciones_pago === 'contra_entrega' && (
         <small className="muted" style={{ display: 'block' }}>
           Contra entrega: luego se indicará el método para pagar <strong>{money(recibidoTotal)}</strong> (lo recibido) en Tesorería.
@@ -2138,6 +2156,8 @@ interface OrdenDetailModalProps {
   onSeePriceHistory: (sku: string, nombre: string) => void;
   onAddOffer: () => void;
   onAcceptedOffer: () => void;
+  /** Abre el detalle de otra orden (salto de una sub-OC a su OP madre). */
+  onAbrirOrden: (ordenId: string) => void;
   onComprobanteSaved: () => Promise<void> | void;
   offersReloadKey: number;
   usuarioRole: string | null;
@@ -2172,11 +2192,14 @@ function OrdenDetailModal({
   onSeePriceHistory,
   onAddOffer,
   onAcceptedOffer,
+  onAbrirOrden,
   onComprobanteSaved,
   offersReloadKey,
   usuarioRole,
 }: OrdenDetailModalProps) {
   const isPendiente = o.estado === 'pendiente';
+  // Un SERVICIO no entra al inventario: se presta y queda en la traza del equipo asociado.
+  const esServicioDet = o.clase === 'servicio';
   // La OP la aprueba quien gestiona compras (admin o analista); al aprobarla pasa a
   // Órdenes de Compra. La elección de la oferta ganadora sí queda solo para el jefe/admin.
   const canApprove = canManageProcurement && isPendiente;  // Aprobar Orden de Pedido
@@ -2261,24 +2284,45 @@ function OrdenDetailModal({
   const [editandoCant, setEditandoCant] = useState(false);
   const [cantDraft, setCantDraft] = useState<Record<string, string>>({});
   const [savingCant, setSavingCant] = useState(false);
+  // Productos marcados para eliminar en esta edición (se aplica al guardar, así
+  // «Cancelar» los devuelve). El ítem en confirmación vive aparte.
+  const [skusAEliminar, setSkusAEliminar] = useState<Set<string>>(new Set());
+  const [porEliminar, setPorEliminar] = useState<ItemOrden | null>(null);
   function abrirEdicionCant() {
     const d: Record<string, string> = {};
     o.items.forEach((it) => { d[it.sku] = String(it.cantidad ?? 0); });
     setCantDraft(d);
+    setSkusAEliminar(new Set());
     setEditandoCant(true);
+  }
+  function cerrarEdicionCant() {
+    setEditandoCant(false);
+    setSkusAEliminar(new Set());
+    setPorEliminar(null);
   }
   async function guardarCantidades() {
     const mapa: Record<string, number> = {};
     for (const it of o.items) {
+      if (skusAEliminar.has(it.sku)) continue;   // se elimina: no se valida su cantidad
       const v = Number(cantDraft[it.sku]);
       if (!Number.isFinite(v) || v <= 0) { toast(`La cantidad de "${it.nombre}" debe ser mayor que 0.`, 'error'); return; }
       mapa[it.sku] = v;
     }
+    if (!Object.keys(mapa).length) {
+      toast('La orden debe conservar al menos un producto: no se pueden eliminar todos.', 'error');
+      return;
+    }
     setSavingCant(true);
     try {
-      await actualizarCantidadesOrden(o, mapa, actorEmail || 'sistema');
-      toast('Cantidades actualizadas · comparativa recalculada', 'success');
-      setEditandoCant(false);
+      const eliminados = Array.from(skusAEliminar);
+      await actualizarCantidadesOrden(o, mapa, actorEmail || 'sistema', eliminados);
+      toast(
+        eliminados.length
+          ? `${eliminados.length} producto(s) eliminado(s) · ofertas y presupuesto recalculados`
+          : 'Cantidades actualizadas · comparativa recalculada',
+        'success',
+      );
+      cerrarEdicionCant();
       await onAcceptedOffer(); // refresca la orden + recarga las ofertas
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron actualizar las cantidades', 'error');
@@ -2295,6 +2339,16 @@ function OrdenDetailModal({
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
     }
+  }
+  /* La orden en texto plano, para mandarla por correo o WhatsApp a quien paga y
+     no entra al sistema. Se genera solo con este botón. */
+  function handlePagoTxt() {
+    import('./ordenPagoTxt')
+      .then(({ descargarOrdenPagoTxt }) => descargarOrdenPagoTxt(
+        o,
+        proveedor?.razon_social ?? (o.proveedor_id ? proveedorMap.get(o.proveedor_id)?.razon_social : '') ?? '—',
+      ))
+      .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el TXT', 'error'));
   }
   function handleOcPdf() {
     import('./ordenCompraPdf')
@@ -2389,6 +2443,9 @@ function OrdenDetailModal({
       {isOcAprobada && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={handlePagoTxt} title="Bajar la orden en texto plano: quién la pidió, de qué unidad, qué pidió, el proveedor y cómo se paga con los datos del beneficiario">
+            ↓ TXT para pagar
+          </button>
           {canManageProcurement && (
             <button className="btn btn-ghost" onClick={onEditarOc} title="Editar los precios de la OC. El nuevo total se sincroniza con Tesorería sin sacar la OC de pago; queda en la trazabilidad.">✎ Editar precios</button>
           )}
@@ -2457,7 +2514,11 @@ function OrdenDetailModal({
       {isPagada && !o.recibida_en && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
-          <button className="btn btn-primary" onClick={onReceive}>Marcar recibida</button>
+          {/* Un servicio no se «recibe» en almacén: se deja constancia de que se prestó. */}
+          <button className="btn btn-primary" onClick={onReceive}
+            title={esServicioDet ? 'Dejar constancia de que el servicio se prestó (no entra al inventario)' : undefined}>
+            {esServicioDet ? '🔧 Servicio realizado' : 'Marcar recibida'}
+          </button>
         </>
       )}
       {/* Contra entrega pagada (ya recibida): solo queda el PDF; finaliza con el botón de abajo. */}
@@ -2768,6 +2829,7 @@ function OrdenDetailModal({
           reloadKey={offersReloadKey}
           onAccepted={onAcceptedOffer}
           onAddOferta={onAddOffer}
+          onAbrirOrden={onAbrirOrden}
         />
       )}
 
@@ -2783,15 +2845,35 @@ function OrdenDetailModal({
         {/* Editar cantidades antes de aprobar la OC (OP y OC creada sin confirmar). */}
         {canEditarCant && (editandoCant ? (
           <span style={{ display: 'inline-flex', gap: '.4rem' }}>
-            <button className="btn btn-sm btn-ghost" onClick={() => setEditandoCant(false)} disabled={savingCant}>Cancelar</button>
-            <button className="btn btn-sm btn-primary" onClick={guardarCantidades} disabled={savingCant}>{savingCant ? 'Guardando…' : '✓ Guardar cantidades'}</button>
+            {skusAEliminar.size > 0 && (
+              <span className="badge danger" style={{ alignSelf: 'center' }}>
+                {skusAEliminar.size} por eliminar
+              </span>
+            )}
+            <button className="btn btn-sm btn-ghost" onClick={cerrarEdicionCant} disabled={savingCant}>Cancelar</button>
+            <button className="btn btn-sm btn-primary" onClick={guardarCantidades} disabled={savingCant}>{savingCant ? 'Guardando…' : '✓ Guardar cambios'}</button>
           </span>
         ) : (
-          <button className="btn btn-sm btn-ghost" onClick={abrirEdicionCant} title="Editar las cantidades de la SP antes de elegir el proveedor">
+          <button className="btn btn-sm btn-ghost" onClick={abrirEdicionCant} title="Editar las cantidades de la SP o eliminar productos antes de elegir el proveedor">
             ✎ Cantidades
           </button>
         ))}
       </div>
+      {/* Confirmación para sacar un producto de la solicitud. Se marca y se aplica al
+          guardar; las cotizaciones cargadas se recalculan sin ese producto. */}
+      {porEliminar && (
+        <ConfirmDialog
+          title="Eliminar producto de la solicitud"
+          message={`¿Eliminar "${porEliminar.nombre}"${porEliminar.sku ? ` (${porEliminar.sku})` : ''} de ${o.codigo}?\n\nSale de la solicitud y las ofertas cargadas se recalculan sin él: su presupuesto baja y el IVA/IGTF se ajusta a lo que queda.\n\nSe aplica al guardar los cambios.`}
+          confirmText="Eliminar producto"
+          danger
+          onCancel={() => setPorEliminar(null)}
+          onConfirm={() => {
+            setSkusAEliminar((s) => new Set(s).add(porEliminar.sku));
+            setPorEliminar(null);
+          }}
+        />
+      )}
       {/* En etapa OP (sin oferta aceptada) no hay precio: se oculta Precio/Subtotal
           y se marca cuáles se compran. Con oferta aceptada (total>0) se muestra todo. */}
       {(() => {
@@ -2821,10 +2903,12 @@ function OrdenDetailModal({
           </tr>
         </thead>
         <tbody>
-          {o.items.map((it, idx) => (
-            <tr key={`${it.sku}-${idx}`} style={{ opacity: !conPrecio && it.comprar === false ? 0.5 : 1 }}>
+          {o.items.map((it, idx) => {
+            const marcado = skusAEliminar.has(it.sku);
+            return (
+            <tr key={`${it.sku}-${idx}`} style={{ opacity: marcado ? 0.45 : (!conPrecio && it.comprar === false ? 0.5 : 1) }}>
               <td className="mono">{it.sku}</td>
-              <td>
+              <td style={marcado ? { textDecoration: 'line-through' } : undefined}>
                 {it.nombre}
                 {[it.marca, it.modelo].filter(Boolean).length > 0 && (
                   <div className="muted" style={{ fontSize: '.74rem' }}>🏷️ {[it.marca, it.modelo].filter(Boolean).join(' · ')}</div>
@@ -2870,16 +2954,37 @@ function OrdenDetailModal({
                 </td>
               )}
               <td>
-                <button
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => onSeePriceHistory(it.sku, it.nombre)}
-                  title="Comparativa histórica de precios"
-                >
-                  ⌁ histórico
-                </button>
+                <span style={{ display: 'inline-flex', gap: '.25rem' }}>
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => onSeePriceHistory(it.sku, it.nombre)}
+                    title="Comparativa histórica de precios"
+                  >
+                    ⌁ histórico
+                  </button>
+                  {/* Eliminar el producto de la solicitud (solo mientras se editan cantidades).
+                      Se marca acá y se aplica al guardar, así «Cancelar» lo devuelve. */}
+                  {editandoCant && (marcado ? (
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      disabled={savingCant}
+                      title="Deshacer: volver a incluir este producto"
+                      onClick={() => setSkusAEliminar((s) => { const n = new Set(s); n.delete(it.sku); return n; })}
+                    >↩ deshacer</button>
+                  ) : (
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      disabled={savingCant}
+                      style={{ color: 'var(--danger)' }}
+                      title="Eliminar este producto de la solicitud"
+                      onClick={() => setPorEliminar(it)}
+                    >🗑</button>
+                  ))}
+                </span>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
         {conPrecio && (
           <tfoot>
@@ -3965,7 +4070,11 @@ function CrearOrdenModal({
   // el resto se completa luego desde el módulo de inventario).
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState('');
-  const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
+  // Arranca VACÍA: antes venía en «GENERAL» y así nacieron 317 productos sin
+  // categoría real, todos con SKU NEW-. La categoría ahora es obligatoria.
+  const [nuevoCategoria, setNuevoCategoria] = useState('');
+  // Nombre para el que el usuario YA confirmó que quiere crear igual.
+  const [avisadoPara, setAvisadoPara] = useState('');
   const [nuevoUnidad, setNuevoUnidad] = useState('UNIDAD');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
   const [medidas, setMedidas] = useState<string[]>([]);
@@ -3980,14 +4089,46 @@ function CrearOrdenModal({
     getCategorias(productos).then(setCategoriasInv).catch(() => setCategoriasInv([]));
   }, [productos]);
 
+  /* Productos del inventario que se parecen al nombre que se está escribiendo.
+     El mismo detector que usa el alta de Inventario: acá hacía más falta todavía,
+     porque quien carga una solicitud no está mirando el catálogo. */
+  const nuevoSimilares = useMemo<Duplicado<Producto>[]>(
+    () => (nuevoOpen ? productosSimilares(nuevoNombre, allProductos) : []),
+    [nuevoOpen, nuevoNombre, allProductos],
+  );
+
+  /** Mete en la solicitud un producto que YA existe, en vez de crear uno nuevo. */
+  function usarExistente(p: Producto) {
+    setProdSelectId(p.id);
+    setItems((prev) => prev.some((i) => i.productoId === p.id)
+      ? prev
+      : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
+    toast(`"${p.nombre}" (${p.sku}) agregado a la solicitud`, 'success');
+    setNuevoNombre('');
+    setNuevoOpen(false);
+  }
+
   async function crearProductoNuevo() {
     const nombre = nuevoNombre.trim().toUpperCase();
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
+    if (!nuevoCategoria.trim()) { toast('Elegí la categoría: define el código del producto', 'error'); return; }
+    // Si hay parecidos, el primer clic avisa y el segundo crea. No se bloquea: puede
+    // ser de verdad otro material, y un aviso que no deja pasar se vuelve un estorbo.
+    if (nuevoSimilares.length && avisadoPara !== normalizarNombre(nombre)) {
+      setAvisadoPara(normalizarNombre(nombre));
+      toast(
+        nuevoSimilares.some((d) => d.nivel === 'exacto')
+          ? 'Ese producto ya existe con el mismo nombre. Mirá la lista de abajo: si es el mismo, usá «Usar este». Si de verdad es otro, tocá «Crear» de nuevo.'
+          : `Hay ${nuevoSimilares.length} producto(s) parecido(s) en el inventario. Revisá la lista y, si igual es otro material, tocá «Crear» de nuevo.`,
+        'warning',
+      );
+      return;
+    }
     setCreandoNuevo(true);
     try {
       // SKU correlativo por categoría: 3 primeras letras (o el prefijo ya usado en esa
       // categoría) + secuencia. Ej.: PROTEINA → PRO-001. (Antes usaba NEW-<slug>-<rand>.)
-      const categoria = nuevoCategoria.trim().toUpperCase() || 'GENERAL';
+      const categoria = nuevoCategoria.trim().toUpperCase();
       // Si la categoría es nueva, se registra en la taxonomía del inventario (sincroniza la lista).
       if (categoria && !categoriasInv.some((c) => c.toLowerCase() === categoria.toLowerCase())) {
         try { await addCategoria(categoria, authEmail); setCategoriasInv((prev) => [...prev, categoria]); } catch { /* duplicado/red: no bloquea */ }
@@ -4014,8 +4155,11 @@ function CrearOrdenModal({
       setItems((prev) => prev.some((i) => i.productoId === creado.id)
         ? prev
         : [...prev, { productoId: creado.id, sku: creado.sku, nombre: creado.nombre, cantidad: 1, precio: 0, unidad: creado.unidad, comprar: true }]);
-      toast(`Producto "${creado.nombre}" creado en inventario · completá el resto luego`, 'success');
+      // Dos cosas pasaron de un saque: el producto nació en el inventario y además
+      // ya quedó cargado en la solicitud. Se dicen las dos, con el SKU que se le asignó.
+      toast(`Producto "${creado.nombre}" (${creado.sku}) creado en inventario y agregado a la solicitud`, 'success');
       setNuevoNombre('');
+      setAvisadoPara('');
       setNuevoOpen(false);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo crear el producto', 'error');
@@ -4049,6 +4193,10 @@ function CrearOrdenModal({
     if (!p) return;
     // El número manda tras (re)agregar: olvidamos el texto crudo de esa cantidad.
     setCantEdit((m) => { const n = { ...m }; delete n[p.id]; return n; });
+    // Se mira ANTES de actualizar para saber qué avisar: agregar el producto no daba
+    // ninguna señal, y re-agregar uno que ya estaba solo le subía la cantidad en
+    // silencio (fácil de no notar en una lista larga y de cargar de más sin querer).
+    const yaEstaba = items.find((i) => i.productoId === p.id);
     setItems((prev) => {
       const ex = prev.find((i) => i.productoId === p.id);
       if (ex) {
@@ -4063,6 +4211,12 @@ function CrearOrdenModal({
         { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true },
       ];
     });
+    if (yaEstaba) {
+      const nueva = (Number(yaEstaba.cantidad) || 0) + 1;
+      toast(`"${p.nombre}" ya estaba en la solicitud · cantidad ahora ${nueva}${p.unidad ? ` ${p.unidad}` : ''}`, 'warning');
+    } else {
+      toast(`"${p.nombre}" agregado a la solicitud`, 'success');
+    }
   }
 
   function updateItem(idx: number, patch: Partial<ItemOrden>) {
@@ -4320,10 +4474,67 @@ function CrearOrdenModal({
                 value={nuevoNombre}
                 onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
               />
+
+              {nuevoSimilares.length > 0 && (
+                <div className="card" style={{ padding: '.6rem .8rem', borderColor: 'var(--warning)', background: 'var(--bg-1)' }}>
+                  <div style={{ fontSize: '.86rem', fontWeight: 600, marginBottom: '.15rem' }}>
+                    ⚠️ {nuevoSimilares.length === 1 ? 'Ya existe un producto parecido' : `Ya existen ${nuevoSimilares.length} productos parecidos`}
+                  </div>
+                  <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.45rem' }}>
+                    Antes de crear uno nuevo, fijate si es alguno de estos. Dos fichas del mismo material
+                    parten el kardex y el costo promedio, y después nadie sabe cuál es el bueno. Si es el
+                    mismo, usá <strong>«Usar este»</strong> y va directo a la solicitud. Si de verdad es otro
+                    material, tocá <strong>«Crear»</strong> otra vez y sigue.
+                  </div>
+                  <div className="table-wrap">
+                    <table className="table" style={{ fontSize: '.8rem' }}>
+                      <thead><tr><th>SKU</th><th>Producto</th><th>Almacén</th><th /></tr></thead>
+                      <tbody>
+                        {nuevoSimilares.map(({ producto: sp, nivel }) => (
+                          <tr key={sp.id}>
+                            <td className="mono">{sp.sku}</td>
+                            <td>
+                              <strong>{sp.nombre}</strong>
+                              {nivel === 'exacto' && (
+                                <span className="badge" style={{ marginLeft: '.35rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}>mismo nombre</span>
+                              )}
+                              <div className="muted" style={{ fontSize: '.72rem' }}>
+                                {sp.categoria ?? '—'} · {sp.unidad ?? '—'}
+                                {sp.estado !== 'activo' && (
+                                  <span className="badge" style={{ marginLeft: '.35rem', color: 'var(--warning)', borderColor: 'var(--warning)' }}>dado de baja</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="mono" style={{ fontSize: '.74rem' }}>
+                              {sp.almacen ? sp.almacen : <span className="dim">sin ubicación</span>}
+                            </td>
+                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              {/* Una ficha dada de baja no se puede pedir: hay que reactivarla
+                                  primero desde Inventario, así que acá no se ofrece el atajo. */}
+                              {sp.estado === 'activo' ? (
+                                <button type="button" className="btn btn-sm" onClick={() => usarExistente(sp)}
+                                  title="Agregar este producto a la solicitud en vez de crear uno nuevo">
+                                  Usar este
+                                </button>
+                              ) : (
+                                <span className="dim" style={{ fontSize: '.72rem' }} title="Reactivalo desde Inventario y después pedilo">
+                                  reactivar en Inventario
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               <div className="form-grid">
                 <div>
-                  <input className="input" list="nuevo-prod-categorias" placeholder="Categoría (elegí o escribí una nueva)"
+                  <input className="input" list="nuevo-prod-categorias" placeholder="Categoría * (elegí o escribí una nueva)"
                     value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+                  <small className="muted" style={{ fontSize: '.72rem' }}>Define el código: PLOMERIA → PLO-044.</small>
                   <datalist id="nuevo-prod-categorias">
                     {categoriasInv.map((c) => <option key={c} value={c} />)}
                   </datalist>
@@ -4340,8 +4551,13 @@ function CrearOrdenModal({
                 label="Almacén destino"
               />
               <div>
-                <button type="button" className="btn btn-sm btn-primary" onClick={crearProductoNuevo} disabled={creandoNuevo}>
-                  {creandoNuevo ? 'Creando…' : 'Crear y añadir a la solicitud'}
+                <button type="button" className="btn btn-sm btn-primary" onClick={crearProductoNuevo}
+                  disabled={creandoNuevo || !nuevoNombre.trim() || !nuevoCategoria.trim()}>
+                  {creandoNuevo
+                    ? 'Creando…'
+                    : nuevoSimilares.length && avisadoPara !== normalizarNombre(nuevoNombre)
+                      ? 'Crear igual (hay parecidos)'
+                      : 'Crear y añadir a la solicitud'}
                 </button>
               </div>
             </div>

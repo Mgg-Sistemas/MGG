@@ -74,6 +74,41 @@ export function skusAbsorbiblesPorHija(
   return Array.from(permitidos);
 }
 
+/** Estados en los que una sub-OC ya no compra nada: sus ítems vuelven a quedar libres. */
+export const ESTADOS_HIJA_MUERTA = new Set(['cancelada', 'anulada', 'rechazada', 'desistida_proveedor', 'reasignada']);
+
+/** Lo mínimo que se necesita de una sub-OC para saber qué ítems tiene tomados. */
+export interface HijaCobertura {
+  items?: { sku: string; comprar?: boolean }[] | null;
+  estado?: string | null;
+}
+
+/**
+ * ¿Esta oferta cubre TODO lo que a la orden le falta comprar? Un ítem cuenta como cubierto
+ * si ya lo compra una sub-OC (hija) VIVA, o si esta oferta lo cotiza con precio > 0.
+ *
+ * Es la condición para descartar a las ofertas hermanas al aceptar una: en multiproveedor
+ * cada oferta cubre solo una parte, y descartarlas dejaba el resto de los ítems sin con qué
+ * comprarse. Solo cuando la compra queda COMPLETA tiene sentido cerrar a las demás.
+ */
+export function ofertaCubreTodoLoPendiente(
+  itemsOrden: { sku: string; comprar?: boolean }[],
+  hijas: HijaCobertura[],
+  itemsOferta: { sku: string; precio?: number | null }[],
+): boolean {
+  const aComprar = (itemsOrden ?? []).filter((it) => it.comprar !== false).map((it) => it.sku);
+  if (!aComprar.length) return true;
+
+  const cubiertos = new Set<string>();
+  for (const h of hijas ?? []) {
+    if (h.estado && ESTADOS_HIJA_MUERTA.has(h.estado)) continue;
+    for (const it of h.items ?? []) if (it.comprar !== false) cubiertos.add(it.sku);
+  }
+  for (const it of itemsOferta ?? []) if ((Number(it.precio) || 0) > 0) cubiertos.add(it.sku);
+
+  return aComprar.every((sku) => cubiertos.has(sku));
+}
+
 /**
  * Recorta una oferta de la madre a lo que le corresponde a una hija.
  * `skusHija`: los SKUs que compra la hija (sus propios items).

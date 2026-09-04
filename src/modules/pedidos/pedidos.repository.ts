@@ -434,33 +434,58 @@ export async function actualizarCantidadesOrden(
   o: Orden,
   cantidadPorSku: Record<string, number>,
   actorEmail: string,
+  /** SKUs que se ELIMINAN de la solicitud: salen de la orden y de las cotizaciones. */
+  skusEliminados: string[] = [],
 ): Promise<Orden> {
   if (!['pendiente', 'aprobada', 'oc_creada'].includes(o.estado))
     throw new Error('Las cantidades solo se editan antes de aprobar la OC (pendiente, aprobada u OC creada).');
 
-  const aplicar = <T extends ItemOrden>(items: T[]): T[] => items.map((it) => {
-    const c = cantidadPorSku[it.sku];
-    return (c != null && Number.isFinite(c)) ? { ...it, cantidad: Math.max(0, Math.round(c * 1000) / 1000) } : it;
-  });
+  const fuera = new Set(skusEliminados.filter((s) => s && s.trim()));
+  const aplicar = <T extends ItemOrden>(items: T[]): T[] => items
+    .filter((it) => !fuera.has(it.sku))
+    .map((it) => {
+      const c = cantidadPorSku[it.sku];
+      return (c != null && Number.isFinite(c)) ? { ...it, cantidad: Math.max(0, Math.round(c * 1000) / 1000) } : it;
+    });
 
   const nuevosItems = aplicar(o.items);
+  if (!nuevosItems.length)
+    throw new Error('La orden debe conservar al menos un producto: no se pueden eliminar todos.');
   if (nuevosItems.some((it) => (Number(it.cantidad) || 0) <= 0))
     throw new Error('Cada producto debe tener una cantidad mayor que 0.');
   const total = nuevosItems.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
 
+  const evento = fuera.size ? 'items_eliminados' : 'cantidades_editadas';
   const { data, error } = await supabase.from(TABLE)
-    .update({ items: nuevosItems, total, historial: appendHistorial(o, 'cantidades_editadas', actorEmail) })
+    .update({ items: nuevosItems, total, historial: appendHistorial(o, evento, actorEmail, fuera.size ? { skus: Array.from(fuera) } : undefined) })
     .eq('id', o.id).select('*').single();
   if (error) throw error;
 
-  // Re-sincronizar las cotizaciones pendientes: misma cantidad, mismos precios unitarios.
-  const { data: ofs } = await supabase.from('ofertas_proveedor').select('id, items').eq('orden_id', o.id).eq('estado', 'pendiente');
-  for (const of of (ofs ?? []) as { id: string; items: ItemOrden[] }[]) {
-    const items = aplicar(of.items ?? []);
-    const precio_total = Math.round(items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0) * 100) / 100;
+  // Re-sincronizar las cotizaciones: misma cantidad y mismos precios unitarios, y sin los
+  // productos eliminados. Al sacar un producto, el IVA/IGTF/descuento de la oferta se
+  // reescalan por lo que quedó (son montos calculados sobre la base): si no, el presupuesto
+  // seguiría cobrando impuestos de algo que ya no se compra.
+  const { data: ofs } = await supabase.from('ofertas_proveedor')
+    .select('id, items, iva, igtf, descuento').eq('orden_id', o.id).eq('estado', 'pendiente');
+  for (const of of (ofs ?? []) as { id: string; items: ItemOrden[]; iva: number | null; igtf: number | null; descuento: number | null }[]) {
+    const itemsPrev = of.items ?? [];
+    const items = aplicar(itemsPrev);
+    const gross = (xs: ItemOrden[]) => xs.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
+    const brutoPrev = gross(itemsPrev);
+    const precio_total = Math.round(gross(items) * 100) / 100;
+    const ratio = brutoPrev > 0 ? Math.min(1, precio_total / brutoPrev) : 1;
+    const escalar = (v: number | null) => {
+      const n = Number(v) || 0;
+      if (n <= 0) return null;
+      const r = Math.round(n * ratio * 100) / 100;
+      return r > 0 ? r : null;
+    };
     const usdTotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_usd) || 0), 0);
     const precio_efectivo = usdTotal > 0 ? Math.round(usdTotal * 100) / 100 : null;
-    await supabase.from('ofertas_proveedor').update({ items, precio_total, precio_efectivo }).eq('id', of.id);
+    await supabase.from('ofertas_proveedor').update({
+      items, precio_total, precio_efectivo,
+      ...(fuera.size ? { iva: escalar(of.iva), igtf: escalar(of.igtf), descuento: escalar(of.descuento) } : {}),
+    }).eq('id', of.id);
   }
   return data as Orden;
 }

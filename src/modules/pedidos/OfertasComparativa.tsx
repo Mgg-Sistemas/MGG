@@ -28,6 +28,8 @@ interface Props {
   reloadKey?: number;
   onAccepted: () => void;
   onAddOferta: () => void;
+  /** Abre el detalle de otra orden (se usa para saltar a la OP madre desde una sub-OC). */
+  onAbrirOrden?: (ordenId: string) => void;
 }
 
 export function OfertasComparativa({
@@ -39,6 +41,7 @@ export function OfertasComparativa({
   reloadKey,
   onAccepted,
   onAddOferta,
+  onAbrirOrden,
 }: Props) {
   const [ofertas, setOfertas] = useState<OfertaProveedor[]>([]);
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
@@ -58,6 +61,9 @@ export function OfertasComparativa({
   const [subOcPorProv, setSubOcPorProv] = useState<Map<string, { items: number; codigo: string }>>(new Map());
   // Proveedores con otra sub-OC VIVA (para no dejar que una hija re-elija la oferta de un hermano).
   const [provOcupados, setProvOcupados] = useState<Set<string>>(new Set());
+  // SKUs que ya compra OTRA sub-OC viva (no esta): al elegir una oferta salen en gris y no se
+  // pueden marcar, para no pagar dos veces el mismo producto.
+  const [skusAjenos, setSkusAjenos] = useState<Set<string>>(new Set());
 
   const toggleExpand = (id: string) => setExpandido((prev) => {
     const next = new Set(prev);
@@ -98,6 +104,15 @@ export function OfertasComparativa({
         const locked = new Set<string>();
         for (const h of hijas) for (const it of (h.items ?? [])) if (it.sku) locked.add(it.sku);
         setLockedSkus(esHija ? new Set() : locked);
+        // Lo que ya compran las OTRAS sub-OC vivas (excluye la propia): en el modal de elección
+        // sale en gris. Las muertas no cuentan: sus ítems volvieron a quedar libres.
+        const ajenos = new Set<string>();
+        for (const h of hijas) {
+          if (h.id === orden.id) continue;
+          if (['cancelada', 'anulada', 'rechazada', 'desistida_proveedor', 'reasignada'].includes(h.estado)) continue;
+          for (const it of (h.items ?? [])) if (it.sku) ajenos.add(it.sku);
+        }
+        setSkusAjenos(ajenos);
         // Sub-OC por proveedor: cuántos ítems tomó cada uno (suma si tiene varias) + su código.
         const subMap = new Map<string, { items: number; codigo: string }>();
         for (const h of hijas) {
@@ -179,20 +194,47 @@ export function OfertasComparativa({
       // es el monto final. El efectivo solo es descuento cuando además hay BCV.
       const montoFinal = bcvTotal > 0 ? bcvTotal : usdTotal;
       const efectivo = bcvTotal > 0 && usdTotal > 0 ? usdTotal : null;
-      // Si el usuario descartó marcas (había variantes), la oferta ahora refleja solo lo elegido.
-      const huboSeleccion = itemsElegidos.length !== s.oferta.items.length;
-      if (huboSeleccion) {
+      // Colapso de MARCAS: si un producto venía cotizado en varias marcas, la oferta se
+      // queda con la elegida. OJO: solo se colapsan las marcas de los productos que se
+      // COMPRAN; los demás renglones de la oferta se conservan intactos. Antes se
+      // guardaba `itemsElegidos` tal cual, así que los productos que no se compraban
+      // (ya tomados por otra sub-OC, o destildados) se BORRABAN de la oferta y se perdía
+      // esa cotización para siempre (SP-2026-0123: FILTROS JK quedó con 2 de 4 ítems).
+      const elegidoPorSku = new Map(itemsElegidos.map((it) => [it.sku, it]));
+      const skusResueltos = new Set<string>();
+      const itemsOferta: ItemOrden[] = [];
+      for (const it of s.oferta.items ?? []) {
+        const elegido = elegidoPorSku.get(it.sku);
+        if (!elegido) { itemsOferta.push(it); continue; }   // no se compra: se conserva igual
+        if (skusResueltos.has(it.sku)) continue;            // variante descartada del producto comprado
+        skusResueltos.add(it.sku);
+        itemsOferta.push(elegido);
+      }
+      // Solo se reescribe si de verdad se colapsó alguna marca (cambió la cantidad de renglones).
+      if (itemsOferta.length !== (s.oferta.items ?? []).length) {
+        const totalOferta = itemsOferta.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0);
         await actualizarOferta(s.oferta.id, {
-          items: itemsElegidos,
-          precio_total: montoFinal,
+          items: itemsOferta,
+          precio_total: Math.round(totalOferta * 100) / 100,
           precio_efectivo: efectivo,
         });
       }
-      // Sub-OC (hija): la oferta tiene que cotizar TODOS sus productos propios. Se valida
-      // ANTES de aceptarla, porque aceptar ya descarta las demás ofertas de la madre y no
-      // habría forma de volver atrás si el repositorio rechazara la orden después.
-      if (orden.parent_orden_id) {
-        const faltan = skusSinCotizar(orden.items, itemsElegidos);
+      // Sub-OC (hija): los productos que el analista DESTILDÓ no se le compran a este
+      // proveedor, así que salen de la sub-OC y vuelven a quedar pendientes en la madre
+      // (desde ahí se le asignan a otro). La sub-OC queda solo con lo tildado.
+      const skusElegidos = new Set(itemsElegidos.map((it) => it.sku));
+      const ordenParaOc = orden.parent_orden_id
+        ? { ...orden, items: orden.items.filter((it) => skusElegidos.has(it.sku)) }
+        : orden;
+      // La oferta tiene que cotizar todo lo que SÍ se le compra. Se valida ANTES de
+      // aceptarla: si el repositorio rechazara después, la oferta ya habría cambiado de
+      // estado y no habría forma de volver atrás.
+      if (ordenParaOc.parent_orden_id) {
+        if (!ordenParaOc.items.length) {
+          toast('Tildá al menos un producto de esta sub-OC para comprarle a este proveedor.', 'error');
+          return;
+        }
+        const faltan = skusSinCotizar(ordenParaOc.items, itemsElegidos);
         if (faltan.length) {
           const nombres = faltan.map((sku) => orden.items.find((it) => it.sku === sku)?.nombre ?? sku);
           toast(`Esta oferta no cotiza ${nombres.join(', ')}. Elegí otra oferta o cargá esos precios primero.`, 'error');
@@ -201,7 +243,7 @@ export function OfertasComparativa({
       }
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
       await aprobarOrdenConOferta(
-        orden,
+        ordenParaOc,
         s.oferta.proveedor_id,
         itemsElegidos,
         montoFinal,
@@ -271,6 +313,16 @@ export function OfertasComparativa({
                   <li key={it.sku}>{it.nombre}{it.cantidad ? <span className="muted"> · {it.cantidad} {it.unidad ?? ''}</span> : null}</li>
                 ))}
               </ul>
+              {/* Los pendientes se asignan DESDE LA MADRE (el asignador vive ahí). Sin este
+                  salto había que buscar la OP a mano y parecía que no se podían comprar. */}
+              {onAbrirOrden && orden.parent_orden_id && (
+                <button
+                  className="btn btn-sm btn-primary"
+                  style={{ marginTop: '.5rem' }}
+                  onClick={() => onAbrirOrden(orden.parent_orden_id as string)}
+                  title="Abre la OP madre, donde se reparten los productos que faltan entre los demás proveedores"
+                >🧩 Ir a {codigoMadre} y asignar lo que falta</button>
+              )}
             </>
           ) : (
             <div className="hint muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>Todos los artículos de la OP quedaron asignados a algún proveedor.</div>
@@ -304,10 +356,14 @@ export function OfertasComparativa({
               const prov = proveedorMap.get(s.oferta.proveedor_id);
               const recomendada = s.recomendada && s.oferta.estado === 'pendiente';
               const aceptada = s.oferta.estado === 'aceptada';
-              // Una hija SIN proveedor (reabierta) puede volver a elegir una oferta de la madre
-              // aunque ya figure 'aceptada', siempre que ningún hermana viva tenga ese proveedor.
-              // Sin esto, al reabrir una hija su propia oferta quedaba fuera de alcance.
-              const reelegible = esHija && !orden.proveedor_id && aceptada && !provOcupados.has(s.oferta.proveedor_id);
+              // Una hija SIN proveedor (reabierta, o creada por el reparto sin adjudicar) puede
+              // volver a elegir CUALQUIER oferta ya decidida de la madre —'aceptada' o
+              // 'descartada'— mientras ninguna hermana viva tenga ese proveedor.
+              // La 'descartada' es clave: al aceptar una oferta se cerraban todas las demás, así
+              // que los ítems que quedaban sin proveedor se topaban con puras ofertas en rojo y
+              // no había con qué comprarlos (caso SP-2026-0123).
+              const decidida = aceptada || s.oferta.estado === 'descartada';
+              const reelegible = esHija && !orden.proveedor_id && decidida && !provOcupados.has(s.oferta.proveedor_id);
               const seleccionable = (s.oferta.estado === 'pendiente' || reelegible) && puedeDecidir;
               const rowBg = recomendada
                 ? 'var(--grad-primary-soft)'
@@ -584,6 +640,7 @@ export function OfertasComparativa({
         <AceptarOfertaModal
           oferta={confirmando.oferta}
           proveedorNombre={proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}
+          skusBloqueados={skusAjenos}
           onConfirm={(items, bcv, usd, motivo, files) => confirmarAceptacion(confirmando, items, bcv, usd, motivo, files)}
           onCancel={() => setConfirmando(null)}
         />

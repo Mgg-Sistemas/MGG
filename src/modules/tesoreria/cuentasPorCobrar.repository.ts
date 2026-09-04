@@ -173,34 +173,39 @@ export async function registrarAbonoCobrar(input: {
   const c = input.cuenta;
   const monto = round2(input.monto);
   if (monto <= 0) throw new Error('El abono debe ser mayor que 0.');
-  const saldoPrev = round2(c.monto - (Number(c.abonado) || 0));
-  if (monto > saldoPrev + 0.01) throw new Error(`El abono (${monto}) supera el saldo por cobrar (${saldoPrev} ${c.moneda}).`);
 
-  // 1) Entra a la caja (ingreso real, misma moneda de la cuenta por cobrar).
-  const mov = await registrarIngresoCaja({
-    cajaId: input.cajaId, monto, moneda: c.moneda, cuenta: input.cuentaCaja,
-    concepto: `Cobro cuenta por cobrar · ${labelTipoCxC(c.tipo)}: ${c.contraparte}`,
-    categoria: 'cobro_cxc', actor: input.actor, actorName: input.actorName,
+  // 1) Reserva ATÓMICA del abono: bloquea la cuenta (FOR UPDATE) y revalida el saldo
+  //    contra el valor real en la base, no el que traía el front. Dos abonos a la vez
+  //    ya no se pisan (doble-abono). Cobrar no admite sobrepago → rechaza si excede.
+  const { data: res, error: apErr } = await supabase.rpc('cuenta_aplicar_abono', {
+    p_tabla: 'cuentas_por_cobrar', p_cuenta_id: c.id, p_monto: monto, p_cap: false,
   });
+  if (apErr) throw apErr;
+  const aplic = res as { abonado: number; estado: EstadoCxC; saldo_restante: number };
 
-  // 2) Registro del abono + saldo restante.
-  const saldoRestante = round2(saldoPrev - monto);
+  // 2) Entra a la caja (ingreso real, atómico). Si falla, se revierte la reserva.
+  let mov;
+  try {
+    mov = await registrarIngresoCaja({
+      cajaId: input.cajaId, monto, moneda: c.moneda, cuenta: input.cuentaCaja,
+      concepto: `Cobro cuenta por cobrar · ${labelTipoCxC(c.tipo)}: ${c.contraparte}`,
+      categoria: 'cobro_cxc', actor: input.actor, actorName: input.actorName,
+    });
+  } catch (e) {
+    await supabase.rpc('cuenta_aplicar_abono', { p_tabla: 'cuentas_por_cobrar', p_cuenta_id: c.id, p_monto: -monto, p_cap: false });
+    throw e;
+  }
+
+  // 3) Registro del abono + saldo restante (que devolvió la reserva).
   const { data: ab, error: abErr } = await supabase.from(CXC_ABONOS).insert({
     cuenta_id: c.id, monto, moneda: c.moneda, caja_id: input.cajaId, cuenta: input.cuentaCaja,
-    caja_mov_id: mov.id, saldo_restante: saldoRestante, nota: input.nota?.trim() || null,
+    caja_mov_id: mov.id, saldo_restante: aplic.saldo_restante, nota: input.nota?.trim() || null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (abErr) throw abErr;
 
-  // 3) Actualiza la cuenta (abonado + estado).
-  const nuevoAbonado = round2((Number(c.abonado) || 0) + monto);
-  const estado: EstadoCxC = nuevoAbonado >= c.monto - 0.01 ? 'saldada' : 'abierta';
-  const { data: cu, error: cuErr } = await supabase.from(CXC)
-    .update({ abonado: nuevoAbonado, estado, updated_at: new Date().toISOString() })
-    .eq('id', c.id).select('*').single();
-  if (cuErr) throw cuErr;
-
-  return { cuenta: cu as CuentaPorCobrar, abono: ab as AbonoCxC };
+  const cuenta: CuentaPorCobrar = { ...c, abonado: aplic.abonado, estado: aplic.estado, updated_at: new Date().toISOString() };
+  return { cuenta, abono: ab as AbonoCxC };
 }
 
 /** SKU autogenerado para un producto recibido como abono (intercambio). */
@@ -234,57 +239,62 @@ export async function registrarAbonoCobrarProducto(input: {
   const valor = round2(input.valor);
   if (cantidad <= 0) throw new Error('La cantidad de producto debe ser mayor que 0.');
   if (valor <= 0) throw new Error('El valor del producto (al cambio) debe ser mayor que 0.');
-  const saldoPrev = round2(c.monto - (Number(c.abonado) || 0));
-  if (valor > saldoPrev + 0.01) throw new Error(`El valor del producto (${valor}) supera el saldo por cobrar (${saldoPrev} ${c.moneda}).`);
   const costoUnit = round2(valor / cantidad);
 
-  // 1) Resolver el producto (existente o nuevo).
+  // 0) Reserva ATÓMICA del abono: bloquea la cuenta (FOR UPDATE) y revalida el saldo real
+  //    en la base. Producto cobrar no admite sobrepago. Si el inventario falla después, se
+  //    revierte con monto negativo (compensación).
+  const { data: res, error: apErr } = await supabase.rpc('cuenta_aplicar_abono', {
+    p_tabla: 'cuentas_por_cobrar', p_cuenta_id: c.id, p_monto: valor, p_cap: false,
+  });
+  if (apErr) throw apErr;
+  const aplic = res as { abonado: number; estado: EstadoCxC; saldo_restante: number };
+
+  let mov;
   let productoId = input.productoId;
   let productoNombre = '';
   let unidad = input.productoNuevo?.unidad ?? null;
-  if (!productoId) {
-    if (!input.productoNuevo?.nombre.trim()) throw new Error('Indicá el producto recibido.');
-    const nombre = input.productoNuevo.nombre.trim().toUpperCase();
-    const sku = nuevoSkuAbono(nombre);
-    if (await findBySku(sku)) throw new Error(`Ya existe un producto con el SKU ${sku}.`);
-    const prod = await createProducto({
-      sku, nombre, categoria: 'MINERALES', unidad: (input.productoNuevo.unidad || 'KG'),
-      stock: 0, stock_min: 0, precio: costoUnit, almacen: input.almacen, estado: 'activo',
+  try {
+    // 1) Resolver el producto (existente o nuevo).
+    if (!productoId) {
+      if (!input.productoNuevo?.nombre.trim()) throw new Error('Indicá el producto recibido.');
+      const nombre = input.productoNuevo.nombre.trim().toUpperCase();
+      const sku = nuevoSkuAbono(nombre);
+      if (await findBySku(sku)) throw new Error(`Ya existe un producto con el SKU ${sku}.`);
+      const prod = await createProducto({
+        sku, nombre, categoria: 'MINERALES', unidad: (input.productoNuevo.unidad || 'KG'),
+        stock: 0, stock_min: 0, precio: costoUnit, almacen: input.almacen, estado: 'activo',
+      });
+      productoId = prod.id; productoNombre = prod.nombre; unidad = prod.unidad ?? unidad;
+    } else {
+      const { data } = await supabase.from('productos').select('nombre, unidad').eq('id', productoId).maybeSingle();
+      productoNombre = (data?.nombre as string) ?? '';
+      unidad = (data?.unidad as string) ?? unidad;
+    }
+
+    // 2) Entrada al inventario (suma stock + recalcula PMP del almacén).
+    mov = await registrarMovimiento({
+      producto_id: productoId, tipo: 'entrada', delta: cantidad, almacen: input.almacen,
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'abono_cxc_producto', ref_id: c.id,
+      detalle: `Abono en producto (cuenta por cobrar) · ${labelTipoCxC(c.tipo)}: ${c.contraparte}`,
+      precio_unitario: costoUnit,
     });
-    productoId = prod.id; productoNombre = prod.nombre; unidad = prod.unidad ?? unidad;
-  } else {
-    const { data } = await supabase.from('productos').select('nombre, unidad').eq('id', productoId).maybeSingle();
-    productoNombre = (data?.nombre as string) ?? '';
-    unidad = (data?.unidad as string) ?? unidad;
+  } catch (e) {
+    await supabase.rpc('cuenta_aplicar_abono', { p_tabla: 'cuentas_por_cobrar', p_cuenta_id: c.id, p_monto: -valor, p_cap: false });
+    throw e;
   }
 
-  // 2) Entrada al inventario (suma stock + recalcula PMP del almacén).
-  const mov = await registrarMovimiento({
-    producto_id: productoId, tipo: 'entrada', delta: cantidad, almacen: input.almacen,
-    actor: input.actor, actor_name: input.actorName ?? null,
-    ref_tipo: 'abono_cxc_producto', ref_id: c.id,
-    detalle: `Abono en producto (cuenta por cobrar) · ${labelTipoCxC(c.tipo)}: ${c.contraparte}`,
-    precio_unitario: costoUnit,
-  });
-
-  // 3) Registro del abono (producto) + saldo restante.
-  const saldoRestante = round2(saldoPrev - valor);
+  // 3) Registro del abono (producto) + saldo restante (que devolvió la reserva).
   const { data: ab, error: abErr } = await supabase.from(CXC_ABONOS).insert({
     cuenta_id: c.id, monto: valor, moneda: c.moneda, tipo_abono: 'producto',
     producto_id: productoId, producto_nombre: productoNombre || null, cantidad, unidad,
     costo_unit: costoUnit, almacen: input.almacen, inv_mov_id: mov.id,
-    saldo_restante: saldoRestante, nota: input.nota?.trim() || null,
+    saldo_restante: aplic.saldo_restante, nota: input.nota?.trim() || null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (abErr) throw abErr;
 
-  // 4) Actualiza la cuenta (abonado + estado).
-  const nuevoAbonado = round2((Number(c.abonado) || 0) + valor);
-  const estado: EstadoCxC = nuevoAbonado >= c.monto - 0.01 ? 'saldada' : 'abierta';
-  const { data: cu, error: cuErr } = await supabase.from(CXC)
-    .update({ abonado: nuevoAbonado, estado, updated_at: new Date().toISOString() })
-    .eq('id', c.id).select('*').single();
-  if (cuErr) throw cuErr;
-
-  return { cuenta: cu as CuentaPorCobrar, abono: ab as AbonoCxC };
+  const cuenta: CuentaPorCobrar = { ...c, abonado: aplic.abonado, estado: aplic.estado, updated_at: new Date().toISOString() };
+  return { cuenta, abono: ab as AbonoCxC };
 }

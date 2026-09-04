@@ -24,7 +24,7 @@ import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacene
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
-import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, ajustarSaldoDivisa } from './cajaSaldos.repository';
+import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, crearBilleteraEnCero } from './cajaSaldos.repository';
 // Vínculo Tesorería → Centro de Acopio interno: el traspaso se refleja como entrada (USD ENTREGADOS) en el acopio.
 import { entradaTesoreriaACentroAcopio, centroAcopioShort } from '@/modules/acopio/caja.repository';
 import {
@@ -1116,7 +1116,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
     if (ya) { toast(`La ${moneda === 'Bs' ? 'cuenta' : 'billetera'} "${labelCuentaCaja(c)}" en ${moneda} ya existe.`, 'warning'); return; }
     setSaving(true); setError(null);
     try {
-      await ajustarSaldoDivisa({ cajaId: caja.id, cuenta: c, moneda, saldo: 0, tasaProm: null });
+      await crearBilleteraEnCero({ cajaId: caja.id, cuenta: c, moneda });
       notify(`${moneda === 'Bs' ? 'Cuenta' : 'Billetera'} ${moneda} · ${labelCuentaCaja(c)} creada en 0`, 'success', { link: '#/app/tesoreria' });
       await reload(); await onChanged();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear la billetera.'); }

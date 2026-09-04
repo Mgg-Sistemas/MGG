@@ -35,10 +35,179 @@ export function sedeDeAlmacen(nombre: string | null | undefined, almacenes: Pick
   return s || SIN_SEDE;
 }
 
+/**
+ * Agrega las existencias de un conjunto de almacenes por producto: stock sumado
+ * y costo unitario del conjunto.
+ *
+ * El costo NO se apaga cuando no hay stock. Un producto agotado sigue valiendo
+ * lo que costó la última vez, y ponerlo en 0 hacía parecer que nunca se le cargó
+ * precio: PEPINO tenía 1,27 guardado en La Esperanza y la tabla mostraba $0,00,
+ * mezclándolo visualmente con los productos que de verdad no tienen costo.
+ *
+ * El VALOR sí queda en cero, porque se calcula como stock × costo: un producto
+ * en cero muestra su precio pero no suma nada al inventario.
+ */
+export function agregarExistencias(
+  // `stock` y `costo_promedio` se aceptan nulos a propósito: el tipo `Existencia`
+  // los declara `number`, pero la tabla sí devuelve NULL (hay filas con costo en
+  // null, son parte de la cola «Sin costo»). Mejor admitirlo en la firma que
+  // confiar en un tipo que la base no respeta.
+  filas: Array<{ producto_id: string; almacen: string; stock: number | null; costo_promedio: number | null }>,
+  incluye: (almacen: string) => boolean,
+): Map<string, { stock: number; costo: number }> {
+  const agg = new Map<string, { stock: number; valor: number; ultimoCosto: number }>();
+  for (const e of filas ?? []) {
+    if (!incluye(e.almacen)) continue;
+    const cur = agg.get(e.producto_id) ?? { stock: 0, valor: 0, ultimoCosto: 0 };
+    const st = Number(e.stock) || 0;
+    const c = Number(e.costo_promedio) || 0;
+    cur.stock += st;
+    cur.valor += st * c;
+    // Sin stock en ninguno de los almacenes se muestra el costo MÁS ALTO de los
+    // conocidos: subvalorar el inventario es el error que se está corrigiendo.
+    if (c > cur.ultimoCosto) cur.ultimoCosto = c;
+    agg.set(e.producto_id, cur);
+  }
+  const out = new Map<string, { stock: number; costo: number }>();
+  for (const [id, v] of agg) {
+    out.set(id, { stock: v.stock, costo: v.stock > 0 ? v.valor / v.stock : v.ultimoCosto });
+  }
+  return out;
+}
+
+/**
+ * Cómo se rotula la columna «Almacén» de un export.
+ *
+ * NO se usa `producto.almacen`: ese es el almacén «hogar» de la ficha, que puede
+ * apuntar a un subalmacén de OTRA sede que la exportada. Por eso un reporte de
+ * Matanza salía con filas que decían «Viveres y Art. Limpieza» (Los Pinos)
+ * mezcladas con «DEPOSITO» (Matanza).
+ *
+ * Un export sale siempre de una sede y se rotula con ELLA —Matanza, Los Pinos,
+ * Acopio La Esperanza—, no con el subalmacén, que es detalle interno.
+ */
+export interface ExportRotulo {
+  /** Sede desde la que se exporta: rotula TODAS las filas. */
+  sede?: string | null;
+  /** Resuelve la sede por producto cuando no hay una sede fija (Depósito). */
+  almacenes?: Pick<Almacen, 'nombre' | 'sede'>[];
+}
+
+export function rotuloAlmacen(
+  // `almacen` se acepta nulo aunque `Producto` lo declare `string`: hay fichas
+  // viejas sin almacén hogar y no deben romper un export.
+  producto: { almacen: string | null | undefined },
+  rot?: ExportRotulo,
+): string {
+  const fija = (rot?.sede ?? '').trim();
+  if (fija) return fija;
+  const alms = rot?.almacenes ?? [];
+  const propio = producto.almacen ?? '';
+  if (!alms.length) return propio;
+  const sede = sedeDeAlmacen(propio, alms);
+  // Un almacén que ya no está en la tabla conserva su nombre crudo: mejor un
+  // dato viejo visible que una celda en blanco.
+  return sede === SIN_SEDE ? propio : nombreSedeCorto(sede);
+}
+
 /** «Matanzas › General»: el almacén con su sede, para que dos nombres parecidos no se confundan. */
 export function etiquetaAlmacen(nombre: string, almacenes: Pick<Almacen, 'nombre' | 'sede'>[]): string {
   const sede = sedeDeAlmacen(nombre, almacenes);
   return sede === SIN_SEDE ? nombre : `${nombreSedeCorto(sede)} › ${nombre}`;
+}
+
+/**
+ * Almacén PRINCIPAL de una sede: dónde cae el material que no va a un
+ * subalmacén específico. Es el destino por defecto al crear un producto
+ * estando parado en esa sede.
+ *
+ * No sirve tomar el primero de la lista: viene ordenada por nombre, así que
+ * Matanza arrancaría en «COMBUSTIBLE» y Los Pinos en «INSUMOS Y CONSUMIBLES».
+ * El orden de preferencia es:
+ *   1. el almacén que se llama como la sede  (Los Pinos, La Esperanza)
+ *   2. el «General» / «Principal» de esa sede (Matanza, Parguaza, El Burro)
+ *   3. cualquier otro que no sea subalmacén
+ * Devuelve null si la sede no tiene ningún almacén propio.
+ */
+export function almacenPrincipalDeSede(
+  sede: string | null | undefined,
+  almacenes: Pick<Almacen, 'nombre' | 'sede' | 'parent_id'>[],
+): string | null {
+  const s = String(sede ?? '').trim().toUpperCase();
+  if (!s) return null;
+  const propios = (almacenes ?? []).filter((a) => (a.sede ?? '').trim().toUpperCase() === s);
+  if (!propios.length) return null;
+  // Los subalmacenes (casiterita, víveres…) nunca son el destino por defecto;
+  // si la sede SOLO tiene subalmacenes, se usan igual antes que devolver null.
+  const base = propios.filter((a) => !a.parent_id);
+  const candidatos = base.length ? base : propios;
+
+  const corto = nombreSedeCorto(sede).replace(/^Acopio\s+/i, '').trim().toUpperCase();
+  const norm = (n: string) => n.trim().toUpperCase();
+
+  const porNombreDeSede = candidatos.find((a) => norm(a.nombre) === corto);
+  if (porNombreDeSede) return porNombreDeSede.nombre;
+
+  const general = candidatos.find((a) => /^(GENERAL|PRINCIPAL)\b/.test(norm(a.nombre)));
+  if (general) return general.nombre;
+
+  return candidatos[0].nombre;
+}
+
+/**
+ * ¿Es un almacén de MINERAL? (casiterita / estaño en bruto / estaño refinado)
+ *
+ * Son los únicos subalmacenes vigentes del sistema: el resto —víveres, papelería,
+ * combustible, embalaje— dejó de usarse y el material va al principal de la sede.
+ * Por eso son los únicos que siguen siendo un destino elegible además del padre.
+ */
+export function esAlmacenMineral(nombre: string | null | undefined): boolean {
+  const n = String(nombre ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // ESTAÑO → ESTANO
+    .toUpperCase();
+  return /CASITERITA|SNO\s*[2₂]|ESTANO/.test(n);
+}
+
+export interface DestinoAlmacen { nombre: string; label: string }
+
+/**
+ * Destinos elegibles de un traslado, agrupados por sede: el almacén PADRE de cada
+ * una y sus almacenes de mineral.
+ *
+ * No alcanza con filtrar `!parent_id`: la jerarquía casi no existe en los datos.
+ * Matanza tiene DOCE almacenes raíz (COMBUSTIBLE, DEPOSITO, Papelería, Resguardo…)
+ * y ninguno marcado como padre, así que el desplegable listaba los doce. El padre
+ * se resuelve por nombre —`almacenPrincipalDeSede`—, que da «General» en Matanza y
+ * «GENERAL - EL BURRO» en El Burro.
+ */
+export function destinosDeTraslado(
+  almacenes: Pick<Almacen, 'nombre' | 'sede' | 'parent_id' | 'estado'>[],
+): Array<[string, DestinoAlmacen[]]> {
+  const activos = (almacenes ?? []).filter((a) => a.estado === 'activo');
+  const sedes = Array.from(new Set(activos.map((a) => (a.sede ?? '').trim() || SIN_SEDE)));
+
+  const grupos: Array<[string, DestinoAlmacen[]]> = [];
+  for (const sede of sedes.sort((a, b) => a.localeCompare(b, 'es'))) {
+    const propios = activos.filter((a) => ((a.sede ?? '').trim() || SIN_SEDE) === sede);
+    const principal = sede === SIN_SEDE ? null : almacenPrincipalDeSede(sede, propios);
+
+    const minerales = propios
+      .filter((a) => a.nombre !== principal && esAlmacenMineral(a.nombre))
+      .map((a) => ({ nombre: a.nombre, label: a.nombre }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+
+    // «Sin sede» no tiene principal que valga: se listan todos sus almacenes.
+    const cabeza: DestinoAlmacen[] = principal
+      ? [{ nombre: principal, label: principal }]
+      : sede === SIN_SEDE
+        ? propios.map((a) => ({ nombre: a.nombre, label: a.nombre })).sort((a, b) => a.label.localeCompare(b.label, 'es'))
+        : [];
+
+    const lista = [...cabeza, ...minerales.filter((m) => !cabeza.some((c) => c.nombre === m.nombre))];
+    if (lista.length) grupos.push([sede, lista]);
+  }
+  return grupos;
 }
 
 const mismaSede = (a: string | null | undefined, b: string | null | undefined): boolean =>
@@ -125,20 +294,41 @@ export function contarSinAlmacen(movs: Pick<Movimiento, 'almacen'>[]): number {
  * algún almacén, solo que el dato no lo dice: esconderla haría creer que el stock apareció
  * de la nada). El ámbito de cada línea se rotula aparte (`sinAlmacen`).
  */
-export function filtrarKardex<M extends Pick<Movimiento, 'almacen'>>(movs: M[], filtro: string | null): M[] {
-  if (!filtro) return movs;
-  if (filtro === FILTRO_SIN_ALMACEN) return movs.filter(sinAlmacen);
-  return movs.filter((m) => sinAlmacen(m) || (m.almacen ?? '').trim() === filtro);
+/**
+ * La SALIDA de una consolidación de almacenes no se muestra en el kardex.
+ *
+ * Consolidar Matanza generó un par de líneas por producto: la salida del almacén
+ * que se vació y la entrada a «General». La salida aparecía en rojo, con signo
+ * negativo y saldo 0 —«-443,6 KILOGRAMO · Materias Primas»— como si se hubiera
+ * despachado material, cuando en la práctica no se movió nada de lugar: fue una
+ * fusión administrativa de dos almacenes de la MISMA sede.
+ *
+ * Se conserva la ENTRADA, que es la que explica de dónde salió el saldo que hoy
+ * está en «General», y se conservan las dos filas en la base: esto es lo que se
+ * muestra, no lo que se guarda.
+ */
+export function esSalidaDeConsolidacion(m: Pick<Movimiento, 'ref_tipo' | 'delta'>): boolean {
+  return m.ref_tipo === 'consolidacion' && (Number(m.delta) || 0) < 0;
+}
+
+export function filtrarKardex<M extends Pick<Movimiento, 'almacen' | 'ref_tipo' | 'delta'>>(movs: M[], filtro: string | null): M[] {
+  const base = movs.filter((m) => !esSalidaDeConsolidacion(m));
+  if (!filtro) return base;
+  if (filtro === FILTRO_SIN_ALMACEN) return base.filter(sinAlmacen);
+  return base.filter((m) => sinAlmacen(m) || (m.almacen ?? '').trim() === filtro);
 }
 
 /**
  * Entradas y salidas del ámbito elegido. Con un almacén, SOLO cuentan las líneas de ese
  * almacén (las sin almacén no se le pueden atribuir); sin filtro cuentan todas.
  */
-export function entradasSalidas(movs: Pick<Movimiento, 'almacen' | 'delta'>[], filtro: string | null): { entradas: number; salidas: number } {
-  const base = !filtro ? movs
-    : filtro === FILTRO_SIN_ALMACEN ? movs.filter(sinAlmacen)
-    : movs.filter((m) => (m.almacen ?? '').trim() === filtro);
+export function entradasSalidas(movs: Pick<Movimiento, 'almacen' | 'delta' | 'ref_tipo'>[], filtro: string | null): { entradas: number; salidas: number } {
+  // Se descarta lo mismo que el listado: si la salida de consolidación no se ve,
+  // tampoco puede estar sumando en el total de «salidas» del período.
+  const visibles = movs.filter((m) => !esSalidaDeConsolidacion(m));
+  const base = !filtro ? visibles
+    : filtro === FILTRO_SIN_ALMACEN ? visibles.filter(sinAlmacen)
+    : visibles.filter((m) => (m.almacen ?? '').trim() === filtro);
   const entradas = base.filter((m) => m.delta > 0).reduce((a, m) => a + m.delta, 0);
   const salidas = base.filter((m) => m.delta < 0).reduce((a, m) => a + Math.abs(m.delta), 0);
   return { entradas: Math.round(entradas * 1e6) / 1e6, salidas: Math.round(salidas * 1e6) / 1e6 };

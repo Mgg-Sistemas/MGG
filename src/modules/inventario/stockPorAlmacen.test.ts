@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sedeDeAlmacen, stockEn,
-  trasladoDeMovimiento,
+  trasladoDeMovimiento, almacenPrincipalDeSede, agregarExistencias, rotuloAlmacen,
+  esAlmacenMineral, destinosDeTraslado, esSalidaDeConsolidacion,
 } from './stockPorAlmacen';
 
 const almacenes = [
@@ -202,5 +203,305 @@ describe('trasladoDeMovimiento', () => {
     // Es transferencia pero el detalle no trae prefijo conocido.
     expect(trasladoDeMovimiento(mov('General', 'Consolidacion por cambio de almacen'), ALMACENES_REALES)).toBeNull();
     expect(trasladoDeMovimiento(mov('General', ''), ALMACENES_REALES)).toBeNull();
+  });
+});
+
+/* ── Almacén principal de cada sede ────────────────────────────────────────
+   Los nombres son los REALES de la base: si mañana se renombra un almacén y
+   una sede queda apuntando al lugar equivocado, estos tests lo cantan. */
+describe('almacenPrincipalDeSede', () => {
+  const REALES = [
+    { nombre: 'COMBUSTIBLE', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'DEPOSITO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'ESTAÑO EN BRUTO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'Insumo y Consumibles', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'Resguardo', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'INSUMOS Y CONSUMIBLES', sede: 'LOS PINOS', parent_id: 'x' },
+    { nombre: 'Los Pinos', sede: 'LOS PINOS', parent_id: null },
+    { nombre: 'SNO₂ CASITERITA ALMACEN', sede: 'LOS PINOS', parent_id: null },
+    { nombre: 'CASITERITA', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: 'y' },
+    { nombre: 'La Esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: null },
+    { nombre: 'SNO₂ CASITERITA', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: null },
+    { nombre: 'CASITERITA SNO₂', sede: 'CENTRO DE ACOPIO - EL BURRO', parent_id: null },
+    { nombre: 'GENERAL - EL BURRO', sede: 'CENTRO DE ACOPIO - EL BURRO', parent_id: null },
+    { nombre: 'CASITERITA ALMACEN', sede: 'CENTRO DE ACOPIO - PARGUAZA', parent_id: 'z' },
+    { nombre: 'GENERAL', sede: 'CENTRO DE ACOPIO - PARGUAZA', parent_id: null },
+    { nombre: 'ALMACEN CASITERITA', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS', parent_id: 'w' },
+    { nombre: 'Principal', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS', parent_id: null },
+  ];
+
+  it('Matanza cae en General y NO en COMBUSTIBLE (el primero alfabetico)', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE FUNDICION - MATANZAS', REALES)).toBe('General');
+  });
+
+  it('Los Pinos cae en Los Pinos y NO en INSUMOS Y CONSUMIBLES', () => {
+    expect(almacenPrincipalDeSede('LOS PINOS', REALES)).toBe('Los Pinos');
+  });
+
+  it('La Esperanza cae en La Esperanza y NO en CASITERITA', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - LA ESPERANZA', REALES)).toBe('La Esperanza');
+  });
+
+  it('El Burro cae en su GENERAL', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - EL BURRO', REALES)).toBe('GENERAL - EL BURRO');
+  });
+
+  it('Parguaza cae en GENERAL', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - PARGUAZA', REALES)).toBe('GENERAL');
+  });
+
+  it('Los Pijiguaos cae en Principal', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - LOS PIJIGUAOS', REALES)).toBe('Principal');
+  });
+
+  it('ignora mayusculas y espacios al comparar la sede', () => {
+    expect(almacenPrincipalDeSede('  los pinos  ', REALES)).toBe('Los Pinos');
+  });
+
+  it('una sede sin almacenes devuelve null', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - INEXISTENTE', REALES)).toBeNull();
+  });
+
+  it('sin sede devuelve null', () => {
+    expect(almacenPrincipalDeSede('', REALES)).toBeNull();
+    expect(almacenPrincipalDeSede(null, REALES)).toBeNull();
+  });
+
+  it('si la sede SOLO tiene subalmacenes, usa uno igual en vez de dejar sin destino', () => {
+    const soloSubs = [{ nombre: 'CASITERITA', sede: 'CENTRO DE ACOPIO - X', parent_id: 'p' }];
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - X', soloSubs)).toBe('CASITERITA');
+  });
+
+  it('tolera una lista vacia', () => {
+    expect(almacenPrincipalDeSede('LOS PINOS', [])).toBeNull();
+  });
+});
+
+/* ── Costo de un producto agotado ──────────────────────────────────────────
+   Un producto en 0 debe seguir MOSTRANDO su costo, pero NO sumar valor.
+   El caso real: PEPINO (HOR-022) tiene costo 1,27 guardado en La Esperanza
+   con stock 0, y la tabla mostraba «$ 0,00» como si nunca hubiera tenido
+   precio, mezclándolo con los productos que de verdad no tienen costo. */
+describe('agregarExistencias', () => {
+  const todo = () => true;
+  const ex = (almacen: string, stock: number, costo: number) => ({
+    producto_id: 'p1', almacen, stock, costo_promedio: costo,
+  });
+
+  it('promedia ponderado cuando hay stock', () => {
+    const r = agregarExistencias([ex('A', 10, 2), ex('B', 10, 4)], todo);
+    expect(r.get('p1')).toEqual({ stock: 20, costo: 3 });
+  });
+
+  it('PEPINO agotado conserva su costo de 1,27', () => {
+    const r = agregarExistencias([ex('La Esperanza', 0, 1.27)], todo);
+    expect(r.get('p1')!.costo).toBe(1.27);
+    expect(r.get('p1')!.stock).toBe(0);
+  });
+
+  it('el valor de un agotado es 0 aunque tenga costo', () => {
+    const r = agregarExistencias([ex('La Esperanza', 0, 1.27)], todo)!.get('p1')!;
+    expect(r.stock * r.costo).toBe(0);
+  });
+
+  it('sin stock en ningun almacen usa el costo mas alto conocido', () => {
+    const r = agregarExistencias([ex('A', 0, 1.1), ex('B', 0, 2.4), ex('C', 0, 0)], todo);
+    expect(r.get('p1')!.costo).toBe(2.4);
+  });
+
+  it('con stock en uno solo, el agotado no arrastra el promedio a 0', () => {
+    // Antes: (3*1.27 + 0*1.27) / 3 = 1.27 estaba bien; el problema era el 0 total.
+    const r = agregarExistencias([ex('Los Pinos', 3, 1.27), ex('La Esperanza', 0, 1.27)], todo);
+    expect(r.get('p1')).toEqual({ stock: 3, costo: 1.27 });
+  });
+
+  it('sin costo en ningun lado devuelve 0 (queda para «Sin costo»)', () => {
+    const r = agregarExistencias([ex('A', 5, 0)], todo);
+    expect(r.get('p1')!.costo).toBe(0);
+  });
+
+  it('respeta el filtro de almacenes', () => {
+    const r = agregarExistencias([ex('A', 5, 2), ex('B', 7, 3)], (a) => a === 'B');
+    expect(r.get('p1')).toEqual({ stock: 7, costo: 3 });
+  });
+
+  it('separa productos distintos', () => {
+    const r = agregarExistencias([
+      { producto_id: 'x', almacen: 'A', stock: 2, costo_promedio: 5 },
+      { producto_id: 'y', almacen: 'A', stock: 0, costo_promedio: 9 },
+    ], todo);
+    expect(r.get('x')).toEqual({ stock: 2, costo: 5 });
+    expect(r.get('y')).toEqual({ stock: 0, costo: 9 });
+  });
+
+  it('tolera stock y costo nulos', () => {
+    const r = agregarExistencias([{ producto_id: 'p1', almacen: 'A', stock: null, costo_promedio: null }], todo);
+    expect(r.get('p1')).toEqual({ stock: 0, costo: 0 });
+  });
+
+  it('tolera una lista vacia', () => {
+    expect(agregarExistencias([], todo).size).toBe(0);
+  });
+});
+
+/* ── Rótulo de la columna «Almacén» en los exports ─────────────────────────
+   El Excel salía mezclando sedes: un reporte de Matanza traía filas que
+   decían «Viveres y Art. Limpieza» (que es de Los Pinos) porque se imprimía
+   el almacén HOGAR de la ficha, no la sede exportada. */
+describe('rotuloAlmacen', () => {
+  const TABLA = [
+    { nombre: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+    { nombre: 'Insumo y Consumibles', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+    { nombre: 'DEPOSITO', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+    { nombre: 'Los Pinos', sede: 'LOS PINOS' },
+    { nombre: 'Viveres y Art. Limpieza', sede: 'LOS PINOS' },
+    { nombre: 'La Esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA' },
+  ];
+
+  it('con sede fija, TODAS las filas dicen esa sede', () => {
+    const rot = { sede: 'Matanza' };
+    expect(rotuloAlmacen({ almacen: 'Insumo y Consumibles' }, rot)).toBe('Matanza');
+    expect(rotuloAlmacen({ almacen: 'DEPOSITO' }, rot)).toBe('Matanza');
+    // El caso del bug: la ficha apunta a Los Pinos pero el export es de Matanza.
+    expect(rotuloAlmacen({ almacen: 'Viveres y Art. Limpieza' }, rot)).toBe('Matanza');
+  });
+
+  it('sin sede fija resuelve la sede de cada producto', () => {
+    const rot = { almacenes: TABLA };
+    expect(rotuloAlmacen({ almacen: 'Insumo y Consumibles' }, rot)).toBe('Matanzas');
+    expect(rotuloAlmacen({ almacen: 'Viveres y Art. Limpieza' }, rot)).toBe('Los Pinos');
+    expect(rotuloAlmacen({ almacen: 'La Esperanza' }, rot)).toBe('Acopio La Esperanza');
+  });
+
+  it('nunca devuelve el subalmacen cuando puede dar la sede', () => {
+    expect(rotuloAlmacen({ almacen: 'DEPOSITO' }, { almacenes: TABLA })).not.toBe('DEPOSITO');
+  });
+
+  it('un almacen que ya no esta en la tabla conserva su nombre crudo', () => {
+    expect(rotuloAlmacen({ almacen: 'ALMACEN BORRADO' }, { almacenes: TABLA })).toBe('ALMACEN BORRADO');
+  });
+
+  it('sin rotulo alguno devuelve el almacen del producto', () => {
+    expect(rotuloAlmacen({ almacen: 'General' })).toBe('General');
+    expect(rotuloAlmacen({ almacen: 'General' }, {})).toBe('General');
+  });
+
+  it('una sede fija en blanco no pisa la resolucion por producto', () => {
+    expect(rotuloAlmacen({ almacen: 'Los Pinos' }, { sede: '   ', almacenes: TABLA })).toBe('Los Pinos');
+  });
+
+  it('tolera un producto sin almacen', () => {
+    expect(rotuloAlmacen({ almacen: null }, { almacenes: TABLA })).toBe('');
+  });
+});
+
+// La tabla real de producción: la jerarquía casi no existe (Matanza y El Burro
+// no tienen NINGÚN almacén marcado como padre) y por eso el desplegable de
+// traslados listaba los doce almacenes de Matanza.
+type AlmDestino = { nombre: string; sede: string | null; parent_id: string | null; estado: 'activo' | 'inactivo' };
+const TABLA_DESTINOS: AlmDestino[] = [
+  { nombre: 'Los Pinos', sede: 'LOS PINOS', parent_id: null, estado: 'activo' },
+  { nombre: 'SNO₂ CASITERITA ALMACEN', sede: 'LOS PINOS', parent_id: null, estado: 'activo' },
+  { nombre: 'INSUMOS Y CONSUMIBLES', sede: 'LOS PINOS', parent_id: 'p1', estado: 'inactivo' },
+  { nombre: 'COMBUSTIBLE', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'DEPOSITO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'ESTAÑO EN BRUTO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'ESTAÑO REFINADO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'Papeleria y Art. de Oficina', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'CASITERITA SNO₂', sede: 'CENTRO DE ACOPIO - EL BURRO', parent_id: null, estado: 'activo' },
+  { nombre: 'GENERAL - EL BURRO', sede: 'CENTRO DE ACOPIO - EL BURRO', parent_id: null, estado: 'activo' },
+  { nombre: 'La Esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: null, estado: 'activo' },
+  { nombre: 'CASITERITA', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: 'p2', estado: 'activo' },
+  { nombre: 'Principal', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS', parent_id: null, estado: 'activo' },
+  { nombre: 'ALMACEN CASITERITA', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS', parent_id: 'p3', estado: 'activo' },
+];
+const destinos = (sede: string) =>
+  (destinosDeTraslado(TABLA_DESTINOS).find(([s]) => s === sede)?.[1] ?? []).map((d) => d.nombre);
+
+describe('esAlmacenMineral', () => {
+  it('reconoce casiterita y estaño escritos como están en la base', () => {
+    expect(esAlmacenMineral('SNO₂ CASITERITA ALMACEN')).toBe(true);
+    expect(esAlmacenMineral('CASITERITA SNO₂')).toBe(true);
+    expect(esAlmacenMineral('ALMACEN CASITERITA')).toBe(true);
+    expect(esAlmacenMineral('ESTAÑO EN BRUTO')).toBe(true);   // la Ñ no debe romperlo
+    expect(esAlmacenMineral('ESTAÑO REFINADO')).toBe(true);
+    expect(esAlmacenMineral('SNO2 CASITERITA')).toBe(true);
+  });
+
+  it('no confunde los almacenes que se van a ocultar', () => {
+    ['COMBUSTIBLE', 'DEPOSITO', 'General', 'Papeleria y Art. de Oficina', 'Resguardo',
+     'MATERIALES DE EMBALAJE', 'Viveres y Productos de Limpieza'].forEach((n) => {
+      expect(esAlmacenMineral(n)).toBe(false);
+    });
+    expect(esAlmacenMineral(null)).toBe(false);
+    expect(esAlmacenMineral('')).toBe(false);
+  });
+});
+
+describe('destinosDeTraslado', () => {
+  it('Matanza pasa de doce almacenes a el padre mas los dos de estaño', () => {
+    expect(destinos('CENTRO DE FUNDICION - MATANZAS'))
+      .toEqual(['General', 'ESTAÑO EN BRUTO', 'ESTAÑO REFINADO']);
+  });
+
+  it('el padre va primero, aunque alfabeticamente no lo sea', () => {
+    expect(destinos('CENTRO DE ACOPIO - EL BURRO')).toEqual(['GENERAL - EL BURRO', 'CASITERITA SNO₂']);
+    expect(destinos('LOS PINOS')).toEqual(['Los Pinos', 'SNO₂ CASITERITA ALMACEN']);
+  });
+
+  it('un subalmacen de mineral sigue siendo destino', () => {
+    expect(destinos('CENTRO DE ACOPIO - LA ESPERANZA')).toEqual(['La Esperanza', 'CASITERITA']);
+    expect(destinos('CENTRO DE ACOPIO - LOS PIJIGUAOS')).toEqual(['Principal', 'ALMACEN CASITERITA']);
+  });
+
+  it('deja fuera los almacenes inactivos', () => {
+    expect(destinos('LOS PINOS')).not.toContain('INSUMOS Y CONSUMIBLES');
+  });
+
+  it('no repite el padre cuando el padre es el almacen de mineral', () => {
+    const solo: AlmDestino[] = [{ nombre: 'CASITERITA', sede: 'X', parent_id: null, estado: 'activo' }];
+    expect(destinosDeTraslado(solo)).toEqual([['X', [{ nombre: 'CASITERITA', label: 'CASITERITA' }]]]);
+  });
+
+  it('los almacenes sin sede no se pierden', () => {
+    const sin: AlmDestino[] = [{ nombre: 'Huérfano', sede: null, parent_id: null, estado: 'activo' }];
+    expect(destinosDeTraslado(sin)).toEqual([['Sin sede', [{ nombre: 'Huérfano', label: 'Huérfano' }]]]);
+  });
+
+  it('sin almacenes no explota', () => {
+    expect(destinosDeTraslado([])).toEqual([]);
+  });
+});
+
+// Consolidar Matanza dejó un par de líneas por producto: la salida del almacén que
+// se vació y la entrada a «General». La salida se veía en rojo, con saldo 0, como si
+// se hubiera despachado material que en realidad no se movió de sede.
+describe('salida de consolidación', () => {
+  const consolSalida = { almacen: 'Materias Primas', delta: -443.6, ref_tipo: 'consolidacion' };
+  const consolEntrada = { almacen: 'General', delta: 443.6, ref_tipo: 'consolidacion' };
+  const trasladoReal = { almacen: 'Los Pinos', delta: -10, ref_tipo: 'traslado_modulo' };
+  const salidaNormal = { almacen: 'General', delta: -5, ref_tipo: 'salida_modulo' };
+  const movs = [consolSalida, consolEntrada, trasladoReal, salidaNormal];
+
+  it('reconoce solo la pata negativa de la consolidación', () => {
+    expect(esSalidaDeConsolidacion(consolSalida)).toBe(true);
+    expect(esSalidaDeConsolidacion(consolEntrada)).toBe(false);   // la entrada SÍ se ve
+    expect(esSalidaDeConsolidacion(trasladoReal)).toBe(false);    // un traslado de verdad se ve
+    expect(esSalidaDeConsolidacion(salidaNormal)).toBe(false);
+  });
+
+  it('el kardex la oculta y conserva todo lo demás', () => {
+    expect(filtrarKardex(movs, null)).toEqual([consolEntrada, trasladoReal, salidaNormal]);
+  });
+
+  it('la oculta también cuando se filtra por su propio almacén', () => {
+    expect(filtrarKardex(movs, 'Materias Primas')).toEqual([]);
+  });
+
+  it('no infla el total de salidas del período', () => {
+    // Sin el filtro, las salidas darían 458,6 por una fusión que no despachó nada.
+    expect(entradasSalidas(movs, null)).toEqual({ entradas: 443.6, salidas: 15 });
   });
 });

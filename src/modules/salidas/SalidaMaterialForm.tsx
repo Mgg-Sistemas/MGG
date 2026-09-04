@@ -12,6 +12,7 @@ import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { almacenPrincipalDeSede, etiquetaAlmacen } from '@/modules/inventario/stockPorAlmacen';
 import { listCentrosAcopio } from './cajas.repository';
 import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type AsignacionSalida } from './asignacionPrioridad';
 import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
@@ -103,9 +104,14 @@ export function SalidaMaterialForm({
     Promise.all([listAlmacenes().catch(() => []), listCentrosAcopio().catch(() => [])])
       .then(([alms, centros]) => {
         setAlmacenesObj(alms);
-        // Solo almacenes PADRE (principales con subalmacenes); se excluyen los top-level sin hijos.
-        const conHijos = new Set(alms.filter((a) => a.parent_id).map((a) => a.parent_id));
-        setSedePrincipales(alms.filter((a) => !a.parent_id && a.estado === 'activo' && conHijos.has(a.id)).map((a) => a.nombre));
+        // El almacén PADRE de cada sede. Antes se pedía que tuviera subalmacenes
+        // («conHijos») y eso dejaba a MATANZA y EL BURRO fuera de la lista: ninguno
+        // de los dos tiene jerarquía cargada, así que no se los podía elegir como
+        // destino. El padre se resuelve por nombre, igual que en Inventario.
+        const sedes = Array.from(new Set(
+          alms.filter((a) => a.estado === 'activo').map((a) => a.sede?.trim()).filter((s): s is string => !!s),
+        )).sort((a, b) => a.localeCompare(b, 'es'));
+        setSedePrincipales(sedes.map((s) => almacenPrincipalDeSede(s, alms)).filter((n): n is string => !!n));
         setSedeCentros(centros.map((c) => c.nombre));
       })
       .catch(() => { /* sin sedes: el campo queda vacío */ });
@@ -318,7 +324,7 @@ export function SalidaMaterialForm({
             <option value="">— elegí la sede destino (opcional) —</option>
             {sedePrincipales.length > 0 && (
               <optgroup label="Almacenes / sedes">
-                {sedePrincipales.map((s) => <option key={`a-${s}`} value={s}>{s}</option>)}
+                {sedePrincipales.map((s) => <option key={`a-${s}`} value={s}>{etiquetaAlmacen(s, almacenesObj)}</option>)}
               </optgroup>
             )}
             {sedeCentros.length > 0 && (

@@ -34,6 +34,7 @@ import { SalidasTemporalesView } from './SalidasTemporalesView';
 import { SalidaDineroDetalle } from './SalidaDineroDetalle';
 import { ClientePicker } from './ClientePicker';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
+import { destinosDeTraslado } from '@/modules/inventario/stockPorAlmacen';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
 import {
   descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
@@ -749,12 +750,17 @@ function SolicitudDetalleModal({
   const stockDe = (productoId: string, almacen: string) => Number(existencias.find((e) => e.producto_id === productoId && e.almacen === almacen)?.stock) || 0;
   const almacenesProd = (productoId: string) => existencias.filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0).map((e) => e.almacen);
   const almacenesActivos = useMemo(() => almacenes.filter((a) => a.estado === 'activo').map((a) => a.nombre), [almacenes]);
-  // Sedes / centros como en Inventario (CENTRO DE ACOPIO - …, LOS PINOS, …): destino del traslado.
+  // Sedes / centros como en Inventario (CENTRO DE ACOPIO - …, LOS PINOS, …).
   const sedes = useMemo(
     () => Array.from(new Set(almacenes.filter((a) => a.estado === 'activo').map((a) => a.sede?.trim()).filter((s): s is string => !!s)))
       .sort((a, b) => a.localeCompare(b, 'es')),
     [almacenes],
   );
+  // Destino de un traslado: los MISMOS almacenes que ofrece el alta (padre de cada
+  // sede + casiterita/estaño). Antes acá se listaban NOMBRES DE SEDE, así que editar
+  // un traslado creado con destino «General» lo reescribía como
+  // «CENTRO DE FUNDICION - MATANZAS», que no es ningún almacén.
+  const destinosTraslado = useMemo(() => destinosDeTraslado(almacenes), [almacenes]);
 
   function abrirEdicion() {
     const ls = initLineas();
@@ -943,10 +949,19 @@ function SolicitudDetalleModal({
           <div className="form-row">
             <label>Almacén destino</label>
             <select className="select" value={edAlmacenDestino} onChange={(e) => setEdAlmacenDestino(e.target.value)}>
-              <option value="">— elegí la sede / centro destino —</option>
-              {Array.from(new Set([...sedes, ...(edAlmacenDestino ? [edAlmacenDestino] : [])])).map((s) => <option key={s} value={s}>{s}</option>)}
+              <option value="">— elegí el almacén destino —</option>
+              {destinosTraslado.map(([sede, alms]) => (
+                <optgroup key={sede} label={sede}>
+                  {alms.map((a) => <option key={a.nombre} value={a.nombre}>{a.label}</option>)}
+                </optgroup>
+              ))}
+              {/* Un destino viejo que ya no está en la lista se conserva: editar otra
+                  cosa de la solicitud no debe borrarle el destino que tenía. */}
+              {edAlmacenDestino && !destinosTraslado.some(([, al]) => al.some((a) => a.nombre === edAlmacenDestino)) && (
+                <optgroup label="Destino actual"><option value={edAlmacenDestino}>{edAlmacenDestino}</option></optgroup>
+              )}
             </select>
-            <small className="muted">Sede o centro de acopio destino (como en Inventario). Es lo que se imprime en la orden.</small>
+            <small className="muted">El almacén principal de cada sede (y casiterita/estaño). Es lo que se imprime en la orden.</small>
           </div>
         )}
 

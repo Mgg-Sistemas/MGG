@@ -18,18 +18,20 @@ function bs(n: number | null | undefined): string {
 const esBsMoneda = (m: string | null | undefined): boolean => /bs|ves/i.test(String(m ?? ''));
 
 /** Una fila normalizada del reporte (sirve para OC, servicios y directos). */
-interface FilaRep { codigo: string; nombre: string; detalle: string; estado: string; montoUsd: number }
+interface FilaRep { codigo: string; nombre: string; estado: string; pago: string; montoUsd: number }
 
 export async function descargarResumenPorPagarPdf(
   rows: OrdenPorPagar[],
   directos: DirectoFila[] = [],
   creditos: OrdenPorPagar[] = [], // OC a crédito (cuenta abierta): se listan aparte, saldo pendiente
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, { labelMetodoPago }, { resumenDatosPago }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
+    import('@/modules/pedidos/pedidos.repository'),
+    import('@/shared/ui/DatosPagoFields'),
   ]);
   const tasaHoy = await getTasaHoy().catch(() => null);
   const tasa = Number(tasaHoy?.usd) || 0;
@@ -48,14 +50,33 @@ export async function descargarResumenPorPagarPdf(
   doc.setTextColor(0, 0, 0);
   y += 58;
 
-  const finalidadDe = (r: OrdenPorPagar): string => {
-    const o = r.orden;
-    const cab = (o.finalidad ?? '').trim();
-    if (cab) return cab;
-    const porItem = Array.from(new Set((o.items ?? []).map((it) => (it.finalidad ?? '').trim()).filter(Boolean)));
-    return porItem.length ? porItem.join(' · ') : '—';
+
+  /* Cómo se paga cada renglón, con los datos del beneficiario.
+     Este PDF lo usa Tesorería para pagar: sin el banco, la cédula y el número de
+     cuenta hay que abrir la OC una por una para poder emitir la transferencia.
+     Una OC puede tener VARIAS patas (multipago): se listan todas, una por línea. */
+  const pagoDe = (r: OrdenPorPagar): string => {
+    const patas = r.orden.metodo_pago ?? [];
+    if (!patas.length) return 'Esperando método de pago';
+    return patas
+      .map((m) => {
+        const monto = Number(m.monto) || 0;
+        const cab = `${labelMetodoPago(m.metodo)} · ${m.moneda ?? ''} ${monto.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`.trim();
+        const datos = resumenDatosPago(m.metodo, (m.datos ?? {}) as Record<string, string>)
+          .split('·').map((s) => s.trim()).filter(Boolean).join(' · ');
+        return datos ? `${cab}\n   ${datos}` : cab;
+      })
+      .join('\n');
   };
-  const notasDe = (r: OrdenPorPagar): string => (r.orden.notas ?? r.orden.motivo ?? '').trim() || '—';
+
+  /* Una compra o un servicio directo todavía no tiene método: se elige al pagarlo
+     en Tesorería. Lo único que sí hay que decir acá es si el dinero lo puso una
+     persona externa, porque entonces el pago es un REINTEGRO a esa persona. */
+  const pagoDirecto = (d: DirectoFila): string => (
+    d.pagoExterno
+      ? `REINTEGRO a externo${d.pagoExternoDatos ? `\n   ${d.pagoExternoDatos}` : ''}`
+      : 'Se define al pagar'
+  );
 
   // ── Segmentos ──
   const ocRows = rows.filter((r) => r.orden.clase !== 'servicio');
@@ -65,13 +86,14 @@ export async function descargarResumenPorPagarPdf(
 
   const deOrden = (r: OrdenPorPagar): FilaRep => ({
     codigo: r.orden.oc_codigo ?? r.orden.codigo, nombre: r.proveedorNombre,
-    detalle: [finalidadDe(r), notasDe(r)].filter((x) => x && x !== '—').join(' · ') || '—',
     estado: r.esperandoMetodo ? 'Esperando método' : 'Lista para pagar',
+    pago: pagoDe(r),
     montoUsd: Number(r.montoAPagar) || 0,
   });
   const deDirecto = (d: DirectoFila): FilaRep => ({
-    codigo: d.codigo, nombre: d.titulo, detalle: d.detalle || '—',
+    codigo: d.codigo, nombre: d.titulo,
     estado: 'Lista para pagar',
+    pago: pagoDirecto(d),
     // Los directos pueden estar en Bs: se convierten a $ a la tasa del día para el reporte.
     montoUsd: esBsMoneda(d.moneda) ? aExtranjero(Number(d.total) || 0, tasa) : (Number(d.total) || 0),
   });
@@ -88,18 +110,28 @@ export async function descargarResumenPorPagarPdf(
 
   // Anchos fijos que suman EXACTO el ancho útil → tabla de margen a margen, simétrica.
   const wNum = 26, wCod = 74, wUsd = 88, wBs = 106;
-  const wProv = Math.round((CW - (wNum + wCod + wUsd + wBs)) * 0.42);
-  const wDet = CW - (wNum + wCod + wUsd + wBs) - wProv;
+  const libre = CW - (wNum + wCod + wUsd + wBs);
+  // Sin columna DETALLE: era texto libre larguísimo («SOLICITUD DE TERMOMETRO
+  // DIGITAL PARA EL PERSONAL DEL GALPON… NOTA: LA ORDEN FUE MODIFICADA EL DIA…»)
+  // que empujaba el método a una franja ilegible. Quien paga necesita el banco y
+  // la cuenta, no el porqué de la compra: eso ya está en la OC.
+  const wProv = Math.round(libre * 0.34);
+  const wPago = libre - wProv;
+  // En las cuentas a crédito sí queda la columna de abonos: ahí «Abonado X de Y»
+  // es el dato que explica el saldo, no una nota suelta.
+  const wCredAb = Math.round(libre * 0.24);
+  const wCredProv = Math.round(libre * 0.30);
+  const wCredPago = libre - wCredAb - wCredProv;
 
   for (const seg of segmentos) {
     const subtotal = seg.filas.reduce((a, f) => a + f.montoUsd, 0);
     autoTable(doc, {
       startY: y,
       head: [[{ content: seg.titulo, colSpan: 6, styles: { fillColor: seg.color, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 10 } }],
-             ['#', 'CÓDIGO', 'PROVEEDOR / CONCEPTO', 'DETALLE', 'MONTO $', 'MONTO Bs']],
-      body: seg.filas.map((f, i) => [String(i + 1), f.codigo, f.nombre, f.detalle, ...montoCol(f.montoUsd)]),
+             ['#', 'CÓDIGO', 'PROVEEDOR / CONCEPTO', 'MÉTODO DE PAGO / DATOS', 'MONTO $', 'MONTO Bs']],
+      body: seg.filas.map((f, i) => [String(i + 1), f.codigo, f.nombre, f.pago, ...montoCol(f.montoUsd)]),
       foot: [[{ content: `TOTAL ${seg.titulo}`, colSpan: 4, styles: { halign: 'right' } }, usd(subtotal), tasa > 0 ? bs(aBs(subtotal, tasa)) : '—']],
-      styles: { fontSize: 8, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
+      styles: { fontSize: 8.5, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
       headStyles: { fillColor: [225, 225, 225], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: seg.color, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right', fontSize: 9 },
       tableWidth: CW,
@@ -107,7 +139,7 @@ export async function descargarResumenPorPagarPdf(
         0: { halign: 'center', cellWidth: wNum },
         1: { halign: 'center', cellWidth: wCod },
         2: { cellWidth: wProv },
-        3: { cellWidth: wDet },
+        3: { cellWidth: wPago, fontSize: 10, fontStyle: 'bold', textColor: [20, 20, 20] },
         4: { halign: 'right', cellWidth: wUsd },
         5: { halign: 'right', cellWidth: wBs },
       },
@@ -147,16 +179,17 @@ export async function descargarResumenPorPagarPdf(
         codigo: r.orden.oc_codigo ?? r.orden.codigo,
         nombre: r.proveedorNombre,
         detalle: `Abonado ${usd(abon)} de ${usd(total)}`,
+        pago: pagoDe(r),
         saldo,
       };
     });
     const subCred = filasCred.reduce((a, f) => a + f.saldo, 0);
     autoTable(doc, {
       startY: y,
-      head: [[{ content: 'CUENTAS A CRÉDITO (cuenta abierta · se saldan con abonos)', colSpan: 6, styles: { fillColor: CRED_COLOR, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 10 } }],
-             ['#', 'CÓDIGO', 'PROVEEDOR / CONCEPTO', 'ABONOS', 'SALDO $', 'SALDO Bs']],
-      body: filasCred.map((f, i) => [String(i + 1), f.codigo, f.nombre, f.detalle, ...montoCol(f.saldo)]),
-      foot: [[{ content: 'TOTAL A CRÉDITO (saldo pendiente)', colSpan: 4, styles: { halign: 'right' } }, usd(subCred), tasa > 0 ? bs(aBs(subCred, tasa)) : '—']],
+      head: [[{ content: 'CUENTAS A CRÉDITO (cuenta abierta · se saldan con abonos)', colSpan: 7, styles: { fillColor: CRED_COLOR, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 10 } }],
+             ['#', 'CÓDIGO', 'PROVEEDOR / CONCEPTO', 'ABONOS', 'MÉTODO DE PAGO / DATOS', 'SALDO $', 'SALDO Bs']],
+      body: filasCred.map((f, i) => [String(i + 1), f.codigo, f.nombre, f.detalle, f.pago, ...montoCol(f.saldo)]),
+      foot: [[{ content: 'TOTAL A CRÉDITO (saldo pendiente)', colSpan: 5, styles: { halign: 'right' } }, usd(subCred), tasa > 0 ? bs(aBs(subCred, tasa)) : '—']],
       styles: { fontSize: 8, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
       headStyles: { fillColor: [225, 225, 225], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: CRED_COLOR, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right', fontSize: 9 },
@@ -164,10 +197,11 @@ export async function descargarResumenPorPagarPdf(
       columnStyles: {
         0: { halign: 'center', cellWidth: wNum },
         1: { halign: 'center', cellWidth: wCod },
-        2: { cellWidth: wProv },
-        3: { cellWidth: wDet },
-        4: { halign: 'right', cellWidth: wUsd },
-        5: { halign: 'right', cellWidth: wBs },
+        2: { cellWidth: wCredProv },
+        3: { cellWidth: wCredAb },
+        4: { cellWidth: wCredPago, fontSize: 10, fontStyle: 'bold', textColor: [20, 20, 20] },
+        5: { halign: 'right', cellWidth: wUsd },
+        6: { halign: 'right', cellWidth: wBs },
       },
       margin: { top: MARGIN, bottom: MARGIN + 40, left: MARGIN, right: MARGIN },
     });

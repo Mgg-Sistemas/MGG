@@ -2,6 +2,7 @@ import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
+import { rotuloAlmacen, type ExportRotulo } from './stockPorAlmacen';
 import { prefijoCategoria } from './inventario.repository';
 import { recomputeProductoAgg } from './movimientos.repository';
 
@@ -174,7 +175,7 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     if (m) { const pre = m[1].toUpperCase(); maxPorPrefijo.set(pre, Math.max(maxPorPrefijo.get(pre) ?? 0, parseInt(m[2], 10))); }
   }
   const genSku = (categoria: string): string => {
-    const pre = prefijoCategoria((categoria || 'GENERAL').toUpperCase(), prodsBd).toUpperCase();
+    const pre = prefijoCategoria(categoria.toUpperCase(), prodsBd).toUpperCase();
     const next = (maxPorPrefijo.get(pre) ?? 0) + 1;
     maxPorPrefijo.set(pre, next);
     return `${pre}-${String(next).padStart(3, '0')}`;
@@ -205,6 +206,10 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     const sumCol = (col: string) => { errorPorColumna[col] = (errorPorColumna[col] ?? 0) + 1; };
 
     if (!nombre) { errores.push('Nombre vacío'); sumCol('nombre'); }
+    // La categoría define el prefijo del SKU. Sin ella el producto caía en «GENERAL»
+    // y nacía como NEW-###: así entraron los 317 que después hubo que reclasificar
+    // a mano y renumerar reescribiendo todo el historial. Ahora la fila se rechaza.
+    if (!toStr(norm.categoria).trim()) { errores.push('Categoría vacía'); sumCol('categoria'); }
     // SKU: 1) el del archivo (compatibilidad); 2) si el NOMBRE ya existe en el inventario,
     // el SKU de ese producto (para reconocerlo como el mismo y no duplicarlo); 3) uno nuevo
     // por categoría. Así un material ya existente no entra con un SKU nuevo.
@@ -340,7 +345,7 @@ export async function aplicarImportacion(analisis: AnalisisImport, opts: ImportO
       if (actualizarExistentes) {
         // Modo actualización: se le cambia precio/stock (campos en blanco = se dejan igual).
         const r = f.raw;
-        const almacen = toStr(r.almacen).trim() || almacenDefault;
+        const almacen = almacenDefault;
         const precioDado = r.precio != null && r.precio !== '' ? toNum(r.precio) : null;
         const stockDado = r.stock != null && r.stock !== '' ? toNum(r.stock) : null;
         const ventaDado = r.precio_venta != null && r.precio_venta !== '' ? toNum(r.precio_venta) : null;
@@ -376,17 +381,19 @@ export async function aplicarImportacion(analisis: AnalisisImport, opts: ImportO
     const precioVenta = Number.isFinite(precioVentaNum) ? precioVentaNum : null;
     const restockNum = toNum(r.restock_pct);
     const restockPct = Number.isFinite(restockNum) ? restockNum : null;
-    // No forzar mayúsculas: los nombres de almacén deben respetar la forma
-    // canónica de la tabla `almacenes` (ej. "General", "Almacén 1") para que
-    // coincidan con las existencias y la vista de fundición.
-    const almacen = toStr(r.almacen).trim() || almacenDefault;
+    // La columna «almacen» del archivo ya NO decide el destino: el material entra
+    // donde está parado quien importa. Antes ganaba sobre la sede actual, así que
+    // una plantilla vieja podía mandar la carga a otro centro sin que se notara —
+    // y como el nombre tampoco se validaba contra la tabla `almacenes`, un tipeo
+    // creaba un bucket fantasma.
+    const almacen = almacenDefault;
 
     preparadas.push({
       fila: f.fila, sku: f.sku, almacen, stock, precio,
       payload: {
         sku: f.sku,
         nombre: f.nombre,
-        categoria: toStr(r.categoria).toUpperCase() || 'GENERAL',
+        categoria: toStr(r.categoria).toUpperCase(),
         unidad: toStr(r.unidad) || 'und',
         stock,
         stock_min: stockMin,
@@ -529,6 +536,7 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     ['• Una fila por producto. La fila 1 es el encabezado; los datos arrancan en la fila 2.'],
     ['• Podés agregar tantas filas como necesites; el sistema procesa hasta el último renglón con NOMBRE.'],
     ['• NO se ingresa el SKU: lo asigna el sistema automáticamente, correlativo por categoría (ej. VIV-034).'],
+    ['• NO se ingresa el ALMACÉN: el material entra donde estés parado al importar (Matanza, Los Pinos, La Esperanza…). Si tu archivo trae una columna "almacen", se ignora.'],
     [''],
     ['2. COLUMNAS Y FORMATO'],
     ['• nombre (texto): obligatorio, descripción corta del producto. Se guarda en MAYÚSCULAS.'],
@@ -538,7 +546,7 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     ['• stock_min (número entero ≥ 0): umbral de reabastecimiento. Vacío = 0.'],
     ['• precio (número ≥ 0): puede tener decimales. No acepta letras ni negativos. (Precio UND).'],
     ['• precio_venta (número ≥ 0): opcional. Posible precio de venta del producto.'],
-    ['• almacen (texto): opcional. Si se deja vacío, entra al almacén del centro donde importás. Define en qué almacén entra el stock.'],
+
     ['• estado (texto): "activo" o "inactivo". Vacío se interpreta como "activo".'],
     ['• restock_pct (número 0–100): opcional. % de reabastecimiento para las alertas de stock.'],
     ['• es_receta (SI/NO): opcional. Marca el producto como insumo de receta (fundición).'],
@@ -604,9 +612,12 @@ export async function descargarPlantillaExcel(): Promise<void> {
 
   // Hoja "Productos" vacía: solo el encabezado para que el usuario cargue sus filas.
   // SIN columna "sku": el SKU lo asigna el sistema (correlativo por categoría).
-  const headers = ['nombre', 'categoria', 'unidad', 'stock', 'stock_min', 'precio', 'precio_venta', 'almacen', 'estado', 'restock_pct', 'es_receta', 'es_producible'];
+  // SIN columna "almacen": el material entra en la sede donde estás parado al
+  // importar. La columna existía y GANABA sobre esa sede, así que una plantilla
+  // heredada podía mandar la carga a otro centro sin que nadie lo viera.
+  const headers = ['nombre', 'categoria', 'unidad', 'stock', 'stock_min', 'precio', 'precio_venta', 'estado', 'restock_pct', 'es_receta', 'es_producible'];
   const wsProd = XLSXMod.utils.aoa_to_sheet([headers]);
-  stylize(wsProd as WsSheet, XLSXMod, [32, 18, 12, 10, 12, 12, 14, 16, 12, 12, 12, 14]);
+  stylize(wsProd as WsSheet, XLSXMod, [32, 18, 12, 10, 12, 12, 14, 12, 12, 12, 14]);
   XLSXMod.utils.book_append_sheet(wb, wsProd, 'Productos');
   previewWorkbook(XLSXMod, wb, 'plantilla-productos.xlsx');
 }
@@ -641,7 +652,19 @@ export function filtrarParaExport(productos: Producto[], f: ExportFiltros): Prod
   });
 }
 
-export async function exportarInventarioExcel(productos: Producto[]): Promise<void> {
+/**
+ * Cómo se llena la columna «Almacén» del export.
+ *
+ * NO se usa `p.almacen`: ese es el almacén «hogar» de la ficha del producto,
+ * que puede apuntar a un subalmacén de OTRA sede que la que se está
+ * exportando. Por eso un reporte de Matanza salía con filas que decían
+ * «Viveres y Art. Limpieza» (Los Pinos) mezcladas con «DEPOSITO» (Matanza).
+ *
+ * El export siempre sale de una sede: se rotula con ELLA (Matanza, Los Pinos,
+ * La Esperanza…), no con el subalmacén, que es el detalle interno.
+ */
+
+export async function exportarInventarioExcel(productos: Producto[], rot?: ExportRotulo): Promise<void> {
   const XLSX = await import('xlsx-js-style');
   const XLSXMod = XLSX as unknown as XlsxModule;
   const rows = productos.map((p) => ({
@@ -649,7 +672,7 @@ export async function exportarInventarioExcel(productos: Producto[]): Promise<vo
     Nombre: p.nombre,
     Categoría: p.categoria,
     Unidad: p.unidad,
-    Almacén: p.almacen,
+    Almacén: rotuloAlmacen(p, rot),
     Stock: p.stock,
     'Stock mínimo': p.stock_min,
     'Precio UND': p.precio,
@@ -668,7 +691,7 @@ export async function exportarInventarioExcel(productos: Producto[]): Promise<vo
   previewWorkbook(XLSXMod, wb, `inventario-${stamp}.xlsx`);
 }
 
-export async function exportarInventarioPdf(productos: Producto[]): Promise<void> {
+export async function exportarInventarioPdf(productos: Producto[], rot?: ExportRotulo): Promise<void> {
   const [logoDataUrl, { jsPDF }, { default: autoTable }, { dateTime, money, num }, { loadLogoDataUrl }] = await Promise.all([
     Promise.resolve(null),
     import('jspdf'),
@@ -708,7 +731,7 @@ export async function exportarInventarioPdf(productos: Producto[]): Promise<void
       p.nombre,
       p.categoria,
       p.unidad,
-      p.almacen,
+      rotuloAlmacen(p, rot),
       num(p.stock),
       num(p.stock_min),
       money(p.precio),

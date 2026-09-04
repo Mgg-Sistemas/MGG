@@ -102,6 +102,40 @@ export function labelTipoComida(t: TipoComida): string {
   return TIPOS_COMIDA.find((x) => x.value === t)?.label ?? t;
 }
 
+/**
+ * Orden del día: desayuno → almuerzo → cena.
+ *
+ * La fecha de una comida se guarda al MEDIODÍA (`fecha + T12:00:00`), así que las
+ * tres comidas de un mismo día tienen el MISMO `at` hasta el minuto. Ordenar solo
+ * por `at` las deja empatadas y el desempate lo decide el orden en que se cargaron:
+ * un día registrado empezando por la cena se lee «cena, desayuno, almuerzo».
+ * Este índice es el desempate.
+ */
+export function ordenTipoComida(t: TipoComida | null | undefined): number {
+  const i = TIPOS_COMIDA.findIndex((x) => x.value === t);
+  return i < 0 ? TIPOS_COMIDA.length : i;   // un tipo desconocido va al final
+}
+
+/** El día de una comida (YYYY-MM-DD), que es lo que de verdad la ubica en el ciclo. */
+export const diaDeComida = (at: string | null | undefined): string => String(at ?? '').slice(0, 10);
+
+/**
+ * Comparador del listado de comidas: día más NUEVO primero —lo de hoy queda a la
+ * vista sin scrollear los 21 días del ciclo— y, dentro de cada día, las comidas
+ * en el orden en que se sirven.
+ */
+export function compararComidas(
+  a: { at?: string | null; tipo_comida?: TipoComida | null },
+  b: { at?: string | null; tipo_comida?: TipoComida | null },
+): number {
+  const dia = diaDeComida(b.at).localeCompare(diaDeComida(a.at));
+  if (dia !== 0) return dia;
+  const tipo = ordenTipoComida(a.tipo_comida) - ordenTipoComida(b.tipo_comida);
+  if (tipo !== 0) return tipo;
+  // Mismo día y misma comida (se corrigió y se volvió a cargar): la más reciente arriba.
+  return String(b.at ?? '').localeCompare(String(a.at ?? ''));
+}
+
 /** Un víver disponible para la cocina: producto de categoría VÍVERES + su stock total. */
 export interface ViverDisponible {
   producto: Producto;
@@ -232,7 +266,8 @@ export async function listComidas(filtros?: FiltrosCocina): Promise<CocinaComida
   if (filtros?.hasta) q = q.lte('at', filtros.hasta);
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []) as CocinaComida[];
+  // El `order('at')` de arriba no alcanza: las tres comidas de un día comparten `at`.
+  return ((data ?? []) as CocinaComida[]).sort(compararComidas);
 }
 
 /** Próximo correlativo COC-AAAA-NNNN por el MÁXIMO sufijo (no por conteo). */

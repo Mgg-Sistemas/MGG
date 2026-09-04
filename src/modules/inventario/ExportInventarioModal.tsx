@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
-import type { Producto, RecetaFundicion } from '@/shared/lib/types';
+import type { Producto, RecetaFundicion, Almacen } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import {
   exportarInventarioExcel,
@@ -11,17 +11,20 @@ import {
 } from './inventarioBulk';
 import { getCategorias } from './inventario.repository';
 import { AlmacenSelectAgrupado } from './AlmacenPicker';
+import { nombreSedeCorto } from './stockPorAlmacen';
 
 interface Props {
   productos: Producto[];
   /** Si viene, el export se limita a ESE almacén/centro (con opción General/Casiterita). */
   scope?: { titulo: string; general: Producto[]; casiterita: Producto[] };
+  /** Para resolver la sede de cada producto cuando NO hay scope (Depósito). */
+  almacenesTabla?: Pick<Almacen, 'nombre' | 'sede'>[];
   onClose: () => void;
 }
 
 type RecetaFiltro = '' | 'con_receta' | 'sin_receta' | 'en_proceso' | RecetaFundicion;
 
-export function ExportInventarioModal({ productos, scope, onClose }: Props) {
+export function ExportInventarioModal({ productos, scope, almacenesTabla, onClose }: Props) {
   // Vista dentro de un centro: General o Casiterita (solo si el centro tiene casiterita).
   const [vista, setVista] = useState<'general' | 'casiterita'>('general');
   // Base de productos: el scope del centro (general/casiterita) o TODOS si no hay scope.
@@ -50,6 +53,14 @@ export function ExportInventarioModal({ productos, scope, onClose }: Props) {
 
   const filtrados = useMemo(() => filtrarParaExport(base, f), [base, f]);
 
+  // Rótulo de la columna «Almacén»: la SEDE desde la que se exporta, no el
+  // subalmacén. Parado en un centro, todas las filas dicen ese centro; en el
+  // Depósito (sin sede fija) se resuelve la sede de cada producto.
+  const rotulo = useMemo(
+    () => (scope ? { sede: nombreSedeCorto(scope.titulo) } : { almacenes: almacenesTabla ?? [] }),
+    [scope, almacenesTabla],
+  );
+
   function update<K extends keyof ExportFiltros>(key: K, value: ExportFiltros[K]) {
     setF((prev) => ({ ...prev, [key]: value }));
   }
@@ -70,10 +81,10 @@ export function ExportInventarioModal({ productos, scope, onClose }: Props) {
     setBusy(formato);
     try {
       if (formato === 'xlsx') {
-        await exportarInventarioExcel(filtrados);
+        await exportarInventarioExcel(filtrados, rotulo);
         toast(`Excel exportado · ${filtrados.length} productos`, 'success');
       } else {
-        await exportarInventarioPdf(filtrados);
+        await exportarInventarioPdf(filtrados, rotulo);
         toast(`PDF exportado · ${filtrados.length} productos`, 'success');
       }
       onClose();

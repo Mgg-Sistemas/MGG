@@ -16,8 +16,7 @@
    propio código y queda simétrico: ambos saben enviar y recibir.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { TransferLeg, TransferenciaInter, CuentaCaja } from '@/shared/lib/types';
-import { ingresarDivisa } from './cajaSaldos.repository';
+import type { TransferLeg, TransferenciaInter } from '@/shared/lib/types';
 
 const TABLE = 'transferencias_inter';
 const EMPRESA = (import.meta.env.VITE_EMPRESA_CODIGO as string | undefined)?.trim() || 'mineral-group';
@@ -133,33 +132,26 @@ export async function confirmarTransferenciaEntrante(input: {
   if (row.recibida_tesoreria) throw new Error('Esta transferencia ya fue aceptada en Tesorería.');
   const cajaId = row.caja_id || input.cajaId;
   if (!cajaId) throw new Error('Elegí la caja que recibe el dinero.');
-  const legs = (row.legs ?? []).filter((l) => Number(l.monto) > 0);
-  if (!legs.length) throw new Error('La transferencia no tiene montos.');
 
-  for (const leg of legs) {
-    await ingresarDivisa({
-      cajaId, cuenta: (leg.cuenta as CuentaCaja) ?? 'general', moneda: leg.moneda, monto: Number(leg.monto),
-      tasaBs: leg.tasa_bs ?? null,
-      origen: `Transferencia de ${row.empresa_origen}`, motivo: row.motivo ?? `Transferencia de ${row.empresa_origen}`,
-      actor: input.actor, actorName: input.actorName ?? null,
-    });
-  }
+  // El crédito de cada moneda (recalculando la tasa promedio) y la marca de aceptación
+  // ocurren en UN RPC transaccional con guard atómico: bloquea la fila y exige
+  // recibida_tesoreria = false, y bloquea cada saldo con FOR UPDATE. Dos aceptaciones
+  // (doble clic, o Tesorería y Acopio a la vez) ya NO acreditan la caja dos veces: la
+  // segunda recibe error y no mueve nada.
+  const { data, error } = await supabase.rpc('tesoreria_confirmar_entrante', {
+    p_row_id: row.id,
+    p_caja_id: cajaId,
+    p_actor: input.actor,
+    p_actor_name: input.actorName ?? null,
+  });
+  if (error) throw error;
 
-  // La transferencia pasa a 'recibida' (+ ACK) en la PRIMERA aceptación de cualquiera de los
-  // dos módulos; acá solo marcamos la bandera de Tesorería y (si es la primera) el estado.
-  const primera = row.estado === 'por_confirmar';
-  await supabase.from(TABLE).update({
-    recibida_tesoreria: true, caja_id: cajaId, confirmada_at: new Date().toISOString(),
-    ...(primera ? { estado: 'recibida' } : {}),
-  }).eq('id', row.id);
-
-  // ACK al origen en CADA aceptación (no solo la primera): es idempotente (solo pasa la
-  // saliente del origen a 'recibida'). Así, si el ACK de la primera aceptación se perdió,
-  // la segunda —o un reintento— vuelve a limpiarlo. Aceptar en CUALQUIERA de los dos
-  // módulos (Tesorería o Acopio) confirma al que envió. (No bloquea: si falla, se reconcilia.)
-  if (row.callback_base) {
+  // ACK al origen (best-effort, tras el crédito). transfer-enviar resuelve el destino del
+  // ACK del lado del servidor (por transf_id); el callback_base va solo por compatibilidad.
+  const res = data as { callback_base?: string | null; transf_id?: string } | null;
+  if (res?.callback_base) {
     await supabase.functions.invoke('transfer-enviar', {
-      body: { tipo: 'ack', transf_id: row.transf_id, callback_base: row.callback_base },
+      body: { tipo: 'ack', transf_id: res.transf_id ?? row.transf_id, callback_base: res.callback_base },
     }).catch(() => { /* el ACK es best-effort */ });
   }
 }

@@ -35,20 +35,22 @@ import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import {
   registrarMovimiento,
   transferir,
-  consolidarProductoEnAlmacen,
+
   type MovimientoInput,
 } from './movimientos.repository';
 import { DEFAULT_POLICY, decorate, type ProductoDecorado } from './restock';
 import { ProductosTable } from './ProductosTable';
 import { ProductoForm } from './ProductoForm';
 import { ProductoDetail } from './ProductoDetail';
-import { nombreSedeCorto } from './stockPorAlmacen';
+import { nombreSedeCorto, almacenPrincipalDeSede, agregarExistencias } from './stockPorAlmacen';
 import { MovimientoForm } from './MovimientoForm';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { CasiteritaResumen, CasiteritaDetalleView } from './CasiteritaDetalleView';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
+import { SinCostoModal } from './SinCostoModal';
+import { contarSinCosto } from './sinCosto.repository';
 import { ImportarExcelModal } from './ImportarExcelModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
@@ -140,7 +142,15 @@ type ModalState =
   | { kind: 'sedeEditar'; sede: string }
   | { kind: 'gestionAlmacenes' }
   | { kind: 'reporteFiltro' }
-  | { kind: 'resumen' };
+  | { kind: 'resumen' }
+  | { kind: 'sinCosto' };
+
+/**
+ * «🏗 Almacenes» (gestor de almacenes y subalmacenes) queda OCULTO a pedido:
+ * no se usa por ahora y se quiere conservar para más adelante. El modal y su
+ * repositorio siguen enteros; poner esto en `true` lo devuelve a la barra.
+ */
+const MOSTRAR_GESTION_ALMACENES = false;
 
 /** Metadatos de cada espacio (título, icono, ruta, clave de permiso). */
 const ESPACIOS: Record<Espacio, { titulo: string; icono: string; ruta: string; modulo: 'inventario' | 'deposito' }> = {
@@ -210,6 +220,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
+  // Cuántas existencias esperan que les carguen el costo (badge del botón «Sin costo»).
+  const [sinCosto, setSinCosto] = useState(0);
   const [conteoCats, setConteoCats] = useState<Record<string, number>>({});
   const [unidadesGestion, setUnidadesGestion] = useState<string[]>([]);
   const [conteoMedidas, setConteoMedidas] = useState<Record<string, number>>({});
@@ -223,6 +235,15 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
   useRealtime(['productos', 'movimientos', 'almacenes', 'existencias', 'ordenes', 'compras_directas'], () => { void reload(); });
+
+  // Cola de existencias con stock pero valoradas en $0. Se recuenta con cada
+  // recarga (incluida la de realtime), así el contador baja solo cuando otro
+  // usuario está cargando costos en paralelo.
+  useEffect(() => {
+    let vivo = true;
+    contarSinCosto().then((n) => { if (vivo) setSinCosto(n); }).catch(() => { if (vivo) setSinCosto(0); });
+    return () => { vivo = false; };
+  }, [productos]);
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -349,20 +370,14 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     // subalmacenes). Lo usa el detalle: al entrar a un almacén se ven sus productos,
     // y al entrar a un subalmacén, los del subalmacén (cada nivel por separado).
     const nombres = incluirSub ? new Set(descendientesDe(nombre)) : new Set([nombre]);
-    const agg = new Map<string, { stock: number; valor: number }>();
-    for (const e of existencias) {
-      if (!nombres.has(e.almacen)) continue;
-      const cur = agg.get(e.producto_id) ?? { stock: 0, valor: 0 };
-      const st = Number(e.stock) || 0;
-      cur.stock += st;
-      cur.valor += st * (Number(e.costo_promedio) || 0);
-      agg.set(e.producto_id, cur);
-    }
+    const agg = agregarExistencias(existencias, (a) => nombres.has(a));
     const virtuales = [...agg.entries()]
       .map(([pid, v]) => {
         const p = prodMap.get(pid);
-        const costo = v.stock > 0 ? v.valor / v.stock : 0;
-        return p ? ({ ...p, stock: v.stock, precio: costo, almacen: nombre } as Producto) : null;
+        if (!p) return null;
+        // Si ninguna existencia guardó costo, se cae al precio del maestro antes que a 0.
+        const costo = v.costo > 0 ? v.costo : (Number(p.precio) || 0);
+        return ({ ...p, stock: v.stock, precio: costo, almacen: nombre } as Producto);
       })
       .filter((p): p is Producto => p !== null);
     return decorate(virtuales, DEFAULT_POLICY);
@@ -380,19 +395,14 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     if (!nombres.length) return [];
     const prodMap = new Map(productos.map((p) => [p.id, p]));
     const set = new Set(nombres);
-    const agg = new Map<string, { stock: number; valor: number }>();
-    for (const e of existencias) {
-      if (!set.has(e.almacen)) continue;
-      const cur = agg.get(e.producto_id) ?? { stock: 0, valor: 0 };
-      const st = Number(e.stock) || 0;
-      cur.stock += st; cur.valor += st * (Number(e.costo_promedio) || 0);
-      agg.set(e.producto_id, cur);
-    }
+    const agg = agregarExistencias(existencias, (a) => set.has(a));
     const virtuales = [...agg.entries()]
       .map(([pid, v]) => {
         const p = prodMap.get(pid);
-        const costo = v.stock > 0 ? v.valor / v.stock : 0;
-        return p ? ({ ...p, stock: v.stock, precio: costo } as Producto) : null;
+        if (!p) return null;
+        // Si ninguna existencia guardó costo, se cae al precio del maestro antes que a 0.
+        const costo = v.costo > 0 ? v.costo : (Number(p.precio) || 0);
+        return ({ ...p, stock: v.stock, precio: costo } as Producto);
       })
       .filter((p): p is Producto => p !== null);
     return decorate(virtuales, DEFAULT_POLICY);
@@ -447,7 +457,16 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   // "General" invisible (que lo dejaba fuera de todas las vistas por centro).
   const defaultAlmacenCrear = useMemo<string | null>(() => {
     if (ui.filterAlmacen && almacenesScopeActual.includes(ui.filterAlmacen)) return ui.filterAlmacen;
+    // El almacén PRINCIPAL de la sede, no el primero de la lista: viene ordenada por
+    // nombre, así que Matanza caería en «COMBUSTIBLE» y Los Pinos en «INSUMOS Y
+    // CONSUMIBLES». Con el desplegable esto se corregía a mano; ahora que la ubicación
+    // queda fija, el default TIENE que ser el correcto (ver almacenPrincipalDeSede).
+    const principal = almacenPrincipalDeSede(sedeScope, almacenes);
+    if (principal && almacenesScopeActual.includes(principal)) return principal;
+    // La sub-vista manda sobre el principal de la sede: parado en «⛏ Casiterita» el
+    // producto va al almacén de casiterita, no al general del centro.
     if (almacenesScopeActual[0]) return almacenesScopeActual[0];
+    if (principal) return principal;
     // Estricto en un centro/Matanza: si la sub-vista no tiene almacén (p.ej. un centro sin
     // sub-almacén de casiterita), NO caer en el "General" suelto de Matanza. Se usa cualquier
     // almacén de ESA sede, para que el producto quede SIEMPRE en el centro donde lo creás.
@@ -456,7 +475,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       return todosDelScope[0] ?? null;
     }
     return null;
-  }, [ui.filterAlmacen, almacenesScopeActual, almacenesDeScope]);
+  }, [ui.filterAlmacen, almacenesScopeActual, almacenesDeScope, sedeScope, almacenes]);
   const filtered = useMemo<ProductoDecorado[]>(() => {
     // En un centro/Matanzas la base son los productos de ESE scope; si además se eligió
     // un SUBALMACÉN en el filtro (dentro del centro), se acota a ese subalmacén para
@@ -670,27 +689,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       // Se ajusta vía "Movimiento" (entrada/salida/ajuste) en cada almacén.
       const rest: Partial<ProductoInput> = { ...data };
       delete (rest as Partial<ProductoInput>).stock;
-      // Un producto = una ubicación: si cambió el almacén "hogar", relocaliza TODO
-      // el stock disperso a ese almacén (queda una sola existencia con el total).
-      // IMPORTANTE: la consolidación va PRIMERO porque dispara recomputeProductoAgg
-      // (recalcula `precio` desde las existencias); guardamos el producto DESPUÉS para
-      // que el precio/datos que escribió el usuario prevalezcan (si no, se perdían y
-      // había que guardar dos veces).
-      const almacenPrevio = (previo.almacen || 'General').trim();
-      const almacenNuevo = (data.almacen || 'General').trim();
-      // Solo se consolida hacia un almacén REAL (que exista en la tabla `almacenes`).
-      // Un nombre legado/sin sede como "General" NUNCA debe recibir stock por edición:
-      // consolidar ahí lo saca de toda vista scopeada y el producto "aparece en 0"
-      // (bug INS-144). Si el destino no es real, se conserva la ubicación actual.
-      const destinoReal = almacenes.some((a) => a.nombre === almacenNuevo);
-      let movidos = 0;
-      if (destinoReal && almacenNuevo !== almacenPrevio) {
-        movidos = await consolidarProductoEnAlmacen(previo.id, almacenNuevo, productoActor, actorName);
-      } else if (!destinoReal) {
-        rest.almacen = almacenPrevio;
-      }
+      // La ubicación NO se edita desde acá: el formulario la muestra bloqueada.
+      // Antes se elegía en un desplegable y cambiarla consolidaba TODO el stock
+      // disperso del producto en el almacén elegido —un movimiento grande escondido
+      // detrás de un campo que parecía un dato más—. Mover material es explícito:
+      // «⇄ Mover producto» o un traslado. Se conserva la ubicación guardada.
+      rest.almacen = (previo.almacen || 'General').trim();
       await updateProducto(previo.id, rest);
-      if (movidos > 0) notify(`Stock consolidado en ${almacenNuevo} (1 sola ubicación)`, 'success', { link: basePath });
       notify(`Producto actualizado: ${data.sku} · ${data.nombre}`, 'success', { link: basePath });
       await reload();
     }
@@ -849,7 +854,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
               />
             </>
           )}
-          {canWrite && (
+          {MOSTRAR_GESTION_ALMACENES && canWrite && (
             <button className="btn btn-ghost" onClick={() => setModal({ kind: 'gestionAlmacenes' })} title="Crear, renombrar, organizar y cerrar almacenes y sus secciones">
               🏗 Almacenes
             </button>
@@ -857,6 +862,16 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen de inventario: almacenes, productos nuevos, salidas y traslados">
             📊 Resumen
           </button>
+          {/* Cola de valuación: solo aparece si hay algo pendiente, y desaparece al vaciarse. */}
+          {sinCosto > 0 && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => setModal({ kind: 'sinCosto' })}
+              title="Existencias con stock pero valoradas en $0: cargales el costo unitario"
+            >
+              ⚠ Sin costo <span className="badge warning" style={{ marginLeft: '.35rem' }}>{sinCosto}</span>
+            </button>
+          )}
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
             ↓ Exportar
           </button>
@@ -1146,6 +1161,16 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       )}
 
       {/* Modales */}
+      {modal.kind === 'sinCosto' && (
+        <SinCostoModal
+          actor={productoActor}
+          actorName={actorName}
+          canWrite={canWrite}
+          onClose={() => setModal({ kind: 'none' })}
+          onValuado={() => { void reload(); }}
+        />
+      )}
+
       {modal.kind === 'resumen' && (
         <ResumenInventarioModal
           productos={productos}
@@ -1164,8 +1189,10 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
              existe para cargarle stock en el almacén que haga falta. */
           onUsarExistente={(p) => setModal({ kind: 'movimiento', producto: p })}
           espacio={espacio}
-          /* Dentro de un almacén/sub-almacén: el nuevo producto entra ahí y la ubicación queda fija. */
-          fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
+          /* La ubicación NO se elige: el producto se crea donde estás parado. Dentro de un
+             almacén/sub-almacén, ese almacén; en una sede, su almacén principal. Solo el
+             Depósito (sin sede) sigue mostrando el selector, porque no hay qué deducir. */
+          fixedAlmacen={ui.view === 'almacenes' ? (almacenSel ?? defaultAlmacenCrear) : defaultAlmacenCrear}
           /* En un centro/scope (lista normal): arranca en el almacén del scope, no en "General". */
           defaultAlmacen={defaultAlmacenCrear}
           /* Parado en una sede/centro: el selector se limita a ESA sede (Matanza→Matanza,
@@ -1316,6 +1343,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         <ExportInventarioModal
           productos={productos}
           scope={sedeScope ? { titulo: tituloInventario, general: scopeGeneral, casiterita: scopeCasiterita } : undefined}
+          almacenesTabla={almacenes}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}

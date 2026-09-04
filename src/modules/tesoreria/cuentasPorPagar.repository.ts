@@ -209,18 +209,31 @@ export async function registrarAbonoCuenta(input: {
   const c = input.cuenta;
   const monto = round2(input.monto);
   if (monto <= 0) throw new Error('El abono debe ser mayor que 0.');
-  const saldoPrev = round2(c.monto - (Number(c.abonado) || 0));
-  // Si se paga DE MÁS, el excedente se vuelve cuenta por cobrar (el cliente nos debe).
-  const aplicado = round2(Math.min(monto, saldoPrev));
-  const excedente = round2(monto - saldoPrev);
 
-  // 1) Egreso real de la caja por el monto pagado (misma moneda de la cuenta por pagar).
-  const mov = await registrarGasto({
-    cajaId: input.cajaId, monto, moneda: c.moneda, cuenta: input.cuentaCaja,
-    concepto: `Abono cuenta por pagar · ${c.tipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${c.contraparte}`
-      + (excedente > 0 ? ` (sobrepago ${excedente} ${c.moneda} → cuenta por cobrar)` : ''),
-    categoria: 'abono_cxp', actor: input.actor, actorName: input.actorName,
+  // 1) Reserva ATÓMICA del abono: bloquea la cuenta (FOR UPDATE) y revalida el saldo real
+  //    en la base (no el que traía el front) → dos abonos a la vez no se pisan. Pagar admite
+  //    sobrepago: topa lo aplicado al saldo y devuelve el excedente (→ cuenta por cobrar).
+  const { data: resAb, error: apErr } = await supabase.rpc('cuenta_aplicar_abono', {
+    p_tabla: 'cuentas_por_pagar', p_cuenta_id: c.id, p_monto: monto, p_cap: true,
   });
+  if (apErr) throw apErr;
+  const aplic = resAb as { aplicado: number; excedente: number; abonado: number; estado: EstadoCxP; saldo_restante: number };
+  const aplicado = aplic.aplicado;
+  const excedente = aplic.excedente;
+
+  // 2) Egreso real de la caja por el monto pagado (atómico). Si falla, se revierte la reserva.
+  let mov;
+  try {
+    mov = await registrarGasto({
+      cajaId: input.cajaId, monto, moneda: c.moneda, cuenta: input.cuentaCaja,
+      concepto: `Abono cuenta por pagar · ${c.tipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${c.contraparte}`
+        + (excedente > 0 ? ` (sobrepago ${excedente} ${c.moneda} → cuenta por cobrar)` : ''),
+      categoria: 'abono_cxp', actor: input.actor, actorName: input.actorName,
+    });
+  } catch (e) {
+    await supabase.rpc('cuenta_aplicar_abono', { p_tabla: 'cuentas_por_pagar', p_cuenta_id: c.id, p_monto: -aplicado, p_cap: true });
+    throw e;
+  }
 
   // 1b) Comisión bancaria (opcional): egreso EXTRA aparte, no suma a la deuda.
   const comMonto = input.comision ? Math.round((Number(input.comision.monto) || 0) * 100) / 100 : 0;
@@ -233,10 +246,9 @@ export async function registrarAbonoCuenta(input: {
   }
 
   // 2) Registro del abono que salda la deuda (lo aplicado, no el excedente).
-  const saldoRestante = round2(saldoPrev - aplicado);
   const { data: ab, error: abErr } = await supabase.from(CXP_ABONOS).insert({
     cuenta_id: c.id, monto: aplicado, moneda: c.moneda, caja_id: input.cajaId, cuenta: input.cuentaCaja,
-    caja_mov_id: mov.id, saldo_restante: saldoRestante,
+    caja_mov_id: mov.id, saldo_restante: aplic.saldo_restante,
     nota: (input.nota?.trim() || '') + (excedente > 0 ? `${input.nota?.trim() ? ' · ' : ''}Sobrepago ${excedente} ${c.moneda} → cuenta por cobrar` : '') || null,
     comision_monto: comMonto > 0 ? comMonto : null,
     comision_moneda: comMonto > 0 ? (input.comision?.moneda ?? null) : null,
@@ -244,13 +256,8 @@ export async function registrarAbonoCuenta(input: {
   }).select('*').single();
   if (abErr) throw abErr;
 
-  // 3) Actualiza la cuenta (abonado + estado).
-  const nuevoAbonado = round2((Number(c.abonado) || 0) + aplicado);
-  const estado: EstadoCxP = nuevoAbonado >= c.monto - 0.01 ? 'saldada' : 'abierta';
-  const { data: cu, error: cuErr } = await supabase.from(CXP)
-    .update({ abonado: nuevoAbonado, estado, updated_at: new Date().toISOString() })
-    .eq('id', c.id).select('*').single();
-  if (cuErr) throw cuErr;
+  // 3) La cuenta ya quedó actualizada (abonado + estado) dentro de la reserva atómica.
+  const cuenta: CuentaPorPagar = { ...c, abonado: aplic.abonado, estado: aplic.estado, updated_at: new Date().toISOString() };
 
   // 4) Excedente → cuenta por cobrar del mismo cliente/proveedor (incremental).
   if (excedente > 0) {
@@ -261,5 +268,5 @@ export async function registrarAbonoCuenta(input: {
     });
   }
 
-  return { cuenta: cu as CuentaPorPagar, abono: ab as AbonoCxP };
+  return { cuenta, abono: ab as AbonoCxP };
 }
