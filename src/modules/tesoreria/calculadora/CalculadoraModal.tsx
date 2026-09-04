@@ -111,7 +111,9 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
     function onKey(ev: KeyboardEvent) {
       const k = ev.key;
       if (/[0-9]/.test(k)) press(k);
-      else if (k === '.' || k === ',') press('.');
+      // Se escribe lo que se teclea: el motor entiende coma y punto, y ver en
+      // pantalla algo distinto de lo que uno puso es la forma de desconfiar.
+      else if (k === '.' || k === ',') press(k);
       else if (k === '+') press('+');
       else if (k === '-') press('-');
       else if (k === '*') press('×');
@@ -120,6 +122,11 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       else if (k === 'Enter' || k === '=') { ev.preventDefault(); press('='); }
       else if (k === 'Backspace') press('⌫');
       else if (k === 'Escape') { press('C'); }
+      // Las monedas se escriben con letras y símbolos. Sin esto, «100 $» no se
+      // puede teclear y el motor de monedas queda inalcanzable: el visor es un
+      // div, así que TODO lo que se escribe pasa por acá.
+      else if (k === ' ') press(' ');
+      else if (k.length === 1 && /[a-zA-ZáéíóúÁÉÍÓÚñÑ$€]/.test(k)) press(k);
       else return;
     }
     window.addEventListener('keydown', onKey);
@@ -172,8 +179,13 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
     { label: '7', val: '7', kind: 'num' }, { label: '8', val: '8', kind: 'num' }, { label: '9', val: '9', kind: 'num' }, { label: '÷', val: '÷', kind: 'op' },
     { label: '4', val: '4', kind: 'num' }, { label: '5', val: '5', kind: 'num' }, { label: '6', val: '6', kind: 'num' }, { label: '×', val: '×', kind: 'op' },
     { label: '1', val: '1', kind: 'num' }, { label: '2', val: '2', kind: 'num' }, { label: '3', val: '3', kind: 'num' }, { label: '−', val: '-', kind: 'op' },
-    { label: '0', val: '0', kind: 'num' }, { label: '.', val: '.', kind: 'num' }, { label: '=', val: '=', kind: 'eq' }, { label: '+', val: '+', kind: 'op' },
+    { label: '0', val: '0', kind: 'num' }, { label: ',', val: ',', kind: 'num' }, { label: '=', val: '=', kind: 'eq' }, { label: '+', val: '+', kind: 'op' },
   ];
+
+  /* Las monedas salen del CATÁLOGO DE TASAS, no de una lista escrita a mano:
+     una moneda aparece el día que tiene tasa y desaparece sola si la pierde.
+     Sin estos botones el motor de monedas solo sería alcanzable tecleando. */
+  const MONEDAS = [...mapas.enBolivares.keys()].map((c) => ({ codigo: c, simbolo: simboloDeCalculo(c) }));
 
   return (
     <Modal title="Calculadora" size="md" onClose={onClose} footer={
@@ -186,7 +198,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
     }>
       {/* Visor: expresión + resultado en vivo. */}
       <div className="card" style={{ padding: '.6rem .8rem', marginTop: 0, textAlign: 'right', minHeight: 60 }}>
-        <div className="mono" style={{ fontSize: '.95rem', color: 'var(--muted)', minHeight: '1.2rem', wordBreak: 'break-all' }}>{expr || ' '}</div>
+        <div className="mono" style={{ fontSize: '.95rem', color: 'var(--text-muted, #9aa4b2)', minHeight: '1.2rem', wordBreak: 'break-all' }}>{expr || ' '}</div>
         <strong className="mono" style={{ fontSize: '1.7rem', color: 'var(--text, #fff)', display: 'block', wordBreak: 'break-all' }}>
           {expr && preview != null ? preview.texto : result}
         </strong>
@@ -210,6 +222,21 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
         </div>
       )}
 
+      {/* Monedas. Van ANTES del teclado numérico porque el orden natural es
+          «cuánto» y después «de qué»: se teclea el monto y se le pone la unidad. */}
+      {MONEDAS.length > 1 && (
+        <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginTop: '.6rem' }}>
+          {MONEDAS.map((m) => (
+            <button key={m.codigo} type="button" className="btn btn-ghost btn-sm"
+              onClick={() => press(` ${m.simbolo} `)}
+              title={`Agregar ${nombreDeCalculo(m.codigo)}`}
+              style={{ fontWeight: 700, color: 'var(--primary, #ff8a00)', minWidth: 52 }}>
+              {m.simbolo}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Teclado. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.4rem', marginTop: '.6rem' }}>
         {KEYS.map((k) => (
@@ -218,7 +245,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
             onClick={() => press(k.val)}
             style={{
               padding: '.7rem 0', fontSize: '1.05rem', fontWeight: 700,
-              ...(k.kind === 'op' ? { color: 'var(--brand, #ff8a00)' } : {}),
+              ...(k.kind === 'op' ? { color: 'var(--primary, #ff8a00)' } : {}),
               ...(k.kind === 'act' ? { color: 'var(--danger)' } : {}),
             }}>
             {k.label}
@@ -252,7 +279,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
               </div>
               <div>
                 <div className="muted" style={{ fontSize: '.66rem' }}>MARGEN DE AHORRO</div>
-                <div className="mono" style={{ fontWeight: 700, color: margen != null && margen > 0 ? 'var(--success)' : 'var(--muted)' }}>
+                <div className="mono" style={{ fontWeight: 700, color: margen != null && margen > 0 ? 'var(--success)' : 'var(--text-muted, #9aa4b2)' }}>
                   {margen != null ? `${fmtBs(margen)} %` : '—'}
                   {ahorroBs != null && ahorroBs > 0 && <span className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}> · ahorro Bs {fmtBs(ahorroBs)}</span>}
                 </div>
@@ -275,7 +302,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
             {!history.length && <tr><td className="muted" style={{ textAlign: 'center' }}>Sin operaciones aún.</td></tr>}
             {history.map((h, idx) => (
               <tr key={idx} style={{ cursor: 'pointer' }} onClick={() => setExpr(String(h.result))} title="Usar este resultado">
-                <td className="mono" style={{ color: 'var(--muted)' }}>{h.expr}</td>
+                <td className="mono" style={{ color: 'var(--text-muted, #9aa4b2)' }}>{h.expr}</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text, #fff)' }}>= {fmtResultado(h)}</td>
               </tr>
             ))}
