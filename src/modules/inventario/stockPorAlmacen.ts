@@ -48,7 +48,11 @@ export function sedeDeAlmacen(nombre: string | null | undefined, almacenes: Pick
  * en cero muestra su precio pero no suma nada al inventario.
  */
 export function agregarExistencias(
-  filas: Pick<Existencia, 'producto_id' | 'almacen' | 'stock' | 'costo_promedio'>[],
+  // `stock` y `costo_promedio` se aceptan nulos a propósito: el tipo `Existencia`
+  // los declara `number`, pero la tabla sí devuelve NULL (hay filas con costo en
+  // null, son parte de la cola «Sin costo»). Mejor admitirlo en la firma que
+  // confiar en un tipo que la base no respeta.
+  filas: Array<{ producto_id: string; almacen: string; stock: number | null; costo_promedio: number | null }>,
   incluye: (almacen: string) => boolean,
 ): Map<string, { stock: number; costo: number }> {
   const agg = new Map<string, { stock: number; valor: number; ultimoCosto: number }>();
