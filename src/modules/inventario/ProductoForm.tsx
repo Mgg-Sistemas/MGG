@@ -149,6 +149,17 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
     () => (ubicacionFija ? (almacenesObj.find((a) => a.nombre === fixedAlmacen)?.sede?.trim() || '') : ''),
     [ubicacionFija, almacenesObj, fixedAlmacen],
   );
+  // Al editar: dónde está hoy el producto, para mostrarlo sin poder cambiarlo.
+  // Si el almacén guardado ya no existe en la tabla se muestra igual (con aviso),
+  // en vez de dejar el campo en blanco como hacía el desplegable.
+  const ubicacionActual = useMemo(() => {
+    const alm = (producto?.almacen ?? '').trim();
+    if (!alm) return 'Sin almacén asignado';
+    const enTabla = almacenesObj.find((a) => a.nombre === alm);
+    if (!enTabla) return `${alm} · (nombre no registrado como almacén)`;
+    const sede = enTabla.sede?.trim();
+    return sede ? `${sede} › ${alm}` : alm;
+  }, [producto, almacenesObj]);
   // Sectorización: dar de alta un producto crea su existencia inicial, así que es
   // un movimiento más. Un almacenista solo puede crearlo en SUS almacenes.
   const sector = useSectorizacion();
@@ -599,6 +610,27 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
             />
             <small className="muted" style={{ fontSize: '.72rem' }}>
               Se crea directo en <strong>{fixedAlmacen}</strong>. La ubicación no se puede modificar para evitar errores.
+            </small>
+          </div>
+        ) : isEdit ? (
+          // EDITAR: la ubicación se muestra, no se elige. Cambiar el almacén acá
+          // consolidaba TODO el stock disperso del producto en el elegido, escondido
+          // detrás de un campo que parecía un dato más. Y si el almacén guardado no
+          // existía en la tabla (p. ej. «LOS PINOS», que es la SEDE y no el almacén
+          // «Los Pinos»), el desplegable quedaba vacío y —siendo obligatorio— no
+          // dejaba guardar ni un cambio de nombre o de precio.
+          // Para mover material está «⇄ Mover producto» y el módulo de Traslados.
+          <div className="form-row">
+            <label>📦 Ubicación</label>
+            <input
+              className="input"
+              value={ubicacionActual}
+              readOnly
+              disabled
+              title="Para mover el material usá «⇄ Mover producto» o un traslado."
+            />
+            <small className="muted" style={{ fontSize: '.72rem' }}>
+              El stock vive por almacén. Para moverlo, usá <strong>⇄ Mover producto</strong> o un <strong>traslado</strong>.
             </small>
           </div>
         ) : (

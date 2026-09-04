@@ -35,7 +35,7 @@ import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import {
   registrarMovimiento,
   transferir,
-  consolidarProductoEnAlmacen,
+
   type MovimientoInput,
 } from './movimientos.repository';
 import { DEFAULT_POLICY, decorate, type ProductoDecorado } from './restock';
@@ -693,27 +693,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       // Se ajusta vía "Movimiento" (entrada/salida/ajuste) en cada almacén.
       const rest: Partial<ProductoInput> = { ...data };
       delete (rest as Partial<ProductoInput>).stock;
-      // Un producto = una ubicación: si cambió el almacén "hogar", relocaliza TODO
-      // el stock disperso a ese almacén (queda una sola existencia con el total).
-      // IMPORTANTE: la consolidación va PRIMERO porque dispara recomputeProductoAgg
-      // (recalcula `precio` desde las existencias); guardamos el producto DESPUÉS para
-      // que el precio/datos que escribió el usuario prevalezcan (si no, se perdían y
-      // había que guardar dos veces).
-      const almacenPrevio = (previo.almacen || 'General').trim();
-      const almacenNuevo = (data.almacen || 'General').trim();
-      // Solo se consolida hacia un almacén REAL (que exista en la tabla `almacenes`).
-      // Un nombre legado/sin sede como "General" NUNCA debe recibir stock por edición:
-      // consolidar ahí lo saca de toda vista scopeada y el producto "aparece en 0"
-      // (bug INS-144). Si el destino no es real, se conserva la ubicación actual.
-      const destinoReal = almacenes.some((a) => a.nombre === almacenNuevo);
-      let movidos = 0;
-      if (destinoReal && almacenNuevo !== almacenPrevio) {
-        movidos = await consolidarProductoEnAlmacen(previo.id, almacenNuevo, productoActor, actorName);
-      } else if (!destinoReal) {
-        rest.almacen = almacenPrevio;
-      }
+      // La ubicación NO se edita desde acá: el formulario la muestra bloqueada.
+      // Antes se elegía en un desplegable y cambiarla consolidaba TODO el stock
+      // disperso del producto en el almacén elegido —un movimiento grande escondido
+      // detrás de un campo que parecía un dato más—. Mover material es explícito:
+      // «⇄ Mover producto» o un traslado. Se conserva la ubicación guardada.
+      rest.almacen = (previo.almacen || 'General').trim();
       await updateProducto(previo.id, rest);
-      if (movidos > 0) notify(`Stock consolidado en ${almacenNuevo} (1 sola ubicación)`, 'success', { link: basePath });
       notify(`Producto actualizado: ${data.sku} · ${data.nombre}`, 'success', { link: basePath });
       await reload();
     }
