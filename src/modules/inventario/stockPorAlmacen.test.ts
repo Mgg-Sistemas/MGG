@@ -3,6 +3,7 @@ import {
   ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sedeDeAlmacen, stockEn,
   trasladoDeMovimiento, almacenPrincipalDeSede, agregarExistencias, rotuloAlmacen,
+  esAlmacenMineral, destinosDeTraslado,
 } from './stockPorAlmacen';
 
 const almacenes = [
@@ -392,5 +393,84 @@ describe('rotuloAlmacen', () => {
 
   it('tolera un producto sin almacen', () => {
     expect(rotuloAlmacen({ almacen: null }, { almacenes: TABLA })).toBe('');
+  });
+});
+
+// La tabla real de producción: la jerarquía casi no existe (Matanza y El Burro
+// no tienen NINGÚN almacén marcado como padre) y por eso el desplegable de
+// traslados listaba los doce almacenes de Matanza.
+type AlmDestino = { nombre: string; sede: string | null; parent_id: string | null; estado: 'activo' | 'inactivo' };
+const TABLA_DESTINOS: AlmDestino[] = [
+  { nombre: 'Los Pinos', sede: 'LOS PINOS', parent_id: null, estado: 'activo' },
+  { nombre: 'SNO₂ CASITERITA ALMACEN', sede: 'LOS PINOS', parent_id: null, estado: 'activo' },
+  { nombre: 'INSUMOS Y CONSUMIBLES', sede: 'LOS PINOS', parent_id: 'p1', estado: 'inactivo' },
+  { nombre: 'COMBUSTIBLE', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'DEPOSITO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'ESTAÑO EN BRUTO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'ESTAÑO REFINADO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'Papeleria y Art. de Oficina', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null, estado: 'activo' },
+  { nombre: 'CASITERITA SNO₂', sede: 'CENTRO DE ACOPIO - EL BURRO', parent_id: null, estado: 'activo' },
+  { nombre: 'GENERAL - EL BURRO', sede: 'CENTRO DE ACOPIO - EL BURRO', parent_id: null, estado: 'activo' },
+  { nombre: 'La Esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: null, estado: 'activo' },
+  { nombre: 'CASITERITA', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: 'p2', estado: 'activo' },
+  { nombre: 'Principal', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS', parent_id: null, estado: 'activo' },
+  { nombre: 'ALMACEN CASITERITA', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS', parent_id: 'p3', estado: 'activo' },
+];
+const destinos = (sede: string) =>
+  (destinosDeTraslado(TABLA_DESTINOS).find(([s]) => s === sede)?.[1] ?? []).map((d) => d.nombre);
+
+describe('esAlmacenMineral', () => {
+  it('reconoce casiterita y estaño escritos como están en la base', () => {
+    expect(esAlmacenMineral('SNO₂ CASITERITA ALMACEN')).toBe(true);
+    expect(esAlmacenMineral('CASITERITA SNO₂')).toBe(true);
+    expect(esAlmacenMineral('ALMACEN CASITERITA')).toBe(true);
+    expect(esAlmacenMineral('ESTAÑO EN BRUTO')).toBe(true);   // la Ñ no debe romperlo
+    expect(esAlmacenMineral('ESTAÑO REFINADO')).toBe(true);
+    expect(esAlmacenMineral('SNO2 CASITERITA')).toBe(true);
+  });
+
+  it('no confunde los almacenes que se van a ocultar', () => {
+    ['COMBUSTIBLE', 'DEPOSITO', 'General', 'Papeleria y Art. de Oficina', 'Resguardo',
+     'MATERIALES DE EMBALAJE', 'Viveres y Productos de Limpieza'].forEach((n) => {
+      expect(esAlmacenMineral(n)).toBe(false);
+    });
+    expect(esAlmacenMineral(null)).toBe(false);
+    expect(esAlmacenMineral('')).toBe(false);
+  });
+});
+
+describe('destinosDeTraslado', () => {
+  it('Matanza pasa de doce almacenes a el padre mas los dos de estaño', () => {
+    expect(destinos('CENTRO DE FUNDICION - MATANZAS'))
+      .toEqual(['General', 'ESTAÑO EN BRUTO', 'ESTAÑO REFINADO']);
+  });
+
+  it('el padre va primero, aunque alfabeticamente no lo sea', () => {
+    expect(destinos('CENTRO DE ACOPIO - EL BURRO')).toEqual(['GENERAL - EL BURRO', 'CASITERITA SNO₂']);
+    expect(destinos('LOS PINOS')).toEqual(['Los Pinos', 'SNO₂ CASITERITA ALMACEN']);
+  });
+
+  it('un subalmacen de mineral sigue siendo destino', () => {
+    expect(destinos('CENTRO DE ACOPIO - LA ESPERANZA')).toEqual(['La Esperanza', 'CASITERITA']);
+    expect(destinos('CENTRO DE ACOPIO - LOS PIJIGUAOS')).toEqual(['Principal', 'ALMACEN CASITERITA']);
+  });
+
+  it('deja fuera los almacenes inactivos', () => {
+    expect(destinos('LOS PINOS')).not.toContain('INSUMOS Y CONSUMIBLES');
+  });
+
+  it('no repite el padre cuando el padre es el almacen de mineral', () => {
+    const solo: AlmDestino[] = [{ nombre: 'CASITERITA', sede: 'X', parent_id: null, estado: 'activo' }];
+    expect(destinosDeTraslado(solo)).toEqual([['X', [{ nombre: 'CASITERITA', label: 'CASITERITA' }]]]);
+  });
+
+  it('los almacenes sin sede no se pierden', () => {
+    const sin: AlmDestino[] = [{ nombre: 'Huérfano', sede: null, parent_id: null, estado: 'activo' }];
+    expect(destinosDeTraslado(sin)).toEqual([['Sin sede', [{ nombre: 'Huérfano', label: 'Huérfano' }]]]);
+  });
+
+  it('sin almacenes no explota', () => {
+    expect(destinosDeTraslado([])).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@ import { money, num } from '@/shared/lib/format';
 import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
-import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
+import { destinosDeTraslado } from '@/modules/inventario/stockPorAlmacen';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
@@ -47,22 +47,12 @@ export function TrasladoMaterialForm({
 
   const [destino, setDestino] = useState('');
 
-  // Destino: SOLO almacenes PADRE (raíz, sin parent_id), agrupado por sede.
-  // Se ocultan los subalmacenes para no ensuciar la lista: el material se traslada al
-  // almacén principal de cada sede (Los Pinos, La Esperanza, El Burro, …).
-  const destinosPorSede = useMemo(() => {
-    const activos = almacenesObj.filter((a) => a.estado === 'activo' && !a.parent_id);
-    const grupos = new Map<string, { nombre: string; label: string }[]>();
-    activos
-      .map((a) => ({ nombre: a.nombre, sede: a.sede?.trim() || 'Sin sede', label: nombreCortoAlmacen(a, almacenesObj) }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'es'))
-      .forEach((a) => {
-        const arr = grupos.get(a.sede) ?? [];
-        arr.push({ nombre: a.nombre, label: a.label });
-        grupos.set(a.sede, arr);
-      });
-    return Array.from(grupos.entries()).sort((a, b) => a[0].localeCompare(b[0], 'es'));
-  }, [almacenesObj]);
+  // Destino: el almacén PADRE de cada sede y sus almacenes de mineral.
+  // Filtrar por `!parent_id` no alcanzaba: la jerarquía casi no existe en los datos
+  // y Matanza tiene DOCE almacenes raíz, así que la lista mostraba COMBUSTIBLE,
+  // DEPOSITO, Papelería, Resguardo… El material se traslada al principal de la sede;
+  // casiterita y estaño siguen apareciendo porque son los subalmacenes vigentes.
+  const destinosPorSede = useMemo(() => destinosDeTraslado(almacenesObj), [almacenesObj]);
 
   // Para un producto, el almacén con MÁS stock distinto del destino (de ahí sale).
   // Sectorización: acá el origen es DELIBERADAMENTE LIBRE. Un traslado es una
@@ -253,7 +243,7 @@ export function TrasladoMaterialForm({
               </optgroup>
             ))}
           </select>
-          <small className="muted">Elegí exactamente a qué almacén (o subalmacén) va el material.</small>
+          <small className="muted">El almacén principal de cada sede. Casiterita y estaño aparecen aparte porque tienen su propio almacén.</small>
         </div>
 
         {/* Materiales (varias líneas) — producto buscable; el origen se asigna solo. */}

@@ -154,6 +154,62 @@ export function almacenPrincipalDeSede(
   return candidatos[0].nombre;
 }
 
+/**
+ * ¿Es un almacén de MINERAL? (casiterita / estaño en bruto / estaño refinado)
+ *
+ * Son los únicos subalmacenes vigentes del sistema: el resto —víveres, papelería,
+ * combustible, embalaje— dejó de usarse y el material va al principal de la sede.
+ * Por eso son los únicos que siguen siendo un destino elegible además del padre.
+ */
+export function esAlmacenMineral(nombre: string | null | undefined): boolean {
+  const n = String(nombre ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // ESTAÑO → ESTANO
+    .toUpperCase();
+  return /CASITERITA|SNO\s*[2₂]|ESTANO/.test(n);
+}
+
+export interface DestinoAlmacen { nombre: string; label: string }
+
+/**
+ * Destinos elegibles de un traslado, agrupados por sede: el almacén PADRE de cada
+ * una y sus almacenes de mineral.
+ *
+ * No alcanza con filtrar `!parent_id`: la jerarquía casi no existe en los datos.
+ * Matanza tiene DOCE almacenes raíz (COMBUSTIBLE, DEPOSITO, Papelería, Resguardo…)
+ * y ninguno marcado como padre, así que el desplegable listaba los doce. El padre
+ * se resuelve por nombre —`almacenPrincipalDeSede`—, que da «General» en Matanza y
+ * «GENERAL - EL BURRO» en El Burro.
+ */
+export function destinosDeTraslado(
+  almacenes: Pick<Almacen, 'nombre' | 'sede' | 'parent_id' | 'estado'>[],
+): Array<[string, DestinoAlmacen[]]> {
+  const activos = (almacenes ?? []).filter((a) => a.estado === 'activo');
+  const sedes = Array.from(new Set(activos.map((a) => (a.sede ?? '').trim() || SIN_SEDE)));
+
+  const grupos: Array<[string, DestinoAlmacen[]]> = [];
+  for (const sede of sedes.sort((a, b) => a.localeCompare(b, 'es'))) {
+    const propios = activos.filter((a) => ((a.sede ?? '').trim() || SIN_SEDE) === sede);
+    const principal = sede === SIN_SEDE ? null : almacenPrincipalDeSede(sede, propios);
+
+    const minerales = propios
+      .filter((a) => a.nombre !== principal && esAlmacenMineral(a.nombre))
+      .map((a) => ({ nombre: a.nombre, label: a.nombre }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+
+    // «Sin sede» no tiene principal que valga: se listan todos sus almacenes.
+    const cabeza: DestinoAlmacen[] = principal
+      ? [{ nombre: principal, label: principal }]
+      : sede === SIN_SEDE
+        ? propios.map((a) => ({ nombre: a.nombre, label: a.nombre })).sort((a, b) => a.label.localeCompare(b.label, 'es'))
+        : [];
+
+    const lista = [...cabeza, ...minerales.filter((m) => !cabeza.some((c) => c.nombre === m.nombre))];
+    if (lista.length) grupos.push([sede, lista]);
+  }
+  return grupos;
+}
+
 const mismaSede = (a: string | null | undefined, b: string | null | undefined): boolean =>
   !!a && !!b && a.trim().toUpperCase() === b.trim().toUpperCase();
 
