@@ -18,7 +18,9 @@ import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '../tasas.repository';
 import { calcular } from '@/shared/lib/calculo';
-import { aceptaLetra, mapasDeCalculo, nombreDeCalculo, simboloDeCalculo } from './tasasParaCalculo';
+import {
+  aceptaLetra, borrarUltimo, desdeBolivares, mapasDeCalculo, nombreDeCalculo, simboloDeCalculo,
+} from './tasasParaCalculo';
 /* Acá vivía `evalExpr`, un shunting-yard sobre números planos, hasta el
    04/09/2026. Hacía `replace(/,/g, '.')` sobre toda la expresión y leía con
    `parseFloat`, así que «2.000» —dos mil, con el separador de miles de acá—
@@ -26,25 +28,6 @@ import { aceptaLetra, mapasDeCalculo, nombreDeCalculo, simboloDeCalculo } from '
 
 const CALC_FMT = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 6 });
 
-/**
- * Un resultado de la cinta, escrito.
- *
- * `Bs 80.739` y `1,25` son cosas distintas: lo primero es plata y lo segundo una
- * proporción. Mostrar las dos igual invita a leer una razón como si fuera un monto.
- */
-const fmtResultado = (h: { result: number; enBs: boolean }) =>
-  (h.enBs ? `Bs ${CALC_FMT(h.result)}` : CALC_FMT(h.result));
-
-/**
- * El resultado, escrito de forma que el motor lo vuelva a leer EXACTAMENTE igual.
- *
- * `String(1234.567)` da «1234.567», y esa cadena releída es un millón doscientos
- * mil: el punto con tres dígitos detrás es separador de miles acá. O sea que
- * apretar «=» sobre un resultado de tres decimales lo multiplicaba por mil. Por
- * eso no se reusa `String()`: se escribe sin separador de miles y con coma
- * decimal, que es la única forma que el motor lee sin ambigüedad. `toFixed`
- * además evita la notación científica, que el motor no entiende.
- */
 /**
  * Deja de un texto pegado solo lo que la calculadora puede leer.
  *
@@ -64,6 +47,16 @@ function limpiarPegado(texto: string): string {
     .slice(0, 200);
 }
 
+/**
+ * El resultado, escrito de forma que el motor lo vuelva a leer EXACTAMENTE igual.
+ *
+ * `String(1234.567)` da «1234.567», y esa cadena releída es un millón doscientos
+ * mil: el punto con tres dígitos detrás es separador de miles acá. O sea que
+ * apretar «=» sobre un resultado de tres decimales lo multiplicaba por mil. Por
+ * eso no se reusa `String()`: se escribe sin separador de miles y con coma
+ * decimal, que es la única forma que el motor lee sin ambigüedad. `toFixed`
+ * además evita la notación científica, que el motor no entiende.
+ */
 function paraReusar(n: number): string {
   if (!Number.isFinite(n)) return '0';
   const s = n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
@@ -74,7 +67,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
   const [expr, setExpr] = useState('');
   const [result, setResult] = useState('0');
   const [error, setError] = useState<string | null>(null);
-  const [history, setHistory] = useState<{ expr: string; result: number; enBs: boolean; leida: string }[]>([]);
+  const [history, setHistory] = useState<{ expr: string; result: number; enBs: boolean; leida: string; moneda: string | null }[]>([]);
   const [exporting, setExporting] = useState(false);
   // Conversor rápido USD → Bs (BCV / Binance + margen de ahorro). Carga sus tasas.
   const [usdConv, setUsdConv] = useState('');
@@ -116,13 +109,33 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
   const evaluar = useCallback((texto: string) => {
     const r = calcular(texto, mapas.alias, mapas.enBolivares, nombreDeCalculo, simboloDeCalculo);
     if (!r) return null;
-    return { bs: r.valor.bs, enBs: r.valor.dim === 1, leida: r.comoSeLeyo };
+    return { bs: r.valor.bs, enBs: r.valor.dim === 1, leida: r.comoSeLeyo, moneda: r.valor.moneda ?? null };
   }, [mapas]);
+
+  /* EN QUÉ MONEDA SE LEE EL RESULTADO.
+     El motor ancla todo al bolívar porque necesita una unidad común, pero eso es
+     asunto suyo: quien escribe «100 $» quiere leer dólares, no 80.739 Bs y hacer
+     la división de cabeza. `null` = la moneda en que se escribió la cuenta, que
+     es lo que se espera por defecto; el selector permite mirarla en otra sin
+     tocar la cuenta. */
+  const [monedaSalida, setMonedaSalida] = useState<string | null>(null);
+
+  /** Escribe un resultado en la moneda elegida. */
+  const escribirMonto = useCallback((bs: number, enBs: boolean, monedaPropia: string | null) => {
+    if (!enBs) return CALC_FMT(bs);                       // una proporción no tiene moneda
+    const codigo = monedaSalida ?? monedaPropia ?? 'VES';
+    const monto = desdeBolivares(bs, codigo, mapas.enBolivares);
+    if (monto == null) return `Bs ${CALC_FMT(bs)}`;       // sin tasa, la unidad de referencia
+    return `${simboloDeCalculo(codigo)} ${CALC_FMT(monto)}`;
+  }, [monedaSalida, mapas]);
 
   const press = useCallback((val: string) => {
     setError(null);
     if (val === 'C') { setExpr(''); setResult('0'); return; }
-    if (val === '⌫') { setExpr((e) => e.slice(0, -1)); return; }
+    // Una moneda se borra ENTERA: quitando letra por letra, «usdt» pasa por
+    // «usd» —otra moneda válida— y la cuenta cambia de significado mientras uno
+    // borra, sin haber pedido ese cambio.
+    if (val === '⌫') { setExpr(borrarUltimo); return; }
     if (val === '=') {
       /* Los efectos (guardar en la cinta, fijar el resultado) van ACÁ y no dentro
          del updater de `setExpr`. Un updater tiene que ser una función pura de
@@ -134,8 +147,8 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       try {
         const r = evaluar(cur);
         if (!r) return;
-        setResult(CALC_FMT(r.bs));
-        setHistory((h) => [{ expr: cur, result: r.bs, enBs: r.enBs, leida: r.leida }, ...h].slice(0, 200));
+        setResult(escribirMonto(r.bs, r.enBs, r.moneda));
+        setHistory((h) => [{ expr: cur, result: r.bs, enBs: r.enBs, leida: r.leida, moneda: r.moneda }, ...h].slice(0, 200));
         // Si el resultado es dinero, vuelve al renglón CON su unidad. Sin el
         // «bs», seguir operando lo trataría como número suelto y la cuenta
         // siguiente tomaría la moneda del otro sumando: 80.739 pasaría a ser
@@ -158,9 +171,9 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
     if (!cur) return null;
     try {
       const r = evaluar(cur);
-      return r ? { texto: r.enBs ? `Bs ${CALC_FMT(r.bs)}` : CALC_FMT(r.bs), leida: r.leida } : null;
+      return r ? { texto: escribirMonto(r.bs, r.enBs, r.moneda), leida: r.leida } : null;
     } catch { return { texto: '—', leida: '', incompleta: true }; }
-  }, [expr, evaluar]);
+  }, [expr, evaluar, escribirMonto]);
 
   // Soporte de teclado.
   useEffect(() => {
@@ -182,11 +195,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
         const t = k.toLowerCase();
         if (t === 'c') {
           ev.preventDefault();
-          const texto = (expr.trim() && preview ? preview.texto : result).replace(/^Bs\s*/, '');
-          navigator.clipboard?.writeText(texto).then(
-            () => toast('Resultado copiado', 'success'),
-            () => toast('No se pudo copiar', 'error'),
-          );
+          copiarResultado();
         } else if (t === 'v') {
           ev.preventDefault();
           navigator.clipboard?.readText().then(
@@ -259,7 +268,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       doc.text('Mineral Group Guayana C.A. · Sistema de Gestión de Inventarios', MARGIN, y);
       doc.text(actor, PAGE_W - MARGIN, y, { align: 'right' });
       // Más viejas arriba (orden cronológico).
-      const filas = history.slice().reverse().map((h, idx) => [String(idx + 1), h.expr, fmtResultado(h)]);
+      const filas = history.slice().reverse().map((h, idx) => [String(idx + 1), h.expr, escribirMonto(h.result, h.enBs, h.moneda)]);
       autoTable(doc, {
         startY: y + 8,
         head: [['#', 'Operación', 'Resultado']],
@@ -288,6 +297,16 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
      una moneda aparece el día que tiene tasa y desaparece sola si la pierde.
      Sin estos botones el motor de monedas solo sería alcanzable tecleando. */
   const MONEDAS = [...mapas.enBolivares.keys()].map((c) => ({ codigo: c, simbolo: simboloDeCalculo(c) }));
+
+  /** Copia el resultado sin su símbolo, que es lo que se pega en una celda. */
+  function copiarResultado() {
+    const texto = (expr.trim() && preview ? preview.texto : result).replace(/^[^\d\-]+\s*/, '');
+    if (!texto) return;
+    navigator.clipboard?.writeText(texto).then(
+      () => toast('Resultado copiado', 'success'),
+      () => toast('No se pudo copiar', 'error'),
+    );
+  }
 
   return (
     <Modal title="Calculadora" size="md" onClose={onClose} footer={
@@ -318,9 +337,36 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       {/* Visor: expresión + resultado en vivo. */}
       <div className="card" style={{ padding: '.6rem .8rem', marginTop: 0, textAlign: 'right', minHeight: 60 }}>
         <div className="mono" style={{ fontSize: '.95rem', color: 'var(--text-muted, #9aa4b2)', minHeight: '1.2rem', wordBreak: 'break-all' }}>{expr || ' '}</div>
-        <strong className="mono" style={{ fontSize: '1.7rem', color: 'var(--text, #fff)', display: 'block', wordBreak: 'break-all' }}>
+        {/* El resultado se copia con un clic: es lo que uno se quiere llevar a
+            otra parte, y buscar el atajo para algo tan frecuente sobra. */}
+        <strong className="mono" title="Clic para copiar el resultado"
+          onClick={copiarResultado}
+          style={{ fontSize: '1.7rem', color: 'var(--text, #fff)', display: 'block', wordBreak: 'break-all', cursor: 'pointer' }}>
           {expr && preview != null ? preview.texto : result}
         </strong>
+
+        {/* EN QUÉ MONEDA LEER EL RESULTADO. El motor ancla todo al bolívar
+            porque necesita una unidad común, pero eso es asunto suyo: quien
+            escribe «100 $» quiere leer dólares. «Auto» respeta la moneda de la
+            cuenta; el resto la muestra en otra sin tocar lo escrito. */}
+        {MONEDAS.length > 1 && (
+          <div style={{ display: 'flex', gap: '.25rem', flexWrap: 'wrap', justifyContent: 'flex-end', marginTop: '.35rem' }}>
+            <span className="dim" style={{ fontSize: '.68rem', alignSelf: 'center', marginRight: '.15rem' }}>ver en</span>
+            <button type="button" className={`btn btn-sm ${monedaSalida === null ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setMonedaSalida(null)} title="La moneda en que se escribió la cuenta"
+              style={{ justifyContent: 'center', padding: '.1rem .4rem', fontSize: '.68rem', minHeight: 24 }}>
+              auto
+            </button>
+            {MONEDAS.map((m) => (
+              <button key={m.codigo} type="button"
+                className={`btn btn-sm ${monedaSalida === m.codigo ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setMonedaSalida(m.codigo)} title={`Ver el resultado en ${nombreDeCalculo(m.codigo)}`}
+                style={{ justifyContent: 'center', padding: '.1rem .4rem', fontSize: '.68rem', minHeight: 24 }}>
+                {m.simbolo}
+              </button>
+            ))}
+          </div>
+        )}
         {/* CÓMO SE LEYÓ LA CUENTA. El motor anterior interpretaba mal una
             expresión con monedas y devolvía un número con total confianza; ver
             la cuenta reescrita es la única forma de enterarse de que se entendió
@@ -435,7 +481,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
               <tr key={idx} style={{ cursor: 'pointer' }} onClick={() => setExpr(h.enBs ? `${paraReusar(h.result)} bs` : paraReusar(h.result))}
                 title="Usar este resultado">
                 <td className="mono" style={{ color: 'var(--text-muted, #9aa4b2)' }}>{h.expr}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text, #fff)' }}>= {fmtResultado(h)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text, #fff)' }}>= {escribirMonto(h.result, h.enBs, h.moneda)}</td>
               </tr>
             ))}
           </tbody>

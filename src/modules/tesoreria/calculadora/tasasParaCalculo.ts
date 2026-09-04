@@ -61,6 +61,37 @@ export function nombreDeCalculo(codigo: string): string {
   return ({ VES: 'bolívares', USD: 'dólares', EUR: 'euros', USDT: 'USDT', COP: 'pesos colombianos' })[codigo] ?? codigo;
 }
 
+/**
+ * Pasa un monto de bolívares a otra moneda.
+ *
+ * El motor devuelve todo anclado al bolívar, que es su unidad de referencia.
+ * Pero quien escribe «100 $» quiere leer dólares: obligarlo a ver 80.739 Bs le
+ * hace hacer la división de cabeza, que es justo lo que vino a evitar.
+ */
+export function desdeBolivares(bs: number, codigo: string, enBolivares: Map<string, number>): number | null {
+  const tasa = enBolivares.get(codigo);
+  if (tasa === undefined || !(tasa > 0)) return null;
+  return bs / tasa;
+}
+
+/**
+ * Borra el último elemento de la expresión, entendiendo las monedas como UNA cosa.
+ *
+ * Escribir «USDT» son cuatro teclas pero es un solo concepto: borrarlo letra por
+ * letra deja «USD» —otra moneda válida— y después «US», que no es nada. El
+ * usuario ve la cuenta cambiar de significado mientras borra.
+ */
+export function borrarUltimo(expresion: string): string {
+  const e = expresion.replace(/\s+$/, '');
+  if (!e) return '';
+  // Una palabra entera (las siglas y los nombres de moneda).
+  const palabra = e.match(/\p{L}+$/u);
+  if (palabra) return e.slice(0, -palabra[0].length).replace(/\s+$/, '');
+  // Los símbolos también son una moneda, aunque midan un carácter.
+  if (/[$€]$/.test(e)) return e.slice(0, -1).replace(/\s+$/, '');
+  return e.slice(0, -1);
+}
+
 /** Sin acentos y en mayúsculas, que es como se comparan los alias. */
 function plano(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();

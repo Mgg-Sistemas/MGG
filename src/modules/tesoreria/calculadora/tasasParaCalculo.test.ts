@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { aceptaLetra, mapasDeCalculo, nombreDeCalculo, simboloDeCalculo } from './tasasParaCalculo';
+import {
+  aceptaLetra, borrarUltimo, desdeBolivares, mapasDeCalculo, nombreDeCalculo, simboloDeCalculo,
+} from './tasasParaCalculo';
 import { calcular } from '@/shared/lib/calculo';
 
 /* Valores reales de producción del 04/09/2026 (tabla `tasa_cambio`). */
@@ -97,6 +99,58 @@ describe('aceptaLetra — solo entran las letras que pueden formar una moneda', 
   it('después de un símbolo o un operador se arranca de cero', () => {
     expect(ok('100 $ + 50 ', 'e')).toBe(true);
     expect(ok('100 $ + 50 ', 'x')).toBe(false);
+  });
+});
+
+describe('desdeBolivares — leer el resultado en la moneda que uno quiere', () => {
+  const { enBolivares } = mapasDeCalculo(REALES);
+
+  it('convierte desde bolívares a cada moneda con tasa', () => {
+    expect(desdeBolivares(80739, 'USD', enBolivares)).toBeCloseTo(100, 6);
+    expect(desdeBolivares(938.45, 'EUR', enBolivares)).toBeCloseTo(1, 6);
+    expect(desdeBolivares(1000, 'VES', enBolivares)).toBe(1000);
+  });
+
+  it('ida y vuelta no pierde el número', () => {
+    const bs = 100 * 807.39;
+    expect(desdeBolivares(bs, 'USD', enBolivares)).toBeCloseTo(100, 9);
+  });
+
+  it('una moneda sin tasa devuelve null en vez de un número inventado', () => {
+    expect(desdeBolivares(1000, 'JPY', enBolivares)).toBeNull();
+    const { enBolivares: sinUsdt } = mapasDeCalculo({ ...REALES, usdtVes: null });
+    expect(desdeBolivares(1000, 'USDT', sinUsdt)).toBeNull();
+  });
+});
+
+describe('borrarUltimo — la moneda se borra entera', () => {
+  it('borra la sigla completa, no letra por letra', () => {
+    // Borrando de a una, «USDT» pasa por «USD», que es OTRA moneda válida: la
+    // cuenta cambia de significado mientras uno borra.
+    expect(borrarUltimo('100 usdt')).toBe('100');
+    expect(borrarUltimo('100 usd')).toBe('100');
+    expect(borrarUltimo('40 pesos')).toBe('40');
+    expect(borrarUltimo('1 bolivares')).toBe('1');
+  });
+
+  it('los símbolos también son una moneda entera', () => {
+    expect(borrarUltimo('100 $ ')).toBe('100');
+    expect(borrarUltimo('50 €')).toBe('50');
+  });
+
+  it('lo demás se borra de a un carácter', () => {
+    expect(borrarUltimo('123')).toBe('12');
+    expect(borrarUltimo('100 +')).toBe('100 ');
+    expect(borrarUltimo('1,5')).toBe('1,');
+  });
+
+  it('no se rompe con la expresión vacía', () => {
+    expect(borrarUltimo('')).toBe('');
+    expect(borrarUltimo('   ')).toBe('');
+  });
+
+  it('borra una moneda y deja la cuenta anterior intacta', () => {
+    expect(borrarUltimo('100 $ + 50 eur')).toBe('100 $ + 50');
   });
 });
 
