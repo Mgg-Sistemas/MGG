@@ -41,6 +41,44 @@ export function etiquetaAlmacen(nombre: string, almacenes: Pick<Almacen, 'nombre
   return sede === SIN_SEDE ? nombre : `${nombreSedeCorto(sede)} › ${nombre}`;
 }
 
+/**
+ * Almacén PRINCIPAL de una sede: dónde cae el material que no va a un
+ * subalmacén específico. Es el destino por defecto al crear un producto
+ * estando parado en esa sede.
+ *
+ * No sirve tomar el primero de la lista: viene ordenada por nombre, así que
+ * Matanza arrancaría en «COMBUSTIBLE» y Los Pinos en «INSUMOS Y CONSUMIBLES».
+ * El orden de preferencia es:
+ *   1. el almacén que se llama como la sede  (Los Pinos, La Esperanza)
+ *   2. el «General» / «Principal» de esa sede (Matanza, Parguaza, El Burro)
+ *   3. cualquier otro que no sea subalmacén
+ * Devuelve null si la sede no tiene ningún almacén propio.
+ */
+export function almacenPrincipalDeSede(
+  sede: string | null | undefined,
+  almacenes: Pick<Almacen, 'nombre' | 'sede' | 'parent_id'>[],
+): string | null {
+  const s = String(sede ?? '').trim().toUpperCase();
+  if (!s) return null;
+  const propios = (almacenes ?? []).filter((a) => (a.sede ?? '').trim().toUpperCase() === s);
+  if (!propios.length) return null;
+  // Los subalmacenes (casiterita, víveres…) nunca son el destino por defecto;
+  // si la sede SOLO tiene subalmacenes, se usan igual antes que devolver null.
+  const base = propios.filter((a) => !a.parent_id);
+  const candidatos = base.length ? base : propios;
+
+  const corto = nombreSedeCorto(sede).replace(/^Acopio\s+/i, '').trim().toUpperCase();
+  const norm = (n: string) => n.trim().toUpperCase();
+
+  const porNombreDeSede = candidatos.find((a) => norm(a.nombre) === corto);
+  if (porNombreDeSede) return porNombreDeSede.nombre;
+
+  const general = candidatos.find((a) => /^(GENERAL|PRINCIPAL)\b/.test(norm(a.nombre)));
+  if (general) return general.nombre;
+
+  return candidatos[0].nombre;
+}
+
 const mismaSede = (a: string | null | undefined, b: string | null | undefined): boolean =>
   !!a && !!b && a.trim().toUpperCase() === b.trim().toUpperCase();
 

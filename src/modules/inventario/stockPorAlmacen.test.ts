@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sedeDeAlmacen, stockEn,
-  trasladoDeMovimiento,
+  trasladoDeMovimiento, almacenPrincipalDeSede,
 } from './stockPorAlmacen';
 
 const almacenes = [
@@ -202,5 +202,77 @@ describe('trasladoDeMovimiento', () => {
     // Es transferencia pero el detalle no trae prefijo conocido.
     expect(trasladoDeMovimiento(mov('General', 'Consolidacion por cambio de almacen'), ALMACENES_REALES)).toBeNull();
     expect(trasladoDeMovimiento(mov('General', ''), ALMACENES_REALES)).toBeNull();
+  });
+});
+
+/* ── Almacén principal de cada sede ────────────────────────────────────────
+   Los nombres son los REALES de la base: si mañana se renombra un almacén y
+   una sede queda apuntando al lugar equivocado, estos tests lo cantan. */
+describe('almacenPrincipalDeSede', () => {
+  const REALES = [
+    { nombre: 'COMBUSTIBLE', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'DEPOSITO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'ESTAÑO EN BRUTO', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'Insumo y Consumibles', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'Resguardo', sede: 'CENTRO DE FUNDICION - MATANZAS', parent_id: null },
+    { nombre: 'INSUMOS Y CONSUMIBLES', sede: 'LOS PINOS', parent_id: 'x' },
+    { nombre: 'Los Pinos', sede: 'LOS PINOS', parent_id: null },
+    { nombre: 'SNO₂ CASITERITA ALMACEN', sede: 'LOS PINOS', parent_id: null },
+    { nombre: 'CASITERITA', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: 'y' },
+    { nombre: 'La Esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: null },
+    { nombre: 'SNO₂ CASITERITA', sede: 'CENTRO DE ACOPIO - LA ESPERANZA', parent_id: null },
+    { nombre: 'CASITERITA SNO₂', sede: 'CENTRO DE ACOPIO - EL BURRO', parent_id: null },
+    { nombre: 'GENERAL - EL BURRO', sede: 'CENTRO DE ACOPIO - EL BURRO', parent_id: null },
+    { nombre: 'CASITERITA ALMACEN', sede: 'CENTRO DE ACOPIO - PARGUAZA', parent_id: 'z' },
+    { nombre: 'GENERAL', sede: 'CENTRO DE ACOPIO - PARGUAZA', parent_id: null },
+    { nombre: 'ALMACEN CASITERITA', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS', parent_id: 'w' },
+    { nombre: 'Principal', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS', parent_id: null },
+  ];
+
+  it('Matanza cae en General y NO en COMBUSTIBLE (el primero alfabetico)', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE FUNDICION - MATANZAS', REALES)).toBe('General');
+  });
+
+  it('Los Pinos cae en Los Pinos y NO en INSUMOS Y CONSUMIBLES', () => {
+    expect(almacenPrincipalDeSede('LOS PINOS', REALES)).toBe('Los Pinos');
+  });
+
+  it('La Esperanza cae en La Esperanza y NO en CASITERITA', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - LA ESPERANZA', REALES)).toBe('La Esperanza');
+  });
+
+  it('El Burro cae en su GENERAL', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - EL BURRO', REALES)).toBe('GENERAL - EL BURRO');
+  });
+
+  it('Parguaza cae en GENERAL', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - PARGUAZA', REALES)).toBe('GENERAL');
+  });
+
+  it('Los Pijiguaos cae en Principal', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - LOS PIJIGUAOS', REALES)).toBe('Principal');
+  });
+
+  it('ignora mayusculas y espacios al comparar la sede', () => {
+    expect(almacenPrincipalDeSede('  los pinos  ', REALES)).toBe('Los Pinos');
+  });
+
+  it('una sede sin almacenes devuelve null', () => {
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - INEXISTENTE', REALES)).toBeNull();
+  });
+
+  it('sin sede devuelve null', () => {
+    expect(almacenPrincipalDeSede('', REALES)).toBeNull();
+    expect(almacenPrincipalDeSede(null, REALES)).toBeNull();
+  });
+
+  it('si la sede SOLO tiene subalmacenes, usa uno igual en vez de dejar sin destino', () => {
+    const soloSubs = [{ nombre: 'CASITERITA', sede: 'CENTRO DE ACOPIO - X', parent_id: 'p' }];
+    expect(almacenPrincipalDeSede('CENTRO DE ACOPIO - X', soloSubs)).toBe('CASITERITA');
+  });
+
+  it('tolera una lista vacia', () => {
+    expect(almacenPrincipalDeSede('LOS PINOS', [])).toBeNull();
   });
 });

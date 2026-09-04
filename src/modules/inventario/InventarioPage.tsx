@@ -42,7 +42,7 @@ import { DEFAULT_POLICY, decorate, type ProductoDecorado } from './restock';
 import { ProductosTable } from './ProductosTable';
 import { ProductoForm } from './ProductoForm';
 import { ProductoDetail } from './ProductoDetail';
-import { nombreSedeCorto } from './stockPorAlmacen';
+import { nombreSedeCorto, almacenPrincipalDeSede } from './stockPorAlmacen';
 import { MovimientoForm } from './MovimientoForm';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
@@ -461,6 +461,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   // "General" invisible (que lo dejaba fuera de todas las vistas por centro).
   const defaultAlmacenCrear = useMemo<string | null>(() => {
     if (ui.filterAlmacen && almacenesScopeActual.includes(ui.filterAlmacen)) return ui.filterAlmacen;
+    // El almacén PRINCIPAL de la sede, no el primero de la lista: viene ordenada por
+    // nombre, así que Matanza caería en «COMBUSTIBLE» y Los Pinos en «INSUMOS Y
+    // CONSUMIBLES». Con el desplegable esto se corregía a mano; ahora que la ubicación
+    // queda fija, el default TIENE que ser el correcto (ver almacenPrincipalDeSede).
+    const principal = almacenPrincipalDeSede(sedeScope, almacenes);
+    if (principal && almacenesScopeActual.includes(principal)) return principal;
+    if (principal) return principal;
     if (almacenesScopeActual[0]) return almacenesScopeActual[0];
     // Estricto en un centro/Matanza: si la sub-vista no tiene almacén (p.ej. un centro sin
     // sub-almacén de casiterita), NO caer en el "General" suelto de Matanza. Se usa cualquier
@@ -470,7 +477,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       return todosDelScope[0] ?? null;
     }
     return null;
-  }, [ui.filterAlmacen, almacenesScopeActual, almacenesDeScope]);
+  }, [ui.filterAlmacen, almacenesScopeActual, almacenesDeScope, sedeScope, almacenes]);
   const filtered = useMemo<ProductoDecorado[]>(() => {
     // En un centro/Matanzas la base son los productos de ESE scope; si además se eligió
     // un SUBALMACÉN en el filtro (dentro del centro), se acota a ese subalmacén para
@@ -1198,8 +1205,10 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
              existe para cargarle stock en el almacén que haga falta. */
           onUsarExistente={(p) => setModal({ kind: 'movimiento', producto: p })}
           espacio={espacio}
-          /* Dentro de un almacén/sub-almacén: el nuevo producto entra ahí y la ubicación queda fija. */
-          fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
+          /* La ubicación NO se elige: el producto se crea donde estás parado. Dentro de un
+             almacén/sub-almacén, ese almacén; en una sede, su almacén principal. Solo el
+             Depósito (sin sede) sigue mostrando el selector, porque no hay qué deducir. */
+          fixedAlmacen={ui.view === 'almacenes' ? (almacenSel ?? defaultAlmacenCrear) : defaultAlmacenCrear}
           /* En un centro/scope (lista normal): arranca en el almacén del scope, no en "General". */
           defaultAlmacen={defaultAlmacenCrear}
           /* Parado en una sede/centro: el selector se limita a ESA sede (Matanza→Matanza,
