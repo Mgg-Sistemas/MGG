@@ -109,6 +109,13 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
   // Soporte de teclado.
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
+      // El listener vive en `window`, así que tambien oye lo que se escribe en el
+      // campo del conversor USD→Bs que está más abajo en este mismo modal. Sin
+      // esta guarda, teclear «9.50» ahí lo mandaba TAMBIÉN a la expresión de la
+      // calculadora. Ya pasaba con los dígitos; al aceptar letras sería peor.
+      const dest = ev.target as HTMLElement | null;
+      if (dest && (/^(INPUT|TEXTAREA|SELECT)$/.test(dest.tagName) || dest.isContentEditable)) return;
+
       const k = ev.key;
       if (/[0-9]/.test(k)) press(k);
       // Se escribe lo que se teclea: el motor entiende coma y punto, y ver en
