@@ -39,20 +39,32 @@ export function TrasladoMaterialForm({
   // recién al recibir): el almacén no los considera de ninguna forma, pero el
   // desplegable los ofrecía igual. Se filtra por stock real, no por «tiene fila»,
   // porque una fila en cero es igual de indespachable.
+  // Un traslado va de almacén PADRE a almacén padre. El stock que está en un
+  // almacén que ya no es destino elegible tampoco puede ser origen: ofrecerlo
+  // sería el mismo callejón sin salida (se elige y no hay de dónde sacarlo).
+  // Destino: el almacén PADRE de cada sede y sus almacenes de mineral.
+  // Filtrar por `!parent_id` no alcanzaba: la jerarquía casi no existe en los datos
+  // y Matanza tenía DOCE almacenes raíz, así que la lista mostraba COMBUSTIBLE,
+  // DEPOSITO, Papelería, Resguardo… Casiterita y estaño siguen apareciendo porque
+  // son los subalmacenes vigentes.
+  const destinosPorSede = useMemo(() => destinosDeTraslado(almacenesObj), [almacenesObj]);
+  const elegibles = useMemo(
+    () => new Set(destinosPorSede.flatMap(([, alms]) => alms.map((a) => a.nombre))),
+    [destinosPorSede],
+  );
+
   const conStock = useMemo(() => {
     const total = new Map<string, number>();
-    for (const e of existencias) total.set(e.producto_id, (total.get(e.producto_id) ?? 0) + (Number(e.stock) || 0));
+    for (const e of existencias) {
+      if (!elegibles.has(e.almacen)) continue;
+      total.set(e.producto_id, (total.get(e.producto_id) ?? 0) + (Number(e.stock) || 0));
+    }
     return new Set(Array.from(total.entries()).filter(([, s]) => s > 0).map(([id]) => id));
-  }, [existencias]);
+  }, [existencias, elegibles]);
 
   const [destino, setDestino] = useState('');
 
-  // Destino: el almacén PADRE de cada sede y sus almacenes de mineral.
-  // Filtrar por `!parent_id` no alcanzaba: la jerarquía casi no existe en los datos
-  // y Matanza tiene DOCE almacenes raíz, así que la lista mostraba COMBUSTIBLE,
-  // DEPOSITO, Papelería, Resguardo… El material se traslada al principal de la sede;
-  // casiterita y estaño siguen apareciendo porque son los subalmacenes vigentes.
-  const destinosPorSede = useMemo(() => destinosDeTraslado(almacenesObj), [almacenesObj]);
+
 
   // Para un producto, el almacén con MÁS stock distinto del destino (de ahí sale).
   // Sectorización: acá el origen es DELIBERADAMENTE LIBRE. Un traslado es una
@@ -65,7 +77,8 @@ export function TrasladoMaterialForm({
 
   const mejorOrigen = (productoId: string, excluir: string): { almacen: string; stock: number } | null => {
     const exs = existencias
-      .filter((e) => e.producto_id === productoId && e.almacen !== excluir && (Number(e.stock) || 0) > 0)
+      .filter((e) => e.producto_id === productoId && e.almacen !== excluir
+        && elegibles.has(e.almacen) && (Number(e.stock) || 0) > 0)
       .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
     const ex = exs[0];
     return ex ? { almacen: ex.almacen, stock: Number(ex.stock) || 0 } : null;
