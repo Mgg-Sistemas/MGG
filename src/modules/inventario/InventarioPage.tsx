@@ -467,8 +467,10 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     // queda fija, el default TIENE que ser el correcto (ver almacenPrincipalDeSede).
     const principal = almacenPrincipalDeSede(sedeScope, almacenes);
     if (principal && almacenesScopeActual.includes(principal)) return principal;
-    if (principal) return principal;
+    // La sub-vista manda sobre el principal de la sede: parado en «⛏ Casiterita» el
+    // producto va al almacén de casiterita, no al general del centro.
     if (almacenesScopeActual[0]) return almacenesScopeActual[0];
+    if (principal) return principal;
     // Estricto en un centro/Matanza: si la sub-vista no tiene almacén (p.ej. un centro sin
     // sub-almacén de casiterita), NO caer en el "General" suelto de Matanza. Se usa cualquier
     // almacén de ESA sede, para que el producto quede SIEMPRE en el centro donde lo creás.
