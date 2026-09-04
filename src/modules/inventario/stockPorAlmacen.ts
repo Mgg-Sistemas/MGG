@@ -294,20 +294,41 @@ export function contarSinAlmacen(movs: Pick<Movimiento, 'almacen'>[]): number {
  * algún almacén, solo que el dato no lo dice: esconderla haría creer que el stock apareció
  * de la nada). El ámbito de cada línea se rotula aparte (`sinAlmacen`).
  */
-export function filtrarKardex<M extends Pick<Movimiento, 'almacen'>>(movs: M[], filtro: string | null): M[] {
-  if (!filtro) return movs;
-  if (filtro === FILTRO_SIN_ALMACEN) return movs.filter(sinAlmacen);
-  return movs.filter((m) => sinAlmacen(m) || (m.almacen ?? '').trim() === filtro);
+/**
+ * La SALIDA de una consolidación de almacenes no se muestra en el kardex.
+ *
+ * Consolidar Matanza generó un par de líneas por producto: la salida del almacén
+ * que se vació y la entrada a «General». La salida aparecía en rojo, con signo
+ * negativo y saldo 0 —«-443,6 KILOGRAMO · Materias Primas»— como si se hubiera
+ * despachado material, cuando en la práctica no se movió nada de lugar: fue una
+ * fusión administrativa de dos almacenes de la MISMA sede.
+ *
+ * Se conserva la ENTRADA, que es la que explica de dónde salió el saldo que hoy
+ * está en «General», y se conservan las dos filas en la base: esto es lo que se
+ * muestra, no lo que se guarda.
+ */
+export function esSalidaDeConsolidacion(m: Pick<Movimiento, 'ref_tipo' | 'delta'>): boolean {
+  return m.ref_tipo === 'consolidacion' && (Number(m.delta) || 0) < 0;
+}
+
+export function filtrarKardex<M extends Pick<Movimiento, 'almacen' | 'ref_tipo' | 'delta'>>(movs: M[], filtro: string | null): M[] {
+  const base = movs.filter((m) => !esSalidaDeConsolidacion(m));
+  if (!filtro) return base;
+  if (filtro === FILTRO_SIN_ALMACEN) return base.filter(sinAlmacen);
+  return base.filter((m) => sinAlmacen(m) || (m.almacen ?? '').trim() === filtro);
 }
 
 /**
  * Entradas y salidas del ámbito elegido. Con un almacén, SOLO cuentan las líneas de ese
  * almacén (las sin almacén no se le pueden atribuir); sin filtro cuentan todas.
  */
-export function entradasSalidas(movs: Pick<Movimiento, 'almacen' | 'delta'>[], filtro: string | null): { entradas: number; salidas: number } {
-  const base = !filtro ? movs
-    : filtro === FILTRO_SIN_ALMACEN ? movs.filter(sinAlmacen)
-    : movs.filter((m) => (m.almacen ?? '').trim() === filtro);
+export function entradasSalidas(movs: Pick<Movimiento, 'almacen' | 'delta' | 'ref_tipo'>[], filtro: string | null): { entradas: number; salidas: number } {
+  // Se descarta lo mismo que el listado: si la salida de consolidación no se ve,
+  // tampoco puede estar sumando en el total de «salidas» del período.
+  const visibles = movs.filter((m) => !esSalidaDeConsolidacion(m));
+  const base = !filtro ? visibles
+    : filtro === FILTRO_SIN_ALMACEN ? visibles.filter(sinAlmacen)
+    : visibles.filter((m) => (m.almacen ?? '').trim() === filtro);
   const entradas = base.filter((m) => m.delta > 0).reduce((a, m) => a + m.delta, 0);
   const salidas = base.filter((m) => m.delta < 0).reduce((a, m) => a + Math.abs(m.delta), 0);
   return { entradas: Math.round(entradas * 1e6) / 1e6, salidas: Math.round(salidas * 1e6) / 1e6 };

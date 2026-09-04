@@ -3,7 +3,7 @@ import {
   ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sedeDeAlmacen, stockEn,
   trasladoDeMovimiento, almacenPrincipalDeSede, agregarExistencias, rotuloAlmacen,
-  esAlmacenMineral, destinosDeTraslado,
+  esAlmacenMineral, destinosDeTraslado, esSalidaDeConsolidacion,
 } from './stockPorAlmacen';
 
 const almacenes = [
@@ -472,5 +472,36 @@ describe('destinosDeTraslado', () => {
 
   it('sin almacenes no explota', () => {
     expect(destinosDeTraslado([])).toEqual([]);
+  });
+});
+
+// Consolidar Matanza dejó un par de líneas por producto: la salida del almacén que
+// se vació y la entrada a «General». La salida se veía en rojo, con saldo 0, como si
+// se hubiera despachado material que en realidad no se movió de sede.
+describe('salida de consolidación', () => {
+  const consolSalida = { almacen: 'Materias Primas', delta: -443.6, ref_tipo: 'consolidacion' };
+  const consolEntrada = { almacen: 'General', delta: 443.6, ref_tipo: 'consolidacion' };
+  const trasladoReal = { almacen: 'Los Pinos', delta: -10, ref_tipo: 'traslado_modulo' };
+  const salidaNormal = { almacen: 'General', delta: -5, ref_tipo: 'salida_modulo' };
+  const movs = [consolSalida, consolEntrada, trasladoReal, salidaNormal];
+
+  it('reconoce solo la pata negativa de la consolidación', () => {
+    expect(esSalidaDeConsolidacion(consolSalida)).toBe(true);
+    expect(esSalidaDeConsolidacion(consolEntrada)).toBe(false);   // la entrada SÍ se ve
+    expect(esSalidaDeConsolidacion(trasladoReal)).toBe(false);    // un traslado de verdad se ve
+    expect(esSalidaDeConsolidacion(salidaNormal)).toBe(false);
+  });
+
+  it('el kardex la oculta y conserva todo lo demás', () => {
+    expect(filtrarKardex(movs, null)).toEqual([consolEntrada, trasladoReal, salidaNormal]);
+  });
+
+  it('la oculta también cuando se filtra por su propio almacén', () => {
+    expect(filtrarKardex(movs, 'Materias Primas')).toEqual([]);
+  });
+
+  it('no infla el total de salidas del período', () => {
+    // Sin el filtro, las salidas darían 458,6 por una fusión que no despachó nada.
+    expect(entradasSalidas(movs, null)).toEqual({ entradas: 443.6, salidas: 15 });
   });
 });

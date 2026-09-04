@@ -2340,6 +2340,16 @@ function OrdenDetailModal({
       toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
     }
   }
+  /* La orden en texto plano, para mandarla por correo o WhatsApp a quien paga y
+     no entra al sistema. Se genera solo con este botón. */
+  function handlePagoTxt() {
+    import('./ordenPagoTxt')
+      .then(({ descargarOrdenPagoTxt }) => descargarOrdenPagoTxt(
+        o,
+        proveedor?.razon_social ?? (o.proveedor_id ? proveedorMap.get(o.proveedor_id)?.razon_social : '') ?? '—',
+      ))
+      .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el TXT', 'error'));
+  }
   function handleOcPdf() {
     import('./ordenCompraPdf')
       .then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(o.id))
@@ -2433,6 +2443,9 @@ function OrdenDetailModal({
       {isOcAprobada && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={handlePagoTxt} title="Bajar la orden en texto plano: quién la pidió, de qué unidad, qué pidió, el proveedor y cómo se paga con los datos del beneficiario">
+            ↓ TXT para pagar
+          </button>
           {canManageProcurement && (
             <button className="btn btn-ghost" onClick={onEditarOc} title="Editar los precios de la OC. El nuevo total se sincroniza con Tesorería sin sacar la OC de pago; queda en la trazabilidad.">✎ Editar precios</button>
           )}
