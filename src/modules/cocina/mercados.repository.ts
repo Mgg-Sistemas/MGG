@@ -13,7 +13,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { CocinaComida, Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
-import { listComidas, listViveresGlobal, esCategoriaCocina } from './cocina.repository';
+import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, diaDeComida } from './cocina.repository';
 import { diferenciasPorViver, totalesDeMercado, type DiferenciaViver, type TotalesMercado } from './mercadoComparar';
 
 const TABLE = 'mercados_cocina';
@@ -383,7 +383,21 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
       items: (c.items ?? []).length,
       cantidad: r2((c.items ?? []).reduce((a, it) => a + (Number(it.cantidad) || 0), 0)),
     })),
-  ].sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
+  ].sort((a, b) => {
+    // Día más nuevo primero. Dentro de un día, las tres comidas comparten `at`
+    // (se guarda al mediodía), así que el desempate lo da el orden en que se
+    // sirven: desayuno → almuerzo → cena. Sin esto, un día cargado empezando
+    // por la cena se leía «cena, desayuno, almuerzo».
+    const dia = diaDeComida(b.at).localeCompare(diaDeComida(a.at));
+    if (dia !== 0) return dia;
+    // Las entradas de víveres del día van antes: primero llega, después se cocina.
+    if (a.kind !== b.kind) return a.kind === 'entrada' ? -1 : 1;
+    if (a.kind === 'consumo' && b.kind === 'consumo') {
+      const t = ordenTipoComida(a.comida.tipo_comida) - ordenTipoComida(b.comida.tipo_comida);
+      if (t !== 0) return t;
+    }
+    return (b.at ?? '').localeCompare(a.at ?? '');
+  });
 
   return {
     mercado, dia: diaDe(mercado), dias: DURACION_MERCADO_DIAS,
