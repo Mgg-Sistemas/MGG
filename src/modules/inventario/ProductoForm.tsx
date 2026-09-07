@@ -322,6 +322,14 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
       setError('Seleccioná la receta de fundición o cambiá la respuesta a "No".');
       return;
     }
+    // Sin unidad de medida el stock es un número sin significado: no se sabe si
+    // los «3» son kilos o cajas. Seis fichas quedaron así porque el formulario
+    // arranca con la unidad VACÍA hasta que carga el catálogo, y nada impedía
+    // guardar en ese momento.
+    if (!form.unidad.trim()) {
+      setError('Elegí la unidad de medida: sin ella no se sabe si el stock son unidades, kilos o litros.');
+      return;
+    }
     // Stock por bulto: necesita "unidades por bulto" para convertir a unidades.
     if (stockModo === 'bulto' && (Number(form.stock) || 0) > 0 && undPorBulto <= 0) {
       setError('Indicá las “Unidades por caja/bulto” para convertir el stock a unidades.');
