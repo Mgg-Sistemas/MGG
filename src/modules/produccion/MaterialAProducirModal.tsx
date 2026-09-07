@@ -17,6 +17,7 @@ import { coladaDatosVacios, crearColada, proximaColadaNum, getConsumoBigBags } f
 import { RefinacionCampos } from './RefinacionCampos';
 import { refinacionDatosVacios, proximaRefinacionNum, crearRefinacion, listColadasFinalizadas, listRefinacionesFinalizadas, type ColadaFinalizada } from './refinacion.repository';
 import type { ColadaDatos, RefinacionDatos } from '@/shared/lib/types';
+import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
 
 interface RecetaBase {
   rendimiento: number;
@@ -129,8 +130,10 @@ export function MaterialAProducirModal({
   // Orígenes disponibles = coladas primarias (crudo) + refinaciones finalizadas (2ª refinación).
   const origenesRefinables = useMemo(() => [...coladasFin, ...refinadosFin], [coladasFin, refinadosFin]);
   const producibles = useMemo(() => productos.filter((p) => p.es_producible), [productos]);
+  // Mismo criterio que el check de Salidas: si la salida deja marcar un material,
+  // la colada tiene que poder consumirlo. Si no, quedaría trabado en el piso.
   const materiales = useMemo(
-    () => productos.filter((p) => p.es_receta && p.estado === 'activo'),
+    () => productos.filter((p) => esMaterialDeFundicion(p) && p.estado === 'activo'),
     [productos],
   );
   const almacenes = almacenesList.length ? almacenesList : ['General'];
@@ -258,7 +261,7 @@ export function MaterialAProducirModal({
   const candidatos = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     return productos
-      .filter((p) => p.estado === 'activo' && !p.es_receta && !p.es_producible)
+      .filter((p) => p.estado === 'activo' && !esMaterialDeFundicion(p) && !p.es_producible)
       .filter((p) => !q || p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
       .slice(0, 30);
   }, [productos, busqueda]);

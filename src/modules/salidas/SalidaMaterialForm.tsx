@@ -17,6 +17,7 @@ import { listCentrosAcopio } from './cajas.repository';
 import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type AsignacionSalida } from './asignacionPrioridad';
 import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
+import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
 
 interface LineaUI {
   id: number; productoId: string; cantidad: string; precio: string; almacen: string;
@@ -82,13 +83,13 @@ export function SalidaMaterialForm({
   const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', precio: '', almacen: '', paraFundicion: false }]); setSeq((s) => s + 1); };
 
   /**
-   * ¿Esta línea puede ir a fundición? Solo material de RECETA (`es_receta`) que
+   * ¿Esta línea puede ir a fundición? Materia prima (o insumo de receta) que
    * salga de MATANZA. El material marcado se descuenta acá y la colada que lo
    * queme ya no lo descuenta otra vez — ese era el doble descuento.
    */
   const puedeIrAFundicion = (l: LineaUI): boolean => {
     const p = prodDe(l.productoId);
-    if (!p?.es_receta) return false;
+    if (!esMaterialDeFundicion(p)) return false;
     const almacenes = planDe(l).tramos.map((t) => t.almacen);
     return almacenes.some((a) => (sedePorAlmacen.get(a) ?? '').toUpperCase().includes('MATANZA'));
   };

@@ -36,6 +36,7 @@ import { ClientePicker } from './ClientePicker';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { destinosDeTraslado } from '@/modules/inventario/stockPorAlmacen';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
+import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
 import {
   descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
   type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
@@ -1025,8 +1026,8 @@ function SolicitudDetalleModal({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
                 <strong className="muted" style={{ fontSize: '.78rem' }}>Material #{idx + 1}</strong>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-                  {/* Igual que en el alta: solo material de receta que sale de Matanza. */}
-                  {p?.es_receta && (sedePorAlmacen.get(l.almacen) ?? '').toUpperCase().includes('MATANZA') && (
+                  {/* Igual que en el alta: materia prima o insumo de receta, saliendo de Matanza. */}
+                  {esMaterialDeFundicion(p) && (sedePorAlmacen.get(l.almacen) ?? '').toUpperCase().includes('MATANZA') && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.78rem' }}
                       title="El material queda en el piso de fundición: la colada que lo queme ya no lo descuenta otra vez">
                       <input type="checkbox" checked={l.paraFundicion === true}
