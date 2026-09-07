@@ -1,5 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import { cachedQuery } from '@/shared/lib/queryCache';
+import { nombreASellar, nombrePorEmail } from '@/shared/lib/personas';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -230,12 +231,20 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
       ...(urgente ? { detalle: 'ORDEN URGENTE' } : {}),
     },
   ];
+  // El nombre del solicitante se SELLA cuando la orden nace. Si no se escribió
+  // uno a mano, se toma el que la persona tiene hoy en su ficha. Sin esto la
+  // pantalla lo resolvía en vivo por el correo, y renombrar a un usuario le
+  // cambiaba el nombre a todas sus órdenes viejas, ya cerradas.
+  const personaSellada = nombreASellar(
+    input.solicitante_persona,
+    await nombrePorEmail(input.solicitante_email),
+  );
   const row = {
     codigo,
     proveedor_id: input.proveedor_id,
     solicitante_email: input.solicitante_email,
     solicitante: input.solicitante,
-    solicitante_persona: input.solicitante_persona?.trim() || null,
+    solicitante_persona: personaSellada,
     ci_solicitante: input.ci_solicitante,
     items: input.items,
     total,
@@ -408,7 +417,12 @@ export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEm
     total,
     notas: input.notas?.trim() || null,
     solicitante: input.solicitante?.trim() || null,
-    solicitante_persona: input.solicitante_persona?.trim() || null,
+    // Solo se toca si el formulario lo trae. El de productos no tiene ese campo:
+    // si se pisara siempre, editar una orden de productos le borraría el nombre
+    // sellado al crearla.
+    ...(input.solicitante_persona !== undefined
+      ? { solicitante_persona: input.solicitante_persona?.trim() || null }
+      : {}),
     ci_solicitante: input.ci_solicitante?.trim() || null,
     urgente: !!input.urgente,
     ...(input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {}),
