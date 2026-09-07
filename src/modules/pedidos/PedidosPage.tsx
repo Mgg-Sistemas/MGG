@@ -2351,6 +2351,14 @@ function OrdenDetailModal({
       ))
       .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el TXT', 'error'));
   }
+  /* La solicitud aprobada en PDF, para mandarla a cotizar: lleva los materiales
+     con su medida y cantidad, y la columna de precio EN BLANCO. Se genera solo
+     con este botón. */
+  function handleCotizarPdf() {
+    import('./solicitudCotizacionPdf')
+      .then(({ descargarSolicitudCotizacionPdf }) => descargarSolicitudCotizacionPdf(o))
+      .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'));
+  }
   function handleOcPdf() {
     import('./ordenCompraPdf')
       .then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(o.id))
@@ -2406,6 +2414,13 @@ function OrdenDetailModal({
       )}
       {canCancel && (
         <button className="btn btn-danger" onClick={onCancel}>Cancelar orden</button>
+      )}
+      {/* Descargar es de solo lectura: no se pide permiso de compras para bajarlo. */}
+      {(o.estado === 'aprobada' || o.estado === 'asignada') && (
+        <button className="btn btn-ghost" onClick={handleCotizarPdf}
+          title="Descargar la solicitud en PDF (materiales, medidas y cantidades) para mandarla a cotizar">
+          ↓ PDF para cotizar
+        </button>
       )}
       {(o.estado === 'aprobada' || o.estado === 'asignada') && canManageProcurement && (
         <button className="btn btn-primary" onClick={onAsignar} title="Repartir los productos entre varios proveedores (una OC por proveedor)">
