@@ -10,8 +10,9 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProductos } from '@/modules/inventario/inventario.repository';
-import { listExistencias } from '@/modules/inventario/almacenes.repository';
-import type { Producto, Existencia } from '@/shared/lib/types';
+import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
+import type { Almacen, Producto, Existencia } from '@/shared/lib/types';
+import { almacenVentaInicial, almacenesDeVenta, existenciaEn, productosVendibles } from './almacenVenta';
 import {
   listVentas, crearVenta, actualizarVenta, emitirVenta, marcarPagada, anularVenta, eliminarVenta,
   calcItem, calcVenta, resumenVentas,
@@ -46,6 +47,7 @@ export function VentasPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'nueva' | 'clientes' | 'reporte' | null>(null);
   const [editar, setEditar] = useState<Venta | null>(null);
@@ -56,12 +58,14 @@ export function VentasPage() {
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      const [vs, cs, ps, ex] = await Promise.all([listVentas(), listClientes(), listProductos(), listExistencias()]);
-      setVentas(vs); setClientes(cs); setProductos(ps); setExistencias(ex);
+      const [vs, cs, ps, ex, als] = await Promise.all([
+        listVentas(), listClientes(), listProductos(), listExistencias(), listAlmacenes(),
+      ]);
+      setVentas(vs); setClientes(cs); setProductos(ps); setExistencias(ex); setAlmacenes(als);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { cargar().catch((e) => toast(e instanceof Error ? e.message : 'Error al cargar', 'error')); }, [cargar]);
-  useRealtime(['ventas', 'clientes', 'existencias', 'productos'], cargar);
+  useRealtime(['ventas', 'clientes', 'existencias', 'productos', 'almacenes'], cargar);
 
   const resumen = useMemo(() => resumenVentas(ventas), [ventas]);
   const porEstado = useMemo(() => {
@@ -207,7 +211,7 @@ export function VentasPage() {
       )}
 
       {(modal === 'nueva' || editar) && (
-        <VentaModal venta={editar} clientes={clientes} productos={productos} existencias={existencias}
+        <VentaModal venta={editar} clientes={clientes} productos={productos} existencias={existencias} almacenes={almacenes}
           vendedorDefault={actorName ?? ''} actor={actor} actorName={actorName}
           onClose={() => { setModal(null); setEditar(null); }}
           onSaved={async () => { setModal(null); setEditar(null); await cargar(); }} />
@@ -231,12 +235,15 @@ export function VentasPage() {
 
 interface FilaItem extends VentaItem { _k: number }
 
-function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, actor, actorName, onClose, onSaved }: {
-  venta: Venta | null; clientes: Cliente[]; productos: Producto[]; existencias: Existencia[];
+function VentaModal({ venta, clientes, productos, existencias, almacenes, vendedorDefault, actor, actorName, onClose, onSaved }: {
+  venta: Venta | null; clientes: Cliente[]; productos: Producto[]; existencias: Existencia[]; almacenes: Almacen[];
   vendedorDefault: string; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const editando = !!venta;
   const [fecha, setFecha] = useState(venta?.fecha ?? new Date().toISOString().slice(0, 10));
+  // La factura sale de UN almacén: por defecto el padre de Matanza. Al editar
+  // se respeta el que ya tenían los renglones.
+  const [almacen, setAlmacen] = useState(() => venta?.items?.[0]?.almacen || almacenVentaInicial(almacenes));
   const [clienteId, setClienteId] = useState(venta?.cliente_id ?? '');
   const [clienteNombre, setClienteNombre] = useState(venta?.cliente_nombre ?? '');
   const [moneda, setMoneda] = useState(venta?.moneda ?? 'USD');
@@ -249,27 +256,44 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const gruposAlmacen = useMemo(() => almacenesDeVenta(almacenes), [almacenes]);
+  // Solo se ofrece lo que se puede despachar: ficha activa y con stock en ese almacén.
+  const vendibles = useMemo(() => productosVendibles(productos, existencias, almacen), [productos, existencias, almacen]);
+  // Un borrador viejo puede apuntar a un almacén que ya no se ofrece; se conserva
+  // para no cambiárselo por lo bajo al abrirlo.
+  const almacenFueraDeLista = !!almacen && !gruposAlmacen.some(([, ds]) => ds.some((d) => d.nombre === almacen));
+
   const items = useMemo(() => filas.map((f) => calcItem(f)), [filas]);
   const totales = useMemo(() => calcVenta(items, Number(descuento) || 0, Number(ivaPct) || 0), [items, descuento, ivaPct]);
 
   function setFila(k: number, patch: Partial<VentaItem>) {
     setFilas((prev) => prev.map((f) => (f._k === k ? { ...calcItem({ ...f, ...patch }), _k: k } : f)));
   }
-  function addFila() { setFilas((prev) => [...prev, { ...calcItem({}), _k: (prev.at(-1)?._k ?? 0) + 1 }]); }
+  function addFila() { setFilas((prev) => [...prev, { ...calcItem({ almacen }), _k: (prev.at(-1)?._k ?? 0) + 1 }]); }
   function delFila(k: number) { setFilas((prev) => prev.filter((f) => f._k !== k)); }
 
-  // Al elegir producto, precarga unidad + costo (PMP) y AUTO-asigna el almacén con
-  // MÁS stock (el "correspondiente"): la venta descuenta de ahí, sin pedir almacén.
+  // Al elegir producto precarga unidad y costo (PMP) DEL ALMACÉN de la factura.
+  // Antes se auto-asignaba el almacén con más stock, y por eso una misma factura
+  // podía mezclar material de sedes distintas sin que se notara.
   function elegirProducto(k: number, productoId: string) {
     const p = productos.find((x) => x.id === productoId);
-    const exs = existencias
-      .filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0)
-      .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
-    const ex = exs[0];
+    const ex = existenciaEn(existencias, productoId, almacen);
     setFila(k, {
       producto_id: productoId, producto_nombre: p?.nombre ?? '', unidad: p?.unidad ?? null,
-      almacen: ex?.almacen ?? '', costo_unit: Number(ex?.costo_promedio) || 0,
+      almacen, costo_unit: ex.costo,
     });
+  }
+
+  /** Cambiar de almacén re-apunta los renglones y les recalcula el costo de ahí. */
+  function cambiarAlmacen(nuevo: string) {
+    setAlmacen(nuevo);
+    setFilas((prev) => prev.map((f) => ({
+      ...calcItem({
+        ...f, almacen: nuevo,
+        costo_unit: f.producto_id ? existenciaEn(existencias, f.producto_id, nuevo).costo : f.costo_unit,
+      }),
+      _k: f._k,
+    })));
   }
 
   function input(): Parameters<typeof crearVenta>[0] {
@@ -316,6 +340,20 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
           <input className="input" style={{ marginTop: '.3rem' }} value={clienteNombre} onChange={(e) => { setClienteNombre(e.target.value); setClienteId(''); }} placeholder="…o escribí un cliente ocasional" />
         </div>
         <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
+        <div className="form-row">
+          <label>Almacén (de dónde sale)</label>
+          <select className="select" value={almacen} onChange={(e) => cambiarAlmacen(e.target.value)}>
+            {almacenFueraDeLista && (
+              <optgroup label="Almacén actual"><option value={almacen}>{almacen}</option></optgroup>
+            )}
+            {gruposAlmacen.map(([sede, destinos]) => (
+              <optgroup key={sede} label={sede}>
+                {destinos.map((d) => <option key={d.nombre} value={d.nombre}>{d.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <small className="muted">Solo se listan los productos con stock acá.</small>
+        </div>
         <div className="form-row"><label>Moneda</label>
           <select className="select" value={moneda} onChange={(e) => setMoneda(e.target.value)}>
             <option value="USD">USD</option><option value="Bs">Bs</option><option value="USDT">USDT</option><option value="COP">COP</option>
@@ -341,17 +379,20 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
           </thead>
           <tbody>
             {filas.map((f) => {
-              // Stock total del producto (sumando todos los almacenes) — solo informativo.
-              const stockTotal = existencias.filter((e) => e.producto_id === f.producto_id).reduce((a, e) => a + (Number(e.stock) || 0), 0);
+              // Stock en el almacén del que sale la factura: es de ahí que se descuenta.
+              const stockAqui = existenciaEn(existencias, f.producto_id, almacen).stock;
               return (
                 <tr key={f._k}>
                   <td>
                     <SearchSelect value={f.producto_id ?? ''} onChange={(id) => elegirProducto(f._k, id)}
-                      options={productos.map((p) => ({ value: p.id, label: `${p.nombre}${p.sku ? ` (${p.sku})` : ''}` }))}
-                      placeholder="🔎 Producto…" />
+                      options={vendibles.map((p) => ({ value: p.id, label: `${p.nombre}${p.sku ? ` (${p.sku})` : ''}` }))}
+                      placeholder="🔎 Producto…"
+                      emptyText={`Sin productos con stock en ${almacen || 'este almacén'}.`} />
                     {f.producto_id && (
                       <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>
-                        {f.almacen ? <>📦 {f.almacen} · stock {num(stockTotal)}</> : <span style={{ color: 'var(--danger)' }}>Sin stock en ningún almacén</span>}
+                        {stockAqui > 0
+                          ? <>📦 {almacen} · stock {num(stockAqui)}</>
+                          : <span style={{ color: 'var(--danger)' }}>Sin stock en {almacen || 'el almacén elegido'}</span>}
                       </small>
                     )}
                   </td>
