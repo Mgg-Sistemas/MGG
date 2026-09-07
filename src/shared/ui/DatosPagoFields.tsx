@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { BANCOS_VE, labelBanco } from '@/shared/lib/bancos';
 import type { DatosPago } from '@/modules/pedidos/datosPago.repository';
+import { errorCiRif, errorCuenta, errorTelefono, errorTelefonoContraBanco, LARGO_CUENTA } from './datosPagoValidacion';
 
 /** Selector de banco buscable (guarda el código SUDEBAN). */
 function BancoSelect({ value, onChange }: { value: string; onChange: (codigo: string) => void }) {
@@ -40,12 +41,19 @@ function BancoSelect({ value, onChange }: { value: string; onChange: (codigo: st
   );
 }
 
-function Campo({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+function Campo({ label, children, hint, error }: {
+  label: string; children: React.ReactNode; hint?: string;
+  /** Aviso en rojo debajo del campo. Se muestra mientras se escribe, para
+   *  corregir en el momento y no descubrirlo recién al guardar. */
+  error?: string | null;
+}) {
   return (
     <div className="form-row" style={{ margin: 0 }}>
       <label>{label}</label>
       {children}
-      {hint && <span className="muted" style={{ fontSize: '.7rem' }}>{hint}</span>}
+      {error
+        ? <span style={{ fontSize: '.7rem', color: 'var(--danger)' }}>⚠ {error}</span>
+        : hint && <span className="muted" style={{ fontSize: '.7rem' }}>{hint}</span>}
     </div>
   );
 }
@@ -66,11 +74,14 @@ export function DatosPagoFields({ metodo, value, onChange }: {
   if (metodo === 'pago_movil') {
     return (
       <div style={{ display: 'grid', gap: '.5rem' }}>
-        <Campo label="CI o RIF *">
+        <Campo label="CI o RIF *" error={value.ci_rif ? errorCiRif(value.ci_rif) : null}>
           <input className="input" value={value.ci_rif ?? ''} onChange={(e) => set('ci_rif', e.target.value)} placeholder="V-12345678 / J-..." />
         </Campo>
         <Campo label="Banco *"><BancoSelect value={value.banco ?? ''} onChange={(c) => set('banco', c)} /></Campo>
-        <Campo label="Teléfono *" hint="Solo números">
+        <Campo label="Teléfono *" hint="11 dígitos · 0414, 0424, 0412, 0416, 0422, 0426 o un fijo 02…"
+          error={value.telefono
+            ? (errorTelefono(value.telefono) ?? errorTelefonoContraBanco(value.telefono, value.banco))
+            : null}>
           <input className="input mono" inputMode="numeric" value={value.telefono ?? ''} onChange={(e) => set('telefono', soloNumeros(e.target.value, 11))} placeholder="04141234567" />
         </Campo>
       </div>
@@ -84,11 +95,12 @@ export function DatosPagoFields({ metodo, value, onChange }: {
         <Campo label="Nombre / Razón social *">
           <input className="input" value={value.nombre ?? ''} onChange={(e) => set('nombre', e.target.value)} />
         </Campo>
-        <Campo label="CI / RIF *">
+        <Campo label="CI / RIF *" error={value.ci ? errorCiRif(value.ci) : null}>
           <input className="input" value={value.ci ?? ''} onChange={(e) => set('ci', e.target.value)} placeholder="V-12345678 / J-..." />
         </Campo>
         <Campo label="Banco *"><BancoSelect value={value.banco ?? ''} onChange={(c) => set('banco', c)} /></Campo>
-        <Campo label="Número de cuenta *" hint={`Solo números · ${cuenta.length}/20 dígitos`}>
+        <Campo label="Número de cuenta *" hint={`Solo números · ${cuenta.length}/20 dígitos`}
+          error={cuenta.length === LARGO_CUENTA || !cuenta ? null : errorCuenta(cuenta)}>
           <input className="input mono" inputMode="numeric" value={cuenta} onChange={(e) => set('cuenta', soloNumeros(e.target.value, 20))} placeholder="01050000000000000000" />
         </Campo>
       </div>
@@ -121,17 +133,22 @@ export function DatosPagoFields({ metodo, value, onChange }: {
   return null;
 }
 
-/** Valida que los datos mínimos del método estén completos. Devuelve error o null. */
+/**
+ * Valida los datos del método. Devuelve el error o null.
+ * El teléfono y la cuenta se revisan por FORMA, no solo por presencia: se
+ * guardó un código de banco como teléfono y el nombre del banco dentro del RIF.
+ */
 export function validarDatosPago(metodo: string, d: DatosPago): string | null {
   if (metodo === 'pago_movil') {
-    if (!d.ci_rif?.trim()) return 'Indicá el CI o RIF';
+    const eCi = errorCiRif(d.ci_rif); if (eCi) return eCi;
     if (!d.banco?.trim()) return 'Elegí el banco';
-    if (!d.telefono?.trim()) return 'Indicá el teléfono';
+    const eTel = errorTelefono(d.telefono); if (eTel) return eTel;
+    const eCruce = errorTelefonoContraBanco(d.telefono, d.banco); if (eCruce) return eCruce;
   } else if (metodo === 'transferencia') {
     if (!d.nombre?.trim()) return 'Indicá el nombre';
-    if (!d.ci?.trim()) return 'Indicá el CI / RIF';
+    const eCi = errorCiRif(d.ci); if (eCi) return eCi;
     if (!d.banco?.trim()) return 'Elegí el banco';
-    if ((d.cuenta ?? '').length !== 20) return 'El número de cuenta debe tener 20 dígitos';
+    const eCta = errorCuenta(d.cuenta); if (eCta) return eCta;
   } else if (metodo === 'zelle') {
     if (!d.nombre?.trim()) return 'Indicá el nombre';
     if (!d.email?.trim()) return 'Indicá el correo';
