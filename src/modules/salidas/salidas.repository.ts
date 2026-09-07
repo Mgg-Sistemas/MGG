@@ -323,6 +323,9 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       unidad: it.unidad ?? null,
       almacen: it.almacen ?? null,
       observacion: it.observacion?.trim() || null,
+      // Marcado en Matanza para material de receta: se descuenta acá y la
+      // fundición despues solo puede quemar esto, sin volver a descontar.
+      para_fundicion: it.para_fundicion === true,
     }))
     .filter((it) => it.producto_id && it.cantidad > 0);
   // El almacén de origen viaja por ítem (autoasignado: el que tiene el stock).
@@ -757,6 +760,9 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
       unidad: it.unidad ?? null,
       almacen: it.almacen ?? null,
       observacion: it.observacion?.trim() || null,
+      // Marcado en Matanza para material de receta: se descuenta acá y la
+      // fundición despues solo puede quemar esto, sin volver a descontar.
+      para_fundicion: it.para_fundicion === true,
     }))
     .filter((it) => it.producto_id && it.cantidad > 0);
 

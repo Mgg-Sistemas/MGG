@@ -488,6 +488,13 @@ export interface ItemSolicitudSalida {
   almacen?: string | null;
   /** Observación de la línea (ej. seriales, "será trasladado para reparación"). */
   observacion?: string | null;
+  /**
+   * «Va para fundición»: solo en salidas de Matanza y solo para material de
+   * receta. El material se descuenta del inventario en esta salida y queda
+   * disponible en el piso de fundición; la colada que lo queme NO vuelve a
+   * descontarlo. Lo que no se funde se devuelve al inventario.
+   */
+  para_fundicion?: boolean | null;
 }
 
 /** Chofer responsable del despacho (catálogo modificable). */

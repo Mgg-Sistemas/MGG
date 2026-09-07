@@ -453,7 +453,17 @@
     <h2>🔥 7. Fundición</h2>
     <p>Fabricación/fundición de productos a partir de materiales del inventario, usando <strong>recetas</strong>. En Fundición cada orden es una <strong>colada</strong> (formato <strong>MGG-FR-001, horno de fundición primaria</strong>).</p>
     <ul>
-      <li><strong>Recetas:</strong> definen los materiales que consume cada producto; al producir, se descuentan del inventario.</li>
+      <li><strong>Recetas:</strong> definen los materiales que consume cada producto; al producir, se descuentan del inventario —salvo los que vienen del <strong>piso de fundición</strong> (ver abajo), que ya se descontaron en su salida.</li>
+      <li><strong>🔥 Piso de fundición — para que el material no se descuente dos veces:</strong> antes, si se sacaba el material por <strong>Salidas</strong> y después se cargaba en la colada, el inventario lo descontaba <strong>dos veces</strong>: una en la salida y otra en la fundición. Ahora:
+        <ul>
+          <li><strong>En Salidas</strong>, cada renglón cuyo material sea <strong>de receta</strong> y salga de <strong>MATANZA</strong> muestra el check <strong>🔥 Va para fundición</strong>. Al ejecutar la salida, ese material <strong>se descuenta del inventario normalmente</strong> y queda <strong>disponible en el piso de fundición</strong>. El check también se puede marcar o quitar al <strong>editar</strong> una salida que todavía no se ejecutó.</li>
+          <li><strong>En la colada</strong>, esos materiales aparecen con el origen <strong>🔥 Piso de fundición</strong> (es el que viene por defecto cuando hay material entregado) y la columna «Disp.» muestra <strong>lo que queda en el piso</strong>, no el stock del almacén. La colada <strong>no vuelve a descontar</strong> el inventario, y <strong>no deja cargar más de lo que se entregó</strong>: si salieron 900 g de coque, en la colada solo se pueden usar esos 900 g. El <strong>costo</strong> que entra a la colada es el de la <strong>salida</strong> (promedio ponderado de lo entregado), no el costo del inventario de hoy.</li>
+          <li>Si un material tiene material en el piso pero preferís tomarlo del almacén, el desplegable permite cambiar a <strong>📦 Inventario</strong>: ahí sí se descuenta como siempre.</li>
+          <li><strong>Botón «🔥 Piso de fundición»</strong> (arriba, en Fundición): muestra material por material lo <strong>entregado</strong>, lo <strong>fundido</strong>, lo <strong>devuelto</strong> y lo <strong>disponible</strong>, con el valor total del piso y de qué salidas vino cada uno.</li>
+          <li><strong>↩ Devolver:</strong> lo que se entregó y <strong>no se va a fundir</strong> se devuelve al inventario desde ese mismo panel: se indica la cantidad y a qué almacén vuelve. Entra como una <strong>entrada en el kardex</strong>, al mismo costo con el que salió, para no distorsionar el costo promedio del almacén.</li>
+          <li><strong>El disponible no se guarda en ninguna parte: se calcula</strong> como <em>entregado − fundido − devuelto</em>. Por eso no puede quedar desfasado del inventario.</li>
+        </ul>
+      </li>
       <li><strong>🖥️ SUPERVISORIO DE HORNOS:</strong> botón en Fundición que abre en una <strong>nueva pestaña</strong> el <strong>supervisorio de hornos</strong> (pantalla de monitoreo en la red local). Es un enlace directo; solo aparece en Fundición.</li>
       <li><strong>Vista kanban:</strong> fundiciones en proceso y últimas finalizadas.</li>
       <li>Cada fundición registra el <strong>horno</strong> utilizado y la cantidad producida.</li>

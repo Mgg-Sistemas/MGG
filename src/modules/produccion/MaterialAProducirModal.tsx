@@ -8,6 +8,8 @@ import { getUnidades, updateProducto } from '@/modules/inventario/inventario.rep
 import { listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 import { AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
 import { listAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
+import { cargarPisoFundicion } from './pisoFundicion.repository';
+import { motivoNoAlcanza, type DisponibleFundicion } from './pisoFundicion';
 import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput, type ProduccionTipo } from './produccion.repository';
 import { crearHorno } from './hornos.repository';
 import { ColadaCampos } from './ColadaCampos';
@@ -43,7 +45,15 @@ interface MaterialAProducirModalProps {
   onHornosChanged?: () => Promise<void> | void;
 }
 
-interface MatRow { checked: boolean; cantidad: string; almacen: string; costo: string; costoTouched: boolean }
+interface MatRow {
+  checked: boolean; cantidad: string; almacen: string; costo: string; costoTouched: boolean;
+  /**
+   * De dónde sale el material. 'piso' = ya salió del inventario por una salida
+   * marcada «va para fundición»: la colada NO lo descuenta otra vez. Es la
+   * corrección del doble descuento.
+   */
+  origen?: 'inventario' | 'piso';
+}
 
 // Deja solo dígitos y UN separador decimal (acepta punto o coma), conservando el que se escribe.
 function sanitizeDecimal(s: string): string {
@@ -125,6 +135,28 @@ export function MaterialAProducirModal({
   );
   const almacenes = almacenesList.length ? almacenesList : ['General'];
 
+  // El piso de fundición: lo que Salidas entregó y todavía no se quemó. Es lo
+  // que la colada puede usar SIN volver a descontar del inventario.
+  const [piso, setPiso] = useState<DisponibleFundicion[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    cargarPisoFundicion()
+      .then((p) => { if (vivo) setPiso(p); })
+      .catch(() => { /* sin piso, todo sigue saliendo del inventario como antes */ });
+    return () => { vivo = false; };
+  }, []);
+  const pisoDe = (pid: string) => piso.find((f) => f.producto_id === pid);
+  /**
+   * De dónde sale la fila. Sin elección explícita manda el piso cuando hay
+   * material entregado: es lo que evita el doble descuento, así que tiene que
+   * ser el camino por defecto y no una opción que haya que acordarse de marcar.
+   */
+  const origenDe = (pid: string, row?: MatRow): 'inventario' | 'piso' => {
+    const hay = (pisoDe(pid)?.disponible ?? 0) > 0;
+    if (!hay) return 'inventario';
+    return (row?.origen ?? 'piso') === 'piso' ? 'piso' : 'inventario';
+  };
+
   // Existencia por (producto, almacén).
   const exMap = useMemo(() => {
     const m = new Map<string, Existencia>();
@@ -134,7 +166,15 @@ export function MaterialAProducirModal({
   const exStock = (pid: string, alm: string) => Number(exMap.get(`${pid}|${alm}`)?.stock) || 0;
   const exCosto = (pid: string, alm: string) => Number(exMap.get(`${pid}|${alm}`)?.costo_promedio) || 0;
   // Tasa efectiva del material: la que escribió el usuario (si tocó el campo) o, por defecto, la del inventario.
-  const costoEff = (pid: string, row: MatRow) => (row.costoTouched && row.costo.trim() !== '' ? parseDecimal(row.costo) : exCosto(pid, row.almacen));
+  /** Lo que se puede sacar de esa fila: del piso o del almacén, según su origen. */
+  const dispDe = (pid: string, row: MatRow) => (
+    row.origen === 'piso' ? (pisoDe(pid)?.disponible ?? 0) : exStock(pid, row.almacen)
+  );
+  /** Costo por defecto: el del piso viene de la salida, no del PMP de hoy. */
+  const costoBase = (pid: string, row: MatRow) => (
+    row.origen === 'piso' ? (pisoDe(pid)?.costo_unitario ?? 0) : exCosto(pid, row.almacen)
+  );
+  const costoEff = (pid: string, row: MatRow) => (row.costoTouched && row.costo.trim() !== '' ? parseDecimal(row.costo) : costoBase(pid, row));
 
   // "Qué producir" (preselecciona initialProductoId si vino, ej. "Editar receta").
   const preselect = initialProductoId && producibles.some((p) => p.id === initialProductoId) ? initialProductoId : '';
@@ -376,6 +416,16 @@ export function MaterialAProducirModal({
     e.preventDefault();
     setError(null);
 
+    // Tope del piso de fundición. `crearProduccion` ya no valida existencias de
+    // estos materiales —su stock no está en el inventario, se lo llevó la
+    // salida—, así que el único control de que no se queme más de lo entregado
+    // está acá. Sin esto, el módulo volvería a descuadrar por el otro lado.
+    for (const { m, row } of seleccion) {
+      if (origenDe(m.id, row) !== 'piso') continue;
+      const motivo = motivoNoAlcanza(piso, m.id, Number(row.cantidad) || 0, m.unidad);
+      if (motivo) { setError(`${m.nombre}: ${motivo}`); return; }
+    }
+
     if (esRef) {
       if (!crudoLines.length) { setError('Seleccioná al menos una colada finalizada como origen del estaño crudo.'); return; }
     } else {
@@ -423,7 +473,8 @@ export function MaterialAProducirModal({
         material_nombre: m.nombre,
         almacen: row.almacen,
         cantidad: Number(row.cantidad) || 0,
-        costo: costoEff(m.id, row),
+        costo: costoEff(m.id, { ...row, origen: origenDe(m.id, row) }),
+        desde_fundicion: origenDe(m.id, row) === 'piso',
       }));
       // Refinación: el estaño crudo de cada colada entra como material consumido, a su
       // COSTO FINAL de fundición (= costo inicial de la refinación), no al PMP mezclado.
@@ -597,8 +648,15 @@ export function MaterialAProducirModal({
                 </thead>
                 <tbody>
                   {materiales.map((m) => {
-                    const row = rows[m.id] ?? { checked: false, cantidad: '1', almacen: m.almacen || almacenes[0], costo: '', costoTouched: false };
-                    const disp = exStock(m.id, row.almacen);
+                    const enPiso = pisoDe(m.id);
+                    const hayPiso = (enPiso?.disponible ?? 0) > 0;
+                    const row = rows[m.id] ?? {
+                      checked: false, cantidad: '1', almacen: m.almacen || almacenes[0], costo: '', costoTouched: false,
+                      // Si hay material entregado a fundición, ese es el origen natural.
+                      origen: hayPiso ? 'piso' as const : 'inventario' as const,
+                    };
+                    const esPiso = origenDe(m.id, row) === 'piso';
+                    const disp = dispDe(m.id, { ...row, origen: esPiso ? 'piso' : 'inventario' });
                     const cant = Number(row.cantidad) || 0;
                     const exceso = row.checked && cant > disp;
                     return (
@@ -606,7 +664,26 @@ export function MaterialAProducirModal({
                         <td><input type="checkbox" checked={row.checked} onChange={(e) => setRow(m.id, { checked: e.target.checked })} /></td>
                         <td><strong>{m.nombre}</strong><div className="muted mono" style={{ fontSize: '.7rem' }}>{m.sku}</div></td>
                         <td>
-                          <AlmacenSelectAgrupado value={row.almacen} onChange={(v) => setRow(m.id, { almacen: v })} extraNombres={almacenes} style={{ minWidth: 110 }} />
+                          {hayPiso ? (
+                            <>
+                              <select className="select" style={{ minWidth: 110, fontSize: '.8rem' }}
+                                value={esPiso ? 'piso' : 'inventario'}
+                                onChange={(e) => setRow(m.id, { origen: e.target.value as 'inventario' | 'piso', costoTouched: false })}>
+                                <option value="piso">🔥 Piso de fundición</option>
+                                <option value="inventario">📦 Inventario</option>
+                              </select>
+                              {esPiso ? (
+                                <div className="muted" style={{ fontSize: '.68rem', marginTop: '.15rem' }}
+                                  title={enPiso?.entregas.map((e) => `${e.codigo}: ${num(e.cantidad)}`).join(' · ')}>
+                                  ya salió del inventario · no se descuenta otra vez
+                                </div>
+                              ) : (
+                                <AlmacenSelectAgrupado value={row.almacen} onChange={(v) => setRow(m.id, { almacen: v })} extraNombres={almacenes} style={{ minWidth: 110, marginTop: '.2rem' }} />
+                              )}
+                            </>
+                          ) : (
+                            <AlmacenSelectAgrupado value={row.almacen} onChange={(v) => setRow(m.id, { almacen: v })} extraNombres={almacenes} style={{ minWidth: 110 }} />
+                          )}
                         </td>
                         <td className="mono" style={{ textAlign: 'right', color: exceso ? 'var(--danger)' : undefined }}>{num(disp)}</td>
                         <td style={{ textAlign: 'right' }}>
@@ -615,7 +692,7 @@ export function MaterialAProducirModal({
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           <input className="input mono" type="text" inputMode="decimal" style={{ width: 96, textAlign: 'right' }}
-                            value={row.costoTouched ? row.costo : String(exCosto(m.id, row.almacen))}
+                            value={row.costoTouched ? row.costo : String(costoBase(m.id, row))}
                             disabled={!row.checked}
                             title="Tasa/costo unitario a usar. Por defecto trae la del inventario (ej. la tasa de la casiterita) y es editable."
                             onChange={(e) => setRow(m.id, { costo: sanitizeDecimal(e.target.value), costoTouched: true })} />

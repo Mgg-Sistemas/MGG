@@ -16,6 +16,7 @@ import { FinalizarRefinacionModal } from './FinalizarRefinacionModal';
 import { ProduccionDetalle, duracionProd } from './ProduccionDetalle';
 import { RecetasModal } from './RecetasModal';
 import { GestionarHornosModal } from './GestionarHornosModal';
+import { PisoFundicionModal } from './PisoFundicionModal';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
 /** Config por tipo: Fundición (default) y Refinación de Material comparten TODO el flujo,
@@ -64,6 +65,7 @@ type Modal =
   | { kind: 'recetas' }
   | { kind: 'ver-receta'; id: string; productoId: string }
   | { kind: 'hornos' }
+  | { kind: 'piso' }
   | { kind: 'editar-materiales'; id: string }
   | { kind: 'finalizar'; prod: Produccion };
 
@@ -157,6 +159,10 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           <button className="btn btn-ghost" onClick={handleResumenGeneral}>📊 Reporte general</button>
           {tipo === 'fundicion' && (
             <a className="btn btn-ghost" href="http://192.168.0.50/monitor/IZIS_0" target="_blank" rel="noopener noreferrer" title="Abrir el supervisorio de hornos (nueva pestaña)">🖥️ SUPERVISORIO DE HORNOS</a>
+          )}
+          {tipo === 'fundicion' && (
+            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'piso' })}
+              title="Material que Salidas entregó a fundición y todavía no se fundió">🔥 Piso de fundición</button>
           )}
           {canWrite && (
             <button className="btn btn-ghost" onClick={() => setModal({ kind: 'hornos' })}>🔥 Hornos</button>
@@ -318,6 +324,15 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           actor={actor}
           onClose={() => setModal({ kind: 'none' })}
           onCambioAplicado={() => { void reload(); }}
+        />
+      )}
+      {modal.kind === 'piso' && (
+        <PisoFundicionModal
+          actor={actor}
+          actorName={actorName}
+          canWrite={canWrite}
+          onClose={() => setModal({ kind: 'none' })}
+          onCambio={() => { void reload(); }}
         />
       )}
       {modal.kind === 'ver' && <ProduccionDetalle id={modal.id} defaultEmail={actor} onClose={() => setModal({ kind: 'none' })} />}

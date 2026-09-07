@@ -89,6 +89,13 @@ export interface MaterialInput {
   cantidad: number;
   /** Tasa/costo unitario a usar (override). Si se omite, se toma el costo_promedio del inventario. */
   costo?: number | null;
+  /**
+   * El material sale del PISO DE FUNDICIÓN: ya se descontó del inventario cuando
+   * se hizo su salida, marcada «va para fundición». Esta colada NO lo descuenta
+   * otra vez ni valida existencias — solo lo cuenta en el costo. Es la corrección
+   * del doble descuento (salida + consumo de fundición sobre el mismo material).
+   */
+  desde_fundicion?: boolean | null;
 }
 
 export interface CrearProduccionInput {
@@ -294,7 +301,9 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
   validos.forEach((m, i) => {
     const cant = Number(m.cantidad) || 0;
     const ex = existencias[i];
-    const esManual = !m.producto_id;
+    // Un material del piso no tiene existencia que validar: el tope lo puso la
+    // salida que lo entregó, y lo revisa el formulario contra el disponible.
+    const esManual = !m.producto_id || m.desde_fundicion === true;
     if (!esManual) {
       const stock = Number(ex?.stock) || 0;
       if (stock < cant) {
@@ -361,6 +370,9 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
     cantidad: d.cantidad,
     costo_unitario: d.costo_unitario,
     subtotal: d.subtotal,
+    // Marca de dónde salió: es lo que descuenta el piso de fundición y lo que
+    // evita que esta línea toque el inventario.
+    desde_fundicion: d.desde_fundicion === true,
   }));
   if (matRows.length) {
     const { error: mErr } = await supabase.from('produccion_materiales').insert(matRows);
@@ -369,7 +381,9 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
 
   // 4) Consumir el stock de cada insumo de inventario (salida por almacén). En paralelo:
   //    cada material es un producto distinto, no compiten por la misma fila.
-  await Promise.all(detallesInv.map((d) => registrarMovimiento({
+  // Los del PISO no se consumen: su salida ya los descontó del inventario.
+  // Descontarlos otra vez acá era el doble descuento que había que sacar.
+  await Promise.all(detallesInv.filter((d) => !d.desde_fundicion).map((d) => registrarMovimiento({
     producto_id: d.producto_id as string,
     tipo: 'consumo',
     delta: -d.cantidad,
@@ -413,10 +427,13 @@ export async function editarMaterialesProduccion(input: {
 
   // 1) Revertir el consumo anterior (restaura stock a su costo vigente; precio_unitario null → no toca PMP).
   const { data: matViejos, error: mErr0 } = await supabase
-    .from('produccion_materiales').select('producto_id, material_nombre, almacen, cantidad').eq('produccion_id', input.produccionId);
+    .from('produccion_materiales').select('producto_id, material_nombre, almacen, cantidad, desde_fundicion').eq('produccion_id', input.produccionId);
   if (mErr0) throw mErr0;
-  for (const m of (matViejos ?? []) as Array<{ producto_id: string | null; material_nombre: string; almacen: string; cantidad: number }>) {
+  for (const m of (matViejos ?? []) as Array<{ producto_id: string | null; material_nombre: string; almacen: string; cantidad: number; desde_fundicion?: boolean | null }>) {
     if (!m.producto_id || !((Number(m.cantidad) || 0) > 0)) continue;
+    // Los del piso nunca descontaron inventario, así que no hay nada que
+    // devolver: al borrarse la fila vuelven solos al disponible de fundición.
+    if (m.desde_fundicion) continue;
     await registrarMovimiento({
       producto_id: m.producto_id, tipo: 'ajuste', delta: Number(m.cantidad) || 0, almacen: m.almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
@@ -434,13 +451,17 @@ export async function editarMaterialesProduccion(input: {
   if (cantidad <= 0) throw new Error('La cantidad a producir debe ser mayor que 0.');
   const validos = input.materiales.filter((m) => (Number(m.cantidad) || 0) > 0);
   if (!validos.length) throw new Error('Seleccioná al menos un material con cantidad.');
-  const existencias = await Promise.all(validos.map((m) => (m.producto_id ? getExistencia(m.producto_id, m.almacen) : Promise.resolve(null))));
+  const existencias = await Promise.all(validos.map((m) => (
+    m.producto_id && !m.desde_fundicion ? getExistencia(m.producto_id, m.almacen) : Promise.resolve(null)
+  )));
   const detalles: Array<MaterialInput & { costo_unitario: number; subtotal: number }> = [];
   let costoMaterial = 0;
   validos.forEach((m, i) => {
     const cant = Number(m.cantidad) || 0;
     const ex = existencias[i];
-    if (m.producto_id) {
+    // El del piso no tiene existencia contra la cual validar: su tope es lo que
+    // se le entregó, y eso lo revisa el formulario contra el disponible.
+    if (m.producto_id && !m.desde_fundicion) {
       const stock = Number(ex?.stock) || 0;
       if (stock < cant) throw new Error(`Stock insuficiente de "${m.material_nombre}" en ${m.almacen}. Disponible: ${stock}.`);
     }
@@ -464,6 +485,7 @@ export async function editarMaterialesProduccion(input: {
   const matRows = detallesInv.map((d) => ({
     produccion_id: input.produccionId, producto_id: d.producto_id, material_nombre: d.material_nombre,
     almacen: d.almacen, cantidad: d.cantidad, costo_unitario: d.costo_unitario, subtotal: d.subtotal,
+    desde_fundicion: d.desde_fundicion === true,
   }));
   if (matRows.length) {
     const { error: insErr } = await supabase.from('produccion_materiales').insert(matRows);
@@ -471,7 +493,8 @@ export async function editarMaterialesProduccion(input: {
   }
 
   // 5) Consumir los nuevos.
-  await Promise.all(detallesInv.map((d) => registrarMovimiento({
+  // Los del piso, otra vez, no se consumen del inventario.
+  await Promise.all(detallesInv.filter((d) => !d.desde_fundicion).map((d) => registrarMovimiento({
     producto_id: d.producto_id as string, tipo: 'consumo', delta: -d.cantidad, almacen: d.almacen,
     actor: input.actor, actor_name: input.actorName ?? null,
     ref_tipo: 'produccion', ref_id: input.produccionId,

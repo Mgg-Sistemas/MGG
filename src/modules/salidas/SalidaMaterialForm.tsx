@@ -18,7 +18,11 @@ import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type Asigna
 import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; precio: string; almacen: string }
+interface LineaUI {
+  id: number; productoId: string; cantidad: string; precio: string; almacen: string;
+  /** «Va para fundición»: el material queda en el piso en vez de irse del todo. */
+  paraFundicion?: boolean;
+}
 
 export function SalidaMaterialForm({
   productos, existencias, actor, actorName, onClose, onSaved,
@@ -72,10 +76,22 @@ export function SalidaMaterialForm({
       .filter((c) => puedeMoverEnSede(c.sede, sedesPermitidas));
 
   // Varias líneas de producto (como una OC). Cada una: producto + cantidad. El/los almacén(es) se resuelven por prioridad.
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', precio: '', almacen: '' }]);
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', precio: '', almacen: '', paraFundicion: false }]);
   const [seq, setSeq] = useState(2);
   const setLinea = (id: number, patch: Partial<LineaUI>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', precio: '', almacen: '' }]); setSeq((s) => s + 1); };
+  const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', precio: '', almacen: '', paraFundicion: false }]); setSeq((s) => s + 1); };
+
+  /**
+   * ¿Esta línea puede ir a fundición? Solo material de RECETA (`es_receta`) que
+   * salga de MATANZA. El material marcado se descuenta acá y la colada que lo
+   * queme ya no lo descuenta otra vez — ese era el doble descuento.
+   */
+  const puedeIrAFundicion = (l: LineaUI): boolean => {
+    const p = prodDe(l.productoId);
+    if (!p?.es_receta) return false;
+    const almacenes = planDe(l).tramos.map((t) => t.almacen);
+    return almacenes.some((a) => (sedePorAlmacen.get(a) ?? '').toUpperCase().includes('MATANZA'));
+  };
   const quitarLinea = (id: number) => setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
 
   // Al elegir el producto: cantidad 1 y precio por defecto = costo del almacén de mayor prioridad.
@@ -215,7 +231,14 @@ export function SalidaMaterialForm({
       // Si el usuario editó el precio, ese precio manda; si no, cada tramo usa el costo de su almacén.
       const precioEditado = Number(l.precio) > 0 ? Number(l.precio) : null;
       for (const t of tramos) {
-        items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: t.cantidad, precio_unit: precioEditado ?? t.costo ?? null, unidad: p?.unidad ?? null, almacen: t.almacen, observacion: null });
+        items.push({
+          producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: t.cantidad,
+          precio_unit: precioEditado ?? t.costo ?? null, unidad: p?.unidad ?? null,
+          almacen: t.almacen, observacion: null,
+          // La marca solo vale si el tramo sale de Matanza: una línea puede
+          // repartirse entre almacenes y solo el de Matanza va al piso.
+          para_fundicion: l.paraFundicion === true && (sedePorAlmacen.get(t.almacen) ?? '').toUpperCase().includes('MATANZA'),
+        });
       }
     }
     // Guarda de seguridad: bajo restricción, ningún ítem puede salir de una sede no permitida.
@@ -373,6 +396,18 @@ export function SalidaMaterialForm({
                         <option key={c.almacen} value={c.almacen}>{c.almacen} · {num(c.stock)} {prod?.unidad ?? ''}</option>
                       ))}
                     </select>
+                  )}
+                  {/* Solo aparece para material de receta que sale de Matanza. */}
+                  {puedeIrAFundicion(l) && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', marginTop: '.4rem', cursor: 'pointer' }}
+                      title="El material queda en el piso de fundición: la colada que lo queme ya no lo descuenta otra vez">
+                      <input type="checkbox" checked={l.paraFundicion === true}
+                        onChange={(e) => setLinea(l.id, { paraFundicion: e.target.checked })} />
+                      <span style={{ fontSize: '.82rem' }}>
+                        🔥 <strong>Va para fundición</strong>
+                        <span className="muted"> · se descuenta acá y queda disponible para las coladas</span>
+                      </span>
+                    </label>
                   )}
                 </div>
                 <div className="form-row">
