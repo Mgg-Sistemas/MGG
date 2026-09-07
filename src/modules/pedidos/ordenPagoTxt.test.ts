@@ -115,4 +115,12 @@ describe('descripción y nota de la solicitud', () => {
     expect(t).toContain('SE DAÑO LA BOMBA');
     expect(t).toContain('MANTENIMIENTO CORRECTIVO');
   });
+
+  it('los renglones van sin el rótulo «QUÉ SE SOLICITÓ», pero van', () => {
+    const t = txt({});
+    expect(t).not.toContain('QUÉ SE SOLICITÓ');
+    // Lo que importa del bloque es la lista, y esa se queda.
+    expect(t).toMatch(/\s+1\. /);
+    expect(t).toContain('TOTAL');
+  });
 });

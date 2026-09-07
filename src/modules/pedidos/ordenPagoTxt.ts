@@ -119,8 +119,8 @@ export function textoOrdenPago(
   L.push(...bloqueTexto('DESCRIPCIÓN DE LA SOLICITUD', descripcion));
   L.push(...bloqueTexto('NOTA', orden.notas));
 
-  L.push(linea());
-  L.push('  QUÉ SE SOLICITÓ');
+  // Sin título encima de los renglones: el documento es para pagar, y el
+  // rótulo «QUÉ SE SOLICITÓ» no agregaba nada que la lista no diga sola.
   L.push(linea());
   if (!items.length) {
     L.push('  (sin renglones)');
