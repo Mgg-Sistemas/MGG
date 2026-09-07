@@ -57,6 +57,7 @@ import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
 import { AlmacenesView, SedesView, hijosDe, raices, type AlmacenLayout } from './AlmacenesView';
 import { ArbolAlmacenesPanel } from './ArbolAlmacenesPanel';
 import { MoverProductoModal } from './MoverProductoModal';
+import { PresenciaAlmacenModal } from './PresenciaAlmacenModal';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { AlmacenKanban } from './AlmacenKanban';
 // Los generadores de PDF/Excel de almacén se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
@@ -199,6 +200,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const [consumoAlmacen, setConsumoAlmacen] = useState<string | null>(null);
   const [reporteAlmacen, setReporteAlmacen] = useState<string | null>(null);
   const [moverProd, setMoverProd] = useState<ProductoDecorado | null>(null);
+  const [presenciaProd, setPresenciaProd] = useState<ProductoDecorado | null>(null);
   const [movStats, setMovStats] = useState<Map<string, { entradas: number; salidas: number }>>(new Map());
   const [consumo, setConsumo] = useState<Map<string, ConsumoProducto>>(new Map());
   const [detalleLayout, setDetalleLayout] = useState<'kanban' | 'lista'>('lista');
@@ -1028,6 +1030,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
                 canWrite={canWrite}
                 movStats={movStats}
                 onMover={canWrite ? setMoverProd : undefined}
+                onPresencia={canWrite ? setPresenciaProd : undefined}
                 stockLabel={`Stock en ${almacenSel ?? 'almacén'}`}
               />
             )}
@@ -1258,6 +1261,15 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           actor={productoActor}
           actorName={actorName}
           onClose={() => setMoverProd(null)}
+          onDone={() => { void reload(); }}
+        />
+      )}
+      {presenciaProd && (
+        <PresenciaAlmacenModal
+          producto={{ id: presenciaProd.id, nombre: presenciaProd.nombre, sku: presenciaProd.sku, precio: Number(presenciaProd.precio) || 0 }}
+          almacenes={almacenes}
+          existencias={existencias.filter((e) => e.producto_id === presenciaProd.id)}
+          onClose={() => setPresenciaProd(null)}
           onDone={() => { void reload(); }}
         />
       )}
