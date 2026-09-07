@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { BANCOS_VE, labelBanco } from '@/shared/lib/bancos';
 import type { DatosPago } from '@/modules/pedidos/datosPago.repository';
-import { errorCiRif, errorCuenta, errorTelefono, errorTelefonoContraBanco, LARGO_CUENTA } from './datosPagoValidacion';
+import { errorCiRif, errorCuenta, errorTelefono, errorTelefonoContraBanco, LARGO_CUENTA, LARGO_TELEFONO_INTL } from './datosPagoValidacion';
 
 /** Selector de banco buscable (guarda el código SUDEBAN). */
 function BancoSelect({ value, onChange }: { value: string; onChange: (codigo: string) => void }) {
@@ -78,11 +78,13 @@ export function DatosPagoFields({ metodo, value, onChange }: {
           <input className="input" value={value.ci_rif ?? ''} onChange={(e) => set('ci_rif', e.target.value)} placeholder="V-12345678 / J-..." />
         </Campo>
         <Campo label="Banco *"><BancoSelect value={value.banco ?? ''} onChange={(c) => set('banco', c)} /></Campo>
-        <Campo label="Teléfono *" hint="11 dígitos · 0414, 0424, 0412, 0416, 0422, 0426 o un fijo 02…"
+        {/* El tope son 12 dígitos, no 11: escrito con el 58 adelante el número
+            lleva uno más. Al guardarse queda siempre en la forma local. */}
+        <Campo label="Teléfono *" hint="11 dígitos · 0414, 0424, 0412, 0416, 0422, 0426 o un fijo 02… · con el 58 adelante, 12"
           error={value.telefono
             ? (errorTelefono(value.telefono) ?? errorTelefonoContraBanco(value.telefono, value.banco))
             : null}>
-          <input className="input mono" inputMode="numeric" value={value.telefono ?? ''} onChange={(e) => set('telefono', soloNumeros(e.target.value, 11))} placeholder="04141234567" />
+          <input className="input mono" inputMode="numeric" value={value.telefono ?? ''} onChange={(e) => set('telefono', soloNumeros(e.target.value, LARGO_TELEFONO_INTL))} placeholder="04141234567" />
         </Campo>
       </div>
     );

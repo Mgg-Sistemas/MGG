@@ -13,6 +13,10 @@ export const PREFIJOS_CELULAR = ['0412', '0414', '0416', '0422', '0424', '0426']
 
 export const LARGO_TELEFONO = 11;
 export const LARGO_CUENTA = 20;
+/** Código de país de Venezuela: se escribe en lugar del cero, no además de él. */
+export const PAIS = '58';
+/** `58` + los 10 dígitos del número sin su cero inicial. */
+export const LARGO_TELEFONO_INTL = PAIS.length + LARGO_TELEFONO - 1;
 
 /** Deja solo los dígitos: la gente pega «0424-969.21.72» y así viene igual. */
 export function soloDigitos(v: string | null | undefined): string {
@@ -20,19 +24,38 @@ export function soloDigitos(v: string | null | undefined): string {
 }
 
 /**
+ * Lleva el teléfono a UNA sola forma, la local: `04249692172`.
+ * Escrito en internacional —«+58 424 969 21 72»— el número trae el país
+ * adelante y pierde el cero, así que tiene un dígito menos que el local.
+ * Guardar las dos formas mezcladas rompe cualquier comparación después.
+ */
+export function normalizarTelefono(valor: string | null | undefined): string {
+  const d = soloDigitos(valor);
+  if (d.length === LARGO_TELEFONO_INTL && d.startsWith(PAIS)) return `0${d.slice(PAIS.length)}`;
+  return d;
+}
+
+/**
  * Revisa un teléfono venezolano. Devuelve el motivo del rechazo, o null si está bien.
  * Celular: 11 dígitos con prefijo de operador. Fijo: 11 dígitos que arrancan en 02.
+ * También se acepta escrito con el `58` adelante, que se normaliza antes de mirar.
  */
 export function errorTelefono(valor: string | null | undefined): string | null {
-  const d = soloDigitos(valor);
-  if (!d) return 'Indicá el teléfono';
+  const crudo = soloDigitos(valor);
+  if (!crudo) return 'Indicá el teléfono';
+  const d = normalizarTelefono(crudo);
+  // Escrito con el país adelante, cualquier error se explica mejor recordando
+  // que el 58 REEMPLAZA al cero: «58424924275» no es ni una cosa ni la otra.
+  const pista = crudo.startsWith(PAIS) && crudo.length !== LARGO_TELEFONO_INTL
+    ? ` · con el ${PAIS} adelante van ${LARGO_TELEFONO_INTL} dígitos, porque el ${PAIS} reemplaza al cero`
+    : '';
   if (d.length !== LARGO_TELEFONO) {
-    return `El teléfono debe tener ${LARGO_TELEFONO} dígitos y tiene ${d.length}`;
+    return `El teléfono debe tener ${LARGO_TELEFONO} dígitos y tiene ${crudo.length}${pista}`;
   }
   const pre = d.slice(0, 4);
   if ((PREFIJOS_CELULAR as readonly string[]).includes(pre)) return null;
   if (d.startsWith('02')) return null; // fijo (0212, 0286, 0285…)
-  return `«${pre}» no es un operador telefónico. Un celular arranca con ${PREFIJOS_CELULAR.join(', ')}; un fijo con 02`;
+  return `«${pre}» no es un operador telefónico. Un celular arranca con ${PREFIJOS_CELULAR.join(', ')}; un fijo con 02${pista}`;
 }
 
 /**
@@ -40,7 +63,7 @@ export function errorTelefono(valor: string | null | undefined): string | null {
  * Es el error que de verdad pasó, y el prefijo solo no siempre lo cubre.
  */
 export function errorTelefonoContraBanco(telefono: string | null | undefined, banco: string | null | undefined): string | null {
-  const t = soloDigitos(telefono);
+  const t = normalizarTelefono(telefono);
   const b = soloDigitos(banco);
   if (!t || !b) return null;
   if (t.startsWith(b) && b.length === 4) {

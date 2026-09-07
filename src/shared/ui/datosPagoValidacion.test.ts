@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { errorTelefono, errorTelefonoContraBanco, errorCuenta, errorCiRif, soloDigitos } from './datosPagoValidacion';
+import { errorTelefono, errorTelefonoContraBanco, errorCuenta, errorCiRif, soloDigitos, normalizarTelefono } from './datosPagoValidacion';
 
 describe('teléfono', () => {
   it('acepta los celulares de los cinco operadores', () => {
@@ -23,9 +23,22 @@ describe('teléfono', () => {
     expect(errorTelefono('564543')).toMatch(/11 dígitos y tiene 6/);
   });
 
-  it('rechaza el formato internacional sin el cero', () => {
-    // ING. CESAR GOMEZ tenía «58424924275».
-    expect(errorTelefono('58424924275')).toMatch(/no es un operador/);
+  it('acepta el número escrito con el 58 adelante', () => {
+    // En internacional el país reemplaza al cero, así que el número lleva un
+    // dígito MÁS que el local: 58 + los 10 de «424 969 21 72».
+    expect(errorTelefono('584249692172')).toBeNull();
+    expect(errorTelefono('+58 424-969.21.72')).toBeNull();
+    expect(errorTelefono('582862345678')).toBeNull();   // un fijo
+  });
+
+  it('con el 58 adelante también avisa si el número está incompleto', () => {
+    // ING. CESAR GOMEZ tenía «58424924275»: le falta un dígito para ser el
+    // internacional (van 12) y le sobra para ser el local (van 11).
+    expect(errorTelefono('58424924275')).toMatch(/reemplaza al cero/);
+  });
+
+  it('el 58 adelante no sirve para colar un prefijo inventado', () => {
+    expect(errorTelefono('581340869618')).toMatch(/no es un operador/);
   });
 
   it('rechaza un número de cuenta pegado en el teléfono', () => {
@@ -98,5 +111,26 @@ describe('soloDigitos', () => {
   it('deja pasar únicamente los números', () => {
     expect(soloDigitos('0424-969.21.72')).toBe('04249692172');
     expect(soloDigitos(null)).toBe('');
+  });
+});
+
+describe('normalizarTelefono · una sola forma en la base', () => {
+  it('el internacional queda en local', () => {
+    expect(normalizarTelefono('584249692172')).toBe('04249692172');
+    expect(normalizarTelefono('+58 424 969 21 72')).toBe('04249692172');
+  });
+
+  it('el local se queda como está', () => {
+    expect(normalizarTelefono('04249692172')).toBe('04249692172');
+  });
+
+  it('no le corta el 58 a un número que no lo trae como país', () => {
+    // «58424924275» tiene 11 dígitos: es un local mal escrito, no un
+    // internacional. Se deja tal cual para que la validación lo rechace.
+    expect(normalizarTelefono('58424924275')).toBe('58424924275');
+  });
+
+  it('las dos formas del MISMO número terminan iguales', () => {
+    expect(normalizarTelefono('584249692172')).toBe(normalizarTelefono('04249692172'));
   });
 });
