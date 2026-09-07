@@ -1726,6 +1726,25 @@ export async function finalizarPedido(o: Orden, actorEmail: string, factura?: Fi
  * orden cierra como `recibida` SIN saldo pendiente (los faltantes solo se anotan).
  * Para contra_entrega, `recibido_total` es el monto que luego se paga en Tesorería.
  */
+/**
+ * ¿Esta orden es un SERVICIO? Un servicio se «recibe» para dejar constancia de que
+ * se prestó, pero NO mueve inventario: no hay mercancía que guardar.
+ *
+ * Hasta ahora eso funcionaba de casualidad: los renglones de servicio no traen
+ * `productoId`, y el alta de stock justamente se salta los renglones sin producto.
+ * Bastaba con que alguien agregara un producto real a la orden de servicio —cosa
+ * que el botón «✎ Editar precios / agregar productos» permite— para que entrara
+ * stock igual, mientras el botón seguía diciendo que no entraba.
+ *
+ * Se mira también el código: las órdenes viejas de servicio empiezan por `SV-`
+ * aunque no tengan la columna `clase` cargada.
+ */
+// El tipo va suelto a propósito: `Orden.codigo` es `string`, pero esta función se
+// llama también con filas crudas de la base donde puede venir vacío.
+export function esServicioOrden(o: { clase?: string | null; codigo?: string | null }): boolean {
+  return o.clase === 'servicio' || String(o.codigo ?? '').toUpperCase().startsWith('SV-');
+}
+
 export async function recibirOrdenParcial(
   o: Orden,
   recepciones: { sku: string; cantidad_recibida: number }[],
@@ -1737,7 +1756,13 @@ export async function recibirOrdenParcial(
 ): Promise<Orden> {
   // Compra cuyos productos ya se cargaron manualmente al inventario: se recibe la
   // orden (estado/total) pero NO se generan entradas de stock (evita duplicar).
+  // Un SERVICIO tampoco entra nunca: se recibe para dejar constancia de que se
+  // prestó, y el botón así lo dice («🔧 Servicio realizado · no entra al inventario»).
   const omitirInventario = sinInventario === true || o.sin_inventario === true;
+  // Se guarda aparte del flag del usuario: `sin_inventario` es la CASILLA que él
+  // marcó («ya lo cargué a mano») y pinta la etiqueta 📦 Sin inventario. Que un
+  // servicio no mueva stock no es una decisión suya, es lo que un servicio es.
+  const tocaInventario = !omitirInventario && !esServicioOrden(o);
   // 'cuenta_abierta' = crédito: la mercancía puede llegar ANTES de terminar de pagar.
   if (!['por_recibir', 'cuenta_abierta', 'pagada', 'oc_emitida', 'aprobada'].includes(o.estado))
     throw new Error('La orden no está en un estado recibible.');
@@ -1756,7 +1781,9 @@ export async function recibirOrdenParcial(
   // la tasa BCV (la de la fecha de la orden; si no hay, la de hoy). Sin tasa no se recibe:
   // NUNCA se deja entrar un precio en Bs como si fueran dólares (evita inflar el costo ×tasa).
   let tasaOrden: number | null = null;
-  if (!omitirInventario && o.moneda === 'Bs') {
+  // Un servicio en Bs no necesita tasa: no hay costo que convertir a $ porque no
+  // entra nada al inventario. Antes se negaba a recibirse sin tasa del día.
+  if (tocaInventario && o.moneda === 'Bs') {
     const fecha = fechaVE(o.created_at);
     const t = fecha ? await tasaBcvEnFecha(fecha).catch(() => null) : null;
     tasaOrden = t && tasaValida(t.tasa) ? t.tasa : ((await getTasaHoy().catch(() => null))?.usd ?? null);
@@ -1766,7 +1793,7 @@ export async function recibirOrdenParcial(
 
   // Entradas al inventario solo por lo recibido (>0), recalculando PMP por ítem.
   // Si la orden está marcada "sin inventario" (carga manual previa), se omite.
-  if (!omitirInventario) await Promise.all(o.items.map(async (it) => {
+  if (tocaInventario) await Promise.all(o.items.map(async (it) => {
     const rec = recMap.get(it.sku) ?? 0;
     if (!it.productoId || rec <= 0) return;
     const { data: prod, error: pErr } = await supabase

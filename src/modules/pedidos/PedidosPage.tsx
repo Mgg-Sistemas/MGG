@@ -56,6 +56,7 @@ import {
   nextCodigo,
   nextCodigoServicio,
   recibirOrdenParcial,
+  esServicioOrden,
   enviarCreditoARecepcion,
   listAbonos,
   urlAdjuntoOc,
@@ -1629,7 +1630,7 @@ function RecepcionParcialModal({
   const [nota, setNota] = useState('');
   // Un SERVICIO no se almacena ni entra al inventario: se presta y su rastro queda en el
   // equipo asociado. Por eso no elige almacén y va SIEMPRE sin movimiento de stock.
-  const esServicio = orden.clase === 'servicio';
+  const esServicio = esServicioOrden(orden);
   // "Sin inventario": los productos ya se ingresaron manualmente, no sumar stock al recibir.
   // En un servicio es obligatorio, no una opción.
   const [sinInv, setSinInv] = useState<boolean>(esServicio || orden.sin_inventario === true);
