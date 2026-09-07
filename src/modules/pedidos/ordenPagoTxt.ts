@@ -56,10 +56,13 @@ function bloquePago(patas: PagoMetodo[] | null | undefined, total: number, moned
   const out: string[] = [];
   list.forEach((m) => {
     const moneda = (m.moneda || '$').trim();
-    // El monto de la pata se muestra solo cuando aporta algo: si es la única y
-    // coincide con el total, ya se leyó dos renglones más arriba.
-    const repiteElTotal = list.length === 1 && moneda === monedaOrden && (Number(m.monto) || 0) === (Number(total) || 0);
-    const importe = repiteElTotal ? '' : ` ${montoTxt(m.monto, moneda)}`;
+    const importeNum = Number(m.monto) || 0;
+    // El monto de la pata se muestra solo cuando aporta algo. No se muestra si:
+    //  · está en CERO, porque el monto lo define Tesorería recién al pagar y un
+    //    «Bs 0,00» en el papel se lee como si el pago fuera por nada;
+    //  · o si es la única pata y repite el total, que ya se leyó arriba.
+    const repiteElTotal = list.length === 1 && moneda === monedaOrden && importeNum === (Number(total) || 0);
+    const importe = importeNum === 0 || repiteElTotal ? '' : ` ${montoTxt(m.monto, moneda)}`;
     out.push(`💳 *${labelMetodoPago(m.metodo)}:*${importe}`);
     out.push(...datosPago(m.metodo, (m.datos ?? {}) as Record<string, string>));
   });

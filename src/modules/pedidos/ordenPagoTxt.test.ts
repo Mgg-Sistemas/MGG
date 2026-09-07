@@ -76,6 +76,16 @@ describe('textoOrdenPago · formato corto para WhatsApp', () => {
     expect(t).toContain('* Correo/ID: 12345678');
   });
 
+  it('un monto en cero no sale: Tesorería todavía no definió cuánto se paga', () => {
+    // Caso real de OC-2026-0127: salía «💳 *Pago móvil:* Bs 0,00», que se lee
+    // como si el pago fuera por nada.
+    const t = txt({ metodo_pago: [{ metodo: 'pago_movil', moneda: 'Bs', monto: 0,
+      datos: { banco: '0134', ci_rif: 'J-30646306-2', telefono: '04249692172' } }] } as Partial<Orden>);
+    expect(t).toContain('💳 *Pago móvil:*\r\n');
+    expect(t).not.toContain('Bs 0,00');
+    expect(t).not.toContain('$0,00');
+  });
+
   it('sin método indicado lo dice, no deja el hueco en blanco', () => {
     expect(txt({ metodo_pago: [] } as Partial<Orden>)).toContain('💳 *Pago:* (todavía sin método de pago indicado)');
   });
