@@ -2083,10 +2083,15 @@ const KanbanCard = memo(function KanbanCard({
           </span>
         )}
       </div>
+      {/* Sin proveedor todavía, este renglón muestra QUIÉN PIDE. Antes ponía
+          `solicitante_persona` primero —el capturista— así que decía «Solicita:
+          NAZARET SALAZAR» sobre una orden que pidió ENDER MEJIAS, y no coincidía
+          con la ficha. Mismo orden de campos que el modal: pide, y si no se sabe,
+          la unidad. */}
       <div className="prov">
         {proveedor?.razon_social
-          ?? ((orden.solicitante_persona ?? orden.ci_solicitante ?? orden.solicitante)
-            ? `Solicita: ${orden.solicitante_persona ?? orden.ci_solicitante ?? orden.solicitante}`
+          ?? ((orden.ci_solicitante ?? orden.solicitante)
+            ? `Solicita: ${orden.ci_solicitante ?? orden.solicitante}`
             : 'Sin proveedor asignado')}
       </div>
       <div className="meta">
@@ -2119,8 +2124,12 @@ const KanbanCard = memo(function KanbanCard({
           + `\nCreada: ${dateTime(orden.created_at)}`
         }
       >
-        <span>👤 {orden.ci_solicitante ?? orden.solicitante_persona ?? orden.solicitante_email ?? '—'}
-          {orden.solicitante ? <span className="muted"> · {orden.solicitante}</span> : null}
+        {/* El nombre de quien pide solo va acá si el renglón de arriba está
+            ocupado por el proveedor. Cuando no hay proveedor, ese renglón ya
+            dice «Solicita: …» y repetirlo gasta dos veces el mismo espacio. */}
+        <span>👤 {proveedor?.razon_social
+          ? <>{orden.ci_solicitante ?? orden.solicitante_email ?? '—'}{orden.solicitante ? <span className="muted"> · {orden.solicitante}</span> : null}</>
+          : (orden.solicitante ?? orden.solicitante_email ?? '—')}
         </span>
         {orden.solicitante_persona && orden.solicitante_persona !== orden.ci_solicitante && (
           <span className="dim" title="Quién cargó la solicitud">✎ {orden.solicitante_persona}</span>
