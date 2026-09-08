@@ -4,6 +4,7 @@
    transferencia, zelle o binance. Se reutiliza en próximas compras.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { normalizarTelefono } from '@/shared/ui/datosPagoValidacion';
 
 /** Métodos que requieren datos del proveedor para pagarle. */
 export const METODOS_CON_DATOS = ['pago_movil', 'transferencia', 'zelle', 'binance_usdt'] as const;
@@ -48,7 +49,10 @@ export async function guardarDatosPago(
   const limpio: DatosPago = {};
   for (const [k, v] of Object.entries(datos ?? {})) {
     const s = String(v ?? '').trim();
-    if (s) limpio[k] = s;
+    // El teléfono se guarda SIEMPRE en la forma local (0424…), venga escrito
+    // como venga: en la base no pueden convivir «04249692172» y «584249692172»
+    // para el mismo número, o cualquier comparación posterior falla.
+    if (s) limpio[k] = k === 'telefono' ? normalizarTelefono(s) : s;
   }
   if (!Object.keys(limpio).length) return;
   const { error } = await supabase.from('proveedor_datos_pago').upsert(

@@ -108,8 +108,12 @@ export function camposDeEdicion(input: Record<string, unknown>): Record<string, 
   const campos: CampoEditableOp[] = ['notas', 'solicitante', 'solicitante_persona', 'ci_solicitante'];
   const out: Record<string, string | null> = {};
   for (const c of campos) {
-    if (!(c in input)) continue;                    // ausente: no se toca
     const v = input[c];
+    // `undefined` es «no me lo mandaron», y eso incluye la clave presente con
+    // valor undefined: con campos opcionales y `spread` eso pasa todo el tiempo,
+    // y tratarlo como «borralo» devuelve el mismo defecto por otra puerta.
+    // `null` sí es una orden explícita de vaciar.
+    if (v === undefined) continue;
     out[c] = typeof v === 'string' ? (v.trim() || null) : null;
   }
   return out;

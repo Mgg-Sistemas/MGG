@@ -8,8 +8,16 @@
 import { supabase } from '@/shared/lib/supabase';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
+import { registrarIngresoCaja } from '@/modules/tesoreria/tesoreria.repository';
+import {
+  crearCuentaCobrarDocumento, anularCuentaCobrarDocumento, cuentasCobrarPorIds,
+  type CuentaPorCobrar,
+} from '@/modules/tesoreria/cuentasPorCobrar.repository';
+import type { CuentaCaja } from '@/shared/lib/types';
 
 export type EstadoVenta = 'borrador' | 'emitida' | 'pagada' | 'anulada';
+/** 'contado' = se cobra al emitir y entra a caja · 'credito' = queda como cuenta por cobrar. */
+export type CondicionPagoVenta = 'contado' | 'credito';
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -49,6 +57,14 @@ export interface Venta extends VentaTotales {
   iva_pct: number;
   metodo_pago?: string | null;
   pagado_monto: number;
+  /** Falta = 'contado': las facturas anteriores al crédito se leen así. */
+  condicion_pago?: CondicionPagoVenta | null;
+  /** Cuenta por cobrar PROPIA de esta factura (solo a crédito). */
+  cxc_id?: string | null;
+  /** Dónde entró la plata del cobro de contado. */
+  caja_id?: string | null;
+  cuenta_caja?: string | null;
+  caja_mov_id?: string | null;
   vendedor?: string | null;
   nota?: string | null;
   emitida_en?: string | null;
@@ -120,8 +136,14 @@ export interface VentaInput {
   descuento?: number;
   iva_pct?: number;
   metodo_pago?: string | null;
+  condicion_pago?: CondicionPagoVenta | null;
   vendedor?: string | null;
   nota?: string | null;
+}
+
+/** Una factura a crédito mientras su cuenta por cobrar siga abierta. */
+export function esVentaACredito(v: Pick<Venta, 'condicion_pago'>): boolean {
+  return v.condicion_pago === 'credito';
 }
 
 function buildPayload(input: VentaInput) {
@@ -139,6 +161,7 @@ function buildPayload(input: VentaInput) {
     subtotal: t.subtotal, total: t.total, costo_total: t.costo_total,
     ganancia: t.ganancia, ganancia_pct: t.ganancia_pct,
     metodo_pago: input.metodo_pago?.trim() || null,
+    condicion_pago: input.condicion_pago === 'credito' ? 'credito' : 'contado',
     vendedor: input.vendedor?.trim() || null,
     nota: input.nota?.trim() || null,
   };
@@ -188,25 +211,104 @@ export async function emitirVenta(v: Venta, actor: string, actorName?: string | 
       destino: v.cliente_nombre || 'Venta', detalle: `Venta ${v.numero}`, precio_unitario: it.precio_unit,
     });
   }
+
+  // A CRÉDITO: la deuda nace acá, con la factura emitida y el material ya
+  // despachado. Se le crea su PROPIA cuenta por cobrar (1:1) y no la del
+  // cliente en general, para poder decir después qué factura está paga.
+  // Se cobra en Tesorería, en dinero o en material.
+  let cxcId: string | null = v.cxc_id ?? null;
+  if (esVentaACredito(v) && !cxcId) {
+    const cliente = (v.cliente_nombre ?? '').trim();
+    if (!cliente) throw new Error('Una factura a crédito necesita el cliente: es a nombre de quién queda la deuda.');
+    const cuenta = await crearCuentaCobrarDocumento({
+      tipo: 'cliente', contraparte: cliente, monto: Number(v.total) || 0, moneda: v.moneda || 'USD',
+      origen: 'venta', nota: `Factura ${v.numero}`, actor, actorName: actorName ?? null,
+    });
+    cxcId = cuenta.id;
+  }
+
   const { error } = await supabase.from('ventas').update({
-    estado: 'emitida', emitida_en: new Date().toISOString(), emitida_por: actor, updated_at: new Date().toISOString(),
+    estado: 'emitida', emitida_en: new Date().toISOString(), emitida_por: actor,
+    cxc_id: cxcId, updated_at: new Date().toISOString(),
   }).eq('id', v.id);
   if (error) throw error;
 }
 
-/** Marca la factura como pagada (registra método y monto). */
-export async function marcarPagada(v: Venta, metodo: string, monto: number): Promise<void> {
+/**
+ * Cobro de CONTADO: el dinero ENTRA a la caja elegida (ingreso real en el Libro
+ * Mayor) y recién ahí la factura queda pagada. Antes esto solo cambiaba el
+ * estado: el KPI «Cobrado» de Ventas no se correspondía con ninguna caja.
+ *
+ * Las facturas a crédito no pasan por acá: se cobran desde Tesorería, contra su
+ * cuenta por cobrar, en dinero o en material.
+ */
+export async function marcarPagada(input: {
+  venta: Venta;
+  metodo: string;
+  monto: number;
+  cajaId: string;
+  cuentaCaja?: CuentaCaja | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<void> {
+  const v = input.venta;
   if (v.estado !== 'emitida') throw new Error('Solo se cobran facturas emitidas.');
+  if (esVentaACredito(v)) {
+    throw new Error('Esta factura es a crédito: se cobra en Tesorería → Cuentas por cobrar.');
+  }
+  const monto = r2(input.monto || v.total);
+  if (!input.cajaId) throw new Error('Elegí la caja donde entra el dinero.');
+
+  // Primero la caja: si el ingreso falla, la factura NO queda marcada como
+  // cobrada. Al revés dejaría plata cobrada en el papel y ausente en la caja.
+  const mov = await registrarIngresoCaja({
+    cajaId: input.cajaId, monto, moneda: v.moneda || 'USD',
+    cuenta: input.cuentaCaja ?? null, categoria: 'venta',
+    concepto: `Cobro factura ${v.numero}${v.cliente_nombre ? ` · ${v.cliente_nombre}` : ''}`,
+    actor: input.actor, actorName: input.actorName ?? null,
+  });
+
   const { error } = await supabase.from('ventas').update({
-    estado: 'pagada', metodo_pago: metodo?.trim() || null, pagado_monto: r2(monto || v.total),
+    estado: 'pagada', metodo_pago: input.metodo?.trim() || null, pagado_monto: monto,
+    caja_id: input.cajaId, cuenta_caja: input.cuentaCaja ?? null, caja_mov_id: mov.id,
     updated_at: new Date().toISOString(),
   }).eq('id', v.id);
   if (error) throw error;
 }
 
+/**
+ * Pone al día las facturas a crédito contra su cuenta por cobrar: la que ya se
+ * cobró entera (en dinero o en material, desde Tesorería) pasa a «pagada».
+ * Devuelve el saldo de cada una para mostrarlo en la lista.
+ */
+export async function sincronizarCredito(ventas: Venta[]): Promise<Map<string, CuentaPorCobrar>> {
+  const aCredito = ventas.filter((v) => v.cxc_id && (v.estado === 'emitida' || v.estado === 'pagada'));
+  if (!aCredito.length) return new Map();
+  const cuentas = await cuentasCobrarPorIds(aCredito.map((v) => v.cxc_id!));
+
+  const saldadas = aCredito.filter((v) => {
+    const c = cuentas.get(v.cxc_id!);
+    return v.estado === 'emitida' && c && c.estado === 'saldada' && Number(c.monto) > 0;
+  });
+  await Promise.all(saldadas.map(async (v) => {
+    const c = cuentas.get(v.cxc_id!)!;
+    await supabase.from('ventas').update({
+      estado: 'pagada', pagado_monto: r2(Number(c.abonado) || Number(v.total)),
+      updated_at: new Date().toISOString(),
+    }).eq('id', v.id).eq('estado', 'emitida');
+  }));
+  return cuentas;
+}
+
 /** Anula la factura. Si estaba emitida/pagada, REVIERTE el stock (entrada). */
 export async function anularVenta(v: Venta, actor: string, actorName?: string | null): Promise<void> {
   if (v.estado === 'anulada') throw new Error('La factura ya está anulada.');
+
+  // A crédito: primero se cierra la deuda. Si el cliente YA abonó algo, esto
+  // lanza y la anulación se detiene ANTES de devolver stock — anular por lo
+  // bajo una deuda a medio cobrar borraría plata que entró de verdad.
+  if (v.cxc_id) await anularCuentaCobrarDocumento(v.cxc_id, `Factura ${v.numero} anulada`);
+
   if (v.estado === 'emitida' || v.estado === 'pagada') {
     for (const it of (v.items ?? []).filter((i) => i.producto_id && Number(i.cantidad) > 0)) {
       await registrarMovimiento({
@@ -230,6 +332,7 @@ export async function eliminarVenta(id: string): Promise<void> {
 
 export interface ResumenVentas {
   totalVendido: number;    // total facturado (emitida + pagada)
+  aCredito: number;        // total de las facturas a crédito vivas
   ganancia: number;
   gananciaPct: number;
   costo: number;
@@ -247,8 +350,9 @@ export function resumenVentas(ventas: Venta[]): ResumenVentas {
   const porCobrar = r2(vivas.filter((v) => v.estado === 'emitida').reduce((a, v) => a + (Number(v.total) || 0), 0));
   const cobrado = r2(vivas.filter((v) => v.estado === 'pagada').reduce((a, v) => a + (Number(v.total) || 0), 0));
   const base = r2(totalVendido);
+  const aCredito = r2(vivas.filter(esVentaACredito).reduce((a, v) => a + (Number(v.total) || 0), 0));
   return {
-    totalVendido, ganancia, costo, facturas: vivas.length, porCobrar, cobrado,
+    totalVendido, ganancia, costo, facturas: vivas.length, porCobrar, cobrado, aCredito,
     gananciaPct: base > 0 ? r2((ganancia / base) * 100) : 0,
   };
 }

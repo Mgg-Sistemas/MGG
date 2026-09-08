@@ -18,9 +18,11 @@ interface ProductosTableProps {
   movStats?: Map<string, { entradas: number; salidas: number }>;
   /** Si viene (vista de almacén), agrega la acción "Mover" para trasladar ese producto a otro almacén. */
   onMover?: (p: ProductoDecorado) => void;
+  /** «También en…»: hace figurar la ficha en otra sede, en cero. */
+  onPresencia?: (p: ProductoDecorado) => void;
 }
 
-export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdit, onMovimiento, onToggleEstado, canWrite = true, movStats, onMover, stockLabel }: ProductosTableProps) {
+export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdit, onMovimiento, onToggleEstado, canWrite = true, movStats, onMover, onPresencia, stockLabel }: ProductosTableProps) {
   if (!rows.length) {
     return (
       <div className="card">
@@ -128,6 +130,12 @@ export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdi
                       {onMover && (
                         <button className="btn btn-sm btn-ghost" onClick={() => onMover(p)} title="Mover a otro almacén">
                           ⇄
+                        </button>
+                      )}
+                      {onPresencia && (
+                        <button className="btn btn-sm btn-ghost" onClick={() => onPresencia(p)}
+                          title="También en… (que figure en otra sede, en cero)">
+                          📍
                         </button>
                       )}
                       <button className="btn btn-sm btn-ghost" onClick={() => onEdit(p.id)}>

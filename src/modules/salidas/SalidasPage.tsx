@@ -36,6 +36,7 @@ import { ClientePicker } from './ClientePicker';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { destinosDeTraslado } from '@/modules/inventario/stockPorAlmacen';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
+import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
 import {
   descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
   type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
@@ -688,7 +689,7 @@ function SolicitudDetalleModal({
   // cargados (productos/existencias/almacenes) para los selects.
   const editable = sol.tipo === 'material' && (sol.estado === 'por_aprobar' || sol.estado === 'aprobada') && puedeAprobar;
   const [editando, setEditando] = useState(false);
-  type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string };
+  type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string; paraFundicion?: boolean };
   const initLineas = (): LineaEd[] => {
     // Almacén de origen: si el guardado no tiene stock del producto, se elige el
     // almacén con MÁS stock (para que no quede mostrando "0 und").
@@ -700,9 +701,9 @@ function SolicitudDetalleModal({
       return top?.almacen ?? saved;
     };
     const base = (sol.items && sol.items.length)
-      ? sol.items.map((it) => ({ productoId: it.producto_id, almacen: it.almacen ?? sol.almacen_origen ?? '', cantidad: Number(it.cantidad) || 0, precio: it.precio_unit }))
-      : [{ productoId: sol.producto_id ?? '', almacen: sol.almacen_origen ?? '', cantidad: Number(sol.cantidad) || 0, precio: sol.precio_unit }];
-    return base.map((it, i) => ({ id: i + 1, productoId: it.productoId, almacen: mejorAlmacen(it.productoId, it.almacen), cantidad: String(it.cantidad || 0), precio: it.precio != null ? String(it.precio) : '' }));
+      ? sol.items.map((it) => ({ productoId: it.producto_id, almacen: it.almacen ?? sol.almacen_origen ?? '', cantidad: Number(it.cantidad) || 0, precio: it.precio_unit, paraFundicion: it.para_fundicion === true }))
+      : [{ productoId: sol.producto_id ?? '', almacen: sol.almacen_origen ?? '', cantidad: Number(sol.cantidad) || 0, precio: sol.precio_unit, paraFundicion: false }];
+    return base.map((it, i) => ({ id: i + 1, productoId: it.productoId, almacen: mejorAlmacen(it.productoId, it.almacen), cantidad: String(it.cantidad || 0), precio: it.precio != null ? String(it.precio) : '', paraFundicion: it.paraFundicion === true }));
   };
   const [edLineas, setEdLineas] = useState<LineaEd[]>([]);
   const [edSeq, setEdSeq] = useState(1);
@@ -750,6 +751,11 @@ function SolicitudDetalleModal({
   const stockDe = (productoId: string, almacen: string) => Number(existencias.find((e) => e.producto_id === productoId && e.almacen === almacen)?.stock) || 0;
   const almacenesProd = (productoId: string) => existencias.filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0).map((e) => e.almacen);
   const almacenesActivos = useMemo(() => almacenes.filter((a) => a.estado === 'activo').map((a) => a.nombre), [almacenes]);
+  // Sede de cada almacén: define si una línea puede ir al piso de fundición.
+  const sedePorAlmacen = useMemo(
+    () => new Map(almacenes.map((a) => [a.nombre, (a.sede ?? '').trim()])),
+    [almacenes],
+  );
   // Sedes / centros como en Inventario (CENTRO DE ACOPIO - …, LOS PINOS, …).
   const sedes = useMemo(
     () => Array.from(new Set(almacenes.filter((a) => a.estado === 'activo').map((a) => a.sede?.trim()).filter((s): s is string => !!s)))
@@ -787,13 +793,16 @@ function SolicitudDetalleModal({
     setEditando(true);
   }
   const setLinea = (id: number, patch: Partial<LineaEd>) => setEdLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLinea = () => { setEdLineas((ls) => [...ls, { id: edSeq, productoId: '', almacen: '', cantidad: '1', precio: '' }]); setEdSeq((s) => s + 1); };
+  const addLinea = () => { setEdLineas((ls) => [...ls, { id: edSeq, productoId: '', almacen: '', cantidad: '1', precio: '', paraFundicion: false }]); setEdSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setEdLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
 
   async function guardarEdicion() {
     const items = edLineas.map((l) => {
       const p = prodById.get(l.productoId);
-      return { producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: Number(l.cantidad) || 0, precio_unit: l.precio !== '' ? Number(l.precio) : null, unidad: p?.unidad ?? null, almacen: l.almacen || null, observacion: null };
+      // La marca de fundición se conserva al editar: si se perdiera acá, el
+      // material saldría del inventario pero no llegaría al piso, y la colada
+      // volvería a descontarlo — justo el doble descuento que esto corrige.
+      return { producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: Number(l.cantidad) || 0, precio_unit: l.precio !== '' ? Number(l.precio) : null, unidad: p?.unidad ?? null, almacen: l.almacen || null, observacion: null, para_fundicion: l.paraFundicion === true };
     });
     if (items.some((it) => !it.producto_id)) { toast('Elegí el material en cada renglón.', 'error'); return; }
     if (items.some((it) => !it.almacen)) { toast('Elegí el almacén de origen en cada renglón.', 'error'); return; }
@@ -1016,7 +1025,18 @@ function SolicitudDetalleModal({
             <div key={l.id} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
                 <strong className="muted" style={{ fontSize: '.78rem' }}>Material #{idx + 1}</strong>
-                {edLineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => quitarLinea(l.id)} title="Quitar material">✕</button>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+                  {/* Igual que en el alta: materia prima o insumo de receta, saliendo de Matanza. */}
+                  {esMaterialDeFundicion(p) && (sedePorAlmacen.get(l.almacen) ?? '').toUpperCase().includes('MATANZA') && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.78rem' }}
+                      title="El material queda en el piso de fundición: la colada que lo queme ya no lo descuenta otra vez">
+                      <input type="checkbox" checked={l.paraFundicion === true}
+                        onChange={(e) => setLinea(l.id, { paraFundicion: e.target.checked })} />
+                      <span>🔥 Va para fundición</span>
+                    </label>
+                  )}
+                  {edLineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => quitarLinea(l.id)} title="Quitar material">✕</button>}
+                </div>
               </div>
               <div className="form-grid">
                 <div className="form-row">

@@ -105,9 +105,12 @@ describe('camposDeEdicion — una edición no borra lo que no le mandaron', () =
     expect(camposDeEdicion({ ci_solicitante: '  ENDER MEJIAS  ' })).toEqual({ ci_solicitante: 'ENDER MEJIAS' });
   });
 
-  it('null explícito borra; undefined no', () => {
+  it('null explícito borra; undefined NO toca', () => {
+    // La clave presente con `undefined` es «no me lo mandaron»: con campos
+    // opcionales y spread eso pasa constantemente, y tratarlo como «borralo»
+    // reintroduce el mismo defecto por otra puerta.
     expect(camposDeEdicion({ notas: null })).toEqual({ notas: null });
-    expect('notas' in camposDeEdicion({ notas: undefined })).toBe(true);
+    expect('notas' in camposDeEdicion({ notas: undefined })).toBe(false);
   });
 
   it('los tres roles de la solicitud viajan por separado', () => {

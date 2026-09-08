@@ -1,72 +1,47 @@
 /* ============================================================
    MGG · Compras · TXT de una orden confirmada para pagar
-   Texto plano, para pegar en un correo o en WhatsApp cuando hay
-   que pedirle el pago a alguien que no entra al sistema.
-   Lleva lo justo para decidir y para emitir el pago: quién pide,
-   de qué unidad, qué pidió, a qué proveedor, y cómo se paga con
-   los datos del beneficiario y su monto.
+   Formato corto, pensado para pegarlo en WhatsApp: los `*` de los
+   rótulos son las negritas de WhatsApp. Lleva lo justo para emitir
+   el pago —qué orden, a quién, por qué, cuánto y cómo— sin el
+   listado de renglones: quien paga no lo necesita.
    Solo por botón: nunca se descarga solo.
    ============================================================ */
 import type { Orden, PagoMetodo } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
-import { labelBanco } from '@/shared/lib/bancos';
+import { BANCOS_VE } from '@/shared/lib/bancos';
 
-const ANCHO = 62;
-const linea = (c = '-') => c.repeat(ANCHO);
-
-function monto(n: number | null | undefined, moneda = '$'): string {
-  const v = Number(n) || 0;
-  return `${moneda} ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** `$79,00` · `Bs 4.500,00`. El símbolo va pegado; «Bs» necesita el espacio. */
+export function montoTxt(n: number | null | undefined, moneda = '$'): string {
+  const m = (moneda || '$').trim();
+  const v = (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return m === '$' ? `$${v}` : `${m} ${v}`;
 }
 
-/** «SOLICITA» + 8 espacios + «: valor», para que los dos puntos queden alineados. */
-function campo(etiqueta: string, valor: string): string {
-  return `  ${etiqueta.padEnd(20)}: ${valor}`;
+/** `Banco de Venezuela (0102)`: el nombre adelante, que es lo que se busca en la app del banco. */
+export function bancoTxt(codigo: string | null | undefined): string {
+  const c = (codigo ?? '').trim();
+  if (!c) return '';
+  const b = BANCOS_VE.find((x) => x.codigo === c);
+  return b ? `${b.nombre} (${b.codigo})` : c;
 }
 
-/**
- * Parte un texto largo en renglones de ANCHO columnas, sin cortar palabras.
- * La descripción de una solicitud es texto libre y llega a varios párrafos
- * («SOLICITUD DE TERMOMETRO DIGITAL PARA EL PERSONAL DEL GALPON… NOTA: LA ORDEN
- * FUE MODIFICADA EL DIA…»): en una sola línea el archivo se vuelve ilegible.
- */
-function envolver(texto: string, sangria = '  '): string[] {
-  const ancho = ANCHO - sangria.length;
+/** El porqué de la compra: motivo y finalidad son campos distintos de la OP y
+ *  no siempre están los dos; si dicen lo mismo no se repite. Todo en un renglón. */
+export function detalleTxt(orden: Pick<Orden, 'motivo' | 'finalidad'>): string {
+  const motivo = (orden.motivo ?? '').trim();
+  const finalidad = (orden.finalidad ?? '').trim();
+  return [motivo, finalidad === motivo ? '' : finalidad]
+    .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Los datos del beneficiario, uno por renglón: el archivo se lee para TIPEAR el pago. */
+function datosPago(metodo: string, d: Record<string, string> = {}): string[] {
   const out: string[] = [];
-  for (const parrafo of String(texto).split(/\r?\n/)) {
-    const palabras = parrafo.trim().split(/\s+/).filter(Boolean);
-    if (!palabras.length) { out.push(''); continue; }
-    let linea = '';
-    for (const p of palabras) {
-      if (!linea) { linea = p; continue; }
-      if (`${linea} ${p}`.length <= ancho) linea += ` ${p}`;
-      else { out.push(sangria + linea); linea = p; }
-    }
-    if (linea) out.push(sangria + linea);
-  }
-  return out;
-}
-
-/** Una sección con título y su texto envuelto; vacía si no hay nada que decir. */
-function bloqueTexto(titulo: string, texto: string | null | undefined): string[] {
-  const t = (texto ?? '').trim();
-  if (!t) return [];
-  return [linea(), `  ${titulo}`, linea(), ...envolver(t), ''];
-}
-
-/**
- * Los datos del beneficiario, uno por línea y con su etiqueta.
- * En pantalla se muestran en una sola línea separados por puntos, pero acá el
- * archivo se lee para TIPEAR una transferencia: cada dato en su renglón se copia
- * sin equivocarse de campo.
- */
-function lineasDatosPago(metodo: string, d: Record<string, string> = {}): string[] {
-  const out: string[] = [];
-  const add = (k: string, v?: string | null) => { if (v && String(v).trim()) out.push(`     ${k.padEnd(10)}: ${String(v).trim()}`); };
+  const add = (k: string, v?: string | null) => { if (v && String(v).trim()) out.push(`* ${k}: ${String(v).trim()}`); };
   if (metodo === 'pago_movil') {
-    add('CI / RIF', d.ci_rif); add('Banco', labelBanco(d.banco)); add('Teléfono', d.telefono);
+    add('Banco', bancoTxt(d.banco)); add('CI/RIF', d.ci_rif); add('Tlf', d.telefono);
   } else if (metodo === 'transferencia') {
-    add('Titular', d.nombre); add('CI / RIF', d.ci); add('Banco', labelBanco(d.banco)); add('Cuenta', d.cuenta);
+    add('Titular', d.nombre); add('CI/RIF', d.ci); add('Banco', bancoTxt(d.banco)); add('Cuenta', d.cuenta);
   } else if (metodo === 'zelle') {
     add('Titular', d.nombre); add('Correo', d.email);
   } else if (metodo === 'binance_usdt') {
@@ -75,83 +50,45 @@ function lineasDatosPago(metodo: string, d: Record<string, string> = {}): string
   return out;
 }
 
-function bloquePago(patas: PagoMetodo[] | null | undefined): string[] {
+function bloquePago(patas: PagoMetodo[] | null | undefined, total: number, monedaOrden: string): string[] {
   const list = patas ?? [];
-  if (!list.length) return ['  (todavía sin método de pago indicado)'];
+  if (!list.length) return ['💳 *Pago:* (todavía sin método de pago indicado)'];
   const out: string[] = [];
-  list.forEach((m, i) => {
-    if (i > 0) out.push('');
-    out.push(`  ${list.length > 1 ? `[${i + 1}/${list.length}] ` : ''}${labelMetodoPago(m.metodo)}   ${monto(m.monto, m.moneda || '$')}`);
-    out.push(...lineasDatosPago(m.metodo, (m.datos ?? {}) as Record<string, string>));
+  list.forEach((m) => {
+    const moneda = (m.moneda || '$').trim();
+    const importeNum = Number(m.monto) || 0;
+    // El monto de la pata se muestra solo cuando aporta algo. No se muestra si:
+    //  · está en CERO, porque el monto lo define Tesorería recién al pagar y un
+    //    «Bs 0,00» en el papel se lee como si el pago fuera por nada;
+    //  · o si es la única pata y repite el total, que ya se leyó arriba.
+    const repiteElTotal = list.length === 1 && moneda === monedaOrden && importeNum === (Number(total) || 0);
+    const importe = importeNum === 0 || repiteElTotal ? '' : ` ${montoTxt(m.monto, moneda)}`;
+    out.push(`💳 *${labelMetodoPago(m.metodo)}:*${importe}`);
+    out.push(...datosPago(m.metodo, (m.datos ?? {}) as Record<string, string>));
   });
   return out;
 }
 
 /** El texto completo. Se exporta aparte para poder probarlo sin tocar el navegador. */
-export function textoOrdenPago(
-  orden: Orden,
-  proveedorNombre: string,
-  fechaGenerado = new Date(),
-): string {
-  const persona = orden.solicitante_persona ?? orden.ci_solicitante ?? orden.solicitante_email ?? '—';
-  const unidad = (orden.solicitante ?? '').trim() || '—';
-  const items = (orden.items ?? []).filter((it) => it.comprar !== false);
+export function textoOrdenPago(orden: Orden, proveedorNombre: string): string {
   const mon = (orden.moneda ?? 'USD').toUpperCase() === 'BS' ? 'Bs' : '$';
+  const detalle = detalleTxt(orden);
+  const nota = (orden.notas ?? '').trim();
 
   const L: string[] = [];
-  L.push(linea('='));
-  L.push('  MINERAL GROUP GUAYANA C.A.');
-  L.push('  ORDEN CONFIRMADA PARA PAGAR');
-  L.push(linea('='));
-  L.push('');
-  L.push(campo('ORDEN', orden.oc_codigo ?? orden.codigo));
-  if (orden.oc_codigo && orden.codigo !== orden.oc_codigo) L.push(campo('SOLICITUD', orden.codigo));
-  L.push(campo('SOLICITA', persona));
-  L.push(campo('UNIDAD SOLICITANTE', unidad));
-  L.push(campo('PROVEEDOR', proveedorNombre || '—'));
-  L.push('');
-
-  /* El porqué de la solicitud. `motivo` y `finalidad` son dos campos distintos
-     de la OP y no siempre están los dos cargados; si coinciden no se repite. */
-  const motivo = (orden.motivo ?? '').trim();
-  const finalidad = (orden.finalidad ?? '').trim();
-  const descripcion = [motivo, finalidad === motivo ? '' : finalidad].filter(Boolean).join('\n');
-  L.push(...bloqueTexto('DESCRIPCIÓN DE LA SOLICITUD', descripcion));
-  L.push(...bloqueTexto('NOTA', orden.notas));
-
-  L.push(linea());
-  L.push('  QUÉ SE SOLICITÓ');
-  L.push(linea());
-  if (!items.length) {
-    L.push('  (sin renglones)');
-  } else {
-    items.forEach((it, i) => {
-      const cant = Number(it.cantidad) || 0;
-      const pu = Number(it.precio) || 0;
-      L.push(`  ${String(i + 1).padStart(2)}. ${it.nombre}`);
-      // El SKU no va: quien paga no lo necesita y ensucia el renglón.
-      L.push(`      ${cant} ${it.unidad ?? 'und'} x ${monto(pu, mon)}  =  ${monto(cant * pu, mon)}`);
-    });
-  }
-  L.push('');
-  L.push(`  ${'TOTAL'.padEnd(20)}: ${monto(orden.total, mon)}`);
-  L.push('');
-
-  L.push(linea());
-  L.push('  MÉTODO DE PAGO');
-  L.push(linea());
-  L.push(...bloquePago(orden.metodo_pago));
-  L.push('');
-  L.push(linea('='));
-  L.push(`  Generado ${fechaGenerado.toLocaleString('es-VE')}`);
-  L.push(linea('='));
-  return L.join('\r\n'); // CRLF: el Bloc de notas de Windows es donde se abre esto
+  L.push(`🔹 *ORDEN:* ${orden.oc_codigo ?? orden.codigo}`);
+  L.push(`🏭 *Proveedor:* ${proveedorNombre || '—'}`);
+  if (detalle) L.push(`📝 *Detalle:* ${detalle}`);
+  if (nota) L.push(`🗒️ *Nota:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
+  L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
+  L.push(...bloquePago(orden.metodo_pago, Number(orden.total) || 0, mon));
+  return L.join('\r\n'); // CRLF: se abre en el Bloc de notas sin quedar todo en una línea
 }
 
 /** Baja el .txt de la orden. Se llama SOLO desde el botón del detalle. */
 export function descargarOrdenPagoTxt(orden: Orden, proveedorNombre: string): void {
   const texto = textoOrdenPago(orden, proveedorNombre);
-  // BOM para que Windows abra el archivo con los acentos bien.
+  // BOM para que Windows abra el archivo con los acentos y los emojis bien.
   const blob = new Blob([`\uFEFF${texto}`], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

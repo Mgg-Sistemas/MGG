@@ -142,6 +142,77 @@ export async function registrarCobrarPorTraspaso(input: {
   });
 }
 
+/**
+ * Cuenta por cobrar PROPIA de un documento (1:1): NO se fusiona con la del
+ * cliente. La usa la factura a crédito de Ventas.
+ *
+ * Las otras altas son incrementales —un cliente, una deuda que va sumando—, y
+ * para una factura eso no sirve: con el saldo mezclado no se puede decir qué
+ * factura quedó paga, ni anular una sin tocar la deuda de las demás.
+ */
+export async function crearCuentaCobrarDocumento(input: {
+  tipo: TipoCxC;
+  contraparte: string;
+  monto: number;
+  moneda: string;
+  origen?: string | null;
+  nota?: string | null;
+  actor?: string | null;
+  actorName?: string | null;
+}): Promise<CuentaPorCobrar> {
+  const monto = round2(input.monto);
+  if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+  const contraparte = input.contraparte.trim();
+  if (!contraparte) throw new Error('Indicá el cliente.');
+  const { data, error } = await supabase.from(CXC).insert({
+    tipo: input.tipo, contraparte, monto, abonado: 0, moneda: input.moneda,
+    estado: 'abierta', origen: input.origen ?? 'documento', nota: input.nota?.trim() || null,
+    actor: input.actor ?? null, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return data as CuentaPorCobrar;
+}
+
+/** Una cuenta puntual por id (null si ya no está). */
+export async function getCuentaPorCobrar(id: string): Promise<CuentaPorCobrar | null> {
+  const { data, error } = await supabase.from(CXC).select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return (data ?? null) as CuentaPorCobrar | null;
+}
+
+/** Varias cuentas por id, en una sola consulta (para pintar una lista). */
+export async function cuentasCobrarPorIds(ids: string[]): Promise<Map<string, CuentaPorCobrar>> {
+  const limpios = Array.from(new Set(ids.filter(Boolean)));
+  if (!limpios.length) return new Map();
+  const { data, error } = await supabase.from(CXC).select('*').in('id', limpios);
+  if (error) throw error;
+  return new Map(((data ?? []) as CuentaPorCobrar[]).map((c) => [c.id, c]));
+}
+
+/**
+ * Cierra la deuda de un documento que se anuló. SOLO si no tiene ningún abono:
+ * si el cliente ya pagó una parte, cancelarla por lo bajo le borraría plata que
+ * entró de verdad — esa decisión es de Tesorería.
+ *
+ * No borra la fila: la deja en 0 y saldada, con la nota de por qué. Así queda
+ * el rastro de que existió y sale de «nos deben».
+ */
+export async function anularCuentaCobrarDocumento(id: string, motivo: string): Promise<void> {
+  const c = await getCuentaPorCobrar(id);
+  if (!c) return;                                   // ya no está: nada que cerrar
+  if (round2(Number(c.abonado)) > 0) {
+    throw new Error(
+      `La cuenta por cobrar de esta factura ya tiene cobros por ${c.abonado} ${c.moneda}. ` +
+      'Resolvela en Tesorería → Cuentas por cobrar antes de anular.',
+    );
+  }
+  const nota = [c.nota, motivo].filter(Boolean).join(' · ');
+  const { error } = await supabase.from(CXC)
+    .update({ monto: 0, estado: 'saldada', nota, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function listCuentasPorCobrar(soloAbiertas = true): Promise<CuentaPorCobrar[]> {
   let q = supabase.from(CXC).select('*').order('created_at', { ascending: false });
   if (soloAbiertas) q = q.eq('estado', 'abierta');

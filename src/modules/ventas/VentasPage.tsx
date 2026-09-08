@@ -10,13 +10,18 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProductos } from '@/modules/inventario/inventario.repository';
-import { listExistencias } from '@/modules/inventario/almacenes.repository';
-import type { Producto, Existencia } from '@/shared/lib/types';
+import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
+import type { Almacen, Producto, Existencia } from '@/shared/lib/types';
+import { almacenVentaInicial, almacenesDeVenta, existenciaEn, productosVendibles } from './almacenVenta';
 import {
   listVentas, crearVenta, actualizarVenta, emitirVenta, marcarPagada, anularVenta, eliminarVenta,
-  calcItem, calcVenta, resumenVentas,
-  type Venta, type VentaItem, type EstadoVenta,
+  calcItem, calcVenta, resumenVentas, esVentaACredito, sincronizarCredito,
+  type Venta, type VentaItem, type EstadoVenta, type CondicionPagoVenta,
 } from './ventas.repository';
+import { listCajasActivas } from '@/modules/salidas/cajas.repository';
+import { listSaldos } from '@/modules/tesoreria/cajaSaldos.repository';
+import type { Caja, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
+import type { CuentaPorCobrar } from '@/modules/tesoreria/cuentasPorCobrar.repository';
 import { listClientes, crearCliente, actualizarCliente, eliminarCliente, type Cliente, type ClienteInput } from './clientes.repository';
 // descargarFacturaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
@@ -46,6 +51,11 @@ export function VentasPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [cajas, setCajas] = useState<Caja[]>([]);
+  const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
+  // Estado en vivo de la cuenta por cobrar de cada factura a crédito.
+  const [cxc, setCxc] = useState<Map<string, CuentaPorCobrar>>(new Map());
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'nueva' | 'clientes' | 'reporte' | null>(null);
   const [editar, setEditar] = useState<Venta | null>(null);
@@ -56,12 +66,29 @@ export function VentasPage() {
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      const [vs, cs, ps, ex] = await Promise.all([listVentas(), listClientes(), listProductos(), listExistencias()]);
-      setVentas(vs); setClientes(cs); setProductos(ps); setExistencias(ex);
+      const [vs, cs, ps, ex, als, cjs, sds] = await Promise.all([
+        listVentas(), listClientes(), listProductos(), listExistencias(), listAlmacenes(),
+        listCajasActivas(), listSaldos(),
+      ]);
+      setClientes(cs); setProductos(ps); setExistencias(ex); setAlmacenes(als);
+      setCajas(cjs); setSaldos(sds);
+      // Las facturas a crédito se cobran en Tesorería: acá se leen sus cuentas y
+      // la que ya quedó saldada pasa sola a «pagada».
+      const cuentas = await sincronizarCredito(vs).catch(() => new Map<string, CuentaPorCobrar>());
+      setCxc(cuentas);
+      setVentas(vs.map((v) => {
+        const c = v.cxc_id ? cuentas.get(v.cxc_id) : null;
+        return c && v.estado === 'emitida' && c.estado === 'saldada' && Number(c.monto) > 0
+          ? { ...v, estado: 'pagada' as EstadoVenta } : v;
+      }));
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { cargar().catch((e) => toast(e instanceof Error ? e.message : 'Error al cargar', 'error')); }, [cargar]);
-  useRealtime(['ventas', 'clientes', 'existencias', 'productos'], cargar);
+  useRealtime(
+    ['ventas', 'clientes', 'existencias', 'productos', 'almacenes',
+     'cuentas_por_cobrar', 'cuentas_por_cobrar_abonos', 'caja_saldos'],
+    cargar,
+  );
 
   const resumen = useMemo(() => resumenVentas(ventas), [ventas]);
   const porEstado = useMemo(() => {
@@ -95,7 +122,15 @@ export function VentasPage() {
       {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setEditar(v)}>✎</button>}
       {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-primary" title="Emitir (descuenta stock)" onClick={() => void emitir(v)}>Emitir</button>}
       {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => void eliminar(v)}>🗑</button>}
-      {canWrite && v.estado === 'emitida' && <button className="btn btn-sm btn-primary" title="Registrar cobro" onClick={() => setCobrar(v)}>Cobrar</button>}
+      {/* A crédito no se cobra acá: el dinero (o el material) entra por Tesorería,
+          contra la cuenta por cobrar propia de la factura. */}
+      {canWrite && v.estado === 'emitida' && !esVentaACredito(v) && (
+        <button className="btn btn-sm btn-primary" title="Registrar cobro (entra a caja)" onClick={() => setCobrar(v)}>Cobrar</button>
+      )}
+      {v.estado === 'emitida' && esVentaACredito(v) && (
+        <a className="btn btn-sm btn-ghost" href="#/app/tesoreria"
+          title="Se cobra en Tesorería → Cuentas por cobrar, en dinero o en material">→ Cobrar en Tesorería</a>
+      )}
       {canWrite && (v.estado === 'emitida' || v.estado === 'pagada') && <button className="btn btn-sm btn-danger" title="Anular (revierte stock)" onClick={() => setAnular(v)}>Anular</button>}
     </>
   );
@@ -122,6 +157,7 @@ export function VentasPage() {
         <Kpi t="% Ganancia" v={`${num(resumen.gananciaPct)}%`} />
         <Kpi t="🧾 Facturas" v={String(resumen.facturas)} />
         <Kpi t="⏳ Por cobrar" v={money(resumen.porCobrar)} c={resumen.porCobrar > 0 ? 'var(--danger)' : undefined} />
+        <Kpi t="🧾 A crédito" v={money(resumen.aCredito)} c={resumen.aCredito > 0 ? 'var(--primary-3)' : undefined} />
         <Kpi t="✓ Cobrado" v={money(resumen.cobrado)} c="var(--success, #45c08a)" />
       </div>
 
@@ -158,6 +194,7 @@ export function VentasPage() {
                         <span>{date(v.fecha)}</span>
                         <span>{(v.items?.length ?? 0)} ítem{(v.items?.length ?? 0) !== 1 ? 's' : ''}</span>
                       </div>
+                      <EstadoCredito venta={v} cuenta={v.cxc_id ? cxc.get(v.cxc_id) : undefined} />
                       <div className="foot">
                         <span className="total">{money(v.total)}</span>
                         <span className="when" style={{ color: v.ganancia < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>
@@ -207,7 +244,7 @@ export function VentasPage() {
       )}
 
       {(modal === 'nueva' || editar) && (
-        <VentaModal venta={editar} clientes={clientes} productos={productos} existencias={existencias}
+        <VentaModal venta={editar} clientes={clientes} productos={productos} existencias={existencias} almacenes={almacenes}
           vendedorDefault={actorName ?? ''} actor={actor} actorName={actorName}
           onClose={() => { setModal(null); setEditar(null); }}
           onSaved={async () => { setModal(null); setEditar(null); await cargar(); }} />
@@ -215,7 +252,8 @@ export function VentasPage() {
       {modal === 'clientes' && <ClientesModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setModal(null)} onChanged={cargar} />}
       {modal === 'reporte' && <ReporteModal ventas={ventas} onClose={() => setModal(null)} />}
 
-      {cobrar && <CobrarModal venta={cobrar} onClose={() => setCobrar(null)} onSaved={async () => { setCobrar(null); await cargar(); }} />}
+      {cobrar && <CobrarModal venta={cobrar} cajas={cajas} saldos={saldos} actor={actor} actorName={actorName}
+        onClose={() => setCobrar(null)} onSaved={async () => { setCobrar(null); await cargar(); }} />}
       {anular && (
         <ConfirmDialog title={`Anular ${anular.numero}`}
           message={`¿Anular la factura ${anular.numero}? Si estaba emitida/pagada, se revierte el stock al inventario.`}
@@ -231,15 +269,19 @@ export function VentasPage() {
 
 interface FilaItem extends VentaItem { _k: number }
 
-function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, actor, actorName, onClose, onSaved }: {
-  venta: Venta | null; clientes: Cliente[]; productos: Producto[]; existencias: Existencia[];
+function VentaModal({ venta, clientes, productos, existencias, almacenes, vendedorDefault, actor, actorName, onClose, onSaved }: {
+  venta: Venta | null; clientes: Cliente[]; productos: Producto[]; existencias: Existencia[]; almacenes: Almacen[];
   vendedorDefault: string; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const editando = !!venta;
   const [fecha, setFecha] = useState(venta?.fecha ?? new Date().toISOString().slice(0, 10));
+  // La factura sale de UN almacén: por defecto el padre de Matanza. Al editar
+  // se respeta el que ya tenían los renglones.
+  const [almacen, setAlmacen] = useState(() => venta?.items?.[0]?.almacen || almacenVentaInicial(almacenes));
   const [clienteId, setClienteId] = useState(venta?.cliente_id ?? '');
   const [clienteNombre, setClienteNombre] = useState(venta?.cliente_nombre ?? '');
   const [moneda, setMoneda] = useState(venta?.moneda ?? 'USD');
+  const [condicion, setCondicion] = useState<CondicionPagoVenta>(venta?.condicion_pago ?? 'contado');
   const [descuento, setDescuento] = useState(String(venta?.descuento ?? 0));
   const [ivaPct, setIvaPct] = useState(String(venta?.iva_pct ?? 0));
   const [vendedor, setVendedor] = useState(venta?.vendedor ?? vendedorDefault);
@@ -249,39 +291,60 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const gruposAlmacen = useMemo(() => almacenesDeVenta(almacenes), [almacenes]);
+  // Solo se ofrece lo que se puede despachar: ficha activa y con stock en ese almacén.
+  const vendibles = useMemo(() => productosVendibles(productos, existencias, almacen), [productos, existencias, almacen]);
+  // Un borrador viejo puede apuntar a un almacén que ya no se ofrece; se conserva
+  // para no cambiárselo por lo bajo al abrirlo.
+  const almacenFueraDeLista = !!almacen && !gruposAlmacen.some(([, ds]) => ds.some((d) => d.nombre === almacen));
+
   const items = useMemo(() => filas.map((f) => calcItem(f)), [filas]);
   const totales = useMemo(() => calcVenta(items, Number(descuento) || 0, Number(ivaPct) || 0), [items, descuento, ivaPct]);
 
   function setFila(k: number, patch: Partial<VentaItem>) {
     setFilas((prev) => prev.map((f) => (f._k === k ? { ...calcItem({ ...f, ...patch }), _k: k } : f)));
   }
-  function addFila() { setFilas((prev) => [...prev, { ...calcItem({}), _k: (prev.at(-1)?._k ?? 0) + 1 }]); }
+  function addFila() { setFilas((prev) => [...prev, { ...calcItem({ almacen }), _k: (prev.at(-1)?._k ?? 0) + 1 }]); }
   function delFila(k: number) { setFilas((prev) => prev.filter((f) => f._k !== k)); }
 
-  // Al elegir producto, precarga unidad + costo (PMP) y AUTO-asigna el almacén con
-  // MÁS stock (el "correspondiente"): la venta descuenta de ahí, sin pedir almacén.
+  // Al elegir producto precarga unidad y costo (PMP) DEL ALMACÉN de la factura.
+  // Antes se auto-asignaba el almacén con más stock, y por eso una misma factura
+  // podía mezclar material de sedes distintas sin que se notara.
   function elegirProducto(k: number, productoId: string) {
     const p = productos.find((x) => x.id === productoId);
-    const exs = existencias
-      .filter((e) => e.producto_id === productoId && (Number(e.stock) || 0) > 0)
-      .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
-    const ex = exs[0];
+    const ex = existenciaEn(existencias, productoId, almacen);
     setFila(k, {
       producto_id: productoId, producto_nombre: p?.nombre ?? '', unidad: p?.unidad ?? null,
-      almacen: ex?.almacen ?? '', costo_unit: Number(ex?.costo_promedio) || 0,
+      almacen, costo_unit: ex.costo,
     });
+  }
+
+  /** Cambiar de almacén re-apunta los renglones y les recalcula el costo de ahí. */
+  function cambiarAlmacen(nuevo: string) {
+    setAlmacen(nuevo);
+    setFilas((prev) => prev.map((f) => ({
+      ...calcItem({
+        ...f, almacen: nuevo,
+        costo_unit: f.producto_id ? existenciaEn(existencias, f.producto_id, nuevo).costo : f.costo_unit,
+      }),
+      _k: f._k,
+    })));
   }
 
   function input(): Parameters<typeof crearVenta>[0] {
     return {
       fecha, cliente_id: clienteId || null, cliente_nombre: clienteNombre || (clientes.find((c) => c.id === clienteId)?.nombre ?? null),
-      moneda, items, descuento: Number(descuento) || 0, iva_pct: Number(ivaPct) || 0, vendedor, nota,
+      moneda, items, descuento: Number(descuento) || 0, iva_pct: Number(ivaPct) || 0,
+      condicion_pago: condicion, vendedor, nota,
     };
   }
 
   async function guardar(emitir: boolean) {
     setError(null);
     if (!clienteId && !clienteNombre.trim()) { setError('Elegí o escribí el cliente.'); return; }
+    if (condicion === 'credito' && !clienteId && !clienteNombre.trim()) {
+      setError('Una factura a crédito necesita el cliente: es a nombre de quién queda la deuda.'); return;
+    }
     if (!items.some((i) => i.cantidad > 0 && i.precio_unit > 0)) { setError('Agregá al menos una línea con cantidad y precio.'); return; }
     setSaving(true);
     try {
@@ -316,10 +379,36 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
           <input className="input" style={{ marginTop: '.3rem' }} value={clienteNombre} onChange={(e) => { setClienteNombre(e.target.value); setClienteId(''); }} placeholder="…o escribí un cliente ocasional" />
         </div>
         <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
+        <div className="form-row">
+          <label>Almacén (de dónde sale)</label>
+          <select className="select" value={almacen} onChange={(e) => cambiarAlmacen(e.target.value)}>
+            {almacenFueraDeLista && (
+              <optgroup label="Almacén actual"><option value={almacen}>{almacen}</option></optgroup>
+            )}
+            {gruposAlmacen.map(([sede, destinos]) => (
+              <optgroup key={sede} label={sede}>
+                {destinos.map((d) => <option key={d.nombre} value={d.nombre}>{d.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <small className="muted">Solo se listan los productos con stock acá.</small>
+        </div>
         <div className="form-row"><label>Moneda</label>
           <select className="select" value={moneda} onChange={(e) => setMoneda(e.target.value)}>
             <option value="USD">USD</option><option value="Bs">Bs</option><option value="USDT">USDT</option><option value="COP">COP</option>
           </select>
+        </div>
+        <div className="form-row">
+          <label>Condición de pago</label>
+          <select className="select" value={condicion} onChange={(e) => setCondicion(e.target.value as CondicionPagoVenta)}>
+            <option value="contado">Contado — se cobra ahora y entra a caja</option>
+            <option value="credito">Crédito — queda como cuenta por cobrar</option>
+          </select>
+          <small className="muted">
+            {condicion === 'credito'
+              ? 'Al emitir se crea la cuenta por cobrar de esta factura. Se cobra en Tesorería, en dinero o en material.'
+              : 'Al cobrarla elegís la caja donde entra el dinero.'}
+          </small>
         </div>
         <div className="form-row"><label>Vendedor</label><input className="input" value={vendedor} onChange={(e) => setVendedor(e.target.value)} /></div>
       </div>
@@ -341,17 +430,20 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
           </thead>
           <tbody>
             {filas.map((f) => {
-              // Stock total del producto (sumando todos los almacenes) — solo informativo.
-              const stockTotal = existencias.filter((e) => e.producto_id === f.producto_id).reduce((a, e) => a + (Number(e.stock) || 0), 0);
+              // Stock en el almacén del que sale la factura: es de ahí que se descuenta.
+              const stockAqui = existenciaEn(existencias, f.producto_id, almacen).stock;
               return (
                 <tr key={f._k}>
                   <td>
                     <SearchSelect value={f.producto_id ?? ''} onChange={(id) => elegirProducto(f._k, id)}
-                      options={productos.map((p) => ({ value: p.id, label: `${p.nombre}${p.sku ? ` (${p.sku})` : ''}` }))}
-                      placeholder="🔎 Producto…" />
+                      options={vendibles.map((p) => ({ value: p.id, label: `${p.nombre}${p.sku ? ` (${p.sku})` : ''}` }))}
+                      placeholder="🔎 Producto…"
+                      emptyText={`Sin productos con stock en ${almacen || 'este almacén'}.`} />
                     {f.producto_id && (
                       <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>
-                        {f.almacen ? <>📦 {f.almacen} · stock {num(stockTotal)}</> : <span style={{ color: 'var(--danger)' }}>Sin stock en ningún almacén</span>}
+                        {stockAqui > 0
+                          ? <>📦 {almacen} · stock {num(stockAqui)}</>
+                          : <span style={{ color: 'var(--danger)' }}>Sin stock en {almacen || 'el almacén elegido'}</span>}
                       </small>
                     )}
                   </td>
@@ -391,6 +483,32 @@ function VentaModal({ venta, clientes, productos, existencias, vendedorDefault, 
   );
 }
 
+/**
+ * Chip de la factura a crédito con lo que ya se cobró contra su cuenta. El
+ * cobro pasa en Tesorería (en dinero o en material), así que sin esto la
+ * tarjeta no dice nada de una deuda que sí se está moviendo.
+ */
+function EstadoCredito({ venta, cuenta }: { venta: Venta; cuenta?: CuentaPorCobrar }) {
+  if (!esVentaACredito(venta) || venta.estado === 'anulada') return null;
+  const total = Number(cuenta?.monto) || Number(venta.total) || 0;
+  const abonado = Number(cuenta?.abonado) || 0;
+  const saldo = Math.max(0, Math.round((total - abonado) * 100) / 100);
+  return (
+    <div style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
+      <span className="badge" style={{ borderColor: 'var(--primary-3)', color: 'var(--primary-3)' }}>A crédito</span>
+      {cuenta ? (
+        <span className="muted" style={{ marginLeft: '.35rem' }}>
+          {saldo > 0
+            ? <>abonado {money(abonado)} de {money(total)} · falta <strong>{money(saldo)}</strong></>
+            : <>cobrada por completo</>}
+        </span>
+      ) : (
+        <span className="muted" style={{ marginLeft: '.35rem' }}>sin cuenta por cobrar</span>
+      )}
+    </div>
+  );
+}
+
 function Row({ l, v, big, muted }: { l: string; v: React.ReactNode; big?: boolean; muted?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', fontSize: big ? '1.05rem' : '.85rem' }}>
@@ -402,20 +520,45 @@ function Row({ l, v, big, muted }: { l: string; v: React.ReactNode; big?: boolea
 
 /* ───────────── Cobrar ───────────── */
 
-function CobrarModal({ venta, onClose, onSaved }: { venta: Venta; onClose: () => void; onSaved: () => void }) {
+function CobrarModal({ venta, cajas, saldos, actor, actorName, onClose, onSaved }: {
+  venta: Venta; cajas: Caja[]; saldos: CajaSaldo[]; actor: string; actorName: string | null;
+  onClose: () => void; onSaved: () => void;
+}) {
   const [metodo, setMetodo] = useState('Efectivo');
   const [monto, setMonto] = useState(String(venta.total));
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const [cuentaCaja, setCuentaCaja] = useState<CuentaCaja>('general');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Las cuentas de esa caja EN LA MONEDA de la factura: en Bs una caja se parte
+  // en jurídica y personal, y el dinero tiene que entrar a la correcta.
+  const cuentasMoneda = useMemo(
+    () => saldos.filter((s) => s.caja_id === cajaId && s.moneda === (venta.moneda || 'USD')),
+    [saldos, cajaId, venta.moneda],
+  );
+  useEffect(() => {
+    if (cuentasMoneda.length && !cuentasMoneda.some((c) => c.cuenta === cuentaCaja)) {
+      setCuentaCaja(cuentasMoneda[0].cuenta as CuentaCaja);
+    }
+  }, [cuentasMoneda, cuentaCaja]);
+
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null); setSaving(true);
-    try { await marcarPagada(venta, metodo, Number(monto) || venta.total); toast('Cobro registrado', 'success'); onSaved(); }
+    try {
+      await marcarPagada({
+        venta, metodo, monto: Number(monto) || venta.total,
+        cajaId, cuentaCaja, actor, actorName,
+      });
+      toast('Cobro registrado · entró a caja', 'success');
+      onSaved();
+    }
     catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar'); setSaving(false); }
   }
   return (
     <Modal title={`Cobrar ${venta.numero}`} size="md" onClose={onClose} footer={
       <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cobrar-f" className="btn btn-primary" disabled={saving}>{saving ? '…' : 'Registrar cobro'}</button></>
+      <button type="submit" form="cobrar-f" className="btn btn-primary" disabled={saving || !cajaId}>{saving ? '…' : 'Registrar cobro (entra a caja)'}</button></>
     }>
       <form id="cobrar-f" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
@@ -426,6 +569,30 @@ function CobrarModal({ venta, onClose, onSaved }: { venta: Venta; onClose: () =>
         </div>
         <div className="form-row"><label>Monto cobrado ({venta.moneda})</label>
           <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} /></div>
+        <div className="form-row">
+          <label>Caja donde entra el dinero</label>
+          {cajas.length ? (
+            <>
+              <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
+                {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+              {cuentasMoneda.length > 1 && (
+                <select className="select" style={{ marginTop: '.35rem' }} value={cuentaCaja}
+                  onChange={(e) => setCuentaCaja(e.target.value as CuentaCaja)}>
+                  {cuentasMoneda.map((r) => (
+                    <option key={r.cuenta} value={r.cuenta}>
+                      Entra en {r.cuenta === 'general' ? 'general' : r.cuenta === 'juridica' ? 'Jurídica' : r.cuenta === 'personal' ? 'Personal' : r.cuenta}
+                      {' · '}{money(Number(r.saldo))}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <small className="muted">Queda como ingreso en el Libro Mayor de esa caja, en <strong>{venta.moneda}</strong>.</small>
+            </>
+          ) : (
+            <small style={{ color: 'var(--danger)' }}>No hay cajas activas: creá una en Tesorería para poder cobrar.</small>
+          )}
+        </div>
       </form>
     </Modal>
   );
