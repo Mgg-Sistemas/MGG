@@ -85,6 +85,7 @@ import type { AbonoCredito } from '@/shared/lib/types';
 import { listOfertasByOrden, getPdfOfertaSignedUrl, descuentoEfectivo } from '@/modules/pedidos/ofertas.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
+import { quienCargo, quienSolicitaConRespaldo } from '@/modules/pedidos/quienSolicita';
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   ingreso: '⬇ Ingreso', salida: '⬆ Egreso', traslado_salida: '↔ Traslado (sale)',
@@ -6116,7 +6117,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             </div>
             <div><span className="muted">Proveedor:</span> {row.proveedorNombre}</div>
             <div><span className="muted">Unidad solicitante:</span> {o.solicitante || '—'}</div>
-            <div><span className="muted">Solicitante:</span> {o.solicitante_persona || o.ci_solicitante || o.solicitante_email || '—'}</div>
+            <div><span className="muted">Solicita:</span> {quienSolicitaConRespaldo(o)}</div>
+            {quienCargo(o) && <div><span className="muted">Cargada por:</span> {quienCargo(o)}</div>}
             <div><span className="muted">Creada (OP):</span> {dateTime(o.created_at)}</div>
             <div><span className="muted">Aprobada (OP):</span> {o.aprobada_en ? dateTime(o.aprobada_en) : '—'}</div>
             <div><span className="muted">OC creada:</span> {o.oc_creada_en ? dateTime(o.oc_creada_en) : '—'}</div>

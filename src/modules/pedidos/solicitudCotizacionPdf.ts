@@ -7,6 +7,7 @@
    Solo por botón: nunca se descarga solo.
    ============================================================ */
 import type { Orden } from '@/shared/lib/types';
+import { quienSolicitaConRespaldo } from './quienSolicita';
 
 export interface FilaSolicitud {
   n: string;
@@ -84,8 +85,8 @@ export async function descargarSolicitudCotizacionPdf(orden: Orden): Promise<voi
   y += 18;
 
   // ─── Quién pide ────────────────────────────────────────
-  const persona = texto(orden.solicitante_persona) || texto(orden.ci_solicitante)
-    || texto(orden.solicitante_email) || '—';
+  // Quién PIDE, que en productos y en servicios vive en campos cruzados.
+  const persona = quienSolicitaConRespaldo(orden);
   doc.setFontSize(10);
   const dato = (etiqueta: string, valor: string) => {
     doc.setFont('helvetica', 'bold'); doc.text(`${etiqueta}:`, MARGIN, y);
