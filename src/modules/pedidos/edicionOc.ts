@@ -86,3 +86,35 @@ export function cambianNombres(oc: OcComparable, edicion: EdicionComparable): bo
 export function cambiaTexto(oc: OcComparable, edicion: EdicionComparable): boolean {
   return cambiaNota(oc, edicion) || cambianNombres(oc, edicion);
 }
+
+/* ───────────── Qué campos escribe una edición de OP ─────────────
+   Vive acá, y no dentro del repositorio, para poder probarlo sin base: es la
+   pieza que decidía mal y el error no se veía hasta después de guardar. */
+
+/** Los campos de texto que una edición de OP puede tocar. */
+export type CampoEditableOp = 'notas' | 'solicitante' | 'solicitante_persona' | 'ci_solicitante';
+
+/**
+ * Traduce lo que el formulario mandó a lo que hay que ESCRIBIR.
+ *
+ * La regla es distinguir «no me lo mandaron» de «me lo mandaron vacío». Antes se
+ * armaba `campo: input.campo?.trim() || null` para todos, así que un campo
+ * ausente se guardaba como null y borraba lo que había. Con `solicitante_persona`
+ * —que el modal de productos nunca manda— eso significaba perder, en cada
+ * edición, quién había cargado la solicitud. Y el próximo campo que se agregue
+ * al input sin tocar el formulario caería en lo mismo.
+ */
+export function camposDeEdicion(input: Record<string, unknown>): Record<string, string | null> {
+  const campos: CampoEditableOp[] = ['notas', 'solicitante', 'solicitante_persona', 'ci_solicitante'];
+  const out: Record<string, string | null> = {};
+  for (const c of campos) {
+    const v = input[c];
+    // `undefined` es «no me lo mandaron», y eso incluye la clave presente con
+    // valor undefined: con campos opcionales y `spread` eso pasa todo el tiempo,
+    // y tratarlo como «borralo» devuelve el mismo defecto por otra puerta.
+    // `null` sí es una orden explícita de vaciar.
+    if (v === undefined) continue;
+    out[c] = typeof v === 'string' ? (v.trim() || null) : null;
+  }
+  return out;
+}

@@ -2102,10 +2102,29 @@ const KanbanCard = memo(function KanbanCard({
           </span>
         )}
       </div>
-      <div className="meta" style={{ fontSize: '.72rem', marginTop: '.15rem' }} title="Solicitante y fecha de creación">
-        <span>👤 {orden.solicitante_persona ?? orden.ci_solicitante ?? orden.solicitante ?? orden.solicitante_email ?? '—'}
-          {(orden.solicitante_persona ?? orden.ci_solicitante) && orden.solicitante ? <span className="muted"> · {orden.solicitante}</span> : null}
+      {/* Primero QUIÉN PIDE —lo que se busca de un vistazo—, después quién la
+          cargó. `.meta` es flex con wrap, así que el tercer dato se acomoda solo
+          y baja de renglón únicamente si no entra: no se fuerza altura en una
+          tarjeta que ya es apretada.
+
+          El capturista se omite cuando es la misma persona que pide: repetir el
+          nombre dos veces gasta el poco espacio que hay sin agregar nada. */}
+      <div
+        className="meta"
+        style={{ fontSize: '.72rem', marginTop: '.15rem' }}
+        title={
+          `${orden.ci_solicitante ? `Solicita: ${orden.ci_solicitante}` : 'Sin solicitante indicado'}`
+          + `${orden.solicitante ? ` · Unidad: ${orden.solicitante}` : ''}`
+          + `${orden.solicitante_persona ? `\nCargada por: ${orden.solicitante_persona}` : ''}`
+          + `\nCreada: ${dateTime(orden.created_at)}`
+        }
+      >
+        <span>👤 {orden.ci_solicitante ?? orden.solicitante_persona ?? orden.solicitante_email ?? '—'}
+          {orden.solicitante ? <span className="muted"> · {orden.solicitante}</span> : null}
         </span>
+        {orden.solicitante_persona && orden.solicitante_persona !== orden.ci_solicitante && (
+          <span className="dim" title="Quién cargó la solicitud">✎ {orden.solicitante_persona}</span>
+        )}
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
       {orden.anticipo_monto != null && (
@@ -2622,10 +2641,19 @@ function OrdenDetailModal({
         <div className="k">Unidad solicitante</div>
         <div className="v">{o.solicitante ?? '—'}</div>
       </div>
+      {/* TRES ROLES DISTINTOS, y hasta ahora los tres se mostraban como uno.
+          «Solicitante» pintaba `solicitante_persona`, que guarda a quien CARGA la
+          solicitud — por eso decía siempre NAZARET SALAZAR. Quien pide de verdad
+          vive en `ci_solicitante`, y la gente lo venía repitiendo a mano en la
+          nota («SOLICITADO POR EL SR…») en 17 de 40 órdenes. */}
       <div className="detail-row">
-        <div className="k">Solicitante</div>
+        <div className="k">Solicita</div>
+        <div className="v">{o.ci_solicitante ?? '—'}</div>
+      </div>
+      <div className="detail-row">
+        <div className="k">Cargada por</div>
         <div className="v">
-          {o.solicitante_persona ?? o.ci_solicitante ?? persona(o.solicitante_email, personaMap)}
+          {o.solicitante_persona ?? persona(o.solicitante_email, personaMap)}
         </div>
       </div>
       <div className="detail-row">
@@ -4296,6 +4324,10 @@ function CrearOrdenModal({
         solicitante_email: email,
         solicitante: solicitanteNombre.trim() || null,
         ci_solicitante: ciValor || null,
+        // Quién CARGA la solicitud, que casi nunca es quien la pide: en 40 órdenes
+        // hay 3 personas cargando y 17 pidiendo. Se toma del usuario logueado y no
+        // se pregunta, porque el sistema ya lo sabe.
+        solicitante_persona: nombreCompletoUsuario || null,
         urgente,
       });
       if (imagenes.length) {
@@ -4360,16 +4392,24 @@ function CrearOrdenModal({
       </div>
 
       <div className="form-row">
-        <label>Solicitante</label>
+        <label>Persona que solicita</label>
         {/* No controlado (defaultValue): inmune a re-renders de fondo que, sobre
-            un input controlado, revertían el texto y "borraban" lo tecleado. */}
+            un input controlado, revertían el texto y "borraban" lo tecleado.
+
+            EDITANDO manda lo que la orden ya tiene. Antes era SIEMPRE el usuario
+            logueado, así que abrir a editar una solicitud de ENDER MEJIAS y
+            guardar la dejaba a nombre de quien editó. El usuario logueado sirve
+            como punto de partida al CREAR, no como respuesta al editar. */}
         <input
           ref={solicitanteRef}
           className="input"
-          defaultValue={nombreCompletoUsuario}
+          defaultValue={orden?.ci_solicitante ?? nombreCompletoUsuario}
           onChange={(e) => setSolicitanteCi(e.target.value)}
-          placeholder="Nombre del solicitante"
+          placeholder="Quién pide el material (no quien carga la solicitud)"
         />
+        <small className="muted" style={{ fontSize: '.72rem' }}>
+          Quien pide el material. La solicitud queda registrada a nombre de <strong>{nombreCompletoUsuario || 'vos'}</strong> como quien la cargó.
+        </small>
       </div>
 
       <div className="form-row">
@@ -4589,11 +4629,14 @@ function CrearOrdenModal({
 
       <div className="form-row">
         <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        {/* `defaultValue=""` borraba la nota en cada edición: el guardado lee el
+            DOM, así que el campo vacío se escribía sobre lo que había. La nota
+            suele traer el respaldo de quién pidió el material. */}
         <textarea
           className="textarea"
           placeholder="Cualquier observación o aclaratoria sobre la solicitud (opcional)…"
           ref={notaRef}
-          defaultValue=""
+          defaultValue={orden?.notas ?? ''}
           onChange={(e) => setNotaOp(e.target.value)}
         />
       </div>
