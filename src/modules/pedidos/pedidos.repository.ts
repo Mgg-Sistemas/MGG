@@ -4,7 +4,7 @@ import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
-import { cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
+import { camposDeEdicion, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
 import { fechaVE, tasaValida } from './compraDirectaMoneda';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
 import type {
@@ -403,17 +403,22 @@ export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEm
   if (o.oc_codigo) throw new Error('Esta OP ya tiene una OC: editá la OC, no la OP.');
   if (!input.items.length) throw new Error('La orden debe tener al menos un producto.');
   const total = input.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
-  const patch = {
+  /* SOLO SE ESCRIBE LO QUE VIENE.
+     Antes el patch armaba `campo: input.campo?.trim() || null` para cada uno, así
+     que un campo que el formulario NO enviaba se guardaba como null y se PERDÍA
+     el valor que ya tenía. Pasó con `solicitante_persona`: el modal de productos
+     nunca lo manda, y cada edición borraba quién había cargado la solicitud.
+     El daño no era visible al editar —el dato desaparecía después— y cualquier
+     campo que se agregue mañana a este input caería en la misma trampa.
+     Con `in` se distingue «me pidieron ponerlo en vacío» de «no me lo mandaron». */
+  const patch: Record<string, unknown> = {
     items: input.items,
     total,
-    notas: input.notas?.trim() || null,
-    solicitante: input.solicitante?.trim() || null,
-    solicitante_persona: input.solicitante_persona?.trim() || null,
-    ci_solicitante: input.ci_solicitante?.trim() || null,
-    urgente: !!input.urgente,
-    ...(input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {}),
     historial: appendHistorial(o, 'editada', actorEmail),
+    ...camposDeEdicion(input as unknown as Record<string, unknown>),
   };
+  if ('urgente' in input) patch.urgente = !!input.urgente;
+  if (input.moneda !== undefined) patch.moneda = input.moneda === 'Bs' ? 'Bs' : 'USD';
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
   return data as Orden;

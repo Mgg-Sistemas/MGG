@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cambiaNota, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
+import { cambiaNota, cambiaProveedorOc, cambiaTexto, cambianNombres, camposDeEdicion, hayCambiosMateriales } from './edicionOc';
 
 // Caso real SP-2026-0124 (GT) / SP-2026-0116-4 (MGG): editar y guardar sin cambios reabría la OC.
 const oc = {
@@ -83,5 +83,49 @@ describe('cambiaNota / cambianNombres / cambiaTexto', () => {
     expect(cambianNombres(oc, { items })).toBe(true);
     expect(cambiaTexto(oc, { items })).toBe(true);
     expect(cambiaTexto(oc, { items: mismos() })).toBe(false);
+  });
+});
+
+describe('camposDeEdicion — una edición no borra lo que no le mandaron', () => {
+  it('un campo AUSENTE no se toca', () => {
+    // El caso real: el modal de productos nunca manda `solicitante_persona`, y
+    // el patch lo escribía como null. Cada edición borraba quién había cargado
+    // la solicitud (SP-2026-0133 perdía a NAZARET SALAZAR).
+    const out = camposDeEdicion({ notas: 'algo', ci_solicitante: 'ENDER MEJIAS' });
+    expect('solicitante_persona' in out).toBe(false);
+    expect('solicitante' in out).toBe(false);
+  });
+
+  it('un campo mandado VACÍO sí se borra: es una orden explícita', () => {
+    expect(camposDeEdicion({ notas: '' })).toEqual({ notas: null });
+    expect(camposDeEdicion({ notas: '   ' })).toEqual({ notas: null });
+  });
+
+  it('conserva el texto y le quita los espacios de los bordes', () => {
+    expect(camposDeEdicion({ ci_solicitante: '  ENDER MEJIAS  ' })).toEqual({ ci_solicitante: 'ENDER MEJIAS' });
+  });
+
+  it('null explícito borra; undefined no', () => {
+    expect(camposDeEdicion({ notas: null })).toEqual({ notas: null });
+    expect('notas' in camposDeEdicion({ notas: undefined })).toBe(true);
+  });
+
+  it('los tres roles de la solicitud viajan por separado', () => {
+    // unidad · quién pide · quién carga. Antes se pisaban entre sí.
+    const out = camposDeEdicion({
+      solicitante: 'FUNDICION',
+      ci_solicitante: 'ENDER MEJIAS',
+      solicitante_persona: 'NAZARET SALAZAR',
+    });
+    expect(out).toEqual({
+      solicitante: 'FUNDICION',
+      ci_solicitante: 'ENDER MEJIAS',
+      solicitante_persona: 'NAZARET SALAZAR',
+    });
+  });
+
+  it('ignora cualquier clave que no sea editable', () => {
+    const out = camposDeEdicion({ estado: 'anulada', total: 999, notas: 'ok' });
+    expect(out).toEqual({ notas: 'ok' });
   });
 });
