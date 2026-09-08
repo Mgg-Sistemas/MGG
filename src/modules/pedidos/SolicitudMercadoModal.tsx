@@ -13,8 +13,20 @@ const SOLICITANTE_DEFAULT = 'COCINA';
 
 /** Quita acentos y pasa a minúsculas para comparar categorías de forma tolerante. */
 const norm = (s: string) => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-/** ¿La categoría es "Víveres y Art. de Limpieza" (tolerante a acentos/variantes)? */
-const esViveres = (categoria: string) => norm(categoria).includes('viveres');
+
+/**
+ * Categorías que entran al mercado: lo que se va a comprar para la cocina.
+ * Además de los víveres van las HORTALIZAS Y LEGUMBRES —el monte, los verdes—,
+ * que se compran en el mismo mercado y hasta ahora quedaban fuera de la lista
+ * aunque la cocina sí las consume.
+ */
+export const CATEGORIAS_MERCADO = ['viveres', 'hortalizas'];
+
+/** ¿La categoría se compra en el mercado? Tolerante a acentos y a variantes. */
+export function esCategoriaMercado(categoria?: string | null): boolean {
+  const c = norm(categoria ?? '');
+  return CATEGORIAS_MERCADO.some((k) => c.includes(k));
+}
 
 interface Props {
   productos: Producto[];
@@ -26,14 +38,15 @@ interface Props {
 
 /**
  * SOLICITUD DE MERCADO (botón independiente en Pedidos). Trae TODOS los productos
- * de la categoría «Víveres y Art. de Limpieza» como checklist con cantidades editables,
+ * de las categorías del mercado —«Víveres y Art. de Limpieza» y «Hortalizas y Legumbres»—
+ * como checklist con cantidades editables,
  * precargada para COCINA y marcada como ORDEN URGENTE. Al aceptar crea una SP
  * (finalidad = reposición de mercado) que entra al flujo normal de Pedidos.
  */
 export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, onCreated }: Props) {
   const email = usuario?.email ?? authEmail;
   const viveres = useMemo(
-    () => productos.filter((p) => p.estado !== 'inactivo' && esViveres(p.categoria)).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    () => productos.filter((p) => p.estado !== 'inactivo' && esCategoriaMercado(p.categoria)).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
     [productos],
   );
 
@@ -169,14 +182,14 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
       </div>
 
       <div className="form-row">
-        <label>Víveres y Art. de Limpieza <span className="muted" style={{ fontWeight: 400 }}>· marcá los que se piden e indicá la cantidad</span></label>
+        <label>Víveres, Art. de Limpieza y Hortalizas <span className="muted" style={{ fontWeight: 400 }}>· marcá los que se piden e indicá la cantidad</span></label>
         {ultima && (
           <small className="muted" style={{ display: 'block', margin: '-.2rem 0 .5rem', fontSize: '.76rem' }}>
             🧾 Cantidades sugeridas de la última compra <strong className="mono">{ultima.codigo}</strong>{ultima.fecha ? <> · {dateTime(ultima.fecha)}</> : null} (editables).
           </small>
         )}
         {!viveres.length ? (
-          <EmptyState icon="◇" message="No hay productos activos en la categoría «Víveres y Art. de Limpieza». Cargalos primero en Inventario." />
+          <EmptyState icon="◇" message="No hay productos activos en «Víveres y Art. de Limpieza» ni en «Hortalizas y Legumbres». Cargalos primero en Inventario." />
         ) : (
           <>
             <div style={{ display: 'flex', gap: '.4rem', margin: '0 0 .4rem' }}>
