@@ -101,6 +101,7 @@ import { PendientesPorPagarModal } from './PendientesPorPagarModal';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
+import { quienSolicita } from './quienSolicita';
 
 /* ============================================================
    MGG · Pedidos / Órdenes · Página principal
@@ -1957,7 +1958,7 @@ function OrdenesTable({ ordenes, proveedorMap, personaMap, canManageProcurement,
                   )}
                 </td>
                 <td>
-                  <div>{o.solicitante_persona ?? o.ci_solicitante ?? persona(o.solicitante_email, personaMap)}</div>
+                  <div>{quienSolicita(o) ?? persona(o.solicitante_email, personaMap)}</div>
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{o.items.length}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(o.total, o.moneda)}</td>
@@ -2085,8 +2086,8 @@ const KanbanCard = memo(function KanbanCard({
       </div>
       <div className="prov">
         {proveedor?.razon_social
-          ?? ((orden.solicitante_persona ?? orden.ci_solicitante ?? orden.solicitante)
-            ? `Solicita: ${orden.solicitante_persona ?? orden.ci_solicitante ?? orden.solicitante}`
+          ?? (quienSolicita(orden) || orden.solicitante
+            ? `Solicita: ${quienSolicita(orden) ?? orden.solicitante}`
             : 'Sin proveedor asignado')}
       </div>
       <div className="meta">
