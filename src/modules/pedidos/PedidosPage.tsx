@@ -101,7 +101,7 @@ import { PendientesPorPagarModal } from './PendientesPorPagarModal';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
-import { quienSolicita } from './quienSolicita';
+import { quienCargo, quienSolicita } from './quienSolicita';
 
 /* ============================================================
    MGG · Pedidos / Órdenes · Página principal
@@ -2113,18 +2113,22 @@ const KanbanCard = memo(function KanbanCard({
       <div
         className="meta"
         style={{ fontSize: '.72rem', marginTop: '.15rem' }}
+        /* Por `quienSolicita`, no por el campo crudo: en los SERVICIOS
+           `ci_solicitante` guarda la cédula, y leerlo derecho ponía «26359267»
+           donde va un nombre. En el tablero conviven 19 servicios con las
+           órdenes de producto. */
         title={
-          `${orden.ci_solicitante ? `Solicita: ${orden.ci_solicitante}` : 'Sin solicitante indicado'}`
+          `${quienSolicita(orden) ? `Solicita: ${quienSolicita(orden)}` : 'Sin solicitante indicado'}`
           + `${orden.solicitante ? ` · Unidad: ${orden.solicitante}` : ''}`
-          + `${orden.solicitante_persona ? `\nCargada por: ${orden.solicitante_persona}` : ''}`
+          + `${quienCargo(orden) ? `\nCargada por: ${quienCargo(orden)}` : ''}`
           + `\nCreada: ${dateTime(orden.created_at)}`
         }
       >
-        <span>👤 {orden.ci_solicitante ?? orden.solicitante_persona ?? orden.solicitante_email ?? '—'}
+        <span>👤 {quienSolicita(orden) ?? orden.solicitante_email ?? '—'}
           {orden.solicitante ? <span className="muted"> · {orden.solicitante}</span> : null}
         </span>
-        {orden.solicitante_persona && orden.solicitante_persona !== orden.ci_solicitante && (
-          <span className="dim" title="Quién cargó la solicitud">✎ {orden.solicitante_persona}</span>
+        {quienCargo(orden) && (
+          <span className="dim" title="Quién cargó la solicitud">✎ {quienCargo(orden)}</span>
         )}
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
