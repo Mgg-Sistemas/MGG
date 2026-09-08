@@ -1808,6 +1808,13 @@ export async function recibirOrdenParcial(
       ref_tipo: 'orden',
       ref_id: o.id,
       ref_codigo: o.codigo,
+      // EL ALMACÉN, que faltaba. Este insert se escribe a mano (no pasa por
+      // `registrarMovimiento`) y nunca mandaba la columna: las recepciones de
+      // compra quedaban en el kardex con `almacen` en NULL y el destino solo
+      // dentro del texto libre del detalle. Así no se podía filtrar, agrupar ni
+      // totalizar por almacén — que es justo lo que hace falta para responder
+      // «qué entró hoy y adónde».
+      almacen: almacenProd,
       proveedor_id: o.proveedor_id,
       // Costo con el que entra (ya viene con el descuento por efectivo aplicado en la OC)
       // y el PMP resultante: se ven en la trazabilidad/kardex del producto.

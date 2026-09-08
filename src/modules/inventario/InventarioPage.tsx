@@ -46,6 +46,7 @@ import { nombreSedeCorto, almacenPrincipalDeSede, agregarExistencias } from './s
 import { MovimientoForm } from './MovimientoForm';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
+import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { CasiteritaResumen, CasiteritaDetalleView } from './CasiteritaDetalleView';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
@@ -217,6 +218,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     setAlmacenNavId(null);
   }, [centroSede]);
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
+  const [histRecepciones, setHistRecepciones] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
@@ -961,7 +963,18 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       {(subVista === 'casiterita' && casDetalleOpen) ? (
         <CasiteritaDetalleView actor={productoActor} actorName={actorName} canWrite={canWrite} onClose={() => setCasDetalleOpen(false)} />
       ) : ui.view === 'recepciones' ? (
-        <RecepcionesPendientes ordenes={recepciones} compras={comprasRecibir} almacenes={almacenes} actor={productoActor} actorName={actorName} onRecibida={reload} />
+        <>
+          {/* El histórico va junto a lo pendiente: es la misma pregunta en dos
+              tiempos —qué falta recibir y qué se recibió—, y hasta ahora la
+              segunda solo se podía responder consultando la base. */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '.6rem' }}>
+            <button className="btn btn-ghost" onClick={() => setHistRecepciones(true)}
+              title="Qué se recibió, quién lo recibió y a qué almacén entró">
+              🧾 Histórico de recepciones
+            </button>
+          </div>
+          <RecepcionesPendientes ordenes={recepciones} compras={comprasRecibir} almacenes={almacenes} actor={productoActor} actorName={actorName} onRecibida={reload} />
+        </>
       ) : (ui.view === 'almacenes' && esDeposito) ? (
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
           {centroMode && (
@@ -1439,6 +1452,10 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
             },
           ]}
         />
+      )}
+
+      {histRecepciones && (
+        <RecepcionesHistorialModal productos={productos} onClose={() => setHistRecepciones(false)} />
       )}
     </div>
   );

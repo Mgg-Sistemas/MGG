@@ -367,3 +367,28 @@ export async function consolidarProductoEnAlmacen(
   }
   return otros.length;
 }
+
+/* ───────────── Recepciones de compra (reconstruidas del kardex) ─────────────
+   No hay tabla de recepciones: se agrupan los movimientos de entrada que vienen
+   de una orden o de una compra directa. Ver `recepcionesHistorico.ts`. */
+
+/**
+ * Movimientos de recepción de compra en una ventana de fechas.
+ *
+ * Se acota por fecha y no se trae todo: `movimientos` es de las tablas que más
+ * crecen, y Supabase corta en 1.000 filas sin avisar. Con el rango por defecto
+ * (30 días) entra de sobra; para un histórico largo hay que paginar.
+ */
+export async function listMovimientosRecepcion(desde: string, hasta: string): Promise<Movimiento[]> {
+  const { data, error } = await supabase
+    .from('movimientos')
+    .select('*')
+    .in('ref_tipo', ['orden', 'compra_directa'])
+    .gt('delta', 0)
+    .gte('at', `${desde}T00:00:00`)
+    .lte('at', `${hasta}T23:59:59`)
+    .order('at', { ascending: false })
+    .limit(1000);
+  if (error) throw error;
+  return (data ?? []) as Movimiento[];
+}
