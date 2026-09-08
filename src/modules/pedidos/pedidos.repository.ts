@@ -964,6 +964,11 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       solicitante_email: op.solicitante_email,
       solicitante: op.solicitante ?? null,
       ci_solicitante: op.ci_solicitante ?? null,
+      // La hija hereda TAMBIÉN a quien cargó la solicitud. Sin esto nacía sin
+      // capturista y la tarjeta caía al siguiente dato disponible, así que una
+      // sub-OC decía algo distinto de su madre sobre la misma solicitud
+      // (SP-2026-0131-1 y -2 quedaron así).
+      solicitante_persona: op.solicitante_persona ?? null,
       items,
       total,
       descuento_obtenido: descObt || null,

@@ -2101,11 +2101,13 @@ const KanbanCard = memo(function KanbanCard({
           </span>
         )}
       </div>
-      {/* La tarjeta muestra QUIÉN PIDE, que es lo que se busca de un vistazo, no
-          quién cargó la solicitud —antes decía siempre el capturista—. Quien
-          cargó va al tooltip: es dato de respaldo y el espacio acá es mínimo, así
-          que no se le gasta un renglón. Se cae al capturista solo si no hay
-          solicitante, y ahí el tooltip lo aclara para no atribuirle el pedido. */}
+      {/* Primero QUIÉN PIDE —lo que se busca de un vistazo—, después quién la
+          cargó. `.meta` es flex con wrap, así que el tercer dato se acomoda solo
+          y baja de renglón únicamente si no entra: no se fuerza altura en una
+          tarjeta que ya es apretada.
+
+          El capturista se omite cuando es la misma persona que pide: repetir el
+          nombre dos veces gasta el poco espacio que hay sin agregar nada. */}
       <div
         className="meta"
         style={{ fontSize: '.72rem', marginTop: '.15rem' }}
@@ -2119,6 +2121,9 @@ const KanbanCard = memo(function KanbanCard({
         <span>👤 {orden.ci_solicitante ?? orden.solicitante_persona ?? orden.solicitante_email ?? '—'}
           {orden.solicitante ? <span className="muted"> · {orden.solicitante}</span> : null}
         </span>
+        {orden.solicitante_persona && orden.solicitante_persona !== orden.ci_solicitante && (
+          <span className="dim" title="Quién cargó la solicitud">✎ {orden.solicitante_persona}</span>
+        )}
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
       {orden.anticipo_monto != null && (
