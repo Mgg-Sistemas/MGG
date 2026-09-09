@@ -82,7 +82,8 @@ import { noLeidosPorOrden } from '@/modules/pedidos/ocChat.repository';
 // enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo y
 // descargarOrdenCompraPdf se importan dinámicamente (al generar/enviar) para no cargar jsPDF al abrir.
 import type { AbonoCredito } from '@/shared/lib/types';
-import { listOfertasByOrden, getPdfOfertaSignedUrl, descuentoEfectivo } from '@/modules/pedidos/ofertas.repository';
+import { listOfertasDeOrdenes, getPdfOfertaSignedUrl, descuentoEfectivo } from '@/modules/pedidos/ofertas.repository';
+import { ordenesConOfertasDe } from '@/modules/pedidos/ordenDeOfertas';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { quienCargo, quienSolicitaConRespaldo } from '@/modules/pedidos/quienSolicita';
@@ -6021,11 +6022,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   // Archivos cargados durante la OC: cotizaciones (PDF) de las ofertas.
   const [adjuntos, setAdjuntos] = useState<OfertaProveedor[]>([]);
   const [descargando, setDescargando] = useState<string | null>(null);
+  // En una sub-OC las cotizaciones viven en la orden madre: mirando solo esta, la
+  // lista de PDF salía vacía y parecía que la compra se hizo sin cotizar.
+  const ordenesOferta = ordenesConOfertasDe(o).join(',');
   useEffect(() => {
-    listOfertasByOrden(o.id)
+    listOfertasDeOrdenes(ordenesOferta.split(','))
       .then((rows) => setAdjuntos(rows.filter((r) => r.pdf_path)))
       .catch(() => setAdjuntos([]));
-  }, [o.id]);
+  }, [ordenesOferta]);
 
   async function descargarAdjunto(path: string, id: string) {
     setDescargando(id);

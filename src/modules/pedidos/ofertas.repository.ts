@@ -161,13 +161,31 @@ export async function getPdfOfertaSignedUrl(path: string): Promise<string> {
 }
 
 export async function listOfertasByOrden(orden_id: string): Promise<OfertaProveedor[]> {
+  return listOfertasDeOrdenes([orden_id]);
+}
+
+/**
+ * Ofertas de una o varias órdenes, en una sola consulta.
+ *
+ * Existe por las ofertas que quedaron pegadas a una sub-OC cuando guardar y leer
+ * usaban criterios distintos: están guardadas en la hija y el panel las busca en la
+ * madre. En vez de mover esas filas —tocar documentos vivos de compras es un riesgo
+ * que no hace falta correr— se leen los dos lugares y aparecen donde corresponde.
+ *
+ * Se ordena en el cliente porque la mezcla viene de dos órdenes y el orden por
+ * precio tiene que valer sobre el conjunto, no dentro de cada una.
+ */
+export async function listOfertasDeOrdenes(ordenIds: string[]): Promise<OfertaProveedor[]> {
+  const ids = Array.from(new Set(ordenIds.filter(Boolean)));
+  if (!ids.length) return [];
   const { data, error } = await supabase
     .from(TABLE)
     .select('*')
-    .eq('orden_id', orden_id)
-    .order('precio_total', { ascending: true });
+    .in('orden_id', ids);
   if (error) throw error;
-  return (data ?? []) as OfertaProveedor[];
+  return (data ?? [] as OfertaProveedor[]).slice().sort(
+    (a, b) => (Number(a.precio_total) || 0) - (Number(b.precio_total) || 0),
+  ) as OfertaProveedor[];
 }
 
 export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProveedor> {

@@ -41,6 +41,47 @@ export function esSubOrden(orden: OrdenConPadre): boolean {
   return !!orden.parent_orden_id;
 }
 
+/**
+ * TODAS las órdenes donde puede haber ofertas de esta: la canónica y, si es una
+ * sub-OC, también ella misma.
+ *
+ * Las ofertas que se guardaron en la hija mientras guardar y leer discrepaban
+ * siguen ahí. Se podrían mover a la madre, pero eso es reescribir documentos de
+ * compras vivos por un problema que es de lectura. Mirando los dos lugares
+ * aparecen donde tienen que aparecer, sin tocar un solo dato.
+ *
+ * Nuevas ofertas van solo a la canónica (`ordenDeOfertas`), así que este segundo
+ * id cubre lo viejo y con el tiempo queda vacío por sí solo.
+ */
+export function ordenesConOfertasDe(orden: OrdenConPadre): string[] {
+  const canonica = ordenDeOfertas(orden);
+  return canonica === orden.id ? [canonica] : [canonica, orden.id];
+}
+
+/**
+ * Quita ofertas repetidas del mismo proveedor cuando la madre y la hija tienen una
+ * cada una. Gana la de la orden canónica, que es donde el sistema escribe hoy.
+ *
+ * Hoy no pasa en ningún pedido (verificado en producción: cero choques), pero leer
+ * dos órdenes a la vez abre la puerta y una comparativa con el mismo proveedor dos
+ * veces no se entiende: no se sabría cuál aceptar.
+ */
+export function unificarPorProveedor<T extends { proveedor_id: string; orden_id: string }>(
+  ofertas: T[],
+  ordenCanonica: string,
+): T[] {
+  const porProveedor = new Map<string, T>();
+  for (const of of ofertas) {
+    const previa = porProveedor.get(of.proveedor_id);
+    if (!previa || (of.orden_id === ordenCanonica && previa.orden_id !== ordenCanonica)) {
+      porProveedor.set(of.proveedor_id, of);
+    }
+  }
+  // Se conserva el orden de entrada (viene ordenado por precio) en vez del de inserción.
+  const elegidas = new Set(Array.from(porProveedor.values()));
+  return ofertas.filter((of) => elegidas.has(of));
+}
+
 /** Cuántos nombres se listan antes de resumir con «y N más». */
 const MAX_NOMBRES = 3;
 
