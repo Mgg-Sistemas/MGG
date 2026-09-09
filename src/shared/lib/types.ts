@@ -489,6 +489,14 @@ export interface ItemSolicitudSalida {
   /** Observación de la línea (ej. seriales, "será trasladado para reparación"). */
   observacion?: string | null;
   /**
+   * Equipo de Control de Maquinaria al que va este material (opcional).
+   * Es lo que convierte una salida a «MANTENIMIENTO» en consumo de UNA máquina:
+   * sin esto el material se pierde en un departamento y el equipo nunca sabe
+   * qué se le puso. Se copia al kardex al ejecutar la salida.
+   */
+  equipo_id?: string | null;
+  equipo_nombre?: string | null;
+  /**
    * «Va para fundición»: solo en salidas de Matanza y solo para material de
    * receta. El material se descuenta del inventario en esta salida y queda
    * disponible en el piso de fundición; la colada que lo queme NO vuelve a
@@ -735,6 +743,10 @@ export interface Movimiento {
   fecha_entrega?: string | null;
   /** Almacén donde ocurrió el movimiento. */
   almacen?: string | null;
+  /** Equipo de maquinaria al que fue el material (salidas de mantenimiento). */
+  equipo_id?: string | null;
+  /** Nombre del equipo al momento del despacho: se conserva aunque la ficha cambie. */
+  equipo_nombre?: string | null;
   /** Solo en consultas con join: el producto del movimiento. */
   producto?: { sku: string; nombre: string; unidad: string } | null;
   /** Costo unitario informado en este movimiento (lo pagado al proveedor en una entrada). */

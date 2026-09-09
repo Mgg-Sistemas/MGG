@@ -18,11 +18,15 @@ import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type Asigna
 import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
+import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 
 interface LineaUI {
   id: number; productoId: string; cantidad: string; precio: string; almacen: string;
   /** «Va para fundición»: el material queda en el piso en vez de irse del todo. */
   paraFundicion?: boolean;
+  /** Equipo de maquinaria al que va este material. Opcional: la mayoría de las
+   *  salidas no son para una máquina. Cuando se indica, el consumo llega al equipo. */
+  equipoId?: string;
 }
 
 export function SalidaMaterialForm({
@@ -79,6 +83,17 @@ export function SalidaMaterialForm({
   // Varias líneas de producto (como una OC). Cada una: producto + cantidad. El/los almacén(es) se resuelven por prioridad.
   const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', precio: '', almacen: '', paraFundicion: false }]);
   const [seq, setSeq] = useState(2);
+  // Equipos de Control de Maquinaria, para poder decir a qué máquina va el material.
+  // Si la lista no carga, el selector simplemente no aparece: nunca bloquea la salida.
+  const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    listEquipos()
+      .then((es) => { if (vivo) setEquipos(es.filter((e) => e.activo)); })
+      .catch(() => { if (vivo) setEquipos([]); });
+    return () => { vivo = false; };
+  }, []);
+  const equipoDe = (id?: string) => equipos.find((e) => e.id === id) ?? null;
   const setLinea = (id: number, patch: Partial<LineaUI>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', precio: '', almacen: '', paraFundicion: false }]); setSeq((s) => s + 1); };
 
@@ -236,6 +251,8 @@ export function SalidaMaterialForm({
           producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: t.cantidad,
           precio_unit: precioEditado ?? t.costo ?? null, unidad: p?.unidad ?? null,
           almacen: t.almacen, observacion: null,
+          equipo_id: l.equipoId || null,
+          equipo_nombre: equipoDe(l.equipoId)?.equipo ?? null,
           // La marca solo vale si el tramo sale de Matanza: una línea puede
           // repartirse entre almacenes y solo el de Matanza va al piso.
           para_fundicion: l.paraFundicion === true && (sedePorAlmacen.get(t.almacen) ?? '').toUpperCase().includes('MATANZA'),
@@ -397,6 +414,26 @@ export function SalidaMaterialForm({
                         <option key={c.almacen} value={c.almacen}>{c.almacen} · {num(c.stock)} {prod?.unidad ?? ''}</option>
                       ))}
                     </select>
+                  )}
+                  {/* ¿Para qué máquina? Opcional. Es lo que convierte una salida a
+                      «MANTENIMIENTO» en consumo de UN equipo concreto. */}
+                  {equipos.length > 0 && (
+                    <>
+                      <select className="select" style={{ marginTop: '.35rem', fontSize: '.82rem' }}
+                        value={l.equipoId ?? ''} onChange={(e) => setLinea(l.id, { equipoId: e.target.value })}>
+                        <option value="">🔧 ¿Para qué equipo? (opcional)</option>
+                        {equipos.map((eq) => (
+                          <option key={eq.id} value={eq.id}>
+                            {eq.equipo}{eq.tipo ? ` · ${eq.tipo}` : ''}{eq.ubicacion ? ` · ${eq.ubicacion}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {l.equipoId && (
+                        <small className="muted" style={{ fontSize: '.72rem' }}>
+                          Queda en el kardex y en la ficha de <strong>{equipoDe(l.equipoId)?.equipo}</strong>: así se sabe qué se le puso.
+                        </small>
+                      )}
+                    </>
                   )}
                   {/* Solo aparece para material de receta que sale de Matanza. */}
                   {puedeIrAFundicion(l) && (

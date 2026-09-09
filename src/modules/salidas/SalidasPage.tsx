@@ -689,7 +689,7 @@ function SolicitudDetalleModal({
   // cargados (productos/existencias/almacenes) para los selects.
   const editable = sol.tipo === 'material' && (sol.estado === 'por_aprobar' || sol.estado === 'aprobada') && puedeAprobar;
   const [editando, setEditando] = useState(false);
-  type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string; paraFundicion?: boolean };
+  type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string; paraFundicion?: boolean; equipoId?: string; equipoNombre?: string | null };
   const initLineas = (): LineaEd[] => {
     // Almacén de origen: si el guardado no tiene stock del producto, se elige el
     // almacén con MÁS stock (para que no quede mostrando "0 und").
@@ -701,9 +701,9 @@ function SolicitudDetalleModal({
       return top?.almacen ?? saved;
     };
     const base = (sol.items && sol.items.length)
-      ? sol.items.map((it) => ({ productoId: it.producto_id, almacen: it.almacen ?? sol.almacen_origen ?? '', cantidad: Number(it.cantidad) || 0, precio: it.precio_unit, paraFundicion: it.para_fundicion === true }))
-      : [{ productoId: sol.producto_id ?? '', almacen: sol.almacen_origen ?? '', cantidad: Number(sol.cantidad) || 0, precio: sol.precio_unit, paraFundicion: false }];
-    return base.map((it, i) => ({ id: i + 1, productoId: it.productoId, almacen: mejorAlmacen(it.productoId, it.almacen), cantidad: String(it.cantidad || 0), precio: it.precio != null ? String(it.precio) : '', paraFundicion: it.paraFundicion === true }));
+      ? sol.items.map((it) => ({ productoId: it.producto_id, almacen: it.almacen ?? sol.almacen_origen ?? '', cantidad: Number(it.cantidad) || 0, precio: it.precio_unit, paraFundicion: it.para_fundicion === true, equipoId: it.equipo_id ?? undefined, equipoNombre: it.equipo_nombre ?? null }))
+      : [{ productoId: sol.producto_id ?? '', almacen: sol.almacen_origen ?? '', cantidad: Number(sol.cantidad) || 0, precio: sol.precio_unit, paraFundicion: false, equipoId: undefined, equipoNombre: null }];
+    return base.map((it, i) => ({ id: i + 1, productoId: it.productoId, almacen: mejorAlmacen(it.productoId, it.almacen), cantidad: String(it.cantidad || 0), precio: it.precio != null ? String(it.precio) : '', paraFundicion: it.paraFundicion === true, equipoId: it.equipoId, equipoNombre: it.equipoNombre ?? null }));
   };
   const [edLineas, setEdLineas] = useState<LineaEd[]>([]);
   const [edSeq, setEdSeq] = useState(1);
@@ -802,7 +802,9 @@ function SolicitudDetalleModal({
       // La marca de fundición se conserva al editar: si se perdiera acá, el
       // material saldría del inventario pero no llegaría al piso, y la colada
       // volvería a descontarlo — justo el doble descuento que esto corrige.
-      return { producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: Number(l.cantidad) || 0, precio_unit: l.precio !== '' ? Number(l.precio) : null, unidad: p?.unidad ?? null, almacen: l.almacen || null, observacion: null, para_fundicion: l.paraFundicion === true };
+      // El equipo también: si se perdiera al editar, el consumo dejaría de llegar
+      // a la máquina y su ficha quedaría contando de menos.
+      return { producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: Number(l.cantidad) || 0, precio_unit: l.precio !== '' ? Number(l.precio) : null, unidad: p?.unidad ?? null, almacen: l.almacen || null, observacion: null, para_fundicion: l.paraFundicion === true, equipo_id: l.equipoId || null, equipo_nombre: l.equipoNombre ?? null };
     });
     if (items.some((it) => !it.producto_id)) { toast('Elegí el material en cada renglón.', 'error'); return; }
     if (items.some((it) => !it.almacen)) { toast('Elegí el almacén de origen en cada renglón.', 'error'); return; }
@@ -1146,12 +1148,13 @@ function SolicitudDetalleModal({
               {(sol.items?.length ?? 0) > 1 ? (
                 <tr><td className="muted">Materiales</td><td>
                   <table className="table" style={{ fontSize: '.8rem', margin: 0 }}>
-                    <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th><th>Observación</th></tr></thead>
+                    <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th><th>Equipo</th><th>Observación</th></tr></thead>
                     <tbody>
                       {sol.items!.map((it, i) => (
                         <tr key={i}>
                           <td>{it.producto_nombre ?? '—'}</td>
                           <td className="mono" style={{ textAlign: 'right' }}>{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>
+                          <td className="muted" style={{ fontSize: '.78rem' }}>{it.equipo_nombre ? `🔧 ${it.equipo_nombre}` : '—'}</td>
                           <td className="muted" style={{ fontSize: '.78rem' }}>{it.observacion || '—'}</td>
                         </tr>
                       ))}
@@ -1162,6 +1165,7 @@ function SolicitudDetalleModal({
                 <>
                   <tr><td className="muted">Producto</td><td>{sol.producto_nombre ?? '—'}</td></tr>
                   <tr><td className="muted">Cantidad</td><td className="mono">{num(Number(sol.cantidad) || 0)}</td></tr>
+                  {sol.items?.[0]?.equipo_nombre && <tr><td className="muted">Equipo</td><td>🔧 {sol.items[0].equipo_nombre}</td></tr>}
                   {sol.items?.[0]?.observacion && <tr><td className="muted">Observación</td><td>{sol.items[0].observacion}</td></tr>}
                 </>
               )}
