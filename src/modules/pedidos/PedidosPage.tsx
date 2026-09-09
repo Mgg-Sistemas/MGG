@@ -94,6 +94,7 @@ import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
+import { ordenDeOfertas } from './ordenDeOfertas';
 import { SolicitudMercadoModal } from './SolicitudMercadoModal';
 // descargarTrazabilidadPdf / descargarOrdenCompraPdf se importan dinámicamente
 // (al generar) para no cargar jsPDF al abrir Pedidos.
@@ -1147,13 +1148,17 @@ function AddOfferGate({
 }) {
   const [ya, setYa] = useState<Set<string> | null>(null);
 
+  // La exclusión se calcula sobre la orden que GUARDA las ofertas (la madre, si esta
+  // es una sub-OC). Mirando la orden propia, la lista no coincidía con lo que muestra
+  // la comparativa: escondía proveedores por ofertas que el panel no llegaba a mostrar.
+  const ordenOfertas = ordenDeOfertas(orden);
   useEffect(() => {
     let cancelled = false;
-    listOfertasByOrden(orden.id)
+    listOfertasByOrden(ordenOfertas)
       .then((rows) => { if (!cancelled) setYa(new Set(rows.map((r) => r.proveedor_id))); })
       .catch(() => { if (!cancelled) setYa(new Set()); });
     return () => { cancelled = true; };
-  }, [orden.id]);
+  }, [ordenOfertas]);
 
   if (!ya) return null;
   return (
