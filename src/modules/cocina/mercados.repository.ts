@@ -151,6 +151,14 @@ export interface ResumenMercado {
    * trae los que tienen explicación: un sobrante no la tiene.
    */
   explicaciones: Map<string, ExplicacionDiferencia>;
+  /**
+   * Los movimientos que el ciclo NO cuenta, por víver.
+   *
+   * El drill de un víver muestra entradas y consumos, o sea solo lo que el libro
+   * mira. Un víver del que salieron 30 Kg por una salida manual se ve idéntico a
+   * uno que nadie tocó — y es justo el que hay que revisar.
+   */
+  salidasFueraDelCiclo: Map<string, SalidaFueraDelCiclo[]>;
 }
 
 /* ───────── Fechas ───────── */
@@ -495,6 +503,7 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
           vieresConDiferencia: mercado.cierre?.diferencias?.length ?? 0 },
     diferencias: difsVivas,
     explicaciones,
+    salidasFueraDelCiclo: salidasFuera,
   };
 }
 

@@ -23,7 +23,10 @@ import {
   cerrarMercado, descartarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
   type MercadoCocina,
 } from './mercados.repository';
-import { describirEvento, explicarSobrante, productosAjustados, separarMovidos } from './mercadoComparar';
+import {
+  describirEvento, explicarDiferencia, explicarSobrante, productosAjustados, separarMovidos,
+  type DiferenciaViver, type SalidaFueraDelCiclo,
+} from './mercadoComparar';
 
 /** Qué bloque se está mirando. Se recuerda por usuario. */
 type Vista = 'disponible' | 'movimientos' | 'ambos';
@@ -390,7 +393,10 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       )}
 
       {drill && (
-        <DrillModal item={drill} kardex={kardex} fechaInicio={mercado.fecha_inicio} onClose={() => setDrill(null)} />
+        <DrillModal item={drill} kardex={kardex} fechaInicio={mercado.fecha_inicio}
+          fuera={resumen.salidasFueraDelCiclo.get(drill.producto_id) ?? []}
+          diferencia={difPorProducto.get(drill.producto_id) ?? null}
+          onClose={() => setDrill(null)} />
       )}
       {descartar && (
         <DescartarMercadoModal mercado={mercado} cocinaNombre={cocinaNombre} actor={actor} userEmail={userEmail}
@@ -467,8 +473,15 @@ function FilaConsumo({ row, canWrite, onEdit, onDel }: { row: KardexConsumo; can
 }
 
 /* ───────── Drill-down de un víver: saldo inicial + entradas + consumos ───────── */
-function DrillModal({ item, kardex, fechaInicio, onClose }: {
-  item: DisponibleItem; kardex: (KardexEntrada | KardexConsumo)[]; fechaInicio: string; onClose: () => void;
+function DrillModal({ item, kardex, fechaInicio, fuera, diferencia, onClose }: {
+  item: DisponibleItem;
+  kardex: (KardexEntrada | KardexConsumo)[];
+  fechaInicio: string;
+  /** Lo que salió por fuera del ciclo: salidas manuales, ajustes, traslados. */
+  fuera: SalidaFueraDelCiclo[];
+  /** inventario − libro para este víver. `null` si cuadra o si el mercado está cerrado. */
+  diferencia: DiferenciaViver | null;
+  onClose: () => void;
 }) {
   const entradas = kardex.filter((k): k is KardexEntrada => k.kind === 'entrada' && k.producto_id === item.producto_id);
   const consumos = kardex
@@ -483,6 +496,38 @@ function DrillModal({ item, kardex, fechaInicio, onClose }: {
         <div>+ entradas desde el <strong>{fmtDia(fechaInicio)}</strong>: <strong className="mono" style={{ color: 'var(--primary-3, #2ecc71)' }}>{num(item.entradas)} {item.unidad}</strong></div>
         <div style={{ marginTop: '.2rem' }}>= <strong>TOTAL DISPONIBLE A CONSUMIR</strong>: <strong className="mono" style={{ fontSize: '1.05rem' }}>{num(item.disponible)} {item.unidad}</strong></div>
         <div className="muted">− consumido: <strong className="mono" style={{ color: 'var(--danger)' }}>{num(item.consumos)} {item.unidad}</strong> · queda: <strong className="mono" style={{ color: item.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(item.queda)} {item.unidad}</strong></div>
+
+        {/* EL CONTRASTE Y SU DIAGNÓSTICO, donde se viene a entender el víver. La
+            tabla ya lo avisa, pero acá es donde uno llega buscando el porqué. */}
+        {diferencia && (
+          <div style={{ marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px solid var(--border)' }}>
+            <span style={{ color: 'var(--warning)' }}>
+              ⚠ en inventario hay <strong className="mono">{num(diferencia.inventario)} {item.unidad}</strong>
+              {' · '}{diferencia.diferencia < 0 ? 'faltan' : 'sobran'}{' '}
+              <strong className="mono">{num(Math.abs(diferencia.diferencia))} {item.unidad}</strong>
+            </span>
+            {(() => {
+              const exp = explicarDiferencia(diferencia.diferencia, fuera);
+              if (exp) {
+                const t = exp.porTipo[0];
+                return (
+                  <div className="dim" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>
+                    ↳ {num(exp.total)} sali{exp.total === 1 ? 'ó' : 'eron'} por {t.movimientos === 1 ? `un ${t.tipo}` : `${t.movimientos} movimientos`}
+                    {exp.ultimo ? ` · último el ${fmtDia(exp.ultimo.at.slice(0, 10))}` : ''}
+                    {exp.ultimo?.actor ? ` (${exp.ultimo.actor})` : ''}
+                    {!exp.explicaTodo && (
+                      <span style={{ color: 'var(--warning)' }}> · quedan {num(exp.sinExplicar)} sin explicar</span>
+                    )}
+                  </div>
+                );
+              }
+              if (diferencia.diferencia > 0) {
+                return <div className="dim" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>↳ {explicarSobrante(item)}</div>;
+              }
+              return null;
+            })()}
+          </div>
+        )}
       </div>
 
       <h4 style={{ margin: '.6rem 0 .35rem', color: 'var(--primary-3, #2ecc71)' }}>Entradas ({entradas.length})</h4>
@@ -507,6 +552,40 @@ function DrillModal({ item, kardex, fechaInicio, onClose }: {
             </div>
           ))}
         </div>
+      )}
+
+      {/* MOVIMIENTOS FUERA DEL CICLO, al mismo nivel que entradas y consumos.
+          El libro solo resta lo que sale por cocina_comidas, así que un víver del
+          que salieron 30 Kg por una salida manual se veía acá idéntico a uno que
+          nadie tocó — y es justo el que hay que revisar. */}
+      <h4 style={{ margin: '.8rem 0 .35rem', color: 'var(--warning)' }}>
+        Movimientos fuera del ciclo ({fuera.length})
+      </h4>
+      {!fuera.length ? (
+        <p className="hint muted" style={{ margin: 0 }}>Ninguno: todo lo que salió pasó por una comida.</p>
+      ) : (
+        <>
+          <p className="hint muted" style={{ margin: '0 0 .35rem' }}>
+            Movieron el inventario pero <strong>no cuentan como consumo</strong> del mercado: por eso el libro y el almacén pueden no coincidir.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+            {fuera.map((f, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '.25rem', fontSize: '.83rem' }}>
+                <span>
+                  <span className="badge" style={{ fontSize: '.66rem', marginRight: '.35rem' }}>{f.tipo}</span>
+                  <span className="muted">{dateTime(f.at)}</span>
+                  {f.actor_name ? <span className="muted"> · {f.actor_name}</span> : null}
+                  {/* El detalle es lo único que explica un movimiento manual, y
+                      justo en los que motivaron esto venía vacío. */}
+                  {f.detalle
+                    ? <span className="dim"> · {f.detalle}</span>
+                    : <span className="dim" style={{ fontStyle: 'italic' }}> · sin motivo escrito</span>}
+                </span>
+                <span className="mono" style={{ color: 'var(--warning)', whiteSpace: 'nowrap' }}>−{num(f.cantidad)} {item.unidad}</span>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </Modal>
   );
