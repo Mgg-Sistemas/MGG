@@ -177,13 +177,27 @@ export function MercadosHistoricoModal({ cocinaId, cocinaNombre, almacen, canWri
                 const dif = m.cierre?.diferencia;
                 const marcado = sel.includes(m.id);
                 return (
-                <tr key={m.id} style={marcado ? { borderLeft: '3px solid var(--primary)' } : undefined}>
+                /* Un ciclo DESCARTADO no es uno cerrado: no aportó saldo al
+                   siguiente. Mostrarlos iguales haría pensar que su remanente
+                   sigue en la cadena, que es justo lo contrario de lo que pasó. */
+                <tr key={m.id} style={
+                  m.cierre?.descartado ? { borderLeft: '3px solid var(--danger)', opacity: .72 }
+                    : marcado ? { borderLeft: '3px solid var(--primary)' } : undefined
+                }>
                   <td>
                     <input type="checkbox" checked={marcado} disabled={!marcado && sel.length >= 2}
                       onChange={() => setSel((prev) => prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id])}
                       title={!marcado && sel.length >= 2 ? 'Ya hay dos marcados' : 'Comparar este corte'} />
                   </td>
-                  <td className="mono">#{m.numero}</td>
+                  <td className="mono">
+                    #{m.numero}
+                    {m.cierre?.descartado && (
+                      <span className="badge" title={m.cierre.motivo_descarte ?? 'Descartado'}
+                        style={{ marginLeft: '.3rem', fontSize: '.62rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}>
+                        ⊘ descartado
+                      </span>
+                    )}
+                  </td>
                   <td>{fmtDia(m.fecha_inicio)} → {fmtDia(m.fecha_fin)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(m.cierre?.totales.valor ?? 0)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(m.cierre?.totales.platos ?? 0)}</td>
@@ -191,7 +205,9 @@ export function MercadosHistoricoModal({ cocinaId, cocinaNombre, almacen, canWri
                   {/* La columna que se busca primero cuando se abre el histórico. Los
                       cierres viejos no la tienen: se muestra «—», no un 0 que mienta. */}
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: dif == null ? undefined : dif === 0 ? undefined : dif < 0 ? 'var(--danger)' : 'var(--warning)' }}>
-                    {dif == null ? <span className="dim">—</span> : dif === 0 ? '·' : `${dif > 0 ? '+' : ''}${num(dif)}`}
+                    {m.cierre?.descartado
+                      ? <span className="dim" title="El ciclo no cuenta: no se le calculó remanente">n/c</span>
+                      : dif == null ? <span className="dim">—</span> : dif === 0 ? '·' : `${dif > 0 ? '+' : ''}${num(dif)}`}
                     {m.cierre?.ajustado && <span title={m.cierre.motivo_ajuste ?? 'Ajustado al inventario'} style={{ marginLeft: '.25rem' }}>✎</span>}
                   </td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>

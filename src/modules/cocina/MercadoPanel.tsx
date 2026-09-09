@@ -29,6 +29,11 @@ import { describirEvento, explicarSobrante, productosAjustados, separarMovidos }
 type Vista = 'disponible' | 'movimientos' | 'ambos';
 const VISTA_KEY = 'mgg.cocina.mercado.vista';
 
+/** Mismo criterio que Inventario para confirmar acciones destructivas. */
+function normalizarTexto(s: string): string {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 /** Un cero en una tabla de 50 filas es ruido: se muestra un punto tenue. */
 function cifra(n: number): string { return n === 0 ? '·' : num(n); }
 
@@ -388,7 +393,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
         <DrillModal item={drill} kardex={kardex} fechaInicio={mercado.fecha_inicio} onClose={() => setDrill(null)} />
       )}
       {descartar && (
-        <DescartarMercadoModal mercado={mercado} actor={actor} userEmail={userEmail}
+        <DescartarMercadoModal mercado={mercado} cocinaNombre={cocinaNombre} actor={actor} userEmail={userEmail}
           onClose={() => setDescartar(false)}
           onDone={async () => { setDescartar(false); await onReload(); }} />
       )}
@@ -666,22 +671,31 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
    Descartar no es cerrar. Cerrar congela el remanente y se lo pasa al ciclo
    siguiente; descartar deja el ciclo fuera de la cadena, y el próximo arranca
    del inventario real. Se usa cuando el remanente no describe nada creíble. */
-function DescartarMercadoModal({ mercado, actor, userEmail, onClose, onDone }: {
+function DescartarMercadoModal({ mercado, cocinaNombre, actor, userEmail, onClose, onDone }: {
   mercado: MercadoCocina;
+  cocinaNombre: string;
   actor: string;
   userEmail: string | null;
   onClose: () => void;
   onDone: () => void | Promise<void>;
 }) {
   const [motivo, setMotivo] = useState('');
+  const [texto, setTexto] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const listo = motivo.trim().length >= 5;
+
+  /* Doble llave, como el resto de las acciones destructivas del sistema: el
+     motivo explica y la palabra confirma. Descartar un ciclo no se deshace —el
+     saldo deja de encadenarse— y con un solo botón se aprieta sin querer. */
+  const clave = `MERCADO ${mercado.numero}`;
+  const confirmado = normalizarTexto(texto) === normalizarTexto(clave) && texto.trim() !== '';
+  const motivoOk = motivo.trim().length >= 15;
+  const listo = confirmado && motivoOk;
 
   async function confirmar() {
     setGuardando(true);
     try {
       await descartarMercado(mercado, actor, userEmail, motivo);
-      notify(`Mercado #${mercado.numero} descartado · el próximo arranca del inventario`, 'success', { link: '#/app/cocina' });
+      notify(`Mercado #${mercado.numero} de ${cocinaNombre} descartado · el próximo arranca del inventario`, 'warning', { link: '#/app/cocina' });
       await onDone();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo descartar', 'error');
@@ -698,23 +712,36 @@ function DescartarMercadoModal({ mercado, actor, userEmail, onClose, onDone }: {
         </button>
       </>
     }>
-      <p style={{ marginTop: 0 }}>
-        Este ciclo <strong>deja de contar</strong>: no le pasa saldo al siguiente y sus cifras
-        no se arrastran.
-      </p>
-      <p className="hint muted">
+      <div className="card" style={{ borderColor: 'var(--danger)', marginTop: 0, marginBottom: '.75rem' }}>
+        <strong>Esto no se deshace.</strong> El ciclo <strong>deja de contar</strong>: no le pasa
+        saldo al siguiente y sus cifras salen de la cadena.
+      </div>
+      <p className="hint muted" style={{ marginTop: 0 }}>
         No se borra nada — las comidas, los movimientos y el historial quedan donde están.
         Cuando alguien abra el próximo mercado, el <strong>saldo inicial saldrá del inventario
-        real</strong> en ese momento.
+        real</strong> de ese momento.
       </p>
+
       <div className="form-row">
         <label>Por qué se descarta</label>
-        {/* Obligatorio: dentro de seis meses, un ciclo que no cuenta y no dice por
-            qué parece un error del sistema en vez de una decisión de alguien. */}
+        {/* Obligatorio y con un mínimo real: dentro de seis meses, un ciclo que no
+            cuenta y no dice por qué parece un error del sistema en vez de una
+            decisión de alguien. «ok» o «error» no explican nada. */}
         <textarea className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)}
-          placeholder="Ej.: ciclo iniciado antes del rediseño, con traslados incompletos y consumos registrados por fuera." />
-        {!listo && motivo.trim().length > 0 && (
-          <small className="muted" style={{ color: 'var(--danger)' }}>Escribí un motivo un poco más largo.</small>
+          placeholder="Ej.: ciclo iniciado antes del rediseño, con traslados incompletos y consumos registrados por fuera del sistema." />
+        {!motivoOk && (
+          <small className="muted" style={{ color: motivo.trim() ? 'var(--danger)' : undefined }}>
+            {motivo.trim() ? 'Explicá un poco más: esto queda en el historial.' : 'Obligatorio.'}
+          </small>
+        )}
+      </div>
+
+      <div className="form-row">
+        <label>Para confirmar, escribí <strong className="mono">{clave}</strong></label>
+        <input className="input mono" value={texto} onChange={(e) => setTexto(e.target.value)}
+          placeholder={clave} onKeyDown={(e) => { if (e.key === 'Enter' && listo) void confirmar(); }} />
+        {texto.trim() !== '' && !confirmado && (
+          <small className="muted" style={{ color: 'var(--danger)' }}>No coincide.</small>
         )}
       </div>
     </Modal>
