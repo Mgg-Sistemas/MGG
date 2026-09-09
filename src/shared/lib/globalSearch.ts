@@ -32,6 +32,29 @@ const ETIQUETAS: Record<TipoResultado, string> = {
 };
 export function etiquetaResultado(t: TipoResultado): string { return ETIQUETAS[t]; }
 
+/** Cuántos productos se ofrecen. Con familias grandes (seis vinagres) seis era poco. */
+export const LIMITE_PRODUCTOS = 10;
+
+/** Quita acentos y pasa a minúsculas, para comparar sin sorpresas. */
+const clave = (s: string) => (s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * Qué tan bien pega un resultado con lo que se escribió: primero el código exacto,
+ * después el nombre exacto, después lo que EMPIEZA con el texto y al final lo que
+ * solo lo contiene. Sin esto la lista salía en el orden de la base y «VINAGRE»
+ * aparecía último entre seis vinagres.
+ */
+export function relevancia(titulo: string, codigo: string, busqueda: string): number {
+  const q = clave(busqueda.trim());
+  if (!q) return 4;
+  const t = clave(titulo), c = clave(codigo);
+  if (c === q) return 0;
+  if (t === q) return 1;
+  if (t.startsWith(q)) return 2;
+  if (c.startsWith(q)) return 3;
+  return 4;
+}
+
 export async function buscarGlobal(qRaw: string): Promise<ResultadoBusqueda[]> {
   // Sanitiza: las comas y % rompen la sintaxis de `.or`/ilike de PostgREST.
   const q = qRaw.trim().replace(/[%,]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -40,7 +63,12 @@ export async function buscarGlobal(qRaw: string): Promise<ResultadoBusqueda[]> {
 
   const [prods, provs, ords, usrs] = await Promise.all([
     supabase.from('productos').select('id, sku, nombre, categoria')
-      .or(`nombre.ilike.${like},sku.ilike.${like}`).limit(6),
+      // Solo ACTIVOS: lo dado de baja no aparece en Inventario ni en los almacenes,
+      // así que ofrecerlo acá manda a la gente a una ficha que no puede usar.
+      .eq('estado', 'activo')
+      .or(`nombre.ilike.${like},sku.ilike.${like}`)
+      .order('nombre', { ascending: true })
+      .limit(LIMITE_PRODUCTOS),
     supabase.from('proveedores').select('id, razon_social, rif')
       .or(`razon_social.ilike.${like},rif.ilike.${like}`).limit(6),
     supabase.from('ordenes').select('id, codigo, estado')
@@ -51,10 +79,13 @@ export async function buscarGlobal(qRaw: string): Promise<ResultadoBusqueda[]> {
   ]);
 
   const res: ResultadoBusqueda[] = [];
-  (prods.data ?? []).forEach((p) => {
-    const r = p as { id: string; sku: string; nombre: string; categoria: string };
-    res.push({ tipo: 'producto', id: r.id, titulo: r.nombre, subtitulo: `${r.sku} · ${r.categoria}`, ruta: `/app/inventario?detalle=${encodeURIComponent(r.id)}` });
-  });
+  ((prods.data ?? []) as { id: string; sku: string; nombre: string; categoria: string }[])
+    .slice()
+    .sort((a, b) => relevancia(a.nombre, a.sku, q) - relevancia(b.nombre, b.sku, q)
+      || a.nombre.localeCompare(b.nombre, 'es'))
+    .forEach((r) => {
+      res.push({ tipo: 'producto', id: r.id, titulo: r.nombre, subtitulo: `${r.sku} · ${r.categoria}`, ruta: `/app/inventario?detalle=${encodeURIComponent(r.id)}` });
+    });
   (provs.data ?? []).forEach((p) => {
     const r = p as { id: string; razon_social: string; rif: string };
     res.push({ tipo: 'proveedor', id: r.id, titulo: r.razon_social, subtitulo: r.rif, ruta: `/app/proveedores?detalle=${encodeURIComponent(r.id)}` });
