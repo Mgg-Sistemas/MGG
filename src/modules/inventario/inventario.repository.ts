@@ -112,6 +112,36 @@ export function prefijoCategoria(categoria: string, productos: Producto[] = []):
 
 /** Siguiente SKU correlativo para la categoría dada (p.ej. "LUB-003"),
  *  tomando el mayor número ya existente para ese prefijo + 1. */
+/**
+ * Siguiente SKU libre de una categoría, preguntándole a la BASE.
+ *
+ * `siguienteSku` calcula el máximo sobre la lista que se le pasa, y quien la
+ * llama casi siempre tiene solo los productos ACTIVOS. Un código dado de baja
+ * no aparece ahí, pero SIGUE OCUPANDO su número: así se generaba VIV-119
+ * cuando VIV-119 ya existía inactivo, y el alta moría con «código repetido».
+ * Acá se mira TODO el catálogo, activo o no.
+ */
+export async function siguienteSkuLibre(categoria: string, productos: Producto[] = []): Promise<string> {
+  const prefijo = prefijoCategoria(categoria, productos);
+  const { data, error } = await supabase
+    .from('productos')
+    .select('sku')
+    .ilike('sku', `${prefijo}-%`);
+  if (error) return siguienteSku(categoria, productos); // sin red, al menos algo razonable
+  const re = new RegExp(`^${prefijo}[-_]?(\\d+)$`, 'i');
+  let max = 0;
+  for (const r of (data ?? []) as { sku: string }[]) {
+    const m = String(r.sku ?? '').match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  // Los de memoria también cuentan: cubre lo recién creado en esta pantalla.
+  for (const p of productos) {
+    const m = String(p.sku ?? '').match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefijo}-${String(max + 1).padStart(3, '0')}`;
+}
+
 export function siguienteSku(categoria: string, productos: Producto[] = []): string {
   const prefijo = prefijoCategoria(categoria, productos);
   const re = new RegExp(`^${prefijo}[-_]?(\\d+)$`, 'i');
@@ -356,7 +386,13 @@ export async function createProducto(input: ProductoInput): Promise<Producto> {
     .insert({ ...input, espacio: input.espacio ?? 'principal' })
     .select('*')
     .single();
-  if (error) throw error;
+  if (error) {
+    // 23505 = código repetido. Decirlo con nombre y apellido, no un «no se pudo».
+    if ((error as { code?: string }).code === '23505') {
+      throw new Error(`El código ${input.sku} ya está usado por otro producto (puede estar dado de baja). Probá de nuevo: el sistema tomará el siguiente libre.`);
+    }
+    throw error;
+  }
   bustCache(['productos']); // que la próxima lectura (misma pestaña) ya lo incluya
   return data as Producto;
 }

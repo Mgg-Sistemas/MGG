@@ -83,11 +83,10 @@ import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.reposi
 import { legsDesdeMetodoPago, motivoNoCorregible } from './metodoPagoEdicion';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
-import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSku, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
+import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
-import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type { Almacen } from '@/shared/lib/types';
@@ -4205,7 +4204,6 @@ function CrearOrdenModal({
   // Nombre para el que el usuario YA confirmó que quiere crear igual.
   const [avisadoPara, setAvisadoPara] = useState('');
   const [nuevoUnidad, setNuevoUnidad] = useState('UNIDAD');
-  const [nuevoAlmacen, setNuevoAlmacen] = useState('');
   const [medidas, setMedidas] = useState<string[]>([]);
   const [categoriasInv, setCategoriasInv] = useState<string[]>([]);
   const [creandoNuevo, setCreandoNuevo] = useState(false);
@@ -4262,7 +4260,7 @@ function CrearOrdenModal({
       if (categoria && !categoriasInv.some((c) => c.toLowerCase() === categoria.toLowerCase())) {
         try { await addCategoria(categoria, authEmail); setCategoriasInv((prev) => [...prev, categoria]); } catch { /* duplicado/red: no bloquea */ }
       }
-      const sku = siguienteSku(categoria, allProductos);
+      const sku = await siguienteSkuLibre(categoria, allProductos);
       const creado = await createProducto({
         sku,
         nombre,
@@ -4271,11 +4269,10 @@ function CrearOrdenModal({
         stock: 0,
         stock_min: 0,
         precio: 0,
-        // Sin fallback a 'General': ese es el almacén legado invisible (trampa INS-144)
-        // y ahí fueron a parar 55 de los 120 productos que hoy nadie encuentra. Si no se
-        // eligió almacén, se deja vacío y el producto queda sin ubicación de papel — que
-        // es lo honesto: la ubicación real nace cuando se recibe la mercancía.
-        almacen: nuevoAlmacen.trim(),
+        // Sin almacén: la ubicación real nace cuando se RECIBE la mercancía y el
+        // almacenista elige dónde entra, desde Inventario. Preguntarla acá era pedir
+        // una decisión que quien arma la solicitud no puede tomar.
+        almacen: '',
         estado: 'activo',
       });
       setExtraProductos((prev) => [...prev, creado]);
@@ -4685,12 +4682,9 @@ function CrearOrdenModal({
                   {medidas.map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
-              <AlmacenPicker
-                value={nuevoAlmacen}
-                onChange={setNuevoAlmacen}
-                sedeLabel="Sede"
-                label="Almacén destino"
-              />
+              <small className="muted" style={{ fontSize: '.72rem' }}>
+                El almacén no se elige acá: se define al <strong>recibir la mercancía</strong>, desde Inventario.
+              </small>
               <div>
                 <button type="button" className="btn btn-sm btn-primary" onClick={crearProductoNuevo}
                   disabled={creandoNuevo || !nuevoNombre.trim() || !nuevoCategoria.trim()}>

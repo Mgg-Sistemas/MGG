@@ -5,8 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, num } from '@/shared/lib/format';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
-import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSku } from '@/modules/inventario/inventario.repository';
+import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { crearOrden, ensureUnidadSolicitante, ultimaOrdenMercado, FINALIDAD_MERCADO } from './pedidos.repository';
 import type { ItemOrden, Producto, Usuario } from '@/shared/lib/types';
@@ -98,7 +97,6 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoCategoria, setNuevoCategoria] = useState('');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
-  const [nuevoAlmacen, setNuevoAlmacen] = useState('');
   const [nuevoCant, setNuevoCant] = useState('1');
   const [creandoNuevo, setCreandoNuevo] = useState(false);
   const [avisadoPara, setAvisadoPara] = useState<string | null>(null);
@@ -212,15 +210,17 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
         try { await addCategoria(categoria, email); setCategoriasInv((prev) => [...prev, categoria]); } catch { /* duplicado o red: no bloquea */ }
       }
       const creado = await createProducto({
-        sku: siguienteSku(categoria, productos),
+        sku: await siguienteSkuLibre(categoria, productos),
         nombre,
         categoria,
         unidad: nuevoUnidad.trim() || 'und',
         stock: 0,
         stock_min: 0,
         precio: 0,
-        // Sin fallback a «General»: ese almacén legado es donde los productos se pierden.
-        almacen: nuevoAlmacen.trim(),
+        // Sin almacén: la ubicación real nace cuando se RECIBE la mercancía y el
+        // almacenista elige dónde entra, desde Inventario. Preguntarla acá era pedir
+        // una decisión que quien arma la solicitud no puede tomar.
+        almacen: '',
         estado: 'activo',
       });
       const cant = cantidadEscrita(nuevoCant) || 1;
@@ -229,6 +229,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
       toast(`"${creado.nombre}" (${creado.sku}) creado y agregado · ${cant} ${creado.unidad ?? ''}`.trim(), 'success');
       setNuevoNombre(''); setNuevoCant('1'); setNuevoOpen(false); setAvisadoPara(null);
     } catch (e) {
+      // El mensaje real del servidor, no un «no se pudo» que no dice nada.
       toast(e instanceof Error ? e.message : 'No se pudo crear el producto', 'error');
     } finally {
       setCreandoNuevo(false);
@@ -460,7 +461,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
                   <div>
                     <input className="input" list="mercado-categorias" placeholder="Categoría * (elegí o escribí una nueva)"
                       value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
-                    <small className="muted" style={{ fontSize: '.72rem' }}>Define el código: HORTALIZAS Y LEGUMBRES → HTL-007.</small>
+                    <small className="muted" style={{ fontSize: '.72rem' }}>Define el código del producto (VIVERES → VIV-…). El número lo asigna el sistema.</small>
                     <datalist id="mercado-categorias">
                       {categoriasInv.map((c) => <option key={c} value={c} />)}
                     </datalist>
@@ -476,7 +477,9 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
                     style={{ textAlign: 'right', fontWeight: 700 }}
                     onChange={(e) => setNuevoCant(e.target.value)} />
                 </div>
-                <AlmacenPicker value={nuevoAlmacen} onChange={setNuevoAlmacen} sedeLabel="Sede" label="Almacén destino" />
+                <small className="muted" style={{ fontSize: '.72rem' }}>
+                  El almacén no se elige acá: se define al <strong>recibir la mercancía</strong>, desde Inventario.
+                </small>
                 <div>
                   <button type="button" className="btn btn-sm btn-primary" onClick={() => void crearProductoNuevo()}
                     disabled={creandoNuevo || !nuevoNombre.trim() || !nuevoCategoria.trim() || cantidadEscrita(nuevoCant) <= 0}>
