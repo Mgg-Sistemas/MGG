@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signIn, signOutLocal } from './authStore';
-import { isSupabaseConfigured } from '@/shared/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/shared/lib/supabase';
+import { decidirEntradaAlLogin, ESPERA_MAXIMA_MS } from './entradaAlLogin';
 import { entrarConBiometria, biometriaDisponible } from './webauthn.repository';
 
 export function LoginPage() {
@@ -31,15 +32,35 @@ export function LoginPage() {
     }
   }
 
-  // Forzar logout al abrir el login: el usuario debe autenticarse siempre.
+  // Al abrir el login: si YA hay sesión se entra, no se cierra.
+  //
+  // Antes esta pantalla hacía `signOutLocal()` al montarse para «obligar a
+  // autenticarse siempre». Pero el token vive en el storage del navegador, que
+  // es COMPARTIDO entre pestañas: abrir el login en otra pestaña —o recargarlo—
+  // mataba la sesión de la pestaña donde el usuario estaba trabajando. Para
+  // entrar con otro usuario está «Cerrar sesión», que es explícito.
   const didCleanRef = useRef(false);
+  const [verificando, setVerificando] = useState(isSupabaseConfigured);
   useEffect(() => {
     if (didCleanRef.current) return;
     didCleanRef.current = true;
-    if (isSupabaseConfigured) {
-      signOutLocal().catch(() => {});
-    }
-  }, []);
+    if (!isSupabaseConfigured) { setVerificando(false); return; }
+    let vivo = true;
+    // Red de seguridad: pase lo que pase, el formulario aparece.
+    const tope = setTimeout(() => { if (vivo) setVerificando(false); }, ESPERA_MAXIMA_MS);
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (!vivo) return;
+        if (decidirEntradaAlLogin(data.session) === 'entrar') { navigate('/app', { replace: true }); return; }
+        // Sin sesión válida: acá sí conviene limpiar restos (token vencido),
+        // porque no hay ninguna otra pestaña con sesión a la que perjudicar.
+        signOutLocal().catch(() => {});
+        setVerificando(false);
+      })
+      .catch(() => { if (vivo) setVerificando(false); })
+      .finally(() => clearTimeout(tope));
+    return () => { vivo = false; clearTimeout(tope); };
+  }, [navigate]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -98,6 +119,11 @@ export function LoginPage() {
       </aside>
 
       <div className="login-form-wrap">
+        {verificando ? (
+          <div className="login-form" style={{ display: 'grid', placeItems: 'center', minHeight: '12rem' }}>
+            <span className="muted">Verificando tu sesión…</span>
+          </div>
+        ) : (
         <form className="login-form" onSubmit={handleSubmit}>
           <Link to="/" className="back-link">← Volver al inicio</Link>
 
@@ -188,6 +214,7 @@ export function LoginPage() {
             ¿Sin cuenta? Pídele al administrador que te dé acceso.
           </div>
         </form>
+        )}
       </div>
     </div>
   );
