@@ -3,7 +3,8 @@ import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { ItemOrden, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
-import { listOfertasByOrden } from './ofertas.repository';
+import { listOfertasDeOrdenes } from './ofertas.repository';
+import { ordenesConOfertasDe } from './ordenDeOfertas';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas } from './score';
 import { asignarProveedoresAOrden, listSubOcs, type AsignacionProveedor } from './pedidos.repository';
@@ -41,14 +42,20 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      const [ofs, hs] = await Promise.all([listOfertasByOrden(orden.id), listSubOcs(orden.id)]);
+      // Las mismas ofertas que muestra la comparativa de esta orden: si el asignador
+      // viera menos, se repartirían productos entre proveedores que ahí sí cotizaron.
+      // Las sub-OC que se crean acá SÍ son de esta orden, no de la madre.
+      const [ofs, hs] = await Promise.all([
+        listOfertasDeOrdenes(ordenesConOfertasDe(orden)),
+        listSubOcs(orden.id),
+      ]);
       setOfertas(ofs);
       setHijas(hs);
       const s = await getStatsForProveedores(Array.from(new Set(ofs.map((o) => o.proveedor_id))));
       setStats(s);
       setSelProv((p) => p || ofs[0]?.proveedor_id || '');
     } finally { setLoading(false); }
-  }, [orden.id]);
+  }, [orden]);
   useEffect(() => { void cargar(); }, [cargar]);
 
   // Ítems "a comprar" de la OP.

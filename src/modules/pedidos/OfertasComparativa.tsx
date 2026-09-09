@@ -9,14 +9,14 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
-import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta, subirAdjuntosOferta } from './ofertas.repository';
+import { listOfertasDeOrdenes, aceptarOferta as aceptarOfertaRepo, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta, subirAdjuntosOferta } from './ofertas.repository';
 import { urlAdjuntoOc, listSubOcs, getOrdenById } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
 import { skusSinCotizar } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
-import { ordenDeOfertas } from './ordenDeOfertas';
+import { ordenDeOfertas, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
 import { AceptarOfertaModal } from './AceptarOfertaModal';
 import type { ItemOrden } from '@/shared/lib/types';
 
@@ -87,9 +87,12 @@ export function OfertasComparativa({
     // Una hija lee las ofertas de su PADRE; una orden normal, las suyas. La regla
     // vive en `ordenDeOfertas`: guardar y excluir tienen que resolver lo mismo.
     const madreId = ordenDeOfertas(orden);
-    listOfertasByOrden(madreId)
-      .then(async (rows) => {
+    // Se miran los DOS lugares: las ofertas que quedaron guardadas en la hija
+    // mientras guardar y leer discrepaban siguen ahí, y aparecen sin moverlas.
+    listOfertasDeOrdenes(ordenesConOfertasDe(orden))
+      .then(async (todas) => {
         if (cancelled) return;
+        const rows = unificarPorProveedor(todas, madreId);
         setOfertas(rows);
         const pids = Array.from(new Set(rows.map((r) => r.proveedor_id)));
         // Sub-OC del padre (para saber qué ítems ya se asignaron) y, en una hija, la OP madre

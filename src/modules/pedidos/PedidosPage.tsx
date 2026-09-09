@@ -76,7 +76,7 @@ import {
   type CatalogoPedido,
   type ScopeCatalogoPedido,
 } from './pedidos.repository';
-import { listOfertasByOrden, labelCondicionPago, descuentoEfectivo, CONDICIONES_PAGO, getPdfOfertaSignedUrl } from './ofertas.repository';
+import { listOfertasDeOrdenes, labelCondicionPago, descuentoEfectivo, CONDICIONES_PAGO, getPdfOfertaSignedUrl } from './ofertas.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -94,7 +94,7 @@ import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
-import { ordenDeOfertas } from './ordenDeOfertas';
+import { ordenesConOfertasDe } from './ordenDeOfertas';
 import { SolicitudMercadoModal } from './SolicitudMercadoModal';
 // descargarTrazabilidadPdf / descargarOrdenCompraPdf se importan dinámicamente
 // (al generar) para no cargar jsPDF al abrir Pedidos.
@@ -1151,14 +1151,17 @@ function AddOfferGate({
   // La exclusión se calcula sobre la orden que GUARDA las ofertas (la madre, si esta
   // es una sub-OC). Mirando la orden propia, la lista no coincidía con lo que muestra
   // la comparativa: escondía proveedores por ofertas que el panel no llegaba a mostrar.
-  const ordenOfertas = ordenDeOfertas(orden);
+  // Se miran los dos lugares, igual que la comparativa: si una oferta vieja quedó
+  // en la hija, el proveedor tiene que salir excluido lo mismo, porque el panel SÍ
+  // la muestra. Lista y panel tienen que contar lo mismo o vuelve el desconcierto.
+  const ordenesOfertas = ordenesConOfertasDe(orden).join(',');
   useEffect(() => {
     let cancelled = false;
-    listOfertasByOrden(ordenOfertas)
+    listOfertasDeOrdenes(ordenesOfertas.split(','))
       .then((rows) => { if (!cancelled) setYa(new Set(rows.map((r) => r.proveedor_id))); })
       .catch(() => { if (!cancelled) setYa(new Set()); });
     return () => { cancelled = true; };
-  }, [ordenOfertas]);
+  }, [ordenesOfertas]);
 
   if (!ya) return null;
   return (
@@ -1199,8 +1202,12 @@ function FinalizarPedidoModal({
   const hoyISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
   const [fechaPrometida, setFechaPrometida] = useState('');
   const [fechaRecibido, setFechaRecibido] = useState(hoyISO);
+  // En una sub-OC la oferta aceptada vive en la orden madre: buscándola solo acá no
+  // aparecía nunca y la fecha prometida salía vacía, así que la puntualidad del
+  // proveedor se terminaba evaluando a mano en toda compra multiproveedor.
+  const ordenesOferta = ordenesConOfertasDe(orden).join(',');
   useEffect(() => {
-    listOfertasByOrden(orden.id)
+    listOfertasDeOrdenes(ordenesOferta.split(','))
       .then((ofs) => {
         // La oferta elegida es la que casó con el proveedor de la orden (aceptada).
         const elegida = ofs.find((o) => o.estado === 'aceptada' && o.proveedor_id === orden.proveedor_id)
@@ -1209,7 +1216,7 @@ function FinalizarPedidoModal({
         if (elegida?.fecha_entrega_prometida) setFechaPrometida(elegida.fecha_entrega_prometida.slice(0, 10));
       })
       .catch(() => { /* sin oferta: el usuario coloca la fecha prometida a mano */ });
-  }, [orden.id, orden.proveedor_id]);
+  }, [ordenesOferta, orden.proveedor_id]);
 
   // Días (firmado): + adelantado (recibido antes de lo prometido), − atrasado.
   const diasPorFecha = (() => {
