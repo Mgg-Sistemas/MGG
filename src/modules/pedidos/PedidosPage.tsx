@@ -62,6 +62,7 @@ import {
   urlAdjuntoOc,
   adjuntarComprobanteOc,
   indicarMetodoPago,
+  corregirMetodoPago,
   reasignarProveedorAReaprobacion,
   METODOS_PAGO,
   labelMetodoPago,
@@ -79,6 +80,7 @@ import { listOfertasByOrden, labelCondicionPago, descuentoEfectivo, CONDICIONES_
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
+import { legsDesdeMetodoPago, motivoNoCorregible } from './metodoPagoEdicion';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSku, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
@@ -174,6 +176,7 @@ function eventLabel(ev: string): string {
       confirmada_por_recibir: 'OC confirmada · pendiente por recepción',
       confirmada_cuenta_abierta: 'OC confirmada · crédito (cuenta abierta)',
       metodo_pago: 'Método de pago indicado · enviada a pagar',
+      metodo_pago_corregido: 'Método de pago corregido (sigue en Tesorería)',
       oc_aprobada: 'Confirmada pagar',
       anticipo: 'Pago anticipado',
       abono: 'Abono registrado (crédito)',
@@ -203,6 +206,7 @@ function eventClass(ev: string): string {
       confirmada_por_recibir: 'info',
       confirmada_cuenta_abierta: 'warn',
       metodo_pago: 'ok',
+      metodo_pago_corregido: 'warn',
       oc_aprobada: 'ok',
       abono: 'info',
       credito_saldado: 'ok',
@@ -224,6 +228,7 @@ type ModalKind =
   | { kind: 'asignar'; orden: Orden }
   | { kind: 'approve'; orden: Orden }
   | { kind: 'metodo-pago'; orden: Orden }
+  | { kind: 'corregir-metodo-pago'; orden: Orden }
   | { kind: 'cancel'; orden: Orden }
   | { kind: 'anular-oc'; orden: Orden }
   | { kind: 'modificar-oc'; orden: Orden }
@@ -716,6 +721,7 @@ export function PedidosPage() {
             }
           }}
           onEnviarPagar={() => setModal({ kind: 'metodo-pago', orden: currentDetail })}
+          onCorregirPago={() => setModal({ kind: 'corregir-metodo-pago', orden: currentDetail })}
           onCancel={() => setModal({ kind: 'cancel', orden: currentDetail })}
           onAnular={() => setModal({ kind: 'anular-oc', orden: currentDetail })}
           onModificar={() => setModal({ kind: 'modificar-oc', orden: currentDetail })}
@@ -1011,6 +1017,30 @@ export function PedidosPage() {
               await refresh();
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error al enviar para pagar', 'error');
+            }
+          }}
+        />
+      )}
+
+      {/* Modal: corregir el método de pago de una OC que ya está en «Confirmada pagar».
+          No cambia el estado: la OC sigue en la cola de Tesorería, solo cambia cómo se paga. */}
+      {modal.kind === 'corregir-metodo-pago' && (
+        <MetodoPagoModal
+          orden={modal.orden}
+          proveedores={proveedores}
+          proveedorActual={modal.orden.proveedor_id ? proveedorMap.get(modal.orden.proveedor_id) ?? null : null}
+          modo="corregir"
+          onClose={() => setModal({ kind: 'none' })}
+          onSent={async (metodos) => {
+            try {
+              const email = usuario?.email ?? user?.email ?? 'sistema';
+              const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
+              await corregirMetodoPago(modal.orden, metodos, email);
+              notify(`OC ${codigo} · método de pago corregido · Tesorería ya ve los datos nuevos`, 'success', { link: '#/app/tesoreria' });
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'Error al corregir el método de pago', 'error');
             }
           }}
         />
@@ -1325,16 +1355,28 @@ function MetodoPagoModal({
   orden,
   proveedores,
   proveedorActual,
+  modo = 'enviar',
   onClose,
   onSent,
 }: {
   orden: Orden;
   proveedores: Proveedor[];
   proveedorActual: Proveedor | null;
+  /** 'enviar' = indicar el método y mandar a pagar. 'corregir' = la OC ya está en
+   *  Confirmada pagar y solo se arregla CÓMO se le paga (método y datos del beneficiario). */
+  modo?: 'enviar' | 'corregir';
   onClose: () => void;
   onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }, proveedorId: string, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
 }) {
-  const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }]);
+  // Al corregir se arranca con lo que ya tiene la OC (método, moneda, monto y datos),
+  // para que el usuario vea y edite exactamente lo que se cargó.
+  const corrigiendo = modo === 'corregir';
+  const [legs, setLegs] = useState<PagoMetodo[]>(() => {
+    const previos = corrigiendo ? legsDesdeMetodoPago(orden.metodo_pago, monedaPorMetodo) : [];
+    return previos.length
+      ? previos
+      : [{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }];
+  });
   const [qr, setQr] = useState<File | null>(null); // imagen / QR de pago (ej. QR de Binance) para Tesorería
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1412,7 +1454,7 @@ function MetodoPagoModal({
       if (esMultipago && validos.some((l) => !((l.monto ?? 0) > 0))) {
         setError('En multipago, indicá el monto por cada método/moneda.'); return;
       }
-      if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+      if (esContraEntrega && !corrigiendo && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
       if (incluyeDesc) {
         if (descNum <= 0) { setError('Indicá el monto del descuento o desmarcá «El pago incluye descuento».'); return; }
         if (descNum > baseTotal) { setError('El descuento no puede superar el total de la OC.'); return; }
@@ -1432,27 +1474,37 @@ function MetodoPagoModal({
 
   return (
     <Modal
-      title={orden.clase === 'servicio' ? `Método de pago · SERVICIO ${orden.codigo}` : `Método de pago · OC ${orden.oc_codigo ?? orden.codigo}`}
+      title={`${corrigiendo ? 'Corregir método de pago' : 'Método de pago'} · ${orden.clase === 'servicio' ? `SERVICIO ${orden.codigo}` : `OC ${orden.oc_codigo ?? orden.codigo}`}`}
       size="lg"
       onClose={onClose}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
           <button className="btn btn-primary" onClick={handleSend} disabled={saving}>
-            {saving ? 'Enviando…' : proveedorCambiado ? '↩ Reenviar a aprobación del Gerente' : '💳 Enviar para Pagar'}
+            {saving ? 'Guardando…' : corrigiendo ? '💾 Guardar corrección' : proveedorCambiado ? '↩ Reenviar a aprobación del Gerente' : '💳 Enviar para Pagar'}
           </button>
         </>
       }
     >
+      {corrigiendo ? (
+        <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+          Corregí <strong>cómo se le paga al proveedor</strong>: el método y los datos del beneficiario (banco, CI/RIF, teléfono, cuenta).
+          La OC <strong>no se mueve</strong>: sigue en <strong>Confirmada pagar</strong> y en la cola de Tesorería. El cambio queda
+          firmado en la trazabilidad y los datos corregidos se guardan en la ficha del proveedor.
+        </p>
+      ) : (
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Indicá <strong>con qué método(s)</strong> se va a pagar la OC ({orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null
           ? <>recibido <strong>{money(orden.recibido_total)}</strong></>
           : <>total <strong>{money(orden.total)}</strong></>}). Podés combinar
         varios (<strong>multipago</strong>); en ese caso <strong>indicá cuánto va por cada método/moneda</strong>. Con un solo método, el monto lo define Tesorería al pagar. Al enviar pasa a <strong>Confirmada pagar</strong> y aparece en Tesorería.
       </p>
+      )}
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-      {/* Proveedor: la OC ya está aprobada; acá se puede reasignar a otro proveedor (solo cambia el proveedor). */}
+      {/* Proveedor: la OC ya está aprobada; acá se puede reasignar a otro proveedor (solo cambia el proveedor).
+          Al CORREGIR no se muestra: cambiar de proveedor devolvería la OC a aprobación y la sacaría de Tesorería. */}
+      {!corrigiendo && (
       <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: proveedorCambiado ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
         <div className="card-title" style={{ marginBottom: '.45rem' }}>Proveedor</div>
         <select className="select" value={proveedorId} onChange={(e) => cambiarProveedor(e.target.value)}>
@@ -1467,12 +1519,16 @@ function MetodoPagoModal({
           </small>
         )}
       </div>
+      )}
 
       {proveedorCambiado ? (
         <div className="card" style={{ margin: 0, padding: '.85rem 1rem', borderColor: 'var(--brand, #ff8a00)' }}>
           <strong>No hace falta indicar el método de pago.</strong> Al cambiar el proveedor, la OC vuelve a aprobación del Gerente; el método se indicará cuando él la confirme de nuevo.
         </div>
       ) : (
+      <>
+      {/* Soporte, QR y descuento se definieron al enviar a pagar; corregir el método no los toca. */}
+      {!corrigiendo && (
       <>
       {/* Soporte: Nota de entrega (directo a Tesorería) vs Factura (pasa por Retenciones) */}
       <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
@@ -1553,6 +1609,9 @@ function MetodoPagoModal({
         )}
       </div>
 
+      </>
+      )}
+
       <div style={{ display: 'grid', gap: '.6rem' }}>
         {legs.map((l, i) => (
           <div key={i} className="card" style={{ margin: 0, padding: '.7rem' }}>
@@ -1594,7 +1653,7 @@ function MetodoPagoModal({
           </div>
         </div>
       )}
-      {esContraEntrega && (
+      {esContraEntrega && !corrigiendo && (
         <label className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', marginTop: '.6rem', padding: '.55rem .7rem', cursor: 'pointer', borderColor: notaEntrega ? 'var(--success)' : 'var(--warning)' }}>
           <input type="checkbox" checked={notaEntrega} onChange={(e) => setNotaEntrega(e.target.checked)} style={{ marginTop: '.2rem' }} />
           <span style={{ fontSize: '.86rem' }}>
@@ -2170,6 +2229,8 @@ interface OrdenDetailModalProps {
   onAsignar: () => void;
   onConfirmOc: () => void;
   onEnviarPagar: () => void;
+  /** Corregir el método de pago de una OC que ya está en «Confirmada pagar». */
+  onCorregirPago: () => void;
   onCancel: () => void;
   onAnular: () => void;
   onModificar: () => void;
@@ -2206,6 +2267,7 @@ function OrdenDetailModal({
   onAsignar,
   onConfirmOc,
   onEnviarPagar,
+  onCorregirPago,
   onCancel,
   onAnular,
   onModificar,
@@ -2488,6 +2550,12 @@ function OrdenDetailModal({
           </button>
           {canManageProcurement && (
             <button className="btn btn-ghost" onClick={onEditarOc} title="Editar los precios de la OC. El nuevo total se sincroniza con Tesorería sin sacar la OC de pago; queda en la trazabilidad.">✎ Editar precios</button>
+          )}
+          {/* El método se indicó antes de mandarla a pagar; acá se corrige sin sacarla de Tesorería. */}
+          {canManageProcurement && !motivoNoCorregible(o) && (
+            <button className="btn btn-ghost" onClick={onCorregirPago} title="Corregir el método de pago y los datos del beneficiario (banco, CI/RIF, teléfono, cuenta). La OC sigue en Confirmada pagar.">
+              💳 Editar método de pago / datos
+            </button>
           )}
           {canManageProcurement && (
             <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (aún no se pagó en Tesorería)">⊘ Anular OC</button>

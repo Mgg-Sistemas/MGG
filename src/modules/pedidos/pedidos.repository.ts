@@ -4,6 +4,7 @@ import { nombreASellar, nombrePorEmail } from '@/shared/lib/personas';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
+import { motivoNoCorregible } from './metodoPagoEdicion';
 import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
 import { camposDeEdicion, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
 import { fechaVE, tasaValida } from './compraDirectaMoneda';
@@ -1168,6 +1169,52 @@ export async function indicarMetodoPago(
   if (error) throw error;
 
   // Guardar/actualizar los datos de pago del proveedor para reutilizarlos en próximas compras.
+  if (o.proveedor_id) {
+    for (const m of limpios) {
+      if (requiereDatos(m.metodo) && 'datos' in m && m.datos) {
+        try { await guardarDatosPago(o.proveedor_id, m.metodo, m.datos as DatosPago, actorEmail); } catch { /* no bloquea el flujo */ }
+      }
+    }
+  }
+  return data as Orden;
+}
+
+/**
+ * Corrige el método de pago (y los datos del beneficiario) de una OC que YA está en
+ * "Confirmada pagar" y todavía no se pagó. No mueve la OC de estado: sigue en la cola
+ * de Tesorería, solo cambia CÓMO se le paga al proveedor. Se usa cuando el método se
+ * indicó mal, cambió el banco/teléfono/cuenta, o el proveedor pidió cobrar por otra vía.
+ * Los datos corregidos también se guardan en la ficha del proveedor para próximas compras.
+ */
+export async function corregirMetodoPago(
+  o: Orden,
+  metodos: PagoMetodo[],
+  actorEmail: string,
+): Promise<Orden> {
+  const impedimento = motivoNoCorregible(o);
+  if (impedimento) throw new Error(impedimento);
+  const limpios = (metodos ?? [])
+    .map((m) => ({
+      metodo: m.metodo,
+      moneda: m.moneda,
+      monto: Math.round((Number(m.monto) || 0) * 100) / 100,
+      ...(m.datos && Object.keys(m.datos).length ? { datos: m.datos } : {}),
+    }))
+    .filter((m) => m.metodo && m.moneda);
+  if (!limpios.length) throw new Error('Indicá al menos un método de pago.');
+  const patch = {
+    metodo_pago: limpios,
+    metodo_pago_por: actorEmail,
+    metodo_pago_en: new Date().toISOString(),
+    historial: appendHistorial(o, 'metodo_pago_corregido', actorEmail, {
+      antes: o.metodo_pago ?? null,
+      despues: limpios,
+    }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+
+  // Los datos corregidos quedan en la ficha del proveedor (se reusan en próximas compras).
   if (o.proveedor_id) {
     for (const m of limpios) {
       if (requiereDatos(m.metodo) && 'datos' in m && m.datos) {
