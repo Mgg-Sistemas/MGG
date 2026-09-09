@@ -99,7 +99,8 @@ export function EditarMaterialesModal({
 
   const opcionesAdd = useMemo(() => {
     const usados = new Set(rows.map((r) => r.producto_id).filter(Boolean));
-    return productos.filter((p) => !usados.has(p.id)).map((p) => ({ value: p.id, label: `${p.nombre}${p.stock != null ? ` · ${num(p.stock)} en stock` : ''}` }));
+    // Los dados de baja no existen: no se pueden meter en una producción.
+    return productos.filter((p) => p.estado === 'activo' && !usados.has(p.id)).map((p) => ({ value: p.id, label: `${p.nombre}${p.stock != null ? ` · ${num(p.stock)} en stock` : ''}` }));
   }, [productos, rows]);
 
   function agregar(pid: string) {

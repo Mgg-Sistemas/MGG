@@ -1,6 +1,7 @@
 import type { AbcClass } from './restock';
 
 export type StockFilter = '' | 'critico' | 'restock' | 'ok' | 'sin_mov';
+/** Se conserva para el exportador; el inventario ya solo muestra los activos. */
 export type EstadoFilter = '' | 'activo' | 'inactivo';
 export type FundicionFilter = '' | 'si' | 'no' | 'en_proceso';
 
@@ -101,16 +102,6 @@ export function InventarioFilterbar({ values, categorias, almacenes, almacenTodo
         <option value="restock">Reabastecer (no crítico)</option>
         <option value="ok">Stock óptimo</option>
         <option value="sin_mov">Sin existencias</option>
-      </select>
-      <select
-        className="select"
-        style={{ maxWidth: 140 }}
-        value={values.filterEstado}
-        onChange={(e) => onChange('filterEstado', e.target.value)}
-      >
-        <option value="">Todos</option>
-        <option value="activo">Activos</option>
-        <option value="inactivo">Inactivos</option>
       </select>
     </div>
   );

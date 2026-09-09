@@ -84,7 +84,8 @@ export function GestionAlmacenesModal({ espacio, actor, actorName, canFull, onCl
       const [alms, ex, prods] = await Promise.all([listAlmacenes(espacio), listExistencias(), listProductos(espacio)]);
       setAlmacenes(alms);
       setExistencias(ex);
-      setProductos(prods);
+      // Sin los dados de baja: no existen, así que no cuentan como contenido de un almacén.
+      setProductos(prods.filter((p) => p.estado === 'activo'));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron cargar los almacenes', 'error');
     } finally { setLoading(false); }

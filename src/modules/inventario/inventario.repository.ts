@@ -477,11 +477,35 @@ export async function updateProducto(
   return data as Producto;
 }
 
+/**
+ * Da de baja un producto o lo devuelve a la vida, dejando constancia.
+ *
+ * Un producto dado de baja NO EXISTE para el resto del sistema: no sale en el
+ * inventario, ni en los almacenes, ni en el buscador, ni se puede pedir ni mover.
+ * Por eso la baja se firma: queda cuándo fue, quién la hizo y por qué. Al
+ * reactivarlo esa firma se borra, porque el producto vuelve a estar vigente.
+ */
 export async function setEstadoProducto(
   id: string,
   estado: EstadoGenerico,
+  opciones: { actor?: string; motivo?: string } = {},
 ): Promise<Producto> {
-  return updateProducto(id, { estado });
+  const baja = estado === 'inactivo';
+  const { data, error } = await supabase
+    .from('productos')
+    .update({
+      estado,
+      desactivado_en: baja ? new Date().toISOString() : null,
+      desactivado_por: baja ? (opciones.actor ?? null) : null,
+      desactivado_motivo: baja ? (opciones.motivo?.trim() || null) : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  bustCache(['productos', 'existencias']);
+  return data as Producto;
 }
 
 /**

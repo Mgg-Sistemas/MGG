@@ -50,6 +50,7 @@ import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { CasiteritaResumen, CasiteritaDetalleView } from './CasiteritaDetalleView';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
+import { ProductosInactivosModal } from './ProductosInactivosModal';
 import { SinCostoModal } from './SinCostoModal';
 import { contarSinCosto } from './sinCosto.repository';
 import { ImportarExcelModal } from './ImportarExcelModal';
@@ -102,7 +103,9 @@ const INITIAL_UI: UiState = {
 /** Predicado de filtros compartido por inventario general y el detalle de almacén. */
 function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   const q = ui.filterText.trim().toLowerCase();
-  if (ui.filterEstado && p.estado !== ui.filterEstado) return false;
+  // Un producto dado de baja NO EXISTE: no se ve en el inventario ni en los almacenes.
+  // Vive solo en el botón «Productos dados de baja», hasta que alguien lo reactive.
+  if (p.estado !== 'activo') return false;
   if (ui.filterCat && p.categoria !== ui.filterCat) return false;
   if (ui.filterClass && p._klass !== ui.filterClass) return false;
   if (ui.filterFundicion === 'si' && !p.receta_fundicion) return false;
@@ -145,7 +148,8 @@ type ModalState =
   | { kind: 'gestionAlmacenes' }
   | { kind: 'reporteFiltro' }
   | { kind: 'resumen' }
-  | { kind: 'sinCosto' };
+  | { kind: 'sinCosto' }
+  | { kind: 'inactivos' };
 
 /**
  * «🏗 Almacenes» (gestor de almacenes y subalmacenes) queda OCULTO a pedido:
@@ -309,6 +313,9 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       setSearchParams(next, { replace: true });
     }
   }, [productos, searchParams, setSearchParams]);
+
+  /** Cuántos productos están dados de baja (para el botón que los saca a la luz). */
+  const inactivosCount = useMemo(() => productos.filter((p) => p.estado === 'inactivo').length, [productos]);
 
   const decorated = useMemo<ProductoDecorado[]>(
     () => decorate(productos, DEFAULT_POLICY),
@@ -724,10 +731,10 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     await reload();
   }
 
-  async function handleToggleEstado(p: Producto) {
+  async function handleToggleEstado(p: Producto, motivo?: string) {
     const nuevo = p.estado === 'activo' ? 'inactivo' : 'activo';
     try {
-      await setEstadoProducto(p.id, nuevo);
+      await setEstadoProducto(p.id, nuevo, { actor: productoActor, motivo });
       notify(`Producto ${nuevo === 'activo' ? 'activado' : 'desactivado'}: ${p.sku}`, 'success', { link: basePath });
       await reload();
     } catch (err) {
@@ -874,6 +881,15 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
               title="Existencias con stock pero valoradas en $0: cargales el costo unitario"
             >
               ⚠ Sin costo <span className="badge warning" style={{ marginLeft: '.35rem' }}>{sinCosto}</span>
+            </button>
+          )}
+          {inactivosCount > 0 && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => setModal({ kind: 'inactivos' })}
+              title="Productos dados de baja: mientras no se reactiven, no existen para el sistema"
+            >
+              🗄 Dados de baja <span className="badge" style={{ marginLeft: '.35rem' }}>{inactivosCount}</span>
             </button>
           )}
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
@@ -1247,12 +1263,20 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           onSubmit={handleRegistrarMovimiento}
         />
       )}
+      {modal.kind === 'inactivos' && (
+        <ProductosInactivosModal
+          productos={productos}
+          canWrite={canWrite}
+          onClose={() => setModal({ kind: 'none' })}
+          onReactivado={reload}
+        />
+      )}
       {modal.kind === 'confirmToggle' && modal.producto.estado === 'activo' && (
         // Borrado (desactivación): destructivo → exige escribir el nombre del producto.
         <EliminarProductoDialog
           producto={modal.producto}
           onCancel={() => setModal({ kind: 'none' })}
-          onConfirm={() => handleToggleEstado(modal.producto)}
+          onConfirm={(motivo) => handleToggleEstado(modal.producto, motivo)}
         />
       )}
       {modal.kind === 'confirmToggle' && modal.producto.estado !== 'activo' && (
@@ -1667,23 +1691,41 @@ function SedeRenameModal({ sede, onClose, onSaved }: {
 
 /* ───────── Borrar producto: confirmación escribiendo el nombre ───────── */
 function EliminarProductoDialog({ producto, onCancel, onConfirm }: {
-  producto: Producto; onCancel: () => void; onConfirm: () => void;
+  producto: Producto; onCancel: () => void; onConfirm: (motivo: string) => void;
 }) {
   const [texto, setTexto] = useState('');
-  const ok = texto.trim() !== '' && normalizarTexto(texto) === normalizarTexto(producto.nombre);
+  const [motivo, setMotivo] = useState('');
+  // El motivo es obligatorio, igual que en las entradas y salidas: el listado de
+  // bajas sirve de poco si dice quién y cuándo pero no por qué.
+  const motivoOk = motivo.trim().length >= 5;
+  const ok = texto.trim() !== '' && normalizarTexto(texto) === normalizarTexto(producto.nombre) && motivoOk;
   return (
     <Modal title="Borrar producto" size="md" onClose={onCancel} footer={
       <>
         <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
-        <button className="btn btn-danger" disabled={!ok} onClick={() => { if (ok) onConfirm(); }}>
+        <button className="btn btn-danger" disabled={!ok} onClick={() => { if (ok) onConfirm(motivo.trim()); }}>
           Borrar producto
         </button>
       </>
     }>
       <p style={{ marginTop: 0 }}>
         ¿Seguro que deseas borrar el producto <strong>«{producto.nombre}»</strong> ({producto.sku})?
-        Quedará <strong>inactivo</strong> y dejará de aparecer en el inventario activo (su historial se conserva).
+        Quedará <strong>inactivo</strong>: deja de existir para el sistema (no aparece en el inventario, ni en
+        los almacenes, ni en el buscador) y su historial se conserva. Se puede reactivar desde el botón
+        <strong>«Dados de baja»</strong>.
       </p>
+      <div className="form-row">
+        <label>¿Por qué se da de baja? <span style={{ color: 'var(--danger)' }}>*</span></label>
+        <input
+          className="input"
+          value={motivo}
+          placeholder="Ej. Unificado en VIV-122 VINAGRE · ya no se compra · ficha repetida"
+          onChange={(e) => setMotivo(e.target.value)}
+        />
+        {motivo.trim() !== '' && !motivoOk && (
+          <small className="muted" style={{ color: 'var(--danger)' }}>Escribí un motivo un poco más claro.</small>
+        )}
+      </div>
       <div className="form-row">
         <label>Para confirmar, escribí el nombre del producto: <strong>{producto.nombre}</strong></label>
         <input
@@ -1692,7 +1734,7 @@ function EliminarProductoDialog({ producto, onCancel, onConfirm }: {
           value={texto}
           placeholder={producto.nombre}
           onChange={(e) => setTexto(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && ok) onConfirm(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && ok) onConfirm(motivo.trim()); }}
         />
         {texto.trim() !== '' && !ok && (
           <small className="muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
