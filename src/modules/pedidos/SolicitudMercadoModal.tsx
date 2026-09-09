@@ -3,7 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { dateTime } from '@/shared/lib/format';
+import { dateTime, num } from '@/shared/lib/format';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSku } from '@/modules/inventario/inventario.repository';
@@ -25,6 +25,19 @@ const norm = (s: string) => (s ?? '').toLowerCase().normalize('NFD').replace(/[�
  * aunque la cocina sí las consume.
  */
 export const CATEGORIAS_MERCADO = ['viveres', 'hortalizas'];
+
+/**
+ * ¿Este producto coincide con lo que se escribió en el buscador de la lista?
+ * Busca por nombre, código y categoría, sin distinguir acentos ni mayúsculas.
+ */
+export function coincideConBusqueda(
+  p: { nombre?: string | null; sku?: string | null; categoria?: string | null },
+  busqueda: string,
+): boolean {
+  const q = norm((busqueda ?? '').trim());
+  if (!q) return true;
+  return norm(`${p.nombre ?? ''} ${p.sku ?? ''} ${p.categoria ?? ''}`).includes(q);
+}
 
 /** ¿La categoría se compra en el mercado? Tolerante a acentos y a variantes. */
 export function esCategoriaMercado(categoria?: string | null): boolean {
@@ -76,6 +89,9 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
      la misma lista y se piden igual. */
   const [extras, setExtras] = useState<Producto[]>([]);
   const [agregarId, setAgregarId] = useState('');
+  const [agregarCant, setAgregarCant] = useState('1');
+  /** Buscador DENTRO de la lista: con 72 renglones, encontrar uno a ojo cuesta. */
+  const [filtro, setFiltro] = useState('');
 
   // Alta de un producto que no existe todavía.
   const [nuevoOpen, setNuevoOpen] = useState(false);
@@ -83,6 +99,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
   const [nuevoCategoria, setNuevoCategoria] = useState('');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
+  const [nuevoCant, setNuevoCant] = useState('1');
   const [creandoNuevo, setCreandoNuevo] = useState(false);
   const [avisadoPara, setAvisadoPara] = useState<string | null>(null);
   const [medidas, setMedidas] = useState<string[]>([]);
@@ -115,6 +132,15 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
     return out;
   }, [viveres, extras]);
 
+  /**
+   * Renglones visibles. El filtro es solo de vista: lo que quedó marcado sigue
+   * contando y se pide igual, aunque el buscador lo esté escondiendo.
+   */
+  const visibles = useMemo(
+    () => (filtro.trim() ? lista.filter((p) => coincideConBusqueda(p, filtro)) : lista),
+    [lista, filtro],
+  );
+
   /** Lo que se puede agregar: cualquier producto activo que no esté ya en la lista. */
   const opcionesAgregar = useMemo(() => {
     const yaEsta = new Set(lista.map((p) => p.id));
@@ -124,15 +150,38 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
       .map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}${p.categoria ? ` · ${p.categoria}` : ''}` }));
   }, [productos, lista]);
 
-  /** Suma un producto del inventario a la lista, ya marcado y con cantidad 1. */
-  function agregarDelInventario(id: string) {
+  /** Cantidad escrita a mano: acepta coma o punto (es-VE escribe 1,5). */
+  const cantidadEscrita = (texto: string): number => {
+    const n = Number(String(texto ?? '').trim().replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) / 1000 : 0;
+  };
+
+  /** Producto elegido en el buscador (para mostrar su unidad al lado de la cantidad). */
+  const productoAAgregar = useMemo(
+    () => (agregarId ? productos.find((p) => p.id === agregarId) ?? null : null),
+    [agregarId, productos],
+  );
+
+  /**
+   * Suma un producto a la lista CON la cantidad que se escribió. Antes entraba
+   * siempre en 1 y había que buscar el renglón en la tabla para corregirlo.
+   */
+  function agregarDelInventario(id: string, cantTexto: string) {
     const p = productos.find((x) => x.id === id);
-    setAgregarId('');
     if (!p) return;
-    if (lista.some((x) => x.id === p.id)) { toast(`"${p.nombre}" ya está en la lista`, 'info'); return; }
+    const cant = cantidadEscrita(cantTexto);
+    if (cant <= 0) { toast('Indicá la cantidad a pedir', 'error'); return; }
+    if (lista.some((x) => x.id === p.id)) {
+      // Ya estaba: en vez de rechazarlo, se le pone la cantidad nueva y se marca.
+      setSel((m) => ({ ...m, [p.sku]: { check: true, cant: String(cant) } }));
+      toast(`"${p.nombre}" ya estaba en la lista · cantidad actualizada a ${cant}`, 'info');
+      setAgregarId(''); setAgregarCant('1');
+      return;
+    }
     setExtras((xs) => [...xs, p]);
-    setSel((m) => ({ ...m, [p.sku]: { check: true, cant: m[p.sku]?.cant ?? '1' } }));
-    toast(`"${p.nombre}" agregado a la solicitud`, 'success');
+    setSel((m) => ({ ...m, [p.sku]: { check: true, cant: String(cant) } }));
+    toast(`"${p.nombre}" agregado · ${cant} ${p.unidad ?? ''}`.trim(), 'success');
+    setAgregarId(''); setAgregarCant('1');
   }
 
   /** Saca de la lista algo agregado a mano (lo fijo del mercado no se quita, se desmarca). */
@@ -174,10 +223,11 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
         almacen: nuevoAlmacen.trim(),
         estado: 'activo',
       });
+      const cant = cantidadEscrita(nuevoCant) || 1;
       setExtras((xs) => [...xs, creado]);
-      setSel((m) => ({ ...m, [creado.sku]: { check: true, cant: '1' } }));
-      toast(`"${creado.nombre}" (${creado.sku}) creado y agregado`, 'success');
-      setNuevoNombre(''); setNuevoOpen(false); setAvisadoPara(null);
+      setSel((m) => ({ ...m, [creado.sku]: { check: true, cant: String(cant) } }));
+      toast(`"${creado.nombre}" (${creado.sku}) creado y agregado · ${cant} ${creado.unidad ?? ''}`.trim(), 'success');
+      setNuevoNombre(''); setNuevoCant('1'); setNuevoOpen(false); setAvisadoPara(null);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo crear el producto', 'error');
     } finally {
@@ -225,7 +275,8 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
   function marcarTodos(v: boolean) {
     setSel((m) => {
       const n = { ...m };
-      for (const p of lista) n[p.sku] = { check: v, cant: n[p.sku]?.cant ?? '1' };
+      // Con el buscador puesto, marca o desmarca SOLO lo que se está viendo.
+      for (const p of visibles) n[p.sku] = { check: v, cant: n[p.sku]?.cant ?? '1' };
       return n;
     });
   }
@@ -316,9 +367,37 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
             <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.3rem' }}>
               ¿Falta algo? Agregá <strong>cualquier producto del inventario</strong>, aunque no sea de estas categorías.
             </div>
-            <SearchSelect value={agregarId} onChange={agregarDelInventario} options={opcionesAgregar}
-              placeholder="🔎 Buscá el producto por nombre, código o categoría…" sinPreseleccion
-              emptyText="No queda ningún producto activo fuera de la lista." />
+            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+                <SearchSelect value={agregarId} onChange={setAgregarId} options={opcionesAgregar}
+                  placeholder="🔎 Buscá el producto por nombre, código o categoría…" sinPreseleccion
+                  emptyText="No queda ningún producto activo fuera de la lista." />
+              </div>
+              <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
+                <input className="input mono" type="number" min={0} step="any" value={agregarCant}
+                  style={{ width: 92, textAlign: 'right', fontWeight: 700 }}
+                  placeholder="Cantidad"
+                  onChange={(e) => setAgregarCant(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Enter añade: escribir la cantidad y confirmar sin soltar el teclado.
+                    if (e.key === 'Enter') { e.preventDefault(); if (agregarId) agregarDelInventario(agregarId, agregarCant); }
+                  }} />
+                <span className="muted" style={{ fontSize: '.74rem', minWidth: 38 }}>
+                  {productoAAgregar?.unidad ?? ''}
+                </span>
+                <button type="button" className="btn btn-sm btn-primary"
+                  disabled={!agregarId || cantidadEscrita(agregarCant) <= 0}
+                  onClick={() => agregarDelInventario(agregarId, agregarCant)}>
+                  + Añadir
+                </button>
+              </div>
+            </div>
+            {productoAAgregar && (
+              <small className="muted" style={{ fontSize: '.73rem', display: 'block', marginTop: '.25rem' }}>
+                {productoAAgregar.nombre} · <span className="mono">{productoAAgregar.sku}</span> · en stock{' '}
+                <strong className="mono">{num(productoAAgregar.stock)} {productoAAgregar.unidad}</strong>
+              </small>
+            )}
           </div>
           <div>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevoOpen((v) => !v)}>
@@ -362,7 +441,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
                               </td>
                               <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                                 {sp.estado === 'activo' ? (
-                                  <button type="button" className="btn btn-sm" onClick={() => { agregarDelInventario(sp.id); setNuevoNombre(''); setNuevoOpen(false); }}>
+                                  <button type="button" className="btn btn-sm" onClick={() => { agregarDelInventario(sp.id, nuevoCant); setNuevoNombre(''); setNuevoOpen(false); }}>
                                     Usar este
                                   </button>
                                 ) : (
@@ -391,10 +470,16 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
                     {medidas.map((u) => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
+                <div className="form-row" style={{ margin: 0, maxWidth: 200 }}>
+                  <label>Cantidad a pedir *</label>
+                  <input className="input mono" type="number" min={0} step="any" value={nuevoCant}
+                    style={{ textAlign: 'right', fontWeight: 700 }}
+                    onChange={(e) => setNuevoCant(e.target.value)} />
+                </div>
                 <AlmacenPicker value={nuevoAlmacen} onChange={setNuevoAlmacen} sedeLabel="Sede" label="Almacén destino" />
                 <div>
                   <button type="button" className="btn btn-sm btn-primary" onClick={() => void crearProductoNuevo()}
-                    disabled={creandoNuevo || !nuevoNombre.trim() || !nuevoCategoria.trim()}>
+                    disabled={creandoNuevo || !nuevoNombre.trim() || !nuevoCategoria.trim() || cantidadEscrita(nuevoCant) <= 0}>
                     {creandoNuevo
                       ? 'Creando…'
                       : similares.length && avisadoPara !== normalizarNombre(nuevoNombre)
@@ -411,10 +496,22 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
           <EmptyState icon="◇" message="No hay productos activos en «Víveres y Art. de Limpieza» ni en «Hortalizas y Legumbres». Agregá alguno del inventario acá arriba, o cargalo primero en Inventario." />
         ) : (
           <>
-            <div style={{ display: 'flex', gap: '.4rem', margin: '0 0 .4rem' }}>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => marcarTodos(true)}>✓ Marcar todos</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => marcarTodos(false)}>✕ Desmarcar todos</button>
-              <span className="muted" style={{ marginLeft: 'auto', fontSize: '.8rem', alignSelf: 'center' }}>{marcados} de {lista.length}</span>
+            <div style={{ display: 'flex', gap: '.4rem', margin: '0 0 .4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input className="input" value={filtro} onChange={(e) => setFiltro(e.target.value)}
+                placeholder="🔎 Buscar en la lista…" style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 320 }} />
+              {filtro && (
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFiltro('')} title="Ver toda la lista">✕</button>
+              )}
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => marcarTodos(true)}>
+                ✓ Marcar {filtro ? 'lo visible' : 'todos'}
+              </button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => marcarTodos(false)}>
+                ✕ Desmarcar {filtro ? 'lo visible' : 'todos'}
+              </button>
+              <span className="muted" style={{ marginLeft: 'auto', fontSize: '.8rem' }}>
+                {marcados} de {lista.length} marcados
+                {filtro ? <> · mostrando {visibles.length}</> : null}
+              </span>
             </div>
             <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
               <table className="table" style={{ fontSize: '.85rem' }}>
@@ -425,7 +522,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
                   <th style={{ width: 150, textAlign: 'right' }}>Cantidad a pedir</th>
                 </tr></thead>
                 <tbody>
-                  {lista.map((p) => {
+                  {visibles.map((p) => {
                     const s = sel[p.sku] ?? { check: true, cant: '1' };
                     const agregado = extras.some((x) => x.id === p.id);
                     return (
@@ -441,7 +538,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
                             {p.sku}{agregado ? ' · agregado' : ''}
                           </div>
                         </td>
-                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{p.stock} {p.unidad}</td>
+                        <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{num(p.stock)} {p.unidad}</td>
                         <td style={{ textAlign: 'right' }}>
                           <div style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
                             <input className="input mono" type="number" min={0} step="any" disabled={!s.check}
@@ -455,6 +552,11 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
                   })}
                 </tbody>
               </table>
+              {!visibles.length && (
+                <div className="muted" style={{ padding: '.9rem', textAlign: 'center', fontSize: '.84rem' }}>
+                  Nada en la lista coincide con «{filtro}». Si el producto no está, agregalo con el buscador de inventario de arriba.
+                </div>
+              )}
             </div>
           </>
         )}

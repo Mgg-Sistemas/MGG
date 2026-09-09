@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { esCategoriaMercado } from './SolicitudMercadoModal';
+import { esCategoriaMercado , coincideConBusqueda } from './SolicitudMercadoModal';
 
 describe('esCategoriaMercado · qué entra a la Solicitud de Mercado', () => {
   it('los víveres, escritos como se escriban', () => {
@@ -26,5 +26,39 @@ describe('esCategoriaMercado · qué entra a la Solicitud de Mercado', () => {
     expect(esCategoriaMercado(null)).toBe(false);
     expect(esCategoriaMercado('')).toBe(false);
     expect(esCategoriaMercado(undefined)).toBe(false);
+  });
+});
+
+describe('coincideConBusqueda · el buscador dentro de la lista', () => {
+  const p = { nombre: 'ADOBO COMPLETO IBERIA 40G', sku: 'VIV-060', categoria: 'VIVERES' };
+
+  it('sin texto muestra todo', () => {
+    expect(coincideConBusqueda(p, '')).toBe(true);
+    expect(coincideConBusqueda(p, '   ')).toBe(true);
+  });
+
+  it('busca por nombre, sin importar mayúsculas', () => {
+    expect(coincideConBusqueda(p, 'adobo')).toBe(true);
+    expect(coincideConBusqueda(p, 'IBERIA')).toBe(true);
+  });
+
+  it('busca por código y por categoría', () => {
+    expect(coincideConBusqueda(p, 'viv-060')).toBe(true);
+    expect(coincideConBusqueda(p, 'viveres')).toBe(true);
+  });
+
+  it('ignora los acentos en los dos sentidos', () => {
+    const q = { nombre: 'PLÁTANO VERDE', sku: 'HTL-009', categoria: 'HORTALIZAS Y LEGUMBRES' };
+    expect(coincideConBusqueda(q, 'platano')).toBe(true);
+    expect(coincideConBusqueda(q, 'plátano')).toBe(true);
+  });
+
+  it('descarta lo que no coincide', () => {
+    expect(coincideConBusqueda(p, 'arroz')).toBe(false);
+  });
+
+  it('tolera una ficha con campos vacíos sin romperse', () => {
+    expect(coincideConBusqueda({ nombre: null, sku: null, categoria: null }, 'algo')).toBe(false);
+    expect(coincideConBusqueda({}, '')).toBe(true);
   });
 });
