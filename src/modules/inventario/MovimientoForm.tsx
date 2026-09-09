@@ -4,6 +4,7 @@ import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto, TipoMovimiento } from '@/shared/lib/types';
 import { calcularPMP, type MovimientoInput } from './movimientos.repository';
 import { AlmacenPicker } from './AlmacenPicker';
+import { errorMotivo, motivosSugeridos, requiereMotivo } from './motivoMovimiento';
 import { useSectorizacion } from './useSectorizacion';
 
 interface MovimientoFormProps {
@@ -103,6 +104,9 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
 
   const stockResultante = Math.max(0, stockAlmacen + delta);
   const isFundicion = tipo === 'fundicion' || tipo === 'fin_fundicion';
+  // Entradas, salidas, consumos y ajustes a mano: sin motivo no se registran.
+  const motivoObligatorio = requiereMotivo(tipo as TipoMovimiento, 'manual');
+  const sugerencias = motivosSugeridos(tipo as TipoMovimiento);
   const esEntradaConCosto = tipo === 'entrada';
   const esTransferencia = tipo === 'transferencia';
   const costoUnitNum = usaBultos ? (uPorBultoNum > 0 ? costoBultoNum / uPorBultoNum : 0) : parseDecimal(costoUnit);
@@ -150,12 +154,11 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
       setError('El producto no está marcado como en proceso de fundición.');
       return;
     }
-    // Un ajuste manual es la única entrada que cambia el stock sin documento detrás:
-    // sin un motivo escrito no hay forma de reconstruir después qué pasó.
-    if (tipo === 'ajuste' && detalle.trim().length < 5) {
-      setError('Un ajuste manual necesita un motivo (conteo físico, rotura, corrección de carga…). Escribilo en «Motivo del movimiento».');
-      return;
-    }
+    // Entradas, salidas, consumos y ajustes cargados a mano son los movimientos que
+    // cambian el stock sin un documento detrás: sin motivo escrito no hay forma de
+    // reconstruir después qué pasó con el material.
+    const faltaMotivo = errorMotivo(tipo as TipoMovimiento, detalle, 'manual');
+    if (faltaMotivo) { setError(faltaMotivo); return; }
     // Una entrada sin costo mete material que el inventario valora en $0: el stock
     // aparece pero el almacén vale menos de lo que tiene, y el PMP queda mal para
     // todas las compras siguientes. Si de verdad no hay costo (material donado,
@@ -369,14 +372,32 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
         )}
 
         <div className="form-row">
-          <label>Motivo del movimiento {tipo === 'ajuste' ? <span style={{ color: 'var(--danger)' }}>*</span> : <span className="muted">(opcional)</span>}</label>
+          <label>
+            Motivo del movimiento{' '}
+            {motivoObligatorio ? <span style={{ color: 'var(--danger)' }}>*</span> : <span className="muted">(opcional)</span>}
+          </label>
           <input
             className="input"
             value={detalle}
             onChange={(e) => setDetalle(e.target.value)}
-            required={tipo === 'ajuste'}
-            placeholder={tipo === 'ajuste' ? 'Conteo físico, rotura, corrección de carga…' : 'Motivo, referencia, observación…'}
+            required={motivoObligatorio}
+            placeholder={sugerencias.length ? `${sugerencias[0]}…` : 'Motivo, referencia, observación…'}
           />
+          {/* Atajos: escribir el motivo no tiene que costar. Un clic lo llena y se puede editar. */}
+          {sugerencias.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginTop: '.35rem' }}>
+              {sugerencias.map((s) => (
+                <button key={s} type="button" className="btn btn-sm btn-ghost"
+                  style={{ fontSize: '.72rem', padding: '.15rem .45rem' }}
+                  onClick={() => setDetalle(s)}>{s}</button>
+              ))}
+            </div>
+          )}
+          {motivoObligatorio && (
+            <small className="muted" style={{ fontSize: '.72rem', display: 'block', marginTop: '.3rem' }}>
+              Obligatorio: este movimiento cambia el stock sin un documento detrás. Queda en el kardex con tu nombre.
+            </small>
+          )}
         </div>
 
         <div

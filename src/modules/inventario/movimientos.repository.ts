@@ -11,6 +11,7 @@
    plpgsql `registrar_movimiento(...)` con SECURITY DEFINER.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { errorMotivo } from './motivoMovimiento';
 import { bustCache } from '@/shared/lib/queryCache';
 import type { Movimiento, TipoMovimiento } from '@/shared/lib/types';
 import { findProducto } from './inventario.repository';
@@ -121,6 +122,11 @@ export async function recomputeProductoAgg(productoId: string): Promise<void> {
  * No es atómico (ver nota de transaccionalidad arriba).
  */
 export async function registrarMovimiento(input: MovimientoInput): Promise<Movimiento> {
+  // El motivo de un movimiento manual se exige acá y no solo en el formulario: así
+  // ninguna otra pantalla puede meter una entrada, una salida o un ajuste mudo.
+  const sinMotivo = errorMotivo(input.tipo, input.detalle, input.ref_tipo);
+  if (sinMotivo) throw new Error(sinMotivo);
+
   // El almacén suele venir explícito (fundición, recepción, transferencia); en
   // ese caso evitamos el round-trip a `productos` y resolvemos sólo el fallback.
   let almacen = (input.almacen || '').trim();
