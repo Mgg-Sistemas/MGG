@@ -95,13 +95,37 @@ export function CocinaPage() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
           {cocinas.map((info) => (
-            <div key={info.cocina.id} className="card" style={{ margin: 0, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '.35rem' }}
-              onClick={() => setSel(info.cocina.id)} title="Entrar a la cocina">
+            /* ALCANZABLE POR TECLADO. Era un div con onClick: con Tab no se podía
+               entrar a una cocina, solo con mouse — pero los botones Editar y 🗑
+               SÍ recibían foco, así que se podía llegar a borrar sin poder llegar
+               a entrar. `role` + `tabIndex` + Enter/Espacio lo emparejan. */
+            <div key={info.cocina.id} className="card"
+              role="button" tabIndex={0}
+              style={{ margin: 0, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '.35rem' }}
+              onClick={() => setSel(info.cocina.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSel(info.cocina.id); }
+              }}
+              title="Entrar a la cocina"
+              aria-label={`Entrar a la cocina ${info.cocina.nombre}`}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
                 <strong style={{ fontSize: '1.05rem' }}>🍳 {info.cocina.nombre}</strong>
                 <span className="badge">Entrar →</span>
               </div>
               <div className="muted" style={{ fontSize: '.82rem' }}>📦 {info.almacenNombre ?? <span style={{ color: 'var(--warning)' }}>Sin almacén vinculado</span>}</div>
+              {/* El ciclo abierto es lo primero que se quiere saber de una cocina;
+                  hasta ahora había que entrar para averiguarlo. Sin mercado se dice
+                  también: un espacio vacío no distingue «no hay» de «no cargó». */}
+              <div style={{ fontSize: '.78rem' }}>
+                {info.mercado ? (
+                  <span style={{ color: 'var(--primary, #ff8a00)' }}>
+                    🛒 Mercado #{info.mercado.numero}
+                    <span className="muted"> · día {Math.min(info.mercado.dia, info.mercado.dias)} de {info.mercado.dias}</span>
+                  </span>
+                ) : (
+                  <span className="dim">Sin mercado abierto</span>
+                )}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.82rem', marginTop: '.2rem' }}>
                 <span className="muted">Víveres con stock</span><strong className="mono">{num(info.viveres)}</strong>
               </div>
