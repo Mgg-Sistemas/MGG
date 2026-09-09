@@ -325,3 +325,56 @@ export function explicarSobrante(d: DisponibleItem): string | null {
   }
   return 'entró al almacén sin quedar registrado en el ciclo';
 }
+
+/* ───────── Que dos ciclos no se pisen ───────── */
+
+/** Lo mínimo de un mercado para saber qué ventana ocupa. */
+export interface VentanaCiclo {
+  numero: number;
+  fecha_inicio: string;
+  fecha_fin: string;
+  estado?: string;
+  descartado?: boolean;
+}
+
+/**
+ * ¿La ventana propuesta pisa la de algún ciclo que ya existe?
+ *
+ * POR QUÉ IMPORTA. El saldo inicial de un ciclo nuevo se reconstruye con
+ * `stock − entradas + consumos` sobre su propia ventana. Si esa ventana se
+ * superpone con la de otro ciclo, esos movimientos ya fueron contados una vez:
+ * los consumos se suman de vuelta al saldo y el ciclo nuevo los vuelve a
+ * descontar, o sea que los mismos platos aparecen en dos cortes. Con el ARROZ
+ * del mercado #1 el número da −32 y el víver directamente desaparece, porque
+ * `reconstruirSaldo` descarta los saldos negativos.
+ *
+ * Se comparan también los DESCARTADOS: un ciclo se descarta justamente porque
+ * sus cifras no sirven, y volver a abrir sobre esa misma ventana las reactiva.
+ *
+ * Devuelve el ciclo que estorba, o `null` si la ventana está libre.
+ */
+export function cicloQueSePisa(
+  inicio: string,
+  fin: string,
+  previos: VentanaCiclo[],
+): VentanaCiclo | null {
+  if (!inicio || !fin) return null;
+  for (const p of previos) {
+    if (!p.fecha_inicio || !p.fecha_fin) continue;
+    // Dos rangos se solapan si cada uno empieza antes de que el otro termine.
+    if (inicio <= p.fecha_fin && p.fecha_inicio <= fin) return p;
+  }
+  return null;
+}
+
+/** Primer día libre después de todos los ciclos existentes. `null` si no hay ninguno. */
+export function primerDiaLibre(previos: VentanaCiclo[]): string | null {
+  let ultimo: string | null = null;
+  for (const p of previos) {
+    if (p.fecha_fin && (!ultimo || p.fecha_fin > ultimo)) ultimo = p.fecha_fin;
+  }
+  if (!ultimo) return null;
+  const d = new Date(`${ultimo}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}

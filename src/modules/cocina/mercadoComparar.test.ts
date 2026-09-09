@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  explicarDiferencia, explicarSobrante,
+  cicloQueSePisa, explicarDiferencia, explicarSobrante, primerDiaLibre,
   compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
   separarMovidos, totalesDeMercado,
 } from './mercadoComparar';
 import type { DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
-import type { SalidaFueraDelCiclo } from './mercadoComparar';
+import type { SalidaFueraDelCiclo, VentanaCiclo } from './mercadoComparar';
 
 // Víveres reales de La Esperanza, con los números que muestra la pantalla hoy.
 const d = (
@@ -275,5 +275,54 @@ describe('explicarSobrante — cuando en el almacén hay de MÁS', () => {
   it('con saldo y entradas, el sobrante es material que entró sin registrarse', () => {
     const v = d('p', 'X', 'UNIDAD', 10, 5, 2);
     expect(explicarSobrante(v)).toContain('sin quedar registrado');
+  });
+});
+
+describe('cicloQueSePisa — no abrir un mercado encima de otro', () => {
+  const previos: VentanaCiclo[] = [
+    { numero: 1, fecha_inicio: '2026-08-22', fecha_fin: '2026-09-11', estado: 'cerrado', descartado: true },
+  ];
+
+  it('detecta el solapamiento exacto', () => {
+    // El caso peligroso: descartar el #1 y volver a abrir con su misma fecha.
+    expect(cicloQueSePisa('2026-08-22', '2026-09-11', previos)?.numero).toBe(1);
+  });
+
+  it('detecta el solapamiento parcial, por los dos lados', () => {
+    expect(cicloQueSePisa('2026-09-05', '2026-09-25', previos)).not.toBeNull();
+    expect(cicloQueSePisa('2026-08-10', '2026-08-30', previos)).not.toBeNull();
+    // Y el que envuelve por completo al anterior.
+    expect(cicloQueSePisa('2026-08-01', '2026-09-30', previos)).not.toBeNull();
+  });
+
+  it('un ciclo que empieza justo al día siguiente NO se pisa', () => {
+    expect(cicloQueSePisa('2026-09-12', '2026-10-02', previos)).toBeNull();
+  });
+
+  it('el último día del anterior SÍ se pisa: la ventana es inclusiva', () => {
+    expect(cicloQueSePisa('2026-09-11', '2026-10-01', previos)).not.toBeNull();
+  });
+
+  it('un DESCARTADO también estorba', () => {
+    // Se descarta porque sus cifras no sirven; reabrir sobre su ventana las
+    // reactiva, que es exactamente lo que se quería evitar.
+    expect(cicloQueSePisa('2026-08-25', '2026-09-14', previos)?.descartado).toBe(true);
+  });
+
+  it('sin ciclos previos, cualquier ventana está libre', () => {
+    expect(cicloQueSePisa('2026-08-22', '2026-09-11', [])).toBeNull();
+  });
+});
+
+describe('primerDiaLibre', () => {
+  it('es el día siguiente al fin del último ciclo', () => {
+    expect(primerDiaLibre([
+      { numero: 1, fecha_inicio: '2026-08-22', fecha_fin: '2026-09-11' },
+      { numero: 2, fecha_inicio: '2026-07-01', fecha_fin: '2026-07-21' },
+    ])).toBe('2026-09-12');
+  });
+
+  it('sin ciclos no hay restricción', () => {
+    expect(primerDiaLibre([])).toBeNull();
   });
 });

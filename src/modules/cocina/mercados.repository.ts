@@ -15,7 +15,7 @@ import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, diaDeComida } from './cocina.repository';
 import {
-  diferenciasPorViver, explicarDiferencia, totalesDeMercado,
+  cicloQueSePisa, diferenciasPorViver, explicarDiferencia, totalesDeMercado,
   type DiferenciaViver, type ExplicacionDiferencia, type SalidaFueraDelCiclo, type TotalesMercado,
 } from './mercadoComparar';
 
@@ -549,6 +549,22 @@ export async function iniciarMercado(input: {
   const fin = addDaysStr(inicio, DURACION_MERCADO_DIAS - 1);
   const previos = await listMercados(input.cocinaId);
   const numero = (previos[0]?.numero ?? 0) + 1;
+
+  /* NINGÚN CICLO PUEDE PISAR A OTRO, ni siquiera a uno descartado.
+     El saldo inicial se reconstruye con `stock − entradas + consumos` sobre la
+     ventana propia: si esa ventana se superpone con la de otro ciclo, esos
+     movimientos ya se contaron una vez y los mismos platos terminan en dos
+     cortes. Y con los números del mercado #1 el cálculo da negativo, así que
+     `reconstruirSaldo` descarta el víver y este DESAPARECE del ciclo nuevo.
+     La guarda va acá y no solo en la pantalla: la pantalla se puede saltear. */
+  const pisado = cicloQueSePisa(inicio, fin, previos);
+  if (pisado) {
+    throw new Error(
+      `Ese período se superpone con el mercado #${pisado.numero} `
+      + `(${pisado.fecha_inicio} → ${pisado.fecha_fin}). Elegí una fecha posterior: `
+      + 'abrir dos ciclos sobre los mismos días cuenta los consumos dos veces.',
+    );
+  }
 
   /* El remanente congelado del último cierre manda. Si no hay ninguno (primer
      mercado de esta cocina), se reconstruye desde el stock.

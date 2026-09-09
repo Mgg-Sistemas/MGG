@@ -728,7 +728,7 @@ function DescartarMercadoModal({ mercado, cocinaNombre, actor, userEmail, onClos
             cuenta y no dice por qué parece un error del sistema en vez de una
             decisión de alguien. «ok» o «error» no explican nada. */}
         <textarea className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)}
-          placeholder="Ej.: ciclo iniciado antes del rediseño, con traslados incompletos y consumos registrados por fuera del sistema." />
+          placeholder="Qué pasó con este ciclo y por qué sus cifras no sirven de punto de partida." />
         {!motivoOk && (
           <small className="muted" style={{ color: motivo.trim() ? 'var(--danger)' : undefined }}>
             {motivo.trim() ? 'Explicá un poco más: esto queda en el historial.' : 'Obligatorio.'}
