@@ -54,6 +54,9 @@ export interface MovimientoInput {
   consumo_interno?: boolean | null;
   /** Quién solicitó la salida/traslado (se muestra en el historial). */
   solicitante?: string | null;
+  /** Equipo de maquinaria al que va el material (opcional, salidas de mantenimiento). */
+  equipo_id?: string | null;
+  equipo_nombre?: string | null;
 }
 
 /**
@@ -180,6 +183,8 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
     costo_promedio: costoPromedio,
     consumo_interno: input.consumo_interno ?? false,
     solicitante: input.solicitante ?? null,
+    equipo_id: input.equipo_id ?? null,
+    equipo_nombre: (input.equipo_nombre ?? '').trim() || null,
     at: new Date().toISOString(),
   };
 

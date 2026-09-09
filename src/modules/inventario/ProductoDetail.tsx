@@ -352,6 +352,11 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
                         {m.fecha_entrega && <> · {date(m.fecha_entrega)}</>}
                       </div>
                     )}
+                    {m.equipo_nombre && (
+                      <div className="kx-sub">
+                        🔧 Equipo: <strong style={{ color: 'var(--text)' }}>{m.equipo_nombre}</strong>
+                      </div>
+                    )}
                     {(m.precio_unitario != null || m.costo_promedio != null || m.ref_codigo) && (
                       <div className="kx-sub mono">
                         {m.precio_unitario != null && <>Costo unit: <strong style={{ color: 'var(--text)' }}>{money(m.precio_unitario)}</strong></>}

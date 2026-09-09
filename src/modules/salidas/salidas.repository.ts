@@ -56,6 +56,9 @@ export interface SalidaMaterialInput {
   consumoInterno?: boolean | null;
   /** Quién solicitó la salida (se muestra en el historial). */
   solicitante?: string | null;
+  /** Equipo de maquinaria al que va este material (opcional). Viaja al kardex. */
+  equipoId?: string | null;
+  equipoNombre?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -79,6 +82,8 @@ export async function salidaMaterial(input: SalidaMaterialInput): Promise<Movimi
     destino: input.destino || null,
     fecha_entrega: input.fechaEntrega || null,
     detalle: input.motivo || null,
+    equipo_id: input.equipoId ?? null,
+    equipo_nombre: input.equipoNombre ?? null,
     precio_unitario: input.precioUnit != null ? Number(input.precioUnit) : null,
     consumo_interno: input.consumoInterno ?? false,
     solicitante: input.solicitante ?? null,
@@ -323,6 +328,10 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       unidad: it.unidad ?? null,
       almacen: it.almacen ?? null,
       observacion: it.observacion?.trim() || null,
+      // El equipo al que va el material: opcional, y es lo que después permite
+      // preguntarle a una máquina qué se le puso.
+      equipo_id: it.equipo_id ?? null,
+      equipo_nombre: (it.equipo_nombre ?? '').trim() || null,
       // Marcado en Matanza para material de receta: se descuenta acá y la
       // fundición despues solo puede quemar esto, sin volver a descontar.
       para_fundicion: it.para_fundicion === true,
@@ -521,6 +530,24 @@ async function candidatosDeProducto(productoId: string): Promise<CandidatoAlmace
  * Es atómico: descuenta el stock restante entre líneas para no reclamar dos veces lo mismo.
  * Devuelve un tramo por (producto, almacén) y los faltantes reales (si el stock total no cubre).
  */
+/**
+ * Un tramo de despacho: la misma línea, servida desde UN almacén concreto.
+ * Una línea puede repartirse entre varios almacenes (cascada por prioridad), y
+ * cada pedazo tiene que llevarse consigo el EQUIPO al que va el material. Si se
+ * pierde acá, el stock sale del almacén pero la máquina nunca se entera.
+ */
+export function tramoDesdeLinea(it: ItemSolicitudSalida, almacen: string, cantidad: number): ItemSolicitudSalida {
+  return {
+    producto_id: it.producto_id,
+    producto_nombre: it.producto_nombre,
+    cantidad,
+    precio_unit: it.precio_unit,
+    almacen,
+    equipo_id: it.equipo_id ?? null,
+    equipo_nombre: it.equipo_nombre ?? null,
+  };
+}
+
 async function planearSalidaTramos(
   lineas: ItemSolicitudSalida[], almacenOrigenDefault: string | null,
 ): Promise<{ tramos: ItemSolicitudSalida[]; faltantes: string[] }> {
@@ -550,7 +577,7 @@ async function planearSalidaTramos(
       const avail = remaining.get(key) ?? 0;
       if (avail <= 0) continue;
       const toma = Math.min(resto, avail);
-      tramos.push({ producto_id: pid, producto_nombre: it.producto_nombre, cantidad: toma, precio_unit: it.precio_unit, almacen: c.almacen });
+      tramos.push(tramoDesdeLinea(it, c.almacen, toma));
       remaining.set(key, avail - toma);
       resto = Math.round((resto - toma) * 1e6) / 1e6;
     }
@@ -613,6 +640,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     movId = await ejecutarPorProductoEnTandas(tramosSalida!, (it) => salidaMaterial({
       productoId: it.producto_id, almacen: it.almacen!, cantidad: Number(it.cantidad) || 0,
       destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
+      equipoId: it.equipo_id ?? null, equipoNombre: it.equipo_nombre ?? null,
       fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
     }));
     movRef = 'salida_modulo';
@@ -760,6 +788,10 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
       unidad: it.unidad ?? null,
       almacen: it.almacen ?? null,
       observacion: it.observacion?.trim() || null,
+      // El equipo al que va el material: opcional, y es lo que después permite
+      // preguntarle a una máquina qué se le puso.
+      equipo_id: it.equipo_id ?? null,
+      equipo_nombre: (it.equipo_nombre ?? '').trim() || null,
       // Marcado en Matanza para material de receta: se descuenta acá y la
       // fundición despues solo puede quemar esto, sin volver a descontar.
       para_fundicion: it.para_fundicion === true,
