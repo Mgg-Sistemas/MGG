@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  explicarDiferencia,
+  explicarDiferencia, explicarSobrante,
   compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
   separarMovidos, totalesDeMercado,
 } from './mercadoComparar';
@@ -245,5 +245,35 @@ describe('explicarDiferencia — por dónde se fue el faltante', () => {
   it('sin movimientos por fuera del ciclo no hay nada que explicar', () => {
     expect(explicarDiferencia(-32, [])).toBeNull();
     expect(explicarDiferencia(-32, [s(0, '2026-09-08T13:50:00Z')])).toBeNull();
+  });
+});
+
+describe('describirEvento · mercado descartado', () => {
+  it('nombra a quien lo descartó', () => {
+    const e: EventoMercado = {
+      at: '2026-09-08T21:00:00Z', evento: 'descartado',
+      actor: 'a@mgg.com', actor_name: 'ANALISTA', motivo: 'ciclo accidentado',
+    };
+    expect(describirEvento(e)).toBe('Descartó ANALISTA');
+  });
+});
+
+describe('explicarSobrante — cuando en el almacén hay de MÁS', () => {
+  it('el libro en negativo es el caso grave y se nombra así', () => {
+    // Caso real de MONTE SURTIDO HTL-006: inventario 2,4 y «sobran 3», o sea que
+    // el libro dice −0,6. No sobra comida: al ciclo le falta una entrada.
+    const v = d('p-monte', 'MONTE SURTIDO', 'UNIDAD', 0, 0, 0.6);
+    expect(v.queda).toBeCloseTo(-0.6, 6);
+    expect(explicarSobrante(v)).toContain('negativo');
+  });
+
+  it('consumido sin ninguna entrada registrada', () => {
+    const v = d('p', 'X', 'UNIDAD', 0, 0, 0);
+    expect(explicarSobrante({ ...v, consumos: 0 })).toContain('nunca lo vio entrar');
+  });
+
+  it('con saldo y entradas, el sobrante es material que entró sin registrarse', () => {
+    const v = d('p', 'X', 'UNIDAD', 10, 5, 2);
+    expect(explicarSobrante(v)).toContain('sin quedar registrado');
   });
 });

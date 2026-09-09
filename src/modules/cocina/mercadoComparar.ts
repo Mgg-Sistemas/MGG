@@ -155,6 +155,10 @@ export function describirEvento(e: EventoMercado): string {
     }
     case 'reabierto':
       return `Reabrió ${quien}`;
+    case 'descartado':
+      // «Descartado» no es «cerrado»: el ciclo no aporta saldo al siguiente, y
+      // confundirlos haría pensar que su remanente sigue en la cadena.
+      return `Descartó ${quien}`;
     default:
       return quien;
   }
@@ -296,4 +300,28 @@ export function explicarDiferencia(
     explicaTodo: sinExplicar < 0.01,
     sinExplicar,
   };
+}
+
+/**
+ * Por qué SOBRA: en el almacén hay más de lo que el libro dice que queda.
+ *
+ * Un sobrante no se explica con salidas —al revés que un faltante— así que
+ * `explicarDiferencia` devuelve `null` y hace falta mirar la fila del ciclo.
+ *
+ * El caso más frecuente y el más grave es el libro en NEGATIVO: se registraron
+ * consumos por encima de lo que el mercado vio entrar, así que el saldo cae por
+ * debajo de cero mientras el almacén tiene material de verdad. No es que sobre
+ * comida: es que al ciclo le falta una entrada.
+ */
+export function explicarSobrante(d: DisponibleItem): string | null {
+  if (d.queda < -0.001) {
+    return 'el libro quedó en negativo: se consumió más de lo que el ciclo vio entrar';
+  }
+  if (d.saldoInicial === 0 && d.entradas === 0 && d.consumos > 0) {
+    return 'se consumió sin que el ciclo registrara ninguna entrada';
+  }
+  if (d.saldoInicial === 0 && d.entradas === 0) {
+    return 'el ciclo nunca lo vio entrar: está en el almacén pero no en el mercado';
+  }
+  return 'entró al almacén sin quedar registrado en el ciclo';
 }

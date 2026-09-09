@@ -70,6 +70,15 @@ export interface CierreSnapshot {
   ajustado?: boolean;
   /** Por qué se ajustó. Obligatorio cuando `ajustado`. */
   motivo_ajuste?: string | null;
+  /* ── Mercado DESCARTADO, agregado el 08/09/2026 ──
+     Un ciclo que arrancó antes del rediseño y quedó accidentado no sirve de
+     punto de partida: su remanente arrastra el descuadre a todos los cortes
+     siguientes. Descartarlo lo deja fuera de la cadena SIN borrarlo — con todo
+     lo que pasó en este mercado, el rastro es lo último que conviene perder. */
+  /** true si el ciclo se descartó: no aporta saldo al siguiente. */
+  descartado?: boolean;
+  /** Por qué se descartó. Obligatorio cuando `descartado`. */
+  motivo_descarte?: string | null;
 }
 
 export interface MercadoCocina {
@@ -93,7 +102,7 @@ export interface MercadoCocina {
 /** Una intervención sobre el mercado. `actor` es el correo; `actor_name`, el nombre visible. */
 export interface EventoMercado {
   at: string;
-  evento: 'abierta' | 'generado_al_cerrar' | 'cerrado' | 'reabierto';
+  evento: 'abierta' | 'generado_al_cerrar' | 'cerrado' | 'reabierto' | 'descartado';
   actor: string;
   actor_name?: string | null;
   /** En `generado_al_cerrar`: qué mercado se cerró para que naciera este. */
@@ -541,9 +550,16 @@ export async function iniciarMercado(input: {
   const previos = await listMercados(input.cocinaId);
   const numero = (previos[0]?.numero ?? 0) + 1;
 
-  // El remanente congelado del último cierre manda. Si no hay ninguno (primer mercado de
-  // esta cocina), se reconstruye desde el stock: es la única referencia disponible.
-  const ultimoCerrado = previos.find((m) => m.estado === 'cerrado' && m.cierre);
+  /* El remanente congelado del último cierre manda. Si no hay ninguno (primer
+     mercado de esta cocina), se reconstruye desde el stock.
+
+     UN CICLO DESCARTADO NO CUENTA. Su remanente es justamente lo que no se
+     quiere arrastrar: si se tomara, el descuadre que motivó el descarte pasaría
+     intacto al ciclo nuevo y no se habría descartado nada. Se lo saltea y el
+     saldo sale del inventario real, que es el único número confiable. */
+  const ultimoCerrado = previos.find(
+    (m) => m.estado === 'cerrado' && m.cierre && !m.cierre.descartado,
+  );
   let saldo: SaldoItem[];
   if (ultimoCerrado?.cierre?.remanente?.length) {
     saldo = ultimoCerrado.cierre.remanente;
@@ -669,6 +685,63 @@ export async function cerrarMercado(
   );
 
   return { cerrado: normalizar(upd), siguiente, snapshot };
+}
+
+/**
+ * Descarta un ciclo accidentado: queda cerrado pero NO aporta saldo al siguiente.
+ *
+ * Para qué existe: el mercado #1 arrancó antes de que el rediseño estuviera
+ * completo, se sembró a mano, tuvo traslados que perdieron la pata de entrada y
+ * el 85 % de lo que salió del almacén no pasó por el registro de consumo. Su
+ * remanente no describe nada real, y cerrarlo normalmente arrastraría ese
+ * descuadre a todos los cortes siguientes.
+ *
+ * NO SE BORRA, SE MARCA. Borrarlo se llevaría el historial de intervenciones y
+ * las comidas quedarían huérfanas de contexto; después de lo que pasó en este
+ * ciclo, el rastro es lo último que conviene perder. Queda `estado='cerrado'`
+ * —para que se pueda abrir uno nuevo— con la marca `descartado` en el cierre,
+ * que es lo que `iniciarMercado` mira para saltearlo.
+ *
+ * Tampoco abre el siguiente, a diferencia de `cerrarMercado`: la idea es que una
+ * persona lo abra cuando el inventario esté como debe, y ahí el saldo inicial
+ * sale del stock real.
+ */
+export async function descartarMercado(
+  mercado: MercadoCocina,
+  actor: string,
+  actorName: string | null,
+  motivo: string,
+): Promise<void> {
+  if (mercado.estado !== 'abierto') throw new Error('Solo se puede descartar un mercado abierto.');
+  const razon = (motivo ?? '').trim();
+  // El motivo es obligatorio: sin él, dentro de seis meses nadie va a saber por
+  // qué este ciclo no cuenta, y va a parecer un error en vez de una decisión.
+  if (razon.length < 5) {
+    throw new Error('Indicá por qué se descarta este mercado: queda escrito en el historial.');
+  }
+
+  const snapshot: CierreSnapshot = {
+    generado_en: new Date().toISOString(),
+    desde: mercado.fecha_inicio,
+    hasta: mercado.fecha_fin,
+    totales: { platos: 0, valor: 0, entradasValor: 0 },
+    consumos: [],
+    entradas: [],
+    // Sin remanente: es justamente lo que no se quiere arrastrar.
+    remanente: [],
+    descartado: true,
+    motivo_descarte: razon,
+  };
+
+  await actualizarMercado(
+    mercado.id,
+    {
+      estado: 'cerrado', cierre: snapshot, cerrado_por: actor,
+      cerrado_por_nombre: actorName ?? null, cerrado_en: new Date().toISOString(),
+    },
+    appendHistorial(mercado, 'descartado', actor, actorName, { motivo: razon }),
+    'abierto',
+  );
 }
 
 /**

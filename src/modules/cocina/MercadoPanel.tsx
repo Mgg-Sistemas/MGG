@@ -20,10 +20,10 @@ import { dateTime, money, num } from '@/shared/lib/format';
 import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
-  cerrarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
+  cerrarMercado, descartarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
   type MercadoCocina,
 } from './mercados.repository';
-import { describirEvento, productosAjustados, separarMovidos } from './mercadoComparar';
+import { describirEvento, explicarSobrante, productosAjustados, separarMovidos } from './mercadoComparar';
 
 /** Qué bloque se está mirando. Se recuerda por usuario. */
 type Vista = 'disponible' | 'movimientos' | 'ambos';
@@ -52,6 +52,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   const { mercado, dia, dias, puedeCerrar, disponible, kardex, totales, diferencias, explicaciones } = resumen;
   const [drill, setDrill] = useState<DisponibleItem | null>(null);
   const [cerrar, setCerrar] = useState(false);
+  const [descartar, setDescartar] = useState(false);
   const [busca, setBusca] = useState('');
   const [verQuietos, setVerQuietos] = useState(false);
   const [soloDif, setSoloDif] = useState(false);
@@ -222,6 +223,17 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           >
             {puedeCerrar ? '🔒 Cerrar mercado (día 22) — genera PDF y arrastra saldo' : '🔒 Cerrar mercado anticipadamente'}
           </button>
+          {/* DESCARTAR es lo contrario de cerrar: cerrar arrastra el remanente al
+              ciclo siguiente, descartar lo deja fuera de la cadena. Va acá al lado
+              pero en tono discreto — es una salida de excepción, no la habitual. */}
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ marginLeft: '.5rem', color: 'var(--danger)' }}
+            onClick={() => setDescartar(true)}
+            title="El ciclo no cuenta y no le pasa saldo al siguiente. El próximo arranca del inventario real."
+          >
+            ⊘ Descartar mercado
+          </button>
         </div>
       )}
 
@@ -305,6 +317,14 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                             {/* POR DÓNDE se fue. «Faltan 32» manda a buscar en el
                                 kardex; «32 salieron por un movimiento manual el
                                 08/09» cierra la pregunta acá mismo. */}
+                            {/* Un SOBRANTE no se explica con salidas, así que se mira
+                                la fila del ciclo. El caso grave es el libro en
+                                negativo: no sobra comida, falta una entrada. */}
+                            {dif.diferencia > 0 && (
+                              <span className="dim" style={{ display: 'block', marginTop: '.1rem' }}>
+                                ↳ {explicarSobrante(d)}
+                              </span>
+                            )}
                             {(() => {
                               const exp = explicaciones.get(d.producto_id);
                               if (!exp) return null;
@@ -367,6 +387,12 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       {drill && (
         <DrillModal item={drill} kardex={kardex} fechaInicio={mercado.fecha_inicio} onClose={() => setDrill(null)} />
       )}
+      {descartar && (
+        <DescartarMercadoModal mercado={mercado} actor={actor} userEmail={userEmail}
+          onClose={() => setDescartar(false)}
+          onDone={async () => { setDescartar(false); await onReload(); }} />
+      )}
+
       {cerrar && (
         <CierreModal resumen={resumen} cocinaNombre={cocinaNombre} almacen={almacen} actor={actor} userEmail={userEmail}
           onClose={() => setCerrar(false)}
@@ -631,6 +657,65 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
       <div className="form-row">
         <label>📧 Enviar por correo <span className="muted" style={{ fontWeight: 400 }}>· opcional (dejalo vacío para solo cerrar y generar el PDF)</span></label>
         <input className="input" value={correos} onChange={(e) => setCorreos(e.target.value)} placeholder="correo1@mgg.com, correo2@mgg.com" />
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────────── Modal: DESCARTAR un mercado accidentado ─────────────
+   Descartar no es cerrar. Cerrar congela el remanente y se lo pasa al ciclo
+   siguiente; descartar deja el ciclo fuera de la cadena, y el próximo arranca
+   del inventario real. Se usa cuando el remanente no describe nada creíble. */
+function DescartarMercadoModal({ mercado, actor, userEmail, onClose, onDone }: {
+  mercado: MercadoCocina;
+  actor: string;
+  userEmail: string | null;
+  onClose: () => void;
+  onDone: () => void | Promise<void>;
+}) {
+  const [motivo, setMotivo] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const listo = motivo.trim().length >= 5;
+
+  async function confirmar() {
+    setGuardando(true);
+    try {
+      await descartarMercado(mercado, actor, userEmail, motivo);
+      notify(`Mercado #${mercado.numero} descartado · el próximo arranca del inventario`, 'success', { link: '#/app/cocina' });
+      await onDone();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo descartar', 'error');
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <Modal title={`Descartar mercado #${mercado.numero}`} size="sm" onClose={() => { if (!guardando) onClose(); }} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
+        <button className="btn btn-danger" onClick={confirmar} disabled={!listo || guardando}>
+          {guardando ? 'Descartando…' : '⊘ Descartar'}
+        </button>
+      </>
+    }>
+      <p style={{ marginTop: 0 }}>
+        Este ciclo <strong>deja de contar</strong>: no le pasa saldo al siguiente y sus cifras
+        no se arrastran.
+      </p>
+      <p className="hint muted">
+        No se borra nada — las comidas, los movimientos y el historial quedan donde están.
+        Cuando alguien abra el próximo mercado, el <strong>saldo inicial saldrá del inventario
+        real</strong> en ese momento.
+      </p>
+      <div className="form-row">
+        <label>Por qué se descarta</label>
+        {/* Obligatorio: dentro de seis meses, un ciclo que no cuenta y no dice por
+            qué parece un error del sistema en vez de una decisión de alguien. */}
+        <textarea className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)}
+          placeholder="Ej.: ciclo iniciado antes del rediseño, con traslados incompletos y consumos registrados por fuera." />
+        {!listo && motivo.trim().length > 0 && (
+          <small className="muted" style={{ color: 'var(--danger)' }}>Escribí un motivo un poco más largo.</small>
+        )}
       </div>
     </Modal>
   );
