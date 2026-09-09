@@ -16,6 +16,7 @@ import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
 import { skusSinCotizar } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
+import { ordenDeOfertas } from './ordenDeOfertas';
 import { AceptarOfertaModal } from './AceptarOfertaModal';
 import type { ItemOrden } from '@/shared/lib/types';
 
@@ -83,8 +84,9 @@ export function OfertasComparativa({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    // Una hija lee las ofertas de su PADRE; una orden normal, las suyas.
-    const madreId = orden.parent_orden_id ?? orden.id;
+    // Una hija lee las ofertas de su PADRE; una orden normal, las suyas. La regla
+    // vive en `ordenDeOfertas`: guardar y excluir tienen que resolver lo mismo.
+    const madreId = ordenDeOfertas(orden);
     listOfertasByOrden(madreId)
       .then(async (rows) => {
         if (cancelled) return;

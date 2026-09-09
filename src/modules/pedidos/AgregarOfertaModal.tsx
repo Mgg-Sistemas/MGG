@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { ordenDeOfertas, avisoProveedoresOcultos } from './ordenDeOfertas';
 import { ConversorBcv } from '@/shared/ui/ConversorBcv';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
@@ -74,9 +75,17 @@ export function AgregarOfertaModal({
 }: Props) {
   const isEdit = !!ofertaEdit;
   const esServicio = orden.clase === 'servicio';
+  // Las ofertas de una sub-OC multiproveedor viven en su orden madre: es donde el
+  // panel comparativo las busca, así que es donde hay que guardarlas.
+  const ordenOfertas = ordenDeOfertas(orden);
   const provEdit = ofertaEdit ? proveedores.find((p) => p.id === ofertaEdit.proveedor_id) : undefined;
   const opcionesProveedor = useMemo(
     () => proveedores.filter((p) => p.estado === 'activo' && !proveedoresYaOfertados.has(p.id)),
+    [proveedores, proveedoresYaOfertados]
+  );
+  // Quiénes quedaron fuera del selector y por qué, para decirlo en vez de esconderlo.
+  const avisoOcultos = useMemo(
+    () => avisoProveedoresOcultos(proveedores, proveedoresYaOfertados),
     [proveedores, proveedoresYaOfertados]
   );
   // En edición: activos + el proveedor actual (aunque esté inactivo), sin duplicar.
@@ -313,7 +322,7 @@ export function AgregarOfertaModal({
       if (isEdit && ofertaEdit) {
         // Adjuntos finales = los existentes que se conservaron (se pueden quitar) + los
         // nuevos que se cargaron. Siempre se persiste, así las remociones quedan guardadas.
-        const subidos = pdfFiles.length ? await subirAdjuntosOferta(orden.id, ofertaEdit.proveedor_id, pdfFiles) : [];
+        const subidos = pdfFiles.length ? await subirAdjuntosOferta(ordenOfertas, ofertaEdit.proveedor_id, pdfFiles) : [];
         const todos = [...adjuntosExist, ...subidos];
         const adjuntosPatch: EditarOfertaInput = {
           adjuntos: todos.length ? todos : null,
@@ -404,11 +413,13 @@ export function AgregarOfertaModal({
       }
 
       // 2) Subir los adjuntos (fotos/PDF) si los hay
-      const adjuntos = pdfFiles.length ? await subirAdjuntosOferta(orden.id, provId, pdfFiles) : [];
+      const adjuntos = pdfFiles.length ? await subirAdjuntosOferta(ordenOfertas, provId, pdfFiles) : [];
 
-      // 3) Crear oferta
+      // 3) Crear oferta. Va a la orden que GUARDA las ofertas (la madre, si esta es
+      //    una sub-OC): es la misma que lee el panel comparativo. Guardarla en la hija
+      //    la dejaba invisible y bloqueaba el reintento.
       await crearOferta({
-        orden_id: orden.id,
+        orden_id: ordenOfertas,
         proveedor_id: provId,
         items: itemsLimpios,
         precio_total: precioTotal,
@@ -576,6 +587,13 @@ export function AgregarOfertaModal({
                 placeholder="Buscar proveedor por nombre o RIF…"
                 emptyText="Ningún proveedor coincide"
               />
+              {/* Los que ya ofertaron NO están en la lista. Antes desaparecían sin decir
+                  nada y el analista concluía que el proveedor no existía en el sistema. */}
+              {avisoOcultos && (
+                <p className="hint muted" style={{ margin: '.35rem 0 0', fontSize: '.8rem' }}>
+                  ℹ️ {avisoOcultos}
+                </p>
+              )}
               {statSel && (
                 <div className="card" style={{ marginTop: '.4rem', padding: '.45rem .6rem', background: 'var(--bg-1)', fontSize: '.82rem' }}>
                   {statSel.total_evaluaciones > 0 ? (
@@ -594,6 +612,7 @@ export function AgregarOfertaModal({
           ) : (
             <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>
               No quedan proveedores activos sin oferta. Marca <strong>"Proveedor no registrado"</strong> arriba para crear uno nuevo.
+              {avisoOcultos && <><br />ℹ️ {avisoOcultos}</>}
             </p>
           )}
         </div>
