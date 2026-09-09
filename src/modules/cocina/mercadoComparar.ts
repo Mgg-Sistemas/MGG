@@ -155,6 +155,10 @@ export function describirEvento(e: EventoMercado): string {
     }
     case 'reabierto':
       return `Reabrió ${quien}`;
+    case 'descartado':
+      // «Descartado» no es «cerrado»: el ciclo no aporta saldo al siguiente, y
+      // confundirlos haría pensar que su remanente sigue en la cadena.
+      return `Descartó ${quien}`;
     default:
       return quien;
   }
@@ -218,4 +222,159 @@ export function compararConsumos(a: ItemAgg[], b: ItemAgg[]): FilaComparacion[] 
     });
   }
   return out.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta) || x.nombre.localeCompare(y.nombre, 'es'));
+}
+
+/* ───────── Por dónde se fue la diferencia ───────── */
+
+/**
+ * Una salida de víveres que el mercado NO cuenta como consumo.
+ *
+ * El libro del mercado solo resta lo que sale por `cocina_comidas`. Todo lo
+ * demás —una salida manual, un ajuste, un traslado— mueve el inventario sin
+ * tocar la columna «Consumido», y es de ahí que sale el descuadre. En Los Pinos
+ * eso es el 90 % de lo que sale del almacén.
+ */
+export interface SalidaFueraDelCiclo {
+  producto_id: string;
+  at: string;
+  /** Positivo: cuánto salió. */
+  cantidad: number;
+  tipo: string;
+  actor_name: string | null;
+  detalle: string | null;
+}
+
+export interface ExplicacionDiferencia {
+  /** Cuánto salió por fuera del ciclo, en total. */
+  total: number;
+  /** Desglose, del movimiento más grande al más chico. */
+  porTipo: { tipo: string; cantidad: number; movimientos: number }[];
+  /** El más reciente, que suele ser el que se está preguntando. */
+  ultimo: { at: string; actor: string | null; tipo: string; cantidad: number } | null;
+  /**
+   * ¿Estas salidas alcanzan a explicar el faltante?
+   *
+   * `false` cuando la diferencia es mayor que lo que salió por fuera: ahí queda
+   * un resto sin explicación y decir «esto lo explica» sería mentir.
+   */
+  explicaTodo: boolean;
+  /** Lo que queda sin explicar. 0 cuando las salidas cubren el faltante. */
+  sinExplicar: number;
+}
+
+/**
+ * Qué parte del faltante se explica por movimientos fuera del ciclo.
+ *
+ * `diferencia` es la del contraste: negativa cuando en el almacén hay MENOS de
+ * lo que dice el libro. Un sobrante (positiva) no se explica con salidas, así
+ * que devuelve `null` — inventarle una causa sería peor que no decir nada.
+ */
+export function explicarDiferencia(
+  diferencia: number,
+  salidas: SalidaFueraDelCiclo[],
+): ExplicacionDiferencia | null {
+  if (!(diferencia < 0) || !salidas.length) return null;
+
+  const porTipoMap = new Map<string, { tipo: string; cantidad: number; movimientos: number }>();
+  let total = 0;
+  let ultimo: ExplicacionDiferencia['ultimo'] = null;
+  for (const s of salidas) {
+    const cant = Math.abs(Number(s.cantidad) || 0);
+    if (cant <= 0) continue;
+    total = r2(total + cant);
+    const prev = porTipoMap.get(s.tipo);
+    if (prev) { prev.cantidad = r2(prev.cantidad + cant); prev.movimientos += 1; }
+    else porTipoMap.set(s.tipo, { tipo: s.tipo, cantidad: cant, movimientos: 1 });
+    if (!ultimo || String(s.at) > String(ultimo.at)) {
+      ultimo = { at: s.at, actor: s.actor_name ?? null, tipo: s.tipo, cantidad: cant };
+    }
+  }
+  if (total <= 0) return null;
+
+  const falta = Math.abs(diferencia);
+  const sinExplicar = r2(Math.max(0, falta - total));
+  return {
+    total,
+    porTipo: [...porTipoMap.values()].sort((a, b) => b.cantidad - a.cantidad),
+    ultimo,
+    explicaTodo: sinExplicar < 0.01,
+    sinExplicar,
+  };
+}
+
+/**
+ * Por qué SOBRA: en el almacén hay más de lo que el libro dice que queda.
+ *
+ * Un sobrante no se explica con salidas —al revés que un faltante— así que
+ * `explicarDiferencia` devuelve `null` y hace falta mirar la fila del ciclo.
+ *
+ * El caso más frecuente y el más grave es el libro en NEGATIVO: se registraron
+ * consumos por encima de lo que el mercado vio entrar, así que el saldo cae por
+ * debajo de cero mientras el almacén tiene material de verdad. No es que sobre
+ * comida: es que al ciclo le falta una entrada.
+ */
+export function explicarSobrante(d: DisponibleItem): string | null {
+  if (d.queda < -0.001) {
+    return 'el libro quedó en negativo: se consumió más de lo que el ciclo vio entrar';
+  }
+  if (d.saldoInicial === 0 && d.entradas === 0 && d.consumos > 0) {
+    return 'se consumió sin que el ciclo registrara ninguna entrada';
+  }
+  if (d.saldoInicial === 0 && d.entradas === 0) {
+    return 'el ciclo nunca lo vio entrar: está en el almacén pero no en el mercado';
+  }
+  return 'entró al almacén sin quedar registrado en el ciclo';
+}
+
+/* ───────── Que dos ciclos no se pisen ───────── */
+
+/** Lo mínimo de un mercado para saber qué ventana ocupa. */
+export interface VentanaCiclo {
+  numero: number;
+  fecha_inicio: string;
+  fecha_fin: string;
+  estado?: string;
+  descartado?: boolean;
+}
+
+/**
+ * ¿La ventana propuesta pisa la de algún ciclo que ya existe?
+ *
+ * POR QUÉ IMPORTA. El saldo inicial de un ciclo nuevo se reconstruye con
+ * `stock − entradas + consumos` sobre su propia ventana. Si esa ventana se
+ * superpone con la de otro ciclo, esos movimientos ya fueron contados una vez:
+ * los consumos se suman de vuelta al saldo y el ciclo nuevo los vuelve a
+ * descontar, o sea que los mismos platos aparecen en dos cortes. Con el ARROZ
+ * del mercado #1 el número da −32 y el víver directamente desaparece, porque
+ * `reconstruirSaldo` descarta los saldos negativos.
+ *
+ * Se comparan también los DESCARTADOS: un ciclo se descarta justamente porque
+ * sus cifras no sirven, y volver a abrir sobre esa misma ventana las reactiva.
+ *
+ * Devuelve el ciclo que estorba, o `null` si la ventana está libre.
+ */
+export function cicloQueSePisa(
+  inicio: string,
+  fin: string,
+  previos: VentanaCiclo[],
+): VentanaCiclo | null {
+  if (!inicio || !fin) return null;
+  for (const p of previos) {
+    if (!p.fecha_inicio || !p.fecha_fin) continue;
+    // Dos rangos se solapan si cada uno empieza antes de que el otro termine.
+    if (inicio <= p.fecha_fin && p.fecha_inicio <= fin) return p;
+  }
+  return null;
+}
+
+/** Primer día libre después de todos los ciclos existentes. `null` si no hay ninguno. */
+export function primerDiaLibre(previos: VentanaCiclo[]): string | null {
+  let ultimo: string | null = null;
+  for (const p of previos) {
+    if (p.fecha_fin && (!ultimo || p.fecha_fin > ultimo)) ultimo = p.fecha_fin;
+  }
+  if (!ultimo) return null;
+  const d = new Date(`${ultimo}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
 }

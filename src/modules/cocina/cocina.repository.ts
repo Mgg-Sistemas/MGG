@@ -38,17 +38,35 @@ export interface CocinaConInfo {
   almacenNombre: string | null;   // nombre actual del almacén vinculado
   viveres: number;                // nº de víveres con stock en ese almacén
   valorStock: number;             // Σ stock × precio de esos víveres
+  /**
+   * El ciclo abierto, si hay uno. Es lo primero que se quiere saber de una
+   * cocina y hasta ahora había que entrar para averiguarlo.
+   */
+  mercado: { numero: number; dia: number; dias: number } | null;
 }
 
 /** Lista las cocinas activas con su almacén vinculado y un resumen de stock. */
 export async function listCocinas(): Promise<CocinaConInfo[]> {
-  const [{ data, error }, almacenes, viveres] = await Promise.all([
+  const [{ data, error }, almacenes, viveres, abiertos] = await Promise.all([
     supabase.from('cocinas').select('*').eq('activa', true).order('nombre', { ascending: true }),
     listAlmacenes(),
     listViveresConStock(),
+    // Una sola consulta para todas las cocinas, en vez de una por tarjeta.
+    supabase.from('mercados_cocina')
+      .select('cocina_id, numero, fecha_inicio, fecha_fin')
+      .eq('estado', 'abierto'),
   ]);
   if (error) throw error;
   const almById = new Map(almacenes.map((a) => [a.id, a] as const));
+  const hoy = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00`);
+  const mercadoPorCocina = new Map<string, { numero: number; dia: number; dias: number }>();
+  for (const raw of (abiertos.data ?? []) as Array<{ cocina_id: string; numero: number; fecha_inicio: string; fecha_fin: string }>) {
+    const ini = new Date(`${raw.fecha_inicio}T00:00:00`);
+    const fin = new Date(`${raw.fecha_fin}T00:00:00`);
+    const dias = Math.round((fin.getTime() - ini.getTime()) / 86400000) + 1;
+    const dia = Math.max(1, Math.floor((hoy.getTime() - ini.getTime()) / 86400000) + 1);
+    mercadoPorCocina.set(raw.cocina_id, { numero: raw.numero, dia, dias });
+  }
   return (data ?? []).map((row) => {
     const c = row as Cocina;
     const alm = c.almacen_id ? almById.get(c.almacen_id) ?? null : null;
@@ -59,6 +77,7 @@ export async function listCocinas(): Promise<CocinaConInfo[]> {
       almacenNombre: nombre,
       viveres: delAlmacen.length,
       valorStock: Math.round(delAlmacen.reduce((a, v) => a + v.stock * v.precio, 0) * 100) / 100,
+      mercado: mercadoPorCocina.get(c.id) ?? null,
     };
   });
 }
@@ -238,11 +257,22 @@ export async function listViveresGlobal(preferAlmacen?: string | null): Promise<
 /** Productos CON stock desglosados por almacén (para el resumen de cada tarjeta de
  *  cocina): refleja el inventario real del almacén vinculado, no una sola categoría. */
 interface ViverEnAlmacen { producto_id: string; almacen: string; stock: number; precio: number }
+/**
+ * Víveres con stock, por almacén.
+ *
+ * FILTRA POR CATEGORÍA DE COCINA, que es lo que faltaba. Sin ese filtro contaba
+ * TODO lo que tuviera stock en el almacén: la tarjeta de Los Pinos decía «225
+ * víveres · $234.241,62» cuando la comida real eran 61 ítems y $5.276,18. Los
+ * $157.772 más grandes eran CASITERITA — mineral de estaño contado como víver.
+ *
+ * Y lo peor no era el número feo: el panel del mercado SÍ filtra por categoría,
+ * así que las dos pantallas mostraban verdades distintas sobre la misma cocina.
+ */
 async function listViveresConStock(): Promise<ViverEnAlmacen[]> {
   const [productos, existencias] = await Promise.all([listProductos(), listExistencias()]);
   const precioProd = new Map<string, number>();
   for (const p of productos) {
-    if (p.estado === 'activo') precioProd.set(p.id, Number(p.precio) || 0);
+    if (p.estado === 'activo' && esCategoriaCocina(p.categoria)) precioProd.set(p.id, Number(p.precio) || 0);
   }
   return existencias
     .filter((e) => precioProd.has(e.producto_id) && Number(e.stock) > 0)

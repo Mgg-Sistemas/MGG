@@ -25,11 +25,21 @@ import {
 } from './cocina.repository';
 // descargarReporteCocinaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { crearAlertaMercado, listAlertasMercadoPendientes } from './alertasMercado.repository';
-import { listMercados, resumenMercado, iniciarMercado, type MercadoCocina, type ResumenMercado } from './mercados.repository';
+import {
+  listMercados, resumenMercado, iniciarMercado, DURACION_MERCADO_DIAS,
+  type MercadoCocina, type ResumenMercado,
+} from './mercados.repository';
+import { cicloQueSePisa, primerDiaLibre } from './mercadoComparar';
 import { MercadoPanel } from './MercadoPanel';
 import { MercadosHistoricoModal } from './MercadosHistorico';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Fecha ISO corta a dd/mm/aaaa, que es como se lee acá. */
+function fmtDiaCorto(iso: string): string {
+  const [y, m, d] = (iso || '').split('-');
+  return d ? `${d}/${m}/${y}` : (iso || '—');
+}
 
 /* ───────────── Página: tarjetas de cocinas ───────────── */
 export function CocinaPage() {
@@ -85,13 +95,37 @@ export function CocinaPage() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
           {cocinas.map((info) => (
-            <div key={info.cocina.id} className="card" style={{ margin: 0, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '.35rem' }}
-              onClick={() => setSel(info.cocina.id)} title="Entrar a la cocina">
+            /* ALCANZABLE POR TECLADO. Era un div con onClick: con Tab no se podía
+               entrar a una cocina, solo con mouse — pero los botones Editar y 🗑
+               SÍ recibían foco, así que se podía llegar a borrar sin poder llegar
+               a entrar. `role` + `tabIndex` + Enter/Espacio lo emparejan. */
+            <div key={info.cocina.id} className="card"
+              role="button" tabIndex={0}
+              style={{ margin: 0, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '.35rem' }}
+              onClick={() => setSel(info.cocina.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSel(info.cocina.id); }
+              }}
+              title="Entrar a la cocina"
+              aria-label={`Entrar a la cocina ${info.cocina.nombre}`}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
                 <strong style={{ fontSize: '1.05rem' }}>🍳 {info.cocina.nombre}</strong>
                 <span className="badge">Entrar →</span>
               </div>
               <div className="muted" style={{ fontSize: '.82rem' }}>📦 {info.almacenNombre ?? <span style={{ color: 'var(--warning)' }}>Sin almacén vinculado</span>}</div>
+              {/* El ciclo abierto es lo primero que se quiere saber de una cocina;
+                  hasta ahora había que entrar para averiguarlo. Sin mercado se dice
+                  también: un espacio vacío no distingue «no hay» de «no cargó». */}
+              <div style={{ fontSize: '.78rem' }}>
+                {info.mercado ? (
+                  <span style={{ color: 'var(--primary, #ff8a00)' }}>
+                    🛒 Mercado #{info.mercado.numero}
+                    <span className="muted"> · día {Math.min(info.mercado.dia, info.mercado.dias)} de {info.mercado.dias}</span>
+                  </span>
+                ) : (
+                  <span className="dim">Sin mercado abierto</span>
+                )}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.82rem', marginTop: '.2rem' }}>
                 <span className="muted">Víveres con stock</span><strong className="mono">{num(info.viveres)}</strong>
               </div>
@@ -219,6 +253,16 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
   const [mercadoLoading, setMercadoLoading] = useState(true);
   const [iniciando, setIniciando] = useState(false);
   const [fechaInicioMercado, setFechaInicioMercado] = useState(() => new Date().toISOString().slice(0, 10));
+  // Un ciclo nuevo no puede pisar a otro, ni siquiera a uno descartado: su saldo
+  // se reconstruye sobre su propia ventana, y sobre días ya contados esos
+  // movimientos entran dos veces.
+  const diaLibre = useMemo(() => primerDiaLibre(mercados), [mercados]);
+  const choque = useMemo(() => {
+    if (!fechaInicioMercado) return null;
+    const fin = new Date(`${fechaInicioMercado}T12:00:00`);
+    fin.setDate(fin.getDate() + DURACION_MERCADO_DIAS - 1);
+    return cicloQueSePisa(fechaInicioMercado, fin.toISOString().slice(0, 10), mercados);
+  }, [fechaInicioMercado, mercados]);
   // Qué corte se está mirando. `null` = el que está en curso, que es lo que hay que
   // ver al entrar; elegir otro en el selector es una consulta puntual, no una
   // preferencia, así que NO se recuerda entre visitas.
@@ -298,11 +342,30 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
             <div style={{ display: 'flex', gap: '.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
               <div className="form-row" style={{ margin: 0, maxWidth: 200 }}>
                 <label style={{ fontSize: '.75rem' }}>Fecha de inicio</label>
-                <input className="input" type="date" value={fechaInicioMercado} onChange={(e) => setFechaInicioMercado(e.target.value)} />
+                {/* `min` es el día siguiente al último ciclo: el navegador ya no
+                    deja elegir una fecha que lo pise. El aviso de abajo explica
+                    por qué, porque un campo que no deja elegir y no dice nada se
+                    lee como si estuviera roto. */}
+                <input className="input" type="date" value={fechaInicioMercado}
+                  min={diaLibre ?? undefined}
+                  onChange={(e) => setFechaInicioMercado(e.target.value)} />
               </div>
-              <button className="btn btn-primary" onClick={iniciar} disabled={iniciando || !almacen}>{iniciando ? 'Iniciando…' : '🛒 Iniciar mercado'}</button>
+              <button className="btn btn-primary" onClick={iniciar} disabled={iniciando || !almacen || !!choque}>{iniciando ? 'Iniciando…' : '🛒 Iniciar mercado'}</button>
             </div>
           ) : <p className="hint muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
+          {/* El solapamiento se explica ANTES de apretar. Abrir dos ciclos sobre
+              los mismos días cuenta los consumos dos veces, y con los números
+              reales el saldo da negativo y el víver desaparece del ciclo nuevo. */}
+          {canWrite && choque && (
+            <div className="card" style={{ borderColor: 'var(--danger)', marginTop: '.6rem' }}>
+              Ese período se superpone con el <strong>mercado #{choque.numero}</strong>{' '}
+              ({fmtDiaCorto(choque.fecha_inicio)} → {fmtDiaCorto(choque.fecha_fin)}).
+              <div className="hint muted" style={{ marginTop: '.25rem' }}>
+                Dos ciclos sobre los mismos días cuentan los consumos dos veces.
+                {diaLibre ? <> El primer día libre es <strong>{fmtDiaCorto(diaLibre)}</strong>.</> : null}
+              </div>
+            </div>
+          )}
         </div>
       ) : resumen ? (
         <MercadoPanel resumen={resumen} mercados={mercados} onElegirMercado={(id) => setVerMercadoId(id)}

@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  cicloQueSePisa, explicarDiferencia, explicarSobrante, primerDiaLibre,
   compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
   separarMovidos, totalesDeMercado,
 } from './mercadoComparar';
 import type { DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
+import type { SalidaFueraDelCiclo, VentanaCiclo } from './mercadoComparar';
 
 // Víveres reales de La Esperanza, con los números que muestra la pantalla hoy.
 const d = (
@@ -187,5 +189,140 @@ describe('compararConsumos', () => {
   it('los víveres que no se consumieron en ninguno de los dos cortes no ensucian la tabla', () => {
     const filas = compararConsumos([agg('z', 'BAYGON', 0)], [agg('z', 'BAYGON', 0)]);
     expect(filas).toEqual([]);
+  });
+});
+
+describe('explicarDiferencia — por dónde se fue el faltante', () => {
+  /* El caso real del ARROZ VIV-057 en Los Pinos: el libro decía que quedaban 52,
+     el almacén tenía 20, y los 32 de diferencia habían salido el 08/09 por una
+     salida manual de NAZARET sin ningún detalle escrito. */
+  const s = (
+    cantidad: number, at: string, tipo = 'salida', actor_name: string | null = 'NAZARET',
+  ): SalidaFueraDelCiclo => ({
+    producto_id: 'p-arroz', at, cantidad, tipo, actor_name, detalle: null,
+  });
+
+  it('nombra el movimiento que explica el faltante', () => {
+    const e = explicarDiferencia(-32, [s(32, '2026-09-08T13:50:00Z')])!;
+    expect(e.total).toBe(32);
+    expect(e.explicaTodo).toBe(true);
+    expect(e.sinExplicar).toBe(0);
+    expect(e.ultimo).toMatchObject({ actor: 'NAZARET', tipo: 'salida', cantidad: 32 });
+  });
+
+  it('agrupa por tipo y pone primero el más grande', () => {
+    const e = explicarDiferencia(-45, [
+      s(32, '2026-09-08T13:50:00Z', 'salida'),
+      s(10, '2026-09-01T10:00:00Z', 'ajuste'),
+      s(3, '2026-08-30T10:00:00Z', 'ajuste'),
+    ])!;
+    expect(e.porTipo[0]).toEqual({ tipo: 'salida', cantidad: 32, movimientos: 1 });
+    expect(e.porTipo[1]).toEqual({ tipo: 'ajuste', cantidad: 13, movimientos: 2 });
+  });
+
+  it('el «último» es el más reciente, no el primero de la lista', () => {
+    const e = explicarDiferencia(-40, [
+      s(10, '2026-08-30T10:00:00Z'),
+      s(30, '2026-09-08T13:50:00Z'),
+    ])!;
+    expect(e.ultimo!.at).toBe('2026-09-08T13:50:00Z');
+  });
+
+  it('si las salidas NO alcanzan, lo dice en vez de dar el caso por cerrado', () => {
+    // Decir «esto lo explica» cuando queda un resto es peor que no decir nada:
+    // manda a cerrar una investigación que sigue abierta.
+    const e = explicarDiferencia(-50, [s(32, '2026-09-08T13:50:00Z')])!;
+    expect(e.explicaTodo).toBe(false);
+    expect(e.sinExplicar).toBe(18);
+  });
+
+  it('un SOBRANTE no se explica con salidas', () => {
+    // Si en el almacén hay de más, ninguna salida lo justifica: inventarle una
+    // causa sería peor que admitir que no se sabe.
+    expect(explicarDiferencia(30, [s(32, '2026-09-08T13:50:00Z')])).toBeNull();
+  });
+
+  it('sin movimientos por fuera del ciclo no hay nada que explicar', () => {
+    expect(explicarDiferencia(-32, [])).toBeNull();
+    expect(explicarDiferencia(-32, [s(0, '2026-09-08T13:50:00Z')])).toBeNull();
+  });
+});
+
+describe('describirEvento · mercado descartado', () => {
+  it('nombra a quien lo descartó', () => {
+    const e: EventoMercado = {
+      at: '2026-09-08T21:00:00Z', evento: 'descartado',
+      actor: 'a@mgg.com', actor_name: 'ANALISTA', motivo: 'ciclo accidentado',
+    };
+    expect(describirEvento(e)).toBe('Descartó ANALISTA');
+  });
+});
+
+describe('explicarSobrante — cuando en el almacén hay de MÁS', () => {
+  it('el libro en negativo es el caso grave y se nombra así', () => {
+    // Caso real de MONTE SURTIDO HTL-006: inventario 2,4 y «sobran 3», o sea que
+    // el libro dice −0,6. No sobra comida: al ciclo le falta una entrada.
+    const v = d('p-monte', 'MONTE SURTIDO', 'UNIDAD', 0, 0, 0.6);
+    expect(v.queda).toBeCloseTo(-0.6, 6);
+    expect(explicarSobrante(v)).toContain('negativo');
+  });
+
+  it('consumido sin ninguna entrada registrada', () => {
+    const v = d('p', 'X', 'UNIDAD', 0, 0, 0);
+    expect(explicarSobrante({ ...v, consumos: 0 })).toContain('nunca lo vio entrar');
+  });
+
+  it('con saldo y entradas, el sobrante es material que entró sin registrarse', () => {
+    const v = d('p', 'X', 'UNIDAD', 10, 5, 2);
+    expect(explicarSobrante(v)).toContain('sin quedar registrado');
+  });
+});
+
+describe('cicloQueSePisa — no abrir un mercado encima de otro', () => {
+  const previos: VentanaCiclo[] = [
+    { numero: 1, fecha_inicio: '2026-08-22', fecha_fin: '2026-09-11', estado: 'cerrado', descartado: true },
+  ];
+
+  it('detecta el solapamiento exacto', () => {
+    // El caso peligroso: descartar el #1 y volver a abrir con su misma fecha.
+    expect(cicloQueSePisa('2026-08-22', '2026-09-11', previos)?.numero).toBe(1);
+  });
+
+  it('detecta el solapamiento parcial, por los dos lados', () => {
+    expect(cicloQueSePisa('2026-09-05', '2026-09-25', previos)).not.toBeNull();
+    expect(cicloQueSePisa('2026-08-10', '2026-08-30', previos)).not.toBeNull();
+    // Y el que envuelve por completo al anterior.
+    expect(cicloQueSePisa('2026-08-01', '2026-09-30', previos)).not.toBeNull();
+  });
+
+  it('un ciclo que empieza justo al día siguiente NO se pisa', () => {
+    expect(cicloQueSePisa('2026-09-12', '2026-10-02', previos)).toBeNull();
+  });
+
+  it('el último día del anterior SÍ se pisa: la ventana es inclusiva', () => {
+    expect(cicloQueSePisa('2026-09-11', '2026-10-01', previos)).not.toBeNull();
+  });
+
+  it('un DESCARTADO también estorba', () => {
+    // Se descarta porque sus cifras no sirven; reabrir sobre su ventana las
+    // reactiva, que es exactamente lo que se quería evitar.
+    expect(cicloQueSePisa('2026-08-25', '2026-09-14', previos)?.descartado).toBe(true);
+  });
+
+  it('sin ciclos previos, cualquier ventana está libre', () => {
+    expect(cicloQueSePisa('2026-08-22', '2026-09-11', [])).toBeNull();
+  });
+});
+
+describe('primerDiaLibre', () => {
+  it('es el día siguiente al fin del último ciclo', () => {
+    expect(primerDiaLibre([
+      { numero: 1, fecha_inicio: '2026-08-22', fecha_fin: '2026-09-11' },
+      { numero: 2, fecha_inicio: '2026-07-01', fecha_fin: '2026-07-21' },
+    ])).toBe('2026-09-12');
+  });
+
+  it('sin ciclos no hay restricción', () => {
+    expect(primerDiaLibre([])).toBeNull();
   });
 });

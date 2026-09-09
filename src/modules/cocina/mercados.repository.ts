@@ -14,7 +14,10 @@ import type { CocinaComida, Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, diaDeComida } from './cocina.repository';
-import { diferenciasPorViver, totalesDeMercado, type DiferenciaViver, type TotalesMercado } from './mercadoComparar';
+import {
+  cicloQueSePisa, diferenciasPorViver, explicarDiferencia, totalesDeMercado,
+  type DiferenciaViver, type ExplicacionDiferencia, type SalidaFueraDelCiclo, type TotalesMercado,
+} from './mercadoComparar';
 
 const TABLE = 'mercados_cocina';
 /** Duración del ciclo de mercado, en días (ventana inclusiva). */
@@ -67,6 +70,15 @@ export interface CierreSnapshot {
   ajustado?: boolean;
   /** Por qué se ajustó. Obligatorio cuando `ajustado`. */
   motivo_ajuste?: string | null;
+  /* ── Mercado DESCARTADO, agregado el 08/09/2026 ──
+     Un ciclo que arrancó antes del rediseño y quedó accidentado no sirve de
+     punto de partida: su remanente arrastra el descuadre a todos los cortes
+     siguientes. Descartarlo lo deja fuera de la cadena SIN borrarlo — con todo
+     lo que pasó en este mercado, el rastro es lo último que conviene perder. */
+  /** true si el ciclo se descartó: no aporta saldo al siguiente. */
+  descartado?: boolean;
+  /** Por qué se descartó. Obligatorio cuando `descartado`. */
+  motivo_descarte?: string | null;
 }
 
 export interface MercadoCocina {
@@ -90,7 +102,7 @@ export interface MercadoCocina {
 /** Una intervención sobre el mercado. `actor` es el correo; `actor_name`, el nombre visible. */
 export interface EventoMercado {
   at: string;
-  evento: 'abierta' | 'generado_al_cerrar' | 'cerrado' | 'reabierto';
+  evento: 'abierta' | 'generado_al_cerrar' | 'cerrado' | 'reabierto' | 'descartado';
   actor: string;
   actor_name?: string | null;
   /** En `generado_al_cerrar`: qué mercado se cerró para que naciera este. */
@@ -131,6 +143,14 @@ export interface ResumenMercado {
   totales: TotalesMercado;
   /** Víveres donde el libro y el almacén no coinciden. Vacío = todo cuadra. */
   diferencias: DiferenciaViver[];
+  /**
+   * Por dónde se fue el faltante de cada víver, cuando se puede saber.
+   *
+   * Decir «faltan 32» obliga a salir a buscar en el kardex; decir «32 salieron
+   * por un movimiento manual el 08/09» cierra la pregunta donde se hace. Solo
+   * trae los que tienen explicación: un sobrante no la tiene.
+   */
+  explicaciones: Map<string, ExplicacionDiferencia>;
 }
 
 /* ───────── Fechas ───────── */
@@ -355,15 +375,66 @@ function armarDisponible(
   return out.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 }
 
+
+/**
+ * Salidas de víveres que el mercado NO cuenta como consumo.
+ *
+ * El libro solo resta lo que sale por `cocina_comidas`. Una salida manual, un
+ * ajuste o un traslado mueven el inventario sin tocar la columna «Consumido», y
+ * de ahí sale el descuadre: en Los Pinos el 90 % de lo que sale del almacén se
+ * va por estas puertas. Traerlas es lo que permite decir POR DÓNDE se fue el
+ * faltante, en vez de solo cuánto falta.
+ */
+async function salidasFueraDelCicloDe(
+  m: { fecha_inicio: string; fecha_fin: string },
+  almacen: string | null,
+  prodById: Map<string, Producto>,
+): Promise<Map<string, SalidaFueraDelCiclo[]>> {
+  const { desde, hasta } = ventana(m);
+  const scope = await almacenesScope(almacen);
+  let q = supabase.from('movimientos')
+    .select('producto_id, delta, at, tipo, actor_name, detalle, almacen, ref_tipo')
+    .lt('delta', 0).gte('at', desde).lte('at', hasta);
+  if (scope) q = q.in('almacen', Array.from(scope));
+  const { data, error } = await q.order('at', { ascending: false }).limit(1000);
+  if (error) throw error;
+
+  const out = new Map<string, SalidaFueraDelCiclo[]>();
+  for (const raw of (data ?? []) as Record<string, unknown>[]) {
+    // Lo de cocina SÍ lo cuenta el libro: no explica ninguna diferencia.
+    if (raw.ref_tipo === 'cocina') continue;
+    const p = prodById.get(String(raw.producto_id));
+    if (!p || !esCategoriaCocina(p.categoria)) continue;
+    const cantidad = Math.abs(r2(Number(raw.delta) || 0));
+    if (cantidad <= 0) continue;
+    const lista = out.get(p.id) ?? [];
+    lista.push({
+      producto_id: p.id,
+      at: String(raw.at),
+      cantidad,
+      tipo: String(raw.tipo ?? 'salida'),
+      actor_name: (raw.actor_name as string) ?? null,
+      detalle: (raw.detalle as string) ?? null,
+    });
+    out.set(p.id, lista);
+  }
+  return out;
+}
+
 /* ───────── Resumen en vivo del mercado abierto ───────── */
 
 export async function resumenMercado(mercado: MercadoCocina, almacen: string | null): Promise<ResumenMercado> {
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
-  const [ent, con, viveres] = await Promise.all([
+  const [ent, con, viveres, salidasFuera] = await Promise.all([
     entradasDe(mercado, almacen, prodById),
     consumosDe(mercado, mercado.cocina_id),
     listViveresGlobal(almacen),
+    // Solo hace falta para el mercado abierto: en uno cerrado la explicación ya
+    // quedó en el snapshot y el almacén siguió moviéndose después.
+    mercado.estado === 'abierto'
+      ? salidasFueraDelCicloDe(mercado, almacen, prodById)
+      : Promise.resolve(new Map<string, SalidaFueraDelCiclo[]>()),
   ]);
   const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, con.agg, prodById);
   // El stock REAL del almacén, para contrastarlo con el libro del mercado. Es lo único
@@ -375,6 +446,18 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
   // snapshot del cierre (`remanente_inventario`, `diferencia`, `diferencias`).
   const stockPorProducto = mercado.estado === 'abierto' ? stockDeViveres(viveres) : null;
   const disponibleValor = r2(disponible.reduce((a, d) => a + d.queda * d.precio, 0));
+
+  /* Las diferencias vivas y, para cada una, por dónde se fue lo que falta. Se
+     arma acá y no dentro de `diferenciasPorViver` porque esa función es pura y
+     no sabe de movimientos: recibe dos números y los compara. */
+  const difsVivas = mercado.estado === 'abierto'
+    ? diferenciasPorViver(disponible, stockPorProducto ?? new Map())
+    : (mercado.cierre?.diferencias ?? []);
+  const explicaciones = new Map<string, ExplicacionDiferencia>();
+  for (const d of difsVivas) {
+    const exp = explicarDiferencia(d.diferencia, salidasFuera.get(d.producto_id) ?? []);
+    if (exp) explicaciones.set(d.producto_id, exp);
+  }
 
   const kardex: KardexRow[] = [
     ...ent.rows,
@@ -410,9 +493,8 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
       : { ...totalesDeMercado(disponible), inventario: mercado.cierre?.remanente_inventario ?? null,
           diferencia: mercado.cierre?.diferencia ?? null,
           vieresConDiferencia: mercado.cierre?.diferencias?.length ?? 0 },
-    diferencias: mercado.estado === 'abierto'
-      ? diferenciasPorViver(disponible, stockPorProducto ?? new Map())
-      : (mercado.cierre?.diferencias ?? []),
+    diferencias: difsVivas,
+    explicaciones,
   };
 }
 
@@ -468,9 +550,32 @@ export async function iniciarMercado(input: {
   const previos = await listMercados(input.cocinaId);
   const numero = (previos[0]?.numero ?? 0) + 1;
 
-  // El remanente congelado del último cierre manda. Si no hay ninguno (primer mercado de
-  // esta cocina), se reconstruye desde el stock: es la única referencia disponible.
-  const ultimoCerrado = previos.find((m) => m.estado === 'cerrado' && m.cierre);
+  /* NINGÚN CICLO PUEDE PISAR A OTRO, ni siquiera a uno descartado.
+     El saldo inicial se reconstruye con `stock − entradas + consumos` sobre la
+     ventana propia: si esa ventana se superpone con la de otro ciclo, esos
+     movimientos ya se contaron una vez y los mismos platos terminan en dos
+     cortes. Y con los números del mercado #1 el cálculo da negativo, así que
+     `reconstruirSaldo` descarta el víver y este DESAPARECE del ciclo nuevo.
+     La guarda va acá y no solo en la pantalla: la pantalla se puede saltear. */
+  const pisado = cicloQueSePisa(inicio, fin, previos);
+  if (pisado) {
+    throw new Error(
+      `Ese período se superpone con el mercado #${pisado.numero} `
+      + `(${pisado.fecha_inicio} → ${pisado.fecha_fin}). Elegí una fecha posterior: `
+      + 'abrir dos ciclos sobre los mismos días cuenta los consumos dos veces.',
+    );
+  }
+
+  /* El remanente congelado del último cierre manda. Si no hay ninguno (primer
+     mercado de esta cocina), se reconstruye desde el stock.
+
+     UN CICLO DESCARTADO NO CUENTA. Su remanente es justamente lo que no se
+     quiere arrastrar: si se tomara, el descuadre que motivó el descarte pasaría
+     intacto al ciclo nuevo y no se habría descartado nada. Se lo saltea y el
+     saldo sale del inventario real, que es el único número confiable. */
+  const ultimoCerrado = previos.find(
+    (m) => m.estado === 'cerrado' && m.cierre && !m.cierre.descartado,
+  );
   let saldo: SaldoItem[];
   if (ultimoCerrado?.cierre?.remanente?.length) {
     saldo = ultimoCerrado.cierre.remanente;
@@ -596,6 +701,63 @@ export async function cerrarMercado(
   );
 
   return { cerrado: normalizar(upd), siguiente, snapshot };
+}
+
+/**
+ * Descarta un ciclo accidentado: queda cerrado pero NO aporta saldo al siguiente.
+ *
+ * Para qué existe: el mercado #1 arrancó antes de que el rediseño estuviera
+ * completo, se sembró a mano, tuvo traslados que perdieron la pata de entrada y
+ * el 85 % de lo que salió del almacén no pasó por el registro de consumo. Su
+ * remanente no describe nada real, y cerrarlo normalmente arrastraría ese
+ * descuadre a todos los cortes siguientes.
+ *
+ * NO SE BORRA, SE MARCA. Borrarlo se llevaría el historial de intervenciones y
+ * las comidas quedarían huérfanas de contexto; después de lo que pasó en este
+ * ciclo, el rastro es lo último que conviene perder. Queda `estado='cerrado'`
+ * —para que se pueda abrir uno nuevo— con la marca `descartado` en el cierre,
+ * que es lo que `iniciarMercado` mira para saltearlo.
+ *
+ * Tampoco abre el siguiente, a diferencia de `cerrarMercado`: la idea es que una
+ * persona lo abra cuando el inventario esté como debe, y ahí el saldo inicial
+ * sale del stock real.
+ */
+export async function descartarMercado(
+  mercado: MercadoCocina,
+  actor: string,
+  actorName: string | null,
+  motivo: string,
+): Promise<void> {
+  if (mercado.estado !== 'abierto') throw new Error('Solo se puede descartar un mercado abierto.');
+  const razon = (motivo ?? '').trim();
+  // El motivo es obligatorio: sin él, dentro de seis meses nadie va a saber por
+  // qué este ciclo no cuenta, y va a parecer un error en vez de una decisión.
+  if (razon.length < 5) {
+    throw new Error('Indicá por qué se descarta este mercado: queda escrito en el historial.');
+  }
+
+  const snapshot: CierreSnapshot = {
+    generado_en: new Date().toISOString(),
+    desde: mercado.fecha_inicio,
+    hasta: mercado.fecha_fin,
+    totales: { platos: 0, valor: 0, entradasValor: 0 },
+    consumos: [],
+    entradas: [],
+    // Sin remanente: es justamente lo que no se quiere arrastrar.
+    remanente: [],
+    descartado: true,
+    motivo_descarte: razon,
+  };
+
+  await actualizarMercado(
+    mercado.id,
+    {
+      estado: 'cerrado', cierre: snapshot, cerrado_por: actor,
+      cerrado_por_nombre: actorName ?? null, cerrado_en: new Date().toISOString(),
+    },
+    appendHistorial(mercado, 'descartado', actor, actorName, { motivo: razon }),
+    'abierto',
+  );
 }
 
 /**
