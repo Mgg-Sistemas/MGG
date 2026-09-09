@@ -49,7 +49,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   onEditComida: (c: CocinaComida) => void;
   onDelComida: (c: CocinaComida) => void;
 }) {
-  const { mercado, dia, dias, puedeCerrar, disponible, kardex, totales, diferencias } = resumen;
+  const { mercado, dia, dias, puedeCerrar, disponible, kardex, totales, diferencias, explicaciones } = resumen;
   const [drill, setDrill] = useState<DisponibleItem | null>(null);
   const [cerrar, setCerrar] = useState(false);
   const [busca, setBusca] = useState('');
@@ -302,6 +302,27 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                             <span style={{ color: 'var(--warning)' }}>⚠ en inventario hay <strong className="mono">{num(dif.inventario)}</strong></span>
                             {' · '}
                             {dif.diferencia < 0 ? 'faltan' : 'sobran'} <strong className="mono">{num(Math.abs(dif.diferencia))}</strong> {d.unidad.toLowerCase()}
+                            {/* POR DÓNDE se fue. «Faltan 32» manda a buscar en el
+                                kardex; «32 salieron por un movimiento manual el
+                                08/09» cierra la pregunta acá mismo. */}
+                            {(() => {
+                              const exp = explicaciones.get(d.producto_id);
+                              if (!exp) return null;
+                              const t = exp.porTipo[0];
+                              return (
+                                <span className="dim" style={{ display: 'block', marginTop: '.1rem' }}>
+                                  ↳ {num(exp.total)} sali{exp.total === 1 ? 'ó' : 'eron'} por {t.movimientos === 1 ? `un ${t.tipo}` : `${t.movimientos} movimientos`}
+                                  {exp.ultimo ? ` · último el ${fmtDia(exp.ultimo.at.slice(0, 10))}` : ''}
+                                  {exp.ultimo?.actor ? ` (${exp.ultimo.actor})` : ''}
+                                  {/* Si no alcanza a cubrir el faltante hay que decirlo:
+                                      dar el caso por cerrado cuando queda un resto manda
+                                      a archivar una investigación que sigue abierta. */}
+                                  {!exp.explicaTodo && (
+                                    <span style={{ color: 'var(--warning)' }}> · quedan {num(exp.sinExplicar)} sin explicar</span>
+                                  )}
+                                </span>
+                              );
+                            })()}
                           </td>
                         </tr>
                       )}

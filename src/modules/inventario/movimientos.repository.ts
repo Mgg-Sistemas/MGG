@@ -319,17 +319,57 @@ export async function transferir(input: TransferirInput): Promise<void> {
     actor_name: input.actor_name ?? null,
     detalle: `Transferencia a ${input.almacenDestino}${extra}`,
   });
-  // Entrada en destino al costo del origen (recalcula el PMP del destino).
-  await registrarMovimiento({
-    producto_id: input.producto_id,
-    tipo: 'transferencia',
-    delta: cantidad,
-    almacen: input.almacenDestino,
-    precio_unitario: costoOrigen,
-    actor: input.actor,
-    actor_name: input.actor_name ?? null,
-    detalle: `Transferencia desde ${input.almacenOrigen}${extra}`,
-  });
+
+  /* SI LA ENTRADA FALLA, SE DESHACE LA SALIDA.
+     Un traslado son dos movimientos y acá nada es transaccional: si el segundo
+     no entra, el primero ya ocurrió y la mercancía se evapora — sale de un lado
+     y no llega a ninguno. Pasó de verdad el 26/08/2026: cinco «transferencias»
+     de víveres quedaron con la pata de salida sola, una de ellas de 101,5
+     unidades desde un almacén que tenía 24. Como `registrarMovimiento` topea en
+     cero en vez de fallar, el descuadre se absorbió en silencio y solo apareció
+     semanas después, al contrastar el mercado contra el inventario.
+
+     No hay transacción posible desde el navegador, así que se compensa: se
+     devuelve lo que salió y se avisa. Si la compensación TAMBIÉN falla, el error
+     dice exactamente qué quedó a medias, que es lo único que permite arreglarlo
+     a mano. */
+  try {
+    // Entrada en destino al costo del origen (recalcula el PMP del destino).
+    await registrarMovimiento({
+      producto_id: input.producto_id,
+      tipo: 'transferencia',
+      delta: cantidad,
+      almacen: input.almacenDestino,
+      precio_unitario: costoOrigen,
+      actor: input.actor,
+      actor_name: input.actor_name ?? null,
+      detalle: `Transferencia desde ${input.almacenOrigen}${extra}`,
+    });
+  } catch (e) {
+    const porQue = e instanceof Error ? e.message : 'error desconocido';
+    try {
+      await registrarMovimiento({
+        producto_id: input.producto_id,
+        tipo: 'transferencia',
+        delta: cantidad,
+        almacen: input.almacenOrigen,
+        precio_unitario: costoOrigen,
+        actor: input.actor,
+        actor_name: input.actor_name ?? null,
+        detalle: `Reverso: la entrada a ${input.almacenDestino} no se pudo registrar${extra}`,
+      });
+    } catch {
+      throw new Error(
+        `El traslado quedó A MEDIAS y hay que corregirlo a mano: salieron ${cantidad} de `
+        + `${input.almacenOrigen}, NO entraron a ${input.almacenDestino} y tampoco se pudo `
+        + `devolverlas al origen. Causa: ${porQue}`,
+      );
+    }
+    throw new Error(
+      `No se pudo completar el traslado a ${input.almacenDestino}: ${porQue}. `
+      + `Las ${cantidad} unidades se devolvieron a ${input.almacenOrigen}, no se perdió stock.`,
+    );
+  }
 }
 
 /**

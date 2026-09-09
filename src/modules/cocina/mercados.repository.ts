@@ -14,7 +14,10 @@ import type { CocinaComida, Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, diaDeComida } from './cocina.repository';
-import { diferenciasPorViver, totalesDeMercado, type DiferenciaViver, type TotalesMercado } from './mercadoComparar';
+import {
+  diferenciasPorViver, explicarDiferencia, totalesDeMercado,
+  type DiferenciaViver, type ExplicacionDiferencia, type SalidaFueraDelCiclo, type TotalesMercado,
+} from './mercadoComparar';
 
 const TABLE = 'mercados_cocina';
 /** Duración del ciclo de mercado, en días (ventana inclusiva). */
@@ -131,6 +134,14 @@ export interface ResumenMercado {
   totales: TotalesMercado;
   /** Víveres donde el libro y el almacén no coinciden. Vacío = todo cuadra. */
   diferencias: DiferenciaViver[];
+  /**
+   * Por dónde se fue el faltante de cada víver, cuando se puede saber.
+   *
+   * Decir «faltan 32» obliga a salir a buscar en el kardex; decir «32 salieron
+   * por un movimiento manual el 08/09» cierra la pregunta donde se hace. Solo
+   * trae los que tienen explicación: un sobrante no la tiene.
+   */
+  explicaciones: Map<string, ExplicacionDiferencia>;
 }
 
 /* ───────── Fechas ───────── */
@@ -355,15 +366,66 @@ function armarDisponible(
   return out.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 }
 
+
+/**
+ * Salidas de víveres que el mercado NO cuenta como consumo.
+ *
+ * El libro solo resta lo que sale por `cocina_comidas`. Una salida manual, un
+ * ajuste o un traslado mueven el inventario sin tocar la columna «Consumido», y
+ * de ahí sale el descuadre: en Los Pinos el 90 % de lo que sale del almacén se
+ * va por estas puertas. Traerlas es lo que permite decir POR DÓNDE se fue el
+ * faltante, en vez de solo cuánto falta.
+ */
+async function salidasFueraDelCicloDe(
+  m: { fecha_inicio: string; fecha_fin: string },
+  almacen: string | null,
+  prodById: Map<string, Producto>,
+): Promise<Map<string, SalidaFueraDelCiclo[]>> {
+  const { desde, hasta } = ventana(m);
+  const scope = await almacenesScope(almacen);
+  let q = supabase.from('movimientos')
+    .select('producto_id, delta, at, tipo, actor_name, detalle, almacen, ref_tipo')
+    .lt('delta', 0).gte('at', desde).lte('at', hasta);
+  if (scope) q = q.in('almacen', Array.from(scope));
+  const { data, error } = await q.order('at', { ascending: false }).limit(1000);
+  if (error) throw error;
+
+  const out = new Map<string, SalidaFueraDelCiclo[]>();
+  for (const raw of (data ?? []) as Record<string, unknown>[]) {
+    // Lo de cocina SÍ lo cuenta el libro: no explica ninguna diferencia.
+    if (raw.ref_tipo === 'cocina') continue;
+    const p = prodById.get(String(raw.producto_id));
+    if (!p || !esCategoriaCocina(p.categoria)) continue;
+    const cantidad = Math.abs(r2(Number(raw.delta) || 0));
+    if (cantidad <= 0) continue;
+    const lista = out.get(p.id) ?? [];
+    lista.push({
+      producto_id: p.id,
+      at: String(raw.at),
+      cantidad,
+      tipo: String(raw.tipo ?? 'salida'),
+      actor_name: (raw.actor_name as string) ?? null,
+      detalle: (raw.detalle as string) ?? null,
+    });
+    out.set(p.id, lista);
+  }
+  return out;
+}
+
 /* ───────── Resumen en vivo del mercado abierto ───────── */
 
 export async function resumenMercado(mercado: MercadoCocina, almacen: string | null): Promise<ResumenMercado> {
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
-  const [ent, con, viveres] = await Promise.all([
+  const [ent, con, viveres, salidasFuera] = await Promise.all([
     entradasDe(mercado, almacen, prodById),
     consumosDe(mercado, mercado.cocina_id),
     listViveresGlobal(almacen),
+    // Solo hace falta para el mercado abierto: en uno cerrado la explicación ya
+    // quedó en el snapshot y el almacén siguió moviéndose después.
+    mercado.estado === 'abierto'
+      ? salidasFueraDelCicloDe(mercado, almacen, prodById)
+      : Promise.resolve(new Map<string, SalidaFueraDelCiclo[]>()),
   ]);
   const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, con.agg, prodById);
   // El stock REAL del almacén, para contrastarlo con el libro del mercado. Es lo único
@@ -375,6 +437,18 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
   // snapshot del cierre (`remanente_inventario`, `diferencia`, `diferencias`).
   const stockPorProducto = mercado.estado === 'abierto' ? stockDeViveres(viveres) : null;
   const disponibleValor = r2(disponible.reduce((a, d) => a + d.queda * d.precio, 0));
+
+  /* Las diferencias vivas y, para cada una, por dónde se fue lo que falta. Se
+     arma acá y no dentro de `diferenciasPorViver` porque esa función es pura y
+     no sabe de movimientos: recibe dos números y los compara. */
+  const difsVivas = mercado.estado === 'abierto'
+    ? diferenciasPorViver(disponible, stockPorProducto ?? new Map())
+    : (mercado.cierre?.diferencias ?? []);
+  const explicaciones = new Map<string, ExplicacionDiferencia>();
+  for (const d of difsVivas) {
+    const exp = explicarDiferencia(d.diferencia, salidasFuera.get(d.producto_id) ?? []);
+    if (exp) explicaciones.set(d.producto_id, exp);
+  }
 
   const kardex: KardexRow[] = [
     ...ent.rows,
@@ -410,9 +484,8 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
       : { ...totalesDeMercado(disponible), inventario: mercado.cierre?.remanente_inventario ?? null,
           diferencia: mercado.cierre?.diferencia ?? null,
           vieresConDiferencia: mercado.cierre?.diferencias?.length ?? 0 },
-    diferencias: mercado.estado === 'abierto'
-      ? diferenciasPorViver(disponible, stockPorProducto ?? new Map())
-      : (mercado.cierre?.diferencias ?? []),
+    diferencias: difsVivas,
+    explicaciones,
   };
 }
 

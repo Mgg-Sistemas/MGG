@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  explicarDiferencia,
   compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
   separarMovidos, totalesDeMercado,
 } from './mercadoComparar';
 import type { DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
+import type { SalidaFueraDelCiclo } from './mercadoComparar';
 
 // Víveres reales de La Esperanza, con los números que muestra la pantalla hoy.
 const d = (
@@ -187,5 +189,61 @@ describe('compararConsumos', () => {
   it('los víveres que no se consumieron en ninguno de los dos cortes no ensucian la tabla', () => {
     const filas = compararConsumos([agg('z', 'BAYGON', 0)], [agg('z', 'BAYGON', 0)]);
     expect(filas).toEqual([]);
+  });
+});
+
+describe('explicarDiferencia — por dónde se fue el faltante', () => {
+  /* El caso real del ARROZ VIV-057 en Los Pinos: el libro decía que quedaban 52,
+     el almacén tenía 20, y los 32 de diferencia habían salido el 08/09 por una
+     salida manual de NAZARET sin ningún detalle escrito. */
+  const s = (
+    cantidad: number, at: string, tipo = 'salida', actor_name: string | null = 'NAZARET',
+  ): SalidaFueraDelCiclo => ({
+    producto_id: 'p-arroz', at, cantidad, tipo, actor_name, detalle: null,
+  });
+
+  it('nombra el movimiento que explica el faltante', () => {
+    const e = explicarDiferencia(-32, [s(32, '2026-09-08T13:50:00Z')])!;
+    expect(e.total).toBe(32);
+    expect(e.explicaTodo).toBe(true);
+    expect(e.sinExplicar).toBe(0);
+    expect(e.ultimo).toMatchObject({ actor: 'NAZARET', tipo: 'salida', cantidad: 32 });
+  });
+
+  it('agrupa por tipo y pone primero el más grande', () => {
+    const e = explicarDiferencia(-45, [
+      s(32, '2026-09-08T13:50:00Z', 'salida'),
+      s(10, '2026-09-01T10:00:00Z', 'ajuste'),
+      s(3, '2026-08-30T10:00:00Z', 'ajuste'),
+    ])!;
+    expect(e.porTipo[0]).toEqual({ tipo: 'salida', cantidad: 32, movimientos: 1 });
+    expect(e.porTipo[1]).toEqual({ tipo: 'ajuste', cantidad: 13, movimientos: 2 });
+  });
+
+  it('el «último» es el más reciente, no el primero de la lista', () => {
+    const e = explicarDiferencia(-40, [
+      s(10, '2026-08-30T10:00:00Z'),
+      s(30, '2026-09-08T13:50:00Z'),
+    ])!;
+    expect(e.ultimo!.at).toBe('2026-09-08T13:50:00Z');
+  });
+
+  it('si las salidas NO alcanzan, lo dice en vez de dar el caso por cerrado', () => {
+    // Decir «esto lo explica» cuando queda un resto es peor que no decir nada:
+    // manda a cerrar una investigación que sigue abierta.
+    const e = explicarDiferencia(-50, [s(32, '2026-09-08T13:50:00Z')])!;
+    expect(e.explicaTodo).toBe(false);
+    expect(e.sinExplicar).toBe(18);
+  });
+
+  it('un SOBRANTE no se explica con salidas', () => {
+    // Si en el almacén hay de más, ninguna salida lo justifica: inventarle una
+    // causa sería peor que admitir que no se sabe.
+    expect(explicarDiferencia(30, [s(32, '2026-09-08T13:50:00Z')])).toBeNull();
+  });
+
+  it('sin movimientos por fuera del ciclo no hay nada que explicar', () => {
+    expect(explicarDiferencia(-32, [])).toBeNull();
+    expect(explicarDiferencia(-32, [s(0, '2026-09-08T13:50:00Z')])).toBeNull();
   });
 });

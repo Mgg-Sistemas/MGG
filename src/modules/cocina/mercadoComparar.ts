@@ -219,3 +219,81 @@ export function compararConsumos(a: ItemAgg[], b: ItemAgg[]): FilaComparacion[] 
   }
   return out.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta) || x.nombre.localeCompare(y.nombre, 'es'));
 }
+
+/* ───────── Por dónde se fue la diferencia ───────── */
+
+/**
+ * Una salida de víveres que el mercado NO cuenta como consumo.
+ *
+ * El libro del mercado solo resta lo que sale por `cocina_comidas`. Todo lo
+ * demás —una salida manual, un ajuste, un traslado— mueve el inventario sin
+ * tocar la columna «Consumido», y es de ahí que sale el descuadre. En Los Pinos
+ * eso es el 90 % de lo que sale del almacén.
+ */
+export interface SalidaFueraDelCiclo {
+  producto_id: string;
+  at: string;
+  /** Positivo: cuánto salió. */
+  cantidad: number;
+  tipo: string;
+  actor_name: string | null;
+  detalle: string | null;
+}
+
+export interface ExplicacionDiferencia {
+  /** Cuánto salió por fuera del ciclo, en total. */
+  total: number;
+  /** Desglose, del movimiento más grande al más chico. */
+  porTipo: { tipo: string; cantidad: number; movimientos: number }[];
+  /** El más reciente, que suele ser el que se está preguntando. */
+  ultimo: { at: string; actor: string | null; tipo: string; cantidad: number } | null;
+  /**
+   * ¿Estas salidas alcanzan a explicar el faltante?
+   *
+   * `false` cuando la diferencia es mayor que lo que salió por fuera: ahí queda
+   * un resto sin explicación y decir «esto lo explica» sería mentir.
+   */
+  explicaTodo: boolean;
+  /** Lo que queda sin explicar. 0 cuando las salidas cubren el faltante. */
+  sinExplicar: number;
+}
+
+/**
+ * Qué parte del faltante se explica por movimientos fuera del ciclo.
+ *
+ * `diferencia` es la del contraste: negativa cuando en el almacén hay MENOS de
+ * lo que dice el libro. Un sobrante (positiva) no se explica con salidas, así
+ * que devuelve `null` — inventarle una causa sería peor que no decir nada.
+ */
+export function explicarDiferencia(
+  diferencia: number,
+  salidas: SalidaFueraDelCiclo[],
+): ExplicacionDiferencia | null {
+  if (!(diferencia < 0) || !salidas.length) return null;
+
+  const porTipoMap = new Map<string, { tipo: string; cantidad: number; movimientos: number }>();
+  let total = 0;
+  let ultimo: ExplicacionDiferencia['ultimo'] = null;
+  for (const s of salidas) {
+    const cant = Math.abs(Number(s.cantidad) || 0);
+    if (cant <= 0) continue;
+    total = r2(total + cant);
+    const prev = porTipoMap.get(s.tipo);
+    if (prev) { prev.cantidad = r2(prev.cantidad + cant); prev.movimientos += 1; }
+    else porTipoMap.set(s.tipo, { tipo: s.tipo, cantidad: cant, movimientos: 1 });
+    if (!ultimo || String(s.at) > String(ultimo.at)) {
+      ultimo = { at: s.at, actor: s.actor_name ?? null, tipo: s.tipo, cantidad: cant };
+    }
+  }
+  if (total <= 0) return null;
+
+  const falta = Math.abs(diferencia);
+  const sinExplicar = r2(Math.max(0, falta - total));
+  return {
+    total,
+    porTipo: [...porTipoMap.values()].sort((a, b) => b.cantidad - a.cantidad),
+    ultimo,
+    explicaTodo: sinExplicar < 0.01,
+    sinExplicar,
+  };
+}
