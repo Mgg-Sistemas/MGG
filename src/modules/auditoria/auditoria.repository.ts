@@ -18,6 +18,26 @@ export interface ActividadEvento {
   actor_name: string | null;
   ts: string;         // ISO
   accion: string;     // creó · aprobó · ejecutó · confirmó · cerró
+  /** QUÉ se tocó, armado en la base con hasta cuatro datos de la fila
+   *  (código, producto, motivo, almacén…). Nulo si esa tabla no tiene
+   *  ninguna columna que sirva para describirla. */
+  detalle: string | null;
+}
+
+/** Lo que se muestra en la columna «Qué»: el detalle real, o un aviso honesto. */
+export function queHizo(a: Pick<ActividadEvento, 'detalle'>): string {
+  return (a.detalle ?? '').trim() || 'sin detalle registrado';
+}
+
+/** ¿Este evento tiene algo concreto que mostrar, o solo dice la acción? */
+export function tieneDetalle(a: Pick<ActividadEvento, 'detalle'>): boolean {
+  return (a.detalle ?? '').trim() !== '';
+}
+
+/** Versión corta para la tabla; el texto completo queda en el detalle del evento. */
+export function queHizoCorto(a: Pick<ActividadEvento, 'detalle'>, max = 70): string {
+  const t = queHizo(a);
+  return t.length > max ? t.slice(0, max - 1).trimEnd() + '…' : t;
 }
 
 /** Actividad del período (opcionalmente filtrada por un actor/email). */

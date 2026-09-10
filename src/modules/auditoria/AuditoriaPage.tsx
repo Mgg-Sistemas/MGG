@@ -15,6 +15,7 @@ import { dateTime } from '@/shared/lib/format';
 import {
   listSesiones, listConectadosAhora, listActividad,
   resumenPorUsuario, duracionSesionMs, fmtDuracion, diaLocal, moduloDeTabla, iconoAccion,
+  queHizo, queHizoCorto, tieneDetalle,
   type UserSession, type ActividadEvento, type ResumenUsuario,
 } from './auditoria.repository';
 import { descargarAuditoriaOverviewPdf, descargarAuditoriaUsuarioPdf, descargarAuditoriaMovimientosPdf } from './auditoriaPdf';
@@ -281,9 +282,9 @@ function DetalleUsuario({ email, nombre, desde, hasta, sesiones, actividad, cone
           <div className="card-title">📝 Actividad <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>({num(actividadFiltrada.length)})</span></div>
           <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
             <table className="table" style={{ margin: 0, fontSize: '.82rem' }}>
-              <thead><tr><th>Fecha y hora</th><th>Módulo</th><th>Acción</th></tr></thead>
+              <thead><tr><th>Fecha y hora</th><th>Módulo</th><th>Acción</th><th>Qué</th></tr></thead>
               <tbody>
-                {!actividadFiltrada.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin acciones.</td></tr>}
+                {!actividadFiltrada.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin acciones.</td></tr>}
                 {actividadFiltrada.map((a, i) => {
                   const info = moduloDeTabla(a.tabla);
                   return (
@@ -291,6 +292,11 @@ function DetalleUsuario({ email, nombre, desde, hasta, sesiones, actividad, cone
                       <td className="muted" style={{ whiteSpace: 'nowrap' }}>{dt(a.ts)}</td>
                       <td><span title={a.tabla}>{info.icon} {info.modulo}</span></td>
                       <td><span className="badge">{iconoAccion(a.accion)} {a.accion}</span></td>
+                      <td style={{ maxWidth: 340 }} title={queHizo(a)}>
+                        {tieneDetalle(a)
+                          ? queHizoCorto(a)
+                          : <span className="muted">sin detalle registrado</span>}
+                      </td>
                     </tr>
                   );
                 })}
@@ -316,6 +322,9 @@ function DetalleUsuario({ email, nombre, desde, hasta, sesiones, actividad, cone
                 <strong>{selEvento.actor_name || nombre || selEvento.actor}</strong> {iconoAccion(selEvento.accion)} <strong>{selEvento.accion}</strong> en <strong>{info.modulo}</strong>.
               </p>
               {fila('Qué hizo', <span className="badge">{iconoAccion(selEvento.accion)} {selEvento.accion}</span>)}
+              {fila('Sobre qué', tieneDetalle(selEvento)
+                ? <span style={{ whiteSpace: 'pre-wrap' }}>{queHizo(selEvento)}</span>
+                : <span className="muted" style={{ fontWeight: 400 }}>Este registro no guarda con qué se hizo.</span>)}
               {fila('Módulo', <span>{info.icon} {info.modulo}</span>)}
               {fila('Usuario', selEvento.actor_name || '—')}
               {fila('Correo', <span className="mono" style={{ fontSize: '.82rem' }}>{selEvento.actor}</span>)}

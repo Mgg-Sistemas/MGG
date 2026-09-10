@@ -6,7 +6,7 @@
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
-import { fmtDuracion, duracionSesionMs, moduloDeTabla, type UserSession, type ActividadEvento } from './auditoria.repository';
+import { fmtDuracion, duracionSesionMs, moduloDeTabla, queHizo, type UserSession, type ActividadEvento } from './auditoria.repository';
 
 const MARGIN = 42.52;
 
@@ -89,8 +89,8 @@ export async function descargarAuditoriaMovimientosPdf(data: AuditoriaMovimiento
     doc.setDrawColor(230); doc.setLineWidth(0.5); doc.line(MARGIN, cursorY + 24, PAGE_W - MARGIN, cursorY + 24);
     autoTable(doc, {
       startY: cursorY + 30,
-      head: [['Fecha y hora', 'Módulo', 'Acción']],
-      body: u.eventos.map((a) => [dateTime(a.ts), moduloDeTabla(a.tabla).modulo, a.accion]),
+      head: [['Fecha y hora', 'Módulo', 'Acción', 'Qué']],
+      body: u.eventos.map((a) => [dateTime(a.ts), moduloDeTabla(a.tabla).modulo, a.accion, queHizo(a)]),
       theme: 'grid', headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 8.5 },
       styles: { fontSize: 8, cellPadding: 2.5 },
       margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
@@ -131,8 +131,8 @@ export async function descargarAuditoriaUsuarioPdf(data: AuditoriaUsuarioData): 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Actividad', MARGIN, y);
   autoTable(doc, {
     startY: y + 8,
-    head: [['Fecha y hora', 'Módulo', 'Acción']],
-    body: data.actividad.map((a) => [dateTime(a.ts), moduloDeTabla(a.tabla).modulo, a.accion]),
+    head: [['Fecha y hora', 'Módulo', 'Acción', 'Qué']],
+    body: data.actividad.map((a) => [dateTime(a.ts), moduloDeTabla(a.tabla).modulo, a.accion, queHizo(a)]),
     theme: 'grid', headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 9 },
     styles: { fontSize: 8.5, cellPadding: 3 },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
