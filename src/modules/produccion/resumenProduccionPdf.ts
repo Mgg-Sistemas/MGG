@@ -8,6 +8,7 @@
    formal MGG (logo + razón social + RIF) y barra naranja de tabla.
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { textoPdf } from '@/shared/lib/textoPdf';
 import { dateTime, num } from '@/shared/lib/format';
 import { listFundicionesFinalizadasConDatos } from './colada.repository';
 import { listRefinacionesFinalizadasConDatos } from './refinacion.repository';
@@ -95,8 +96,8 @@ export async function descargarResumenFundicionPdf(): Promise<void> {
 
   autoTable(doc, {
     startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: W - MARGIN * 2,
-    head: [['N° Colada', 'Fecha', 'Lugar', 'Casiterita (kg)', 'Ley Sn/Tenor %', 'Sn contenido (kg)', 'Coque (kg)', 'CaCO₃ (kg)', 'Estaño obtenido (kg)', 'N° lingotes']],
-    body: body.length ? body : [['—', '—', '—', '—', '—', '—', '—', '—', '—', '—']],
+    head: [['N° Colada', 'Fecha', 'Materia prima', 'Casiterita (kg)', 'Ley Sn/Tenor %', 'Sn contenido (kg)', 'Coque (kg)', 'CaCO3 (kg)', 'Estaño obtenido (kg)', 'N° lingotes'].map(textoPdf)],
+    body: (body.length ? body : [['—', '—', '—', '—', '—', '—', '—', '—', '—', '—']]).map((f) => f.map(textoPdf)),
     foot: [['TOTALES', '', '', kg(tCasi), pct(leyProm), kg(tSn), kg(tCoque), kg(tCaco3), kg(tEstano), entero(tLingotes)]],
     theme: 'grid',
     headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 7.5, halign: 'center' },
@@ -151,7 +152,7 @@ export async function descargarResumenRefinacionPdf(): Promise<void> {
 
   autoTable(doc, {
     startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: W - MARGIN * 2,
-    head: [['N° Refinación', 'Fecha', 'Lugar', 'Estaño en bruto (kg)', 'Ley/Tenor %', 'Sn Teórico (kg)', 'Soda cáustica (kg)', 'Azufre (kg)', 'Carbón vegetal (kg)', 'Cal (kg)', 'Estaño Refinado (kg)', 'N° lingotes']],
+    head: [['N° Refinación', 'Fecha', 'Materia prima', 'Estaño en bruto (kg)', 'Ley/Tenor %', 'Sn Teórico (kg)', 'Soda cáustica (kg)', 'Azufre (kg)', 'Carbón vegetal (kg)', 'Cal (kg)', 'Estaño Refinado (kg)', 'N° lingotes'].map(textoPdf)],
     body: body.length ? body : [['—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—']],
     foot: [['TOTALES', '', '', kg(tCrudo), pct(leyProm), kg(tTeorico), kg(tSoda), kg(tAzufre), kg(tCarbon), kg(tCal), kg(tRefinado), entero(tLingotes)]],
     theme: 'grid',
