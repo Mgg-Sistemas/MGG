@@ -33,7 +33,7 @@ export function fmtJornada(horas?: number | null): string {
 /** Datos de colada vacíos (para inicializar el formulario). */
 export function coladaDatosVacios(): ColadaDatos {
   return {
-    turno: '', responsable: '',
+    turno_tipo: '', turno: '', responsable: '',
     big_bags: [{ kg: null, precinto: '' }],
     total_casiterita: null, ley_sn: null, sn_kg: null,
     coque_kg: null, coque_proveedor: '', coque_granulometria: '',

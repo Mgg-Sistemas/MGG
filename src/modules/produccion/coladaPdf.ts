@@ -101,7 +101,8 @@ async function construir(prod: Produccion, colada: ProduccionColada | null, anal
   barra('IDENTIFICACIÓN');
   ficha([
     ['Colada N°', colada ? String(colada.colada_num) : '—', 'Fecha', colada ? fmtFecha(colada.fecha) : '—'],
-    ['Jornada laboral', d.jornada_horas != null ? fmtJornada(d.jornada_horas) : txt(d.turno), 'Responsable de colada', txt(d.responsable)],
+    ['Turno', txt(d.turno_tipo), 'Jornada laboral', d.jornada_horas != null ? fmtJornada(d.jornada_horas) : txt(d.turno)],
+    ['Responsable de colada', txt(d.responsable), '', ''],
   ]);
 
   // ── MATERIAS PRIMAS ──

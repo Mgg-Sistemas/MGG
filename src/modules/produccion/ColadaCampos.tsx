@@ -14,6 +14,9 @@ import { calcJornadaHoras, fmtJornada } from './colada.repository';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Turnos de la planta. */
+export const TURNOS = ['Diurno', 'Nocturno'];
+
 /** Grupo de chips seleccionables (una sola opción). */
 function Chips({ value, options, onChange }: { value?: string; options: string[]; onChange: (v: string) => void }) {
   return (
@@ -197,6 +200,13 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
       <div style={secStyle}>
         <div style={tituloSec}>Identificación</div>
         <div className="form-grid">
+          <div className="form-row">
+            <label>Turno</label>
+            <select className="select" value={datos.turno_tipo ?? ''} onChange={(e) => set('turno_tipo', e.target.value)}>
+              <option value="">— elegí el turno —</option>
+              {TURNOS.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
           <div className="form-row">
             <label>Colada N°</label>
             <input className="input mono" value={coladaNum} onChange={(e) => setColadaNum(e.target.value)} placeholder="Ej.: 02" style={numInput} />

@@ -1285,6 +1285,8 @@ export interface ColadaBigBag {
  */
 export interface ColadaDatos {
   // Identificación
+  /** Diurno | Nocturno. Distinto de `turno`, que guarda la jornada en horas. */
+  turno_tipo?: string;
   turno?: string;
   responsable?: string;
   // Materias primas
