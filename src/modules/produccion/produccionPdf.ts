@@ -126,7 +126,7 @@ async function construir(prod: Produccion, det: Detalle) {
     ['Receta N°', prod.receta_num != null ? `#${num(prod.receta_num)}` : '—', 'Estado', prod.estado === 'finalizado' ? 'Finalizado' : 'En proceso'],
     ['Almacén destino', V(prod.almacen_destino), 'Horno utilizado', V(prod.horno)],
     ['Inicio', dateTime(prod.inicio_at), 'Fin', prod.fin_at ? dateTime(prod.fin_at) : '—'],
-    ['Duración', duracion(prod.inicio_at, prod.fin_at), 'Descuenta inventario', prod.descontar_inventario === false ? 'No (registro histórico)' : 'Sí'],
+    ['Duración', duracion(prod.inicio_at, prod.fin_at), '', ''],
   ]);
 
   const d = det.colada;
