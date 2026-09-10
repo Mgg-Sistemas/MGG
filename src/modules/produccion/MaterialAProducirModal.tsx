@@ -18,6 +18,7 @@ import { RefinacionCampos } from './RefinacionCampos';
 import { refinacionDatosVacios, proximaRefinacionNum, crearRefinacion, listColadasFinalizadas, listRefinacionesFinalizadas, type ColadaFinalizada } from './refinacion.repository';
 import type { ColadaDatos, RefinacionDatos } from '@/shared/lib/types';
 import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
+import { almacenDeFundicion } from './almacenFundicion';
 
 interface RecetaBase {
   rendimiento: number;
@@ -32,6 +33,8 @@ interface MaterialAProducirModalProps {
   productos: Producto[];
   existencias: Existencia[];
   almacenesList: string[];
+  /** Almacenes de MATANZA: de ahí sale el material de la colada, siempre. */
+  almacenesMatanza?: string[];
   /** Nombres de hornos ACTIVOS para el desplegable. */
   hornosList: string[];
   actor: string;
@@ -81,7 +84,7 @@ const PROD_FUNDICION = 'ESTAÑO EN BRUTO';   // resultado de toda fundición (se
 const PROD_REFINACION = 'ESTAÑO REFINADO';  // resultado de toda refinación
 
 export function MaterialAProducirModal({
-  tipo = 'fundicion', productos, existencias, almacenesList, hornosList, actor, actorName, initialProductoId, onClose, onCreated, onProductosChanged, onHornosChanged,
+  tipo = 'fundicion', productos, existencias, almacenesList, almacenesMatanza = [], hornosList, actor, actorName, initialProductoId, onClose, onCreated, onProductosChanged, onHornosChanged,
 }: MaterialAProducirModalProps) {
   // Rótulos según el tipo (fundición / refinación).
   const esRef = tipo === 'refinacion';
@@ -137,6 +140,8 @@ export function MaterialAProducirModal({
     [productos],
   );
   const almacenes = almacenesList.length ? almacenesList : ['General'];
+  /** De qué almacén de Matanza sale este material (el que tenga stock; si no, el principal). */
+  const almacenDe = (productoId: string) => almacenDeFundicion(productoId, existencias, almacenesMatanza);
 
   // El piso de fundición: lo que Salidas entregó y todavía no se quemó. Es lo
   // que la colada puede usar SIN volver a descontar del inventario.
@@ -214,6 +219,10 @@ export function MaterialAProducirModal({
   const [hornoSaving, setHornoSaving] = useState(false);
   const [manoObra, setManoObra] = useState('0');
   const [sumarInventario, setSumarInventario] = useState(true); // ¿el producto entra al inventario al finalizar?
+  // Carga histórica: una colada que YA ocurrió (p. ej. de mayo). Se registra para
+  // tener el reporte, pero no toca el inventario: el stock de hoy ya refleja lo
+  // que se quemó entonces, así que descontarlo de nuevo lo dejaría en negativo.
+  const [cargaHistorica, setCargaHistorica] = useState(false);
   // Costos indirectos POR CONCEPTO (cada uno con su costo; ninguno obligatorio).
   const [indirectos, setIndirectos] = useState<Record<string, string>>({});
   const indirectosTotal = CONCEPTOS_INDIRECTOS.reduce((a, c) => a + (Number(indirectos[c]) || 0), 0);
@@ -240,7 +249,7 @@ export function MaterialAProducirModal({
 
   // Checklist de materiales
   const [rows, setRows] = useState<Record<string, MatRow>>(() =>
-    Object.fromEntries(materiales.map((m) => [m.id, { checked: false, cantidad: '1', almacen: m.almacen || almacenes[0], costo: '', costoTouched: false }])),
+    Object.fromEntries(materiales.map((m) => [m.id, { checked: false, cantidad: '1', almacen: almacenDe(m.id), costo: '', costoTouched: false }])),
   );
   const setRow = (id: string, patch: Partial<MatRow>) =>
     setRows((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { checked: false, cantidad: '1', almacen: almacenes[0], costo: '', costoTouched: false }), ...patch } }));
@@ -447,7 +456,9 @@ export function MaterialAProducirModal({
       if (!bags.some((b) => (Number(b.kg) || 0) > 0)) { setError('Cargá al menos un big bag de casiterita con su peso (kg).'); return; }
     }
 
-    for (const { m, row } of seleccion) {
+    // En una carga histórica no se revisa el stock: la colada ya ocurrió y el
+    // material de entonces no tiene por qué estar hoy en el almacén.
+    if (!cargaHistorica) for (const { m, row } of seleccion) {
       const cant = Number(row.cantidad) || 0;
       const stock = exStock(m.id, row.almacen);
       if (cant > stock) {
@@ -509,6 +520,7 @@ export function MaterialAProducirModal({
         materiales: matInput,
         tipo,
         sumarInventario,
+        descontarInventario: !cargaHistorica,
         actor,
         actor_name: actorName,
       });
@@ -642,7 +654,7 @@ export function MaterialAProducirModal({
                   <tr>
                     <th></th>
                     <th>Insumo</th>
-                    <th>Almacén</th>
+                    <th>Sale de</th>
                     <th style={{ textAlign: 'right' }}>Disp.</th>
                     <th style={{ textAlign: 'right' }}>Cantidad</th>
                     <th style={{ textAlign: 'right' }}>Costo / tasa</th>
@@ -654,7 +666,7 @@ export function MaterialAProducirModal({
                     const enPiso = pisoDe(m.id);
                     const hayPiso = (enPiso?.disponible ?? 0) > 0;
                     const row = rows[m.id] ?? {
-                      checked: false, cantidad: '1', almacen: m.almacen || almacenes[0], costo: '', costoTouched: false,
+                      checked: false, cantidad: '1', almacen: almacenDe(m.id), costo: '', costoTouched: false,
                       // Si hay material entregado a fundición, ese es el origen natural.
                       origen: hayPiso ? 'piso' as const : 'inventario' as const,
                     };
@@ -681,11 +693,13 @@ export function MaterialAProducirModal({
                                   ya salió del inventario · no se descuenta otra vez
                                 </div>
                               ) : (
-                                <AlmacenSelectAgrupado value={row.almacen} onChange={(v) => setRow(m.id, { almacen: v })} extraNombres={almacenes} style={{ minWidth: 110, marginTop: '.2rem' }} />
+                                <div className="muted" style={{ fontSize: '.7rem', marginTop: '.2rem' }}>🏭 {row.almacen}</div>
                               )}
                             </>
                           ) : (
-                            <AlmacenSelectAgrupado value={row.almacen} onChange={(v) => setRow(m.id, { almacen: v })} extraNombres={almacenes} style={{ minWidth: 110 }} />
+                            /* El horno está en Matanza: el material sale de ahí siempre. Se
+                               muestra de qué almacén, pero ya no se elige colada por colada. */
+                            <span title="El material de una colada sale siempre de Matanza">🏭 {row.almacen}</span>
                           )}
                         </td>
                         <td className="mono" style={{ textAlign: 'right', color: exceso ? 'var(--danger)' : undefined }}>{num(disp)}</td>
@@ -792,6 +806,15 @@ export function MaterialAProducirModal({
           <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', marginTop: '.55rem', cursor: 'pointer', fontSize: '.86rem' }}>
             <input type="checkbox" checked={sumarInventario} onChange={(e) => setSumarInventario(e.target.checked)} />
             <span><strong>Sumar al inventario</strong> al finalizar <span className="muted" style={{ fontSize: '.76rem' }}>· si lo destildás, esta {esRef ? 'refinación' : 'colada'} queda como registro/reporte y NO suma stock del producto</span></span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', marginTop: '.4rem', cursor: 'pointer', fontSize: '.86rem' }}
+            title="Para cargar coladas viejas: se registra el reporte pero no se toca el stock de hoy">
+            <input type="checkbox" checked={cargaHistorica} onChange={(e) => {
+              setCargaHistorica(e.target.checked);
+              // Una colada vieja tampoco debería sumar hoy lo que produjo entonces.
+              if (e.target.checked) setSumarInventario(false);
+            }} />
+            <span>📋 <strong>Carga histórica</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· la {esRef ? 'refinación' : 'colada'} ya ocurrió: se registra el reporte y NO se descuenta el material del inventario (tampoco se exige stock)</span></span>
           </label>
         </div>
 

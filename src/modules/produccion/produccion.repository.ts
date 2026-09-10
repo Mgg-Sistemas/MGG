@@ -7,6 +7,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto, Produccion, ProduccionMaterial } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { validaStock } from './almacenFundicion';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
 
@@ -114,6 +115,8 @@ export interface CrearProduccionInput {
   tipo?: ProduccionTipo;
   /** Si el producto terminado suma al inventario al finalizar (default true). */
   sumarInventario?: boolean;
+  /** false = carga histórica: no se descuenta nada del inventario ni se exige stock. */
+  descontarInventario?: boolean;
 }
 
 function round2(n: number): number {
@@ -298,13 +301,16 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
   const existencias = await Promise.all(validos.map((m) => (m.producto_id ? getExistencia(m.producto_id, m.almacen) : Promise.resolve(null))));
   const detalles: Array<MaterialInput & { costo_unitario: number; subtotal: number }> = [];
   let costoMaterial = 0;
+  // Carga histórica: la colada ya ocurrió (p. ej. una de mayo) y el stock de hoy
+  // ya refleja lo que se quemó entonces. No se exige existencia ni se consume.
+  const descuenta = input.descontarInventario !== false;
   validos.forEach((m, i) => {
     const cant = Number(m.cantidad) || 0;
     const ex = existencias[i];
     // Un material del piso no tiene existencia que validar: el tope lo puso la
     // salida que lo entregó, y lo revisa el formulario contra el disponible.
     const esManual = !m.producto_id || m.desde_fundicion === true;
-    if (!esManual) {
+    if (!esManual && validaStock(descuenta, m.desde_fundicion)) {
       const stock = Number(ex?.stock) || 0;
       if (stock < cant) {
         throw new Error(`Stock insuficiente de "${m.material_nombre}" en ${m.almacen}. Disponible: ${stock}.`);
@@ -345,6 +351,7 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
       estado: 'produccion',
       tipo,
       sumar_inventario: input.sumarInventario ?? true,
+      descontar_inventario: descuenta,
       costo_material: costoMaterial,
       mano_obra: manoObra,
       costos_indirectos: indirectos,
@@ -383,7 +390,8 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
   //    cada material es un producto distinto, no compiten por la misma fila.
   // Los del PISO no se consumen: su salida ya los descontó del inventario.
   // Descontarlos otra vez acá era el doble descuento que había que sacar.
-  await Promise.all(detallesInv.filter((d) => !d.desde_fundicion).map((d) => registrarMovimiento({
+  // Y en una CARGA HISTÓRICA no se consume nada: la colada ya pasó.
+  if (descuenta) await Promise.all(detallesInv.filter((d) => !d.desde_fundicion).map((d) => registrarMovimiento({
     producto_id: d.producto_id as string,
     tipo: 'consumo',
     delta: -d.cantidad,
@@ -414,6 +422,8 @@ export async function editarMaterialesProduccion(input: {
   manoObra?: number | null;
   costosIndirectos?: number | null;
   sumarInventario?: boolean;
+  /** false = carga histórica: ni se valida stock ni se consume. */
+  descontarInventario?: boolean;
   materiales: MaterialInput[];
   actor: string;
   actorName?: string | null;
@@ -429,7 +439,11 @@ export async function editarMaterialesProduccion(input: {
   const { data: matViejos, error: mErr0 } = await supabase
     .from('produccion_materiales').select('producto_id, material_nombre, almacen, cantidad, desde_fundicion').eq('produccion_id', input.produccionId);
   if (mErr0) throw mErr0;
+  // Lo que nunca se descontó no se devuelve: una orden que se cargó como
+  // histórica no movió stock, así que "revertirla" lo inventaría.
+  const descontabaAntes = (prodActual as { descontar_inventario?: boolean }).descontar_inventario !== false;
   for (const m of (matViejos ?? []) as Array<{ producto_id: string | null; material_nombre: string; almacen: string; cantidad: number; desde_fundicion?: boolean | null }>) {
+    if (!descontabaAntes) continue;
     if (!m.producto_id || !((Number(m.cantidad) || 0) > 0)) continue;
     // Los del piso nunca descontaron inventario, así que no hay nada que
     // devolver: al borrarse la fila vuelven solos al disponible de fundición.
@@ -449,6 +463,7 @@ export async function editarMaterialesProduccion(input: {
   // 3) Validar + costear los nuevos contra el stock YA restaurado.
   const cantidad = input.cantidad != null && Number(input.cantidad) > 0 ? Number(input.cantidad) : (Number(prodActual.cantidad) || 0);
   if (cantidad <= 0) throw new Error('La cantidad a producir debe ser mayor que 0.');
+  const descuentaAhora = input.descontarInventario !== undefined ? input.descontarInventario !== false : descontabaAntes;
   const validos = input.materiales.filter((m) => (Number(m.cantidad) || 0) > 0);
   if (!validos.length) throw new Error('Seleccioná al menos un material con cantidad.');
   const existencias = await Promise.all(validos.map((m) => (
@@ -461,7 +476,7 @@ export async function editarMaterialesProduccion(input: {
     const ex = existencias[i];
     // El del piso no tiene existencia contra la cual validar: su tope es lo que
     // se le entregó, y eso lo revisa el formulario contra el disponible.
-    if (m.producto_id && !m.desde_fundicion) {
+    if (m.producto_id && validaStock(descuentaAhora, m.desde_fundicion)) {
       const stock = Number(ex?.stock) || 0;
       if (stock < cant) throw new Error(`Stock insuficiente de "${m.material_nombre}" en ${m.almacen}. Disponible: ${stock}.`);
     }
@@ -493,8 +508,9 @@ export async function editarMaterialesProduccion(input: {
   }
 
   // 5) Consumir los nuevos.
-  // Los del piso, otra vez, no se consumen del inventario.
-  await Promise.all(detallesInv.filter((d) => !d.desde_fundicion).map((d) => registrarMovimiento({
+  // Los del piso, otra vez, no se consumen del inventario. Y una carga histórica
+  // no consume nada.
+  if (descuentaAhora) await Promise.all(detallesInv.filter((d) => !d.desde_fundicion).map((d) => registrarMovimiento({
     producto_id: d.producto_id as string, tipo: 'consumo', delta: -d.cantidad, almacen: d.almacen,
     actor: input.actor, actor_name: input.actorName ?? null,
     ref_tipo: 'produccion', ref_id: input.produccionId,
@@ -507,6 +523,7 @@ export async function editarMaterialesProduccion(input: {
     costo_unitario: costoUnitario, ganancia,
   };
   if (input.sumarInventario !== undefined) updPatch.sumar_inventario = input.sumarInventario;
+  updPatch.descontar_inventario = descuentaAhora;
   const { data: upd, error: uErr } = await supabase.from('produccion').update(updPatch).eq('id', input.produccionId).select('*').single();
   if (uErr) throw uErr;
   return upd as Produccion;

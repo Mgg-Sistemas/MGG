@@ -142,6 +142,14 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
   // El Kanban solo muestra las 3 producciones finalizadas más recientes.
   const finalizadosKanban = useMemo(() => finalizados.slice(0, 3), [finalizados]);
   const almacenesList = useMemo(() => almacenes.map((a) => a.nombre), [almacenes]);
+  // El horno está en Matanza: el material de una colada sale de sus almacenes, no
+  // de los de otra sede. Sacarlo de Los Pinos sería mover stock ajeno sin traslado.
+  const almacenesMatanza = useMemo(
+    () => almacenes
+      .filter((a) => a.estado === 'activo' && (a.sede ?? '').toUpperCase().includes('MATANZA'))
+      .map((a) => a.nombre),
+    [almacenes],
+  );
 
   return (
     <div>
@@ -309,6 +317,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           productos={productos}
           existencias={existencias}
           almacenesList={almacenesList}
+          almacenesMatanza={almacenesMatanza}
           hornosList={hornos}
           actor={actor}
           actorName={actorName}
@@ -342,7 +351,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           tipo={tipo}
           productos={productos}
           existencias={existencias}
-          almacenesList={almacenesList}
+          almacenesMatanza={almacenesMatanza}
           actor={actor}
           actorName={actorName}
           onClose={() => setModal({ kind: 'none' })}

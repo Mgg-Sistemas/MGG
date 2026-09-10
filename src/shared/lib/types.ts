@@ -1238,6 +1238,9 @@ export interface Produccion {
   /** Si el producto terminado ENTRA al inventario al finalizar (default true).
    *  En false: la colada/refinación queda como registro/reporte sin sumar stock. */
   sumar_inventario?: boolean;
+  /** false = CARGA HISTÓRICA: los materiales no se descontaron del inventario,
+   *  porque la colada ya ocurrió y el stock de hoy ya lo refleja. */
+  descontar_inventario?: boolean;
   inicio_at: string;
   fin_at?: string | null;
   created_by?: string | null;

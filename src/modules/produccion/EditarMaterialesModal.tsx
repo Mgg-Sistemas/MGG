@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { almacenDeFundicion } from './almacenFundicion';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
@@ -25,13 +26,14 @@ import { listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventa
 interface Row { key: string; producto_id: string | null; material_nombre: string; almacen: string; cantidad: number | null }
 
 export function EditarMaterialesModal({
-  produccionId, tipo = 'fundicion', productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
+  produccionId, tipo = 'fundicion', productos, existencias, almacenesMatanza = [], actor, actorName, onClose, onSaved,
 }: {
   produccionId: string;
   tipo?: ProduccionTipo;
   productos: Producto[];
   existencias: Existencia[];
-  almacenesList: string[];
+  /** Almacenes de MATANZA: de ahí sale el material de la colada, siempre. */
+  almacenesMatanza?: string[];
   actor: string;
   actorName?: string | null;
   onClose: () => void;
@@ -41,6 +43,8 @@ export function EditarMaterialesModal({
   const [cantidad, setCantidad] = useState<number | null>(null);
   const [manoObra, setManoObra] = useState<number | null>(null);
   const [sumarInventario, setSumarInventario] = useState(true);
+  // Carga histórica: la colada ya ocurrió. Ni se exige stock ni se descuenta.
+  const [cargaHistorica, setCargaHistorica] = useState(false);
   const [productoNombre, setProductoNombre] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -65,6 +69,7 @@ export function EditarMaterialesModal({
       setCantidad(Number(p.cantidad) || null);
       setManoObra(Number(p.mano_obra) || null);
       setSumarInventario(p.sumar_inventario !== false);
+      setCargaHistorica(p.descontar_inventario === false);
       setRows((p.materiales ?? []).map((m, i) => ({
         key: `m${i}`, producto_id: m.producto_id ?? null, material_nombre: m.material_nombre,
         almacen: m.almacen, cantidad: Number(m.cantidad) || null,
@@ -106,7 +111,7 @@ export function EditarMaterialesModal({
   function agregar(pid: string) {
     const p = productos.find((x) => x.id === pid);
     if (!p) return;
-    const alm = (p.almacen || almacenesList[0] || 'General');
+    const alm = almacenDeFundicion(p.id, existencias, almacenesMatanza);
     setRows((rs) => [...rs, { key: `n${rs.length}-${pid}`, producto_id: p.id, material_nombre: p.nombre, almacen: alm, cantidad: null }]);
     setAddSel('');
   }
@@ -119,14 +124,14 @@ export function EditarMaterialesModal({
     if (!validas.length) { setError('Dejá al menos un material con cantidad.'); return; }
     for (const r of validas) {
       const st = stockDe(r.producto_id, r.almacen);
-      if ((Number(r.cantidad) || 0) > st) { setError(`"${r.material_nombre}" en ${r.almacen}: pedís ${num(Number(r.cantidad) || 0)} pero hay ${num(st)}.`); return; }
+      if (!cargaHistorica && (Number(r.cantidad) || 0) > st) { setError(`"${r.material_nombre}" en ${r.almacen}: pedís ${num(Number(r.cantidad) || 0)} pero hay ${num(st)}.`); return; }
     }
     setSaving(true);
     try {
       const materiales: MaterialInput[] = validas.map((r) => ({
         producto_id: r.producto_id, material_nombre: r.material_nombre, almacen: r.almacen, cantidad: Number(r.cantidad) || 0,
       }));
-      await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, materiales, actor, actorName });
+      await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, descontarInventario: !cargaHistorica, materiales, actor, actorName });
       // Reporte de colada: guarda todo el detalle + cabecera (Colada N° / fecha).
       if (esColada) {
         await actualizarColadaDatos(produccionId, coladaDatos);
@@ -169,25 +174,26 @@ export function EditarMaterialesModal({
             <span><strong>Sumar al inventario</strong> al finalizar <span className="muted" style={{ fontSize: '.76rem' }}>· si lo destildás, queda como registro/reporte y NO suma stock del producto</span></span>
           </label>
 
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', margin: '0 0 .2rem', cursor: 'pointer', fontSize: '.86rem' }}
+            title="Para cargar coladas viejas: se registra el reporte pero no se toca el stock de hoy">
+            <input type="checkbox" checked={cargaHistorica} onChange={(e) => setCargaHistorica(e.target.checked)} />
+            <span>📋 <strong>Carga histórica</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· la colada ya ocurrió: NO se descuenta el material del inventario y no se exige stock</span></span>
+          </label>
+
           <div className="card-title" style={{ marginTop: '.8rem' }}>Materiales (consumo de inventario)</div>
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.85rem' }}>
-              <thead><tr><th>Material</th><th>Almacén</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Stock</th><th></th></tr></thead>
+              <thead><tr><th>Material</th><th>Sale de</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Stock</th><th></th></tr></thead>
               <tbody>
                 {!rows.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin materiales. Agregá abajo.</td></tr>}
                 {rows.map((r) => {
                   const st = stockDe(r.producto_id, r.almacen);
-                  const falta = r.producto_id && (Number(r.cantidad) || 0) > st;
+                  const falta = !cargaHistorica && r.producto_id && (Number(r.cantidad) || 0) > st;
                   return (
                     <tr key={r.key}>
                       <td><strong>{r.material_nombre}</strong>{!r.producto_id && <span className="muted"> · manual</span>}</td>
                       <td>
-                        {r.producto_id ? (
-                          <select className="select" value={r.almacen} onChange={(e) => setRow(r.key, { almacen: e.target.value })} style={{ fontSize: '.82rem' }}>
-                            {!almacenesList.includes(r.almacen) && <option value={r.almacen}>{r.almacen}</option>}
-                            {almacenesList.map((a) => <option key={a} value={a}>{a}</option>)}
-                          </select>
-                        ) : <span className="muted">—</span>}
+                        {r.producto_id ? <span title="El material de una colada sale siempre de Matanza">🏭 {r.almacen}</span> : <span className="muted">—</span>}
                       </td>
                       <td style={{ textAlign: 'right' }}><DecimalInput className="input mono" value={r.cantidad} onChange={(n) => setRow(r.key, { cantidad: n })} style={{ width: 96, textAlign: 'right' }} /></td>
                       <td className="mono" style={{ textAlign: 'right', color: falta ? 'var(--danger)' : undefined }}>{r.producto_id ? num(st) : '∞'}</td>
