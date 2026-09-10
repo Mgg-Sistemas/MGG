@@ -20,20 +20,49 @@ export interface ScoredOferta {
   mejorCalidad: boolean;
 }
 
+/** Lo mínimo de una oferta para saber cuánto se paga por ella. */
+export type OfertaCotizada = Pick<
+  OfertaProveedor,
+  'precio_total' | 'precio_efectivo' | 'iva' | 'igtf' | 'descuento'
+>;
+
+/** Redondeo a 2 decimales: el monto de una factura no tiene colas largas. */
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
 /**
- * Costo REAL que define la mejor oferta: si el proveedor da descuento por pago en
- * divisa efectivo (precio_efectivo válido y menor al BCV), ese es el costo que cuenta;
- * si no, el total a BCV. Así la oferta con mejor precio en efectivo puede ganar.
+ * Monto FINAL de una oferta, desglosado: lo que va a pagar Tesorería si se elige.
+ *
+ *   base − descuento negociado + IVA + IGTF
+ *
+ * La `base` es el precio en divisa efectivo cuando el proveedor da descuento por
+ * pagar así (menor al BCV); si no, el total a BCV.
+ *
+ * El `descuento` (negociado con el proveedor) FALTABA en este cálculo. La
+ * comparativa mostraba y ordenaba por la base sin restarlo, mientras el modal de
+ * carga y `aprobarOrdenConOferta` sí lo restaban: la misma oferta valía dos cosas
+ * distintas según la pantalla, y la barata podía perder contra una más cara.
+ * Caso real SP-2026-0138: MULTIFERRE cotizó 63,00 con 5,00 de descuento —58,00 a
+ * pagar— y el sistema recomendó otra oferta de 60,07 marcándola «Mejor precio».
  */
-export function costoEfectivo(o: Pick<OfertaProveedor, 'precio_total' | 'precio_efectivo' | 'iva' | 'igtf'>): number {
-  // Los impuestos (IVA + IGTF) forman parte del costo real: se suman al total elegido
-  // para que la comparativa ordene por el monto FINAL que pagará Tesorería.
-  const imp = (Number(o.iva) || 0) + (Number(o.igtf) || 0);
+export function montoFinalOferta(o: OfertaCotizada): {
+  base: number; descuento: number; impuestos: number; final: number;
+} {
+  const impuestos = r2((Number(o.iva) || 0) + (Number(o.igtf) || 0));
   const bcv = Number(o.precio_total) || 0;
   const efe = Number(o.precio_efectivo) || 0;
-  if (bcv <= 0) return efe + imp;                 // oferta SOLO en USD efectivo (sin precio Bs)
-  if (efe <= 0) return bcv + imp;                 // oferta SOLO en Bs a BCV
-  return (efe < bcv ? efe : bcv) + imp;           // ambos: manda el efectivo si trae descuento
+  // Qué precio manda: solo USD, solo Bs, o el menor de los dos cuando hay ambos.
+  const base = r2(bcv <= 0 ? efe : efe <= 0 ? bcv : Math.min(efe, bcv));
+  // El descuento nunca puede dejar la factura en negativo.
+  const descuento = Math.min(Math.max(0, r2(Number(o.descuento) || 0)), base);
+  return { base, descuento, impuestos, final: r2(base - descuento + impuestos) };
+}
+
+/**
+ * Costo REAL que define la mejor oferta: el monto final que se va a pagar, con el
+ * descuento por pago en efectivo, el descuento negociado y los impuestos ya aplicados.
+ */
+export function costoEfectivo(o: OfertaCotizada): number {
+  return montoFinalOferta(o).final;
 }
 
 /**
