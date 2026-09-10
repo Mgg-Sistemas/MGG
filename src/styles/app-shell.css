@@ -206,6 +206,15 @@
 .page-head h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
 .page-head p { margin: 0; font-size: .9rem; }
 .page-head .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+/* Grupo de botones afines (reportes, catálogos, planta): al achicarse la
+   pantalla el corte cae ENTRE grupos y no en medio de uno, así la barra no
+   queda con un botón suelto en su propia línea. */
+.btn-grupo { display: flex; gap: .35rem; flex-wrap: nowrap; align-items: center; }
+.btn-grupo + .btn-grupo { position: relative; padding-left: .5rem; }
+.btn-grupo + .btn-grupo::before {
+  content: ""; position: absolute; left: 0; top: 20%; height: 60%;
+  border-left: 1px solid var(--border);
+}
 
 /* Dashboard KPIs */
 .kpi-grid {
@@ -819,6 +828,12 @@ tr.row-selectable:active { transform: scale(0.998); }
   /* Cada botón conserva el ancho de su etiqueta (min-width: max-content): así los
      botones ENVUELVEN en varias filas en vez de aplastarse a basis 0 y encimarse. */
   .page-head .actions .btn { flex: 1 1 auto; min-width: max-content; white-space: nowrap; }
+  /* En teléfono los grupos también envuelven: mantenerlos en una sola fila
+     obligaría a scroll horizontal. La separación entre grupos se va, que ahí
+     el corte de línea ya alcanza para leerlos separados. */
+  .btn-grupo { flex-wrap: wrap; flex: 1 1 auto; }
+  .btn-grupo + .btn-grupo { padding-left: 0; }
+  .btn-grupo + .btn-grupo::before { content: none; }
   .kanban-col { flex: 0 0 86vw; }
 }
 

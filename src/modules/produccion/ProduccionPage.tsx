@@ -17,6 +17,7 @@ import { ProduccionDetalle, duracionProd } from './ProduccionDetalle';
 import { RecetasModal } from './RecetasModal';
 import { GestionarHornosModal } from './GestionarHornosModal';
 import { ReporteFundicionMatanzaModal } from './ReporteFundicionMatanzaModal';
+import { GestionarInvolucradosModal } from './GestionarInvolucradosModal';
 import { PisoFundicionModal } from './PisoFundicionModal';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
@@ -67,6 +68,7 @@ type Modal =
   | { kind: 'ver-receta'; id: string; productoId: string }
   | { kind: 'hornos' }
   | { kind: 'reporte-matanza' }
+  | { kind: 'involucrados' }
   | { kind: 'piso' }
   | { kind: 'editar-materiales'; id: string }
   | { kind: 'finalizar'; prod: Produccion };
@@ -165,21 +167,36 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
             <button className={layout === 'kanban' ? 'active' : ''} onClick={() => setLayout('kanban')}>▦ Kanban</button>
             <button className={layout === 'lista' ? 'active' : ''} onClick={() => setLayout('lista')}>☰ Lista</button>
           </div>
-          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'recetas' })}>📋 Recetas</button>
-          <button className="btn btn-ghost" onClick={handleResumenGeneral}>📊 Reporte general</button>
+          {/* Los botones van por familias: primero lo que se MIRA (reportes),
+              después lo que se CONFIGURA (catálogos) y al final la planta.
+              Agrupados, la barra corta entre familias y no deja botones sueltos. */}
+          <div className="btn-grupo">
+            <button className="btn btn-ghost" onClick={handleResumenGeneral}
+              title="Resumen apaisado con una fila por colada finalizada y totales al pie">📊 Resumen general</button>
+            {tipo === 'fundicion' && (
+              <button className="btn btn-ghost" onClick={() => setModal({ kind: 'reporte-matanza' })}
+                title="REPORTE FUNDICIÓN MATANZA · reporte formal de producción de la planta: rendimiento por colada y por ciclo de escoria">📄 Reporte Matanza</button>
+            )}
+          </div>
+
+          <div className="btn-grupo">
+            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'recetas' })}>📋 Recetas</button>
+            {canWrite && tipo === 'fundicion' && (
+              <button className="btn btn-ghost" onClick={() => setModal({ kind: 'hornos' })}>🔥 Hornos</button>
+            )}
+            {canWrite && (
+              <button className="btn btn-ghost" onClick={() => setModal({ kind: 'involucrados' })}
+                title="Catálogo de personas de planta: agregar, modificar y desactivar">👷 Involucrados</button>
+            )}
+          </div>
+
           {tipo === 'fundicion' && (
-            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'reporte-matanza' })}
-              title="Reporte formal de producción de la planta: rendimiento por colada y por ciclo de escoria">📄 REPORTE FUNDICIÓN MATANZA</button>
-          )}
-          {tipo === 'fundicion' && (
-            <a className="btn btn-ghost" href="http://192.168.0.50/monitor/IZIS_0" target="_blank" rel="noopener noreferrer" title="Abrir el supervisorio de hornos (nueva pestaña)">🖥️ SUPERVISORIO DE HORNOS</a>
-          )}
-          {tipo === 'fundicion' && (
-            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'piso' })}
-              title="Material que Salidas entregó a fundición y todavía no se fundió">🔥 Piso de fundición</button>
-          )}
-          {canWrite && (
-            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'hornos' })}>🔥 Hornos</button>
+            <div className="btn-grupo">
+              <button className="btn btn-ghost" onClick={() => setModal({ kind: 'piso' })}
+                title="Material que Salidas entregó a fundición y todavía no se fundió">🔥 Piso de fundición</button>
+              <a className="btn btn-ghost" href="http://192.168.0.50/monitor/IZIS_0" target="_blank" rel="noopener noreferrer"
+                title="Supervisorio de hornos · abre en una pestaña nueva">🖥️ Supervisorio</a>
+            </div>
           )}
           {canWrite && (
             <button className="btn btn-primary" onClick={() => setModal({ kind: 'crear' })}>{cfg.btnCrear}</button>
@@ -336,6 +353,9 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
       )}
       {modal.kind === 'reporte-matanza' && (
         <ReporteFundicionMatanzaModal onClose={() => setModal({ kind: 'none' })} />
+      )}
+      {modal.kind === 'involucrados' && (
+        <GestionarInvolucradosModal actor={actor} onClose={() => setModal({ kind: 'none' })} />
       )}
       {modal.kind === 'hornos' && (
         <GestionarHornosModal
