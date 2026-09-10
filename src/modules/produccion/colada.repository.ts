@@ -7,6 +7,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { ColadaDatos, ProduccionColada } from '@/shared/lib/types';
 import { finalizarProduccion } from './produccion.repository';
+import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { NOMBRE_ESCORIA, detalleEscoria, ingresaEscoria, kgDeEscoria } from './escoriaFundicion';
 
 const TABLE = 'produccion_colada';
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -269,5 +271,51 @@ export async function finalizarColadaConResultados(
   }
 
   // Entra el estaño terminado a inventario (recalcula PMP) y marca la orden finalizada.
+  // Va PRIMERO: si la colada ya estaba finalizada, esto lanza error y así la escoria
+  // no se puede ingresar dos veces por una segunda confirmación.
   await finalizarProduccion(produccionId, actor, actorName ?? null);
+
+  // La escoria no es descarte: se vuelve a fundir. Entra al inventario como
+  // materia prima, en el almacén de su ficha (Matanza), y queda disponible como
+  // insumo de receta.
+  await ingresarEscoriaAlInventario(produccionId, resultados, actor, actorName ?? null);
+}
+
+/**
+ * Ingresa al inventario la escoria obtenida en una colada.
+ *
+ * Es «mejor esfuerzo»: la colada ya se finalizó y el estaño ya entró, así que un
+ * problema acá no puede tumbar el cierre. Si falla, queda para cargarla a mano
+ * con una entrada normal — pero nunca deja la colada a medio finalizar.
+ */
+async function ingresarEscoriaAlInventario(
+  produccionId: string, resultados: ColadaResultados, actor: string, actorName: string | null,
+): Promise<void> {
+  try {
+    const { data: prod } = await supabase.from('produccion')
+      .select('sumar_inventario').eq('id', produccionId).maybeSingle();
+    if (!ingresaEscoria(resultados.escoria_kg, (prod as { sumar_inventario?: boolean } | null)?.sumar_inventario)) return;
+
+    const { data: ficha } = await supabase.from('productos')
+      .select('id, almacen').ilike('nombre', NOMBRE_ESCORIA).eq('estado', 'activo').limit(1).maybeSingle();
+    if (!ficha) return; // sin ficha no se inventa un producto en medio de un cierre
+
+    const colada = await getColada(produccionId);
+    await registrarMovimiento({
+      producto_id: (ficha as { id: string }).id,
+      tipo: 'entrada',
+      delta: kgDeEscoria(resultados.escoria_kg),
+      almacen: ((ficha as { almacen?: string | null }).almacen || 'General').trim() || 'General',
+      actor,
+      actor_name: actorName,
+      ref_tipo: 'produccion',
+      ref_id: produccionId,
+      // Sin costo a propósito: lo que costó la colada ya está en el estaño.
+      // Queda en la cola «⚠ Sin costo» para valorarla con criterio.
+      precio_unitario: 0,
+      detalle: detalleEscoria(colada?.colada_num ?? null),
+    });
+  } catch {
+    // Silencio deliberado: ver el comentario de arriba.
+  }
 }
