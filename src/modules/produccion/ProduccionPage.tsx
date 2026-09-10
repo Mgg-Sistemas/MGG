@@ -16,6 +16,7 @@ import { FinalizarRefinacionModal } from './FinalizarRefinacionModal';
 import { ProduccionDetalle, duracionProd } from './ProduccionDetalle';
 import { RecetasModal } from './RecetasModal';
 import { GestionarHornosModal } from './GestionarHornosModal';
+import { ReporteFundicionMatanzaModal } from './ReporteFundicionMatanzaModal';
 import { PisoFundicionModal } from './PisoFundicionModal';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
@@ -65,6 +66,7 @@ type Modal =
   | { kind: 'recetas' }
   | { kind: 'ver-receta'; id: string; productoId: string }
   | { kind: 'hornos' }
+  | { kind: 'reporte-matanza' }
   | { kind: 'piso' }
   | { kind: 'editar-materiales'; id: string }
   | { kind: 'finalizar'; prod: Produccion };
@@ -165,6 +167,10 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           </div>
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'recetas' })}>📋 Recetas</button>
           <button className="btn btn-ghost" onClick={handleResumenGeneral}>📊 Reporte general</button>
+          {tipo === 'fundicion' && (
+            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'reporte-matanza' })}
+              title="Reporte formal de producción de la planta: rendimiento por colada y por ciclo de escoria">📄 REPORTE FUNDICIÓN MATANZA</button>
+          )}
           {tipo === 'fundicion' && (
             <a className="btn btn-ghost" href="http://192.168.0.50/monitor/IZIS_0" target="_blank" rel="noopener noreferrer" title="Abrir el supervisorio de hornos (nueva pestaña)">🖥️ SUPERVISORIO DE HORNOS</a>
           )}
@@ -327,6 +333,9 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           onProductosChanged={reload}
           onHornosChanged={reload}
         />
+      )}
+      {modal.kind === 'reporte-matanza' && (
+        <ReporteFundicionMatanzaModal onClose={() => setModal({ kind: 'none' })} />
       )}
       {modal.kind === 'hornos' && (
         <GestionarHornosModal
