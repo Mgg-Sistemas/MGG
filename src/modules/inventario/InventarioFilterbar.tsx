@@ -1,4 +1,5 @@
 import type { AbcClass } from './restock';
+import { FILTRO_SIN_UBICACION } from './ubicacionProducto';
 
 export type StockFilter = '' | 'critico' | 'restock' | 'ok' | 'sin_mov';
 /** Se conserva para el exportador; el inventario ya solo muestra los activos. */
@@ -64,6 +65,9 @@ export function InventarioFilterbar({ values, categorias, almacenes, almacenTodo
           onChange={(e) => onChange('filterAlmacen', e.target.value)}
         >
           <option value="">{almacenTodosLabel ?? 'Todos los almacenes'}</option>
+          {/* Los que se dieron de alta desde una solicitud y esperan recepción: no
+              están en ninguna sede, así que sin esta opción no se pueden encontrar. */}
+          <option value={FILTRO_SIN_UBICACION}>📍 Sin ubicación (esperan recepción)</option>
           {almacenes.map((a) => (
             <option key={a.value} value={a.value}>{a.label}</option>
           ))}

@@ -11,6 +11,7 @@ import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { opcionesRecepcion, destinoRecepcionPorUsuario } from '@/modules/inventario/sectorizacion';
 import {
   listAlertasMercadoPendientes, marcarTodasAtendidas, type AlertaMercado,
 } from '@/modules/cocina/alertasMercado.repository';
@@ -86,7 +87,7 @@ import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
+import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type { Almacen } from '@/shared/lib/types';
@@ -1724,11 +1725,23 @@ function RecepcionParcialModal({
     if (esServicio) return; // los servicios no eligen almacén
     listAlmacenes().then((as) => {
       setAlmacenes(as);
-      // Si la OC ya traía un destino, se respeta; si no, se preselecciona el primero.
-      setAlmacen((prev) => prev || orden.almacen_destino || as[0]?.nombre || '');
+      // Si la OC ya traía un destino, se respeta; si no, queda vacío para ELEGIR.
+      // Antes se preseleccionaba el primer almacén de la lista, que viene ordenada
+      // por nombre: la mercancía se iba a «ALMACEN CASITERITA» sin que nadie lo
+      // decidiera. La sede se elige a mano, siempre.
+      setAlmacen((prev) => prev || orden.almacen_destino || '');
     }).catch(() => setAlmacenes([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Destinos de recepción: LOS PINOS o MATANZA, los dos únicos por los que entra
+  // una compra (los centros de acopio reciben por traslado). Es la misma lista que
+  // ve el almacenista en Inventario; si el usuario está sectorizado, ve solo la suya.
+  const { appUser: usuarioRecepcion } = usePermissions();
+  const destinosRecepcion = useMemo(
+    () => opcionesRecepcion(destinoRecepcionPorUsuario(usuarioRecepcion, almacenes)?.sedes),
+    [usuarioRecepcion, almacenes],
+  );
 
   function setRec(sku: string, cantPedida: number, v: string) {
     const n = Number(v);
@@ -1736,32 +1749,6 @@ function RecepcionParcialModal({
     setRecs((r) => ({ ...r, [sku]: v }));
   }
 
-  // Opciones del almacén destino agrupadas por SEDE, con cada subalmacén anidado
-  // bajo su almacén padre (sangría con ↳). Así se ve el almacén y, unidos, sus subalmacenes.
-  const gruposAlmacen = useMemo(() => {
-    const activos = almacenes.filter((a) => a.estado === 'activo');
-    const hijosDe = (pid: string | null) => activos
-      .filter((a) => (a.parent_id ?? null) === pid)
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-    const ids = new Set(activos.map((a) => a.id));
-    // Recorre en profundidad desde las raíces para que cada sub salga debajo de su padre.
-    const ordenar = (pid: string | null, nivel: number, acc: { a: Almacen; nivel: number }[]) => {
-      for (const a of hijosDe(pid)) { acc.push({ a, nivel }); ordenar(a.id, nivel + 1, acc); }
-    };
-    const porSede = new Map<string, { a: Almacen; nivel: number }[]>();
-    for (const sede of [...new Set(activos.map((a) => a.sede?.trim() || 'Sin sede'))].sort((x, y) => x.localeCompare(y, 'es'))) {
-      const delaSede = activos.filter((a) => (a.sede?.trim() || 'Sin sede') === sede);
-      const setSede = new Set(delaSede.map((a) => a.id));
-      // raíces de la sede: sin padre, o cuyo padre no está en la sede.
-      const acc: { a: Almacen; nivel: number }[] = [];
-      for (const r of delaSede.filter((a) => !a.parent_id || !setSede.has(a.parent_id) || !ids.has(a.parent_id)).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))) {
-        acc.push({ a: r, nivel: 0 });
-        ordenar(r.id, 1, acc);
-      }
-      porSede.set(sede, acc);
-    }
-    return [...porSede.entries()];
-  }, [almacenes]);
 
   const recibidoTotal = orden.items.reduce((a, it) => a + (Number(recs[it.sku]) || 0) * Number(it.precio), 0);
   const hayDiferencia = orden.items.some((it) => (Number(recs[it.sku]) || 0) < Number(it.cantidad));
@@ -1831,20 +1818,18 @@ function RecepcionParcialModal({
         </div>
       ) : (
       <div className="form-row" style={{ marginTop: '.5rem' }}>
-        <label>Almacén destino *</label>
+        <label>¿A qué sede entra? *</label>
         <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
-          <option value="">— elegí el almacén —</option>
-          {gruposAlmacen.map(([sede, items]) => (
-            <optgroup key={sede} label={sede}>
-              {items.map(({ a, nivel }) => (
-                <option key={a.id} value={a.nombre}>
-                  {nivel > 0 ? `${'  '.repeat(nivel)}↳ ` : ''}{nombreCortoAlmacen(a, almacenes)}
-                </option>
-              ))}
-            </optgroup>
+          <option value="">— elegí la sede —</option>
+          {destinosRecepcion.map((d) => (
+            <option key={d.almacen} value={d.almacen}>{d.label}</option>
           ))}
         </select>
-        <small className="muted">La mercancía entra a este almacén (o subalmacén) y queda en la trazabilidad final.</small>
+        <small className="muted">
+          Una compra entra solo por <strong>LOS PINOS</strong> o <strong>MATANZA</strong>; los centros de acopio
+          reciben por traslado. Si el producto se creó desde una solicitud y todavía no tenía almacén,
+          <strong> acá gana su ubicación</strong>.
+        </small>
       </div>
       )}
 

@@ -7,6 +7,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { cachedQuery, bustCache } from '@/shared/lib/queryCache';
 import type { EstadoGenerico, Orden, Producto, RecetaFundicion } from '@/shared/lib/types';
+import { ubicacionAlRecibir } from './ubicacionProducto';
 
 export interface ProductoInput {
   sku: string;
@@ -485,6 +486,28 @@ export async function updateProducto(
  * Por eso la baja se firma: queda cuándo fue, quién la hizo y por qué. Al
  * reactivarlo esa firma se borra, porque el producto vuelve a estar vigente.
  */
+/**
+ * Le pone almacén de casa a un producto que no tenía, sin pisar al que ya vive
+ * en uno. Es lo que cierra el circuito del alta sin almacén: el producto se crea
+ * desde una solicitud sin ubicación y la gana cuando llega la mercancía.
+ *
+ * Devuelve el almacén que quedó estampado, o `null` si no hubo nada que hacer.
+ */
+export async function asegurarUbicacion(productoId: string, destino: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('productos').select('almacen').eq('id', productoId).maybeSingle();
+  if (error || !data) return null;
+  const nueva = ubicacionAlRecibir((data as { almacen: string | null }).almacen, destino);
+  if (!nueva) return null;
+  const { error: uErr } = await supabase
+    .from('productos')
+    .update({ almacen: nueva, updated_at: new Date().toISOString() })
+    .eq('id', productoId);
+  if (uErr) return null; // mejor esfuerzo: el stock ya entró, la ficha se corrige al próximo movimiento
+  bustCache(['productos']);
+  return nueva;
+}
+
 export async function setEstadoProducto(
   id: string,
   estado: EstadoGenerico,

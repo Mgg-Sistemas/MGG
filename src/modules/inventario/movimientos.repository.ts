@@ -14,7 +14,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { errorMotivo } from './motivoMovimiento';
 import { bustCache } from '@/shared/lib/queryCache';
 import type { Movimiento, TipoMovimiento } from '@/shared/lib/types';
-import { findProducto } from './inventario.repository';
+import { asegurarUbicacion, findProducto } from './inventario.repository';
 
 export const TIPOS_MOVIMIENTO: Record<TipoMovimiento, { label: string; icon: string; color: 'success' | 'warning' | 'danger' | 'info' }> = {
   creacion:      { label: 'Alta de producto',     icon: '✨', color: 'info' },
@@ -206,6 +206,14 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
 
   // 3er paso: recomputar agregados del producto (stock total + costo global).
   await recomputeProductoAgg(input.producto_id);
+
+  // Un producto dado de alta desde una solicitud entra SIN almacén: la ubicación
+  // nace acá, cuando llega la mercancía y alguien eligió dónde entra. Solo cuenta
+  // el almacén elegido por quien recibe (`input.almacen`), nunca el 'General' de
+  // respaldo: estampar ese sería mandarlo al almacén invisible de siempre.
+  if (delta > 0 && (input.almacen || '').trim()) {
+    await asegurarUbicacion(input.producto_id, almacen);
+  }
 
   // 4to paso: si el movimiento es de fundición, marcamos el flag en el producto.
   if (input.tipo === 'fundicion' || input.tipo === 'fin_fundicion') {

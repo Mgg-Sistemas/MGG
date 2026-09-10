@@ -3,6 +3,7 @@ import { money, num } from '@/shared/lib/format';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import type { ProductoDecorado } from './restock';
+import { AVISO_SIN_UBICACION, sinUbicacion } from './ubicacionProducto';
 
 interface ProductosTableProps {
   /** Etiqueta de la columna de stock: «Stock en Los Pinos», «Stock en General», «Stock total (todas las sedes)»… */
@@ -74,6 +75,14 @@ export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdi
                     {p.en_fundicion && (
                       <span className="badge warning" title="Hay un proceso de fundición activo para este producto">
                         🔥 EN PROCESO DE FUNDICIÓN
+                      </span>
+                    )}
+                    {sinUbicacion(p) && (
+                      <span
+                        className="badge warning"
+                        title="Se dio de alta desde una solicitud y todavía no se recibió. El almacén se elige al recibir la mercancía, entre LOS PINOS y MATANZA."
+                      >
+                        📍 {AVISO_SIN_UBICACION}
                       </span>
                     )}
                   </div>

@@ -9,6 +9,7 @@ import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './s
 import { camposDeEdicion, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
 import { fechaVE, tasaValida } from './compraDirectaMoneda';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
+import { ubicacionAlRecibir } from '@/modules/inventario/ubicacionProducto';
 import type {
   AbonoCredito,
   CuentaCaja,
@@ -1913,9 +1914,16 @@ export async function recibirOrdenParcial(
     });
     if (mErr) throw mErr;
 
+    // Si el producto se creó desde una solicitud y todavía no tenía almacén, la
+    // recepción es la que se lo da: es el momento en que alguien decidió a qué
+    // sede entra. Al que ya vivía en un almacén no se lo muda.
+    const casaNueva = ubicacionAlRecibir(prod?.almacen as string | null, almacenProd);
     const { error: uErr } = await supabase
       .from('productos')
-      .update({ stock: stockDespues, precio: precioCompra, precio_promedio: precioPromedio })
+      .update({
+        stock: stockDespues, precio: precioCompra, precio_promedio: precioPromedio,
+        ...(casaNueva ? { almacen: casaNueva } : {}),
+      })
       .eq('id', it.productoId);
     if (uErr) throw uErr;
 

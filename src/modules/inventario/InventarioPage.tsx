@@ -51,6 +51,7 @@ import { CasiteritaResumen, CasiteritaDetalleView } from './CasiteritaDetalleVie
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
 import { ProductosInactivosModal } from './ProductosInactivosModal';
+import { FILTRO_SIN_UBICACION, sinUbicacion } from './ubicacionProducto';
 import { SinCostoModal } from './SinCostoModal';
 import { contarSinCosto } from './sinCosto.repository';
 import { ImportarExcelModal } from './ImportarExcelModal';
@@ -492,6 +493,12 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     // un SUBALMACÉN en el filtro (dentro del centro), se acota a ese subalmacén para
     // "segmentar" la lista. En el inventario general (Depósito), el filtro por almacén
     // usa el roll-up del desplegable.
+    // «Sin ubicación» no es un almacén: son los productos que no están en ninguno.
+    // Se buscan siempre sobre el catálogo completo, porque por definición no
+    // pertenecen a la sede en la que estés parado.
+    if (ui.filterAlmacen === FILTRO_SIN_UBICACION) {
+      return decorated.filter((p) => sinUbicacion(p) && coincideFiltros(p, ui));
+    }
     const base = almacenesDeScope
       ? (ui.filterAlmacen && almacenesScopeActual.includes(ui.filterAlmacen)
           ? productosDeAlmacenes([ui.filterAlmacen])
@@ -501,8 +508,11 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   }, [decorated, decoratedScope, almacenesDeScope, almacenesScopeActual, productosDeAlmacenes, rollupAlmacen, ui]);
   // Ámbito REAL de la columna de stock (lo que suman las filas de `filtered`): subalmacén
   // filtrado > sub-vista > sede > Depósito. La etiqueta debe decir lo mismo que el número.
-  const filtroAlmEnScope = ui.filterAlmacen && (almacenesDeScope ? almacenesScopeActual.includes(ui.filterAlmacen) : true) ? ui.filterAlmacen : null;
-  const etiquetaStock = filtroAlmEnScope
+  const filtroAlmEnScope = ui.filterAlmacen && ui.filterAlmacen !== FILTRO_SIN_UBICACION
+    && (almacenesDeScope ? almacenesScopeActual.includes(ui.filterAlmacen) : true) ? ui.filterAlmacen : null;
+  const etiquetaStock = ui.filterAlmacen === FILTRO_SIN_UBICACION
+    ? 'Stock (sin ubicación)'
+    : filtroAlmEnScope
     ? (almacenesDeScope ? `Stock en ${filtroAlmEnScope}` : `Stock en ${filtroAlmEnScope} (con subalmacenes)`)
     : sedeScope
       ? `Stock en ${nombreSedeCorto(sedeScope)}${subVista === 'casiterita' ? ' · Casiterita' : subVista === 'bruto' ? ' · Estaño en bruto' : subVista === 'refinado' ? ' · Estaño refinado' : ''}`
