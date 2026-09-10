@@ -16,6 +16,8 @@ import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Producto, CuentaCaja } from '@/shared/lib/types';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
 import { costoUnitarioUsd, esCompraEnBs, fechaTasaCompra, fmtTasa, tasaValida, type AnclajeTasa } from './compraDirectaMoneda';
+import { faltanPorEntrar } from './comprasRecepcion';
+import { textoDeError } from '@/shared/lib/errores';
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
 export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; /** Caja de la que sale esta pata (multipago cross-caja); si falta, usa la caja principal. */ cajaId?: string; }
@@ -659,7 +661,12 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
   // Se recibe una compra ABIERTA (flujo nuevo: puede llegar la mercancía antes de pagar)
   // o POR RECIBIR (legado). Nunca dos veces.
   if (!['abierta', 'por_recibir'].includes(compra.estado)) throw new Error('Solo se recibe una compra que esté pendiente de recepción.');
-  if (compra.recibida_at || compra.mov_id) throw new Error('Esta compra ya fue recibida en el inventario.');
+  // El estado se relee de la base y no se cree el que quedó en pantalla: si otro
+  // almacenista la recibió mientras este tenía el modal abierto, acá se corta.
+  const yaEsta = await estadoRecepcion(compra.id);
+  if (yaEsta?.recibida_at || yaEsta?.mov_id || compra.recibida_at || compra.mov_id) {
+    throw new Error('Esta compra ya fue recibida en el inventario.');
+  }
   const almacen = input.almacen.trim();
   if (!almacen) throw new Error('Elegí el almacén / subalmacén donde entran los materiales.');
   const items = compra.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
@@ -674,9 +681,17 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
   if (enBs && !tasaValida(tasa)) throw new Error('Esta compra está en bolívares y no hay tasa BCV para convertirla a dólares. Pedile a Compras que cargue la tasa en «✎ Factura/precios» y volvé a intentar.');
   const notaTasa = origen === 'hoy' ? ' (tasa de hoy: la compra no guardó tasa)' : origen === 'fecha' ? ' (tasa de la fecha de la compra)' : '';
 
+  // Reintento seguro. Recibir son dos escrituras (entradas al inventario + marcar la
+  // compra) que no son una sola: si la segunda se corta, el material ya entró pero la
+  // compra sigue POR RECIBIR y el almacenista vuelve a darle al botón. Las entradas
+  // que ya están a nombre de esta compra NO se repiten, se retoma donde quedó.
+  // Sin esto, CD-2026-0065 entró dos veces y la laptop pasó de 1 a 3 unidades.
+  const yaEntraron = await entradasYaRegistradas(compra.id);
+  const pendientes = faltanPorEntrar(items, yaEntraron);
+
   // Entrada al inventario por cada material (costo en $ = gasto / cantidad, ÷ tasa si es Bs).
-  let primerMov: string | null = null;
-  for (const it of items) {
+  let primerMov: string | null = yaEntraron[0]?.id ?? null;
+  for (const it of pendientes) {
     const cantidad = Number(it.cantidad) || 0;
     if (cantidad <= 0 || !it.producto_id) continue;
     const costoUnit = costoUnitarioUsd(it.gasto, cantidad, compra.moneda, tasa);
@@ -696,14 +711,32 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
   const { error } = await supabase
     .from('compras_directas')
     .update({
-      estado: yaPagada ? 'finalizada' : 'abierta', almacen, mov_id: primerMov,
+      estado: yaPagada ? 'finalizada' : 'abierta', almacen, mov_id: primerMov ?? compra.mov_id ?? null,
       // Queda registrada la tasa con la que entró (para la traza y para una edición posterior).
       ...(enBs && tasa && !tasaValida(compra.tasa_bcv) ? { tasa_bcv: tasa } : {}),
       recibida_por: input.actorName || input.actor, recibida_at: nowIso,
       finalizada_at: yaPagada ? nowIso : null, updated_at: nowIso,
     })
     .eq('id', compra.id);
-  if (error) throw error;
+  if (error) throw new Error(textoDeError(error, 'Los materiales entraron al inventario, pero no se pudo marcar la compra como recibida. Volvé a darle a recibir: no se va a cargar dos veces.'));
+}
+
+/** Estado de recepción vigente EN LA BASE (no el que quedó en pantalla). */
+async function estadoRecepcion(compraId: string): Promise<{ recibida_at: string | null; mov_id: string | null } | null> {
+  const { data, error } = await supabase
+    .from('compras_directas').select('recibida_at, mov_id').eq('id', compraId).maybeSingle();
+  if (error) throw new Error(textoDeError(error, 'No se pudo leer el estado de la compra.'));
+  return (data as { recibida_at: string | null; mov_id: string | null } | null) ?? null;
+}
+
+/** Entradas al inventario que ESTA compra ya tiene registradas, en orden. */
+async function entradasYaRegistradas(compraId: string): Promise<{ id: string; producto_id: string | null }[]> {
+  const { data, error } = await supabase
+    .from('movimientos').select('id, producto_id')
+    .eq('ref_tipo', 'compra_directa').eq('ref_id', compraId).eq('tipo', 'entrada')
+    .order('at', { ascending: true });
+  if (error) throw new Error(textoDeError(error, 'No se pudieron leer las entradas ya registradas de esta compra.'));
+  return (data ?? []) as { id: string; producto_id: string | null }[];
 }
 
 /** Compras directas PENDIENTES DE RECEPCIÓN: abiertas (flujo nuevo) o legado 'por_recibir',

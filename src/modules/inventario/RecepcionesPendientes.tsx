@@ -5,6 +5,7 @@ import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
+import { textoDeError } from '@/shared/lib/errores';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
 import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
 import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedidos/compraDirectaMoneda';
@@ -188,7 +189,7 @@ function AnularCompraModal({ compra, actor, onClose, onSaved }: {
       toast(`Compra directa ${compra.codigo ?? ''} anulada`, 'success');
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo anular la compra.');
+      setError(textoDeError(err, 'No se pudo anular la compra.'));
     } finally { setSaving(false); }
   }
 
@@ -275,7 +276,7 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
       toast('Materiales ingresados al inventario', 'success');
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo recibir la compra directa.');
+      setError(textoDeError(err, 'No se pudo recibir la compra directa.'));
     } finally { setSaving(false); }
   }
 
@@ -393,7 +394,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
       notify(`Recepción registrada: ${orden.oc_codigo ?? orden.codigo} → 🏭 ${sedeDeAlmacen(almacenFinal, almacenes)}`, 'success', { link: '#/app/inventario' });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar la recepción.');
+      setError(textoDeError(err, 'No se pudo registrar la recepción.'));
     } finally { setSaving(false); }
   }
 
