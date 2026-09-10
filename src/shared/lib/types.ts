@@ -59,6 +59,24 @@ export interface Almacen {
 
 /** Horno de fundición/fundición. Se administra como las categorías:
  *  alta, renombrado e inhabilitación (con motivo). */
+/**
+ * Una persona del catálogo de INVOLUCRADOS de planta (fundición y refinación).
+ * Los reportes de colada guardan el NOMBRE, no el id: un papel ya firmado no
+ * puede cambiar de firmante porque después alguien se renombró acá.
+ */
+export interface Involucrado {
+  id: string;
+  nombre: string;
+  /** Rol con el que participa: fundidor, ayudante, operador… */
+  cargo?: string | null;
+  estado: EstadoGenerico;
+  /** Motivo por el cual se desactivó (obligatorio al desactivar). */
+  motivo_inhabilitacion?: string | null;
+  created_at: string;
+  created_by?: string | null;
+  updated_at?: string | null;
+}
+
 export interface Horno {
   id: string;
   nombre: string;

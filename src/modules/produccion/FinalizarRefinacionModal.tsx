@@ -3,6 +3,8 @@
    (MGG-FR-002). El estaño refinado obtenido define la cantidad que entra a
    inventario. Rendimiento, peso promedio por lingote y merma se calculan solos.
    ============================================================ */
+import { SelectorInvolucrados } from './SelectorInvolucrados';
+import { sinRepetidos } from './involucrados';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
@@ -28,7 +30,7 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
   const [horaVaciado, setHoraVaciado] = useState('');
   const [tempColada, setTempColada] = useState('');
   const [observaciones, setObservaciones] = useState('');
-  const [involucrados, setInvolucrados] = useState('');
+  const [involucrados, setInvolucrados] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rendTocado, setRendTocado] = useState(false);
@@ -43,7 +45,7 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
       setHoraFin(d.hora_fin_refinacion ?? '');
       setHoraVaciado(d.hora_inicio_vaciado ?? '');
       setTempColada(d.temp_colada == null ? '' : String(d.temp_colada));
-      setInvolucrados((d.involucrados ?? []).join('\n'));
+      setInvolucrados(sinRepetidos(d.involucrados ?? []));
     }).catch(() => { /* opcional */ });
     return () => { cancel = true; };
   }, [prod.id]);
@@ -87,7 +89,7 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
         temp_colada: tempColada.trim() === '' ? null : Number(tempColada),
         destino_almacen: prod.almacen_destino,
         observaciones: observaciones.trim(),
-        involucrados: involucrados.split('\n').map((s) => s.trim()).filter(Boolean),
+        involucrados: sinRepetidos(involucrados),
       }, actor, actorName ?? null);
       notify(`Refinación finalizada: ${num(refinadoNum)} kg de estaño refinado → ${prod.almacen_destino}`, 'success', { link: '#/app/inventario' });
       onDone();
@@ -191,8 +193,8 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
         </div>
 
         <div className="form-row">
-          <label>Personal involucrado <span className="muted" style={{ fontWeight: 400 }}>(uno por línea)</span></label>
-          <textarea className="input" rows={3} value={involucrados} onChange={(e) => setInvolucrados(e.target.value)} placeholder={'Nombre 1\nNombre 2\n…'} />
+          <label>Personal involucrado <span className="muted" style={{ fontWeight: 400 }}>(elegilo del catálogo)</span></label>
+          <SelectorInvolucrados valor={involucrados} onChange={setInvolucrados} actor={actor} />
         </div>
 
         <div className="card" style={{ padding: '.6rem .8rem', borderLeft: '3px solid var(--primary)', margin: 0 }}>

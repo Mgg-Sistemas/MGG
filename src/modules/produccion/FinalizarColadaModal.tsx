@@ -3,6 +3,8 @@
    El estaño obtenido define la cantidad que entra a inventario. Rendimiento
    se sugiere a partir del Sn cargado (estaño ÷ Sn contenido × 100).
    ============================================================ */
+import { SelectorInvolucrados } from './SelectorInvolucrados';
+import { sinRepetidos } from './involucrados';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
@@ -24,7 +26,7 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
   const [rendimiento, setRendimiento] = useState('');
   const [merma, setMerma] = useState('');
   const [observaciones, setObservaciones] = useState('');
-  const [involucrados, setInvolucrados] = useState('');
+  const [involucrados, setInvolucrados] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rendTocado, setRendTocado] = useState(false);
@@ -71,7 +73,7 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
         merma_kg: merma.trim() === '' ? (mermaSugerida || null) : Number(merma),
         destino_almacen: prod.almacen_destino,
         observaciones: observaciones.trim(),
-        involucrados: involucrados.split('\n').map((s) => s.trim()).filter(Boolean),
+        involucrados: sinRepetidos(involucrados),
       }, actor, actorName ?? null);
       notify(`Colada finalizada: ${num(estanoNum)} kg de estaño → ${prod.almacen_destino}`, 'success', { link: '#/app/inventario' });
       onDone();
@@ -132,8 +134,8 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
         </div>
 
         <div className="form-row">
-          <label>Involucrados <span className="muted" style={{ fontWeight: 400 }}>(uno por línea)</span></label>
-          <textarea className="input" rows={3} value={involucrados} onChange={(e) => setInvolucrados(e.target.value)} placeholder={'Nombre 1\nNombre 2\n…'} />
+          <label>Involucrados <span className="muted" style={{ fontWeight: 400 }}>(elegilos del catálogo)</span></label>
+          <SelectorInvolucrados valor={involucrados} onChange={setInvolucrados} actor={actor} />
         </div>
 
         <div className="card" style={{ padding: '.6rem .8rem', borderLeft: '3px solid var(--primary)', margin: 0 }}>
