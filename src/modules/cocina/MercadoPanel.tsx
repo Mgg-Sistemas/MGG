@@ -17,6 +17,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
+import { costoDeAlimentar } from './costoPorPlato';
 import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
@@ -68,6 +69,8 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   // Víveres cuyo saldo cambió alguien a mano al ajustar. Se marcan en la tabla:
   // «quién ajustó» sin «qué ajustó» obliga a cruzar dos pantallas.
   const ajustados = useMemo(() => productosAjustados(resumen.mercado.historial), [resumen.mercado.historial]);
+  // Platos, consumo en dinero y costo por plato: ya venían en `kpis`, sin mostrarse.
+  const costo = useMemo(() => costoDeAlimentar(resumen.kpis), [resumen.kpis]);
   const [vista, setVista] = useState<Vista>(() => {
     try { const v = localStorage.getItem(VISTA_KEY); if (v === 'disponible' || v === 'movimientos' || v === 'ambos') return v; } catch { /* modo privado */ }
     return 'disponible';
@@ -180,6 +183,27 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           <Cifra rotulo="= Disponible" valor={num(totales.disponible)} fuerte />
           <Cifra rotulo="− Consumo" valor={num(totales.consumos)} color="var(--danger)" />
           <Cifra rotulo="= Queda" valor={num(totales.queda)} fuerte color="var(--primary-3, #2ecc71)" />
+        </div>
+        {/* Lo que costó dar de comer. La ecuación de arriba se lee en UNIDADES y sirve
+            para cuadrar el almacén; esta línea responde la otra pregunta, la del
+            presupuesto: cuánto salió el plato. Los tres números ya venían calculados
+            en `kpis` y no los mostraba nadie.
+            Va como línea secundaria y no como más tarjetas: son otra unidad (dinero y
+            platos) y mezclarlas con los kilos haría leer mal las dos. */}
+        <div style={{
+          marginTop: '.6rem', paddingTop: '.55rem', borderTop: '1px solid var(--border)',
+          display: 'flex', gap: '1.4rem', flexWrap: 'wrap', alignItems: 'baseline',
+        }}>
+          <Costo rotulo="Platos servidos" valor={num(costo.platos)} />
+          <Costo rotulo="Costo del consumo" valor={money(costo.consumo)} color="var(--danger)" />
+          <Costo
+            rotulo="Costo por plato"
+            valor={costo.porPlato != null ? money(costo.porPlato) : '—'}
+            color="var(--warning)"
+            fuerte
+            nota={costo.porPlato == null ? 'todavía no se sirvió ningún plato' : undefined}
+          />
+          {costo.entradas > 0 && <Costo rotulo="Entradas valoradas" valor={money(costo.entradas)} />}
         </div>
         {/* El contraste con el inventario aparece SOLO si no cuadra. Un «0» que
             tranquiliza ocupa lugar y enseña a no mirar. */}
@@ -421,6 +445,20 @@ function Cifra({ rotulo, valor, color, fuerte }: { rotulo: string; valor: string
           cuando se comparan dos cortes uno debajo del otro. */}
       <div className="mono" style={{ fontSize: fuerte ? '1.35rem' : '1.15rem', fontWeight: fuerte ? 800 : 700, color }}>{valor}</div>
       <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.02em' }}>{rotulo}</div>
+    </div>
+  );
+}
+
+/** Un número en dinero o platos: rótulo primero, cifra debajo. Al revés que
+ *  `Cifra`, porque acá el rótulo es lo que desambigua (no todos son dinero). */
+function Costo({ rotulo, valor, color, fuerte, nota }: {
+  rotulo: string; valor: string; color?: string; fuerte?: boolean; nota?: string;
+}) {
+  return (
+    <div>
+      <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.02em' }}>{rotulo}</div>
+      <div className="mono" style={{ fontSize: fuerte ? '1.2rem' : '1.05rem', fontWeight: fuerte ? 800 : 700, color }}>{valor}</div>
+      {nota && <div className="muted" style={{ fontSize: '.68rem' }}>{nota}</div>}
     </div>
   );
 }
