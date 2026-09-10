@@ -12,7 +12,7 @@ import type {
 import { listOfertasDeOrdenes, aceptarOferta as aceptarOfertaRepo, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta, subirAdjuntosOferta } from './ofertas.repository';
 import { urlAdjuntoOc, listSubOcs, getOrdenById } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
-import { scoreOfertas, type ScoredOferta } from './score';
+import { scoreOfertas, montoFinalOferta, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
 import { skusSinCotizar } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
@@ -404,24 +404,27 @@ export function OfertasComparativa({
                     </td>
                     <td className="num mono">
                       {(() => {
-                        // El PRECIO TOTAL mostrado YA incluye IVA + IGTF (el "monto final" de la oferta).
+                        // El PRECIO TOTAL mostrado es el MONTO FINAL: base − descuento
+                        // negociado + IVA + IGTF. Es el mismo número por el que ordena el
+                        // score y el que va a quedar en la OC. Antes no restaba el
+                        // descuento y la comparativa decía una cosa y la OC otra.
                         const iva = Number(s.oferta.iva) || 0;
                         const igtf = Number(s.oferta.igtf) || 0;
-                        const imp = iva + igtf;
-                        const bcvConImp = Math.round(((Number(s.oferta.precio_total) || 0) + imp) * 100) / 100;
+                        const { base, descuento, impuestos, final } = montoFinalOferta(s.oferta);
                         const efe = Number(s.oferta.precio_efectivo) || 0;
                         const ahorro = descuentoEfectivo(s.oferta.precio_total, s.oferta.precio_efectivo);
+                        const desglose = (impuestos > 0 || descuento > 0);
                         return (
                           <>
-                            <strong>{money(bcvConImp)}</strong>
-                            {imp > 0 && (
+                            <strong>{money(final)}</strong>
+                            {desglose && (
                               <div className="muted" style={{ fontSize: '.7rem', marginTop: '.1rem', whiteSpace: 'nowrap' }}>
-                                base {money(Number(s.oferta.precio_total))}{iva > 0 ? ` · IVA ${money(iva)}` : ''}{igtf > 0 ? ` · IGTF ${money(igtf)}` : ''}
+                                base {money(base)}{descuento > 0 ? ` · desc. ${money(descuento)}` : ''}{iva > 0 ? ` · IVA ${money(iva)}` : ''}{igtf > 0 ? ` · IGTF ${money(igtf)}` : ''}
                               </div>
                             )}
                             {ahorro && (
                               <div style={{ fontSize: '.75rem', marginTop: '.15rem', whiteSpace: 'nowrap' }}>
-                                <span style={{ color: 'var(--success)' }}>{money(Math.round((efe + imp) * 100) / 100)}</span>{' '}
+                                <span style={{ color: 'var(--success)' }}>{money(final)}</span>{' '}
                                 <span className="badge success" title={`Ahorro ${money(ahorro.diferencia)} (${money(s.oferta.precio_total)} BCV − ${money(efe)} efectivo)`}>−{ahorro.pct.toFixed(2)}%</span>
                               </div>
                             )}

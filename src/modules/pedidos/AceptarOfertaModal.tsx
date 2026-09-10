@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { money } from '@/shared/lib/format';
+import { montoFinalOferta } from './score';
+import { recortarOfertaAHija } from './subOc';
 import type { ItemOrden, OfertaProveedor } from '@/shared/lib/types';
 
 /**
@@ -254,21 +256,30 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
         <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
           <div>Total Bs (BCV): <strong>{bcvTotal > 0 ? money(bcvTotal, 'Bs') : '—'}</strong></div>
           <div>Total $ (USD): <strong style={{ color: 'var(--success)' }}>{usdTotal > 0 ? money(usdTotal, 'USD') : '—'}</strong></div>
-          {((Number(oferta.iva) || 0) > 0 || (Number(oferta.igtf) || 0) > 0) && (() => {
-            const iva = Number(oferta.iva) || 0;
-            const igtf = Number(oferta.igtf) || 0;
-            const bcvConImp = Math.round((bcvTotal + iva + igtf) * 100) / 100;
-            const usdConImp = usdTotal > 0 ? Math.round((usdTotal + iva + igtf) * 100) / 100 : 0;
+          {/* Descuento e impuestos van PRORRATEADOS a lo que se está eligiendo: si se le
+              compran solo algunos productos a esta oferta, se lleva la parte que le toca.
+              Es el mismo reparto que hace `aprobarOrdenConOferta`, así que el número de
+              acá es el que va a quedar en la OC. El descuento faltaba y el total salía
+              más alto de lo que se iba a pagar. */}
+          {((Number(oferta.iva) || 0) > 0 || (Number(oferta.igtf) || 0) > 0 || (Number(oferta.descuento) || 0) > 0) && (() => {
+            const parte = recortarOfertaAHija(oferta, elegidos.map((it) => it.sku));
+            const iva = Number(parte.iva) || 0;
+            const igtf = Number(parte.igtf) || 0;
+            const desc = Number(parte.descuento) || 0;
+            const conBcv = montoFinalOferta({ precio_total: bcvTotal, precio_efectivo: null, iva, igtf, descuento: desc });
+            const conUsd = montoFinalOferta({ precio_total: usdTotal, precio_efectivo: null, iva, igtf, descuento: desc });
             return (
               <div style={{ marginTop: '.2rem' }}>
+                {desc > 0 && <span className="badge success" style={{ marginRight: '.35rem' }}>− desc. {money(desc)}</span>}
                 {iva > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IVA {money(iva)}</span>}
                 {igtf > 0 && <span className="badge">+ IGTF {money(igtf)}</span>}
                 <div style={{ marginTop: '.2rem' }}>
-                  Total con impuestos: <strong>{bcvTotal > 0 ? money(bcvConImp, 'Bs') : '—'}</strong>
-                  {usdConImp > 0 && <> · <strong style={{ color: 'var(--success)' }}>{money(usdConImp, 'USD')}</strong></>}
+                  Total a pagar: <strong>{bcvTotal > 0 ? money(conBcv.final, 'Bs') : '—'}</strong>
+                  {usdTotal > 0 && <> · <strong style={{ color: 'var(--success)' }}>{money(conUsd.final, 'USD')}</strong></>}
                 </div>
                 <div className="muted" style={{ fontSize: '.76rem', marginTop: '.15rem' }}>
-                  El total que va a Tesorería ya incluye los impuestos.
+                  El total que va a Tesorería ya tiene el descuento restado y los impuestos sumados.
+                  {parte.fraccion < 1 && <> Se le compra el {Math.round(parte.fraccion * 100)}% de esta oferta, así que descuento e impuestos van en esa proporción.</>}
                 </div>
               </div>
             );
