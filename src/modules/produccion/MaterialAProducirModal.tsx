@@ -219,10 +219,12 @@ export function MaterialAProducirModal({
   const [hornoSaving, setHornoSaving] = useState(false);
   const [manoObra, setManoObra] = useState('0');
   const [sumarInventario, setSumarInventario] = useState(true); // ¿el producto entra al inventario al finalizar?
-  // Carga histórica: una colada que YA ocurrió (p. ej. de mayo). Se registra para
-  // tener el reporte, pero no toca el inventario: el stock de hoy ya refleja lo
-  // que se quemó entonces, así que descontarlo de nuevo lo dejaría en negativo.
-  const [cargaHistorica, setCargaHistorica] = useState(false);
+  // El material de una colada NO se descuenta acá, y por eso arranca marcado:
+  // ya salió del almacén por una Salida de material cuando se llevó al horno.
+  // Descontarlo otra vez es el doble descuento. Vale igual para una colada vieja
+  // (una de mayo): el stock de hoy ya refleja lo que se quemó entonces.
+  // Se destilda solo si esta colada en particular sí debe bajar el stock.
+  const [cargaHistorica, setCargaHistorica] = useState(true);
   // Costos indirectos POR CONCEPTO (cada uno con su costo; ninguno obligatorio).
   const [indirectos, setIndirectos] = useState<Record<string, string>>({});
   const indirectosTotal = CONCEPTOS_INDIRECTOS.reduce((a, c) => a + (Number(indirectos[c]) || 0), 0);
@@ -808,13 +810,9 @@ export function MaterialAProducirModal({
             <span><strong>Sumar al inventario</strong> al finalizar <span className="muted" style={{ fontSize: '.76rem' }}>· si lo destildás, esta {esRef ? 'refinación' : 'colada'} queda como registro/reporte y NO suma stock del producto</span></span>
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', marginTop: '.4rem', cursor: 'pointer', fontSize: '.86rem' }}
-            title="Para cargar coladas viejas: se registra el reporte pero no se toca el stock de hoy">
-            <input type="checkbox" checked={cargaHistorica} onChange={(e) => {
-              setCargaHistorica(e.target.checked);
-              // Una colada vieja tampoco debería sumar hoy lo que produjo entonces.
-              if (e.target.checked) setSumarInventario(false);
-            }} />
-            <span>📋 <strong>Carga histórica</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· la {esRef ? 'refinación' : 'colada'} ya ocurrió: se registra el reporte y NO se descuenta el material del inventario (tampoco se exige stock)</span></span>
+            title="El material ya salió por Salidas: descontarlo otra vez sería contarlo dos veces">
+            <input type="checkbox" checked={cargaHistorica} onChange={(e) => setCargaHistorica(e.target.checked)} />
+            <span>📦 <strong>No descontar el material del inventario</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· el material ya salió del almacén por una <strong>Salida</strong> cuando se llevó al horno, o esta {esRef ? 'refinación' : 'colada'} es una carga vieja. Tampoco se exige stock. Destildá solo si esta {esRef ? 'refinación' : 'colada'} SÍ debe bajar el inventario.</span></span>
           </label>
         </div>
 

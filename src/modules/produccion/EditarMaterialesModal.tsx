@@ -43,8 +43,10 @@ export function EditarMaterialesModal({
   const [cantidad, setCantidad] = useState<number | null>(null);
   const [manoObra, setManoObra] = useState<number | null>(null);
   const [sumarInventario, setSumarInventario] = useState(true);
-  // Carga histórica: la colada ya ocurrió. Ni se exige stock ni se descuenta.
-  const [cargaHistorica, setCargaHistorica] = useState(false);
+  // No descontar del inventario: el material ya salió por una Salida cuando se
+  // llevó al horno, o la colada es una carga vieja. Arranca marcado; en una orden
+  // ya guardada se respeta lo que tenía.
+  const [cargaHistorica, setCargaHistorica] = useState(true);
   const [productoNombre, setProductoNombre] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -175,9 +177,9 @@ export function EditarMaterialesModal({
           </label>
 
           <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', margin: '0 0 .2rem', cursor: 'pointer', fontSize: '.86rem' }}
-            title="Para cargar coladas viejas: se registra el reporte pero no se toca el stock de hoy">
+            title="El material ya salió por Salidas: descontarlo otra vez sería contarlo dos veces">
             <input type="checkbox" checked={cargaHistorica} onChange={(e) => setCargaHistorica(e.target.checked)} />
-            <span>📋 <strong>Carga histórica</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· la colada ya ocurrió: NO se descuenta el material del inventario y no se exige stock</span></span>
+            <span>📦 <strong>No descontar el material del inventario</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· el material ya salió por una <strong>Salida</strong> cuando se llevó al horno, o es una carga vieja. Tampoco se exige stock.</span></span>
           </label>
 
           <div className="card-title" style={{ marginTop: '.8rem' }}>Materiales (consumo de inventario)</div>

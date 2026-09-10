@@ -110,6 +110,15 @@ export function SalidaMaterialForm({
   };
   const quitarLinea = (id: number) => setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
 
+  /** Equipos para el buscador. La primera opción vacía permite volver a «ninguno». */
+  const opcionesEquipo = useMemo(() => [
+    { value: '', label: '— sin equipo —' },
+    ...equipos.map((eq) => ({
+      value: eq.id,
+      label: `${eq.equipo}${eq.tipo ? ` · ${eq.tipo}` : ''}${eq.ubicacion ? ` · ${eq.ubicacion}` : ''}`,
+    })),
+  ], [equipos]);
+
   // Al elegir el producto: cantidad 1 y precio por defecto = costo del almacén de mayor prioridad.
   function elegirProducto(id: number, productoId: string) {
     const primer = planEntregaPorPrioridad(candidatosDe(productoId), 1).tramos[0];
@@ -419,15 +428,18 @@ export function SalidaMaterialForm({
                       «MANTENIMIENTO» en consumo de UN equipo concreto. */}
                   {equipos.length > 0 && (
                     <>
-                      <select className="select" style={{ marginTop: '.35rem', fontSize: '.82rem' }}
-                        value={l.equipoId ?? ''} onChange={(e) => setLinea(l.id, { equipoId: e.target.value })}>
-                        <option value="">🔧 ¿Para qué equipo? (opcional)</option>
-                        {equipos.map((eq) => (
-                          <option key={eq.id} value={eq.id}>
-                            {eq.equipo}{eq.tipo ? ` · ${eq.tipo}` : ''}{eq.ubicacion ? ` · ${eq.ubicacion}` : ''}
-                          </option>
-                        ))}
-                      </select>
+                      {/* Buscable: se escribe «bobcat» o «encava» y aparece, en vez de
+                          recorrer una lista de camiones, plantas y montacargas. */}
+                      <div style={{ marginTop: '.35rem' }}>
+                        <SearchSelect
+                          value={l.equipoId ?? ''}
+                          onChange={(v) => setLinea(l.id, { equipoId: v })}
+                          options={opcionesEquipo}
+                          placeholder="🔧 ¿Para qué equipo? (opcional)"
+                          emptyText="Ningún equipo coincide"
+                          sinPreseleccion
+                        />
+                      </div>
                       {l.equipoId && (
                         <small className="muted" style={{ fontSize: '.72rem' }}>
                           Queda en el kardex y en la ficha de <strong>{equipoDe(l.equipoId)?.equipo}</strong>: así se sabe qué se le puso.
