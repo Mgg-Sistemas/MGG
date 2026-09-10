@@ -7,6 +7,7 @@ import { loadLogoDataUrl, loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl } fro
 const EMAIL_JEFA_ADMIN = 'jhzgcontabilidad@gmail.com';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { descuentoEfectivo } from './ofertas.repository';
+import { lineasDeTotal } from './totalesOc';
 import type { OfertaDetalle, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 
 interface OcData {
@@ -391,7 +392,16 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         money(it.cantidad * it.precio),
       ];
       }),
-      foot: [['', '', '', '', '', '', esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL', money(o.total)]],
+      // Pie completo: subtotal de los renglones, IVA/IGTF/descuento y recién ahí el
+      // total. Antes cerraba con «TOTAL» a secas, que es el total CON IVA: en la OC de
+      // GOMOR los 19 ítems sumaban $100,87 y el pie decía $117,68, sin nada que
+      // explicara los $16,81 de diferencia.
+      foot: lineasDeTotal(o, esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL')
+        .map((l) => ['', '', '', '', '', '', l.etiqueta, money(l.monto)]),
+      // Solo en la ÚLTIMA página. Repetido en cada una, el corte de página hacía que
+      // la primera pareciera una orden completa con un total que no cerraba con lo
+      // que ahí se veía.
+      showFoot: 'lastPage',
       theme: 'grid',
       headStyles: { fillColor: [255, 138, 0], textColor: 255 },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
