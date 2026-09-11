@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useVersionCheck } from '@/shared/lib/useVersionCheck';
+import { recargaDura } from '@/shared/lib/recargaDura';
 
 /**
  * Banner global que aparece SOLO cuando se detecta un despliegue real
@@ -18,7 +19,7 @@ export function AvisoActualizacion() {
         <strong>El sistema se actualizó.</strong>{' '}
         Guardá tu progreso y recargá para usar la última versión.
       </div>
-      <button className="btn btn-primary update-banner__btn" onClick={() => window.location.reload()}>
+      <button className="btn btn-primary update-banner__btn" onClick={recargaDura}>
         Actualizar ahora
       </button>
       <button

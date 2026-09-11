@@ -1,4 +1,5 @@
 import { Component, lazy, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
+import { recargaDura } from './recargaDura';
 
 /* ============================================================
    Recuperación ante "chunk faltante" tras un despliegue.
@@ -35,7 +36,10 @@ function marcarRecarga(): void {
 export function recargarPorChunkFaltante(): boolean {
   if (recargoReciente()) return false; // ya veníamos de una recarga: no insistir
   marcarRecarga();
-  window.location.reload();
+  // Dura, no `reload()`: un reload común puede volver a servir el index.html de
+  // la caché, y ese index pide los chunks que el despliegue acaba de borrar.
+  // Ahí la recarga no arregla nada y el aviso se queda pegado.
+  recargaDura();
   return true;
 }
 
@@ -93,13 +97,21 @@ export function instalarRecuperacionChunks(): void {
    mostramos un aviso claro con botón de recargar, NUNCA pantalla negra. */
 
 interface BoundaryProps { children: ReactNode; }
-interface BoundaryState { fallo: boolean; }
+interface BoundaryState { fallo: boolean; esChunk: boolean; mensaje: string }
 
 export class ChunkErrorBoundary extends Component<BoundaryProps, BoundaryState> {
-  state: BoundaryState = { fallo: false };
+  state: BoundaryState = { fallo: false, esChunk: false, mensaje: '' };
 
-  static getDerivedStateFromError(): BoundaryState {
-    return { fallo: true };
+  // Antes CUALQUIER error de una pantalla mostraba «Actualizando el sistema…».
+  // Un error de verdad no se arregla recargando: la persona recargaba, volvía a
+  // fallar y el cartel quedaba pegado, además de echarle la culpa a un
+  // despliegue que no había ocurrido. Ahora se distingue el caso.
+  static getDerivedStateFromError(err: unknown): BoundaryState {
+    return {
+      fallo: true,
+      esChunk: esErrorDeChunk(err),
+      mensaje: String((err as Error)?.message || err || '').slice(0, 300),
+    };
   }
 
   componentDidCatch(err: unknown): void {
@@ -107,17 +119,56 @@ export class ChunkErrorBoundary extends Component<BoundaryProps, BoundaryState> 
     if (esErrorDeChunk(err)) recargarPorChunkFaltante();
   }
 
+  /** El botón de la pantalla. Ignora el guard: si la persona lo aprieta, quiere
+   *  recargar ahora, aunque el intento automático haya sido hace un segundo. */
+  private reintentar = (): void => {
+    try { sessionStorage.removeItem(RELOAD_FLAG); } catch { /* da igual */ }
+    recargaDura();
+  };
+
   render(): ReactNode {
     if (!this.state.fallo) return this.props.children;
+
+    // Chunk faltante: sí es un despliegue, y recargar lo arregla.
+    if (this.state.esChunk) {
+      return (
+        <div className="card" style={{ padding: '2rem', maxWidth: 520, margin: '2rem auto', textAlign: 'center' }}>
+          <h2 style={{ marginTop: 0 }}>Actualizando el sistema…</h2>
+          <p className="muted">
+            Se publicó una versión nueva. Recargá la página para continuar; tus datos guardados no se pierden.
+          </p>
+          <button className="btn btn-primary" onClick={this.reintentar}>
+            Recargar ahora
+          </button>
+        </div>
+      );
+    }
+
+    // Cualquier otro error: no mentir. Recargar puede no arreglarlo, así que se
+    // ofrece volver al inicio y se muestra el mensaje para poder reportarlo.
     return (
-      <div className="card" style={{ padding: '2rem', maxWidth: 520, margin: '2rem auto', textAlign: 'center' }}>
-        <h2 style={{ marginTop: 0 }}>Actualizando el sistema…</h2>
+      <div className="card" style={{ padding: '2rem', maxWidth: 560, margin: '2rem auto', textAlign: 'center' }}>
+        <h2 style={{ marginTop: 0 }}>Esta pantalla falló</h2>
         <p className="muted">
-          Se publicó una versión nueva. Recargá la página para continuar; tus datos guardados no se pierden.
+          No se pudo mostrar. <strong>Tus datos guardados no se pierden.</strong> Probá recargar;
+          si vuelve a fallar, avisá al equipo con el detalle de abajo.
         </p>
-        <button className="btn btn-primary" onClick={() => window.location.reload()}>
-          Recargar ahora
-        </button>
+        {this.state.mensaje && (
+          <pre
+            className="mono muted"
+            style={{
+              fontSize: '.72rem', textAlign: 'left', whiteSpace: 'pre-wrap',
+              background: 'var(--surface-2, #0d1117)', padding: '.6rem',
+              borderRadius: '.4rem', maxHeight: 160, overflow: 'auto',
+            }}
+          >
+            {this.state.mensaje}
+          </pre>
+        )}
+        <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={this.reintentar}>Recargar</button>
+          <button className="btn btn-ghost" onClick={() => { window.location.href = '/'; }}>Ir al inicio</button>
+        </div>
       </div>
     );
   }
