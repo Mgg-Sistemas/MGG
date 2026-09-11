@@ -56,7 +56,7 @@ export async function crearSedeCombustible(nombre: string, titulo?: string): Pro
   // `clave` es el valor estable que guardan combustibles.sede / tanques.sede; debe ser único.
   const { data: existentes } = await supabase.from('combustible_sedes').select('clave, orden');
   const claves = new Set((existentes ?? []).map((s) => String((s as { clave: string }).clave).toUpperCase()));
-  let base = n.toUpperCase();
+  const base = n.toUpperCase();
   let clave = base;
   let i = 2;
   while (claves.has(clave)) { clave = `${base} ${i++}`; }

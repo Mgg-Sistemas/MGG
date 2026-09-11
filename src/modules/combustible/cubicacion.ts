@@ -19,7 +19,7 @@ export function longitudDesdeCapacidad(capacidadLitros: number, diametroCm: numb
 export function litrosCilindroHorizontal(nivelCm: number, diametroCm: number, longitudCm: number): number {
   const r = (Number(diametroCm) || 0) / 2;
   const L = Number(longitudCm) || 0;
-  let h = Number(nivelCm) || 0;
+  const h = Number(nivelCm) || 0;
   if (r <= 0 || L <= 0) return 0;
   if (h <= 0) return 0;
   if (h >= 2 * r) return Math.round((Math.PI * r * r * L) / 1000 * 100) / 100; // lleno

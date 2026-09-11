@@ -33,7 +33,7 @@ async function cargarTrazabilidad(ordenId: string): Promise<TrazabilidadData> {
   const provIds = new Set<string>();
   if (orden.proveedor_id) provIds.add(orden.proveedor_id);
   (ofertas ?? []).forEach((o) => provIds.add(o.proveedor_id));
-  let proveedoresPorId = new Map<string, Proveedor>();
+  const proveedoresPorId = new Map<string, Proveedor>();
   if (provIds.size) {
     const { data: provs } = await supabase
       .from('proveedores')

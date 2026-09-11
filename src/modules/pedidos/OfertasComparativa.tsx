@@ -67,6 +67,29 @@ export function OfertasComparativa({
   // pueden marcar, para no pagar dos veces el mismo producto.
   const [skusAjenos, setSkusAjenos] = useState<Set<string>>(new Set());
 
+  /* La OC congela los impuestos de su oferta al crearse. Si después se edita la
+     oferta, `resincronizarOcDesdeOferta` solo re-sincroniza mientras la orden
+     está en «OC creada»: más adelante NO se toca sola, a propósito, porque el
+     monto ya está en la cola de Tesorería. El problema era que tampoco avisaba.
+     En una sub-OC la oferta cotiza más productos, así que se compara contra el
+     recorte prorrateado, no contra la oferta entera.
+
+     Va ACÁ ARRIBA, con el resto de los hooks, y no abajo junto a donde se usa:
+     más abajo hay dos `return` tempranos (cargando y sin ofertas). Un hook
+     después de un return se ejecuta en unos renders y en otros no, y React corta
+     con el error #310 — «se renderizaron más hooks que en el render anterior».
+     Eso dejaba la pantalla en «Esta pantalla falló» apenas terminaban de cargar
+     las ofertas. */
+  const desfaseImpuestos = useMemo(() => {
+    if (!orden.oc_codigo || !orden.proveedor_id) return null;
+    const aceptada = ofertas.find((x) => x.estado === 'aceptada' && x.proveedor_id === orden.proveedor_id);
+    if (!aceptada) return null;
+    const parte = orden.parent_orden_id
+      ? recortarOfertaAHija(aceptada, (orden.items ?? []).map((it) => it.sku))
+      : aceptada;
+    return ivaContraOferta(orden, parte);
+  }, [orden, ofertas]);
+
   const toggleExpand = (id: string) => setExpandido((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -304,22 +327,6 @@ export function OfertasComparativa({
       </div>
     );
   }
-
-  /* La OC congela los impuestos de su oferta al crearse. Si después se edita la
-     oferta, `resincronizarOcDesdeOferta` solo re-sincroniza mientras la orden
-     está en «OC creada»: más adelante NO se toca sola, a propósito, porque el
-     monto ya está en la cola de Tesorería. El problema era que tampoco avisaba.
-     En una sub-OC la oferta cotiza más productos, así que se compara contra el
-     recorte prorrateado, no contra la oferta entera. */
-  const desfaseImpuestos = useMemo(() => {
-    if (!orden.oc_codigo || !orden.proveedor_id) return null;
-    const aceptada = ofertas.find((x) => x.estado === 'aceptada' && x.proveedor_id === orden.proveedor_id);
-    if (!aceptada) return null;
-    const parte = orden.parent_orden_id
-      ? recortarOfertaAHija(aceptada, (orden.items ?? []).map((it) => it.sku))
-      : aceptada;
-    return ivaContraOferta(orden, parte);
-  }, [orden, ofertas]);
 
   return (
     <div className="card" style={{ marginTop: '1rem' }}>
