@@ -321,7 +321,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
           title="Borrar entrada" danger confirmText="Borrar"
           message={`¿Borrar la entrada de ${borrar.procedencia || '—'}${borrar.precinto ? ` (precinto ${borrar.precinto})` : ''}?`}
           onCancel={() => setBorrar(null)}
-          onConfirm={async () => { try { await eliminarCasiteritaDetalle(borrar.id); toast('Entrada borrada', 'success'); setBorrar(null); cargar(); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); } }}
+          onConfirm={async () => { try { await eliminarCasiteritaDetalle(borrar.id, actor, actorName); toast('Entrada borrada', 'success'); setBorrar(null); cargar(); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); } }}
         />
       )}
     </div>
@@ -364,7 +364,7 @@ function EntradaModal({ entrada, actor, actorName, onClose, onSaved }: {
       categoria: d.categoria, cant, peso_neto_kgs: pesoNeto, prom_sn: prom, tasa,
     };
     try {
-      if (entrada) await actualizarCasiteritaDetalle(entrada.id, input);
+      if (entrada) await actualizarCasiteritaDetalle(entrada.id, input, actor, actorName);
       else await crearCasiteritaDetalle(input, actor, actorName);
       toast(entrada ? 'Entrada actualizada' : 'Entrada agregada', 'success');
       onSaved();

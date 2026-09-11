@@ -1,8 +1,13 @@
 /* ============================================================
    MGG · Inventario · Casiterita — Inventario Detallado (SnO₂)
-   Ledger PARALELO del almacén de casiterita (Los Pinos): desglose por
-   precinto / # de análisis + valorización por tasa. NO mueve stock (la
-   casiterita ya entra por la recepción); esta vista es el detalle SnO₂.
+   Ledger del almacén de casiterita (Los Pinos): desglose por precinto /
+   # de análisis + valorización por tasa.
+
+   SÍ mueve stock, por diferencia: cada fila lleva escrito cuántos kg suyos
+   ya están contados (`stock_kg`), así una fila nueva entra, una editada
+   ajusta solo el cambio y una borrada devuelve lo que aportó. Las filas
+   anteriores a esta regla nacieron ya contadas (entraron por la recepción
+   de julio), así que no se suman de nuevo. Ver `casiteritaStock.ts`.
 
    Peso Casiterita Kgs = Peso Neto Kgs (de la recepción) − factor(categoría)×cant
      · big bag 1,5 · saco 0,06 · tobo 1 · bolsa de hielo 0,03
@@ -10,6 +15,9 @@
    Valor              = Peso Casiterita Kgs × Tasa (por centro/aliado)
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { registrarMovimiento } from './movimientos.repository';
+import { findBySku } from './inventario.repository';
+import { ajustePorFila, ajusteAlBorrar, detalleMovimiento } from './casiteritaStock';
 import {
   listPesajes, listAnalisis, listMinerales, listRecepciones,
   catLado, PESO_FACTOR,
@@ -50,6 +58,8 @@ export interface CasiteritaDetalle {
   nota: string | null;
   actor: string | null;
   actor_name: string | null;
+  /** Kg de esta fila que YA están contados en el stock. Lo maneja el repositorio. */
+  stock_kg: number;
   created_at: string;
   updated_at: string | null;
 }
@@ -100,20 +110,97 @@ export async function listCasiteritaDetalle(): Promise<CasiteritaDetalle[]> {
   return (data ?? []) as CasiteritaDetalle[];
 }
 
+/** El producto único donde vive la casiterita del inventario real. */
+const SKU_CASITERITA = 'MIN-CASITERITA';
+
+/**
+ * Mueve el stock de casiterita y deja anotado en la fila cuánto lleva aportado.
+ *
+ * Best effort NO: si el movimiento falla hay que enterarse, porque el detalle y
+ * el stock quedarían diciendo cosas distintas. Lo que sí se tolera es que no
+ * exista la ficha del producto (base recién montada): ahí no hay stock que mover.
+ */
+async function sincronizarStock(
+  fila: { id: string; procedencia: string; categoria: CasiteritaCategoria; almacen: string },
+  ajuste: { delta: number; tipo: 'entrada' | 'salida' },
+  esAjuste: boolean,
+  actor: string,
+  actorName: string | null,
+): Promise<void> {
+  const prod = await findBySku(SKU_CASITERITA);
+  if (!prod) return;
+  await registrarMovimiento({
+    producto_id: prod.id,
+    tipo: ajuste.tipo,
+    delta: ajuste.delta,
+    almacen: fila.almacen || CASITERITA_ALMACEN,
+    actor,
+    actor_name: actorName,
+    ref_tipo: 'casiterita_detalle',
+    ref_id: fila.id,
+    detalle: detalleMovimiento(fila.procedencia, CAT_NOMBRE[fila.categoria], esAjuste),
+    // El costo de este almacén es la tasa MEZCLADA de todas las recepciones, puesta
+    // a mano. Una fila del detalle desglosa ese mismo material: no es una compra
+    // nueva a otro precio, así que no puede correr el promedio.
+    precio_unitario: null,
+  });
+}
+
+/** Nombre legible de la categoría, para el texto del kardex. */
+const CAT_NOMBRE: Record<CasiteritaCategoria, string> = {
+  bigbag: 'BIG BAG', saco: 'SACO', tobo: 'TOBO', hielo: 'BOLSA DE HIELO',
+};
+
 export async function crearCasiteritaDetalle(input: CasiteritaDetalleInput, actor: string, actorName?: string | null): Promise<CasiteritaDetalle> {
-  const row = { ...normalizar(input), actor, actor_name: actorName ?? null };
+  const row = { ...normalizar(input), actor, actor_name: actorName ?? null, stock_kg: 0 };
   const { data, error } = await supabase.from('casiterita_detalle').insert(row).select('*').single();
   if (error) throw error;
-  return data as CasiteritaDetalle;
+  const fila = data as CasiteritaDetalle;
+
+  // La fila nace en cero y recién acá suma: si el movimiento falla, queda en el
+  // detalle sin stock y el próximo guardado la completa, en vez de duplicarla.
+  const ajuste = ajustePorFila(fila.peso_casiterita_kgs, 0);
+  if (ajuste) {
+    await sincronizarStock(fila, ajuste, false, actor, actorName ?? null);
+    await supabase.from('casiterita_detalle')
+      .update({ stock_kg: fila.peso_casiterita_kgs }).eq('id', fila.id);
+    fila.stock_kg = fila.peso_casiterita_kgs;
+  }
+  return fila;
 }
 
-export async function actualizarCasiteritaDetalle(id: string, input: CasiteritaDetalleInput): Promise<void> {
+export async function actualizarCasiteritaDetalle(id: string, input: CasiteritaDetalleInput, actor?: string, actorName?: string | null): Promise<void> {
+  const { data: antes } = await supabase.from('casiterita_detalle')
+    .select('stock_kg').eq('id', id).maybeSingle();
+  const yaContado = Number((antes as { stock_kg?: number } | null)?.stock_kg) || 0;
+
+  const campos = normalizar(input);
   const { error } = await supabase.from('casiterita_detalle')
-    .update({ ...normalizar(input), updated_at: new Date().toISOString() }).eq('id', id);
+    .update({ ...campos, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;
+
+  // Corregir la tasa o el # de análisis no mueve un kilo: solo el peso.
+  const ajuste = ajustePorFila(campos.peso_casiterita_kgs, yaContado);
+  if (!ajuste) return;
+  await sincronizarStock(
+    { id, procedencia: campos.procedencia, categoria: campos.categoria, almacen: campos.almacen },
+    ajuste, true, actor ?? 'sistema', actorName ?? null,
+  );
+  await supabase.from('casiterita_detalle')
+    .update({ stock_kg: campos.peso_casiterita_kgs }).eq('id', id);
 }
 
-export async function eliminarCasiteritaDetalle(id: string): Promise<void> {
+export async function eliminarCasiteritaDetalle(id: string, actor?: string, actorName?: string | null): Promise<void> {
+  const { data: fila } = await supabase.from('casiterita_detalle')
+    .select('id, procedencia, categoria, almacen, stock_kg').eq('id', id).maybeSingle();
+
+  // Primero se devuelve el stock y después se borra la fila: al revés, un fallo
+  // al borrar dejaría el kardex con una salida por una fila que sigue viva.
+  const ajuste = ajusteAlBorrar((fila as { stock_kg?: number } | null)?.stock_kg);
+  if (fila && ajuste) {
+    await sincronizarStock(fila as unknown as { id: string; procedencia: string; categoria: CasiteritaCategoria; almacen: string },
+      ajuste, true, actor ?? 'sistema', actorName ?? null);
+  }
   const { error } = await supabase.from('casiterita_detalle').delete().eq('id', id);
   if (error) throw error;
 }
