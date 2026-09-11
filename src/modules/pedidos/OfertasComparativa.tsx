@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, useMemo } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -13,8 +13,9 @@ import { listOfertasDeOrdenes, aceptarOferta as aceptarOfertaRepo, actualizarOfe
 import { urlAdjuntoOc, listSubOcs, getOrdenById } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, montoFinalOferta, type ScoredOferta } from './score';
+import { ivaContraOferta } from './cuadreOc';
 import { aprobarOrdenConOferta } from './pedidos.repository';
-import { skusSinCotizar } from './subOc';
+import { skusSinCotizar, recortarOfertaAHija } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ordenDeOfertas, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
 import { AceptarOfertaModal } from './AceptarOfertaModal';
@@ -304,9 +305,46 @@ export function OfertasComparativa({
     );
   }
 
+  /* La OC congela los impuestos de su oferta al crearse. Si después se edita la
+     oferta, `resincronizarOcDesdeOferta` solo re-sincroniza mientras la orden
+     está en «OC creada»: más adelante NO se toca sola, a propósito, porque el
+     monto ya está en la cola de Tesorería. El problema era que tampoco avisaba.
+     En una sub-OC la oferta cotiza más productos, así que se compara contra el
+     recorte prorrateado, no contra la oferta entera. */
+  const desfaseImpuestos = useMemo(() => {
+    if (!orden.oc_codigo || !orden.proveedor_id) return null;
+    const aceptada = ofertas.find((x) => x.estado === 'aceptada' && x.proveedor_id === orden.proveedor_id);
+    if (!aceptada) return null;
+    const parte = orden.parent_orden_id
+      ? recortarOfertaAHija(aceptada, (orden.items ?? []).map((it) => it.sku))
+      : aceptada;
+    return ivaContraOferta(orden, parte);
+  }, [orden, ofertas]);
+
   return (
     <div className="card" style={{ marginTop: '1rem' }}>
       {headLine}
+      {desfaseImpuestos && (
+        <div className="card" style={{ margin: '0 0 .6rem', padding: '.5rem .8rem', background: 'var(--bg-1)', borderColor: 'var(--warning)' }}>
+          <div style={{ fontWeight: 600, color: 'var(--warning)' }}>
+            ⚠ Los impuestos de esta OC no son los de su oferta aceptada
+          </div>
+          <div className="hint muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>
+            La OC arrastra IVA <strong className="mono">{money(desfaseImpuestos.ivaOrden)}</strong>
+            {desfaseImpuestos.igtfOrden > 0 && <> e IGTF <strong className="mono">{money(desfaseImpuestos.igtfOrden)}</strong></>}
+            {' y la oferta dice '}
+            <strong className="mono">{money(desfaseImpuestos.ivaOferta)}</strong>
+            {desfaseImpuestos.igtfOferta > 0 && <> e <strong className="mono">{money(desfaseImpuestos.igtfOferta)}</strong></>}
+            {': el total pide '}
+            <strong className="mono" style={{ color: 'var(--warning)' }}>
+              {money(Math.abs(desfaseImpuestos.diferencia))}
+            </strong>
+            {desfaseImpuestos.diferencia > 0 ? ' de más.' : ' de menos.'}
+            {' '}Pasa cuando la oferta se edita después de emitir la OC. Para recalcularla,
+            reabrila a «OC creada» y volvé a guardarla.
+          </div>
+        </div>
+      )}
       {esHija && (
         <div className="card" style={{ margin: '0 0 .6rem', padding: '.5rem .8rem', background: 'var(--bg-1)', borderColor: 'var(--warning)' }}>
           <div style={{ fontWeight: 600 }}>🧩 Compra multiproveedor — esta es una sub-orden de <span className="mono">{codigoMadre}</span>.</div>
