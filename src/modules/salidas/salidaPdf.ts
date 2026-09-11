@@ -6,6 +6,7 @@
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { autorizanteDe } from './autorizanteSalida';
 
 async function nuevoDoc(titulo: string) {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, personas] = await Promise.all([
@@ -170,10 +171,10 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const firmaSalidas = await pdfLogo.loadFirmaSalidasDataUrl().catch(() => null);
 
   const esTraslado = sol.scope === 'traslado';
-  // Las salidas y traslados los AUTORIZA siempre Leydis Rengel (autorizadora fija):
-  // el documento muestra su nombre y su firma en el bloque "Autorizado por".
-  const AUTORIZA_SALIDAS = 'Leydis Rengel';
-  const autorizoEmail = sol.ejecutada_por || sol.aprobada_por;
+  // El papel nombra a QUIEN APROBÓ, y la firma escaneada solo se estampa cuando
+  // aprobó su dueña. Antes imprimía siempre el mismo nombre y la misma firma:
+  // 105 de 179 documentos llevaban la firma de alguien que no intervino.
+  const autoriza = autorizanteDe(sol.aprobada_por, sol.ejecutada_por, (c) => personaDe(c, personas, null));
   const creo = personaDe(sol.actor, personas, sol.actor_name || sol.solicitante);
 
   // Líneas de la "factura": el detalle multi-producto si existe, si no la cabecera.
@@ -223,7 +224,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     ['Estado', sol.estado === 'ejecutada' && sol.mov_ref === 'manual_externo'
       ? (sol.scope === 'traslado' ? 'Cerrada sin mover stock' : 'Cerrada sin descontar')
       : (SOL_ESTADO_TXT[sol.estado] ?? sol.estado)],
-    ['Autorizado por', autorizoEmail ? AUTORIZA_SALIDAS.toUpperCase() : '— (pendiente de aprobación) —'],
+    ['Autorizado por', autoriza.nombre],
   ];
   let dy = y;
   doc.setFontSize(9);
@@ -311,9 +312,9 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   }
   const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
   const cxAutoriza = MARGIN + colW + 40 + colW / 2;
-  // Firma de Leydis Rengel (Salidas/Traslados) sobre la línea de "Autorizado por",
-  // en tamaño mediano. Solo cuando la orden ya está autorizada/ejecutada.
-  if (firmaSalidas && autorizoEmail) {
+  // La firma escaneada va SOLO si quien aprobó es su dueña. Para cualquier otro
+  // la línea queda vacía: la firma la pone esa persona a mano.
+  if (firmaSalidas && autoriza.firma) {
     try {
       const sw = 150, sh = 52;  // mediano (proporción de firma2)
       doc.addImage(firmaSalidas, 'JPEG', cxAutoriza - sw / 2, fy - sh + 8, sw, sh);
@@ -327,7 +328,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.text('Autorizado por', cxAutoriza, fy + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.text(creo || '—', MARGIN + colW / 2, fy + 27, { align: 'center' });
-  doc.text(autorizoEmail ? AUTORIZA_SALIDAS : '— (pendiente) —', cxAutoriza, fy + 27, { align: 'center' });
+  doc.text(autoriza.pendiente ? '— (pendiente) —' : autoriza.nombre, cxAutoriza, fy + 27, { align: 'center' });
 
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
