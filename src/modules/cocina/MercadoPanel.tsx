@@ -18,6 +18,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { costoDeAlimentar } from './costoPorPlato';
+import { LeyendaMercado } from './LeyendaMercado';
 import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
@@ -433,6 +434,10 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           onClose={() => setCerrar(false)}
           onDone={async () => { setCerrar(false); await onReload(); }} />
       )}
+
+      {/* Va al pie y cerrada: las mismas preguntas vuelven cada ciclo, y responderlas
+          donde aparece la duda evita el mensaje. Quien ya sabe, no la abre. */}
+      <LeyendaMercado />
     </div>
   );
 }
