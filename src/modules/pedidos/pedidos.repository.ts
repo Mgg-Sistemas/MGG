@@ -10,6 +10,7 @@ import { camposDeEdicion, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCam
 import { fechaVE, tasaValida } from './compraDirectaMoneda';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
 import { ubicacionAlRecibir } from '@/modules/inventario/ubicacionProducto';
+import { identidadAlRecibir } from '@/modules/inventario/identidadProducto';
 import type {
   AbonoCredito,
   CuentaCaja,
@@ -1871,7 +1872,7 @@ export async function recibirOrdenParcial(
     if (!it.productoId || rec <= 0) return;
     const { data: prod, error: pErr } = await supabase
       .from('productos')
-      .select('stock, precio, precio_promedio, almacen')
+      .select('stock, precio, precio_promedio, almacen, marca, modelo, descripcion')
       .eq('id', it.productoId)
       .maybeSingle();
     if (pErr) throw pErr;
@@ -1918,11 +1919,19 @@ export async function recibirOrdenParcial(
     // recepción es la que se lo da: es el momento en que alguien decidió a qué
     // sede entra. Al que ya vivía en un almacén no se lo muda.
     const casaNueva = ubicacionAlRecibir(prod?.almacen as string | null, almacenProd);
+    // La marca y el modelo se cargaron en la solicitud y viajaron hasta acá: la
+    // recepción es donde la ficha por fin se entera. Solo LLENA lo que está
+    // vacío — comprar otra marca no puede renombrar el stock que ya había.
+    const identidad = identidadAlRecibir(
+      prod as { marca?: string | null; modelo?: string | null; descripcion?: string | null } | null,
+      { marca: it.marca, modelo: it.modelo },
+    );
     const { error: uErr } = await supabase
       .from('productos')
       .update({
         stock: stockDespues, precio: precioCompra, precio_promedio: precioPromedio,
         ...(casaNueva ? { almacen: casaNueva } : {}),
+        ...(identidad ?? {}),
       })
       .eq('id', it.productoId);
     if (uErr) throw uErr;
