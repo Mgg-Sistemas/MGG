@@ -52,3 +52,17 @@ export function variacionPorPlato(actual: number | null, anterior: number | null
   if (actual == null || anterior == null || anterior <= 0) return null;
   return r2(((actual - anterior) / anterior) * 100);
 }
+
+/**
+ * Los totales que se congelan al cerrar o descartar un ciclo.
+ *
+ * Descartar significa que el ciclo no le pasa saldo al siguiente, NO que no haya
+ * pasado nada: se sirvieron platos y salieron víveres. Guardar cero borraba ese
+ * hecho, y el histórico mostraba «0 platos» en una fila cuyo detalle decía 1.877.
+ */
+export function totalesParaCierre(kpis?: {
+  platos?: number | null; consumoValor?: number | null; entradasValor?: number | null;
+} | null): { platos: number; valor: number; entradasValor: number } {
+  const c = costoDeAlimentar(kpis ?? {});
+  return { platos: c.platos, valor: c.consumo, entradasValor: c.entradas };
+}

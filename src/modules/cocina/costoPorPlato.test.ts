@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { costoDeAlimentar, variacionPorPlato } from './costoPorPlato';
+import { costoDeAlimentar, variacionPorPlato, totalesParaCierre } from './costoPorPlato';
 
 describe('costoDeAlimentar', () => {
   it('divide el consumo entre los platos', () => {
@@ -60,5 +60,32 @@ describe('variacionPorPlato', () => {
 
   it('un anterior en cero no sirve de base', () => {
     expect(variacionPorPlato(1.09, 0)).toBeNull();
+  });
+});
+
+describe('totalesParaCierre', () => {
+  it('conserva lo que el ciclo movió', () => {
+    expect(totalesParaCierre({ platos: 1877, consumoValor: 2072.1, entradasValor: 500 }))
+      .toEqual({ platos: 1877, valor: 2072.1, entradasValor: 500 });
+  });
+
+  it('un ciclo descartado guarda sus platos: pasaron igual', () => {
+    // Antes se guardaba 0 y el histórico decía «0 platos» sobre un detalle de 1.877.
+    expect(totalesParaCierre({ platos: 1877, consumoValor: 2072.1 }).platos).toBe(1877);
+  });
+
+  it('sin datos devuelve ceros, no rompe', () => {
+    expect(totalesParaCierre(null)).toEqual({ platos: 0, valor: 0, entradasValor: 0 });
+    expect(totalesParaCierre()).toEqual({ platos: 0, valor: 0, entradasValor: 0 });
+  });
+
+  it('redondea el dinero y entera los platos', () => {
+    expect(totalesParaCierre({ platos: 10.9, consumoValor: 33.335 }))
+      .toEqual({ platos: 10, valor: 33.34, entradasValor: 0 });
+  });
+
+  it('ignora negativos cargados por error', () => {
+    expect(totalesParaCierre({ platos: -5, consumoValor: -20, entradasValor: -1 }))
+      .toEqual({ platos: 0, valor: 0, entradasValor: 0 });
   });
 });

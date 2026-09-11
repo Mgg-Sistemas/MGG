@@ -425,6 +425,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       )}
       {descartar && (
         <DescartarMercadoModal mercado={mercado} cocinaNombre={cocinaNombre} actor={actor} userEmail={userEmail}
+          kpis={resumen.kpis}
           onClose={() => setDescartar(false)}
           onDone={async () => { setDescartar(false); await onReload(); }} />
       )}
@@ -793,11 +794,14 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
    Descartar no es cerrar. Cerrar congela el remanente y se lo pasa al ciclo
    siguiente; descartar deja el ciclo fuera de la cadena, y el próximo arranca
    del inventario real. Se usa cuando el remanente no describe nada creíble. */
-function DescartarMercadoModal({ mercado, cocinaNombre, actor, userEmail, onClose, onDone }: {
+function DescartarMercadoModal({ mercado, cocinaNombre, actor, userEmail, kpis, onClose, onDone }: {
   mercado: MercadoCocina;
   cocinaNombre: string;
   actor: string;
   userEmail: string | null;
+  /** Lo que el ciclo movió: se guarda en el cierre para que el histórico no
+   *  muestre «0 platos» en una fila cuyo detalle dice 1.877. */
+  kpis: { platos: number; consumoValor: number; entradasValor: number };
   onClose: () => void;
   onDone: () => void | Promise<void>;
 }) {
@@ -816,7 +820,7 @@ function DescartarMercadoModal({ mercado, cocinaNombre, actor, userEmail, onClos
   async function confirmar() {
     setGuardando(true);
     try {
-      await descartarMercado(mercado, actor, userEmail, motivo);
+      await descartarMercado(mercado, actor, userEmail, motivo, kpis);
       notify(`Mercado #${mercado.numero} de ${cocinaNombre} descartado · el próximo arranca del inventario`, 'warning', { link: '#/app/cocina' });
       await onDone();
     } catch (e) {
@@ -839,7 +843,8 @@ function DescartarMercadoModal({ mercado, cocinaNombre, actor, userEmail, onClos
         saldo al siguiente y sus cifras salen de la cadena.
       </div>
       <p className="hint muted" style={{ marginTop: 0 }}>
-        No se borra nada — las comidas, los movimientos y el historial quedan donde están.
+        No se borra nada — las comidas, los movimientos y el historial quedan donde están, y el
+        ciclo se sigue consultando en «Mercados cerrados» con todas sus cifras.
         Cuando alguien abra el próximo mercado, el <strong>saldo inicial saldrá del inventario
         real</strong> de ese momento.
       </p>
