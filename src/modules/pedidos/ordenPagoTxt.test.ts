@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt } from './ordenPagoTxt';
+import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente } from './ordenPagoTxt';
 import type { Orden } from '@/shared/lib/types';
 
 /** La orden del ejemplo que dio el usuario: calzado para el motorizado. */
@@ -123,5 +123,38 @@ describe('piezas sueltas', () => {
     expect(detalleTxt({ motivo: 'REPUESTO', finalidad: 'PARA LA PLANTA' })).toBe('REPUESTO PARA LA PLANTA');
     expect(detalleTxt({ motivo: 'REPUESTO', finalidad: 'REPUESTO' })).toBe('REPUESTO');
     expect(detalleTxt({ motivo: null, finalidad: null })).toBe('');
+  });
+});
+
+describe('una orden a crédito manda el saldo, no el total', () => {
+  const CREDITO = {
+    codigo: 'SP-2026-0129', oc_codigo: 'OC-2026-0140', moneda: 'USD',
+    total: 1391.25, abonado_total: 400, motivo: 'ALIMENTACION', finalidad: null,
+    notas: null, metodo_pago: null,
+  } as unknown as Orden;
+
+  it('lo que resta = total − abonos', () => {
+    expect(saldoPendiente(CREDITO)).toBe(991.25);
+  });
+
+  it('un abono de más no deja el saldo en negativo', () => {
+    expect(saldoPendiente({ total: 100, abonado_total: 130 } as Orden)).toBe(0);
+  });
+
+  it('sin abonos, el saldo es el total', () => {
+    expect(saldoPendiente({ total: 756.44, abonado_total: 0 } as Orden)).toBe(756.44);
+  });
+
+  it('el texto muestra abonado y saldo pendiente', () => {
+    const t = textoOrdenPago(CREDITO, 'DISTRIBUIDORA EL TORETE J&M, C.A');
+    expect(t).toContain('*Total:* $1.391,25');
+    expect(t).toContain('*Abonado:* $400,00');
+    expect(t).toContain('*Saldo pendiente:* $991,25');
+  });
+
+  it('una orden sin abonos no ensucia el papel con esas dos líneas', () => {
+    const t = textoOrdenPago({ ...CREDITO, abonado_total: 0 } as Orden, 'AGROCHICKEN C.A');
+    expect(t).not.toContain('Abonado');
+    expect(t).not.toContain('Saldo pendiente');
   });
 });

@@ -2563,6 +2563,12 @@ function OrdenDetailModal({
       {isCuentaAbierta && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          {/* Una cuenta abierta se paga por abonos, y casi siempre la paga alguien
+              que no entra al sistema: necesita el mismo papelito que una OC
+              confirmada, pero con el SALDO en vez del total. */}
+          <button className="btn btn-ghost" onClick={handlePagoTxt} title="Bajar la orden en texto plano para mandar el abono por WhatsApp: proveedor, total, lo ya abonado, el saldo pendiente y los datos del beneficiario">
+            ↓ TXT para pagar
+          </button>
           <button className="btn btn-ghost" onClick={onAbono} title="Ver la cuenta del crédito y el historial de abonos">
             📋 Ver crédito / historial
           </button>

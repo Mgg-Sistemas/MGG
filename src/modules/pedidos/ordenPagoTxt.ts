@@ -69,6 +69,16 @@ function bloquePago(patas: PagoMetodo[] | null | undefined, total: number, moned
   return out;
 }
 
+/**
+ * Lo que resta pagar de una orden a crédito: total menos abonos, nunca negativo
+ * (un abono de más es un tema de Tesorería, no algo que este papel deba mostrar
+ * como un número en rojo).
+ */
+export function saldoPendiente(orden: Pick<Orden, 'total' | 'abonado_total'>): number {
+  const resto = (Number(orden.total) || 0) - (Number(orden.abonado_total) || 0);
+  return resto > 0 ? Math.round(resto * 100) / 100 : 0;
+}
+
 /** El texto completo. Se exporta aparte para poder probarlo sin tocar el navegador. */
 export function textoOrdenPago(orden: Orden, proveedorNombre: string): string {
   const mon = (orden.moneda ?? 'USD').toUpperCase() === 'BS' ? 'Bs' : '$';
@@ -81,6 +91,14 @@ export function textoOrdenPago(orden: Orden, proveedorNombre: string): string {
   if (detalle) L.push(`📝 *Detalle:* ${detalle}`);
   if (nota) L.push(`🗒️ *Nota:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
   L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
+  // En una cuenta abierta lo que se va a pagar hoy NO es el total: es el saldo.
+  // Mandar solo el total invita a pagar de más, así que el abonado y lo que
+  // resta van en su propio renglón. En una orden sin abonos no aparecen.
+  const abonado = Number(orden.abonado_total) || 0;
+  if (abonado > 0) {
+    L.push(`✅ *Abonado:* ${montoTxt(abonado, mon)}`);
+    L.push(`🔺 *Saldo pendiente:* ${montoTxt(saldoPendiente(orden), mon)}`);
+  }
   L.push(...bloquePago(orden.metodo_pago, Number(orden.total) || 0, mon));
   return L.join('\r\n'); // CRLF: se abre en el Bloc de notas sin quedar todo en una línea
 }
