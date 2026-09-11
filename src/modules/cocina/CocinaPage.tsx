@@ -31,6 +31,7 @@ import {
 } from './mercados.repository';
 import { cicloQueSePisa, primerDiaLibre } from './mercadoComparar';
 import { MercadoPanel } from './MercadoPanel';
+import { LeyendaMercado } from './LeyendaMercado';
 import { MercadosHistoricoModal } from './MercadosHistorico';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -366,6 +367,10 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
               </div>
             </div>
           )}
+          {/* La misma leyenda que lleva el panel: acá aplica sobre todo la duda de
+              por qué el sistema no deja abrir un ciclo sobre los días de otro.
+              Son ramas excluyentes del mismo ternario: nunca se ven las dos. */}
+          <LeyendaMercado />
         </div>
       ) : resumen ? (
         <MercadoPanel resumen={resumen} mercados={mercados} onElegirMercado={(id) => setVerMercadoId(id)}
