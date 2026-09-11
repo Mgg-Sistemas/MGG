@@ -14,6 +14,7 @@ import type { CocinaComida, Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, diaDeComida } from './cocina.repository';
+import { totalesParaCierre } from './costoPorPlato';
 import {
   cicloQueSePisa, diferenciasPorViver, explicarDiferencia, totalesDeMercado,
   type DiferenciaViver, type ExplicacionDiferencia, type SalidaFueraDelCiclo, type TotalesMercado,
@@ -736,6 +737,15 @@ export async function descartarMercado(
   actor: string,
   actorName: string | null,
   motivo: string,
+  /**
+   * Lo que el ciclo alcanzó a mover, para dejarlo escrito en el cierre.
+   *
+   * Descartar significa que el ciclo no le pasa saldo al siguiente, NO que no
+   * haya pasado nada: se sirvieron platos y salieron víveres. Guardando cero se
+   * perdía eso, y el histórico mostraba «0 platos» en una fila cuyo detalle
+   * decía 1.877. Quien lo tenga a mano lo pasa; si no, queda en cero como antes.
+   */
+  totales?: { platos: number; consumoValor: number; entradasValor: number } | null,
 ): Promise<void> {
   if (mercado.estado !== 'abierto') throw new Error('Solo se puede descartar un mercado abierto.');
   const razon = (motivo ?? '').trim();
@@ -749,7 +759,9 @@ export async function descartarMercado(
     generado_en: new Date().toISOString(),
     desde: mercado.fecha_inicio,
     hasta: mercado.fecha_fin,
-    totales: { platos: 0, valor: 0, entradasValor: 0 },
+    // Los totales son un HECHO del ciclo: se comió y salieron víveres. Lo que el
+    // descarte anula es el arrastre al ciclo siguiente, no lo que ocurrió.
+    totales: totalesParaCierre(totales),
     consumos: [],
     entradas: [],
     // Sin remanente: es justamente lo que no se quiere arrastrar.

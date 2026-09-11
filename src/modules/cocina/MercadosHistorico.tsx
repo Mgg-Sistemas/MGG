@@ -201,7 +201,16 @@ export function MercadosHistoricoModal({ cocinaId, cocinaNombre, almacen, canWri
                   <td>{fmtDia(m.fecha_inicio)} → {fmtDia(m.fecha_fin)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(m.cierre?.totales.valor ?? 0)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(m.cierre?.totales.platos ?? 0)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{num(m.cierre?.remanente.length ?? 0)} ítem(s)</td>
+                  {/* Consumo y platos son HECHOS del ciclo y se muestran aunque esté
+                      descartado: pasaron. El remanente NO: un ciclo descartado no le
+                      pasa saldo a nadie, así que un «0 ítem(s)» se leería como «no
+                      quedó nada» en vez de «no aplica». Se marca igual que la
+                      diferencia, que ya estaba bien resuelta. */}
+                  <td className="mono" style={{ textAlign: 'right' }}>
+                    {m.cierre?.descartado
+                      ? <span className="dim" title="El ciclo no cuenta: no le pasa saldo al siguiente">n/c</span>
+                      : <>{num(m.cierre?.remanente.length ?? 0)} ítem(s)</>}
+                  </td>
                   {/* La columna que se busca primero cuando se abre el histórico. Los
                       cierres viejos no la tienen: se muestra «—», no un 0 que mienta. */}
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: dif == null ? undefined : dif === 0 ? undefined : dif < 0 ? 'var(--danger)' : 'var(--warning)' }}>
