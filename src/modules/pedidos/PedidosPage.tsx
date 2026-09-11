@@ -95,6 +95,7 @@ import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ordenesConOfertasDe } from './ordenDeOfertas';
+import { avisoDeCuadre, desglosarOc } from './cuadreOc';
 import { SolicitudMercadoModal } from './SolicitudMercadoModal';
 // descargarTrazabilidadPdf / descargarOrdenCompraPdf se importan dinámicamente
 // (al generar) para no cargar jsPDF al abrir Pedidos.
@@ -2114,6 +2115,8 @@ const KanbanCard = memo(function KanbanCard({
   onOpen: (id: string) => void;
   sinLeer: number;
 }) {
+  // Solo tiene sentido cuadrar una OC ya emitida: antes de eso el total es 0 a propósito.
+  const avisoCuadre = orden.oc_codigo ? avisoDeCuadre(orden) : null;
   const changes = (orden.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
   // Crédito pagado en su totalidad (cuenta abierta saldada) → tarjeta resaltada.
   const creditoPagado = orden.estado === 'cuenta_abierta' && (Number(orden.abonado_total) || 0) >= Number(orden.total) - 0.01;
@@ -2194,7 +2197,12 @@ const KanbanCard = memo(function KanbanCard({
         </div>
       )}
       <div className="foot">
-        <span className="total">{money(orden.total, orden.moneda)}</span>
+        {/* Si el total no suma lo que suman sus partes, se marca acá mismo. El monto
+            de la tarjeta es el que mira todo el mundo y es el que va a Tesorería:
+            un descuadre invisible se paga (caso SP-2026-0098-1-1, $ 71,42 de más). */}
+        <span className="total" title={avisoCuadre ?? undefined} style={avisoCuadre ? { color: 'var(--warning)' } : undefined}>
+          {avisoCuadre && '⚠ '}{money(orden.total, orden.moneda)}
+        </span>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
       </div>
     </div>
@@ -3105,25 +3113,45 @@ function OrdenDetailModal({
             );
           })}
         </tbody>
-        {conPrecio && (
+        {conPrecio && (() => {
+          /* El pie mostraba Subtotal y TOTAL, y el subtotal lo deducía HACIA ATRÁS
+             (total + descuento). El IVA no aparecía en ningún lado: por eso nadie
+             vio que SP-2026-0098-1-1 arrastraba 107,20 de IVA sobre una base de
+             223,65. Ahora se muestra la suma tal como se calcula, renglón por
+             renglón, y si el total no da se dice. */
+          const d = desglosarOc(o);
+          const detalle = d.descuento > 0 || d.iva > 0 || d.igtf > 0;
+          return (
           <tfoot>
-            {Number(o.descuento_obtenido) > 0 && (() => {
-              const desc = Number(o.descuento_obtenido) || 0;
-              const sub = Math.round((Number(o.total) + desc) * 100) / 100;
-              return (
-                <>
-                  <tr><td colSpan={6} className="num">Subtotal</td><td className="num">{money(sub, o.moneda)}</td><td></td></tr>
-                  <tr><td colSpan={6} className="num" style={{ color: 'var(--success)' }}>Descuento obtenido</td><td className="num" style={{ color: 'var(--success)' }}>− {money(desc, o.moneda)}</td><td></td></tr>
-                </>
-              );
-            })()}
+            {detalle && (
+              <>
+                <tr><td colSpan={6} className="num">Base</td><td className="num">{money(d.base, o.moneda)}</td><td></td></tr>
+                {d.descuento > 0 && (
+                  <tr><td colSpan={6} className="num" style={{ color: 'var(--success)' }}>Descuento obtenido</td><td className="num" style={{ color: 'var(--success)' }}>− {money(d.descuento, o.moneda)}</td><td></td></tr>
+                )}
+                {d.iva > 0 && (
+                  <tr><td colSpan={6} className="num">IVA</td><td className="num">+ {money(d.iva, o.moneda)}</td><td></td></tr>
+                )}
+                {d.igtf > 0 && (
+                  <tr><td colSpan={6} className="num">IGTF</td><td className="num">+ {money(d.igtf, o.moneda)}</td><td></td></tr>
+                )}
+              </>
+            )}
             <tr>
               <td colSpan={6} className="num">TOTAL</td>
-              <td className="num">{money(o.total, o.moneda)}</td>
+              <td className="num" style={!d.cuadra ? { color: 'var(--warning)' } : undefined}>{money(o.total, o.moneda)}</td>
               <td></td>
             </tr>
+            {!d.cuadra && (
+              <tr>
+                <td colSpan={8} style={{ color: 'var(--warning)', fontSize: '.8rem', whiteSpace: 'normal' }}>
+                  ⚠ {avisoDeCuadre(o)}
+                </td>
+              </tr>
+            )}
           </tfoot>
-        )}
+          );
+        })()}
       </table>
       </div>
         );
