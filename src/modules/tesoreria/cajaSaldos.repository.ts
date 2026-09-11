@@ -179,6 +179,8 @@ export interface ConvertirDivisaInput {
    *  la comisión se calcula como (bruto − este monto). Lo usa el botón «Redondear». */
   montoANeto?: number | null;
   motivo?: string | null;
+  /** Fecha del asiento (YYYY-MM-DD) cuando la conversión NO se hizo hoy. */
+  fecha?: string | null;
   actor: string; actorName?: string | null;
 }
 
@@ -243,6 +245,9 @@ export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ or
     p_d_caja: input.destinoCajaId, p_d_cuenta: input.destinoCuenta, p_moneda_a: input.monedaA,
     p_monto_de: montoDe, p_monto_a: montoA, p_tasa_bs_dest: tasaBsDest,
     p_motivo: motivo, p_actor: input.actor, p_actor_name: input.actorName ?? null,
+    // Solo se manda si la conversión es de otro día: sin esto la base sella la
+    // hora real, que es lo correcto para una conversión hecha en el momento.
+    p_fecha: fechaAsiento(input.fecha),
   });
   if (error) throw error;
 
@@ -251,6 +256,70 @@ export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ or
     supabase.from(SALDOS).select('*').eq('caja_id', input.destinoCajaId).eq('cuenta', input.destinoCuenta).eq('moneda', input.monedaA).maybeSingle(),
   ]);
   return { origen: (origAfter as CajaSaldo) ?? null, destino: (destAfter as CajaSaldo) };
+}
+
+/**
+ * La fecha que se le sella al asiento.
+ *
+ * Un día suelto (YYYY-MM-DD) se ancla al MEDIODÍA local: a las 00:00 un huso
+ * al oeste tira el asiento al día anterior, que es justo el error que se
+ * quiere evitar al cargar una conversión vieja. Si el día es el de hoy se
+ * devuelve null y la base sella la hora real.
+ */
+export function fechaAsiento(dia: string | null | undefined, hoy = new Date()): string | null {
+  const d = (dia ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+  if (d === hoyStr) return null;
+  return new Date(`${d}T12:00:00`).toISOString();
+}
+
+/** Una conversión ya hecha, con sus dos patas unidas. */
+export interface ConversionFila {
+  id: string; at: string; actor: string; actorName: string | null;
+  deMoneda: string; deMonto: number; deCajaId: string;
+  aMoneda: string; aMonto: number; aCajaId: string;
+  motivo: string | null;
+}
+
+/**
+ * El historial de conversiones, de la más nueva a la más vieja.
+ *
+ * Las dos patas viven como dos renglones del libro atados por `conversion_id`;
+ * acá se juntan en una sola fila. Un par al que le falte una pata se descarta:
+ * media conversión no se puede mostrar sin mentir sobre la tasa.
+ */
+export async function listConversiones(limite = 400): Promise<ConversionFila[]> {
+  const { data, error } = await supabase
+    .from('movimientos_caja')
+    .select('conversion_id, at, tipo, moneda, monto, caja_id, actor, actor_name, motivo')
+    .not('conversion_id', 'is', null)
+    .order('at', { ascending: false })
+    .limit(limite * 2);
+  if (error) throw error;
+
+  const porId = new Map<string, ConversionFila>();
+  (data ?? []).forEach((r) => {
+    const row = r as {
+      conversion_id: string; at: string; tipo: string; moneda: string; monto: number;
+      caja_id: string; actor: string; actor_name: string | null; motivo: string | null;
+    };
+    const prev = porId.get(row.conversion_id) ?? {
+      id: row.conversion_id, at: row.at, actor: row.actor, actorName: row.actor_name,
+      deMoneda: '', deMonto: 0, deCajaId: '', aMoneda: '', aMonto: 0, aCajaId: '',
+      motivo: row.motivo,
+    };
+    if (row.tipo === 'salida') {
+      prev.deMoneda = row.moneda; prev.deMonto = Number(row.monto) || 0; prev.deCajaId = row.caja_id;
+    } else {
+      prev.aMoneda = row.moneda; prev.aMonto = Number(row.monto) || 0; prev.aCajaId = row.caja_id;
+    }
+    porId.set(row.conversion_id, prev);
+  });
+
+  return Array.from(porId.values())
+    .filter((c) => c.deMoneda && c.aMoneda)
+    .sort((a, b) => (a.at < b.at ? 1 : -1));
 }
 
 /** Ajusta (fija) el saldo y/o la tasa promedio de una (caja, cuenta, moneda). */

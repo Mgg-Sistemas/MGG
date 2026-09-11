@@ -24,7 +24,12 @@ import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacene
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
-import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, crearBilleteraEnCero } from './cajaSaldos.repository';
+import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, crearBilleteraEnCero, listConversiones } from './cajaSaldos.repository';
+import type { ConversionFila } from './cajaSaldos.repository';
+import {
+  filtrar as filtrarConversiones, tasaDe, parDe, monedasDe, actoresDe,
+  FILTRO_CONVERSIONES_VACIO, type FiltroConversiones,
+} from './conversiones';
 // Vínculo Tesorería → Centro de Acopio interno: el traspaso se refleja como entrada (USD ENTREGADOS) en el acopio.
 import { entradaTesoreriaACentroAcopio, centroAcopioShort } from '@/modules/acopio/caja.repository';
 import {
@@ -3287,9 +3292,27 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   const [cpTipo, setCpTipo] = useState<'cliente' | 'proveedor' | ''>('');
   const [cpNombre, setCpNombre] = useState('');
   const [contrapartes, setContrapartes] = useState<Contraparte[]>([]);
+  // Fecha del asiento: por defecto hoy. Se cambia cuando la conversión se hizo
+  // otro día y se está cargando después.
+  const [fechaStr, setFechaStr] = useState(() => new Date().toISOString().slice(0, 10));
+  // El historial vive en este mismo modal, detrás de un interruptor.
+  const [vista, setVista] = useState<'convertir' | 'historial'>('convertir');
+  const [historial, setHistorial] = useState<ConversionFila[]>([]);
+  const [cargandoHist, setCargandoHist] = useState(false);
+  const [fConv, setFConv] = useState<FiltroConversiones>(FILTRO_CONVERSIONES_VACIO);
 
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
   useEffect(() => { listContrapartes().then(setContrapartes).catch(() => setContrapartes([])); }, []);
+
+  // El historial se trae recién al abrirlo: quien entra a convertir no paga esa consulta.
+  const cargarHistorial = useCallback(() => {
+    setCargandoHist(true);
+    listConversiones()
+      .then(setHistorial)
+      .catch(() => setHistorial([]))
+      .finally(() => setCargandoHist(false));
+  }, []);
+  useEffect(() => { if (vista === 'historial') cargarHistorial(); }, [vista, cargarHistorial]);
 
   // Saldos disponibles en la moneda DE (de cualquier caja/cuenta, con saldo > 0).
   const saldosOrigen = useMemo(
@@ -3375,6 +3398,7 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
         origenCajaId: origenSaldo.caja_id, origenCuenta: origenSaldo.cuenta, monedaDe: de,
         destinoCajaId, destinoCuenta, monedaA: a,
         montoDe: montoNum, tasa: tasaNum, comisionPct, montoANeto: netoManual, motivo,
+        fecha: fechaStr,
         actor, actorName,
       });
       if (cpTipo && cpNombre.trim()) {
@@ -3400,6 +3424,19 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
         </button>
       </>
     }>
+      {/* Convertir e historial comparten modal: se cambia con este interruptor. */}
+      <div className="view-toggle" role="tablist" aria-label="Conversor" style={{ marginBottom: '.6rem' }}>
+        <button className={vista === 'convertir' ? 'active' : ''} onClick={() => setVista('convertir')}>💱 Convertir</button>
+        <button className={vista === 'historial' ? 'active' : ''} onClick={() => setVista('historial')}>🕘 Historial</button>
+      </div>
+
+      {vista === 'historial' ? (
+        <HistorialConversiones
+          filas={historial} cargando={cargandoHist} filtro={fConv} onFiltro={setFConv}
+          nombreCaja={nombreCaja} onRecargar={cargarHistorial}
+        />
+      ) : (
+      <>
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Convierte un <strong>saldo existente</strong> de una moneda a otra: descuenta de la caja
         origen y acredita el equivalente en la caja destino. La tasa sugerida toma el dólar
@@ -3542,6 +3579,17 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
               : <>Opcional. Se le descuenta al convertido; el destino recibe el neto. «Redondear» te deja escribir el monto redondeado a recibir.</>}
           </small>
         </div>
+        {/* Fecha del asiento: sirve para cargar hoy una conversión de otro día. */}
+        <div className="form-row">
+          <label>Fecha de la conversión</label>
+          <input className="input" type="date" value={fechaStr} max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setFechaStr(e.target.value)} />
+          <small className="muted">
+            {fechaStr === new Date().toISOString().slice(0, 10)
+              ? <>Hoy. Queda con la hora real en que se registra.</>
+              : <>Se asienta con fecha <strong>{fechaStr}</strong>, no con la de hoy.</>}
+          </small>
+        </div>
       </div>
 
       <div className="card" style={{ marginTop: '.5rem', textAlign: 'center', borderColor: 'var(--brand, #ff8a00)' }}>
@@ -3567,7 +3615,122 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
 
       {excede && <div className="muted" style={{ color: 'var(--danger)', fontSize: '.8rem', marginTop: '.4rem' }}>El monto supera el saldo disponible.</div>}
       {err && <div className="muted" style={{ color: 'var(--danger)', fontSize: '.82rem', marginTop: '.4rem' }}>{err}</div>}
+      </>
+      )}
     </Modal>
+  );
+}
+
+/* ───────────── Historial de conversiones (dentro del conversor) ───────────── */
+
+/** Fecha y hora del asiento, en el formato corto que se lee de un vistazo. */
+function fechaHora(iso: string): { dia: string; hora: string } {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { dia: '—', hora: '' };
+  return {
+    dia: d.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    hora: d.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }),
+  };
+}
+
+function HistorialConversiones({ filas, cargando, filtro, onFiltro, nombreCaja, onRecargar }: {
+  filas: ConversionFila[]; cargando: boolean;
+  filtro: FiltroConversiones; onFiltro: (f: FiltroConversiones) => void;
+  nombreCaja: (id: string) => string; onRecargar: () => void;
+}) {
+  const visibles = useMemo(() => filtrarConversiones(filas, filtro, nombreCaja), [filas, filtro, nombreCaja]);
+  const monedas = useMemo(() => monedasDe(filas), [filas]);
+  const actores = useMemo(() => actoresDe(filas), [filas]);
+  const set = (parche: Partial<FiltroConversiones>) => onFiltro({ ...filtro, ...parche });
+  const hayFiltro = filtro.texto || filtro.moneda || filtro.actor || filtro.desde || filtro.hasta;
+
+  return (
+    <>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+        Todas las conversiones hechas, de la más nueva a la más vieja. La <strong>tasa</strong> se
+        recalcula con los montos reales, así que ya trae la comisión adentro.
+      </p>
+
+      <div className="form-grid" style={{ gap: '.4rem' }}>
+        <div className="form-row">
+          <label>Buscar</label>
+          <input className="input" value={filtro.texto} onChange={(e) => set({ texto: e.target.value })}
+            placeholder="moneda, caja, quién…" />
+        </div>
+        <div className="form-row">
+          <label>Moneda</label>
+          <select className="select" value={filtro.moneda} onChange={(e) => set({ moneda: e.target.value })}>
+            <option value="">Todas</option>
+            {monedas.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <label>Quién</label>
+          <select className="select" value={filtro.actor} onChange={(e) => set({ actor: e.target.value })}>
+            <option value="">Todos</option>
+            {actores.map((x) => <option key={x.actor} value={x.actor}>{x.nombre}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <label>Desde</label>
+          <input className="input" type="date" value={filtro.desde} onChange={(e) => set({ desde: e.target.value })} />
+        </div>
+        <div className="form-row">
+          <label>Hasta</label>
+          <input className="input" type="date" value={filtro.hasta} onChange={(e) => set({ hasta: e.target.value })} />
+        </div>
+        <div className="form-row" style={{ alignSelf: 'end', display: 'flex', gap: '.4rem' }}>
+          {hayFiltro && (
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => onFiltro(FILTRO_CONVERSIONES_VACIO)}>✕ Limpiar</button>
+          )}
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onRecargar} disabled={cargando}>↺ Actualizar</button>
+        </div>
+      </div>
+
+      <div className="muted" style={{ fontSize: '.76rem', margin: '.5rem 0 .3rem' }}>
+        {cargando ? 'Cargando…' : `${visibles.length} de ${filas.length} conversiones`}
+      </div>
+
+      {!cargando && visibles.length === 0 ? (
+        <EmptyState icon="🕘" message={hayFiltro ? 'Ninguna conversión coincide con el filtro.' : 'Todavía no se registró ninguna conversión.'} />
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Fecha</th><th>Hora</th><th>Quién</th><th>De</th><th>A</th>
+                <th style={{ textAlign: 'right' }}>Tasa</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibles.map((c) => {
+                const { dia, hora } = fechaHora(c.at);
+                const t = tasaDe(c);
+                return (
+                  <tr key={c.id}>
+                    <td className="mono">{dia}</td>
+                    <td className="mono muted">{hora}</td>
+                    <td>{(c.actorName ?? '').trim() || c.actor}</td>
+                    <td className="mono">
+                      {monto(c.deMonto, c.deMoneda)}
+                      <div className="muted" style={{ fontSize: '.7rem' }}>{nombreCaja(c.deCajaId)}</div>
+                    </td>
+                    <td className="mono">
+                      {monto(c.aMonto, c.aMoneda)}
+                      <div className="muted" style={{ fontSize: '.7rem' }}>{nombreCaja(c.aCajaId)}</div>
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      {t == null ? '—' : t.toLocaleString('es-VE', { maximumFractionDigits: 4 })}
+                      <div className="muted" style={{ fontSize: '.7rem' }}>{parDe(c)}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 
