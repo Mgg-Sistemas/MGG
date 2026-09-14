@@ -1,23 +1,31 @@
 /* ============================================================
    MGG · Cocina · Mercado (ciclo de 21 días)
    Un "mercado" es un período de 21 días por cocina. Durante el período:
-     disponible por víver = saldo_inicial + entradas − consumos.
+     disponible por víver = saldo_inicial + entradas ± traslados − consumos.
    - Entradas: movimientos de inventario (delta > 0) de víveres de cocina en
-     los almacenes de la sede, EXCLUYENDO los reversos de cocina (ref_tipo='cocina').
+     los almacenes de la sede, EXCLUYENDO los reversos de cocina (ref_tipo='cocina')
+     y los traslados, que van aparte.
+   - Traslados: las dos patas de cada traslado entre almacenes (tipo
+     'transferencia'), con su signo. Lo que sale del centro resta y lo que
+     entra suma; un traslado entre dos almacenes de la misma sede se anula.
    - Consumos: los ítems de las comidas (cocina_comidas) del período.
    Al CERRAR (día 22): se guarda un snapshot (consumos + entradas + remanente),
    el mercado queda 'cerrado' y se abre el siguiente con saldo_inicial = remanente.
    El cierre NO mueve inventario real: es contable del mercado.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { CocinaComida, Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { trasladoDeMovimiento } from '@/modules/inventario/stockPorAlmacen';
 import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, diaDeComida } from './cocina.repository';
 import { totalesParaCierre } from './costoPorPlato';
+import { repartosPendientes, type RepartoPendiente } from './reparto.repository';
 import {
-  cicloQueSePisa, diferenciasPorViver, explicarDiferencia, totalesDeMercado,
-  type DiferenciaViver, type ExplicacionDiferencia, type SalidaFueraDelCiclo, type TotalesMercado,
+  cicloQueSePisa, deltaEfectivo, diferenciasPorViver, explicarDiferencia, stockAlCorte, totalesDeMercado, trasladosSinLlegada,
+  MARGEN_LLEGADA_MS,
+  type DiferenciaViver, type ExplicacionDiferencia, type PataTraslado, type SalidaFueraDelCiclo, type TotalesMercado,
 } from './mercadoComparar';
 
 const TABLE = 'mercados_cocina';
@@ -35,9 +43,10 @@ export interface ItemAgg extends SaldoItem { valor: number; }
 export interface DisponibleItem {
   producto_id: string; sku: string; nombre: string; unidad: string; precio: number;
   saldoInicial: number;   // lo que quedó del mercado anterior
-  entradas: number;       // víveres que entraron en el período
+  entradas: number;       // víveres que entraron en el período (sin traslados)
+  traslados: number;      // neto de traslados: − lo que el centro envió, + lo que recibió
   consumos: number;       // consumido por las comidas
-  disponible: number;     // saldoInicial + entradas
+  disponible: number;     // saldoInicial + entradas + traslados
   queda: number;          // disponible − consumos
 }
 
@@ -48,7 +57,21 @@ export interface KardexEntrada {
 export interface KardexConsumo {
   kind: 'consumo'; at: string; comida: CocinaComida; items: number; cantidad: number;
 }
-export type KardexRow = KardexEntrada | KardexConsumo;
+/** Una pata de un traslado que tocó los almacenes del centro. */
+export interface KardexTraslado {
+  kind: 'traslado'; id: string; at: string; producto_id: string; nombre: string; unidad: string;
+  /** Con signo: negativo sale del almacén, positivo entra. */
+  cantidad: number; valor: number; detalle: string | null; almacen: string | null;
+  /** El almacén del otro lado, leído igual que en el kardex de Inventario. */
+  contraparte: string | null;
+  /** true si el otro lado también es de este centro: se anula con su par. */
+  interno: boolean;
+  /** Código de la solicitud (TRA-…). Solo en los traslados de Salidas desde el 14/09/2026. */
+  codigo: string | null;
+  /** Cuánto de esta salida no aparece entrando en ningún almacén. 0 = llegó. */
+  sinLlegada: number;
+}
+export type KardexRow = KardexEntrada | KardexConsumo | KardexTraslado;
 
 export interface CierreSnapshot {
   generado_en: string; desde: string; hasta: string;
@@ -80,6 +103,12 @@ export interface CierreSnapshot {
   descartado?: boolean;
   /** Por qué se descartó. Obligatorio cuando `descartado`. */
   motivo_descarte?: string | null;
+  /* ── Traslados, agregado el 14/09/2026 ──
+     Neto por víver, con signo: negativo lo que el centro envió. Los cierres
+     anteriores no lo tienen: en ellos lo recibido quedó sumado en `entradas`. */
+  traslados?: ItemAgg[];
+  /** Si se cerró después del último día: la fecha a la que se tomó el inventario del contraste. */
+  inventario_al?: string | null;
 }
 
 export interface MercadoCocina {
@@ -160,6 +189,15 @@ export interface ResumenMercado {
    * uno que nadie tocó — y es justo el que hay que revisar.
    */
   salidasFueraDelCiclo: Map<string, SalidaFueraDelCiclo[]>;
+  /** Salidas por traslado cuya llegada no aparece en ningún almacén. */
+  trasladosSinLlegada: KardexTraslado[];
+  /** Traslados de víveres de este centro por aprobar o sin ejecutar: todavía no están en el libro. */
+  repartosPendientes: RepartoPendiente[];
+  /**
+   * Si el ciclo ya pasó su último día, la fecha a la que se tomó el inventario del
+   * contraste (su `fecha_fin`). `null` mientras está en curso: ahí es el de ahora.
+   */
+  inventarioAl: string | null;
 }
 
 /* ───────── Fechas ───────── */
@@ -178,6 +216,11 @@ function ventana(m: { fecha_inicio: string; fecha_fin: string }): { desde: strin
   const ahora = new Date();
   const hasta = ahora < finDia ? ahora : finDia;
   return { desde: desde.toISOString(), hasta: hasta.toISOString() };
+}
+
+/** ¿Ya terminó el último día del ciclo? Entonces su libro se detiene antes que el inventario. */
+function cicloVencido(m: { fecha_fin: string }): boolean {
+  return new Date() > new Date(`${m.fecha_fin}T23:59:59`);
 }
 
 /** Día actual del ciclo (1 = fecha_inicio). */
@@ -305,7 +348,7 @@ async function entradasDe(
   const { desde, hasta } = ventana(m);
   const scope = await almacenesScope(almacen);
   let q = supabase.from('movimientos')
-    .select('producto_id, delta, at, precio_unitario, detalle, almacen, ref_tipo')
+    .select('producto_id, delta, at, precio_unitario, detalle, almacen, ref_tipo, tipo')
     .gt('delta', 0).gte('at', desde).lte('at', hasta);
   if (scope) q = q.in('almacen', Array.from(scope));
   const { data, error } = await q.order('at', { ascending: false });
@@ -316,6 +359,9 @@ async function entradasDe(
   let valorTotal = 0;
   for (const raw of (data ?? []) as Record<string, unknown>[]) {
     if (raw.ref_tipo === 'cocina') continue; // reverso de cocina, no es entrada de mercado
+    // La pata que entra de un traslado va a su propia columna. Contada acá, el
+    // libro sumaba la llegada y no restaba la salida (ver `trasladosDe`).
+    if (raw.tipo === 'transferencia') continue;
     const p = prodById.get(String(raw.producto_id));
     if (!p || !esCategoriaCocina(p.categoria)) continue;
     const cantidad = r2(Number(raw.delta) || 0);
@@ -359,27 +405,128 @@ async function consumosDe(
   return { comidas, agg, platos, valor };
 }
 
-/* ───────── Disponible por víver (saldo + entradas − consumos) ───────── */
+/* ───────── Traslados del período (kardex + neto con signo) ───────── */
+
+interface TrasladosResult { rows: KardexTraslado[]; agg: Map<string, ItemAgg>; }
+
+/**
+ * Las dos patas de cada traslado que tocó los almacenes del centro.
+ *
+ * POR QUÉ VAN APARTE. Hasta el 14/09/2026 la pata que entra se contaba como una
+ * entrada más y la que sale no se contaba en ningún lado. El mercado llega a Los
+ * Pinos y desde ahí se reparte: Los Pinos quedaba con un faltante igual a todo lo
+ * que mandó, y un traslado entre dos almacenes de la misma sede daba un faltante
+ * que no existía. Con las dos patas y su signo, la cocina que envía resta, la que
+ * recibe suma y un traslado interno se anula.
+ *
+ * Cuenta TODOS los caminos que escriben `tipo = 'transferencia'`: la solicitud de
+ * Salidas (`traslado_modulo`), la transferencia directa de Inventario (`manual`) y
+ * la consolidación de almacenes. Cualquiera que se use, el libro lo ve igual.
+ *
+ * Con `verificarLlegada` busca además la entrada de cada salida en cualquier
+ * almacén y marca las que no llegaron (ver `trasladosSinLlegada`).
+ */
+async function trasladosDe(
+  m: { fecha_inicio: string; fecha_fin: string },
+  almacen: string | null,
+  prodById: Map<string, Producto>,
+  opciones: { verificarLlegada?: boolean } = {},
+): Promise<TrasladosResult> {
+  const { desde, hasta } = ventana(m);
+  const [scope, almacenes] = await Promise.all([almacenesScope(almacen), listAlmacenes()]);
+  let q = supabase.from('movimientos')
+    .select('id, producto_id, delta, stock_antes, stock_despues, at, precio_unitario, detalle, almacen, destino, ref_id, ref_codigo')
+    .eq('tipo', 'transferencia').gte('at', desde).lte('at', hasta);
+  if (scope) q = q.in('almacen', Array.from(scope));
+  const { data, error } = await q.order('at', { ascending: false });
+  if (error) throw error;
+
+  const rows: KardexTraslado[] = [];
+  const agg = new Map<string, ItemAgg>();
+  const salidas: PataTraslado[] = [];
+  for (const raw of (data ?? []) as Record<string, unknown>[]) {
+    const p = prodById.get(String(raw.producto_id));
+    if (!p || !esCategoriaCocina(p.categoria)) continue;
+    // Lo que el traslado movió DE VERDAD: una salida topeada en cero no sacó lo que
+    // dice su delta, y restarlo inventaba un sobrante (ver `deltaEfectivo`).
+    const cantidad = r2(deltaEfectivo(raw));
+    if (cantidad === 0) continue;
+    const precio = Number(raw.precio_unitario) || Number(p.precio) || 0;
+    const valor = r2(cantidad * precio);
+    const alm = (raw.almacen as string) ?? null;
+    const detalle = (raw.detalle as string) ?? null;
+    // El otro lado se lee con la misma función que el kardex de Inventario, para
+    // que las dos pantallas digan lo mismo de un traslado.
+    const par = trasladoDeMovimiento({ tipo: 'transferencia', almacen: alm, detalle }, almacenes);
+    const contraparte = par ? (cantidad < 0 ? par.destino : par.origen) : ((raw.destino as string) || null);
+    rows.push({
+      kind: 'traslado', id: String(raw.id), at: String(raw.at), producto_id: p.id, nombre: p.nombre, unidad: p.unidad ?? '',
+      cantidad, valor, detalle, almacen: alm, contraparte,
+      interno: !!(scope && contraparte && scope.has(contraparte)),
+      codigo: (raw.ref_codigo as string) || null, sinLlegada: 0,
+    });
+    const a = agg.get(p.id) ?? { producto_id: p.id, sku: p.sku, nombre: p.nombre, unidad: p.unidad ?? '', cantidad: 0, valor: 0 };
+    a.cantidad = r2(a.cantidad + cantidad); a.valor = r2(a.valor + valor);
+    agg.set(p.id, a);
+    if (cantidad < 0) {
+      salidas.push({
+        id: String(raw.id), producto_id: p.id, almacen: alm ?? '', delta: cantidad, at: String(raw.at),
+        ref_id: (raw.ref_id as string) ?? null, detalle,
+      });
+    }
+  }
+
+  if (opciones.verificarLlegada && salidas.length) {
+    const tiempos = salidas.map((s) => Date.parse(s.at));
+    const { data: llegadas, error: e2 } = await supabase.from('movimientos')
+      .select('id, producto_id, delta, at, almacen, ref_id, detalle')
+      .eq('tipo', 'transferencia').gt('delta', 0)
+      .in('producto_id', [...new Set(salidas.map((s) => s.producto_id))])
+      .gte('at', new Date(Math.min(...tiempos) - 60_000).toISOString())
+      .lte('at', new Date(Math.max(...tiempos) + MARGEN_LLEGADA_MS).toISOString());
+    if (e2) throw e2;
+    const entradas: PataTraslado[] = ((llegadas ?? []) as Record<string, unknown>[]).map((r) => ({
+      id: String(r.id), producto_id: String(r.producto_id), almacen: String(r.almacen ?? ''),
+      delta: Number(r.delta) || 0, at: String(r.at),
+      ref_id: (r.ref_id as string) ?? null, detalle: (r.detalle as string) ?? null,
+    }));
+    const porId = new Map(rows.map((r) => [r.id, r] as const));
+    for (const h of trasladosSinLlegada(salidas, entradas)) {
+      const row = porId.get(h.salida.id);
+      if (row) row.sinLlegada = h.faltaLlegar;
+    }
+  }
+  return { rows, agg };
+}
+
+/* ───────── Disponible por víver (saldo + entradas ± traslados − consumos) ───────── */
 
 function armarDisponible(
-  saldo: SaldoItem[], entradas: Map<string, ItemAgg>, consumos: Map<string, ItemAgg>,
+  saldo: SaldoItem[], entradas: Map<string, ItemAgg>, traslados: Map<string, ItemAgg>, consumos: Map<string, ItemAgg>,
   prodById: Map<string, Producto>,
 ): DisponibleItem[] {
   const saldoMap = new Map(saldo.map((s) => [s.producto_id, s] as const));
-  const ids = new Set<string>([...saldoMap.keys(), ...entradas.keys(), ...consumos.keys()]);
+  const ids = new Set<string>([...saldoMap.keys(), ...entradas.keys(), ...traslados.keys(), ...consumos.keys()]);
   const out: DisponibleItem[] = [];
   for (const id of ids) {
-    const s = saldoMap.get(id); const e = entradas.get(id); const c = consumos.get(id);
+    const s = saldoMap.get(id); const e = entradas.get(id); const t = traslados.get(id); const c = consumos.get(id);
+    // Un víver que solo tuvo un traslado interno (salió de un almacén del centro y
+    // entró a otro) suma cero: no forma parte del ciclo y no ensucia la tabla.
+    if (!s && !e && !c && r2(t?.cantidad ?? 0) === 0) continue;
     const p = prodById.get(id);
-    const nombre = s?.nombre ?? e?.nombre ?? c?.nombre ?? p?.nombre ?? id;
-    const sku = s?.sku ?? e?.sku ?? c?.sku ?? p?.sku ?? '';
-    const unidad = s?.unidad ?? e?.unidad ?? c?.unidad ?? p?.unidad ?? '';
+    const nombre = s?.nombre ?? e?.nombre ?? t?.nombre ?? c?.nombre ?? p?.nombre ?? id;
+    const sku = s?.sku ?? e?.sku ?? t?.sku ?? c?.sku ?? p?.sku ?? '';
+    const unidad = s?.unidad ?? e?.unidad ?? t?.unidad ?? c?.unidad ?? p?.unidad ?? '';
     const saldoInicial = r2(s?.cantidad ?? 0);
     const entradasN = r2(e?.cantidad ?? 0);
+    const trasladosN = r2(t?.cantidad ?? 0);
     const consumosN = r2(c?.cantidad ?? 0);
-    const disponible = r2(saldoInicial + entradasN);
+    const disponible = r2(saldoInicial + entradasN + trasladosN);
     const queda = r2(disponible - consumosN);
-    out.push({ producto_id: id, sku, nombre, unidad, precio: Number(p?.precio) || 0, saldoInicial, entradas: entradasN, consumos: consumosN, disponible, queda });
+    out.push({
+      producto_id: id, sku, nombre, unidad, precio: Number(p?.precio) || 0,
+      saldoInicial, entradas: entradasN, traslados: trasladosN, consumos: consumosN, disponible, queda,
+    });
   }
   return out.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 }
@@ -388,11 +535,10 @@ function armarDisponible(
 /**
  * Salidas de víveres que el mercado NO cuenta como consumo.
  *
- * El libro solo resta lo que sale por `cocina_comidas`. Una salida manual, un
- * ajuste o un traslado mueven el inventario sin tocar la columna «Consumido», y
- * de ahí sale el descuadre: en Los Pinos el 90 % de lo que sale del almacén se
- * va por estas puertas. Traerlas es lo que permite decir POR DÓNDE se fue el
- * faltante, en vez de solo cuánto falta.
+ * El libro resta lo que sale por `cocina_comidas` y por traslado. Una salida
+ * manual o un ajuste mueven el inventario sin tocar el libro, y de ahí sale el
+ * descuadre. Traerlas es lo que permite decir POR DÓNDE se fue el faltante, en
+ * vez de solo cuánto falta.
  */
 async function salidasFueraDelCicloDe(
   m: { fecha_inicio: string; fecha_fin: string },
@@ -402,7 +548,7 @@ async function salidasFueraDelCicloDe(
   const { desde, hasta } = ventana(m);
   const scope = await almacenesScope(almacen);
   let q = supabase.from('movimientos')
-    .select('producto_id, delta, at, tipo, actor_name, detalle, almacen, ref_tipo')
+    .select('producto_id, delta, stock_antes, stock_despues, at, tipo, actor_name, detalle, almacen, ref_tipo')
     .lt('delta', 0).gte('at', desde).lte('at', hasta);
   if (scope) q = q.in('almacen', Array.from(scope));
   const { data, error } = await q.order('at', { ascending: false }).limit(1000);
@@ -410,11 +556,11 @@ async function salidasFueraDelCicloDe(
 
   const out = new Map<string, SalidaFueraDelCiclo[]>();
   for (const raw of (data ?? []) as Record<string, unknown>[]) {
-    // Lo de cocina SÍ lo cuenta el libro: no explica ninguna diferencia.
-    if (raw.ref_tipo === 'cocina') continue;
+    // Lo de cocina y los traslados SÍ los cuenta el libro: no explican ninguna diferencia.
+    if (raw.ref_tipo === 'cocina' || raw.tipo === 'transferencia') continue;
     const p = prodById.get(String(raw.producto_id));
     if (!p || !esCategoriaCocina(p.categoria)) continue;
-    const cantidad = Math.abs(r2(Number(raw.delta) || 0));
+    const cantidad = Math.abs(r2(deltaEfectivo(raw)));
     if (cantidad <= 0) continue;
     const lista = out.get(p.id) ?? [];
     lista.push({
@@ -435,17 +581,23 @@ async function salidasFueraDelCicloDe(
 export async function resumenMercado(mercado: MercadoCocina, almacen: string | null): Promise<ResumenMercado> {
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
-  const [ent, con, viveres, salidasFuera] = await Promise.all([
+  const abierto = mercado.estado === 'abierto';
+  const [ent, tras, con, viveres, salidasFuera, pendientes] = await Promise.all([
     entradasDe(mercado, almacen, prodById),
+    trasladosDe(mercado, almacen, prodById, { verificarLlegada: true }),
     consumosDe(mercado, mercado.cocina_id),
     listViveresGlobal(almacen),
     // Solo hace falta para el mercado abierto: en uno cerrado la explicación ya
     // quedó en el snapshot y el almacén siguió moviéndose después.
-    mercado.estado === 'abierto'
+    abierto
       ? salidasFueraDelCicloDe(mercado, almacen, prodById)
       : Promise.resolve(new Map<string, SalidaFueraDelCiclo[]>()),
+    // Un reparto por aprobar todavía no movió stock: no está en el libro y hay que decirlo.
+    abierto
+      ? repartosPendientes(almacen, (id) => esCategoriaCocina(prodById.get(id)?.categoria))
+      : Promise.resolve([] as RepartoPendiente[]),
   ]);
-  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, con.agg, prodById);
+  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, prodById);
   // El stock REAL del almacén, para contrastarlo con el libro del mercado. Es lo único
   // que puede contradecir al libro, y por eso es lo que hace visible el descuadre.
   //
@@ -453,7 +605,10 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
   // almacén siguió moviéndose después, así que compararlo contra el stock de HOY daría
   // un descuadre inventado que crece con los días. Sus cifras verdaderas están en el
   // snapshot del cierre (`remanente_inventario`, `diferencia`, `diferencias`).
-  const stockPorProducto = mercado.estado === 'abierto' ? stockDeViveres(viveres) : null;
+  //
+  // Y si el ciclo ya pasó su último día, el stock A ESA FECHA: el de hoy ya descontó
+  // lo que pasó después, que le toca al ciclo siguiente (ver `stockAlCorte`).
+  const stockPorProducto = abierto ? await stockAlCorteDe(mercado, almacen, stockDeViveres(viveres)) : null;
   const disponibleValor = r2(disponible.reduce((a, d) => a + d.queda * d.precio, 0));
 
   /* Las diferencias vivas y, para cada una, por dónde se fue lo que falta. Se
@@ -470,6 +625,7 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
 
   const kardex: KardexRow[] = [
     ...ent.rows,
+    ...tras.rows,
     ...con.comidas.map((c): KardexConsumo => ({
       kind: 'consumo', at: c.at, comida: c,
       items: (c.items ?? []).length,
@@ -482,8 +638,9 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
     // por la cena se leía «cena, desayuno, almuerzo».
     const dia = diaDeComida(b.at).localeCompare(diaDeComida(a.at));
     if (dia !== 0) return dia;
-    // Las entradas de víveres del día van antes: primero llega, después se cocina.
-    if (a.kind !== b.kind) return a.kind === 'entrada' ? -1 : 1;
+    // Dentro del día: primero llega, después se reparte, después se cocina.
+    const orden = (k: KardexRow) => (k.kind === 'entrada' ? 0 : k.kind === 'traslado' ? 1 : 2);
+    if (a.kind !== b.kind) return orden(a) - orden(b);
     if (a.kind === 'consumo' && b.kind === 'consumo') {
       const t = ordenTipoComida(a.comida.tipo_comida) - ordenTipoComida(b.comida.tipo_comida);
       if (t !== 0) return t;
@@ -505,6 +662,9 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
     diferencias: difsVivas,
     explicaciones,
     salidasFueraDelCiclo: salidasFuera,
+    trasladosSinLlegada: tras.rows.filter((t) => t.sinLlegada > 0),
+    repartosPendientes: pendientes,
+    inventarioAl: abierto && cicloVencido(mercado) ? mercado.fecha_fin : (mercado.cierre?.inventario_al ?? null),
   };
 }
 
@@ -515,24 +675,67 @@ function stockDeViveres(viveres: Awaited<ReturnType<typeof listViveresGlobal>>):
   return m;
 }
 
+/**
+ * El stock a la fecha de fin del ciclo si ya pasó, o el de ahora si no.
+ *
+ * Un ciclo que se cierra después de su último día se comparaba contra el stock de
+ * hoy: la diferencia traía las comidas y el reparto de los días siguientes, y
+ * «ajustar al inventario» los dejaba restados en el remanente para que el ciclo
+ * siguiente los restara otra vez. Ver `stockAlCorte`.
+ */
+async function stockAlCorteDe(
+  m: { fecha_fin: string; cocina_id: string },
+  almacen: string | null,
+  stockAhora: Map<string, number>,
+): Promise<Map<string, number>> {
+  if (!cicloVencido(m)) return stockAhora;
+  const corte = new Date(`${m.fecha_fin}T23:59:59`).toISOString();
+  const scope = await almacenesScope(almacen);
+  const [posteriores, comidas] = await Promise.all([
+    // Por páginas: si el ciclo venció hace días, los movimientos del centro pasan de 1.000.
+    todasLasFilas<{ producto_id: string; delta: number; ref_tipo: string | null; stock_antes: number | null; stock_despues: number | null }>((desde, hasta) => {
+      let q = supabase.from('movimientos').select('producto_id, delta, ref_tipo, stock_antes, stock_despues').gt('at', corte);
+      if (scope) q = q.in('almacen', Array.from(scope));
+      return q.order('at').order('id').range(desde, hasta);
+    }),
+    listComidas({ cocinaId: m.cocina_id, desde: corte }),
+  ]);
+  const consumidoDespues = new Map<string, number>();
+  const tCorte = Date.parse(corte);
+  for (const c of comidas) {
+    // El libro cuenta hasta el corte inclusive: una comida justo en el borde ya está en él.
+    if (Date.parse(c.at) <= tCorte) continue;
+    for (const it of c.items ?? []) {
+      consumidoDespues.set(it.producto_id, r2((consumidoDespues.get(it.producto_id) ?? 0) + (Number(it.cantidad) || 0)));
+    }
+  }
+  // Se deshace lo que cada movimiento bajó de verdad, no lo que pidió (ver `deltaEfectivo`).
+  return stockAlCorte(stockAhora, posteriores.map((x) => ({ ...x, delta: deltaEfectivo(x) })), consumidoDespues);
+}
+
 /* ───────── Iniciar / cerrar ───────── */
 
 /**
- * Reconstruye el saldo inicial (stock A LA FECHA DE INICIO) usando EXACTAMENTE las mismas
- * entradas y consumos que cuenta el panel:  saldo = stock ACTUAL − entradas + consumos.
- * Así, si el mercado se inicia con fecha PASADA (ej. 22/08), lo que ya entró/consumió entre
- * esa fecha y hoy no se cuenta dos veces, y la identidad se mantiene: queda = saldo + entradas
- * − consumos = stock real. Con fecha = hoy y sin movimientos en la ventana, saldo = stock actual.
+ * Reconstruye el saldo inicial (stock A LA FECHA DE INICIO) usando EXACTAMENTE los mismos
+ * movimientos que cuenta el panel:  saldo = stock ACTUAL − entradas − traslados + consumos.
+ * Así, si el mercado se inicia con fecha PASADA (ej. 22/08), lo que ya entró, se trasladó o se
+ * consumió entre esa fecha y hoy no se cuenta dos veces, y la identidad se mantiene:
+ * queda = saldo + entradas ± traslados − consumos = stock real. Con fecha = hoy y sin
+ * movimientos en la ventana, saldo = stock actual.
+ *
+ * Los traslados restan con su signo: si esta mañana Los Pinos mandó 120 arroces, a las 00:00
+ * tenía 120 más de los que tiene ahora, y el ciclo los ve salir en su columna.
  */
 function reconstruirSaldo(
   viveres: Awaited<ReturnType<typeof listViveresGlobal>>,
-  entAgg: Map<string, ItemAgg>, conAgg: Map<string, ItemAgg>,
+  entAgg: Map<string, ItemAgg>, trasAgg: Map<string, ItemAgg>, conAgg: Map<string, ItemAgg>,
 ): SaldoItem[] {
   const out: SaldoItem[] = [];
   for (const v of viveres) {
     const e = entAgg.get(v.producto.id)?.cantidad ?? 0;
+    const t = trasAgg.get(v.producto.id)?.cantidad ?? 0;
     const c = conAgg.get(v.producto.id)?.cantidad ?? 0;
-    const inicial = r2(v.stock - e + c);
+    const inicial = r2(v.stock - e - t + c);
     if (inicial <= 0) continue;
     out.push({ producto_id: v.producto.id, sku: v.producto.sku, nombre: v.producto.nombre, unidad: v.producto.unidad ?? '', cantidad: inicial });
   }
@@ -593,12 +796,13 @@ export async function iniciarMercado(input: {
     const productos = await listProductos();
     const prodById = new Map(productos.map((p) => [p.id, p] as const));
     const ventanaObj = { fecha_inicio: inicio, fecha_fin: fin };
-    const [viveres, ent, con] = await Promise.all([
+    const [viveres, ent, tras, con] = await Promise.all([
       listViveresGlobal(input.almacen),
       entradasDe(ventanaObj, input.almacen, prodById),
+      trasladosDe(ventanaObj, input.almacen, prodById),
       consumosDe(ventanaObj, input.cocinaId),
     ]);
-    saldo = reconstruirSaldo(viveres, ent.agg, con.agg);
+    saldo = reconstruirSaldo(viveres, ent.agg, tras.agg, con.agg);
   }
   // Acá SÍ hay alguien que abrió: una persona apretó «Iniciar mercado».
   return insertarMercado(
@@ -638,13 +842,17 @@ export async function cerrarMercado(
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
   const { desde, hasta } = ventana(mercado);
-  const [ent, con, viveres] = await Promise.all([
+  const [ent, tras, con, viveres] = await Promise.all([
     entradasDe(mercado, almacen, prodById),
+    trasladosDe(mercado, almacen, prodById),
     consumosDe(mercado, mercado.cocina_id),
     listViveresGlobal(almacen),
   ]);
-  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, con.agg, prodById);
-  const stockPorProducto = stockDeViveres(viveres);
+  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, prodById);
+  // Cerrando después del último día, el contraste y el ajuste se hacen contra el
+  // stock de ESE día: el de hoy ya trae restado lo que es del ciclo siguiente.
+  const vencido = cicloVencido(mercado);
+  const stockPorProducto = await stockAlCorteDe(mercado, almacen, stockDeViveres(viveres));
   const totales = totalesDeMercado(disponible, stockPorProducto);
   const difs = diferenciasPorViver(disponible, stockPorProducto);
 
@@ -667,6 +875,10 @@ export async function cerrarMercado(
     totales: { platos: con.platos, valor: con.valor, entradasValor: ent.valorTotal },
     consumos: Array.from(con.agg.values()).sort((a, b) => b.valor - a.valor),
     entradas: Array.from(ent.agg.values()).sort((a, b) => b.valor - a.valor),
+    traslados: Array.from(tras.agg.values())
+      .filter((t) => t.cantidad !== 0)
+      .sort((a, b) => Math.abs(b.cantidad) - Math.abs(a.cantidad)),
+    inventario_al: vencido ? mercado.fecha_fin : null,
     remanente,
     remanente_mercado: totales.queda,
     remanente_inventario: totales.inventario ?? undefined,

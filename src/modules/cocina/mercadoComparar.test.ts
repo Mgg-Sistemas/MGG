@@ -2,20 +2,20 @@ import { describe, it, expect } from 'vitest';
 import {
   cicloQueSePisa, explicarDiferencia, explicarSobrante, primerDiaLibre,
   compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
-  separarMovidos, totalesDeMercado,
+  deltaEfectivo, separarMovidos, stockAlCorte, totalesDeMercado, trasladosSinLlegada,
 } from './mercadoComparar';
 import type { DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
-import type { SalidaFueraDelCiclo, VentanaCiclo } from './mercadoComparar';
+import type { PataTraslado, SalidaFueraDelCiclo, VentanaCiclo } from './mercadoComparar';
 
 // Víveres reales de La Esperanza, con los números que muestra la pantalla hoy.
 const d = (
   producto_id: string, nombre: string, unidad: string,
-  saldoInicial: number, entradas: number, consumos: number,
+  saldoInicial: number, entradas: number, consumos: number, traslados = 0,
 ): DisponibleItem => ({
   producto_id, sku: producto_id, nombre, unidad, precio: 1,
-  saldoInicial, entradas, consumos,
-  disponible: Math.round((saldoInicial + entradas) * 100) / 100,
-  queda: Math.round((saldoInicial + entradas - consumos) * 100) / 100,
+  saldoInicial, entradas, traslados, consumos,
+  disponible: Math.round((saldoInicial + entradas + traslados) * 100) / 100,
+  queda: Math.round((saldoInicial + entradas + traslados - consumos) * 100) / 100,
 });
 
 const MERCADO: DisponibleItem[] = [
@@ -324,5 +324,151 @@ describe('primerDiaLibre', () => {
 
   it('sin ciclos no hay restricción', () => {
     expect(primerDiaLibre([])).toBeNull();
+  });
+});
+
+describe('traslados en el libro del mercado', () => {
+  it('la cocina que reparte resta, la que recibe suma, y las dos cuadran', () => {
+    // Llegan 300 arroces a Los Pinos, se mandan 120 a La Esperanza y cada una cocina 30.
+    // Antes Los Pinos daba «faltan 120» y La Esperanza contaba los 120 como entrada.
+    const pinos = [d('arroz', 'ARROZ MARY', 'UNIDAD', 0, 300, 30, -120)];
+    const esperanza = [d('arroz', 'ARROZ MARY', 'UNIDAD', 0, 0, 30, 120)];
+    expect(totalesDeMercado(pinos, new Map([['arroz', 150]])))
+      .toMatchObject({ entradas: 300, traslados: -120, disponible: 180, queda: 150, diferencia: 0 });
+    expect(totalesDeMercado(esperanza, new Map([['arroz', 90]])))
+      .toMatchObject({ entradas: 0, traslados: 120, disponible: 120, queda: 90, diferencia: 0 });
+  });
+
+  it('un víver que solo se trasladó cuenta como movido', () => {
+    const { movidos } = separarMovidos([d('sal', 'SAL', 'KILOGRAMO', 10, 0, 0, -4)]);
+    expect(movidos).toHaveLength(1);
+  });
+
+  it('lo que llegó por traslado es una entrada del ciclo al explicar un sobrante', () => {
+    expect(explicarSobrante(d('p', 'X', 'UNIDAD', 0, 0, 0, 20))).not.toContain('nunca lo vio entrar');
+  });
+});
+
+describe('trasladosSinLlegada — la salida tiene que tener su llegada', () => {
+  const pata = (
+    id: string, producto_id: string, almacen: string, delta: number, at: string,
+    extra: Partial<PataTraslado> = {},
+  ): PataTraslado => ({ id, producto_id, almacen, delta, at, ...extra });
+
+  it('un traslado con sus dos patas llegó', () => {
+    const s = [pata('s1', 'arroz', 'Los Pinos', -24, '2026-09-14T14:23:00Z')];
+    const e = [pata('e1', 'arroz', 'La Esperanza', 24, '2026-09-14T14:23:02Z')];
+    expect(trasladosSinLlegada(s, e)).toEqual([]);
+  });
+
+  it('la salida sin entrada se señala con lo que falta llegar', () => {
+    // 26/08: 101,5 arroces salieron de La Esperanza y no entraron a ningún almacén.
+    const r = trasladosSinLlegada([pata('s1', 'arroz', 'La Esperanza', -101.5, '2026-08-26T16:23:00Z')], []);
+    expect(r).toHaveLength(1);
+    expect(r[0].faltaLlegar).toBe(101.5);
+  });
+
+  it('una sola entrada puede juntar varias salidas', () => {
+    // Consolidación de Matanza, 04/09: 48 desde Resguardo + 24 desde Víveres → 72 en General.
+    const s = [
+      pata('s1', 'arroz', 'Resguardo', -48, '2026-09-04T17:55:00Z'),
+      pata('s2', 'arroz', 'Viveres', -24, '2026-09-04T17:55:01Z'),
+    ];
+    const e = [pata('e1', 'arroz', 'General', 72, '2026-09-04T17:55:02Z')];
+    expect(trasladosSinLlegada(s, e)).toEqual([]);
+  });
+
+  it('una entrada no alcanza para dos salidas: la segunda queda sin llegada', () => {
+    const s = [
+      pata('s1', 'sal', 'Los Pinos', -10, '2026-09-14T14:00:00Z'),
+      pata('s2', 'sal', 'Los Pinos', -10, '2026-09-14T14:00:05Z'),
+    ];
+    const r = trasladosSinLlegada(s, [pata('e1', 'sal', 'La Esperanza', 10, '2026-09-14T14:00:02Z')]);
+    expect(r.map((x) => x.salida.id)).toEqual(['s2']);
+  });
+
+  it('el reverso en el mismo almacén cuenta: la mercancía volvió', () => {
+    const s = [pata('s1', 'sal', 'Los Pinos', -10, '2026-09-14T14:00:00Z')];
+    const e = [pata('r1', 'sal', 'Los Pinos', 10, '2026-09-14T14:00:03Z', { detalle: 'Reverso: la entrada a La Esperanza no se pudo registrar' })];
+    expect(trasladosSinLlegada(s, e)).toEqual([]);
+  });
+
+  it('otra entrada en el mismo almacén que NO es un reverso no tapa la salida', () => {
+    const s = [pata('s1', 'sal', 'Los Pinos', -10, '2026-09-14T14:00:00Z')];
+    const e = [pata('x1', 'sal', 'Los Pinos', 10, '2026-09-14T14:00:03Z', { detalle: 'Traslado desde Resguardo' })];
+    expect(trasladosSinLlegada(s, e)).toHaveLength(1);
+  });
+
+  it('dos solicitudes distintas no se cruzan aunque coincidan producto, cantidad y minuto', () => {
+    const s = [pata('s1', 'sal', 'Los Pinos', -10, '2026-09-14T14:00:00Z', { ref_id: 'tra-7' })];
+    const e = [pata('e1', 'sal', 'La Esperanza', 10, '2026-09-14T14:00:02Z', { ref_id: 'tra-8' })];
+    expect(trasladosSinLlegada(s, e)).toHaveLength(1);
+  });
+
+  it('una entrada muy posterior no es la llegada de esa salida', () => {
+    const s = [pata('s1', 'sal', 'Los Pinos', -10, '2026-09-14T14:00:00Z')];
+    const e = [pata('e1', 'sal', 'La Esperanza', 10, '2026-09-14T16:00:00Z')];
+    expect(trasladosSinLlegada(s, e)).toHaveLength(1);
+  });
+});
+
+describe('deltaEfectivo — lo que un movimiento bajó de verdad', () => {
+  it('una salida normal es su delta', () => {
+    expect(deltaEfectivo({ delta: -24, stock_antes: 100, stock_despues: 76 })).toBe(-24);
+  });
+
+  it('una salida topeada en cero bajó solo lo que había', () => {
+    // 26/08: un traslado de 101,5 desde un almacén que tenía 24.
+    expect(deltaEfectivo({ delta: -101.5, stock_antes: 24, stock_despues: 0 })).toBe(-24);
+  });
+
+  it('desde un almacén vacío no bajó nada', () => {
+    expect(deltaEfectivo({ delta: -5, stock_antes: 0, stock_despues: 0 })).toBe(0);
+  });
+
+  it('sin stock antes y después no hay con qué corregir: manda el delta', () => {
+    expect(deltaEfectivo({ delta: -5 })).toBe(-5);
+    expect(deltaEfectivo({ delta: -5, stock_antes: null, stock_despues: 0 })).toBe(-5);
+  });
+
+  it('las entradas no se tocan', () => {
+    expect(deltaEfectivo({ delta: 10, stock_antes: 0, stock_despues: 10 })).toBe(10);
+  });
+});
+
+describe('stockAlCorte — el inventario al último día del ciclo', () => {
+  it('sin nada después del corte es el stock de ahora', () => {
+    expect(stockAlCorte(new Map([['arroz', 90]]), [], new Map()).get('arroz')).toBe(90);
+  });
+
+  it('deshace el reparto y las compras posteriores al corte', () => {
+    // Hoy hay 150; después del corte salieron 120 por traslado y entraron 50 de una compra.
+    const r = stockAlCorte(new Map([['arroz', 150]]), [
+      { producto_id: 'arroz', delta: -120, ref_tipo: 'traslado_modulo' },
+      { producto_id: 'arroz', delta: 50, ref_tipo: 'orden' },
+    ], new Map());
+    expect(r.get('arroz')).toBe(220);
+  });
+
+  it('una comida posterior al corte se devuelve por su día, no por su movimiento', () => {
+    const r = stockAlCorte(
+      new Map([['arroz', 90]]),
+      [{ producto_id: 'arroz', delta: -10, ref_tipo: 'cocina' }],
+      new Map([['arroz', 10]]),
+    );
+    expect(r.get('arroz')).toBe(100);
+  });
+
+  it('deshace lo que el movimiento bajó de verdad, no lo que pidió', () => {
+    // Una salida de 100 topeada: el almacén tenía 30 y quedó en 0. Al corte había 30 más, no 100.
+    const mov = { producto_id: 'arroz', delta: -100, stock_antes: 30, stock_despues: 0, ref_tipo: 'manual' };
+    const r = stockAlCorte(new Map([['arroz', 0]]), [{ ...mov, delta: deltaEfectivo(mov) }], new Map());
+    expect(r.get('arroz')).toBe(30);
+  });
+
+  it('una comida del ciclo cargada tarde NO se devuelve: el libro ya la cuenta', () => {
+    // Comida del último día cargada dos días después: su movimiento cae después del corte.
+    const r = stockAlCorte(new Map([['arroz', 90]]), [{ producto_id: 'arroz', delta: -10, ref_tipo: 'cocina' }], new Map());
+    expect(r.get('arroz')).toBe(90);
   });
 });

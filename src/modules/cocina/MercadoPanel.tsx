@@ -23,8 +23,9 @@ import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
   cerrarMercado, descartarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
-  type MercadoCocina,
+  type KardexTraslado, type MercadoCocina,
 } from './mercados.repository';
+import { RepartirMercadoModal } from './RepartirMercadoModal';
 import {
   describirEvento, explicarDiferencia, explicarSobrante, productosAjustados, separarMovidos,
   type DiferenciaViver, type SalidaFueraDelCiclo,
@@ -41,6 +42,9 @@ function normalizarTexto(s: string): string {
 
 /** Un cero en una tabla de 50 filas es ruido: se muestra un punto tenue. */
 function cifra(n: number): string { return n === 0 ? '·' : num(n); }
+
+/** Un traslado se lee por su signo: «−120» salió del centro, «+120» llegó. */
+function conSigno(n: number): string { return n > 0 ? `+${num(n)}` : n < 0 ? `−${num(Math.abs(n))}` : '0'; }
 
 function fmtDia(iso: string): string { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
 function diaAntes(iso: string): string { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); }
@@ -63,6 +67,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   const [drill, setDrill] = useState<DisponibleItem | null>(null);
   const [cerrar, setCerrar] = useState(false);
   const [descartar, setDescartar] = useState(false);
+  const [repartir, setRepartir] = useState(false);
   const [busca, setBusca] = useState('');
   const [verQuietos, setVerQuietos] = useState(false);
   const [soloDif, setSoloDif] = useState(false);
@@ -114,6 +119,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
     if (!q) return kardex;
     return kardex.filter((k) => {
       if (k.kind === 'entrada') return k.nombre.toLowerCase().includes(q);
+      if (k.kind === 'traslado') return `${k.nombre} ${k.codigo ?? ''} ${k.contraparte ?? ''}`.toLowerCase().includes(q);
       return `${k.comida.codigo} ${labelTipoComida(k.comida.tipo_comida)} ${(k.comida.items ?? []).map((i) => i.nombre).join(' ')}`.toLowerCase().includes(q);
     });
   }, [kardex, busca]);
@@ -121,7 +127,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   return (
     <div>
       {/* ── CAPA 1 · La ecuación del ciclo ─────────────────────────────────
-          Cinco números en el orden en que se leen. Reemplaza a las cuatro tarjetas
+          Seis números en el orden en que se leen. Reemplaza a las cuatro tarjetas
           que mezclaban bolívares con platos y no se sumaban entre sí. */}
       <div className="card" style={{ margin: '.3rem 0 .7rem', padding: '.8rem 1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.35rem' }}>
@@ -181,6 +187,10 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '.5rem' }}>
           <Cifra rotulo="Saldo inicial" valor={num(totales.saldoInicial)} />
           <Cifra rotulo="+ Entradas" valor={num(totales.entradas)} color="var(--primary-3, #2ecc71)" />
+          {/* Los traslados en su propia cifra y con signo: «−120» es lo que este centro
+              repartió, «+120» lo que le llegó. Mezclados con las entradas, la cocina que
+              reparte parecía tener un faltante del tamaño del reparto. */}
+          <Cifra rotulo="± Traslados" valor={conSigno(totales.traslados)} color="var(--info)" />
           <Cifra rotulo="= Disponible" valor={num(totales.disponible)} fuerte />
           <Cifra rotulo="− Consumo" valor={num(totales.consumos)} color="var(--danger)" />
           <Cifra rotulo="= Queda" valor={num(totales.queda)} fuerte color="var(--primary-3, #2ecc71)" />
@@ -210,7 +220,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
             tranquiliza ocupa lugar y enseña a no mirar. */}
         {totales.diferencia != null && totales.vieresConDiferencia > 0 && (
           <div style={{ marginTop: '.6rem', paddingTop: '.55rem', borderTop: '1px solid var(--border)', fontSize: '.83rem' }}>
-            ⚠ Según el inventario quedan <strong className="mono">{num(totales.inventario ?? 0)}</strong>
+            ⚠ Según el inventario{resumen.inventarioAl ? ` al ${fmtDia(resumen.inventarioAl)}` : ''} quedan <strong className="mono">{num(totales.inventario ?? 0)}</strong>
             {' · diferencia '}
             <strong className="mono" style={{ color: totales.diferencia < 0 ? 'var(--danger)' : 'var(--warning)' }}>
               {totales.diferencia > 0 ? '+' : ''}{num(totales.diferencia)}
@@ -230,6 +240,29 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
             >
               {soloDif ? '↩ Ver todos' : 'Ver solo estos'}
             </button>
+          </div>
+        )}
+        {/* Un traslado que salió y no llegó a ningún almacén NO da diferencia: el libro
+            ya lo resta de este centro y el otro nunca lo vio. Por eso se avisa aparte;
+            si no, la mercancía perdida en el camino queda muda. */}
+        {resumen.trasladosSinLlegada.length > 0 && (
+          <div style={{ marginTop: '.6rem', paddingTop: '.55rem', borderTop: '1px solid var(--border)', fontSize: '.83rem' }}>
+            <span style={{ color: 'var(--danger)' }}>
+              ⚠ {resumen.trasladosSinLlegada.length === 1
+                ? '1 traslado salió de este centro y no aparece su llegada'
+                : `${resumen.trasladosSinLlegada.length} traslados salieron de este centro y no aparece su llegada`} a ningún almacén
+            </span>
+            <ul className="dim" style={{ margin: '.25rem 0 0', paddingLeft: '1.1rem', fontSize: '.78rem' }}>
+              {resumen.trasladosSinLlegada.slice(0, 6).map((t) => (
+                <li key={t.id}>
+                  {fmtDia(t.at.slice(0, 10))} · {t.nombre} · <span className="mono">{num(t.sinLlegada)} {t.unidad}</span>
+                  {t.contraparte ? ` → ${t.contraparte}` : ''}{t.codigo ? ` · ${t.codigo}` : ''}
+                </li>
+              ))}
+            </ul>
+            <div className="hint muted" style={{ marginTop: '.2rem', fontSize: '.74rem' }}>
+              No descuadra el mercado: el faltante está en el camino. Se corrige desde Inventario.
+            </div>
           </div>
         )}
       </div>
@@ -256,6 +289,15 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           >
             {puedeCerrar ? '🔒 Cerrar mercado (día 22) — genera PDF y arrastra saldo' : '🔒 Cerrar mercado anticipadamente'}
           </button>
+          {/* REPARTIR arma la solicitud de traslado hacia la otra cocina. No mueve stock:
+              lo mueve Salidas cuando se autoriza y ejecuta. Va al lado de cerrar porque es
+              parte del ciclo, pero NO depende del cierre. */}
+          {almacen && (
+            <button className="btn btn-ghost" style={{ marginLeft: '.5rem' }} onClick={() => setRepartir(true)}
+              title="Armar una solicitud de traslado de víveres hacia otra cocina">
+              🚚 Repartir a otra cocina
+            </button>
+          )}
           {/* DESCARTAR es lo contrario de cerrar: cerrar arrastra el remanente al
               ciclo siguiente, descartar lo deja fuera de la cadena. Va acá al lado
               pero en tono discreto — es una salida de excepción, no la habitual. */}
@@ -270,10 +312,31 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
         </div>
       )}
 
+      {/* Lo que se pidió y todavía no se movió. Sin esto, quien acaba de repartir ve el
+          mercado igual que antes y cree que no se guardó. */}
+      {mercado.estado === 'abierto' && resumen.repartosPendientes.length > 0 && (
+        <div className="card" style={{ marginBottom: '.8rem', padding: '.6rem .9rem', borderLeft: '3px solid var(--info)', fontSize: '.83rem' }}>
+          <strong>🚚 Traslados pendientes</strong>
+          <span className="muted"> · todavía no mueven el inventario ni el mercado: cuentan cuando Salidas los ejecuta · </span>
+          <a href="#/app/salidas">ver en Salidas</a>
+          <ul style={{ margin: '.3rem 0 0', paddingLeft: '1.1rem' }}>
+            {resumen.repartosPendientes.map((r) => (
+              <li key={r.id}>
+                <span className="mono">{r.codigo}</span>
+                {' · '}{r.estado === 'por_aprobar' ? 'por aprobar' : 'aprobado, falta ejecutarlo'}
+                {' · '}{r.sentido === 'sale' ? `sale a ${r.contraparte}` : `llega desde ${r.contraparte}`}
+                {' · '}{r.viveres} víver{r.viveres === 1 ? '' : 'es'}
+                <span className="muted"> · {fmtDia(r.creado.slice(0, 10))}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* ── CAPA 3a · Disponible a consumir ──────────────────────────────── */}
       {vista !== 'movimientos' && (
       <div className="card" style={{ marginBottom: '.9rem' }}>
-        <div className="card-title" style={{ marginBottom: '.5rem' }}>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas − consumos · tocá un víver para el detalle</span></div>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas ± traslados − consumos · tocá un víver para el detalle</span></div>
         {/* Una tabla filtrada que no lo dice se lee como si fuera todo el mercado, y
             ahí el filtro deja de ayudar y empieza a engañar. El aviso lleva su propia
             salida, para no tener que volver a la tira de arriba. */}
@@ -298,6 +361,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                 <th>Víver</th>
                 <th style={{ textAlign: 'right' }}>Saldo inicial</th>
                 <th style={{ textAlign: 'right' }}>Entradas</th>
+                <th style={{ textAlign: 'right' }}>Traslados</th>
                 <th style={{ textAlign: 'right' }}>Disponible</th>
                 <th style={{ textAlign: 'right' }}>Consumido</th>
                 <th style={{ textAlign: 'right' }}>Queda</th>
@@ -335,6 +399,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{cifra(d.saldoInicial)}</td>
                         <td className="mono" style={{ textAlign: 'right', color: d.entradas ? 'var(--primary-3, #2ecc71)' : undefined }}>{d.entradas ? `+${num(d.entradas)}` : '·'}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: d.traslados ? 'var(--info)' : undefined }}>{d.traslados ? conSigno(d.traslados) : '·'}</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{cifra(d.disponible)}</td>
                         <td className="mono" style={{ textAlign: 'right', color: d.consumos ? 'var(--danger)' : undefined }}>{d.consumos ? `−${num(d.consumos)}` : '·'}</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: d.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(d.queda)}</td>
@@ -343,7 +408,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                           así se lee igual en una captura en blanco y negro. */}
                       {dif && (
                         <tr style={{ borderLeft: '3px solid var(--warning)' }}>
-                          <td colSpan={6} style={{ paddingTop: 0, fontSize: '.76rem' }}>
+                          <td colSpan={7} style={{ paddingTop: 0, fontSize: '.76rem' }}>
                             <span style={{ color: 'var(--warning)' }}>⚠ en inventario hay <strong className="mono">{num(dif.inventario)}</strong></span>
                             {' · '}
                             {dif.diferencia < 0 ? 'faltan' : 'sobran'} <strong className="mono">{num(Math.abs(dif.diferencia))}</strong> {d.unidad.toLowerCase()}
@@ -402,7 +467,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       {vista !== 'disponible' && (
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
-          <div className="card-title" style={{ margin: 0 }}>Movimientos del mercado <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· entradas y consumos</span></div>
+          <div className="card-title" style={{ margin: 0 }}>Movimientos del mercado <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· entradas, traslados y consumos</span></div>
           <input className="input" style={{ maxWidth: 240 }} placeholder="Buscar en el kardex…" value={busca} onChange={(e) => setBusca(e.target.value)} />
         </div>
         {!kardexFiltrado.length ? (
@@ -411,7 +476,9 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
             {kardexFiltrado.map((k, i) => k.kind === 'entrada'
               ? <FilaEntrada key={`e${i}`} row={k} />
-              : <FilaConsumo key={`c${k.comida.id}`} row={k} canWrite={canWrite} onEdit={() => onEditComida(k.comida)} onDel={() => onDelComida(k.comida)} />)}
+              : k.kind === 'traslado'
+                ? <FilaTraslado key={`t${k.id}`} row={k} />
+                : <FilaConsumo key={`c${k.comida.id}`} row={k} canWrite={canWrite} onEdit={() => onEditComida(k.comida)} onDel={() => onDelComida(k.comida)} />)}
           </div>
         )}
       </div>
@@ -422,6 +489,11 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           fuera={resumen.salidasFueraDelCiclo.get(drill.producto_id) ?? []}
           diferencia={difPorProducto.get(drill.producto_id) ?? null}
           onClose={() => setDrill(null)} />
+      )}
+      {repartir && (
+        <RepartirMercadoModal resumen={resumen} cocinaNombre={cocinaNombre} almacen={almacen} actor={actor} userEmail={userEmail}
+          onClose={() => setRepartir(false)}
+          onDone={async () => { setRepartir(false); await onReload(); }} />
       )}
       {descartar && (
         <DescartarMercadoModal mercado={mercado} cocinaNombre={cocinaNombre} actor={actor} userEmail={userEmail}
@@ -485,6 +557,35 @@ function FilaEntrada({ row }: { row: KardexEntrada }) {
   );
 }
 
+/* ───────── Fila de kardex: TRASLADO (azul; rojo si no llegó) ───────── */
+function FilaTraslado({ row }: { row: KardexTraslado }) {
+  const sale = row.cantidad < 0;
+  return (
+    <div className="card" style={{ margin: 0, padding: '.5rem .7rem', borderLeft: `4px solid ${row.sinLlegada > 0 ? 'var(--danger)' : 'var(--info)'}`, display: 'flex', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap' }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: '.86rem' }}>
+          <span style={{ color: 'var(--info)' }}>↔ Traslado</span> · {row.nombre}
+          {row.codigo && <span className="badge mono" style={{ marginLeft: '.35rem', fontSize: '.64rem' }}>{row.codigo}</span>}
+        </div>
+        <div className="muted" style={{ fontSize: '.74rem' }}>
+          {dateTime(row.at)}{row.almacen ? ` · 📦 ${row.almacen}` : ''}
+          {row.contraparte ? (sale ? ` → ${row.contraparte}` : ` ← ${row.contraparte}`) : ''}
+          {row.interno ? ' · dentro del centro' : ''}
+        </div>
+        {row.sinLlegada > 0 && (
+          <div style={{ fontSize: '.74rem', color: 'var(--danger)' }}>
+            ⚠ no aparece la llegada de {num(row.sinLlegada)} {row.unidad} a ningún almacén
+          </div>
+        )}
+      </div>
+      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+        <div className="mono" style={{ fontWeight: 800, color: 'var(--info)' }}>{conSigno(row.cantidad)} {row.unidad}</div>
+        {row.valor !== 0 && <div className="muted mono" style={{ fontSize: '.74rem' }}>{money(Math.abs(row.valor))}</div>}
+      </div>
+    </div>
+  );
+}
+
 /* ───────── Fila de kardex: CONSUMO (rojo, expandible) ───────── */
 function FilaConsumo({ row, canWrite, onEdit, onDel }: { row: KardexConsumo; canWrite: boolean; onEdit: () => void; onDel: () => void }) {
   const [abierto, setAbierto] = useState(false);
@@ -519,15 +620,16 @@ function FilaConsumo({ row, canWrite, onEdit, onDel }: { row: KardexConsumo; can
 /* ───────── Drill-down de un víver: saldo inicial + entradas + consumos ───────── */
 function DrillModal({ item, kardex, fechaInicio, fuera, diferencia, onClose }: {
   item: DisponibleItem;
-  kardex: (KardexEntrada | KardexConsumo)[];
+  kardex: (KardexEntrada | KardexConsumo | KardexTraslado)[];
   fechaInicio: string;
-  /** Lo que salió por fuera del ciclo: salidas manuales, ajustes, traslados. */
+  /** Lo que salió por fuera del ciclo: salidas manuales y ajustes. */
   fuera: SalidaFueraDelCiclo[];
   /** inventario − libro para este víver. `null` si cuadra o si el mercado está cerrado. */
   diferencia: DiferenciaViver | null;
   onClose: () => void;
 }) {
   const entradas = kardex.filter((k): k is KardexEntrada => k.kind === 'entrada' && k.producto_id === item.producto_id);
+  const traslados = kardex.filter((k): k is KardexTraslado => k.kind === 'traslado' && k.producto_id === item.producto_id);
   const consumos = kardex
     .filter((k): k is KardexConsumo => k.kind === 'consumo')
     .map((k) => ({ comida: k.comida, item: (k.comida.items ?? []).find((it) => it.producto_id === item.producto_id) }))
@@ -538,6 +640,12 @@ function DrillModal({ item, kardex, fechaInicio, fuera, diferencia, onClose }: {
       <div className="card" style={{ margin: '0 0 .8rem', background: 'var(--bg-2)', fontSize: '.9rem' }}>
         <div>Hasta el <strong>{fmtDia(diaAntes(fechaInicio))}</strong>: quedaban <strong className="mono">{num(item.saldoInicial)} {item.unidad}</strong></div>
         <div>+ entradas desde el <strong>{fmtDia(fechaInicio)}</strong>: <strong className="mono" style={{ color: 'var(--primary-3, #2ecc71)' }}>{num(item.entradas)} {item.unidad}</strong></div>
+        {item.traslados !== 0 && (
+          <div>
+            ± traslados: <strong className="mono" style={{ color: 'var(--info)' }}>{conSigno(item.traslados)} {item.unidad}</strong>
+            <span className="muted"> ({item.traslados < 0 ? 'este centro envió más de lo que recibió' : 'este centro recibió más de lo que envió'})</span>
+          </div>
+        )}
         <div style={{ marginTop: '.2rem' }}>= <strong>TOTAL DISPONIBLE A CONSUMIR</strong>: <strong className="mono" style={{ fontSize: '1.05rem' }}>{num(item.disponible)} {item.unidad}</strong></div>
         <div className="muted">− consumido: <strong className="mono" style={{ color: 'var(--danger)' }}>{num(item.consumos)} {item.unidad}</strong> · queda: <strong className="mono" style={{ color: item.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(item.queda)} {item.unidad}</strong></div>
 
@@ -586,6 +694,24 @@ function DrillModal({ item, kardex, fechaInicio, fuera, diferencia, onClose }: {
         </div>
       )}
 
+      {/* Los traslados al mismo nivel que entradas y consumos: son parte del libro. */}
+      <h4 style={{ margin: '.8rem 0 .35rem', color: 'var(--info)' }}>Traslados ({traslados.length})</h4>
+      {!traslados.length ? <p className="hint muted" style={{ margin: 0 }}>Sin traslados de este víver en este mercado.</p> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+          {traslados.map((t) => (
+            <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '.25rem', fontSize: '.83rem' }}>
+              <span className="muted">
+                {dateTime(t.at)}{t.almacen ? ` · 📦 ${t.almacen}` : ''}
+                {t.contraparte ? (t.cantidad < 0 ? ` → ${t.contraparte}` : ` ← ${t.contraparte}`) : ''}
+                {t.codigo ? ` · ${t.codigo}` : ''}
+                {t.sinLlegada > 0 && <span style={{ color: 'var(--danger)' }}> · no aparece la llegada</span>}
+              </span>
+              <span className="mono" style={{ color: 'var(--info)', whiteSpace: 'nowrap' }}>{conSigno(t.cantidad)} {t.unidad}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <h4 style={{ margin: '.8rem 0 .35rem', color: 'var(--danger)' }}>Consumos ({consumos.length})</h4>
       {!consumos.length ? <p className="hint muted" style={{ margin: 0 }}>Sin consumos de este víver.</p> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
@@ -606,7 +732,7 @@ function DrillModal({ item, kardex, fechaInicio, fuera, diferencia, onClose }: {
         Movimientos fuera del ciclo ({fuera.length})
       </h4>
       {!fuera.length ? (
-        <p className="hint muted" style={{ margin: 0 }}>Ninguno: todo lo que salió pasó por una comida.</p>
+        <p className="hint muted" style={{ margin: 0 }}>Ninguno: todo lo que salió pasó por una comida o un traslado.</p>
       ) : (
         <>
           <p className="hint muted" style={{ margin: '0 0 .35rem' }}>
@@ -658,6 +784,7 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
     totales: { platos: kpis.platos, valor: kpis.consumoValor, entradasValor: kpis.entradasValor },
     consumos: disponible.filter((d) => d.consumos > 0).map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.consumos, valor: Math.round(d.consumos * d.precio * 100) / 100 })),
     entradas: disponible.filter((d) => d.entradas > 0).map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.entradas, valor: Math.round(d.entradas * d.precio * 100) / 100 })),
+    traslados: disponible.filter((d) => d.traslados !== 0).map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.traslados, valor: Math.round(d.traslados * d.precio * 100) / 100 })),
     remanente: remanente.map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.queda })),
   }), [mercado, kpis, disponible, remanente]);
 
@@ -729,7 +856,7 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
           </div>
           <div style={{ fontSize: '.86rem', marginBottom: '.5rem' }}>
             Según el mercado quedan <strong className="mono">{num(totales.queda)}</strong> ·
-            {' '}según el inventario <strong className="mono">{num(totales.inventario ?? 0)}</strong> ·
+            {' '}según el inventario{resumen.inventarioAl ? ` al ${fmtDia(resumen.inventarioAl)}` : ''} <strong className="mono">{num(totales.inventario ?? 0)}</strong> ·
             {' diferencia '}
             <strong className="mono" style={{ color: (totales.diferencia ?? 0) < 0 ? 'var(--danger)' : 'var(--warning)' }}>
               {(totales.diferencia ?? 0) > 0 ? '+' : ''}{num(totales.diferencia ?? 0)}
@@ -761,7 +888,7 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
           <label style={{ display: 'flex', gap: '.45rem', alignItems: 'flex-start', cursor: 'pointer', marginBottom: '.35rem' }}>
             <input type="radio" checked={ajustar} onChange={() => setAjustar(true)} style={{ marginTop: '.25rem' }} />
             <span style={{ fontSize: '.86rem' }}>
-              <strong>Ajustar al inventario</strong> ({num(totales.inventario ?? 0)}) — el mercado siguiente arranca del stock real
+              <strong>Ajustar al inventario</strong> ({num(totales.inventario ?? 0)}{resumen.inventarioAl ? ` al ${fmtDia(resumen.inventarioAl)}` : ''}) — el mercado siguiente arranca del stock real
             </span>
           </label>
           <label style={{ display: 'flex', gap: '.45rem', alignItems: 'flex-start', cursor: 'pointer' }}>

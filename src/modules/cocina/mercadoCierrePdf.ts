@@ -92,6 +92,23 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
     y = (doc as any).lastAutoTable.finalY + 12;
   }
 
+  // Traslados del período, con signo: lo que el centro envió (−) y lo que recibió (+). Los
+  // cierres anteriores al 14/09/2026 no los tienen: ahí lo recibido quedó en las entradas.
+  if (snap.traslados?.length) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text('Traslados del período (− enviado · + recibido)', MARGIN, y);
+    autoTable(doc, {
+      startY: y + 6,
+      head: [['VÍVER', 'CANTIDAD', 'VALOR $']],
+      body: snap.traslados.map((v) => [`${v.nombre} (${v.sku})`, `${v.cantidad > 0 ? '+' : ''}${num(v.cantidad)}`, money(Math.abs(v.valor))]),
+      styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
+      headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
+      margin: { left: MARGIN, right: MARGIN },
+    });
+    y = (doc as any).lastAutoTable.finalY + 12;
+  }
+
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
   doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
   return doc;
