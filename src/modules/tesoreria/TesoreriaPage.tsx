@@ -80,6 +80,7 @@ import { resumenDatosPago, DatosPagoFields, validarDatosPago } from '@/shared/ui
 import { METODOS_CON_DATOS, type DatosPago } from '@/modules/pedidos/datosPago.repository';
 import type { Proveedor } from '@/shared/lib/types';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
+import { aPagarConRetencion, separarReembolso, conceptoReembolsoOc } from './reembolsoPago';
 // Generadores de PDF/Excel: se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir la página.
 import { type ReporteMeta } from './reportePdf';
 import { ChatOC } from '@/modules/pedidos/ChatOC';
@@ -101,6 +102,7 @@ const CAT_LABEL: Record<string, string> = {
   gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', pago_nomina: 'Pago de nómina',
   traslado: 'Traslado', conversion: 'Conversión', compra_directa: 'Compra directa',
   cobro_cxc: 'Cobro por cobrar', abono_cxp: 'Abono por pagar', combustible: 'Combustible',
+  reembolso_oc: 'Reembolso de OC', comision_bancaria: 'Comisión bancaria',
 };
 
 /** Etiqueta legible de una categoría de movimiento (cae al valor crudo si no está mapeada). */
@@ -5970,8 +5972,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   // El "precio en divisa efectivo" (descuento vs BCV) solo aplica a órdenes en USD/BCV,
   // no a servicios cotizados nativamente en Bs.
   const puedeEfectivo = !pagoParcial && baseGeneral > 0 && (o.moneda ?? 'USD') !== 'Bs';
-  // Monto base a pagar: el efectivo (si está activado y es menor) o el general.
-  const baseUsd = (usarEfectivo && efectivoCalc > 0 && efectivoCalc < baseGeneral) ? efectivoCalc : baseGeneral;
+  // Monto de la factura: el efectivo (si está activado y es menor) o el general.
+  const baseFactura = (usarEfectivo && efectivoCalc > 0 && efectivoCalc < baseGeneral) ? efectivoCalc : baseGeneral;
+  // Retención (opcional, en la moneda de la orden): se RESTA del total de la factura.
+  const [conRetencion, setConRetencion] = useState(false);
+  const [retencionStr, setRetencionStr] = useState('');
+  const retencionMonto = conRetencion ? round2(Number(retencionStr) || 0) : 0;
+  // Monto base a pagar: la factura menos la retención.
+  const baseUsd = aPagarConRetencion(baseFactura, retencionMonto);
   const [montoStr, setMontoStr] = useState(String(baseGeneral));
   const [factura, setFactura] = useState<File | null>(null);
   const [motivoPago, setMotivoPago] = useState('');
@@ -6099,6 +6107,23 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   const montoUsdSimple = moneda === 'Bs' ? (tasa > 0 ? round2(montoNum / tasa) : 0) : round2(montoNum);
   const excedeTotalSimple = !esMultimoneda && montoUsdSimple > totalUsd + 0.01;
   const excedeTotal = esMultimoneda ? excedeTotalMulti : excedeTotalSimple;
+  // Pagar de más ya no se bloquea: con una confirmación, el total de la OC queda como
+  // pago y el excedente sale en otro movimiento, «REEMBOLSO DE ORDEN DE COMPRA».
+  const codigoOc = o.oc_codigo ?? o.codigo;
+  const totalEnCaja = moneda === 'Bs' ? (esOrdenBs ? baseUsd : (tasa > 0 ? aBs(totalUsd, tasa) : 0)) : totalUsd;
+  const excesoSimple = excedeTotalSimple ? round2(montoNum - totalEnCaja) : 0;
+  const excesoUsdMulti = excedeTotalMulti ? round2(sumUsdMulti - totalUsd) : 0;
+  const reembolsoOrden = esMultimoneda
+    ? enMonedaOrden(excesoUsdMulti)
+    : excesoSimple > 0 ? (moneda === monedaOrden ? excesoSimple : enMonedaOrden(round2(montoUsdSimple - totalUsd))) : 0;
+  function confirmarReembolso(pagado: string): boolean {
+    const factura = monto(enMonedaOrden(totalUsd), monedaOrden);
+    return window.confirm(
+      `La ${codigoOc} es de ${factura} y estás pagando ${pagado}.\n\n`
+      + `Se registra el pago de ${factura} y los ${monto(reembolsoOrden, monedaOrden)} de más salen en otro movimiento:\n`
+      + `«${conceptoReembolsoOc(codigoOc)}».\n\n¿Confirmás?`,
+    );
+  }
 
   // Prellenado del multipago. Reglas (para que un pago no se parta sin necesidad):
   //  1) Si UNA sola cuenta alcanza para todo el total → se paga solo de esa (un movimiento).
@@ -6206,6 +6231,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
+    if (conRetencion && retencionMonto <= 0) { setError('Indicá el monto de la retención, o desmarcá «Tiene retención».'); return; }
+    if (conRetencion && retencionMonto >= baseFactura) { setError(`La retención (${monto(retencionMonto, monedaOrden)}) no puede ser igual o mayor que la factura (${monto(baseFactura, monedaOrden)}).`); return; }
     if (!comprobanteOpcional && !factura) { setError('Adjuntá el comprobante (PDF o imagen).'); return; }
     if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
       setError('El comprobante debe ser un PDF o una imagen.'); return;
@@ -6229,20 +6256,23 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           .filter((l): l is NonNullable<typeof l> => !!l && l.monto > 0);
         const legs = [...legsCaja, ...legsExtra];
         if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); setSaving(false); return; }
-        if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(enMonedaOrden(sumUsdMulti), monedaOrden)}, total ${monto(enMonedaOrden(totalUsd), monedaOrden)} (te pasaste por ${monto(enMonedaOrden(round2(sumUsdMulti - totalUsd)), monedaOrden)}).`); setSaving(false); return; }
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(enMonedaOrden(sumUsdMulti), monedaOrden)}) no cubre el total (${monto(enMonedaOrden(totalUsd), monedaOrden)}).`); setSaving(false); return; }
-        await pagarOrdenCompraMulti({ orden: o, cajaId, legs, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName });
-        notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(enMonedaOrden(sumUsdMulti), monedaOrden)}`, 'success', { link: '#/app/tesoreria' });
+        // Excedente: se separa de las últimas cuentas y sale como reembolso (con confirmación).
+        const { pago: legsPago, reembolso: legsReembolso } = separarReembolso(legs, excesoUsdMulti);
+        if (legsReembolso.length && !confirmarReembolso(monto(enMonedaOrden(sumUsdMulti), monedaOrden))) { setSaving(false); return; }
+        await pagarOrdenCompraMulti({ orden: o, cajaId, legs: legsPago, reembolsoLegs: legsReembolso, retencionMonto, reembolsoOrden, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName });
+        notify(`OC ${codigoOc} pagada · multipago ${monto(enMonedaOrden(round2(sumUsdMulti - excesoUsdMulti)), monedaOrden)}${reembolsoOrden > 0 ? ` · reembolso ${monto(reembolsoOrden, monedaOrden)}` : ''}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
       }
-      if (excedeTotalSimple) { setError(`No podés pagar más que el total de la OC (${monto(enMonedaOrden(totalUsd), monedaOrden)}). El monto ingresado equivale a ${monto(enMonedaOrden(montoUsdSimple), monedaOrden)}.`); setSaving(false); return; }
+      if (excesoSimple > 0 && !confirmarReembolso(monto(montoNum, moneda))) { setSaving(false); return; }
+      const montoFactura = excesoSimple > 0 ? round2(montoNum - excesoSimple) : montoNum;
       await pagarOrdenCompra({
-        orden: o, cajaId, monto: Number(montoStr) || 0,
+        orden: o, cajaId, monto: montoFactura, reembolso: excesoSimple, retencionMonto, reembolsoOrden,
         factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null,
         gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName,
       });
-      notify(`OC ${o.oc_codigo ?? o.codigo} pagada · ${monto(Number(montoStr) || 0, moneda)}`, 'success', { link: '#/app/tesoreria' });
+      notify(`OC ${codigoOc} pagada · ${monto(montoFactura, moneda)}${excesoSimple > 0 ? ` · reembolso ${monto(excesoSimple, moneda)}` : ''}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar.'); setSaving(false); }
   }
@@ -6252,7 +6282,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       <button className="btn btn-ghost" onClick={() => import('@/modules/pedidos/ordenCompraPdf').then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(o.id)).catch(() => toast('No se pudo generar el PDF', 'error'))}>↓ OC PDF</button>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>{row.esperandoMetodo ? 'Cerrar' : 'Cancelar'}</button>
       {!row.esperandoMetodo && (
-        <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving || excedeTotal}>{saving ? 'Pagando…' : excedeTotal ? 'Excede el total de la OC' : `PAGAR ORDEN · ${esMultimoneda ? monto(enMonedaOrden(sumUsdMulti), monedaOrden) : monto(Number(montoStr) || 0, moneda)}`}</button>
+        <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving}>{saving ? 'Pagando…' : `PAGAR ORDEN · ${esMultimoneda ? monto(enMonedaOrden(sumUsdMulti), monedaOrden) : monto(Number(montoStr) || 0, moneda)}${excedeTotal ? ' · con reembolso' : ''}`}</button>
       )}
     </>
   );
@@ -6448,6 +6478,30 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           </table>
         </div>
 
+        {/* Retención (opcional): se resta del total de la factura. */}
+        <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--primary)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.88rem', fontWeight: 600 }}>
+            <input type="checkbox" checked={conRetencion} onChange={(e) => setConRetencion(e.target.checked)} />
+            🧾 Tiene retención
+          </label>
+          {conRetencion ? (
+            <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-end', marginTop: '.4rem' }}>
+              <div className="form-row" style={{ margin: 0 }}>
+                <label style={{ fontSize: '.78rem' }}>Monto de la retención ({monedaOrden})</label>
+                <input className="input mono" type="number" min={0} step="any" value={retencionStr} autoFocus placeholder="0,00"
+                  onChange={(e) => setRetencionStr(dosDecimales(e.target.value))} style={{ width: 160, textAlign: 'right' }} />
+              </div>
+              <div style={{ fontSize: '.85rem', paddingBottom: '.4rem' }}>
+                Factura <strong className="mono">{monto(baseFactura, monedaOrden)}</strong>
+                {' '}− Retención <strong className="mono" style={{ color: 'var(--warning)' }}>{monto(retencionMonto, monedaOrden)}</strong>
+                {' '}= A pagar <strong className="mono" style={{ color: 'var(--success)' }}>{monto(baseUsd, monedaOrden)}</strong>
+              </div>
+            </div>
+          ) : (
+            <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>Marcalo si la factura tiene retención: el monto se resta del total a pagar.</div>
+          )}
+        </div>
+
         {/* Conversión $ ⇄ Bs con la tasa BCV del día (editable). */}
         <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
           <div className="card-title" style={{ marginBottom: '.5rem' }}>Conversión del total</div>
@@ -6504,7 +6558,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
               <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required={!esMultimoneda}
                 style={{ borderColor: excedeTotalSimple ? 'var(--danger)' : undefined }} />
               {excedeTotalSimple && (
-                <small style={{ color: 'var(--danger)' }}>⚠ No podés pagar más que el total de la OC ({monto(totalUsd, 'USD')}{moneda === 'Bs' && tasa > 0 ? ` ≈ ${monto(aBs(totalUsd, tasa), 'Bs')}` : ''}).</small>
+                <small style={{ color: 'var(--warning)' }}>⚠ Supera el total de la OC ({monto(totalEnCaja, moneda)}) por <strong className="mono">{monto(excesoSimple, moneda)}</strong>. Al pagar se pide confirmación: ese excedente sale aparte como <strong>{conceptoReembolsoOc(codigoOc)}</strong>.</small>
               )}
               {tasa > 0 && montoNum > 0 && (
                 <small className="muted">
@@ -6558,7 +6612,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
               {excedeTotalMulti
-                ? <span style={{ color: 'var(--danger)' }}>⚠ Te pasaste por <strong>{monto(enMonedaOrden(round2(sumUsdMulti - totalUsd)), monedaOrden)}</strong>. No podés pagar más que el total de la OC ({monto(enMonedaOrden(totalUsd), monedaOrden)}).</span>
+                ? <span style={{ color: 'var(--warning)' }}>⚠ Pagás <strong>{monto(reembolsoOrden, monedaOrden)}</strong> de más. Al pagar se pide confirmación: el total de la OC ({monto(enMonedaOrden(totalUsd), monedaOrden)}) queda como pago y el excedente sale aparte como <strong>{conceptoReembolsoOc(codigoOc)}</strong>.</span>
                 : cubreTotalMulti
                 ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
                 : <>Faltan <strong>{monto(enMonedaOrden(round2(totalUsd - sumUsdMulti)), monedaOrden)}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}

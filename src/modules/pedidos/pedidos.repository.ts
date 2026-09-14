@@ -25,6 +25,8 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 
+import { CATEGORIA_REEMBOLSO_OC, conceptoReembolsoOc } from '@/modules/tesoreria/reembolsoPago';
+
 /** Bucket de Storage para los adjuntos de pago de OC (factura / retención). */
 const BUCKET_OC = 'compras-oc';
 
@@ -1550,6 +1552,12 @@ export interface PagarOcInput {
   retencion?: File | null;
   motivoPago?: string | null;
   seriales?: string[] | null;   // seriales de billetes (USD físico)
+  /** Lo pagado de más, EN LA MONEDA DE LA CAJA: sale como otro movimiento («REEMBOLSO DE ORDEN DE COMPRA»). */
+  reembolso?: number | null;
+  /** Retención indicada al pagar (moneda de la orden). `monto` ya viene con ella restada. */
+  retencionMonto?: number | null;
+  /** El excedente expresado en la moneda de la orden (se guarda en la OC). */
+  reembolsoOrden?: number | null;
   /** Anclaje opcional a una categoría/subcategoría de gasto (clasifica el egreso). */
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
@@ -1578,6 +1586,17 @@ function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string, s
     ser.length ? `billetes: ${ser.join(', ')}` : '',
   ].filter(Boolean).join(' · ');
   return `Pago OC ${o.oc_codigo ?? o.codigo}${extra ? ` · ${extra}` : ''}${sufijo ? ` · ${sufijo}` : ''}`;
+}
+
+/** Campos de la OC para la retención y el reembolso indicados al pagar (null si no hubo). */
+function camposRetencionReembolso(o: Orden, retencion?: number | null, reembolso?: number | null) {
+  const ret = Math.round((Number(retencion) || 0) * 100) / 100;
+  const ree = Math.round((Number(reembolso) || 0) * 100) / 100;
+  return {
+    retencion_monto: ret > 0 ? ret : null,
+    reembolso_monto: ree > 0 ? ree : null,
+    reembolso_moneda: ree > 0 ? (o.moneda ?? 'USD') : null,
+  };
 }
 
 /** Comisión bancaria: egreso EXTRA de la caja al pagar. NO suma al monto de la factura. */
@@ -1628,6 +1647,16 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   // 1b) Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura.
   const comMonto = await egresarComisionOc(o, input.comision, input.actorEmail, input.actorName ?? null);
 
+  // 1c) Lo pagado de más: sale de la misma caja, pero en OTRO movimiento.
+  const reembolso = Math.round((Number(input.reembolso) || 0) * 100) / 100;
+  if (reembolso > 0) {
+    await pagarOrden({
+      cajaId: input.cajaId, ordenId: o.id, monto: reembolso,
+      concepto: conceptoReembolsoOc(o.oc_codigo ?? o.codigo), categoria: CATEGORIA_REEMBOLSO_OC,
+      actor: input.actorEmail, actorName: input.actorName ?? null,
+    });
+  }
+
   // 2) Adjuntos (factura obligatoria por flujo; retención opcional).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
   let retencionPath: string | null = null, retencionNombre: string | null = null;
@@ -1643,10 +1672,11 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     caja_mov_id: mov.id,
     factura_path: facturaPath, factura_nombre: facturaNombre,
     retencion_path: retencionPath, retencion_nombre: retencionNombre,
+    ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden),
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     // Si la OC es por Factura, al pagar se marca automáticamente en Retenciones.
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
-    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}), ...(seriales.length ? { seriales } : {}) }),
+    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden),...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}), ...(seriales.length ? { seriales } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1669,6 +1699,12 @@ export interface PagarOcMultiInput {
   factura?: File | null;
   motivoPago?: string | null;
   seriales?: string[] | null;   // seriales de billetes (pata USD físico)
+  /** Patas de lo pagado de más: cada una sale como otro movimiento («REEMBOLSO DE ORDEN DE COMPRA»). */
+  reembolsoLegs?: PagarOcMultiLeg[] | null;
+  /** Retención indicada al pagar (moneda de la orden). Las `legs` ya vienen con ella restada. */
+  retencionMonto?: number | null;
+  /** El excedente expresado en la moneda de la orden (se guarda en la OC). */
+  reembolsoOrden?: number | null;
   /** Anclaje opcional a una categoría/subcategoría de gasto (clasifica los egresos). */
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
@@ -1708,6 +1744,15 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
     movIds.push(mov.id);
   }
 
+  // Lo pagado de más: cada pata sale de su cuenta, pero en OTRO movimiento.
+  for (const leg of (input.reembolsoLegs ?? []).filter((l) => l.moneda && (Number(l.monto) || 0) > 0)) {
+    await egresarDivisa({
+      cajaId: leg.cajaId || input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+      concepto: conceptoReembolsoOc(o.oc_codigo ?? o.codigo, leg.moneda), categoria: CATEGORIA_REEMBOLSO_OC, refOrdenId: o.id,
+      actor: input.actorEmail, actorName: input.actorName ?? null,
+    });
+  }
+
   // Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura.
   const comMonto = await egresarComisionOc(o, input.comision, input.actorEmail, input.actorName ?? null);
 
@@ -1723,9 +1768,11 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
     factura_path: facturaPath, factura_nombre: facturaNombre,
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
+    ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden),
     historial: appendHistorial(o, 'pagada', input.actorEmail, {
       oc_codigo: o.oc_codigo,
       multipago: legs.map((l) => ({ moneda: l.moneda, cuenta: l.cuenta, monto: l.monto })),
+      ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden),
       ...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}),
       ...(seriales.length ? { seriales } : {}),
     }),

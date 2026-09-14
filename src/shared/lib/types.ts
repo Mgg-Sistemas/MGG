@@ -942,6 +942,11 @@ export interface Orden {
   /** Descuento indicado al confirmar el MÉTODO DE PAGO (desde la OC): reduce el monto a pagar
    *  en Tesorería (a pagar = total − descuento_pago). El `total` de la OC NO cambia. */
   descuento_pago?: number | null;
+  /** Retención indicada por Tesorería al pagar: se restó del total de la factura. */
+  retencion_monto?: number | null;
+  /** Lo pagado de más, registrado aparte como «REEMBOLSO DE ORDEN DE COMPRA» (en `reembolso_moneda`). */
+  reembolso_monto?: number | null;
+  reembolso_moneda?: string | null;
   /** IVA (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
   iva?: number | null;
   /** IGTF (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
