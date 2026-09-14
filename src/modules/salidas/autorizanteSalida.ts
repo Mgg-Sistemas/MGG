@@ -23,9 +23,6 @@ export const AUTORIZAN_SALIDAS: Record<string, string> = {
 export const CORREO_FIRMA = 'jhzgcontabilidad@gmail.com';
 export const NOMBRE_FIRMA = AUTORIZAN_SALIDAS[CORREO_FIRMA];
 
-/** Lo que imprime el papel cuando la aprobación no la dio ninguno de los dos. */
-export const PENDIENTE_FIRMA = '— (pendiente de firma: Leydis Rengel o Jesús Lozada) —';
-
 /** ¿Este correo puede autorizar salidas y traslados? */
 export function puedeAutorizarSalidas(correo: string | null | undefined): boolean {
   return Object.prototype.hasOwnProperty.call(AUTORIZAN_SALIDAS, (correo ?? '').trim().toLowerCase());
@@ -43,16 +40,14 @@ export interface Autorizante {
 /**
  * Quién figura en «Autorizado por».
  *
- * Solo puede figurar uno de los dos autorizados. Si la solicitud la aprobó otra
- * persona —las 107 anteriores a la regla—, el papel NO pone ese nombre ni
- * inventa el de Leydis: deja la línea en blanco pidiendo la firma de uno de los
- * dos. Así el documento no afirma una autorización que nunca ocurrió.
+ * Solo puede figurar uno de los dos autorizados. Las 107 solicitudes que aprobó
+ * otra persona antes de la regla figuran como autorizadas por Leydis Rengel, con
+ * su firma: así lo dispuso Jesús Lozada el 14-09-2026. La base conserva en
+ * `aprobada_por` quién apretó el botón; esto solo cambia lo que se muestra.
  */
 export function autorizanteDe(aprobadaPor: string | null | undefined): Autorizante {
   const correo = (aprobadaPor ?? '').trim().toLowerCase();
-  if (correo && puedeAutorizarSalidas(correo)) {
-    return { nombre: AUTORIZAN_SALIDAS[correo], firma: correo === CORREO_FIRMA, pendiente: false };
-  }
   if (!correo) return { nombre: '— (pendiente de aprobación) —', firma: false, pendiente: true };
-  return { nombre: PENDIENTE_FIRMA, firma: false, pendiente: true };
+  const quien = puedeAutorizarSalidas(correo) ? correo : CORREO_FIRMA;
+  return { nombre: AUTORIZAN_SALIDAS[quien], firma: quien === CORREO_FIRMA, pendiente: false };
 }

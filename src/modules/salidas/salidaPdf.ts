@@ -174,8 +174,8 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // El papel nombra a QUIEN APROBÓ, y la firma escaneada solo se estampa cuando
   // aprobó su dueña. Antes imprimía siempre el mismo nombre y la misma firma:
   // 105 de 179 documentos llevaban la firma de alguien que no intervino.
-  // Solo Leydis Rengel o Jesús Lozada figuran como autorizantes. Una aprobación de
-  // otra persona deja la línea en blanco pidiendo la firma de uno de los dos.
+  // Solo Leydis Rengel o Jesús Lozada figuran como autorizantes. Una aprobación
+  // vieja de otra persona figura a nombre de Leydis, con su firma.
   const autoriza = autorizanteDe(sol.aprobada_por);
   const creo = personaDe(sol.actor, personas, sol.actor_name || sol.solicitante);
 

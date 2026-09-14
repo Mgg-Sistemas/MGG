@@ -12,6 +12,7 @@ import type {
 import { registrarMovimiento, recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { rangoSede, type CandidatoAlmacen } from './asignacionPrioridad';
+import { prefijoCodigo, siguienteCodigo } from './codigoSolicitud';
 import { salidaDinero, trasladoDinero } from './cajas.repository';
 import { ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
 import { registrarSobrepagoCobrar } from '@/modules/tesoreria/cuentasPorCobrar.repository';
@@ -235,13 +236,18 @@ function appendHistorial(s: Pick<SolicitudSalida, 'historial'>, evento: string, 
 /** Próximo código SAL-AAAA-NNNN (salida) o TRA-AAAA-NNNN (traslado). */
 async function nextCodigoSolicitudSalida(scope: ScopeSalida): Promise<string> {
   const year = new Date().getFullYear();
-  const prefijo = scope === 'traslado' ? 'TRA' : 'SAL';
-  const { count, error } = await supabase
+  const prefijo = prefijoCodigo(scope);
+  // El mayor código usado en el año, no la cantidad de filas: un borrado deja
+  // un hueco y contar repetía un código existente (ver codigoSolicitud.ts).
+  const { data, error } = await supabase
     .from(SOL)
-    .select('id', { count: 'exact', head: true })
-    .eq('scope', scope);
+    .select('codigo')
+    .like('codigo', `${prefijo}-${year}-%`)
+    .order('codigo', { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (error) throw error;
-  return `${prefijo}-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`;
+  return siguienteCodigo(prefijo, year, (data as { codigo?: string } | null)?.codigo);
 }
 
 /** Próximo correlativo POR USUARIO (por actor + scope): cada usuario tiene su propia serie

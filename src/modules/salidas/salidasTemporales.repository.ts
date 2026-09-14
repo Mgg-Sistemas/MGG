@@ -12,6 +12,7 @@ import type {
 } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
+import { siguienteCodigo } from './codigoSolicitud';
 
 const T = 'solicitudes_salida_temporal';
 
@@ -31,9 +32,12 @@ function appendHistorial(
 /** Próximo código global ST-AAAA-NNNN. */
 async function nextCodigo(): Promise<string> {
   const year = new Date().getFullYear();
-  const { count, error } = await supabase.from(T).select('id', { count: 'exact', head: true });
+  // Del mayor código usado, no de contar filas: un borrado repetiría un código.
+  const { data, error } = await supabase
+    .from(T).select('codigo').like('codigo', `ST-${year}-%`)
+    .order('codigo', { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
-  return `ST-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`;
+  return siguienteCodigo('ST', year, (data as { codigo?: string } | null)?.codigo);
 }
 
 /** Próximo correlativo POR USUARIO (por actor): cada usuario tiene su serie 1,2,3…. */

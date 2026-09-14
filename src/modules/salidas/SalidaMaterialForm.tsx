@@ -7,6 +7,7 @@ import { money, num } from '@/shared/lib/format';
 import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { textoDeError } from '@/shared/lib/errores';
 import { listCatalogoPedido, crearCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
 import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
@@ -298,7 +299,7 @@ export function SalidaMaterialForm({
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo crear la solicitud.');
+      setError(textoDeError(err, 'No se pudo crear la solicitud.'));
     } finally {
       setSaving(false);
     }

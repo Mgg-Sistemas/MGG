@@ -5,6 +5,7 @@ import { money } from '@/shared/lib/format';
 import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Caja } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { textoDeError } from '@/shared/lib/errores';
 import { DestinoSelect } from './DestinoSelect';
 
 export function SalidaDineroForm({
@@ -51,7 +52,7 @@ export function SalidaDineroForm({
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo crear la solicitud.');
+      setError(textoDeError(err, 'No se pudo crear la solicitud.'));
     } finally {
       setSaving(false);
     }

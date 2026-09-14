@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { autorizanteDe, puedeAutorizarSalidas, PENDIENTE_FIRMA, NOMBRE_FIRMA } from './autorizanteSalida';
+import { autorizanteDe, puedeAutorizarSalidas, NOMBRE_FIRMA } from './autorizanteSalida';
 
 describe('quién autoriza salidas y traslados', () => {
   it('solo Leydis Rengel y Jesús Lozada pueden autorizar', () => {
@@ -24,10 +24,10 @@ describe('quién autoriza salidas y traslados', () => {
       .toEqual({ nombre: 'JESUS LOZADA', firma: false, pendiente: false });
   });
 
-  it('una aprobación de otra persona no se imprime como autorización', () => {
-    // SAL-2026-0185: la aprobó Kelvin. El papel no pone su nombre ni el de Leydis.
+  it('una aprobación vieja de otra persona figura como autorizada por Leydis, con firma', () => {
+    // SAL-2026-0185: la aprobó Kelvin. El papel dice LEYDIS RENGEL.
     expect(autorizanteDe('almacenmatanzas2026@gmail.com'))
-      .toEqual({ nombre: PENDIENTE_FIRMA, firma: false, pendiente: true });
+      .toEqual({ nombre: NOMBRE_FIRMA, firma: true, pendiente: false });
   });
 
   it('sin aprobación, dice pendiente de aprobación', () => {
