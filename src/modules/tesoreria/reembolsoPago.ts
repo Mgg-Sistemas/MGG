@@ -25,6 +25,20 @@ export function aPagarConRetencion(totalFactura: number, retencion: number): num
   return r2(Math.max(0, r2(totalFactura) - Math.max(0, r2(retencion))));
 }
 
+/** Retención cargada en Tesorería: en Bs y en $, con la tasa (Bs por $) usada. */
+export interface RetencionDetalle { bs: number; usd: number; tasa: number }
+
+/**
+ * La retención se escribe en Bs o en $ y la otra moneda sale con la tasa
+ * (editable). `desde` es el campo que se tecleó por última vez.
+ */
+export function convertirRetencion(valor: number, desde: 'bs' | 'usd', tasa: number): { bs: number; usd: number } {
+  const v = Math.max(0, r2(valor));
+  const t = Number(tasa) || 0;
+  if (desde === 'bs') return { bs: v, usd: t > 0 ? r2(v / t) : 0 };
+  return { bs: t > 0 ? r2(v * t) : 0, usd: v };
+}
+
 /** Una pata de pago: el monto en su moneda y su equivalente en USD. */
 export interface PataPago { monto: number; montoUsd: number }
 

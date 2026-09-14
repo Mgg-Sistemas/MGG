@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { separarReembolso, aPagarConRetencion, conceptoReembolsoOc } from './reembolsoPago';
+import { separarReembolso, aPagarConRetencion, conceptoReembolsoOc, convertirRetencion } from './reembolsoPago';
 
 describe('pago de OC · retención', () => {
   it('la retención se resta del total de la factura', () => {
@@ -8,6 +8,18 @@ describe('pago de OC · retención', () => {
   it('sin retención se paga el total, y nunca queda negativo', () => {
     expect(aPagarConRetencion(200, 0)).toBe(200);
     expect(aPagarConRetencion(200, 250)).toBe(0);
+  });
+});
+
+describe('pago de OC · retención en Bs ⇄ $', () => {
+  it('escrita en Bs, sale en $ con la tasa', () => {
+    expect(convertirRetencion(3650, 'bs', 36.5)).toEqual({ bs: 3650, usd: 100 });
+  });
+  it('escrita en $, sale en Bs con la tasa', () => {
+    expect(convertirRetencion(100, 'usd', 36.5)).toEqual({ bs: 3650, usd: 100 });
+  });
+  it('sin tasa no inventa la otra moneda', () => {
+    expect(convertirRetencion(3650, 'bs', 0)).toEqual({ bs: 3650, usd: 0 });
   });
 });
 

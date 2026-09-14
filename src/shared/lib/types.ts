@@ -944,6 +944,10 @@ export interface Orden {
   descuento_pago?: number | null;
   /** Retención indicada por Tesorería al pagar: se restó del total de la factura. */
   retencion_monto?: number | null;
+  /** La misma retención en Bs y en $, con la tasa (Bs por $) usada al pagar. */
+  retencion_bs?: number | null;
+  retencion_usd?: number | null;
+  retencion_tasa?: number | null;
   /** Lo pagado de más, registrado aparte como «REEMBOLSO DE ORDEN DE COMPRA» (en `reembolso_moneda`). */
   reembolso_monto?: number | null;
   reembolso_moneda?: string | null;

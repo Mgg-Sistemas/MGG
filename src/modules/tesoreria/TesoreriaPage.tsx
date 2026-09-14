@@ -80,7 +80,7 @@ import { resumenDatosPago, DatosPagoFields, validarDatosPago } from '@/shared/ui
 import { METODOS_CON_DATOS, type DatosPago } from '@/modules/pedidos/datosPago.repository';
 import type { Proveedor } from '@/shared/lib/types';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
-import { aPagarConRetencion, separarReembolso, conceptoReembolsoOc } from './reembolsoPago';
+import { aPagarConRetencion, separarReembolso, conceptoReembolsoOc, convertirRetencion } from './reembolsoPago';
 // Generadores de PDF/Excel: se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir la página.
 import { type ReporteMeta } from './reportePdf';
 import { ChatOC } from '@/modules/pedidos/ChatOC';
@@ -5972,12 +5972,36 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   // El "precio en divisa efectivo" (descuento vs BCV) solo aplica a órdenes en USD/BCV,
   // no a servicios cotizados nativamente en Bs.
   const puedeEfectivo = !pagoParcial && baseGeneral > 0 && (o.moneda ?? 'USD') !== 'Bs';
+  // La orden puede estar en USD (BCV) o NATIVAMENTE en Bs (servicios en Bs).
+  // El motor de cobertura del multipago trabaja en USD como denominador común;
+  // si la orden es en Bs, su total se convierte a su equivalente en USD con la
+  // tasa BCV del día. Se autocompleta el monto según la moneda de la caja.
+  const esOrdenBs = (o.moneda ?? 'USD') === 'Bs';
+  const monedaOrden = o.moneda ?? 'USD';
+  const [tasa, setTasa] = useState<number>(0);
+  const [tasaFecha, setTasaFecha] = useState<string | null>(null);
+  const [tasaLista, setTasaLista] = useState(false);
+  useEffect(() => {
+    getTasaHoy()
+      .then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); })
+      .catch(() => { /* sin tasa: el usuario la ingresa manualmente */ })
+      .finally(() => setTasaLista(true));
+  }, []);
+
   // Monto de la factura: el efectivo (si está activado y es menor) o el general.
   const baseFactura = (usarEfectivo && efectivoCalc > 0 && efectivoCalc < baseGeneral) ? efectivoCalc : baseGeneral;
-  // Retención (opcional, en la moneda de la orden): se RESTA del total de la factura.
+  // Retención (opcional): se escribe en Bs o en $, la otra moneda sale con SU tasa
+  // (arranca en la BCV del día y se puede cambiar). Se RESTA del total de la factura
+  // en la moneda de la orden.
   const [conRetencion, setConRetencion] = useState(false);
-  const [retencionStr, setRetencionStr] = useState('');
-  const retencionMonto = conRetencion ? round2(Number(retencionStr) || 0) : 0;
+  const [retEditada, setRetEditada] = useState<'bs' | 'usd'>('bs');
+  const [retBsStr, setRetBsStr] = useState('');
+  const [retUsdStr, setRetUsdStr] = useState('');
+  const [retTasaStr, setRetTasaStr] = useState('');
+  const retTasa = retTasaStr !== '' ? (Number(retTasaStr) || 0) : tasa;
+  const retConv = convertirRetencion(Number(retEditada === 'bs' ? retBsStr : retUsdStr) || 0, retEditada, retTasa);
+  const retencionMonto = conRetencion ? (esOrdenBs ? retConv.bs : retConv.usd) : 0;
+  const retencionDetalle = conRetencion ? { bs: retConv.bs, usd: retConv.usd, tasa: retTasa } : null;
   // Monto base a pagar: la factura menos la retención.
   const baseUsd = aPagarConRetencion(baseFactura, retencionMonto);
   const [montoStr, setMontoStr] = useState(String(baseGeneral));
@@ -6043,21 +6067,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   // Si el método de pago es en efectivo (divisas/Bs), no se exige comprobante.
   const comprobanteOpcional = pagoSinComprobante(o.metodo_pago);
 
-  // La orden puede estar en USD (BCV) o NATIVAMENTE en Bs (servicios en Bs).
-  // El motor de cobertura del multipago trabaja en USD como denominador común;
-  // si la orden es en Bs, su total se convierte a su equivalente en USD con la
-  // tasa BCV del día. Se autocompleta el monto según la moneda de la caja.
-  const esOrdenBs = (o.moneda ?? 'USD') === 'Bs';
-  const monedaOrden = o.moneda ?? 'USD';
-  const [tasa, setTasa] = useState<number>(0);
-  const [tasaFecha, setTasaFecha] = useState<string | null>(null);
-  const [tasaLista, setTasaLista] = useState(false);
-  useEffect(() => {
-    getTasaHoy()
-      .then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); })
-      .catch(() => { /* sin tasa: el usuario la ingresa manualmente */ })
-      .finally(() => setTasaLista(true));
-  }, []);
+  // (La moneda de la orden y la tasa BCV del día se declaran arriba: la retención las usa.)
   // Total a cubrir expresado en USD (denominador común). Para órdenes en Bs es el
   // total en Bs dividido por la tasa; para las de USD, el propio total.
   const totalUsd = esOrdenBs ? (tasa > 0 ? round2(baseUsd / tasa) : 0) : baseUsd;
@@ -6231,6 +6241,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
+    if (conRetencion && !(retTasa > 0)) { setError('Indicá la tasa (Bs por $) de la retención.'); return; }
     if (conRetencion && retencionMonto <= 0) { setError('Indicá el monto de la retención, o desmarcá «Tiene retención».'); return; }
     if (conRetencion && retencionMonto >= baseFactura) { setError(`La retención (${monto(retencionMonto, monedaOrden)}) no puede ser igual o mayor que la factura (${monto(baseFactura, monedaOrden)}).`); return; }
     if (!comprobanteOpcional && !factura) { setError('Adjuntá el comprobante (PDF o imagen).'); return; }
@@ -6260,7 +6271,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         // Excedente: se separa de las últimas cuentas y sale como reembolso (con confirmación).
         const { pago: legsPago, reembolso: legsReembolso } = separarReembolso(legs, excesoUsdMulti);
         if (legsReembolso.length && !confirmarReembolso(monto(enMonedaOrden(sumUsdMulti), monedaOrden))) { setSaving(false); return; }
-        await pagarOrdenCompraMulti({ orden: o, cajaId, legs: legsPago, reembolsoLegs: legsReembolso, retencionMonto, reembolsoOrden, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName });
+        await pagarOrdenCompraMulti({ orden: o, cajaId, legs: legsPago, reembolsoLegs: legsReembolso, retencionMonto, retencionDetalle, reembolsoOrden, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName });
         notify(`OC ${codigoOc} pagada · multipago ${monto(enMonedaOrden(round2(sumUsdMulti - excesoUsdMulti)), monedaOrden)}${reembolsoOrden > 0 ? ` · reembolso ${monto(reembolsoOrden, monedaOrden)}` : ''}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
@@ -6268,7 +6279,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       if (excesoSimple > 0 && !confirmarReembolso(monto(montoNum, moneda))) { setSaving(false); return; }
       const montoFactura = excesoSimple > 0 ? round2(montoNum - excesoSimple) : montoNum;
       await pagarOrdenCompra({
-        orden: o, cajaId, monto: montoFactura, reembolso: excesoSimple, retencionMonto, reembolsoOrden,
+        orden: o, cajaId, monto: montoFactura, reembolso: excesoSimple, retencionMonto, retencionDetalle, reembolsoOrden,
         factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null,
         gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName,
       });
@@ -6485,18 +6496,40 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             🧾 Tiene retención
           </label>
           {conRetencion ? (
-            <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-end', marginTop: '.4rem' }}>
-              <div className="form-row" style={{ margin: 0 }}>
-                <label style={{ fontSize: '.78rem' }}>Monto de la retención ({monedaOrden})</label>
-                <input className="input mono" type="number" min={0} step="any" value={retencionStr} autoFocus placeholder="0,00"
-                  onChange={(e) => setRetencionStr(dosDecimales(e.target.value))} style={{ width: 160, textAlign: 'right' }} />
+            <>
+              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginTop: '.4rem' }}>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '.78rem' }}>Retención en Bs</label>
+                  <input className="input mono" type="number" min={0} step="any" autoFocus placeholder="0,00"
+                    value={retEditada === 'bs' ? retBsStr : (retConv.bs > 0 ? String(retConv.bs) : '')}
+                    onChange={(e) => { setRetEditada('bs'); setRetBsStr(dosDecimales(e.target.value)); }}
+                    style={{ width: 160, textAlign: 'right' }} />
+                </div>
+                <div className="muted" style={{ fontSize: '1.2rem', paddingBottom: '.45rem' }}>⇄</div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '.78rem' }}>Retención en $</label>
+                  <input className="input mono" type="number" min={0} step="any" placeholder="0,00"
+                    value={retEditada === 'usd' ? retUsdStr : (retConv.usd > 0 ? String(retConv.usd) : '')}
+                    onChange={(e) => { setRetEditada('usd'); setRetUsdStr(dosDecimales(e.target.value)); }}
+                    style={{ width: 140, textAlign: 'right' }} />
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '.78rem' }}>Tasa (Bs por $)</label>
+                  <input className="input mono" type="number" min={0} step="any" placeholder={tasaLista ? '0,00' : 'cargando…'}
+                    value={retTasaStr !== '' ? retTasaStr : (tasa > 0 ? String(tasa) : '')}
+                    onChange={(e) => setRetTasaStr(e.target.value)}
+                    style={{ width: 130, textAlign: 'right', borderColor: retTasa > 0 ? undefined : 'var(--danger)' }} />
+                </div>
               </div>
-              <div style={{ fontSize: '.85rem', paddingBottom: '.4rem' }}>
+              <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>
+                Escribí el monto en Bs o en $: el otro se calcula con la tasa{retTasaStr === '' ? ' BCV del día' : ' indicada'}, que podés cambiar.
+              </small>
+              <div style={{ fontSize: '.85rem', marginTop: '.35rem' }}>
                 Factura <strong className="mono">{monto(baseFactura, monedaOrden)}</strong>
                 {' '}− Retención <strong className="mono" style={{ color: 'var(--warning)' }}>{monto(retencionMonto, monedaOrden)}</strong>
                 {' '}= A pagar <strong className="mono" style={{ color: 'var(--success)' }}>{monto(baseUsd, monedaOrden)}</strong>
               </div>
-            </div>
+            </>
           ) : (
             <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>Marcalo si la factura tiene retención: el monto se resta del total a pagar.</div>
           )}
