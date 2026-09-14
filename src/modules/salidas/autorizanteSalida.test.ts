@@ -1,46 +1,37 @@
 import { describe, it, expect } from 'vitest';
-import { autorizanteDe, CORREO_FIRMA, NOMBRE_FIRMA } from './autorizanteSalida';
+import { autorizanteDe, puedeAutorizarSalidas, PENDIENTE_FIRMA, NOMBRE_FIRMA } from './autorizanteSalida';
 
-const PERSONAS: Record<string, string> = {
-  'jhzgcontabilidad@gmail.com': 'LEYDIS RENGEL',
-  'almacenmatanzas2026@gmail.com': 'Kelvin Peña',
-  'mineralgroupguayanaca@gmail.com': 'Jesus Lozada',
-};
-const nombre = (c: string) => PERSONAS[c.toLowerCase()] ?? '';
+describe('quién autoriza salidas y traslados', () => {
+  it('solo Leydis Rengel y Jesús Lozada pueden autorizar', () => {
+    expect(puedeAutorizarSalidas('jhzgcontabilidad@gmail.com')).toBe(true);
+    expect(puedeAutorizarSalidas('mineralgroupguayanaca@gmail.com')).toBe(true);
+    expect(puedeAutorizarSalidas('almacenmatanzas2026@gmail.com')).toBe(false);
+    expect(puedeAutorizarSalidas('admin@gmail.com')).toBe(false);
+    expect(puedeAutorizarSalidas(null)).toBe(false);
+  });
 
-describe('quién firma «Autorizado por»', () => {
-  it('cuando aprobó la dueña de la firma, va su nombre y su firma', () => {
-    expect(autorizanteDe(CORREO_FIRMA, null, nombre))
+  it('el correo se reconoce sin importar mayúsculas ni espacios', () => {
+    expect(puedeAutorizarSalidas('  JHZGContabilidad@Gmail.com ')).toBe(true);
+  });
+
+  it('cuando autorizó Leydis, va su nombre y su firma escaneada', () => {
+    expect(autorizanteDe('jhzgcontabilidad@gmail.com'))
       .toEqual({ nombre: NOMBRE_FIRMA, firma: true, pendiente: false });
   });
 
-  it('cuando aprobó otra persona, va SU nombre y la línea queda para firmar a mano', () => {
-    // El caso de los 102 documentos de Kelvin.
-    expect(autorizanteDe('almacenmatanzas2026@gmail.com', null, nombre))
-      .toEqual({ nombre: 'KELVIN PEÑA', firma: false, pendiente: false });
+  it('cuando autorizó Jesús, va su nombre sin la firma de Leydis', () => {
+    expect(autorizanteDe('mineralgroupguayanaca@gmail.com'))
+      .toEqual({ nombre: 'JESUS LOZADA', firma: false, pendiente: false });
   });
 
-  it('sin aprobación, el papel lo dice y no lleva firma', () => {
-    expect(autorizanteDe(null, null, nombre))
-      .toEqual({ nombre: '— (pendiente de aprobación) —', firma: false, pendiente: true });
-    expect(autorizanteDe('', '  ', nombre).pendiente).toBe(true);
+  it('una aprobación de otra persona no se imprime como autorización', () => {
+    // SAL-2026-0185: la aprobó Kelvin. El papel no pone su nombre ni el de Leydis.
+    expect(autorizanteDe('almacenmatanzas2026@gmail.com'))
+      .toEqual({ nombre: PENDIENTE_FIRMA, firma: false, pendiente: true });
   });
 
-  it('manda quien aprobó, no quien ejecutó', () => {
-    const a = autorizanteDe('almacenmatanzas2026@gmail.com', 'mineralgroupguayanaca@gmail.com', nombre);
-    expect(a.nombre).toBe('KELVIN PEÑA');
-  });
-
-  it('si se cerró sin aprobación, queda el nombre de quien la cerró', () => {
-    const a = autorizanteDe(null, 'mineralgroupguayanaca@gmail.com', nombre);
-    expect(a).toEqual({ nombre: 'JESUS LOZADA', firma: false, pendiente: false });
-  });
-
-  it('un correo sin ficha se imprime tal cual, sin inventar un nombre', () => {
-    expect(autorizanteDe('alguien@nuevo.com', null, nombre).nombre).toBe('ALGUIEN@NUEVO.COM');
-  });
-
-  it('el correo de la firma se reconoce sin importar mayúsculas', () => {
-    expect(autorizanteDe('JHZGContabilidad@Gmail.com', null, nombre).firma).toBe(true);
+  it('sin aprobación, dice pendiente de aprobación', () => {
+    expect(autorizanteDe(null)).toEqual({ nombre: '— (pendiente de aprobación) —', firma: false, pendiente: true });
+    expect(autorizanteDe('  ').pendiente).toBe(true);
   });
 });

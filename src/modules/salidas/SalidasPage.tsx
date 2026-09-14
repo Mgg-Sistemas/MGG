@@ -1,3 +1,4 @@
+import { puedeAutorizarSalidas } from './autorizanteSalida';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal as ModalUI } from '@/shared/ui/Modal';
@@ -77,16 +78,16 @@ const etiquetaCol = (col: (typeof SOL_COLS)[number] | undefined, scope: ScopeSal
 const etiquetaDe = (s: SolicitudSalida): string => etiquetaCol(colDe(s), s.scope);
 
 export function SalidasPage() {
-  const { can, appUser, isAdmin, role } = usePermissions();
+  const { can, appUser, role } = usePermissions();
   const canWrite = can('salidas', 'escritura');
-  // Aprueban y ejecutan: el administrador, quien tenga FULL CONTROL del módulo,
-  // cualquier ANALISTA y cualquier JEFE/JEFA. El obrero solo crea solicitudes.
-  // Excepción DURA (nunca aprueban ni ejecutan, aunque tengan full): el Analista
-  // de Compras (key 'analista') y el Analista de Lectura ('analista_de_lectura').
+  // AUTORIZAR salidas y traslados: SOLO Leydis Rengel y Jesús Lozada (regla de la
+  // empresa desde el 14-09-2026). Antes aprobaba cualquiera con control total del
+  // módulo, y el almacenista lo tenía. La base de datos lo exige también
+  // (trigger trg_salidas_solo_autorizados), así que esto es solo la cara visible.
+  // Excepción DURA para EJECUTAR: el Analista de Compras y el de Lectura.
   const r = role ?? '';
   const NO_APRUEBA_SALIDAS = r === 'analista' || r === 'analista_de_lectura';
-  const puedeAprobar = !NO_APRUEBA_SALIDAS
-    && (isAdmin || can('salidas', 'full') || /^analista/.test(r) || /^jef[ae]/.test(r));
+  const puedeAprobar = puedeAutorizarSalidas(appUser?.email);
   // EJECUTAR (descuenta/mueve stock) es más amplio que APROBAR: además de quienes aprueban,
   // cualquier usuario con permiso de ESCRITURA puede ejecutar una solicitud ya aprobada
   // (pero NO aprobarla — eso queda para full control / admin / jefe / analista).
@@ -1197,7 +1198,7 @@ function SolicitudDetalleModal({
 
       {!puedeAprobar && sol.estado === 'por_aprobar' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
-          Solo full control (analista, jefe o administrador) puede <strong>aprobar</strong> esta solicitud.{puedeEjecutar ? ' Una vez aprobada, vos podés ejecutarla.' : ''}
+          Solo <strong>Leydis Rengel</strong> o <strong>Jesús Lozada</strong> pueden <strong>autorizar</strong> esta solicitud.{puedeEjecutar ? ' Una vez aprobada, vos podés ejecutarla.' : ''}
         </div>
       )}
       {!puedeEjecutar && sol.estado === 'aprobada' && (

@@ -174,7 +174,9 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // El papel nombra a QUIEN APROBÓ, y la firma escaneada solo se estampa cuando
   // aprobó su dueña. Antes imprimía siempre el mismo nombre y la misma firma:
   // 105 de 179 documentos llevaban la firma de alguien que no intervino.
-  const autoriza = autorizanteDe(sol.aprobada_por, sol.ejecutada_por, (c) => personaDe(c, personas, null));
+  // Solo Leydis Rengel o Jesús Lozada figuran como autorizantes. Una aprobación de
+  // otra persona deja la línea en blanco pidiendo la firma de uno de los dos.
+  const autoriza = autorizanteDe(sol.aprobada_por);
   const creo = personaDe(sol.actor, personas, sol.actor_name || sol.solicitante);
 
   // Líneas de la "factura": el detalle multi-producto si existe, si no la cabecera.
@@ -328,7 +330,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.text('Autorizado por', cxAutoriza, fy + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.text(creo || '—', MARGIN + colW / 2, fy + 27, { align: 'center' });
-  doc.text(autoriza.pendiente ? '— (pendiente) —' : autoriza.nombre, cxAutoriza, fy + 27, { align: 'center' });
+  doc.text(autoriza.nombre, cxAutoriza, fy + 27, { align: 'center', maxWidth: colW });
 
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
