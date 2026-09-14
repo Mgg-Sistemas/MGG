@@ -6,7 +6,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 
-export type TipoCatalogoMaquinaria = 'tipo_maquinaria' | 'propietario' | 'status';
+/** 'documento' = nombres reutilizables de los documentos de cada equipo (contrato, ficha técnica…). */
+export type TipoCatalogoMaquinaria = 'tipo_maquinaria' | 'propietario' | 'status' | 'documento';
 
 export interface CatalogoMaquinaria {
   id: string;

@@ -12,6 +12,8 @@ import { EquipoFormModal } from './EquipoFormModal';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { SolicitudRepuestosModal } from './SolicitudRepuestosModal';
+import { DocumentosEquipoModal } from './DocumentosEquipoModal';
+import { contarDocumentosPorEquipo } from './maquinariaDocumentos.repository';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo, consumosPorEquipo, ultimoServicioPorEquipo, type ConsumoMant, type UltimoServicio } from './maquinariaMant.repository';
@@ -92,6 +94,22 @@ export function MaquinariaPage() {
   const [borrar, setBorrar] = useState<MaquinariaEquipo | null>(null);
   // Equipo para el que se abre la SOLICITUD DE PEDIDO precargada (desde una alerta de mantenimiento).
   const [spEquipo, setSpEquipo] = useState<MaquinariaEquipo | null>(null);
+  // Documentos del equipo (contrato, ficha técnica…): hasta 4 por equipo.
+  const [docsEquipo, setDocsEquipo] = useState<MaquinariaEquipo | null>(null);
+  const [docsCount, setDocsCount] = useState<Map<string, number>>(new Map());
+  const cargarDocsCount = useCallback(async () => {
+    try { setDocsCount(await contarDocumentosPorEquipo()); } catch { /* el contador es informativo */ }
+  }, []);
+  useEffect(() => { void cargarDocsCount(); }, [cargarDocsCount]);
+  useRealtime(['maquinaria_documentos'], () => { void cargarDocsCount(); });
+  const botonDocs = (e: MaquinariaEquipo) => {
+    const n = docsCount.get(e.id) ?? 0;
+    return (
+      <button className="btn btn-sm btn-ghost" title={`Documentos del equipo (${n} de 4)`} onClick={() => setDocsEquipo(e)}>
+        📁{n > 0 ? ` ${n}` : ''}
+      </button>
+    );
+  };
 
   const cargar = useCallback(async () => {
     try {
@@ -278,6 +296,7 @@ export function MaquinariaPage() {
                       </td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
+                        {botonDocs(e)}
                         {canWrite && <button className="btn btn-sm btn-ghost" title="Editar ficha / km objetivo" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
                       </td>
                     </tr>
@@ -410,6 +429,7 @@ export function MaquinariaPage() {
                         onClick={() => setSpEquipo(e)}>🛒 SP</button>
                     )}
                     <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
+                    {botonDocs(e)}
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
                     {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => void toggleActivo(e)}>{e.activo ? 'Desactivar' : 'Activar'}</button>}
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => setBorrar(e)}>🗑</button>}
@@ -483,6 +503,7 @@ export function MaquinariaPage() {
                       <td className="mono" style={{ textAlign: 'right' }}>{info?.horometro != null ? fmtNum(info.horometro) : '—'}</td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
+                        {botonDocs(e)}
                         {canWrite && <button className="btn btn-sm btn-ghost" title="Editar ficha / intervalos" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
                       </td>
                     </tr>
@@ -514,6 +535,9 @@ export function MaquinariaPage() {
       )}
       {spEquipo && (
         <SolicitudRepuestosModal equipo={spEquipo} actorEmail={actor} onClose={() => setSpEquipo(null)} onCreated={cargar} />
+      )}
+      {docsEquipo && (
+        <DocumentosEquipoModal equipo={docsEquipo} canWrite={canWrite} actor={actor} onClose={() => setDocsEquipo(null)} />
       )}
     </div>
   );
