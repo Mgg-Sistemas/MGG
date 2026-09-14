@@ -90,7 +90,7 @@ export function DocumentosEquipoModal({ equipo, canWrite, actor, onClose }: {
       }
     >
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Hasta <strong>{MAX_DOCS_EQUIPO} documentos</strong> por equipo (PDF o imagen, máx. 15 MB cada uno).
+        Hasta <strong>{MAX_DOCS_EQUIPO} documentos</strong> por equipo: <strong>PDF o imagen</strong> (JPG, PNG…), máx. 15 MB cada uno.
         Cada uno se sube, se ve y se descarga por separado. Cargados: <strong>{docs.length} de {MAX_DOCS_EQUIPO}</strong>.
       </p>
 
@@ -142,6 +142,19 @@ function SlotDocumento({ slot, doc, equipoId, canWrite, actor, opciones, onRecor
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const cambiarRef = useRef<HTMLInputElement>(null);
+
+  // Si el documento es una IMAGEN (foto del contrato, de la placa…), se muestra
+  // una miniatura en la tarjeta; tocarla abre la vista previa en grande.
+  const esImagen = !!doc && ((doc.mime ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(doc.filename));
+  const [miniatura, setMiniatura] = useState<string | null>(null);
+  useEffect(() => {
+    if (!doc || !esImagen) { setMiniatura(null); return; }
+    let vivo = true;
+    urlVerDocumento(doc.path)
+      .then((u) => { if (vivo) setMiniatura(u); })
+      .catch(() => { if (vivo) setMiniatura(null); });
+    return () => { vivo = false; };
+  }, [doc, esImagen]);
 
   async function correr(fn: () => Promise<void>, fallo: string) {
     setBusy(true);
@@ -213,9 +226,16 @@ function SlotDocumento({ slot, doc, equipoId, canWrite, actor, opciones, onRecor
               <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setRenombrando(false)}>Cancelar</button>
             </div>
           ) : (
-            <div style={{ fontWeight: 700, fontSize: '1rem', marginTop: '.2rem' }}>📄 {doc.nombre}</div>
+            <div style={{ fontWeight: 700, fontSize: '1rem', marginTop: '.2rem' }}>{esImagen ? '🖼' : '📄'} {doc.nombre}</div>
           )}
           <div className="muted" style={{ fontSize: '.76rem', wordBreak: 'break-all' }}>{doc.filename}</div>
+          {miniatura && (
+            <button type="button" onClick={() => void ver()} title="Ver en grande"
+              style={{ display: 'block', marginTop: '.4rem', padding: 0, border: '1px solid var(--border)', borderRadius: 6, background: 'transparent', cursor: 'zoom-in', maxWidth: '100%' }}>
+              <img src={miniatura} alt={doc.nombre}
+                style={{ display: 'block', maxWidth: '100%', maxHeight: 140, objectFit: 'contain', borderRadius: 6 }} />
+            </button>
+          )}
           <div className="muted" style={{ fontSize: '.72rem' }}>
             Subido {dateTime(doc.updated_at)} · {doc.updated_by ?? doc.created_by ?? '—'}
           </div>
@@ -243,6 +263,7 @@ function SlotDocumento({ slot, doc, equipoId, canWrite, actor, opciones, onRecor
             placeholder="Nombre: CONTRATO, FICHA TÉCNICA…" emptyText="Escribí un nombre nuevo" />
           <input ref={fileRef} className="input" type="file" accept={ACEPTA_DOC}
             onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} />
+          <small className="muted">PDF o imagen (JPG, PNG…), máx. 15 MB. Desde el teléfono podés tomar la foto.</small>
           <button className="btn btn-sm btn-primary" disabled={busy || !nombre.trim() || !archivo} onClick={subir}>
             {busy ? 'Subiendo…' : '⬆ Subir documento'}
           </button>
