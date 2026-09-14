@@ -13,6 +13,7 @@ import { registrarMovimiento, recomputeProductoAgg } from '@/modules/inventario/
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { rangoSede, type CandidatoAlmacen } from './asignacionPrioridad';
 import { prefijoCodigo, siguienteCodigo } from './codigoSolicitud';
+import { planReintentoTraslado, type PataDeSolicitud } from './trasladoReintento';
 import { salidaDinero, trasladoDinero } from './cajas.repository';
 import { ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
 import { registrarSobrepagoCobrar } from '@/modules/tesoreria/cuentasPorCobrar.repository';
@@ -109,13 +110,21 @@ export interface TrasladoMaterialInput {
   consumoInterno?: boolean | null;
   /** Quién solicitó el traslado (se muestra en el historial). */
   solicitante?: string | null;
+  /**
+   * La solicitud que origina el traslado. Viaja en las DOS patas (`ref_id` y
+   * `ref_codigo`): es lo que las une en el kardex —que muestra «Ref: TRA-…» en las
+   * dos— y lo que permite reintentar una ejecución a medias sin duplicarla.
+   */
+  refId?: string | null;
+  refCodigo?: string | null;
   actor: string;
   actorName?: string | null;
 }
 
 /**
  * Traslado de material entre almacenes: salida en origen + entrada en destino
- * llevando el costo (PMP) del origen para fundirlo en el destino.
+ * llevando el costo (PMP) del origen para fundirlo en el destino. Si la entrada
+ * falla, devuelve la salida al origen.
  */
 export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Movimiento> {
   const cantidad = Number(input.cantidad) || 0;
@@ -132,6 +141,8 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
   const motivo = input.motivo?.trim() || null;
   const notaEntrega = input.notaEntrega?.trim() || null;
 
+  const ref = { ref_id: input.refId ?? null, ref_codigo: input.refCodigo ?? null };
+
   // Salida del origen (se devuelve este movimiento para trazar el traslado).
   const movSalida = await registrarMovimiento({
     producto_id: input.productoId,
@@ -141,6 +152,7 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     actor: input.actor,
     actor_name: input.actorName ?? null,
     ref_tipo: 'traslado_modulo',
+    ...ref,
     destino: input.almacenDestino,
     nota_entrega: notaEntrega,
     fecha_entrega: input.fechaEntrega || null,
@@ -149,25 +161,64 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     consumo_interno: input.consumoInterno ?? false,
     solicitante: input.solicitante ?? null,
   });
-  // Entrada al destino al costo (PMP) del origen.
-  await registrarMovimiento({
-    producto_id: input.productoId,
-    tipo: 'transferencia',
-    delta: cantidad,
-    almacen: input.almacenDestino,
-    actor: input.actor,
-    actor_name: input.actorName ?? null,
-    ref_tipo: 'traslado_modulo',
-    // La pata de ENTRADA no lleva `destino`: su `almacen` YA ES el destino, así que
-    // repetirlo hacía que el kardex mostrara «Origen: X → Destino: X» (129 filas así
-    // en producción). De dónde vino se lee del par reconstruido por el detalle.
-    nota_entrega: notaEntrega,
-    fecha_entrega: input.fechaEntrega || null,
-    detalle: motivo ? `Traslado desde ${input.almacenOrigen} · ${motivo}` : `Traslado desde ${input.almacenOrigen}`,
-    precio_unitario: costoDestino,
-    consumo_interno: input.consumoInterno ?? false,
-    solicitante: input.solicitante ?? null,
-  });
+  /* SI LA ENTRADA FALLA, SE DEVUELVE LA SALIDA. Es la misma compensación que ya
+     tenía `transferir()` de Inventario y que a este camino le faltaba: son dos
+     movimientos sin transacción, y si el segundo no entra la mercancía sale de un
+     almacén y no llega a ninguno. Pasó el 26/08/2026 con cinco traslados de
+     víveres y, como `registrarMovimiento` topea en cero, nadie se enteró hasta
+     contrastar el mercado contra el inventario. El reverso lleva la misma
+     referencia: así un reintento sabe que esa línea no quedó hecha. */
+  try {
+    // Entrada al destino al costo (PMP) del origen.
+    await registrarMovimiento({
+      producto_id: input.productoId,
+      tipo: 'transferencia',
+      delta: cantidad,
+      almacen: input.almacenDestino,
+      actor: input.actor,
+      actor_name: input.actorName ?? null,
+      ref_tipo: 'traslado_modulo',
+      ...ref,
+      // La pata de ENTRADA no lleva `destino`: su `almacen` YA ES el destino, así que
+      // repetirlo hacía que el kardex mostrara «Origen: X → Destino: X» (129 filas así
+      // en producción). De dónde vino se lee del par reconstruido por el detalle.
+      nota_entrega: notaEntrega,
+      fecha_entrega: input.fechaEntrega || null,
+      detalle: motivo ? `Traslado desde ${input.almacenOrigen} · ${motivo}` : `Traslado desde ${input.almacenOrigen}`,
+      precio_unitario: costoDestino,
+      consumo_interno: input.consumoInterno ?? false,
+      solicitante: input.solicitante ?? null,
+    });
+  } catch (e) {
+    const porQue = e instanceof Error ? e.message : 'error desconocido';
+    try {
+      await registrarMovimiento({
+        producto_id: input.productoId,
+        tipo: 'transferencia',
+        delta: cantidad,
+        almacen: input.almacenOrigen,
+        actor: input.actor,
+        actor_name: input.actorName ?? null,
+        ref_tipo: 'traslado_modulo',
+        ...ref,
+        detalle: `Reverso: la entrada a ${input.almacenDestino} no se pudo registrar`,
+        // null conserva el PMP del origen tal cual: lo que vuelve es lo mismo que salió.
+        precio_unitario: null,
+        consumo_interno: input.consumoInterno ?? false,
+        solicitante: input.solicitante ?? null,
+      });
+    } catch {
+      throw new Error(
+        `El traslado quedó A MEDIAS y hay que corregirlo a mano: salieron ${cantidad} de `
+        + `${input.almacenOrigen}, NO entraron a ${input.almacenDestino} y tampoco se pudo `
+        + `devolverlas al origen. Causa: ${porQue}`,
+      );
+    }
+    throw new Error(
+      `No se pudo completar el traslado a ${input.almacenDestino}: ${porQue}. `
+      + `Las ${cantidad} unidades se devolvieron a ${input.almacenOrigen}, no se perdió stock.`,
+    );
+  }
   // El precio editado se vincula con el inventario: fija el costo/PMP del producto en el origen.
   if (precio != null && precio >= 0) await vincularPrecioInventario(input.productoId, input.almacenOrigen, precio);
   return movSalida;
@@ -605,11 +656,39 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   // Pre-validación ATÓMICA del TRASLADO material (un traslado sale de UN almacén concreto,
   // no cascada): se simula el gasto de todas las líneas; si a alguna le falta, se lanza un
   // solo error con TODOS los faltantes y no se toca el inventario.
+  //
+  // Antes se descuenta lo que un intento anterior ya movió: si una tanda falló a mitad, la
+  // solicitud sigue «aprobada» y reintentarla volvía a mover las líneas que ya habían
+  // llegado. Las patas escritas desde el 14/09/2026 llevan la solicitud en `ref_id`.
+  let destinoTraslado = '';
+  let lineasTraslado: ItemSolicitudSalida[] = [];
+  let movPrevio: string | null = null;
   if (s.tipo === 'material' && s.scope === 'traslado') {
     const destinoReal = await resolverAlmacenDestino(s.almacen_destino || '');
+    destinoTraslado = destinoReal;
+    const { data: patasPrevias, error: ePatas } = await supabase
+      .from('movimientos')
+      .select('id, producto_id, almacen, delta')
+      .eq('ref_tipo', 'traslado_modulo')
+      .eq('ref_id', s.id)
+      .order('at', { ascending: true });
+    if (ePatas) throw ePatas;
+    const patas = (patasPrevias ?? []) as (PataDeSolicitud & { id: string })[];
+    // Ítems cuyo origen ya es el destino no mueven nada: se descartan.
+    const aMover = lineas.filter((it) => (it.almacen ?? s.almacen_origen ?? '') !== destinoReal);
+    const plan = planReintentoTraslado(aMover, patas, destinoReal, s.almacen_origen ?? null);
+    if (plan.aMedias.length) {
+      throw new Error(
+        `No se ejecutó nada: en un intento anterior ${plan.aMedias.length} material(es) salieron de su almacén `
+        + `y no llegaron a ${destinoReal}, ni se devolvieron. Hay que corregirlo a mano antes de reintentar.\n• `
+        + plan.aMedias.map((x) => `${x.producto_nombre ?? 'Producto'}: salieron ${x.cantidad} de ${x.almacen}`).join('\n• '),
+      );
+    }
+    lineasTraslado = plan.pendientes;
+    movPrevio = patas.find((p) => Number(p.delta) < 0)?.id ?? null;
     const disp = new Map<string, number>();
     const faltan: string[] = [];
-    for (const it of lineas) {
+    for (const it of lineasTraslado) {
       const cant = Number(it.cantidad) || 0;
       if (cant <= 0) continue;
       const alm = it.almacen ?? s.almacen_origen ?? '';
@@ -651,15 +730,16 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     }));
     movRef = 'salida_modulo';
   } else if (s.scope === 'traslado' && s.tipo === 'material') {
-    // El destino puede ser una sede/centro: se resuelve a un almacén real para la entrada.
-    const destinoReal = await resolverAlmacenDestino(s.almacen_destino || '');
-    // Ítems cuyo origen ya es el destino no mueven nada: se descartan.
-    const lineasMover = lineas.filter((it) => (it.almacen ?? s.almacen_origen!) !== destinoReal);
-    movId = await ejecutarPorProductoEnTandas(lineasMover, (it) => trasladoMaterial({
-      productoId: it.producto_id, almacenOrigen: it.almacen ?? s.almacen_origen!, almacenDestino: destinoReal,
+    // El destino (que puede venir como sede/centro) ya se resolvió arriba a un almacén real,
+    // y `lineasTraslado` trae solo lo que falta mover.
+    const movNuevo = await ejecutarPorProductoEnTandas(lineasTraslado, (it) => trasladoMaterial({
+      productoId: it.producto_id, almacenOrigen: it.almacen ?? s.almacen_origen!, almacenDestino: destinoTraslado,
       cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
-      notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
+      notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante,
+      refId: s.id, refCodigo: s.codigo, actor, actorName,
     }));
+    // Si un intento anterior ya había movido algo, la traza apunta a lo primero que se movió.
+    movId = movPrevio ?? movNuevo;
     movRef = 'traslado_modulo';
   } else if (s.scope === 'salida' && s.tipo === 'dinero') {
     const mov = await salidaDinero({

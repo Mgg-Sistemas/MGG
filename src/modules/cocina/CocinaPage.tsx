@@ -296,7 +296,9 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
   useEffect(() => { void reload(); void loadMercado(); }, [reload, loadMercado]);
   // `existencias` no afecta al resumen del mercado (deriva de saldo + movimientos + comidas),
   // así que no dispara recarga. El resto recarga en segundo plano (sin borrar el panel).
-  useRealtime(['cocina_comidas', 'productos', 'movimientos', 'mercados_cocina'], () => { void reload(); void loadMercado({ background: true }); });
+  // `solicitudes_salida`: el aviso de repartos pendientes tiene que irse solo cuando Salidas
+  // autoriza o ejecuta el traslado, no cuando alguien recarga la página.
+  useRealtime(['cocina_comidas', 'productos', 'movimientos', 'mercados_cocina', 'solicitudes_salida'], () => { void reload(); void loadMercado({ background: true }); });
 
   async function iniciar() {
     setIniciando(true);

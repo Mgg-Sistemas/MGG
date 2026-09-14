@@ -1,8 +1,15 @@
 /* ============================================================
    MGG · Cocina · el mercado como LIBRO, y su contraste con el inventario
 
-   El mercado es un ciclo de 21 días con cinco números encadenados:
-     saldo inicial  +  entradas  =  disponible  −  consumos  =  queda
+   El mercado es un ciclo de 21 días con seis números encadenados:
+     saldo inicial  +  entradas  ±  traslados  =  disponible  −  consumos  =  queda
+
+   Los traslados tienen columna propia desde el 14/09/2026. Antes el libro
+   contaba la pata que ENTRA como una entrada más y no veía la que SALE: la
+   cocina que repartía el mercado quedaba con un faltante que no existía, y un
+   traslado entre dos almacenes del mismo centro también (la entrada se sumaba
+   y la salida no se restaba). Ahora las dos patas cuentan con su signo y un
+   traslado interno se anula solo.
 
    Hasta ahora el saldo inicial no se guardaba: se deducía del stock actual
    (`saldo = stock − entradas + consumos`). Con esa fórmula, reemplazando,
@@ -68,6 +75,8 @@ export function diferenciasPorViver(
 export interface TotalesMercado {
   saldoInicial: number;
   entradas: number;
+  /** Neto de traslados: negativo si el centro envió más de lo que recibió. */
+  traslados: number;
   disponible: number;
   consumos: number;
   queda: number;
@@ -87,15 +96,16 @@ export function totalesDeMercado(
   disponible: DisponibleItem[],
   stockPorProducto?: Map<string, number> | null,
 ): TotalesMercado {
-  let saldoInicial = 0, entradas = 0, consumos = 0, queda = 0;
+  let saldoInicial = 0, entradas = 0, traslados = 0, consumos = 0, queda = 0;
   for (const d of disponible) {
     saldoInicial = r2(saldoInicial + d.saldoInicial);
     entradas = r2(entradas + d.entradas);
+    traslados = r2(traslados + d.traslados);
     consumos = r2(consumos + d.consumos);
     queda = r2(queda + d.queda);
   }
   const base: TotalesMercado = {
-    saldoInicial, entradas, disponible: r2(saldoInicial + entradas), consumos, queda,
+    saldoInicial, entradas, traslados, disponible: r2(saldoInicial + entradas + traslados), consumos, queda,
     inventario: null, diferencia: null, vieresConDiferencia: 0,
   };
   if (!stockPorProducto) return base;
@@ -114,7 +124,7 @@ export function totalesDeMercado(
 /* ───────── Qué se muestra por defecto ───────── */
 
 /**
- * Separa los víveres que SE MOVIERON en el ciclo (entró o se consumió algo) de
+ * Separa los víveres que SE MOVIERON en el ciclo (entró, se trasladó o se consumió algo) de
  * los que solo arrastran saldo.
  *
  * Con 50 víveres en Los Pinos, la tabla completa no tiene dónde apoyar la
@@ -125,7 +135,7 @@ export function separarMovidos(items: DisponibleItem[]): { movidos: DisponibleIt
   const movidos: DisponibleItem[] = [];
   const quietos: DisponibleItem[] = [];
   for (const d of items) {
-    if (d.entradas !== 0 || d.consumos !== 0) movidos.push(d);
+    if (d.entradas !== 0 || d.traslados !== 0 || d.consumos !== 0) movidos.push(d);
     else quietos.push(d);
   }
   return { movidos, quietos };
@@ -229,10 +239,10 @@ export function compararConsumos(a: ItemAgg[], b: ItemAgg[]): FilaComparacion[] 
 /**
  * Una salida de víveres que el mercado NO cuenta como consumo.
  *
- * El libro del mercado solo resta lo que sale por `cocina_comidas`. Todo lo
- * demás —una salida manual, un ajuste, un traslado— mueve el inventario sin
- * tocar la columna «Consumido», y es de ahí que sale el descuadre. En Los Pinos
- * eso es el 90 % de lo que sale del almacén.
+ * El libro del mercado resta lo que sale por `cocina_comidas` y, desde el
+ * 14/09/2026, lo que sale por traslado. Todo lo demás —una salida manual, un
+ * ajuste— mueve el inventario sin tocar el libro, y es de ahí que sale el
+ * descuadre.
  */
 export interface SalidaFueraDelCiclo {
   producto_id: string;
@@ -317,10 +327,13 @@ export function explicarSobrante(d: DisponibleItem): string | null {
   if (d.queda < -0.001) {
     return 'el libro quedó en negativo: se consumió más de lo que el ciclo vio entrar';
   }
-  if (d.saldoInicial === 0 && d.entradas === 0 && d.consumos > 0) {
+  // Lo que llegó por traslado también entró al ciclo: sin mirarlo, un víver que
+  // llegó entero por el reparto se leía como «el ciclo nunca lo vio entrar».
+  const sinEntradas = d.saldoInicial === 0 && d.entradas === 0 && !(d.traslados > 0);
+  if (sinEntradas && d.consumos > 0) {
     return 'se consumió sin que el ciclo registrara ninguna entrada';
   }
-  if (d.saldoInicial === 0 && d.entradas === 0) {
+  if (sinEntradas) {
     return 'el ciclo nunca lo vio entrar: está en el almacén pero no en el mercado';
   }
   return 'entró al almacén sin quedar registrado en el ciclo';
@@ -377,4 +390,151 @@ export function primerDiaLibre(previos: VentanaCiclo[]): string | null {
   const d = new Date(`${ultimo}T12:00:00`);
   d.setDate(d.getDate() + 1);
   return d.toISOString().slice(0, 10);
+}
+
+/* ───────── Traslados: que la salida tenga su llegada ───────── */
+
+/** Una pata de un traslado entre almacenes, tal como queda en `movimientos`. */
+export interface PataTraslado {
+  id: string;
+  producto_id: string;
+  almacen: string;
+  /** Negativo en la pata que sale, positivo en la que entra. */
+  delta: number;
+  at: string;
+  /** La solicitud TRA que une las dos patas. Vacío en los traslados anteriores al 14/09/2026. */
+  ref_id?: string | null;
+  detalle?: string | null;
+}
+
+export interface TrasladoSinLlegada {
+  salida: PataTraslado;
+  /** Lo que salió y no aparece entrando en ningún almacén. */
+  faltaLlegar: number;
+}
+
+/**
+ * Cuánto después de la salida se busca la entrada. Las dos patas se escriben una
+ * detrás de la otra desde el navegador y en la práctica las separan segundos; el
+ * margen cubre una solicitud larga ejecutada por tandas.
+ */
+export const MARGEN_LLEGADA_MS = 15 * 60 * 1000;
+
+const r6 = (n: number) => Math.round((Number(n) || 0) * 1e6) / 1e6;
+
+/**
+ * Salidas por traslado que no tienen su entrada en ningún almacén.
+ *
+ * POR QUÉ HACE FALTA. El libro ahora resta la pata que sale. Si la entrada no se
+ * llegó a escribir —pasó el 26/08/2026 con cinco traslados—, el centro que envía
+ * cuadra y el que recibe también, porque ninguno de los dos tiene la mercancía:
+ * el faltante desaparece del contraste. Restar la salida es correcto para el
+ * centro que envía; esconder que no llegó a ningún lado, no. Esto la vuelve a
+ * poner a la vista sin tocar el libro.
+ *
+ * Empareja de lo más fuerte a lo más débil: la misma solicitud (`ref_id`) cuando
+ * las dos patas la traen, la misma cantidad, lo más cercano en el tiempo. Una
+ * entrada puede cubrir varias salidas —la consolidación de Matanza del 04/09 juntó
+ * 48 + 24 en una sola entrada de 72—. En el MISMO almacén solo cuenta el reverso,
+ * que es la compensación que devuelve lo que salió cuando la entrada falla.
+ */
+export function trasladosSinLlegada(
+  salidas: PataTraslado[],
+  entradas: PataTraslado[],
+  margenMs: number = MARGEN_LLEGADA_MS,
+): TrasladoSinLlegada[] {
+  const restante = new Map<string, number>();
+  for (const e of entradas) if (Number(e.delta) > 0) restante.set(e.id, r6(Number(e.delta)));
+
+  const out: TrasladoSinLlegada[] = [];
+  const ordenadas = salidas
+    .filter((s) => Number(s.delta) < 0)
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  for (const s of ordenadas) {
+    let falta = r6(Math.abs(Number(s.delta)));
+    const t0 = Date.parse(s.at);
+    const candidatas = entradas
+      .filter((e) => {
+        if (e.producto_id !== s.producto_id || (restante.get(e.id) ?? 0) <= 0) return false;
+        // Dos solicitudes distintas no se cruzan, aunque coincidan producto y minuto.
+        if (s.ref_id && e.ref_id && s.ref_id !== e.ref_id) return false;
+        const dt = Date.parse(e.at) - t0;
+        if (!(dt >= -60_000 && dt <= margenMs)) return false;
+        return e.almacen !== s.almacen || /^reverso/i.test((e.detalle ?? '').trim());
+      })
+      .sort((a, b) => {
+        const misma = (x: PataTraslado) => (s.ref_id && x.ref_id === s.ref_id ? 0 : 1);
+        const exacta = (x: PataTraslado) => (Math.abs((restante.get(x.id) ?? 0) - falta) < 0.001 ? 0 : 1);
+        const lejos = (x: PataTraslado) => Math.abs(Date.parse(x.at) - t0);
+        return misma(a) - misma(b) || exacta(a) - exacta(b) || lejos(a) - lejos(b);
+      });
+    for (const e of candidatas) {
+      if (falta <= 0.001) break;
+      const disp = restante.get(e.id) ?? 0;
+      const toma = Math.min(disp, falta);
+      restante.set(e.id, r6(disp - toma));
+      falta = r6(falta - toma);
+    }
+    if (falta > 0.001) out.push({ salida: s, faltaLlegar: r2(falta) });
+  }
+  return out;
+}
+
+/* ───────── El inventario a la fecha del corte ───────── */
+
+/**
+ * El stock que había al terminar la ventana del ciclo, contado con el mismo
+ * criterio que el libro.
+ *
+ * POR QUÉ. El contraste compara el libro, que se detiene en la fecha de fin,
+ * contra el stock. Mientras el ciclo está en curso eso es el stock de ahora. Pero
+ * un mercado que se cierra DESPUÉS de su último día —el #1 terminó el 11/09 y
+ * seguía abierto el 14— se comparaba contra el stock de hoy, que ya descontó las
+ * comidas y el reparto de los días siguientes. La diferencia salía inflada, y si
+ * se elegía «ajustar al inventario» el remanente congelado ya traía esos consumos
+ * restados: el ciclo siguiente, que empieza el día después del fin, los volvía a
+ * restar. Contados dos veces.
+ *
+ * Se deshace lo que pasó después del corte:
+ *  - los movimientos de inventario posteriores, MENOS los de cocina: el movimiento
+ *    de una comida lleva la hora en que se cargó, no el día de la comida, y el
+ *    libro ubica las comidas por su día;
+ *  - las comidas cuyo día cae después del corte, que se suman de vuelta.
+ */
+export function stockAlCorte(
+  stockAhora: Map<string, number>,
+  movimientosPosteriores: { producto_id: string; delta: number; ref_tipo?: string | null }[],
+  consumidoDespues: Map<string, number>,
+): Map<string, number> {
+  const out = new Map(stockAhora);
+  for (const m of movimientosPosteriores) {
+    if (m.ref_tipo === 'cocina') continue;
+    out.set(m.producto_id, r2((out.get(m.producto_id) ?? 0) - (Number(m.delta) || 0)));
+  }
+  for (const [id, cantidad] of consumidoDespues) {
+    out.set(id, r2((out.get(id) ?? 0) + (Number(cantidad) || 0)));
+  }
+  return out;
+}
+
+/**
+ * Lo que un movimiento bajó DE VERDAD el stock de su almacén.
+ *
+ * `registrarMovimiento` topea en cero en vez de fallar: una salida de 101,5 desde
+ * un almacén que tenía 24 queda escrita con `delta = −101,5`, pero el almacén bajó
+ * 24. Sumando el `delta`, el libro restaba lo que nunca salió y el contraste daba un
+ * sobrante inventado del mismo tamaño. Pasó con los traslados del 26/08/2026.
+ *
+ * Solo se corrige el tope —la salida pidió más de lo que había y el almacén quedó en
+ * cero—; en cualquier otro caso manda el `delta`, que es lo que el resto del sistema
+ * suma. Sin `stock_antes`/`stock_despues` no hay con qué corregir.
+ */
+export function deltaEfectivo(m: { delta?: unknown; stock_antes?: unknown; stock_despues?: unknown }): number {
+  const delta = Number(m.delta) || 0;
+  if (delta >= 0 || m.stock_antes == null || m.stock_despues == null) return delta;
+  const antes = Number(m.stock_antes);
+  const despues = Number(m.stock_despues);
+  if (!Number.isFinite(antes) || !Number.isFinite(despues)) return delta;
+  if (despues === 0 && antes + delta < 0) return antes > 0 ? -antes : 0;
+  return delta;
 }

@@ -29,7 +29,7 @@ const DUDAS: Entrada[] = [
     respuesta: (
       <>
         <strong>Disponible</strong> es lo que el ciclo tuvo para cocinar: el saldo con el que
-        abrió más todo lo que entró al almacén durante sus días.{' '}
+        abrió, más lo que entró al almacén durante sus días, más o menos lo que se trasladó.{' '}
         <strong>Queda</strong> es eso menos lo que se consumió en las comidas. Uno dice cuánto
         hubo, el otro cuánto sobra.
       </>
@@ -69,10 +69,38 @@ const DUDAS: Entrada[] = [
     pregunta: 'El mercado dice que quedan X pero el inventario dice otra cosa.',
     respuesta: (
       <>
-        El libro del mercado solo resta lo que sale por <strong>comidas</strong>. Una salida
-        manual, un ajuste o un traslado mueven el almacén sin tocar la columna «Consumido»: de
-        ahí sale la diferencia. Cuando la hay, el panel lo avisa arriba y el botón{' '}
+        El libro del mercado resta lo que sale por <strong>comidas</strong> y por{' '}
+        <strong>traslados</strong>. Una salida manual o un ajuste mueven el almacén sin tocar el
+        libro: de ahí sale la diferencia. Si el ciclo ya pasó su último día, se compara contra el
+        inventario de ese día y no contra el de hoy. Cuando hay diferencia, el panel lo avisa
+        arriba y el botón{' '}
         <strong>«Ver solo estos»</strong> deja en pantalla únicamente los víveres descuadrados.
+      </>
+    ),
+  },
+  {
+    pregunta: '¿Qué es la columna «Traslados»? ¿Cómo reparto el mercado?',
+    respuesta: (
+      <>
+        Los traslados entre almacenes se cuentan aparte y con signo: <strong>−</strong> lo que
+        este centro envió y <strong>+</strong> lo que recibió. Así la cocina que reparte no queda
+        con un faltante y la que recibe no lo cuenta como compra. Un traslado entre dos almacenes
+        del mismo centro se anula solo.
+        <br />
+        Para repartir, <strong>«🚚 Repartir a otra cocina»</strong> arma la solicitud de traslado.
+        No mueve nada hasta que Salidas la autoriza y la ejecuta; mientras tanto figura arriba como
+        pendiente. Da igual si se hace antes o después de cerrar: cae en el ciclo que esté corriendo
+        ese día. Un traslado hecho desde Salidas o desde Inventario se cuenta igual.
+      </>
+    ),
+  },
+  {
+    pregunta: 'Un traslado dice «no aparece la llegada».',
+    respuesta: (
+      <>
+        Salió de un almacén de este centro y no entró a ningún otro. No descuadra el mercado —el
+        libro ya lo resta de acá— pero la mercancía falta en el camino: hay que revisarlo en
+        Inventario con la fecha y la cantidad que muestra el aviso.
       </>
     ),
   },
