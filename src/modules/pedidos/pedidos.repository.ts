@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { cachedQuery } from '@/shared/lib/queryCache';
 import { nombreASellar, nombrePorEmail } from '@/shared/lib/personas';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
@@ -103,14 +104,17 @@ export async function listProveedores(): Promise<Proveedor[]> {
   }, { tables: ['proveedores'], ttl: 30_000 });
 }
 
+/**
+ * Productos activos para la Solicitud de Pedido. POR PÁGINAS: Supabase corta cada
+ * respuesta en 1.000 filas y ya hay más de 1.000 activos. Ordenados por nombre, los
+ * últimos del abecedario quedaban afuera sin ningún error: el 14-09-2026 ZANAHORIA
+ * (el activo n.º 1.039) no salía en la solicitud aunque sí en el Inventario.
+ */
 export async function listProductosActivos(): Promise<Producto[]> {
-  const { data, error } = await supabase
-    .from('productos')
-    .select('*')
-    .eq('estado', 'activo')
-    .order('nombre', { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as Producto[];
+  return todasLasFilas<Producto>((desde, hasta) =>
+    supabase.from('productos').select('*').eq('estado', 'activo')
+      .order('nombre', { ascending: true }).order('id', { ascending: true })
+      .range(desde, hasta));
 }
 
 /** Lee el rol del usuario actual desde la tabla `usuarios`. */

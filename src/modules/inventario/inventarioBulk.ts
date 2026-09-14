@@ -1,5 +1,6 @@
 import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import { rotuloAlmacen, type ExportRotulo } from './stockPorAlmacen';
@@ -154,7 +155,10 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
   if (!raw.length) throw new Error('La hoja "Productos" está vacía.');
 
   // Cargar SKUs y nombres existentes para detección de duplicados contra BD.
-  const { data: existentes } = await supabase.from('productos').select('sku, nombre, categoria');
+  // TODOS los productos, por páginas: con más de 1.000 filas, una sola respuesta dejaba
+  // afuera los últimos y el cotejo creaba un duplicado de algo que ya existía.
+  const existentes = await todasLasFilas<{ sku: string; nombre: string; categoria: string }>((d, h) =>
+    supabase.from('productos').select('sku, nombre, categoria').order('id', { ascending: true }).range(d, h));
   const skuSetBd = new Set<string>((existentes ?? []).map((p) => String(p.sku).toUpperCase()));
   const nombreSetBd = new Set<string>((existentes ?? []).map((p) => String(p.nombre).toUpperCase()));
   // Nombre → SKU existente: si el material YA EXISTE por nombre, se reusa su SKU (así el

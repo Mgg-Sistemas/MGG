@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Notificacion, NotifKind } from '@/shared/lib/types';
 
 export async function listLatest(limit = 50): Promise<Notificacion[]> {
@@ -105,11 +106,12 @@ export async function push(args: PushArgs): Promise<Notificacion | null> {
  *   En vez de O(N) queries secuenciales (~2N round-trips) → 2 + 1 paralelo.
  */
 export async function scanStockAndNotify(): Promise<number> {
-  const [{ data: productos }, { data: existing }] = await Promise.all([
-    supabase
-      .from('productos')
-      .select('id, sku, nombre, stock, stock_min, estado')
-      .eq('estado', 'activo'),
+  // Productos POR PÁGINAS: ya hay más de 1.000 activos y una sola respuesta de
+  // Supabase se corta en 1.000; los últimos nunca avisaban su stock crítico.
+  const [productos, { data: existing }] = await Promise.all([
+    todasLasFilas<{ id: string; sku: string; nombre: string; stock: number; stock_min: number; estado: string }>((d, h) =>
+      supabase.from('productos').select('id, sku, nombre, stock, stock_min, estado')
+        .eq('estado', 'activo').order('id', { ascending: true }).range(d, h)).catch(() => null),
     supabase
       .from('notificaciones')
       .select('dedup_key')
