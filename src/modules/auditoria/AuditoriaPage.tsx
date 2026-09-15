@@ -6,7 +6,6 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -50,7 +49,12 @@ export function AuditoriaPage() {
     finally { setLoading(false); }
   }, [desde, hasta]);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['user_sessions'], () => { listConectadosAhora().then(setConectados).catch(() => {}); });
+  // «Conectados ahora» se consulta cada 30 s. `user_sessions` salió de la publicación de
+  // tiempo real (el latido de cada pestaña la escribía ~220 mil veces y cargaba la base).
+  useEffect(() => {
+    const t = setInterval(() => { listConectadosAhora().then(setConectados).catch(() => {}); }, 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   const emailsConectados = useMemo(() => new Set(conectados.map((c) => (c.email ?? '').toLowerCase())), [conectados]);
   const accionesPorEmail = useMemo(() => {

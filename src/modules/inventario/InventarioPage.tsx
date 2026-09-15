@@ -243,7 +243,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
-  useRealtime(['productos', 'movimientos', 'almacenes', 'existencias', 'ordenes', 'compras_directas'], () => { void reload(); });
+  useRealtime(['productos', 'movimientos', 'almacenes', 'existencias', 'ordenes', 'compras_directas'], () => { void reload({ silencioso: true }); });
 
   // Cola de existencias con stock pero valoradas en $0. Se recuenta con cada
   // recarga (incluida la de realtime), así el contador baja solo cuando otro
@@ -269,8 +269,10 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     }
   }
 
-  async function reload() {
-    setLoading(true);
+  async function reload(opts?: { silencioso?: boolean }) {
+    // La recarga por TIEMPO REAL es silenciosa: antes cada movimiento de cualquier
+    // usuario reemplazaba la tabla por «Cargando productos…» (y se perdía el scroll).
+    if (!opts?.silencioso) setLoading(true);
     setError(null);
     try {
       const [prods, ords, comprasRec, alms, exs, nEnProduccion] = await Promise.all([

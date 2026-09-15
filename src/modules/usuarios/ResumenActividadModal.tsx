@@ -4,7 +4,6 @@ import { toast } from '@/shared/ui/Toast';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { dateTime, hoyISO } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
-import { useRealtime } from '@/shared/lib/useRealtime';
 import { listConectadosAhora, listSesiones, CONECTADO_MINUTOS, type UserSession } from './userSessions.repository';
 import {
   descargarActividadPdf, enviarActividadPorCorreo, fmtDuracionMin,
@@ -51,8 +50,6 @@ export function ResumenActividadModal({ onClose }: { onClose: () => void }) {
     const t = setInterval(() => { setTick((x) => x + 1); void listConectadosAhora().then(setConectados).catch(() => {}); }, 30_000);
     return () => clearInterval(t);
   }, []);
-  // Realtime: cuando alguien entra/sale o late, refrescamos la lista de conectados en vivo.
-  useRealtime(['user_sessions'], () => { void listConectadosAhora().then(setConectados).catch(() => {}); });
 
   // Agregado por usuario para el período. Incluye SIEMPRE las sesiones conectadas ahora
   // (aunque hayan empezado antes del período), para que ningún conectado quede fuera.
