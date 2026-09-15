@@ -130,8 +130,9 @@ const DUDAS: Entrada[] = [
     respuesta: (
       <>
         Con el remanente congelado al cerrar el anterior: lo que quedó es lo que abre. Si no hay
-        ciclo anterior del cual heredar, o el anterior se descartó, el saldo sale del{' '}
-        <strong>inventario real</strong> del momento en que se abre.
+        ciclo anterior del cual heredar, o el anterior se descartó, el saldo es el{' '}
+        <strong>inventario real del momento en que se aprieta «Iniciar mercado»</strong>, y el
+        ciclo cuenta desde ese momento: lo que pasó antes ese mismo día ya está en el saldo.
       </>
     ),
   },
@@ -142,7 +143,8 @@ const DUDAS: Entrada[] = [
         El ciclo deja de contar: no le pasa saldo al siguiente y sus cifras salen de la cadena.
         <strong> No se borra nada</strong> — las comidas, los movimientos y el historial quedan
         donde están, y el ciclo se puede seguir consultando en «Mercados cerrados», marcado como
-        descartado. Hay que escribir por qué, y eso queda firmado.
+        descartado. Hay que escribir por qué, y eso queda firmado. Si se abrió por error, se
+        puede abrir otro enseguida: el descartado deja de contar en el momento del descarte.
       </>
     ),
   },
@@ -150,10 +152,10 @@ const DUDAS: Entrada[] = [
     pregunta: 'Quiero abrir un mercado y el sistema no me deja.',
     respuesta: (
       <>
-        Dos ciclos no pueden compartir días, ni siquiera con uno descartado: los mismos consumos
-        se contarían dos veces. Si el ciclo anterior termina hoy, el nuevo arranca mañana. Y
-        conviene <strong>dejar la fecha en el día de hoy</strong>: con una fecha pasada el saldo
-        inicial se calcula hacia atrás y no coincide con lo que hay en el almacén.
+        Dos ciclos no pueden compartir días: los mismos consumos se contarían dos veces. Si el
+        anterior se cerró, el siguiente ya se abrió solo. Si se descartó, se puede abrir otro en
+        el momento. Conviene abrirlo <strong>con el conteo y las entradas del día ya cargados</strong>:
+        el saldo inicial es lo que hay en el inventario en ese instante.
       </>
     ),
   },

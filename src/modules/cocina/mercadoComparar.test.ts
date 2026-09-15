@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  cicloQueSePisa, explicarDiferencia, explicarSobrante, primerDiaLibre,
+  cicloQueSePisa, explicarDiferencia, explicarSobrante, inicioExactoDe, primerDiaLibre, ventanaCicloDe,
   compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
   deltaEfectivo, separarMovidos, stockAlCorte, totalesDeMercado, trasladosSinLlegada,
 } from './mercadoComparar';
-import type { DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
+import type { CierreSnapshot, DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
 import type { PataTraslado, SalidaFueraDelCiclo, VentanaCiclo } from './mercadoComparar';
 
 // Víveres reales de La Esperanza, con los números que muestra la pantalla hoy.
@@ -470,5 +470,53 @@ describe('stockAlCorte — el inventario al último día del ciclo', () => {
     // Comida del último día cargada dos días después: su movimiento cae después del corte.
     const r = stockAlCorte(new Map([['arroz', 90]]), [{ producto_id: 'arroz', delta: -10, ref_tipo: 'cocina' }], new Map());
     expect(r.get('arroz')).toBe(90);
+  });
+});
+
+describe('apertura al instante — el ciclo cuenta desde que se abre', () => {
+  const ev = (e: Partial<EventoMercado>): EventoMercado =>
+    ({ at: '2026-09-14T20:38:00Z', evento: 'abierta', actor: 'a@mgg.com', ...e } as EventoMercado);
+
+  it('el inicio exacto sale del evento de apertura', () => {
+    expect(inicioExactoDe([ev({ desde: '2026-09-14T20:38:00.000Z' })])).toBe('2026-09-14T20:38:00.000Z');
+  });
+
+  it('un mercado generado al cerrar el anterior no tiene inicio exacto: sigue desde las 00:00', () => {
+    expect(inicioExactoDe([ev({ evento: 'generado_al_cerrar', al_cerrar: 1 })])).toBeNull();
+  });
+
+  it('los abiertos antes del cambio tampoco: su evento no trae `desde`', () => {
+    expect(inicioExactoDe([ev({})])).toBeNull();
+    expect(inicioExactoDe([])).toBeNull();
+    expect(inicioExactoDe(null)).toBeNull();
+  });
+});
+
+describe('cicloQueSePisa — un descartado deja de ocupar sus días al descartarse', () => {
+  // El #2 de Los Pinos se abrió el 14/09 a las 16:38 con la fecha equivocada.
+  const descartado: VentanaCiclo = {
+    numero: 2, fecha_inicio: '2026-09-14', fecha_fin: '2026-10-04', estado: 'cerrado',
+    descartado: true, descartado_en: '2026-09-14T20:50:00.000Z',
+  };
+
+  it('abrir después del descarte ya no choca, aunque sea el mismo día', () => {
+    expect(cicloQueSePisa('2026-09-14', '2026-10-04', [descartado], '2026-09-14T20:55:00.000Z')).toBeNull();
+  });
+
+  it('un ciclo que empezara antes del descarte sí lo pisa', () => {
+    expect(cicloQueSePisa('2026-09-14', '2026-10-04', [descartado], '2026-09-14T20:40:00.000Z')?.numero).toBe(2);
+  });
+
+  it('un cerrado que no se descartó sigue ocupando sus días', () => {
+    const cerrado: VentanaCiclo = { ...descartado, descartado: false, descartado_en: null };
+    expect(cicloQueSePisa('2026-09-20', '2026-10-10', [cerrado], '2026-09-20T12:00:00.000Z')?.numero).toBe(2);
+  });
+
+  it('ventanaCicloDe toma el instante del descarte del cierre', () => {
+    const v = ventanaCicloDe({
+      numero: 2, fecha_inicio: '2026-09-14', fecha_fin: '2026-10-04', estado: 'cerrado',
+      cierre: { descartado: true, generado_en: '2026-09-14T20:50:00.000Z' } as CierreSnapshot,
+    });
+    expect(v).toMatchObject({ descartado: true, descartado_en: '2026-09-14T20:50:00.000Z' });
   });
 });
