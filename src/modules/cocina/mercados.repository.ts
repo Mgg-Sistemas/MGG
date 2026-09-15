@@ -15,6 +15,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { bustCache } from '@/shared/lib/queryCache';
+import { hoyISO } from '@/shared/lib/format';
 import type { CocinaComida, Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
@@ -23,7 +25,8 @@ import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, dia
 import { totalesParaCierre } from './costoPorPlato';
 import { repartosPendientes, type RepartoPendiente } from './reparto.repository';
 import {
-  cicloQueSePisa, deltaEfectivo, diferenciasPorViver, explicarDiferencia, stockAlCorte, totalesDeMercado, trasladosSinLlegada,
+  cicloQueSePisa, deltaEfectivo, diferenciasPorViver, explicarDiferencia, inicioExactoDe, stockAlCorte, totalesDeMercado,
+  trasladosSinLlegada, ventanaCicloDe,
   MARGEN_LLEGADA_MS,
   type DiferenciaViver, type ExplicacionDiferencia, type PataTraslado, type SalidaFueraDelCiclo, type TotalesMercado,
 } from './mercadoComparar';
@@ -125,6 +128,11 @@ export interface MercadoCocina {
    * 02/09/2026: no se registraba nada.
    */
   historial: EventoMercado[];
+  /**
+   * Instante exacto desde el que cuenta el ciclo, si se abrió con «Iniciar mercado» desde el
+   * 14/09/2026. Sale del evento `abierta`. `null`: cuenta desde las 00:00 de `fecha_inicio`.
+   */
+  inicio_at: string | null;
   /** Cuándo se creó la fila. */
   created_at: string;
 }
@@ -142,6 +150,8 @@ export interface EventoMercado {
   motivo?: string | null;
   /** En `cerrado` con ajuste: los víveres cuyo saldo congelado se cambió. */
   ajustados?: string[];
+  /** En `abierta`: el instante desde el que cuenta el ciclo. El saldo es el inventario de ese momento. */
+  desde?: string;
 }
 
 /**
@@ -207,14 +217,35 @@ function addDaysStr(dateStr: string, n: number): string {
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
 }
-function hoyStr(): string { return new Date().toISOString().slice(0, 10); }
+/**
+ * La fecha de hoy EN VENEZUELA. Antes salía de `toISOString()`, que es UTC: desde las 20:00
+ * ya era «mañana», y un mercado abierto a esa hora nacía con la fecha del día siguiente.
+ */
+function hoyStr(): string { return hoyISO(); }
 
-/** Ventana ISO [inicio 00:00 local, min(ahora, fin 23:59 local)] de un mercado. */
-function ventana(m: { fecha_inicio: string; fecha_fin: string }): { desde: string; hasta: string } {
-  const desde = new Date(`${m.fecha_inicio}T00:00:00`);
-  const finDia = new Date(`${m.fecha_fin}T23:59:59`);
+/** Lo que hace falta de un mercado para saber qué movimientos le tocan. */
+type VentanaMercado = {
+  fecha_inicio: string; fecha_fin: string;
+  inicio_at?: string | null;
+  cierre?: CierreSnapshot | null;
+};
+
+/**
+ * Ventana ISO de un mercado: [inicio, min(ahora, fin 23:59 local)].
+ *
+ * El inicio es el instante en que se abrió (`inicio_at`) o, si no lo tiene, las 00:00 de
+ * `fecha_inicio`. Un DESCARTADO termina en el momento del descarte: lo que pasa después le
+ * toca a otro ciclo, y su histórico muestra solo lo que ocurrió mientras estuvo activo.
+ */
+function ventana(m: VentanaMercado): { desde: string; hasta: string } {
+  const desde = m.inicio_at ? new Date(m.inicio_at) : new Date(`${m.fecha_inicio}T00:00:00`);
+  let hasta = new Date(`${m.fecha_fin}T23:59:59`);
+  if (m.cierre?.descartado && m.cierre.generado_en) {
+    const descarte = new Date(m.cierre.generado_en);
+    if (descarte < hasta) hasta = descarte;
+  }
   const ahora = new Date();
-  const hasta = ahora < finDia ? ahora : finDia;
+  if (ahora < hasta) hasta = ahora;
   return { desde: desde.toISOString(), hasta: hasta.toISOString() };
 }
 
@@ -256,6 +287,7 @@ function normalizar(row: Record<string, unknown>): MercadoCocina {
     cerrado_por_nombre: (row.cerrado_por_nombre as string) ?? null,
     cerrado_en: (row.cerrado_en as string) ?? null,
     historial: Array.isArray(row.historial) ? (row.historial as EventoMercado[]) : [],
+    inicio_at: inicioExactoDe(Array.isArray(row.historial) ? (row.historial as EventoMercado[]) : []),
     created_at: String(row.created_at ?? ''),
   };
 }
@@ -341,7 +373,7 @@ export async function listMercados(cocinaId: string): Promise<MercadoCocina[]> {
 interface EntradasResult { rows: KardexEntrada[]; agg: Map<string, ItemAgg>; valorTotal: number; }
 
 async function entradasDe(
-  m: { fecha_inicio: string; fecha_fin: string },
+  m: VentanaMercado,
   almacen: string | null,
   prodById: Map<string, Producto>,
 ): Promise<EntradasResult> {
@@ -385,7 +417,7 @@ async function entradasDe(
 interface ConsumosResult { comidas: CocinaComida[]; agg: Map<string, ItemAgg>; platos: number; valor: number; }
 
 async function consumosDe(
-  m: { fecha_inicio: string; fecha_fin: string },
+  m: VentanaMercado,
   cocinaId: string,
 ): Promise<ConsumosResult> {
   const { desde, hasta } = ventana(m);
@@ -427,7 +459,7 @@ interface TrasladosResult { rows: KardexTraslado[]; agg: Map<string, ItemAgg>; }
  * almacén y marca las que no llegaron (ver `trasladosSinLlegada`).
  */
 async function trasladosDe(
-  m: { fecha_inicio: string; fecha_fin: string },
+  m: VentanaMercado,
   almacen: string | null,
   prodById: Map<string, Producto>,
   opciones: { verificarLlegada?: boolean } = {},
@@ -541,7 +573,7 @@ function armarDisponible(
  * vez de solo cuánto falta.
  */
 async function salidasFueraDelCicloDe(
-  m: { fecha_inicio: string; fecha_fin: string },
+  m: VentanaMercado,
   almacen: string | null,
   prodById: Map<string, Producto>,
 ): Promise<Map<string, SalidaFueraDelCiclo[]>> {
@@ -716,76 +748,67 @@ async function stockAlCorteDe(
 /* ───────── Iniciar / cerrar ───────── */
 
 /**
- * Reconstruye el saldo inicial (stock A LA FECHA DE INICIO) usando EXACTAMENTE los mismos
- * movimientos que cuenta el panel:  saldo = stock ACTUAL − entradas − traslados + consumos.
- * Así, si el mercado se inicia con fecha PASADA (ej. 22/08), lo que ya entró, se trasladó o se
- * consumió entre esa fecha y hoy no se cuenta dos veces, y la identidad se mantiene:
- * queda = saldo + entradas ± traslados − consumos = stock real. Con fecha = hoy y sin
- * movimientos en la ventana, saldo = stock actual.
+ * El saldo inicial de un mercado que se abre ahora: lo que hay en el inventario de la sede en
+ * este momento, víver por víver. Los que están en cero no entran; aparecen cuando entre algo o
+ * alguien los cocine.
  *
- * Los traslados restan con su signo: si esta mañana Los Pinos mandó 120 arroces, a las 00:00
- * tenía 120 más de los que tiene ahora, y el ciclo los ve salir en su columna.
+ * Reemplaza a `reconstruirSaldo`, que calculaba el stock de las 00:00 de la fecha de inicio
+ * restando lo que se había movido en el día. Ese cálculo no veía las salidas manuales ni los
+ * ajustes, y el 14/09 dejó 18 víveres de Los Pinos con falta al abrir después del conteo.
  */
-function reconstruirSaldo(
-  viveres: Awaited<ReturnType<typeof listViveresGlobal>>,
-  entAgg: Map<string, ItemAgg>, trasAgg: Map<string, ItemAgg>, conAgg: Map<string, ItemAgg>,
-): SaldoItem[] {
+function saldoDelInventario(viveres: Awaited<ReturnType<typeof listViveresGlobal>>): SaldoItem[] {
   const out: SaldoItem[] = [];
   for (const v of viveres) {
-    const e = entAgg.get(v.producto.id)?.cantidad ?? 0;
-    const t = trasAgg.get(v.producto.id)?.cantidad ?? 0;
-    const c = conAgg.get(v.producto.id)?.cantidad ?? 0;
-    const inicial = r2(v.stock - e - t + c);
-    if (inicial <= 0) continue;
-    out.push({ producto_id: v.producto.id, sku: v.producto.sku, nombre: v.producto.nombre, unidad: v.producto.unidad ?? '', cantidad: inicial });
+    const cantidad = r2(v.stock);
+    if (cantidad <= 0) continue;
+    out.push({ producto_id: v.producto.id, sku: v.producto.sku, nombre: v.producto.nombre, unidad: v.producto.unidad ?? '', cantidad });
   }
   return out;
 }
 
 /**
- * Inicia el mercado #N de una cocina.
+ * Inicia el mercado #N de una cocina, AHORA.
  *
- * EL SALDO INICIAL SE HEREDA del remanente congelado del último mercado cerrado. Antes
- * se re-deducía siempre del stock actual (`saldo = stock − entradas + consumos`), y con
- * esa fórmula `queda = stock` SIEMPRE: el mercado era un espejo del inventario y el
- * descuadre entre lo que reporta Cocina y lo que dice el sistema no podía aparecer nunca.
+ * EL CICLO CUENTA DESDE EL INSTANTE EN QUE SE ABRE. No se elige fecha: el saldo inicial es el
+ * inventario de este momento y la ventana arranca en este momento, así que todo lo que pasó
+ * antes —compras, repartos, el conteo de esa misma mañana— ya está en el saldo y nada se
+ * cuenta dos veces. El instante queda escrito en el evento `abierta` (`desde`).
  *
- * Solo el PRIMER mercado de una cocina reconstruye el saldo, porque no hay nada anterior
- * de dónde heredarlo.
+ * Antes se elegía la fecha y el ciclo contaba desde sus 00:00: abrir tarde en el día metía en
+ * la ventana movimientos que el saldo calculado hacia atrás no veía. Con una fecha pasada, el
+ * mismo problema más grande.
+ *
+ * EL SALDO SE HEREDA del remanente congelado del último mercado cerrado, si hay uno que no se
+ * haya descartado. Si no, sale del inventario.
  */
 export async function iniciarMercado(input: {
-  cocinaId: string; almacen: string | null; fechaInicio?: string | null; actor: string; actorName?: string | null;
+  cocinaId: string; almacen: string | null; actor: string; actorName?: string | null;
 }): Promise<MercadoCocina> {
   const activo = await mercadoActivo(input.cocinaId);
   if (activo) throw new Error('Esta cocina ya tiene un mercado abierto.');
-  const inicio = input.fechaInicio && /^\d{4}-\d{2}-\d{2}$/.test(input.fechaInicio) ? input.fechaInicio : hoyStr();
-  const fin = addDaysStr(inicio, DURACION_MERCADO_DIAS - 1);
   const previos = await listMercados(input.cocinaId);
   const numero = (previos[0]?.numero ?? 0) + 1;
 
-  /* NINGÚN CICLO PUEDE PISAR A OTRO, ni siquiera a uno descartado.
-     El saldo inicial se reconstruye con `stock − entradas + consumos` sobre la
-     ventana propia: si esa ventana se superpone con la de otro ciclo, esos
-     movimientos ya se contaron una vez y los mismos platos terminan en dos
-     cortes. Y con los números del mercado #1 el cálculo da negativo, así que
-     `reconstruirSaldo` descarta el víver y este DESAPARECE del ciclo nuevo.
-     La guarda va acá y no solo en la pantalla: la pantalla se puede saltear. */
-  const pisado = cicloQueSePisa(inicio, fin, previos);
+  /* El instante de apertura se toma ANTES de leer el inventario. Un víver que alguien moviera
+     justo en el segundo que tarda la lectura entraría al saldo y al ciclo a la vez, que es
+     preferible a perderlo de los dos. En la práctica son segundos. */
+  const ahora = new Date().toISOString();
+  const inicio = hoyStr();
+  const fin = addDaysStr(inicio, DURACION_MERCADO_DIAS - 1);
+
+  /* NINGÚN CICLO PUEDE PISAR A OTRO QUE TODAVÍA CORRE. Un descartado deja de ocupar sus días
+     en el momento del descarte, así que un mercado abierto por error se descarta y se abre el
+     correcto en el acto. La guarda va acá y no solo en la pantalla: la pantalla se puede saltear. */
+  const pisado = cicloQueSePisa(inicio, fin, previos.map(ventanaCicloDe), ahora);
   if (pisado) {
     throw new Error(
-      `Ese período se superpone con el mercado #${pisado.numero} `
-      + `(${pisado.fecha_inicio} → ${pisado.fecha_fin}). Elegí una fecha posterior: `
-      + 'abrir dos ciclos sobre los mismos días cuenta los consumos dos veces.',
+      `Todavía corre el mercado #${pisado.numero} (${pisado.fecha_inicio} → ${pisado.fecha_fin}): `
+      + 'abrir otro encima contaría los consumos dos veces.',
     );
   }
 
-  /* El remanente congelado del último cierre manda. Si no hay ninguno (primer
-     mercado de esta cocina), se reconstruye desde el stock.
-
-     UN CICLO DESCARTADO NO CUENTA. Su remanente es justamente lo que no se
-     quiere arrastrar: si se tomara, el descuadre que motivó el descarte pasaría
-     intacto al ciclo nuevo y no se habría descartado nada. Se lo saltea y el
-     saldo sale del inventario real, que es el único número confiable. */
+  /* UN CICLO DESCARTADO NO CUENTA: su remanente es justamente lo que no se quiere arrastrar.
+     Se lo saltea y el saldo sale del inventario real, que es el único número confiable. */
   const ultimoCerrado = previos.find(
     (m) => m.estado === 'cerrado' && m.cierre && !m.cierre.descartado,
   );
@@ -793,16 +816,9 @@ export async function iniciarMercado(input: {
   if (ultimoCerrado?.cierre?.remanente?.length) {
     saldo = ultimoCerrado.cierre.remanente;
   } else {
-    const productos = await listProductos();
-    const prodById = new Map(productos.map((p) => [p.id, p] as const));
-    const ventanaObj = { fecha_inicio: inicio, fecha_fin: fin };
-    const [viveres, ent, tras, con] = await Promise.all([
-      listViveresGlobal(input.almacen),
-      entradasDe(ventanaObj, input.almacen, prodById),
-      trasladosDe(ventanaObj, input.almacen, prodById),
-      consumosDe(ventanaObj, input.cocinaId),
-    ]);
-    saldo = reconstruirSaldo(viveres, ent.agg, tras.agg, con.agg);
+    // El inventario FRESCO: las existencias están en caché y pueden venir de hace segundos.
+    bustCache(['existencias', 'productos']);
+    saldo = saldoDelInventario(await listViveresGlobal(input.almacen));
   }
   // Acá SÍ hay alguien que abrió: una persona apretó «Iniciar mercado».
   return insertarMercado(
@@ -810,7 +826,7 @@ export async function iniciarMercado(input: {
       cocina_id: input.cocinaId, numero, fecha_inicio: inicio, fecha_fin: fin,
       estado: 'abierto', saldo_inicial: saldo,
     },
-    appendHistorial({ historial: [] }, 'abierta', input.actor, input.actorName ?? null),
+    appendHistorial({ historial: [] }, 'abierta', input.actor, input.actorName ?? null, { desde: ahora }),
   );
 }
 

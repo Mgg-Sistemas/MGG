@@ -25,7 +25,7 @@
    Acá viven las piezas puras: se testean sin base ni React.
    ============================================================ */
 
-import type { DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
+import type { DisponibleItem, EventoMercado, ItemAgg, MercadoCocina } from './mercados.repository';
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -184,6 +184,23 @@ export function productosAjustados(historial: EventoMercado[] | null | undefined
   const out = new Set<string>();
   for (const e of historial ?? []) for (const id of e.ajustados ?? []) out.add(id);
   return out;
+}
+
+/**
+ * El instante exacto desde el que cuenta un mercado, si se abrió con «Iniciar mercado».
+ *
+ * Hasta el 14/09/2026 un ciclo contaba desde las 00:00 de su fecha de inicio. El #2 de Los
+ * Pinos se abrió ese día a las 16:38: su ventana metía la compra, el reparto y el conteo de
+ * la mañana, pero el saldo se calculaba hacia atrás sin las salidas del conteo, y 18 víveres
+ * arrancaron con falta. Ahora el saldo es el inventario del momento en que se abre y el
+ * ciclo cuenta desde ESE instante, que queda escrito en el evento `abierta`.
+ *
+ * `null` para los mercados generados al cerrar el anterior —siguen desde las 00:00 del día
+ * posterior al fin, sin hueco— y para los abiertos antes del cambio.
+ */
+export function inicioExactoDe(historial: EventoMercado[] | null | undefined): string | null {
+  const ev = (historial ?? []).find((e) => e.evento === 'abierta' && typeof e.desde === 'string' && e.desde);
+  return ev?.desde ?? null;
 }
 
 /* ───────── Comparar dos cortes ───────── */
@@ -348,21 +365,33 @@ export interface VentanaCiclo {
   fecha_fin: string;
   estado?: string;
   descartado?: boolean;
+  /** Cuándo se descartó (ISO). Desde ese instante deja de ocupar sus días. */
+  descartado_en?: string | null;
+}
+
+/** La ventana de un mercado tal como la mira la guarda de solapamiento. */
+export function ventanaCicloDe(
+  m: Pick<MercadoCocina, 'numero' | 'fecha_inicio' | 'fecha_fin' | 'estado' | 'cierre'>,
+): VentanaCiclo {
+  const descartado = !!m.cierre?.descartado;
+  return {
+    numero: m.numero, fecha_inicio: m.fecha_inicio, fecha_fin: m.fecha_fin, estado: m.estado,
+    descartado, descartado_en: descartado ? (m.cierre?.generado_en ?? null) : null,
+  };
 }
 
 /**
  * ¿La ventana propuesta pisa la de algún ciclo que ya existe?
  *
- * POR QUÉ IMPORTA. El saldo inicial de un ciclo nuevo se reconstruye con
- * `stock − entradas + consumos` sobre su propia ventana. Si esa ventana se
- * superpone con la de otro ciclo, esos movimientos ya fueron contados una vez:
- * los consumos se suman de vuelta al saldo y el ciclo nuevo los vuelve a
- * descontar, o sea que los mismos platos aparecen en dos cortes. Con el ARROZ
- * del mercado #1 el número da −32 y el víver directamente desaparece, porque
- * `reconstruirSaldo` descarta los saldos negativos.
+ * POR QUÉ IMPORTA. Cada ciclo toma comidas y movimientos por fecha: si dos ventanas se
+ * superponen, los mismos platos aparecen en dos cortes y lo que arrastra uno se cuenta
+ * también en el otro.
  *
- * Se comparan también los DESCARTADOS: un ciclo se descarta justamente porque
- * sus cifras no sirven, y volver a abrir sobre esa misma ventana las reactiva.
+ * UN DESCARTADO deja de ocupar sus días en el momento del descarte. Antes bloqueaba sus
+ * 21 días enteros: el 14/09 el #2 de Los Pinos se abrió con la fecha equivocada, y
+ * descartarlo habría impedido abrir el correcto hasta el 05/10. Con `inicioExacto` —el
+ * instante en que se abre el ciclo nuevo—, un descartado antes de ese instante ya no
+ * estorba. Sin él, se compara por días como siempre.
  *
  * Devuelve el ciclo que estorba, o `null` si la ventana está libre.
  */
@@ -370,10 +399,13 @@ export function cicloQueSePisa(
   inicio: string,
   fin: string,
   previos: VentanaCiclo[],
+  inicioExacto?: string | null,
 ): VentanaCiclo | null {
   if (!inicio || !fin) return null;
   for (const p of previos) {
     if (!p.fecha_inicio || !p.fecha_fin) continue;
+    if (p.descartado && p.descartado_en && inicioExacto
+      && Date.parse(inicioExacto) >= Date.parse(p.descartado_en)) continue;
     // Dos rangos se solapan si cada uno empieza antes de que el otro termine.
     if (inicio <= p.fecha_fin && p.fecha_inicio <= fin) return p;
   }

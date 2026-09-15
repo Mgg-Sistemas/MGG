@@ -48,6 +48,8 @@ function conSigno(n: number): string { return n > 0 ? `+${num(n)}` : n < 0 ? `�
 
 function fmtDia(iso: string): string { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
 function diaAntes(iso: string): string { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); }
+/** Hora local de un instante ISO: «16:38». */
+function horaDe(iso: string): string { return new Date(iso).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: false }); }
 
 export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre, almacen, canWrite, actor, userEmail, onReload, onEditComida, onDelComida }: {
   resumen: ResumenMercado;
@@ -151,7 +153,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
             <strong style={{ fontSize: '.95rem' }}>Mercado #{mercado.numero}</strong>
           )}
           <span className="muted" style={{ fontSize: '.78rem' }}>
-            {fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)}
+            {fmtDia(mercado.fecha_inicio)}{mercado.inicio_at ? ` ${horaDe(mercado.inicio_at)}` : ''} → {fmtDia(mercado.fecha_fin)}
             {mercado.estado === 'cerrado'
               ? ' · cerrado'
               : ` · día ${Math.min(dia, dias)} de ${dias}`}
@@ -485,7 +487,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       )}
 
       {drill && (
-        <DrillModal item={drill} kardex={kardex} fechaInicio={mercado.fecha_inicio}
+        <DrillModal item={drill} kardex={kardex} fechaInicio={mercado.fecha_inicio} inicioAt={mercado.inicio_at}
           fuera={resumen.salidasFueraDelCiclo.get(drill.producto_id) ?? []}
           diferencia={difPorProducto.get(drill.producto_id) ?? null}
           onClose={() => setDrill(null)} />
@@ -618,10 +620,12 @@ function FilaConsumo({ row, canWrite, onEdit, onDel }: { row: KardexConsumo; can
 }
 
 /* ───────── Drill-down de un víver: saldo inicial + entradas + consumos ───────── */
-function DrillModal({ item, kardex, fechaInicio, fuera, diferencia, onClose }: {
+function DrillModal({ item, kardex, fechaInicio, inicioAt, fuera, diferencia, onClose }: {
   item: DisponibleItem;
   kardex: (KardexEntrada | KardexConsumo | KardexTraslado)[];
   fechaInicio: string;
+  /** Instante exacto de apertura, si lo tiene: el saldo es el inventario de ese momento. */
+  inicioAt: string | null;
   /** Lo que salió por fuera del ciclo: salidas manuales y ajustes. */
   fuera: SalidaFueraDelCiclo[];
   /** inventario − libro para este víver. `null` si cuadra o si el mercado está cerrado. */
@@ -638,8 +642,10 @@ function DrillModal({ item, kardex, fechaInicio, fuera, diferencia, onClose }: {
   return (
     <Modal title={`Víver · ${item.nombre}`} size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       <div className="card" style={{ margin: '0 0 .8rem', background: 'var(--bg-2)', fontSize: '.9rem' }}>
-        <div>Hasta el <strong>{fmtDia(diaAntes(fechaInicio))}</strong>: quedaban <strong className="mono">{num(item.saldoInicial)} {item.unidad}</strong></div>
-        <div>+ entradas desde el <strong>{fmtDia(fechaInicio)}</strong>: <strong className="mono" style={{ color: 'var(--primary-3, #2ecc71)' }}>{num(item.entradas)} {item.unidad}</strong></div>
+        {inicioAt
+          ? <div>Al abrir, el <strong>{fmtDia(fechaInicio)} a las {horaDe(inicioAt)}</strong>, había <strong className="mono">{num(item.saldoInicial)} {item.unidad}</strong></div>
+          : <div>Hasta el <strong>{fmtDia(diaAntes(fechaInicio))}</strong>: quedaban <strong className="mono">{num(item.saldoInicial)} {item.unidad}</strong></div>}
+        <div>+ entradas desde {inicioAt ? 'la apertura' : <>el <strong>{fmtDia(fechaInicio)}</strong></>}: <strong className="mono" style={{ color: 'var(--primary-3, #2ecc71)' }}>{num(item.entradas)} {item.unidad}</strong></div>
         {item.traslados !== 0 && (
           <div>
             ± traslados: <strong className="mono" style={{ color: 'var(--info)' }}>{conSigno(item.traslados)} {item.unidad}</strong>
