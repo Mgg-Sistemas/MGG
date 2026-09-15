@@ -102,7 +102,7 @@ const CAT_LABEL: Record<string, string> = {
   gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', pago_nomina: 'Pago de nómina',
   traslado: 'Traslado', conversion: 'Conversión', compra_directa: 'Compra directa',
   cobro_cxc: 'Cobro por cobrar', abono_cxp: 'Abono por pagar', combustible: 'Combustible',
-  reembolso_oc: 'Reembolso de OC', comision_bancaria: 'Comisión bancaria',
+  reembolso_oc: 'Reembolso de pago', comision_bancaria: 'Comisión bancaria',
 };
 
 /** Etiqueta legible de una categoría de movimiento (cae al valor crudo si no está mapeada). */
@@ -6131,7 +6131,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     return window.confirm(
       `La ${codigoOc} es de ${factura} y estás pagando ${pagado}.\n\n`
       + `Se registra el pago de ${factura} y los ${monto(reembolsoOrden, monedaOrden)} de más salen en otro movimiento:\n`
-      + `«${conceptoReembolsoOc(codigoOc)}».\n\n¿Confirmás?`,
+      + `«${conceptoReembolsoOc(codigoOc, null, o.clase)}».\n\n¿Confirmás?`,
     );
   }
 
@@ -6591,7 +6591,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
               <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required={!esMultimoneda}
                 style={{ borderColor: excedeTotalSimple ? 'var(--danger)' : undefined }} />
               {excedeTotalSimple && (
-                <small style={{ color: 'var(--warning)' }}>⚠ Supera el total de la OC ({monto(totalEnCaja, moneda)}) por <strong className="mono">{monto(excesoSimple, moneda)}</strong>. Al pagar se pide confirmación: ese excedente sale aparte como <strong>{conceptoReembolsoOc(codigoOc)}</strong>.</small>
+                <small style={{ color: 'var(--warning)' }}>⚠ Supera el total de la OC ({monto(totalEnCaja, moneda)}) por <strong className="mono">{monto(excesoSimple, moneda)}</strong>. Al pagar se pide confirmación: ese excedente sale aparte como <strong>{conceptoReembolsoOc(codigoOc, null, o.clase)}</strong>.</small>
               )}
               {tasa > 0 && montoNum > 0 && (
                 <small className="muted">
@@ -6645,7 +6645,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
               {excedeTotalMulti
-                ? <span style={{ color: 'var(--warning)' }}>⚠ Pagás <strong>{monto(reembolsoOrden, monedaOrden)}</strong> de más. Al pagar se pide confirmación: el total de la OC ({monto(enMonedaOrden(totalUsd), monedaOrden)}) queda como pago y el excedente sale aparte como <strong>{conceptoReembolsoOc(codigoOc)}</strong>.</span>
+                ? <span style={{ color: 'var(--warning)' }}>⚠ Pagás <strong>{monto(reembolsoOrden, monedaOrden)}</strong> de más. Al pagar se pide confirmación: el total de la OC ({monto(enMonedaOrden(totalUsd), monedaOrden)}) queda como pago y el excedente sale aparte como <strong>{conceptoReembolsoOc(codigoOc, null, o.clase)}</strong>.</span>
                 : cubreTotalMulti
                 ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
                 : <>Faltan <strong>{monto(enMonedaOrden(round2(totalUsd - sumUsdMulti)), monedaOrden)}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}

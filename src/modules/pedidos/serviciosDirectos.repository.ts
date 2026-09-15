@@ -11,6 +11,9 @@
 import { supabase } from '@/shared/lib/supabase';
 import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import {
+  CATEGORIA_REEMBOLSO_OC, aPagarConRetencion, camposPagoDirecto, conceptoReembolsoDirecto, type RetencionDetalle,
+} from '@/modules/tesoreria/reembolsoPago';
 import { crearCuentaPorPagarDeuda } from '@/modules/tesoreria/cuentasPorPagar.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import type { PagoLeg, AdjuntoFactura } from './compras.repository';
@@ -95,6 +98,15 @@ export interface ServicioDirecto {
   anticipo_at: string | null;
   /** Trazabilidad de eventos del servicio (anticipo, crédito, etc.). */
   historial: EventoHistorial[];
+  /** Retención que Tesorería RESTÓ del total al pagar (en la moneda del servicio), con su
+   *  detalle en Bs, $ y la tasa. */
+  ret_pago_monto: number;
+  ret_pago_bs: number | null;
+  ret_pago_usd: number | null;
+  ret_pago_tasa: number | null;
+  /** Lo pagado de más al pagar: salió aparte como «REEMBOLSO DE SERVICIO DIRECTO …». */
+  reembolso_monto: number;
+  reembolso_moneda: string | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   adjunto_path: string | null;
@@ -127,6 +139,8 @@ function normalizar(row: Record<string, unknown>): ServicioDirecto {
     anticipo_monto: r.anticipo_monto ?? null, anticipo_moneda: r.anticipo_moneda ?? null,
     anticipo_at: r.anticipo_at ?? null,
     historial: Array.isArray(r.historial) ? r.historial : [],
+    ret_pago_monto: Number(r.ret_pago_monto) || 0,
+    reembolso_monto: Number(r.reembolso_monto) || 0,
   };
 }
 
@@ -410,6 +424,13 @@ export interface PagarServicioDirectoInput {
   legs?: PagoLeg[];               // multimoneda
   gastoCategoria?: string | null; // categoría de gasto: la elige Tesorería al pagar
   gastoSubcategoria?: string | null;
+  /** Retención que Tesorería RESTA del total (en la moneda del servicio), con su detalle. */
+  retencionMonto?: number | null;
+  retencionDetalle?: RetencionDetalle | null;
+  /** Lo pagado de más: sale en OTRO egreso, «REEMBOLSO DE SERVICIO DIRECTO …» (cada pata en su moneda). */
+  reembolsoLegs?: PagoLeg[];
+  /** Ese excedente en la moneda del servicio, para dejarlo anotado en él. */
+  reembolsoMonto?: number | null;
   actor: string;                  // quién paga (Tesorería)
   actorName?: string | null;
 }
@@ -425,6 +446,10 @@ export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Pr
   if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
   const total = Math.round(servicio.items.reduce((a, i) => a + (Number(i.gasto) || 0), 0) * 100) / 100;
   if (total <= 0) throw new Error('El servicio no tiene montos cargados.');
+  // Retención (opcional): se resta del total. `gasto` sigue siendo el total de la factura.
+  const retencion = Math.round(Math.max(0, Number(input.retencionMonto) || 0) * 100) / 100;
+  const aPagar = aPagarConRetencion(total, retencion);
+  if (retencion > 0 && aPagar <= 0) throw new Error('La retención no puede ser igual o mayor que el total del servicio.');
 
   // La categoría/subcategoría de gasto la fija Tesorería al pagar (fallback: lo que trajera el servicio).
   const gCat = input.gastoCategoria ?? servicio.gasto_categoria ?? null;
@@ -448,12 +473,23 @@ export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Pr
     movCajaId = primero;
   } else {
     const movCaja = await registrarGasto({
-      cajaId: input.cajaId, monto: total,
+      cajaId: input.cajaId, monto: aPagar,
       concepto, categoria: 'servicio_directo',
       gastoCategoria: gCat, gastoSubcategoria: gSub,
       actor: input.actor, actorName: input.actorName ?? null,
     });
     movCajaId = movCaja.id;
+  }
+
+  // Lo pagado de más: sale de las mismas cuentas, pero en OTRO egreso.
+  const reembolsoLegs = (input.reembolsoLegs ?? []).filter((l) => Number(l.monto) > 0);
+  for (const leg of reembolsoLegs) {
+    await egresarDivisa({
+      cajaId: leg.cajaId || input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+      concepto: conceptoReembolsoDirecto('servicio', servicio.codigo ?? servicio.descripcion, reembolsoLegs.length > 1 ? leg.moneda : null),
+      categoria: CATEGORIA_REEMBOLSO_OC,
+      actor: input.actor, actorName: input.actorName ?? null,
+    });
   }
 
   const { error } = await supabase
@@ -462,6 +498,7 @@ export async function pagarServicioDirecto(input: PagarServicioDirectoInput): Pr
       estado: 'finalizada', gasto: total,
       gasto_categoria: gCat, gasto_subcategoria: gSub,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
+      ...camposPagoDirecto(retencion, input.retencionDetalle, reembolsoLegs.length ? input.reembolsoMonto : 0, servicio.moneda),
       pagada_por: input.actorName || input.actor,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
@@ -665,11 +702,15 @@ export async function editarServicioDirectoFinalizado(input: EditarServicioFinal
   if (!servicio.caja_mov_id) throw new Error('El servicio no tiene egreso de caja asociado.');
   const mov = await getMovimientoCajaPorId(servicio.caja_mov_id);
   if (!mov) throw new Error('No se encontró el egreso en Tesorería; corregí el monto manualmente.');
-  if (Math.round(Number(mov.monto) * 100) / 100 !== totalPrevio) {
+  // Con retención, el egreso es el total MENOS la retención: se compara y se ajusta así.
+  const retPago = Math.round((Number(servicio.ret_pago_monto) || 0) * 100) / 100;
+  if (Math.round(Number(mov.monto) * 100) / 100 !== aPagarConRetencion(totalPrevio, retPago)) {
     throw new Error('Este servicio se pagó con multimoneda (varias monedas). Corregí el egreso desde Tesorería y volvé a intentar.');
   }
+  const nuevoAPagar = aPagarConRetencion(nuevoTotal, retPago);
+  if (retPago > 0 && nuevoAPagar <= 0) throw new Error('El nuevo total no puede quedar por debajo de la retención ya aplicada al pagar.');
   await editarMovimientoCaja(mov, {
-    monto: nuevoTotal,
+    monto: nuevoAPagar,
     motivo: `Servicio directo · ${servicio.descripcion}`,
     gastoCategoria: input.gastoCategoria ?? undefined,
     gastoSubcategoria: input.gastoSubcategoria ?? undefined,

@@ -13,6 +13,9 @@ import { createProducto, siguienteSku } from '@/modules/inventario/inventario.re
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId, eliminarMovimientoCaja } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import {
+  CATEGORIA_REEMBOLSO_OC, aPagarConRetencion, camposPagoDirecto, conceptoReembolsoDirecto, type RetencionDetalle,
+} from '@/modules/tesoreria/reembolsoPago';
 import type { Producto, CuentaCaja } from '@/shared/lib/types';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
 import { costoUnitarioUsd, esCompraEnBs, fechaTasaCompra, fmtTasa, tasaValida, type AnclajeTasa } from './compraDirectaMoneda';
@@ -74,6 +77,15 @@ export interface CompraDirecta {
   retencion_finalizada: boolean;
   retencion_finalizada_por: string | null;
   retencion_finalizada_en: string | null;
+  /** Retención que Tesorería RESTÓ del total al pagar (en la moneda de la compra), con su
+   *  detalle en Bs, $ y la tasa. Distinta de `retencion_monto` (retención de IVA). */
+  ret_pago_monto: number;
+  ret_pago_bs: number | null;
+  ret_pago_usd: number | null;
+  ret_pago_tasa: number | null;
+  /** Lo pagado de más al pagar: salió aparte como «REEMBOLSO DE COMPRA DIRECTA …». */
+  reembolso_monto: number;
+  reembolso_moneda: string | null;
   /** Total (incluye IVA cuando aplica). Es lo que paga Tesorería. */
   gasto: number | null;
   /** Tasa BCV (Bs por $) con la que se valora la compra cuando es en Bs: el inventario
@@ -144,6 +156,8 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
     retencion_pct: Number(r.retencion_pct) || 0,
     retencion_monto: Number(r.retencion_monto) || 0,
     retencion_finalizada: !!r.retencion_finalizada,
+    ret_pago_monto: Number(r.ret_pago_monto) || 0,
+    reembolso_monto: Number(r.reembolso_monto) || 0,
     pago_externo: !!r.pago_externo,
     pago_externo_datos: r.pago_externo_datos ?? null,
   };
@@ -528,6 +542,13 @@ export interface PagarCompraInput {
   gastoSubcategoria?: string | null;
   /** Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura. */
   comision?: { cuenta: CuentaCaja; moneda: string; monto: number } | null;
+  /** Retención que Tesorería RESTA del total (en la moneda de la compra), con su detalle. */
+  retencionMonto?: number | null;
+  retencionDetalle?: RetencionDetalle | null;
+  /** Lo pagado de más: sale en OTRO egreso, «REEMBOLSO DE COMPRA DIRECTA …» (cada pata en su moneda). */
+  reembolsoLegs?: PagoLeg[];
+  /** Ese excedente en la moneda de la compra, para dejarlo anotado en ella. */
+  reembolsoMonto?: number | null;
   /** Quién paga (usuario de Tesorería). */
   actor: string;
   actorName?: string | null;
@@ -552,6 +573,11 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   const descuento = Math.round((Number(compra.descuento_monto) || 0) * 100) / 100;  // descuento baja el total
   const total = Math.round((items.reduce((a, i) => a + (i.gasto || 0), 0) - descuento + iva + igtf) * 100) / 100;
   if (total <= 0) throw new Error('La compra no tiene montos cargados.');
+  // Retención (opcional): se resta del total. `gasto` sigue siendo el total de la factura:
+  // es lo que valora el inventario al recibir.
+  const retencion = Math.round(Math.max(0, Number(input.retencionMonto) || 0) * 100) / 100;
+  const aPagar = aPagarConRetencion(total, retencion);
+  if (retencion > 0 && aPagar <= 0) throw new Error('La retención no puede ser igual o mayor que el total de la compra.');
 
   // Categoría de gasto: la que eligió Tesorería al pagar (override) o la guardada.
   const gcat = input.gastoCategoria !== undefined ? input.gastoCategoria : compra.gasto_categoria;
@@ -576,7 +602,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     movCajaId = primero;
   } else {
     const movCaja = await registrarGasto({
-      cajaId: input.cajaId, monto: total,
+      cajaId: input.cajaId, monto: aPagar,
       concepto, categoria: 'compra_directa',
       gastoCategoria: gcat ?? null, gastoSubcategoria: gsub ?? null,
       actor: input.actor, actorName: input.actorName ?? null,
@@ -595,6 +621,17 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     });
   }
 
+  // 1c) Lo pagado de más: sale de las mismas cuentas, pero en OTRO egreso.
+  const reembolsoLegs = (input.reembolsoLegs ?? []).filter((l) => Number(l.monto) > 0);
+  for (const leg of reembolsoLegs) {
+    await egresarDivisa({
+      cajaId: leg.cajaId || input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+      concepto: conceptoReembolsoDirecto('compra', compra.codigo ?? compra.producto_nombre, reembolsoLegs.length > 1 ? leg.moneda : null),
+      categoria: CATEGORIA_REEMBOLSO_OC,
+      actor: input.actor, actorName: input.actorName ?? null,
+    });
+  }
+
   // 2) Pago hecho. Si la mercancía YA se recibió (entró al inventario), la compra queda
   //    FINALIZADA; si no, sigue ABIERTA esperando la recepción (pago y recepción son
   //    independientes: pueden ocurrir en cualquier orden).
@@ -606,6 +643,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
       estado: yaRecibida ? 'finalizada' : 'abierta', gasto: total, items,
       gasto_categoria: gcat ?? null, gasto_subcategoria: gsub ?? null,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
+      ...camposPagoDirecto(retencion, input.retencionDetalle, reembolsoLegs.length ? input.reembolsoMonto : 0, compra.moneda),
       pagada_por: input.actorName || input.actor,
       finalizada_at: yaRecibida ? nowIso : null,
       updated_at: nowIso,
@@ -878,11 +916,15 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
   if (!compra.caja_mov_id) throw new Error('La compra no tiene egreso de caja asociado.');
   const mov = await getMovimientoCajaPorId(compra.caja_mov_id);
   if (!mov) throw new Error('No se encontró el egreso en Tesorería; corregí el monto manualmente.');
-  if (Math.round(Number(mov.monto) * 100) / 100 !== totalPrevio) {
+  // Con retención, el egreso es el total MENOS la retención: se compara y se ajusta así.
+  const retPago = Math.round((Number(compra.ret_pago_monto) || 0) * 100) / 100;
+  if (Math.round(Number(mov.monto) * 100) / 100 !== aPagarConRetencion(totalPrevio, retPago)) {
     throw new Error('Esta compra se pagó con multimoneda (varias monedas). Corregí el egreso desde Tesorería y volvé a intentar.');
   }
+  const nuevoAPagar = aPagarConRetencion(nuevoTotal, retPago);
+  if (retPago > 0 && nuevoAPagar <= 0) throw new Error('El nuevo total no puede quedar por debajo de la retención ya aplicada al pagar.');
   await editarMovimientoCaja(mov, {
-    monto: nuevoTotal,
+    monto: nuevoAPagar,
     motivo: `Compra directa · ${compra.producto_nombre}`,
     gastoCategoria: input.gastoCategoria ?? undefined,
     gastoSubcategoria: input.gastoSubcategoria ?? undefined,
@@ -969,8 +1011,13 @@ export async function eliminarCompraDirecta(compra: CompraDirecta, actor?: strin
   // sueltos. Si el egreso guardado no coincide con el total, se pagó con varias monedas.
   if (compra.caja_mov_id) {
     const mov = await getMovimientoCajaPorId(compra.caja_mov_id);
-    if (mov && Math.round(Number(mov.monto) * 100) / 100 !== Math.round(Number(compra.gasto || 0) * 100) / 100) {
+    const esperado = aPagarConRetencion(Number(compra.gasto || 0), Number(compra.ret_pago_monto) || 0);
+    if (mov && Math.round(Number(mov.monto) * 100) / 100 !== esperado) {
       throw new Error('Esta compra se pagó con MULTIMONEDA (varios egresos). Revertí el pago desde Tesorería y después eliminala.');
+    }
+    // El reembolso es otro egreso que esta compra no tiene enlazado: borrarla lo dejaría suelto.
+    if ((Number(compra.reembolso_monto) || 0) > 0) {
+      throw new Error('Esta compra se pagó con REEMBOLSO (un egreso aparte por lo pagado de más). Revertí los dos egresos desde Tesorería y después eliminala.');
     }
   }
 

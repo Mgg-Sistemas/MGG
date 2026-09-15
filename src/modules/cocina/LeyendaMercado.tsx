@@ -30,8 +30,8 @@ const DUDAS: Entrada[] = [
       <>
         <strong>Disponible</strong> es lo que el ciclo tuvo para cocinar: el saldo con el que
         abrió, más lo que entró al almacén durante sus días, más o menos lo que se trasladó.{' '}
-        <strong>Queda</strong> es eso menos lo que se consumió en las comidas. Uno dice cuánto
-        hubo, el otro cuánto sobra.
+        <strong>Queda</strong> es eso menos lo que se consumió en las comidas y menos las{' '}
+        <strong>mermas / salidas</strong>. Uno dice cuánto hubo, el otro cuánto sobra.
       </>
     ),
   },
@@ -48,7 +48,7 @@ const DUDAS: Entrada[] = [
             cargado sin almacén.</li>
           <li>Se cargó de más en alguna comida.</li>
         </ul>
-        Tocá el víver: el detalle muestra los movimientos que el ciclo no cuenta y ahí suele
+        Tocá el víver: el detalle muestra entradas, traslados, consumos y mermas, y ahí suele
         estar la respuesta.
       </>
     ),
@@ -69,9 +69,11 @@ const DUDAS: Entrada[] = [
     pregunta: 'El mercado dice que quedan X pero el inventario dice otra cosa.',
     respuesta: (
       <>
-        El libro del mercado resta lo que sale por <strong>comidas</strong> y por{' '}
-        <strong>traslados</strong>. Una salida manual o un ajuste mueven el almacén sin tocar el
-        libro: de ahí sale la diferencia. Si el ciclo ya pasó su último día, se compara contra el
+        El libro del mercado resta lo que sale por <strong>comidas</strong>, por{' '}
+        <strong>traslados</strong> y por <strong>mermas / salidas</strong> (pérdidas, salidas
+        manuales, ajustes a la baja), así que normalmente coincide con el almacén. Si igual hay
+        diferencia, algo movió el stock sin quedar registrado en ninguna de esas tres: por ejemplo
+        una comida borrada o editada a mano. Si el ciclo ya pasó su último día, se compara contra el
         inventario de ese día y no contra el de hoy. Cuando hay diferencia, el panel lo avisa
         arriba y el botón{' '}
         <strong>«Ver solo estos»</strong> deja en pantalla únicamente los víveres descuadrados.
@@ -108,10 +110,11 @@ const DUDAS: Entrada[] = [
     pregunta: '¿Qué cuenta como consumo?',
     respuesta: (
       <>
-        Solo lo que se registra en una comida desde esta pantalla. Si la analista saca víveres
-        con una salida manual o corrige el stock con un ajuste, el almacén baja pero el ciclo no
-        lo cuenta como consumo. No está mal hecho: son cosas distintas, y por eso conviven las
-        dos cifras.
+        Solo lo que se registra en una comida desde esta pantalla. Si alguien saca víveres con una
+        salida manual, registra una pérdida o corrige el stock con un ajuste, eso va a{' '}
+        <strong>«Mermas / salidas»</strong>: resta de lo que queda, pero no es consumo y no sube el
+        costo por plato. Su valor se ve aparte, en <strong>«Mermas valoradas»</strong>, y el detalle
+        del víver dice quién la hizo y por qué.
       </>
     ),
   },

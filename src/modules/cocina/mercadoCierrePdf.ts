@@ -109,6 +109,23 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
     y = (doc as any).lastAutoTable.finalY + 12;
   }
 
+  // Mermas / salidas: pérdidas, salidas manuales y ajustes a la baja. Restan del remanente
+  // desde el 15/09/2026; los cierres anteriores no las tienen.
+  if (snap.mermas?.length) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text('Mermas / salidas del período (pérdidas, salidas manuales, ajustes)', MARGIN, y);
+    autoTable(doc, {
+      startY: y + 6,
+      head: [['VÍVER', 'CANTIDAD', 'VALOR $']],
+      body: snap.mermas.map((v) => [`${v.nombre} (${v.sku})`, `−${num(v.cantidad)}`, money(v.valor)]),
+      styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
+      headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
+      margin: { left: MARGIN, right: MARGIN },
+    });
+    y = (doc as any).lastAutoTable.finalY + 12;
+  }
+
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
   doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
   return doc;

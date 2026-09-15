@@ -8,16 +8,27 @@
    se pagaron 300), con una confirmación se registran 200 como pago de la
    OC y los 100 restantes salen en OTRO movimiento de caja, «REEMBOLSO DE
    ORDEN DE COMPRA OC-…». El dinero salió igual; solo queda separado.
+
+   Desde el 15/09/2026 lo mismo aplica al pagar compras directas y servicios
+   directos: «REEMBOLSO DE COMPRA DIRECTA CD-…» / «REEMBOLSO DE SERVICIO
+   DIRECTO SD-…», con la misma categoría de caja.
    ============================================================ */
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
-/** Categoría del movimiento de caja del excedente. */
+/** Categoría del movimiento de caja del excedente (OC, orden de servicio y directos). */
 export const CATEGORIA_REEMBOLSO_OC = 'reembolso_oc';
 
-/** Concepto del movimiento del excedente. */
-export function conceptoReembolsoOc(codigo: string, sufijo?: string | null): string {
-  return `REEMBOLSO DE ORDEN DE COMPRA ${codigo}${sufijo ? ` · ${sufijo}` : ''}`;
+/** Concepto del movimiento del excedente de una orden. Una orden de servicio lo dice. */
+export function conceptoReembolsoOc(codigo: string, sufijo?: string | null, clase?: string | null): string {
+  const que = clase === 'servicio' ? 'ORDEN DE SERVICIO' : 'ORDEN DE COMPRA';
+  return `REEMBOLSO DE ${que} ${codigo}${sufijo ? ` · ${sufijo}` : ''}`;
+}
+
+/** Concepto del movimiento del excedente de una compra o un servicio directo. */
+export function conceptoReembolsoDirecto(kind: 'compra' | 'servicio', codigo: string, sufijo?: string | null): string {
+  const que = kind === 'servicio' ? 'SERVICIO DIRECTO' : 'COMPRA DIRECTA';
+  return `REEMBOLSO DE ${que} ${codigo}${sufijo ? ` · ${sufijo}` : ''}`;
 }
 
 /** Lo que se paga de una factura con retención (nunca negativo). */
@@ -37,6 +48,26 @@ export function convertirRetencion(valor: number, desde: 'bs' | 'usd', tasa: num
   const t = Number(tasa) || 0;
   if (desde === 'bs') return { bs: v, usd: t > 0 ? r2(v / t) : 0 };
   return { bs: t > 0 ? r2(v * t) : 0, usd: v };
+}
+
+/**
+ * Columnas de retención y reembolso de una compra o un servicio directo pagado.
+ * Se llaman `ret_pago_*` porque `compras_directas.retencion_*` ya es la retención de IVA.
+ */
+export function camposPagoDirecto(
+  retencion: number | null | undefined, detalle: RetencionDetalle | null | undefined,
+  reembolso: number | null | undefined, moneda: string | null | undefined,
+) {
+  const ret = r2(Math.max(0, Number(retencion) || 0));
+  const ree = r2(Math.max(0, Number(reembolso) || 0));
+  return {
+    ret_pago_monto: ret,
+    ret_pago_bs: ret > 0 && detalle ? detalle.bs : null,
+    ret_pago_usd: ret > 0 && detalle ? detalle.usd : null,
+    ret_pago_tasa: ret > 0 && detalle ? detalle.tasa : null,
+    reembolso_monto: ree,
+    reembolso_moneda: ree > 0 ? (moneda === 'Bs' ? 'Bs' : 'USD') : null,
+  };
 }
 
 /** Una pata de pago: el monto en su moneda y su equivalente en USD. */

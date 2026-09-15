@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { separarReembolso, aPagarConRetencion, conceptoReembolsoOc, convertirRetencion } from './reembolsoPago';
+import { separarReembolso, aPagarConRetencion, camposPagoDirecto, conceptoReembolsoDirecto, conceptoReembolsoOc, convertirRetencion } from './reembolsoPago';
 
 describe('pago de OC · retención', () => {
   it('la retención se resta del total de la factura', () => {
@@ -62,5 +62,28 @@ describe('pago de OC · reembolso de lo pagado de más', () => {
 
   it('el concepto nombra la orden de compra', () => {
     expect(conceptoReembolsoOc('OC-2026-0024')).toBe('REEMBOLSO DE ORDEN DE COMPRA OC-2026-0024');
+  });
+
+  it('guarda la retención con su detalle y el reembolso en la moneda del directo', () => {
+    expect(camposPagoDirecto(1600, { bs: 1600, usd: 10, tasa: 160 }, 25, 'Bs')).toEqual({
+      ret_pago_monto: 1600, ret_pago_bs: 1600, ret_pago_usd: 10, ret_pago_tasa: 160,
+      reembolso_monto: 25, reembolso_moneda: 'Bs',
+    });
+  });
+
+  it('sin retención ni reembolso deja ceros y sin detalle', () => {
+    expect(camposPagoDirecto(0, { bs: 5, usd: 1, tasa: 5 }, null, 'USD')).toEqual({
+      ret_pago_monto: 0, ret_pago_bs: null, ret_pago_usd: null, ret_pago_tasa: null,
+      reembolso_monto: 0, reembolso_moneda: null,
+    });
+  });
+
+  it('una orden de servicio no se llama «orden de compra»', () => {
+    expect(conceptoReembolsoOc('SV-2026-0007', null, 'servicio')).toBe('REEMBOLSO DE ORDEN DE SERVICIO SV-2026-0007');
+  });
+
+  it('el concepto de un directo dice si es compra o servicio', () => {
+    expect(conceptoReembolsoDirecto('compra', 'CD-2026-0101')).toBe('REEMBOLSO DE COMPRA DIRECTA CD-2026-0101');
+    expect(conceptoReembolsoDirecto('servicio', 'SD-2026-0033', 'Bs')).toBe('REEMBOLSO DE SERVICIO DIRECTO SD-2026-0033 · Bs');
   });
 });

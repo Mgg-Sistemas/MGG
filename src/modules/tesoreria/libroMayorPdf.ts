@@ -10,7 +10,7 @@ const CAT_LABEL: Record<string, string> = {
   gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', pago_nomina: 'Pago de nómina',
   traslado: 'Traslado', conversion: 'Conversión', compra_directa: 'Compra directa',
   cobro_cxc: 'Cobro por cobrar', abono_cxp: 'Abono por pagar', combustible: 'Combustible',
-  reembolso_oc: 'Reembolso de OC', comision_bancaria: 'Comisión bancaria',
+  reembolso_oc: 'Reembolso de pago', comision_bancaria: 'Comisión bancaria',
 };
 const TIPO_LABEL: Record<string, string> = {
   ingreso: 'Ingreso', salida: 'Egreso', traslado_salida: 'Traslado (sale)',

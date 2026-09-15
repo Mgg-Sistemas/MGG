@@ -1,7 +1,8 @@
 /* ============================================================
    MGG · Cocina · Mercado (ciclo de 21 días)
    Un "mercado" es un período de 21 días por cocina. Durante el período:
-     disponible por víver = saldo_inicial + entradas ± traslados − consumos.
+     disponible por víver = saldo_inicial + entradas ± traslados;
+     queda = disponible − consumos − mermas.
    - Entradas: movimientos de inventario (delta > 0) de víveres de cocina en
      los almacenes de la sede, EXCLUYENDO los reversos de cocina (ref_tipo='cocina')
      y los traslados, que van aparte.
@@ -25,10 +26,10 @@ import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, dia
 import { totalesParaCierre } from './costoPorPlato';
 import { repartosPendientes, type RepartoPendiente } from './reparto.repository';
 import {
-  cicloQueSePisa, deltaEfectivo, diferenciasPorViver, explicarDiferencia, inicioExactoDe, stockAlCorte, totalesDeMercado,
+  cicloQueSePisa, deltaEfectivo, diferenciasPorViver, inicioExactoDe, mermasPorViver, stockAlCorte, totalesDeMercado,
   trasladosSinLlegada, ventanaCicloDe,
   MARGEN_LLEGADA_MS,
-  type DiferenciaViver, type ExplicacionDiferencia, type PataTraslado, type SalidaFueraDelCiclo, type TotalesMercado,
+  type DiferenciaViver, type PataTraslado, type SalidaFueraDelCiclo, type TotalesMercado,
 } from './mercadoComparar';
 
 const TABLE = 'mercados_cocina';
@@ -49,8 +50,9 @@ export interface DisponibleItem {
   entradas: number;       // víveres que entraron en el período (sin traslados)
   traslados: number;      // neto de traslados: − lo que el centro envió, + lo que recibió
   consumos: number;       // consumido por las comidas
+  mermas: number;         // salidas que no son comida ni traslado: pérdidas, salidas manuales, ajustes a la baja
   disponible: number;     // saldoInicial + entradas + traslados
-  queda: number;          // disponible − consumos
+  queda: number;          // disponible − consumos − mermas
 }
 
 export interface KardexEntrada {
@@ -74,7 +76,14 @@ export interface KardexTraslado {
   /** Cuánto de esta salida no aparece entrando en ningún almacén. 0 = llegó. */
   sinLlegada: number;
 }
-export type KardexRow = KardexEntrada | KardexConsumo | KardexTraslado;
+/** Una salida que no es comida ni traslado: pérdida, salida manual, ajuste a la baja. */
+export interface KardexMerma {
+  kind: 'merma'; at: string; producto_id: string; nombre: string; unidad: string;
+  /** Positivo: cuánto salió. */
+  cantidad: number; valor: number; tipo: string; detalle: string | null; almacen: string | null;
+  actor_name: string | null;
+}
+export type KardexRow = KardexEntrada | KardexConsumo | KardexTraslado | KardexMerma;
 
 export interface CierreSnapshot {
   generado_en: string; desde: string; hasta: string;
@@ -110,6 +119,11 @@ export interface CierreSnapshot {
      Neto por víver, con signo: negativo lo que el centro envió. Los cierres
      anteriores no lo tienen: en ellos lo recibido quedó sumado en `entradas`. */
   traslados?: ItemAgg[];
+  /* ── Mermas / salidas, agregado el 15/09/2026 ──
+     Pérdidas, salidas manuales y ajustes a la baja, que restan del remanente. Su
+     presencia (aunque vacía) marca que el cierre ya las restaba: los anteriores se
+     siguen mostrando sin restarlas, como se cerraron. */
+  mermas?: ItemAgg[];
   /** Si se cerró después del último día: la fecha a la que se tomó el inventario del contraste. */
   inventario_al?: string | null;
 }
@@ -176,7 +190,7 @@ export interface ResumenMercado {
   dia: number;                 // día actual del ciclo (1..)
   dias: number;                // total del ciclo (21)
   puedeCerrar: boolean;        // ya pasó el día 21 (día 22+)
-  kpis: { platos: number; consumoValor: number; entradasValor: number; disponibleValor: number; };
+  kpis: { platos: number; consumoValor: number; entradasValor: number; disponibleValor: number; mermasValor: number; };
   disponible: DisponibleItem[];
   kardex: KardexRow[];
   /** Los cinco números del ciclo + el contraste contra el inventario. */
@@ -184,19 +198,9 @@ export interface ResumenMercado {
   /** Víveres donde el libro y el almacén no coinciden. Vacío = todo cuadra. */
   diferencias: DiferenciaViver[];
   /**
-   * Por dónde se fue el faltante de cada víver, cuando se puede saber.
-   *
-   * Decir «faltan 32» obliga a salir a buscar en el kardex; decir «32 salieron
-   * por un movimiento manual el 08/09» cierra la pregunta donde se hace. Solo
-   * trae los que tienen explicación: un sobrante no la tiene.
-   */
-  explicaciones: Map<string, ExplicacionDiferencia>;
-  /**
-   * Los movimientos que el ciclo NO cuenta, por víver.
-   *
-   * El drill de un víver muestra entradas y consumos, o sea solo lo que el libro
-   * mira. Un víver del que salieron 30 Kg por una salida manual se ve idéntico a
-   * uno que nadie tocó — y es justo el que hay que revisar.
+   * Las mermas / salidas de cada víver, una por una: pérdidas, salidas manuales y
+   * ajustes a la baja. Ya restan en `disponible[].mermas`; acá está el detalle de
+   * quién las hizo y por qué, para el drill del víver.
    */
   salidasFueraDelCiclo: Map<string, SalidaFueraDelCiclo[]>;
   /** Salidas por traslado cuya llegada no aparece en ningún almacén. */
@@ -531,81 +535,125 @@ async function trasladosDe(
   return { rows, agg };
 }
 
-/* ───────── Disponible por víver (saldo + entradas ± traslados − consumos) ───────── */
+/* ───────── Disponible por víver (saldo + entradas ± traslados − consumos − mermas) ───────── */
 
 function armarDisponible(
   saldo: SaldoItem[], entradas: Map<string, ItemAgg>, traslados: Map<string, ItemAgg>, consumos: Map<string, ItemAgg>,
+  mermas: Map<string, ItemAgg>,
   prodById: Map<string, Producto>,
 ): DisponibleItem[] {
   const saldoMap = new Map(saldo.map((s) => [s.producto_id, s] as const));
-  const ids = new Set<string>([...saldoMap.keys(), ...entradas.keys(), ...traslados.keys(), ...consumos.keys()]);
+  const ids = new Set<string>([...saldoMap.keys(), ...entradas.keys(), ...traslados.keys(), ...consumos.keys(), ...mermas.keys()]);
   const out: DisponibleItem[] = [];
   for (const id of ids) {
     const s = saldoMap.get(id); const e = entradas.get(id); const t = traslados.get(id); const c = consumos.get(id);
+    const m = mermas.get(id);
     // Un víver que solo tuvo un traslado interno (salió de un almacén del centro y
     // entró a otro) suma cero: no forma parte del ciclo y no ensucia la tabla.
-    if (!s && !e && !c && r2(t?.cantidad ?? 0) === 0) continue;
+    if (!s && !e && !c && !m && r2(t?.cantidad ?? 0) === 0) continue;
     const p = prodById.get(id);
-    const nombre = s?.nombre ?? e?.nombre ?? t?.nombre ?? c?.nombre ?? p?.nombre ?? id;
-    const sku = s?.sku ?? e?.sku ?? t?.sku ?? c?.sku ?? p?.sku ?? '';
-    const unidad = s?.unidad ?? e?.unidad ?? t?.unidad ?? c?.unidad ?? p?.unidad ?? '';
+    const nombre = s?.nombre ?? e?.nombre ?? t?.nombre ?? c?.nombre ?? m?.nombre ?? p?.nombre ?? id;
+    const sku = s?.sku ?? e?.sku ?? t?.sku ?? c?.sku ?? m?.sku ?? p?.sku ?? '';
+    const unidad = s?.unidad ?? e?.unidad ?? t?.unidad ?? c?.unidad ?? m?.unidad ?? p?.unidad ?? '';
     const saldoInicial = r2(s?.cantidad ?? 0);
     const entradasN = r2(e?.cantidad ?? 0);
     const trasladosN = r2(t?.cantidad ?? 0);
     const consumosN = r2(c?.cantidad ?? 0);
+    const mermasN = r2(m?.cantidad ?? 0);
     const disponible = r2(saldoInicial + entradasN + trasladosN);
-    const queda = r2(disponible - consumosN);
+    const queda = r2(disponible - consumosN - mermasN);
     out.push({
       producto_id: id, sku, nombre, unidad, precio: Number(p?.precio) || 0,
-      saldoInicial, entradas: entradasN, traslados: trasladosN, consumos: consumosN, disponible, queda,
+      saldoInicial, entradas: entradasN, traslados: trasladosN, consumos: consumosN, mermas: mermasN, disponible, queda,
     });
   }
   return out.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 }
 
 
+interface MermasResult {
+  /** Cada salida, por víver: para el detalle (quién, cuándo, por qué). */
+  porViver: Map<string, SalidaFueraDelCiclo[]>;
+  /** Neto por víver, lo que resta en la columna «Mermas / salidas». */
+  agg: Map<string, ItemAgg>;
+  rows: KardexMerma[];
+  valorTotal: number;
+}
+
+const SIN_MERMAS: MermasResult = { porViver: new Map(), agg: new Map(), rows: [], valorTotal: 0 };
+
 /**
- * Salidas de víveres que el mercado NO cuenta como consumo.
+ * Mermas / salidas del período: toda salida de víveres que no es una comida ni un
+ * traslado. Una pérdida, una salida manual, una salida por Salidas, un ajuste a la baja.
  *
- * El libro resta lo que sale por `cocina_comidas` y por traslado. Una salida
- * manual o un ajuste mueven el inventario sin tocar el libro, y de ahí sale el
- * descuadre. Traerlas es lo que permite decir POR DÓNDE se fue el faltante, en
- * vez de solo cuánto falta.
+ * POR QUÉ RESTAN. Hasta el 15/09/2026 el libro solo restaba comidas y traslados; lo
+ * demás bajaba el inventario sin tocar el libro y el panel lo mostraba como faltante.
+ * El 15/09 se perdieron 450,3 pollos en Los Pinos y el mercado decía «faltan 450,3»
+ * con el inventario en 0. Las entradas ya contaban los ajustes al alza; ahora las
+ * salidas cuentan los ajustes a la baja, y el libro queda simétrico.
+ *
+ * No son consumo: no suben el costo por plato. Su valor va aparte (`mermasValor`).
  */
-async function salidasFueraDelCicloDe(
+async function mermasDe(
   m: VentanaMercado,
   almacen: string | null,
   prodById: Map<string, Producto>,
-): Promise<Map<string, SalidaFueraDelCiclo[]>> {
+): Promise<MermasResult> {
   const { desde, hasta } = ventana(m);
   const scope = await almacenesScope(almacen);
-  let q = supabase.from('movimientos')
-    .select('producto_id, delta, stock_antes, stock_despues, at, tipo, actor_name, detalle, almacen, ref_tipo')
-    .lt('delta', 0).gte('at', desde).lte('at', hasta);
-  if (scope) q = q.in('almacen', Array.from(scope));
-  const { data, error } = await q.order('at', { ascending: false }).limit(1000);
-  if (error) throw error;
+  // Por páginas: Supabase corta en 1.000 filas sin avisar, y en 21 días un centro las pasa.
+  const data = await todasLasFilas<Record<string, unknown>>((d, h) => {
+    let q = supabase.from('movimientos')
+      .select('id, producto_id, delta, stock_antes, stock_despues, at, tipo, actor_name, detalle, almacen, ref_tipo, precio_unitario, costo_promedio')
+      .lt('delta', 0).gte('at', desde).lte('at', hasta);
+    if (scope) q = q.in('almacen', Array.from(scope));
+    return q.order('at', { ascending: false }).order('id').range(d, h);
+  });
 
-  const out = new Map<string, SalidaFueraDelCiclo[]>();
-  for (const raw of (data ?? []) as Record<string, unknown>[]) {
-    // Lo de cocina y los traslados SÍ los cuenta el libro: no explican ninguna diferencia.
+  const porViver = new Map<string, SalidaFueraDelCiclo[]>();
+  const rows: KardexMerma[] = [];
+  const valorPorViver = new Map<string, number>();
+  let valorTotal = 0;
+  for (const raw of data) {
+    // Las comidas y los traslados ya tienen su columna.
     if (raw.ref_tipo === 'cocina' || raw.tipo === 'transferencia') continue;
     const p = prodById.get(String(raw.producto_id));
     if (!p || !esCategoriaCocina(p.categoria)) continue;
+    // Lo que bajó DE VERDAD el almacén, no lo que pidió (ver `deltaEfectivo`).
     const cantidad = Math.abs(r2(deltaEfectivo(raw)));
     if (cantidad <= 0) continue;
-    const lista = out.get(p.id) ?? [];
-    lista.push({
-      producto_id: p.id,
-      at: String(raw.at),
-      cantidad,
-      tipo: String(raw.tipo ?? 'salida'),
-      actor_name: (raw.actor_name as string) ?? null,
-      detalle: (raw.detalle as string) ?? null,
+    const precio = Number(raw.costo_promedio) || Number(raw.precio_unitario) || Number(p.precio) || 0;
+    const valor = r2(cantidad * precio);
+    valorTotal = r2(valorTotal + valor);
+    valorPorViver.set(p.id, r2((valorPorViver.get(p.id) ?? 0) + valor));
+    const tipo = String(raw.tipo ?? 'salida');
+    const actor_name = (raw.actor_name as string) ?? null;
+    const detalle = (raw.detalle as string) ?? null;
+    const lista = porViver.get(p.id) ?? [];
+    lista.push({ producto_id: p.id, at: String(raw.at), cantidad, tipo, actor_name, detalle });
+    porViver.set(p.id, lista);
+    rows.push({
+      kind: 'merma', at: String(raw.at), producto_id: p.id, nombre: p.nombre, unidad: p.unidad ?? '',
+      cantidad, valor, tipo, detalle, almacen: (raw.almacen as string) ?? null, actor_name,
     });
-    out.set(p.id, lista);
   }
-  return out;
+
+  const agg = new Map<string, ItemAgg>();
+  for (const [id, cantidad] of mermasPorViver(porViver)) {
+    const p = prodById.get(id)!;
+    agg.set(id, { producto_id: id, sku: p.sku, nombre: p.nombre, unidad: p.unidad ?? '', cantidad, valor: valorPorViver.get(id) ?? 0 });
+  }
+  return { porViver, agg, rows, valorTotal };
+}
+
+/**
+ * ¿Este mercado resta las mermas? Los abiertos sí. Los cerrados solo si su cierre ya las
+ * restaba (desde el 15/09/2026 el snapshot trae `mermas`, aunque sea vacío): uno cerrado
+ * antes se muestra como se cerró, o su «queda» dejaría de coincidir con el remanente que
+ * le pasó al siguiente.
+ */
+function restaMermas(m: MercadoCocina): boolean {
+  return m.estado === 'abierto' || Array.isArray(m.cierre?.mermas);
 }
 
 /* ───────── Resumen en vivo del mercado abierto ───────── */
@@ -614,22 +662,18 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
   const abierto = mercado.estado === 'abierto';
-  const [ent, tras, con, viveres, salidasFuera, pendientes] = await Promise.all([
+  const [ent, tras, con, viveres, mer, pendientes] = await Promise.all([
     entradasDe(mercado, almacen, prodById),
     trasladosDe(mercado, almacen, prodById, { verificarLlegada: true }),
     consumosDe(mercado, mercado.cocina_id),
     listViveresGlobal(almacen),
-    // Solo hace falta para el mercado abierto: en uno cerrado la explicación ya
-    // quedó en el snapshot y el almacén siguió moviéndose después.
-    abierto
-      ? salidasFueraDelCicloDe(mercado, almacen, prodById)
-      : Promise.resolve(new Map<string, SalidaFueraDelCiclo[]>()),
+    restaMermas(mercado) ? mermasDe(mercado, almacen, prodById) : Promise.resolve(SIN_MERMAS),
     // Un reparto por aprobar todavía no movió stock: no está en el libro y hay que decirlo.
     abierto
       ? repartosPendientes(almacen, (id) => esCategoriaCocina(prodById.get(id)?.categoria))
       : Promise.resolve([] as RepartoPendiente[]),
   ]);
-  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, prodById);
+  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, mer.agg, prodById);
   // El stock REAL del almacén, para contrastarlo con el libro del mercado. Es lo único
   // que puede contradecir al libro, y por eso es lo que hace visible el descuadre.
   //
@@ -643,21 +687,14 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
   const stockPorProducto = abierto ? await stockAlCorteDe(mercado, almacen, stockDeViveres(viveres)) : null;
   const disponibleValor = r2(disponible.reduce((a, d) => a + d.queda * d.precio, 0));
 
-  /* Las diferencias vivas y, para cada una, por dónde se fue lo que falta. Se
-     arma acá y no dentro de `diferenciasPorViver` porque esa función es pura y
-     no sabe de movimientos: recibe dos números y los compara. */
   const difsVivas = mercado.estado === 'abierto'
     ? diferenciasPorViver(disponible, stockPorProducto ?? new Map())
     : (mercado.cierre?.diferencias ?? []);
-  const explicaciones = new Map<string, ExplicacionDiferencia>();
-  for (const d of difsVivas) {
-    const exp = explicarDiferencia(d.diferencia, salidasFuera.get(d.producto_id) ?? []);
-    if (exp) explicaciones.set(d.producto_id, exp);
-  }
 
   const kardex: KardexRow[] = [
     ...ent.rows,
     ...tras.rows,
+    ...mer.rows,
     ...con.comidas.map((c): KardexConsumo => ({
       kind: 'consumo', at: c.at, comida: c,
       items: (c.items ?? []).length,
@@ -670,8 +707,8 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
     // por la cena se leía «cena, desayuno, almuerzo».
     const dia = diaDeComida(b.at).localeCompare(diaDeComida(a.at));
     if (dia !== 0) return dia;
-    // Dentro del día: primero llega, después se reparte, después se cocina.
-    const orden = (k: KardexRow) => (k.kind === 'entrada' ? 0 : k.kind === 'traslado' ? 1 : 2);
+    // Dentro del día: primero llega, después se reparte, después se cocina, y al final lo que se perdió.
+    const orden = (k: KardexRow) => (k.kind === 'entrada' ? 0 : k.kind === 'traslado' ? 1 : k.kind === 'consumo' ? 2 : 3);
     if (a.kind !== b.kind) return orden(a) - orden(b);
     if (a.kind === 'consumo' && b.kind === 'consumo') {
       const t = ordenTipoComida(a.comida.tipo_comida) - ordenTipoComida(b.comida.tipo_comida);
@@ -683,7 +720,7 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
   return {
     mercado, dia: diaDe(mercado), dias: DURACION_MERCADO_DIAS,
     puedeCerrar: hoyStr() > mercado.fecha_fin,
-    kpis: { platos: con.platos, consumoValor: con.valor, entradasValor: ent.valorTotal, disponibleValor },
+    kpis: { platos: con.platos, consumoValor: con.valor, entradasValor: ent.valorTotal, disponibleValor, mermasValor: mer.valorTotal },
     disponible, kardex,
     // Cerrado: los totales salen sin contraste y las diferencias se leen del cierre.
     totales: mercado.estado === 'abierto'
@@ -692,8 +729,7 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
           diferencia: mercado.cierre?.diferencia ?? null,
           vieresConDiferencia: mercado.cierre?.diferencias?.length ?? 0 },
     diferencias: difsVivas,
-    explicaciones,
-    salidasFueraDelCiclo: salidasFuera,
+    salidasFueraDelCiclo: mer.porViver,
     trasladosSinLlegada: tras.rows.filter((t) => t.sinLlegada > 0),
     repartosPendientes: pendientes,
     inventarioAl: abierto && cicloVencido(mercado) ? mercado.fecha_fin : (mercado.cierre?.inventario_al ?? null),
@@ -858,13 +894,14 @@ export async function cerrarMercado(
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
   const { desde, hasta } = ventana(mercado);
-  const [ent, tras, con, viveres] = await Promise.all([
+  const [ent, tras, con, viveres, mer] = await Promise.all([
     entradasDe(mercado, almacen, prodById),
     trasladosDe(mercado, almacen, prodById),
     consumosDe(mercado, mercado.cocina_id),
     listViveresGlobal(almacen),
+    mermasDe(mercado, almacen, prodById),
   ]);
-  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, prodById);
+  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, mer.agg, prodById);
   // Cerrando después del último día, el contraste y el ajuste se hacen contra el
   // stock de ESE día: el de hoy ya trae restado lo que es del ciclo siguiente.
   const vencido = cicloVencido(mercado);
@@ -894,6 +931,8 @@ export async function cerrarMercado(
     traslados: Array.from(tras.agg.values())
       .filter((t) => t.cantidad !== 0)
       .sort((a, b) => Math.abs(b.cantidad) - Math.abs(a.cantidad)),
+    // Siempre presente, aunque vacío: marca que este cierre ya restaba las mermas.
+    mermas: Array.from(mer.agg.values()).sort((a, b) => b.valor - a.valor),
     inventario_al: vencido ? mercado.fecha_fin : null,
     remanente,
     remanente_mercado: totales.queda,

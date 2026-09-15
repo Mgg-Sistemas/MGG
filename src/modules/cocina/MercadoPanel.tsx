@@ -23,11 +23,11 @@ import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
   cerrarMercado, descartarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
-  type KardexTraslado, type MercadoCocina,
+  type KardexMerma, type KardexRow, type KardexTraslado, type MercadoCocina,
 } from './mercados.repository';
 import { RepartirMercadoModal } from './RepartirMercadoModal';
 import {
-  describirEvento, explicarDiferencia, explicarSobrante, productosAjustados, separarMovidos,
+  describirEvento, explicarSobrante, productosAjustados, separarMovidos,
   type DiferenciaViver, type SalidaFueraDelCiclo,
 } from './mercadoComparar';
 
@@ -65,7 +65,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   onEditComida: (c: CocinaComida) => void;
   onDelComida: (c: CocinaComida) => void;
 }) {
-  const { mercado, dia, dias, puedeCerrar, disponible, kardex, totales, diferencias, explicaciones } = resumen;
+  const { mercado, dia, dias, puedeCerrar, disponible, kardex, totales, diferencias } = resumen;
   const [drill, setDrill] = useState<DisponibleItem | null>(null);
   const [cerrar, setCerrar] = useState(false);
   const [descartar, setDescartar] = useState(false);
@@ -122,6 +122,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
     return kardex.filter((k) => {
       if (k.kind === 'entrada') return k.nombre.toLowerCase().includes(q);
       if (k.kind === 'traslado') return `${k.nombre} ${k.codigo ?? ''} ${k.contraparte ?? ''}`.toLowerCase().includes(q);
+      if (k.kind === 'merma') return `${k.nombre} ${k.detalle ?? ''} ${k.actor_name ?? ''}`.toLowerCase().includes(q);
       return `${k.comida.codigo} ${labelTipoComida(k.comida.tipo_comida)} ${(k.comida.items ?? []).map((i) => i.nombre).join(' ')}`.toLowerCase().includes(q);
     });
   }, [kardex, busca]);
@@ -195,6 +196,9 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           <Cifra rotulo="± Traslados" valor={conSigno(totales.traslados)} color="var(--info)" />
           <Cifra rotulo="= Disponible" valor={num(totales.disponible)} fuerte />
           <Cifra rotulo="− Consumo" valor={num(totales.consumos)} color="var(--danger)" />
+          {/* Pérdidas, salidas manuales y ajustes a la baja. Sin esta cifra el libro no las
+              restaba y cada pérdida aparecía como un faltante contra el inventario. */}
+          <Cifra rotulo="− Mermas / salidas" valor={num(totales.mermas)} color="var(--warning)" />
           <Cifra rotulo="= Queda" valor={num(totales.queda)} fuerte color="var(--primary-3, #2ecc71)" />
         </div>
         {/* Lo que costó dar de comer. La ecuación de arriba se lee en UNIDADES y sirve
@@ -217,6 +221,8 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
             nota={costo.porPlato == null ? 'todavía no se sirvió ningún plato' : undefined}
           />
           {costo.entradas > 0 && <Costo rotulo="Entradas valoradas" valor={money(costo.entradas)} />}
+          {/* Lo perdido en dinero, APARTE del costo por plato: una pérdida no es comida servida. */}
+          {resumen.kpis.mermasValor > 0 && <Costo rotulo="Mermas valoradas" valor={money(resumen.kpis.mermasValor)} color="var(--warning)" />}
         </div>
         {/* El contraste con el inventario aparece SOLO si no cuadra. Un «0» que
             tranquiliza ocupa lugar y enseña a no mirar. */}
@@ -338,7 +344,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       {/* ── CAPA 3a · Disponible a consumir ──────────────────────────────── */}
       {vista !== 'movimientos' && (
       <div className="card" style={{ marginBottom: '.9rem' }}>
-        <div className="card-title" style={{ marginBottom: '.5rem' }}>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas ± traslados − consumos · tocá un víver para el detalle</span></div>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas ± traslados − consumos − mermas · tocá un víver para el detalle</span></div>
         {/* Una tabla filtrada que no lo dice se lee como si fuera todo el mercado, y
             ahí el filtro deja de ayudar y empieza a engañar. El aviso lleva su propia
             salida, para no tener que volver a la tira de arriba. */}
@@ -366,6 +372,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                 <th style={{ textAlign: 'right' }}>Traslados</th>
                 <th style={{ textAlign: 'right' }}>Disponible</th>
                 <th style={{ textAlign: 'right' }}>Consumido</th>
+                <th style={{ textAlign: 'right' }}>Mermas / salidas</th>
                 <th style={{ textAlign: 'right' }}>Queda</th>
               </tr></thead>
               <tbody>
@@ -404,19 +411,17 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                         <td className="mono" style={{ textAlign: 'right', color: d.traslados ? 'var(--info)' : undefined }}>{d.traslados ? conSigno(d.traslados) : '·'}</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{cifra(d.disponible)}</td>
                         <td className="mono" style={{ textAlign: 'right', color: d.consumos ? 'var(--danger)' : undefined }}>{d.consumos ? `−${num(d.consumos)}` : '·'}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: d.mermas ? 'var(--warning)' : undefined }}>{d.mermas ? `−${num(d.mermas)}` : '·'}</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: d.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(d.queda)}</td>
                       </tr>
                       {/* La diferencia se dice con NÚMEROS y palabras, no solo con un color:
                           así se lee igual en una captura en blanco y negro. */}
                       {dif && (
                         <tr style={{ borderLeft: '3px solid var(--warning)' }}>
-                          <td colSpan={7} style={{ paddingTop: 0, fontSize: '.76rem' }}>
+                          <td colSpan={8} style={{ paddingTop: 0, fontSize: '.76rem' }}>
                             <span style={{ color: 'var(--warning)' }}>⚠ en inventario hay <strong className="mono">{num(dif.inventario)}</strong></span>
                             {' · '}
                             {dif.diferencia < 0 ? 'faltan' : 'sobran'} <strong className="mono">{num(Math.abs(dif.diferencia))}</strong> {d.unidad.toLowerCase()}
-                            {/* POR DÓNDE se fue. «Faltan 32» manda a buscar en el
-                                kardex; «32 salieron por un movimiento manual el
-                                08/09» cierra la pregunta acá mismo. */}
                             {/* Un SOBRANTE no se explica con salidas, así que se mira
                                 la fila del ciclo. El caso grave es el libro en
                                 negativo: no sobra comida, falta una entrada. */}
@@ -425,24 +430,6 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                                 ↳ {explicarSobrante(d)}
                               </span>
                             )}
-                            {(() => {
-                              const exp = explicaciones.get(d.producto_id);
-                              if (!exp) return null;
-                              const t = exp.porTipo[0];
-                              return (
-                                <span className="dim" style={{ display: 'block', marginTop: '.1rem' }}>
-                                  ↳ {num(exp.total)} sali{exp.total === 1 ? 'ó' : 'eron'} por {t.movimientos === 1 ? `un ${t.tipo}` : `${t.movimientos} movimientos`}
-                                  {exp.ultimo ? ` · último el ${fmtDia(exp.ultimo.at.slice(0, 10))}` : ''}
-                                  {exp.ultimo?.actor ? ` (${exp.ultimo.actor})` : ''}
-                                  {/* Si no alcanza a cubrir el faltante hay que decirlo:
-                                      dar el caso por cerrado cuando queda un resto manda
-                                      a archivar una investigación que sigue abierta. */}
-                                  {!exp.explicaTodo && (
-                                    <span style={{ color: 'var(--warning)' }}> · quedan {num(exp.sinExplicar)} sin explicar</span>
-                                  )}
-                                </span>
-                              );
-                            })()}
                           </td>
                         </tr>
                       )}
@@ -469,7 +456,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       {vista !== 'disponible' && (
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
-          <div className="card-title" style={{ margin: 0 }}>Movimientos del mercado <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· entradas, traslados y consumos</span></div>
+          <div className="card-title" style={{ margin: 0 }}>Movimientos del mercado <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· entradas, traslados, consumos y mermas</span></div>
           <input className="input" style={{ maxWidth: 240 }} placeholder="Buscar en el kardex…" value={busca} onChange={(e) => setBusca(e.target.value)} />
         </div>
         {!kardexFiltrado.length ? (
@@ -480,6 +467,8 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
               ? <FilaEntrada key={`e${i}`} row={k} />
               : k.kind === 'traslado'
                 ? <FilaTraslado key={`t${k.id}`} row={k} />
+                : k.kind === 'merma'
+                ? <FilaMerma key={`m${i}`} row={k} />
                 : <FilaConsumo key={`c${k.comida.id}`} row={k} canWrite={canWrite} onEdit={() => onEditComida(k.comida)} onDel={() => onDelComida(k.comida)} />)}
           </div>
         )}
@@ -588,6 +577,30 @@ function FilaTraslado({ row }: { row: KardexTraslado }) {
   );
 }
 
+/* ───────── Fila de kardex: MERMA / SALIDA (naranja) ───────── */
+function FilaMerma({ row }: { row: KardexMerma }) {
+  return (
+    <div className="card" style={{ margin: 0, padding: '.5rem .7rem', borderLeft: '4px solid var(--warning)', display: 'flex', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap' }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: '.86rem' }}>
+          <span style={{ color: 'var(--warning)' }}>⚠ Merma / salida</span> · {row.nombre}
+          <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.64rem' }}>{row.tipo}</span>
+        </div>
+        <div className="muted" style={{ fontSize: '.74rem' }}>
+          {dateTime(row.at)}{row.almacen ? ` · 📦 ${row.almacen}` : ''}{row.actor_name ? ` · ${row.actor_name}` : ''}
+          {row.detalle
+            ? <> · {row.detalle}</>
+            : <span style={{ fontStyle: 'italic' }}> · sin motivo escrito</span>}
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+        <div className="mono" style={{ fontWeight: 800, color: 'var(--warning)' }}>−{num(row.cantidad)} {row.unidad}</div>
+        {row.valor > 0 && <div className="muted mono" style={{ fontSize: '.74rem' }}>{money(row.valor)}</div>}
+      </div>
+    </div>
+  );
+}
+
 /* ───────── Fila de kardex: CONSUMO (rojo, expandible) ───────── */
 function FilaConsumo({ row, canWrite, onEdit, onDel }: { row: KardexConsumo; canWrite: boolean; onEdit: () => void; onDel: () => void }) {
   const [abierto, setAbierto] = useState(false);
@@ -622,11 +635,11 @@ function FilaConsumo({ row, canWrite, onEdit, onDel }: { row: KardexConsumo; can
 /* ───────── Drill-down de un víver: saldo inicial + entradas + consumos ───────── */
 function DrillModal({ item, kardex, fechaInicio, inicioAt, fuera, diferencia, onClose }: {
   item: DisponibleItem;
-  kardex: (KardexEntrada | KardexConsumo | KardexTraslado)[];
+  kardex: KardexRow[];
   fechaInicio: string;
   /** Instante exacto de apertura, si lo tiene: el saldo es el inventario de ese momento. */
   inicioAt: string | null;
-  /** Lo que salió por fuera del ciclo: salidas manuales y ajustes. */
+  /** Las mermas / salidas de este víver: pérdidas, salidas manuales y ajustes a la baja. */
   fuera: SalidaFueraDelCiclo[];
   /** inventario − libro para este víver. `null` si cuadra o si el mercado está cerrado. */
   diferencia: DiferenciaViver | null;
@@ -653,7 +666,9 @@ function DrillModal({ item, kardex, fechaInicio, inicioAt, fuera, diferencia, on
           </div>
         )}
         <div style={{ marginTop: '.2rem' }}>= <strong>TOTAL DISPONIBLE A CONSUMIR</strong>: <strong className="mono" style={{ fontSize: '1.05rem' }}>{num(item.disponible)} {item.unidad}</strong></div>
-        <div className="muted">− consumido: <strong className="mono" style={{ color: 'var(--danger)' }}>{num(item.consumos)} {item.unidad}</strong> · queda: <strong className="mono" style={{ color: item.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(item.queda)} {item.unidad}</strong></div>
+        <div className="muted">− consumido: <strong className="mono" style={{ color: 'var(--danger)' }}>{num(item.consumos)} {item.unidad}</strong>
+          {item.mermas !== 0 && <> · − mermas / salidas: <strong className="mono" style={{ color: 'var(--warning)' }}>{num(item.mermas)} {item.unidad}</strong></>}
+          {' '}· queda: <strong className="mono" style={{ color: item.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(item.queda)} {item.unidad}</strong></div>
 
         {/* EL CONTRASTE Y SU DIAGNÓSTICO, donde se viene a entender el víver. La
             tabla ya lo avisa, pero acá es donde uno llega buscando el porqué. */}
@@ -664,26 +679,9 @@ function DrillModal({ item, kardex, fechaInicio, inicioAt, fuera, diferencia, on
               {' · '}{diferencia.diferencia < 0 ? 'faltan' : 'sobran'}{' '}
               <strong className="mono">{num(Math.abs(diferencia.diferencia))} {item.unidad}</strong>
             </span>
-            {(() => {
-              const exp = explicarDiferencia(diferencia.diferencia, fuera);
-              if (exp) {
-                const t = exp.porTipo[0];
-                return (
-                  <div className="dim" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>
-                    ↳ {num(exp.total)} sali{exp.total === 1 ? 'ó' : 'eron'} por {t.movimientos === 1 ? `un ${t.tipo}` : `${t.movimientos} movimientos`}
-                    {exp.ultimo ? ` · último el ${fmtDia(exp.ultimo.at.slice(0, 10))}` : ''}
-                    {exp.ultimo?.actor ? ` (${exp.ultimo.actor})` : ''}
-                    {!exp.explicaTodo && (
-                      <span style={{ color: 'var(--warning)' }}> · quedan {num(exp.sinExplicar)} sin explicar</span>
-                    )}
-                  </div>
-                );
-              }
-              if (diferencia.diferencia > 0) {
-                return <div className="dim" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>↳ {explicarSobrante(item)}</div>;
-              }
-              return null;
-            })()}
+            {diferencia.diferencia > 0 && (
+              <div className="dim" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>↳ {explicarSobrante(item)}</div>
+            )}
           </div>
         )}
       </div>
@@ -730,19 +728,18 @@ function DrillModal({ item, kardex, fechaInicio, inicioAt, fuera, diferencia, on
         </div>
       )}
 
-      {/* MOVIMIENTOS FUERA DEL CICLO, al mismo nivel que entradas y consumos.
-          El libro solo resta lo que sale por cocina_comidas, así que un víver del
-          que salieron 30 Kg por una salida manual se veía acá idéntico a uno que
-          nadie tocó — y es justo el que hay que revisar. */}
+      {/* MERMAS / SALIDAS, al mismo nivel que entradas y consumos: restan del libro.
+          Una por una, con quién y por qué: el total solo no dice si fue una pérdida
+          o una salida mal cargada. */}
       <h4 style={{ margin: '.8rem 0 .35rem', color: 'var(--warning)' }}>
-        Movimientos fuera del ciclo ({fuera.length})
+        Mermas / salidas ({fuera.length})
       </h4>
       {!fuera.length ? (
-        <p className="hint muted" style={{ margin: 0 }}>Ninguno: todo lo que salió pasó por una comida o un traslado.</p>
+        <p className="hint muted" style={{ margin: 0 }}>Ninguna: todo lo que salió pasó por una comida o un traslado.</p>
       ) : (
         <>
           <p className="hint muted" style={{ margin: '0 0 .35rem' }}>
-            Movieron el inventario pero <strong>no cuentan como consumo</strong> del mercado: por eso el libro y el almacén pueden no coincidir.
+            Pérdidas, salidas manuales y ajustes a la baja. <strong>Restan de lo que queda</strong>, pero no son consumo: no suben el costo por plato.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
             {fuera.map((f, i) => (
@@ -791,6 +788,7 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
     consumos: disponible.filter((d) => d.consumos > 0).map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.consumos, valor: Math.round(d.consumos * d.precio * 100) / 100 })),
     entradas: disponible.filter((d) => d.entradas > 0).map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.entradas, valor: Math.round(d.entradas * d.precio * 100) / 100 })),
     traslados: disponible.filter((d) => d.traslados !== 0).map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.traslados, valor: Math.round(d.traslados * d.precio * 100) / 100 })),
+    mermas: disponible.filter((d) => d.mermas > 0).map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.mermas, valor: Math.round(d.mermas * d.precio * 100) / 100 })),
     remanente: remanente.map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.queda })),
   }), [mercado, kpis, disponible, remanente]);
 

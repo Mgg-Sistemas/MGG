@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  cicloQueSePisa, explicarDiferencia, explicarSobrante, inicioExactoDe, primerDiaLibre, ventanaCicloDe,
+  cicloQueSePisa, explicarSobrante, inicioExactoDe, mermasPorViver, primerDiaLibre, ventanaCicloDe,
   compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
   deltaEfectivo, separarMovidos, stockAlCorte, totalesDeMercado, trasladosSinLlegada,
 } from './mercadoComparar';
@@ -10,12 +10,12 @@ import type { PataTraslado, SalidaFueraDelCiclo, VentanaCiclo } from './mercadoC
 // Víveres reales de La Esperanza, con los números que muestra la pantalla hoy.
 const d = (
   producto_id: string, nombre: string, unidad: string,
-  saldoInicial: number, entradas: number, consumos: number, traslados = 0,
+  saldoInicial: number, entradas: number, consumos: number, traslados = 0, mermas = 0,
 ): DisponibleItem => ({
   producto_id, sku: producto_id, nombre, unidad, precio: 1,
-  saldoInicial, entradas, traslados, consumos,
+  saldoInicial, entradas, traslados, consumos, mermas,
   disponible: Math.round((saldoInicial + entradas + traslados) * 100) / 100,
-  queda: Math.round((saldoInicial + entradas + traslados - consumos) * 100) / 100,
+  queda: Math.round((saldoInicial + entradas + traslados - consumos - mermas) * 100) / 100,
 });
 
 const MERCADO: DisponibleItem[] = [
@@ -192,59 +192,39 @@ describe('compararConsumos', () => {
   });
 });
 
-describe('explicarDiferencia — por dónde se fue el faltante', () => {
-  /* El caso real del ARROZ VIV-057 en Los Pinos: el libro decía que quedaban 52,
-     el almacén tenía 20, y los 32 de diferencia habían salido el 08/09 por una
-     salida manual de NAZARET sin ningún detalle escrito. */
-  const s = (
-    cantidad: number, at: string, tipo = 'salida', actor_name: string | null = 'NAZARET',
-  ): SalidaFueraDelCiclo => ({
-    producto_id: 'p-arroz', at, cantidad, tipo, actor_name, detalle: null,
+describe('mermas / salidas en el libro del mercado', () => {
+  /* El caso real del POLLO FRESCO CAR-008 en Los Pinos, 15/09/2026: abrió con 375,3,
+     entraron 75 y salieron 450,3 por una salida manual («los pollos que se
+     perdieron»). El inventario quedó en 0 y el mercado decía «faltan 450,3». */
+  const s = (cantidad: number, at: string, tipo = 'salida'): SalidaFueraDelCiclo => ({
+    producto_id: 'pollo', at, cantidad, tipo, actor_name: 'Administrador MGG', detalle: null,
   });
 
-  it('nombra el movimiento que explica el faltante', () => {
-    const e = explicarDiferencia(-32, [s(32, '2026-09-08T13:50:00Z')])!;
-    expect(e.total).toBe(32);
-    expect(e.explicaTodo).toBe(true);
-    expect(e.sinExplicar).toBe(0);
-    expect(e.ultimo).toMatchObject({ actor: 'NAZARET', tipo: 'salida', cantidad: 32 });
+  it('la pérdida resta de lo que queda y el libro cuadra con el inventario', () => {
+    const pollo = [d('pollo', 'POLLO FRESCO', 'UNIDAD', 375.3, 75, 0, 0, 450.3)];
+    expect(totalesDeMercado(pollo, new Map([['pollo', 0]])))
+      .toMatchObject({ disponible: 450.3, consumos: 0, mermas: 450.3, queda: 0, diferencia: 0, vieresConDiferencia: 0 });
   });
 
-  it('agrupa por tipo y pone primero el más grande', () => {
-    const e = explicarDiferencia(-45, [
-      s(32, '2026-09-08T13:50:00Z', 'salida'),
-      s(10, '2026-09-01T10:00:00Z', 'ajuste'),
-      s(3, '2026-08-30T10:00:00Z', 'ajuste'),
-    ])!;
-    expect(e.porTipo[0]).toEqual({ tipo: 'salida', cantidad: 32, movimientos: 1 });
-    expect(e.porTipo[1]).toEqual({ tipo: 'ajuste', cantidad: 13, movimientos: 2 });
+  it('la identidad cierra: disponible − consumos − mermas = queda', () => {
+    const t = totalesDeMercado([d('x', 'ARROZ', 'UNIDAD', 10, 5, 3, -2, 4)]);
+    expect(t.disponible - t.consumos - t.mermas).toBeCloseTo(t.queda, 5);
+    expect(t.queda).toBe(6);
   });
 
-  it('el «último» es el más reciente, no el primero de la lista', () => {
-    const e = explicarDiferencia(-40, [
-      s(10, '2026-08-30T10:00:00Z'),
-      s(30, '2026-09-08T13:50:00Z'),
-    ])!;
-    expect(e.ultimo!.at).toBe('2026-09-08T13:50:00Z');
+  it('un víver que solo tuvo una merma cuenta como movido', () => {
+    const { movidos, quietos } = separarMovidos([d('x', 'SAL', 'KILOGRAMO', 5, 0, 0, 0, 1)]);
+    expect(movidos).toHaveLength(1);
+    expect(quietos).toHaveLength(0);
   });
 
-  it('si las salidas NO alcanzan, lo dice en vez de dar el caso por cerrado', () => {
-    // Decir «esto lo explica» cuando queda un resto es peor que no decir nada:
-    // manda a cerrar una investigación que sigue abierta.
-    const e = explicarDiferencia(-50, [s(32, '2026-09-08T13:50:00Z')])!;
-    expect(e.explicaTodo).toBe(false);
-    expect(e.sinExplicar).toBe(18);
-  });
-
-  it('un SOBRANTE no se explica con salidas', () => {
-    // Si en el almacén hay de más, ninguna salida lo justifica: inventarle una
-    // causa sería peor que admitir que no se sabe.
-    expect(explicarDiferencia(30, [s(32, '2026-09-08T13:50:00Z')])).toBeNull();
-  });
-
-  it('sin movimientos por fuera del ciclo no hay nada que explicar', () => {
-    expect(explicarDiferencia(-32, [])).toBeNull();
-    expect(explicarDiferencia(-32, [s(0, '2026-09-08T13:50:00Z')])).toBeNull();
+  it('suma las salidas de cada víver, sin importar el signo con que vengan', () => {
+    const porViver = mermasPorViver(new Map([
+      ['pollo', [s(450.3, '2026-09-15T15:26:46Z'), s(-10, '2026-09-15T16:00:00Z', 'ajuste')]],
+      ['nada', [s(0, '2026-09-15T16:00:00Z')]],
+    ]));
+    expect(porViver.get('pollo')).toBe(460.3);
+    expect(porViver.has('nada')).toBe(false);
   });
 });
 

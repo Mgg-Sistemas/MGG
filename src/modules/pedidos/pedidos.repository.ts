@@ -1661,7 +1661,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   if (reembolso > 0) {
     await pagarOrden({
       cajaId: input.cajaId, ordenId: o.id, monto: reembolso,
-      concepto: conceptoReembolsoOc(o.oc_codigo ?? o.codigo), categoria: CATEGORIA_REEMBOLSO_OC,
+      concepto: conceptoReembolsoOc(o.oc_codigo ?? o.codigo, null, o.clase), categoria: CATEGORIA_REEMBOLSO_OC,
       actor: input.actorEmail, actorName: input.actorName ?? null,
     });
   }
@@ -1759,7 +1759,7 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
   for (const leg of (input.reembolsoLegs ?? []).filter((l) => l.moneda && (Number(l.monto) || 0) > 0)) {
     await egresarDivisa({
       cajaId: leg.cajaId || input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
-      concepto: conceptoReembolsoOc(o.oc_codigo ?? o.codigo, leg.moneda), categoria: CATEGORIA_REEMBOLSO_OC, refOrdenId: o.id,
+      concepto: conceptoReembolsoOc(o.oc_codigo ?? o.codigo, leg.moneda, o.clase), categoria: CATEGORIA_REEMBOLSO_OC, refOrdenId: o.id,
       actor: input.actorEmail, actorName: input.actorName ?? null,
     });
   }

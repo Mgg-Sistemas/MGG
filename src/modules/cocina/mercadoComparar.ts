@@ -1,8 +1,14 @@
 /* ============================================================
    MGG · Cocina · el mercado como LIBRO, y su contraste con el inventario
 
-   El mercado es un ciclo de 21 días con seis números encadenados:
-     saldo inicial  +  entradas  ±  traslados  =  disponible  −  consumos  =  queda
+   El mercado es un ciclo de 21 días con siete números encadenados:
+     saldo inicial + entradas ± traslados = disponible − consumos − mermas = queda
+
+   Las mermas / salidas tienen columna propia desde el 15/09/2026: toda salida
+   del almacén que no es una comida ni un traslado (una pérdida, una salida
+   manual, un ajuste a la baja). Antes no restaban del libro y el panel las
+   mostraba como faltante: 450,3 pollos perdidos en Los Pinos daban «faltan
+   450,3» con el inventario en 0. Ahora restan y el libro cuadra con el almacén.
 
    Los traslados tienen columna propia desde el 14/09/2026. Antes el libro
    contaba la pata que ENTRA como una entrada más y no veía la que SALE: la
@@ -79,6 +85,8 @@ export interface TotalesMercado {
   traslados: number;
   disponible: number;
   consumos: number;
+  /** Salidas fuera de comidas y traslados: pérdidas, salidas manuales, ajustes a la baja. */
+  mermas: number;
   queda: number;
   /** Suma del stock real de esos víveres. `null` si no se pudo consultar. */
   inventario: number | null;
@@ -96,16 +104,17 @@ export function totalesDeMercado(
   disponible: DisponibleItem[],
   stockPorProducto?: Map<string, number> | null,
 ): TotalesMercado {
-  let saldoInicial = 0, entradas = 0, traslados = 0, consumos = 0, queda = 0;
+  let saldoInicial = 0, entradas = 0, traslados = 0, consumos = 0, mermas = 0, queda = 0;
   for (const d of disponible) {
     saldoInicial = r2(saldoInicial + d.saldoInicial);
     entradas = r2(entradas + d.entradas);
     traslados = r2(traslados + d.traslados);
     consumos = r2(consumos + d.consumos);
+    mermas = r2(mermas + d.mermas);
     queda = r2(queda + d.queda);
   }
   const base: TotalesMercado = {
-    saldoInicial, entradas, traslados, disponible: r2(saldoInicial + entradas + traslados), consumos, queda,
+    saldoInicial, entradas, traslados, disponible: r2(saldoInicial + entradas + traslados), consumos, mermas, queda,
     inventario: null, diferencia: null, vieresConDiferencia: 0,
   };
   if (!stockPorProducto) return base;
@@ -135,7 +144,7 @@ export function separarMovidos(items: DisponibleItem[]): { movidos: DisponibleIt
   const movidos: DisponibleItem[] = [];
   const quietos: DisponibleItem[] = [];
   for (const d of items) {
-    if (d.entradas !== 0 || d.traslados !== 0 || d.consumos !== 0) movidos.push(d);
+    if (d.entradas !== 0 || d.traslados !== 0 || d.consumos !== 0 || d.mermas !== 0) movidos.push(d);
     else quietos.push(d);
   }
   return { movidos, quietos };
@@ -251,15 +260,15 @@ export function compararConsumos(a: ItemAgg[], b: ItemAgg[]): FilaComparacion[] 
   return out.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta) || x.nombre.localeCompare(y.nombre, 'es'));
 }
 
-/* ───────── Por dónde se fue la diferencia ───────── */
+/* ───────── Mermas / salidas ───────── */
 
 /**
- * Una salida de víveres que el mercado NO cuenta como consumo.
+ * Una salida de víveres que no es una comida ni un traslado: una pérdida, una
+ * salida manual, un ajuste a la baja.
  *
- * El libro del mercado resta lo que sale por `cocina_comidas` y, desde el
- * 14/09/2026, lo que sale por traslado. Todo lo demás —una salida manual, un
- * ajuste— mueve el inventario sin tocar el libro, y es de ahí que sale el
- * descuadre.
+ * Hasta el 15/09/2026 movían el inventario sin tocar el libro y el panel las
+ * mostraba como faltante. Ahora restan en «Mermas / salidas», y el detalle del
+ * víver lista cada una con quién la hizo y por qué.
  */
 export interface SalidaFueraDelCiclo {
   producto_id: string;
@@ -271,69 +280,20 @@ export interface SalidaFueraDelCiclo {
   detalle: string | null;
 }
 
-export interface ExplicacionDiferencia {
-  /** Cuánto salió por fuera del ciclo, en total. */
-  total: number;
-  /** Desglose, del movimiento más grande al más chico. */
-  porTipo: { tipo: string; cantidad: number; movimientos: number }[];
-  /** El más reciente, que suele ser el que se está preguntando. */
-  ultimo: { at: string; actor: string | null; tipo: string; cantidad: number } | null;
-  /**
-   * ¿Estas salidas alcanzan a explicar el faltante?
-   *
-   * `false` cuando la diferencia es mayor que lo que salió por fuera: ahí queda
-   * un resto sin explicación y decir «esto lo explica» sería mentir.
-   */
-  explicaTodo: boolean;
-  /** Lo que queda sin explicar. 0 cuando las salidas cubren el faltante. */
-  sinExplicar: number;
-}
-
-/**
- * Qué parte del faltante se explica por movimientos fuera del ciclo.
- *
- * `diferencia` es la del contraste: negativa cuando en el almacén hay MENOS de
- * lo que dice el libro. Un sobrante (positiva) no se explica con salidas, así
- * que devuelve `null` — inventarle una causa sería peor que no decir nada.
- */
-export function explicarDiferencia(
-  diferencia: number,
-  salidas: SalidaFueraDelCiclo[],
-): ExplicacionDiferencia | null {
-  if (!(diferencia < 0) || !salidas.length) return null;
-
-  const porTipoMap = new Map<string, { tipo: string; cantidad: number; movimientos: number }>();
-  let total = 0;
-  let ultimo: ExplicacionDiferencia['ultimo'] = null;
-  for (const s of salidas) {
-    const cant = Math.abs(Number(s.cantidad) || 0);
-    if (cant <= 0) continue;
-    total = r2(total + cant);
-    const prev = porTipoMap.get(s.tipo);
-    if (prev) { prev.cantidad = r2(prev.cantidad + cant); prev.movimientos += 1; }
-    else porTipoMap.set(s.tipo, { tipo: s.tipo, cantidad: cant, movimientos: 1 });
-    if (!ultimo || String(s.at) > String(ultimo.at)) {
-      ultimo = { at: s.at, actor: s.actor_name ?? null, tipo: s.tipo, cantidad: cant };
-    }
+/** Cuánto salió en total de cada víver por mermas / salidas. Los víveres sin salida no aparecen. */
+export function mermasPorViver(salidas: Map<string, SalidaFueraDelCiclo[]>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [id, lista] of salidas) {
+    const total = lista.reduce((a, x) => r2(a + Math.abs(Number(x.cantidad) || 0)), 0);
+    if (total > 0) out.set(id, total);
   }
-  if (total <= 0) return null;
-
-  const falta = Math.abs(diferencia);
-  const sinExplicar = r2(Math.max(0, falta - total));
-  return {
-    total,
-    porTipo: [...porTipoMap.values()].sort((a, b) => b.cantidad - a.cantidad),
-    ultimo,
-    explicaTodo: sinExplicar < 0.01,
-    sinExplicar,
-  };
+  return out;
 }
 
 /**
  * Por qué SOBRA: en el almacén hay más de lo que el libro dice que queda.
  *
- * Un sobrante no se explica con salidas —al revés que un faltante— así que
- * `explicarDiferencia` devuelve `null` y hace falta mirar la fila del ciclo.
+ * Un sobrante no se explica con salidas, así que hace falta mirar la fila del ciclo.
  *
  * El caso más frecuente y el más grave es el libro en NEGATIVO: se registraron
  * consumos por encima de lo que el mercado vio entrar, así que el saldo cae por
