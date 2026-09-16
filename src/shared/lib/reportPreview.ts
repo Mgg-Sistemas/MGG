@@ -26,6 +26,8 @@ function abrirVisor(opts: {
   blob: Blob;
   /** Limpieza extra al cerrar (revocar object URLs, etc.). */
   onClose?: () => void;
+  /** Si viene, se muestra el botón «🖨 Imprimir» (manda a la impresora). */
+  imprimir?: () => void;
 }): void {
   const backdrop = document.createElement('div');
   backdrop.setAttribute('role', 'dialog');
@@ -67,6 +69,14 @@ function abrirVisor(opts: {
   btnDescargar.className = 'btn btn-primary';
   btnDescargar.textContent = '↓ Descargar';
   footer.appendChild(btnCerrar);
+  if (opts.imprimir) {
+    const btnImprimir = document.createElement('button');
+    btnImprimir.className = 'btn';
+    btnImprimir.textContent = '🖨 Imprimir';
+    btnImprimir.title = 'Enviar a la impresora';
+    btnImprimir.addEventListener('click', () => opts.imprimir?.());
+    footer.appendChild(btnImprimir);
+  }
   footer.appendChild(btnDescargar);
 
   panel.appendChild(header);
@@ -93,6 +103,36 @@ function abrirVisor(opts: {
   });
 }
 
+/** Abre el diálogo de impresión del PDF que muestra el iframe. Si el navegador
+ *  no deja imprimir el iframe, abre el PDF en una pestaña para imprimir desde ahí. */
+function imprimirIframe(iframe: HTMLIFrameElement, url: string): void {
+  try {
+    const w = iframe.contentWindow;
+    if (!w) throw new Error('sin-ventana');
+    w.focus();
+    w.print();
+  } catch {
+    window.open(url, '_blank', 'noopener');
+  }
+}
+
+/** Imprime una imagen sola, en una hoja, con un iframe oculto. */
+function imprimirImagen(url: string): void {
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+  frame.srcdoc = `<!doctype html><html><head><style>@page{margin:10mm}html,body{margin:0;height:100%}body{display:flex;align-items:center;justify-content:center}img{max-width:100%;max-height:100%;object-fit:contain}</style></head><body><img src="${url}"></body></html>`;
+  frame.onload = () => {
+    const w = frame.contentWindow;
+    const img = frame.contentDocument?.querySelector('img');
+    const lanzar = () => {
+      try { w?.focus(); w?.print(); } catch { window.open(url, '_blank', 'noopener'); }
+      setTimeout(() => frame.remove(), 60000);
+    };
+    if (img && !img.complete) img.onload = lanzar; else lanzar();
+  };
+  document.body.appendChild(frame);
+}
+
 /** Muestra un PDF (jsPDF doc) en el visor. Lo usa el patch de `save`. */
 export function previewPdfDoc(doc: { output: (type: string) => unknown }, filename: string): void {
   const blob = doc.output('blob') as Blob;
@@ -103,6 +143,7 @@ export function previewPdfDoc(doc: { output: (type: string) => unknown }, filena
   abrirVisor({
     titulo: 'PDF', filename, cuerpo: iframe, blob,
     onClose: () => URL.revokeObjectURL(url),
+    imprimir: () => imprimirIframe(iframe, url),
   });
 }
 
@@ -124,6 +165,7 @@ export async function previewFileUrl(url: string, filename: string, titulo = 'Fa
   const objUrl = URL.createObjectURL(blob);
   const esImagen = blob.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename);
   let cuerpo: HTMLElement;
+  let imprimir: () => void;
   if (esImagen) {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:1rem;';
@@ -132,13 +174,15 @@ export async function previewFileUrl(url: string, filename: string, titulo = 'Fa
     img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;display:block;';
     wrap.appendChild(img);
     cuerpo = wrap;
+    imprimir = () => imprimirImagen(objUrl);
   } else {
     const iframe = document.createElement('iframe');
     iframe.src = objUrl;
     iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
     cuerpo = iframe;
+    imprimir = () => imprimirIframe(iframe, objUrl);
   }
-  abrirVisor({ titulo, filename, cuerpo, blob, onClose: () => URL.revokeObjectURL(objUrl) });
+  abrirVisor({ titulo, filename, cuerpo, blob, imprimir, onClose: () => URL.revokeObjectURL(objUrl) });
 }
 
 /** Muestra un workbook de Excel: hojas como tabla + botón Descargar.
