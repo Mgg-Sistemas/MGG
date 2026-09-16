@@ -13,6 +13,7 @@ import type {
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { siguienteCodigo } from './codigoSolicitud';
+import { ajustesDeStock } from './salidasTemporalesAjuste';
 
 const T = 'solicitudes_salida_temporal';
 
@@ -256,21 +257,54 @@ export interface EditarSalidaTemporalInput {
   direccionDestino?: string | null;
   motivo?: string | null;
   nota?: string | null;
+  /** Quién aprobó y firma (solo si ya está aprobada). */
+  aprobador?: AprobadorSalidaTemporal | null;
+  /** Fechas de cada paso (ISO), solo las que ya ocurrieron. */
+  creadaEn?: string | null;
+  aprobadaEn?: string | null;
+  transitoEn?: string | null;
+  finalizadaEn?: string | null;
 }
 
-/** Edita la solicitud SOLO mientras está por aprobar (aún no movió stock). */
+/**
+ * Edita TODO de la solicitud, en cualquier estado.
+ *  - Por aprobar o finalizada: los materiales se cambian sin mover stock (en la
+ *    primera todavía no salió nada; en la segunda ya salió y volvió).
+ *  - Aprobada o en tránsito: el material está fuera, así que se mueve SOLO la
+ *    diferencia (más cantidad → sale; menos → reingresa sin tocar el PMP).
+ */
 export async function editarSalidaTemporal(
-  s: SalidaTemporal, input: EditarSalidaTemporalInput, actor: string,
+  s: SalidaTemporal, input: EditarSalidaTemporalInput, actor: string, actorName?: string | null,
 ): Promise<SalidaTemporal> {
-  if (s.estado !== 'por_aprobar') throw new Error('Solo se edita una solicitud Por aprobar (antes de aprobarla).');
-  const patch: Record<string, unknown> = { historial: appendHistorial(s, 'editada', actor) };
+  const patch: Record<string, unknown> = {};
+  const cambios: string[] = [];
+  const movOut: string[] = [];
+  const movIn: string[] = [];
+  // El stock se mueve al final, después de validar todo lo demás.
+  const pendientes: ReturnType<typeof ajustesDeStock> = [];
+
   if (input.items !== undefined) {
     const items = limpiarItems(input.items);
     if (!items.length) throw new Error('Agregá al menos un material.');
     for (const it of items) {
       if (!it.es_nuevo && it.producto_id && !it.almacen) throw new Error(`El material "${it.producto_nombre}" no tiene stock en ningún almacén.`);
     }
+    if (s.estado === 'aprobada' || s.estado === 'en_transito') {
+      const ajustes = ajustesDeStock(s.items, items);
+      const faltan: string[] = [];
+      for (const a of ajustes.filter((x) => x.delta > 0)) {
+        const ex = await getExistencia(a.producto_id, a.almacen);
+        const hay = Number(ex?.stock) || 0;
+        if (hay < a.delta) faltan.push(`${a.producto_nombre}: faltan ${a.delta}, hay ${hay} en ${a.almacen}`);
+      }
+      if (faltan.length) {
+        throw new Error(`No se guardó (no se movió stock): faltan existencias.\n• ${faltan.join('\n• ')}`);
+      }
+      pendientes.push(...ajustes);
+      if (ajustes.length) cambios.push(`stock ajustado en ${ajustes.length} material(es)`);
+    }
     patch.items = items;
+    cambios.push('materiales');
   }
   if (input.unidadSolicitante !== undefined) patch.unidad_solicitante = input.unidadSolicitante?.trim() || null;
   if (input.solicitante !== undefined) patch.solicitante = input.solicitante?.trim() || s.solicitante;
@@ -280,6 +314,55 @@ export async function editarSalidaTemporal(
   if (input.direccionDestino !== undefined) patch.direccion_destino = input.direccionDestino?.trim() || null;
   if (input.motivo !== undefined) patch.motivo = input.motivo?.trim() || null;
   if (input.nota !== undefined) patch.nota = input.nota?.trim() || null;
+
+  if (input.aprobador && s.estado !== 'por_aprobar' && input.aprobador !== s.aprobador_firma) {
+    const nombre = APROBADORES_SALIDA_TEMPORAL[input.aprobador];
+    if (!nombre) throw new Error('Aprobador inválido.');
+    patch.aprobador = nombre;
+    patch.aprobador_firma = input.aprobador;
+    cambios.push(`aprobador → ${nombre}`);
+  }
+
+  // Fechas: solo las de pasos que ya ocurrieron, y en orden.
+  const fechas = {
+    creada: input.creadaEn !== undefined ? input.creadaEn : s.created_at,
+    aprobada: s.aprobada_en ? (input.aprobadaEn !== undefined ? input.aprobadaEn : s.aprobada_en) : null,
+    transito: s.transito_en ? (input.transitoEn !== undefined ? input.transitoEn : s.transito_en) : null,
+    finalizada: s.finalizada_en ? (input.finalizadaEn !== undefined ? input.finalizadaEn : s.finalizada_en) : null,
+  };
+  const orden = [fechas.creada, fechas.aprobada, fechas.transito, fechas.finalizada];
+  for (const f of orden) if (f !== null && Number.isNaN(new Date(f ?? '').getTime())) throw new Error('Hay una fecha inválida.');
+  const presentes = orden.filter((f): f is string => !!f).map((f) => new Date(f).getTime());
+  for (let i = 1; i < presentes.length; i++) {
+    if (presentes[i] < presentes[i - 1]) throw new Error('Las fechas deben ir en orden: creada ≤ aprobada ≤ en tránsito ≤ finalizada.');
+  }
+  const mismo = (a?: string | null, b?: string | null) => (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
+  if (fechas.creada && !mismo(fechas.creada, s.created_at)) { patch.created_at = new Date(fechas.creada).toISOString(); cambios.push('fecha de creación'); }
+  if (fechas.aprobada && !mismo(fechas.aprobada, s.aprobada_en)) { patch.aprobada_en = new Date(fechas.aprobada).toISOString(); cambios.push('fecha de aprobación'); }
+  if (fechas.transito && !mismo(fechas.transito, s.transito_en)) { patch.transito_en = new Date(fechas.transito).toISOString(); cambios.push('fecha de tránsito'); }
+  if (fechas.finalizada && !mismo(fechas.finalizada, s.finalizada_en)) { patch.finalizada_en = new Date(fechas.finalizada).toISOString(); cambios.push('fecha de finalización'); }
+
+  for (const a of pendientes) {
+    const sale = a.delta > 0;
+    const mov = await registrarMovimiento({
+      producto_id: a.producto_id,
+      tipo: sale ? 'salida' : 'entrada',
+      delta: -a.delta, // sale: negativo · reingresa: positivo
+      almacen: a.almacen,
+      actor,
+      actor_name: actorName ?? null,
+      ref_tipo: sale ? 'salida_temporal' : 'salida_temporal_retorno',
+      ref_codigo: s.codigo,
+      ...(sale ? { destino: s.unidad_solicitante || 'Mantenimiento' } : { precio_unitario: null }),
+      detalle: `Edición de salida temporal · ${s.codigo} · ${sale ? 'sale' : 'reingresa'} la diferencia`,
+      solicitante: s.solicitante,
+    });
+    (sale ? movOut : movIn).push(mov.id);
+  }
+  if (movOut.length) patch.mov_out_ids = [...(s.mov_out_ids ?? []), ...movOut];
+  if (movIn.length) patch.mov_in_ids = [...(s.mov_in_ids ?? []), ...movIn];
+  patch.historial = appendHistorial(s, 'editada', actor, cambios.length ? { motivo: cambios.join(', ') } : {});
+
   const { data, error } = await supabase.from(T).update(patch).eq('id', s.id).select('*').single();
   if (error) throw error;
   return data as SalidaTemporal;

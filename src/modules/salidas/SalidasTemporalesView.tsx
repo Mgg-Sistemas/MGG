@@ -3,8 +3,9 @@
    Saca material a mantenimiento y lo retorna al inventario.
    Flujo: por_aprobar → aprobada (descuenta stock + firma Leidys/
    Jesús) → en_transito → finalizada (reingresa stock + tiempos).
-   Vista tipo kanban (tarjetas) + histórico buscable. Editar y
-   eliminar solo antes de aprobar. Todo con realtime.
+   Vista tipo kanban (tarjetas) + histórico buscable. Se edita TODO
+   en cualquier estado (materiales con ajuste de stock, aprobador y
+   fechas); eliminar solo antes de aprobar. Todo con realtime.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -117,6 +118,7 @@ export function SalidasTemporalesView({ nuevoNonce }: { nuevoNonce?: number }) {
       {modal.kind === 'form' && (
         <FormModal
           sol={modal.sol}
+          puedeAprobar={puedeAprobar}
           productos={productos}
           origenDe={origenDe}
           actor={actor}
@@ -244,16 +246,29 @@ interface LineaUI {
   id: string;
   esNuevo: boolean;
   productoId: string;
+  /** Producto y almacén con que venía la línea guardada: si no cambia el producto, conserva su almacén. */
+  productoOriginal: string;
+  almacenOriginal: string;
   nombreNuevo: string;
   cantidad: string;
   unidad: string;
   observacion: string;
 }
 let _lid = 0;
-const nuevaLinea = (): LineaUI => ({ id: `l${++_lid}`, esNuevo: false, productoId: '', nombreNuevo: '', cantidad: '', unidad: '', observacion: '' });
+const nuevaLinea = (): LineaUI => ({ id: `l${++_lid}`, esNuevo: false, productoId: '', productoOriginal: '', almacenOriginal: '', nombreNuevo: '', cantidad: '', unidad: '', observacion: '' });
 
-function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSaved }: {
+/** ISO → valor de <input type="datetime-local"> en hora local. */
+function aLocal(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
+function FormModal({ sol, puedeAprobar, productos, origenDe, actor, actorName, onClose, onSaved }: {
   sol?: SalidaTemporal;
+  puedeAprobar: boolean;
   productos: Producto[];
   origenDe: Map<string, { almacen: string; stock: number }>;
   actor: string;
@@ -269,6 +284,7 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
     if (sol && sol.items?.length) {
       return sol.items.map((it) => ({
         id: `l${++_lid}`, esNuevo: !!it.es_nuevo, productoId: it.producto_id ?? '',
+        productoOriginal: it.producto_id ?? '', almacenOriginal: it.almacen ?? '',
         nombreNuevo: it.es_nuevo ? it.producto_nombre : '', cantidad: String(it.cantidad ?? ''),
         unidad: it.unidad ?? '', observacion: it.observacion ?? '',
       }));
@@ -282,6 +298,14 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
   const [motivo, setMotivo] = useState(sol?.motivo ?? '');
   const [nota, setNota] = useState(sol?.nota ?? '');
   const [saving, setSaving] = useState(false);
+  // Aprobador y fechas de cada paso (solo al editar, y solo los pasos que ya ocurrieron).
+  const [aprobador, setAprobador] = useState<AprobadorSalidaTemporal | ''>(sol?.aprobador_firma ?? '');
+  const ini = useMemo(() => ({
+    creada: aLocal(sol?.created_at), aprobada: aLocal(sol?.aprobada_en),
+    transito: aLocal(sol?.transito_en), finalizada: aLocal(sol?.finalizada_en),
+  }), [sol]);
+  const [fechas, setFechas] = useState(ini);
+  const stockFuera = sol?.estado === 'aprobada' || sol?.estado === 'en_transito';
 
   // Responsable (catálogo de choferes: nombre + cédula, reutilizable).
   const [choferes, setChoferes] = useState<Chofer[]>([]);
@@ -314,15 +338,18 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
       if (l.esNuevo) {
         return { producto_id: null, producto_nombre: l.nombreNuevo.trim(), cantidad: cant, unidad: l.unidad.trim() || null, es_nuevo: true, observacion: l.observacion.trim() || null };
       }
-      const p = activos.find((x) => x.id === l.productoId);
-      const orig = origenDe.get(l.productoId) ?? null;
+      const p = productos.find((x) => x.id === l.productoId);
+      // Si el producto no cambió, sigue saliendo del mismo almacén (ya pudo haberse descontado).
+      const almacen = l.productoId && l.productoId === l.productoOriginal && l.almacenOriginal
+        ? l.almacenOriginal
+        : (origenDe.get(l.productoId)?.almacen ?? null);
       return {
         producto_id: l.productoId || null,
         producto_nombre: p?.nombre ?? '',
         sku: p?.sku ?? null,
         cantidad: cant,
         unidad: p?.unidad ?? null,
-        almacen: orig?.almacen ?? null,
+        almacen,
         es_nuevo: false,
         observacion: l.observacion.trim() || null,
       };
@@ -338,10 +365,18 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
     setSaving(true);
     try {
       if (editando && sol) {
+        const fecha = (k: keyof typeof ini) => {
+          if (fechas[k] === ini[k]) return undefined;
+          if (!fechas[k]) throw new Error('Las fechas de los pasos que ya ocurrieron no pueden quedar vacías.');
+          return new Date(fechas[k]).toISOString();
+        };
         await editarSalidaTemporal(sol, {
           items, unidadSolicitante: unidad, solicitante, responsable, responsableCedula,
           direccionDespacho: dirDespacho, direccionDestino: dirDestino, motivo, nota,
-        }, actor);
+          aprobador: aprobador || null,
+          creadaEn: fecha('creada'), aprobadaEn: fecha('aprobada'),
+          transitoEn: fecha('transito'), finalizadaEn: fecha('finalizada'),
+        }, actor, actorName);
         toast('Salida temporal actualizada', 'success');
       } else {
         await crearSalidaTemporal({
@@ -365,7 +400,18 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
         <button className="btn btn-primary" onClick={submit} disabled={saving}>{saving ? '…' : (editando ? 'Guardar cambios' : 'Crear solicitud')}</button>
       </>}
     >
-      <p className="hint muted" style={{ marginTop: 0 }}>Fecha: <strong>{fmtDate(new Date().toISOString())}</strong> · El material sale a mantenimiento, pasa por aprobación y retorna al inventario al finalizar.</p>
+      {editando ? (
+        <p className="hint muted" style={{ marginTop: 0 }}>
+          Estado: <strong>{ESTADO_TXT[sol!.estado]}</strong> ·{' '}
+          {stockFuera
+            ? 'El material ya salió del inventario: si cambiás cantidades o materiales, se descuenta o reingresa SOLO la diferencia.'
+            : sol!.estado === 'finalizada'
+              ? 'El material ya volvió al inventario: cambiar los materiales corrige el documento, no mueve stock.'
+              : 'Todavía no movió stock.'}
+        </p>
+      ) : (
+        <p className="hint muted" style={{ marginTop: 0 }}>Fecha: <strong>{fmtDate(new Date().toISOString())}</strong> · El material sale a mantenimiento, pasa por aprobación y retorna al inventario al finalizar.</p>
+      )}
 
       {/* Datos de la solicitud */}
       <div style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', margin: '.8rem 0 .4rem' }}>Datos de la solicitud</div>
@@ -406,6 +452,7 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
       <div style={{ display: 'grid', gap: '.55rem' }}>
         {lineas.map((l, i) => {
           const orig = l.productoId ? origenDe.get(l.productoId) ?? null : null;
+          const almacenFijo = l.productoId && l.productoId === l.productoOriginal && l.almacenOriginal ? l.almacenOriginal : null;
           return (
             <div key={l.id} className="card" style={{ padding: '.55rem .65rem', background: 'var(--bg-1)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.35rem' }}>
@@ -425,7 +472,8 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
                 ) : (
                   <div className="form-row"><label>Material del inventario</label>
                     <SearchSelect value={l.productoId} onChange={(id) => setLinea(l.id, { productoId: id })} options={opProductos} placeholder="🔎 Buscá el material…" emptyText="Sin productos." />
-                    {orig ? <small className="muted">Sale de <strong>{orig.almacen}</strong> · stock {num(orig.stock)}</small>
+                    {almacenFijo ? <small className="muted">Sale de <strong>{almacenFijo}</strong></small>
+                      : orig ? <small className="muted">Sale de <strong>{orig.almacen}</strong> · stock {num(orig.stock)}</small>
                       : l.productoId ? <small style={{ color: 'var(--danger)' }}>Sin stock en ningún almacén.</small> : null}
                   </div>
                 )}
@@ -442,6 +490,38 @@ function FormModal({ sol, productos, origenDe, actor, actorName, onClose, onSave
         })}
         <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea} style={{ alignSelf: 'start' }}>＋ Añadir material</button>
       </div>
+
+      {editando && (
+        <>
+          <div style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', margin: '.9rem 0 .4rem' }}>Aprobación y fechas</div>
+          <div className="form-grid">
+            <div className="form-row"><label>Creada</label>
+              <input className="input" type="datetime-local" value={fechas.creada} onChange={(e) => setFechas((f) => ({ ...f, creada: e.target.value }))} /></div>
+            {sol!.aprobada_en && (
+              <div className="form-row"><label>Aprobada por (firma del PDF)</label>
+                <select className="select" value={aprobador} disabled={!puedeAprobar} onChange={(e) => setAprobador(e.target.value as AprobadorSalidaTemporal)}
+                  title={puedeAprobar ? undefined : 'Solo quien puede aprobar cambia el aprobador'}>
+                  {(Object.keys(APROBADORES_SALIDA_TEMPORAL) as AprobadorSalidaTemporal[]).map((k) => <option key={k} value={k}>{APROBADORES_SALIDA_TEMPORAL[k]}</option>)}
+                </select></div>
+            )}
+          </div>
+          <div className="form-grid">
+            {sol!.aprobada_en && (
+              <div className="form-row"><label>Fecha de aprobación</label>
+                <input className="input" type="datetime-local" value={fechas.aprobada} onChange={(e) => setFechas((f) => ({ ...f, aprobada: e.target.value }))} /></div>
+            )}
+            {sol!.transito_en && (
+              <div className="form-row"><label>En tránsito desde</label>
+                <input className="input" type="datetime-local" value={fechas.transito} onChange={(e) => setFechas((f) => ({ ...f, transito: e.target.value }))} /></div>
+            )}
+            {sol!.finalizada_en && (
+              <div className="form-row"><label>Finalizada</label>
+                <input className="input" type="datetime-local" value={fechas.finalizada} onChange={(e) => setFechas((f) => ({ ...f, finalizada: e.target.value }))} /></div>
+            )}
+          </div>
+          {sol!.aprobada_en && <small className="muted">Las fechas definen los tiempos en mantenimiento y en tránsito del detalle y del PDF.</small>}
+        </>
+      )}
 
       <datalist id="stemp-unidades">
         {['Mantenimiento', 'Fundición', 'Producción', 'Acopio', 'Administración', 'Taller'].map((u) => <option key={u} value={u} />)}
@@ -465,7 +545,7 @@ function DetalleModal({ sol, puedeAprobar, puedeEjecutar, canWrite, actor, actor
   const [busy, setBusy] = useState(false);
   const [aprobando, setAprobando] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
-  const editable = sol.estado === 'por_aprobar';
+  const eliminable = sol.estado === 'por_aprobar';
   const dur = duracionesSalidaTemporal(sol);
 
   async function run(fn: () => Promise<void>, okMsg: string) {
@@ -503,8 +583,8 @@ function DetalleModal({ sol, puedeAprobar, puedeEjecutar, canWrite, actor, actor
       onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={verPdf}>📄 Ver PDF</button>
-        {editable && canWrite && <button className="btn btn-ghost" onClick={() => onEditar(sol)}>✎ Editar</button>}
-        {editable && canWrite && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmDel(true)}>🗑 Eliminar</button>}
+        {canWrite && <button className="btn btn-ghost" onClick={() => onEditar(sol)}>✎ Editar</button>}
+        {eliminable && canWrite && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmDel(true)}>🗑 Eliminar</button>}
         {sol.estado === 'por_aprobar' && puedeAprobar && !aprobando && <button className="btn btn-primary" disabled={busy} onClick={() => setAprobando(true)}>✓ Aprobar…</button>}
         {sol.estado === 'aprobada' && puedeEjecutar && <button className="btn btn-primary" disabled={busy} onClick={() => run(() => ponerEnTransitoSalidaTemporal(sol, actor), 'Marcada en tránsito')}>🚚 Poner en tránsito</button>}
         {sol.estado === 'en_transito' && puedeEjecutar && <button className="btn btn-success" disabled={busy} onClick={() => run(() => finalizarSalidaTemporal(sol, actor, actorName), 'Finalizada · stock reingresado')}>✓ Finalizar (retorna al inventario)</button>}
