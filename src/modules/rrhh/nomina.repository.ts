@@ -8,8 +8,9 @@
      salario_diario = sueldo_base_mensual / 30
      salario_bruto  = salario_diario × dias_trabajados   (15 por defecto)
      neto_usd       = salario_bruto + asignaciones(bonos)
-                      − (anticipos + préstamos + ivss + faov)
-   IVSS/FAOV/bonos están montados (campos) pero hoy en 0 (deshabilitados en UI).
+                      − (anticipos + préstamos + faov)
+   NO se descuenta Seguro Social (IVSS): lo pidió el usuario el 16/09/2026.
+   FAOV/bonos están montados (campos) pero hoy en 0 (deshabilitados en UI).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { round2 } from '../tesoreria/tasas.repository';
@@ -35,7 +36,6 @@ export interface RenglonCalcInput {
   dias_trabajados: number;
   asignaciones?: number;
   deducciones?: DeduccionRef[];
-  deduc_ivss?: number;
   deduc_faov?: number;
 }
 
@@ -43,7 +43,6 @@ export interface RenglonCalc {
   salario_bruto: number;
   deduc_anticipos: number;
   deduc_prestamos: number;
-  deduc_ivss: number;
   deduc_faov: number;
   asignaciones: number;
   neto_usd: number;
@@ -55,11 +54,10 @@ export function calcularRenglon(input: RenglonCalcInput): RenglonCalc {
   const deducs = input.deducciones ?? [];
   const deduc_anticipos = round2(deducs.filter((d) => d.tipo === 'anticipo').reduce((a, d) => a + (Number(d.monto) || 0), 0));
   const deduc_prestamos = round2(deducs.filter((d) => d.tipo === 'prestamo').reduce((a, d) => a + (Number(d.monto) || 0), 0));
-  const deduc_ivss = round2(Number(input.deduc_ivss) || 0);
   const deduc_faov = round2(Number(input.deduc_faov) || 0);
   const asignaciones = round2(Number(input.asignaciones) || 0);
-  const neto_usd = round2(salario_bruto + asignaciones - deduc_anticipos - deduc_prestamos - deduc_ivss - deduc_faov);
-  return { salario_bruto, deduc_anticipos, deduc_prestamos, deduc_ivss, deduc_faov, asignaciones, neto_usd };
+  const neto_usd = round2(salario_bruto + asignaciones - deduc_anticipos - deduc_prestamos - deduc_faov);
+  return { salario_bruto, deduc_anticipos, deduc_prestamos, deduc_faov, asignaciones, neto_usd };
 }
 
 /* ───────────── Carga de la nómina ───────────── */
@@ -80,7 +78,6 @@ export interface RenglonInput {
   dias_trabajados: number;
   asignaciones?: number;
   deducciones?: DeduccionRef[];
-  deduc_ivss?: number;
   deduc_faov?: number;
 }
 
@@ -133,7 +130,6 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
     asignaciones: c.asignaciones,
     deduc_anticipos: c.deduc_anticipos,
     deduc_prestamos: c.deduc_prestamos,
-    deduc_ivss: c.deduc_ivss,
     deduc_faov: c.deduc_faov,
     deducciones: r.deducciones ?? [],
     neto_usd: c.neto_usd,

@@ -219,7 +219,7 @@ function CargarNominaModal({ actor, actorName, onClose, onSaved }: {
           </div>
         </div>
         <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
-          Marcá los trabajadores a pagar. Sueldo diario = sueldo mensual ÷ 30. Bruto = diario × días. Neto = bruto − (anticipos + préstamos). IVSS/FAOV/bonos: próximamente.
+          Marcá los trabajadores a pagar. Sueldo diario = sueldo mensual ÷ 30. Bruto = diario × días. Neto = bruto − (anticipos + préstamos). Sin descuento de Seguro Social. FAOV/bonos: próximamente.
         </small>
       </div>
 
