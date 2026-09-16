@@ -54,7 +54,7 @@ export function ProductosInactivosModal({ productos, canWrite, onClose, onReacti
   }
 
   return (
-    <Modal title="Productos dados de baja" size="xl" onClose={onClose}>
+    <Modal title="Productos deshabilitados" size="xl" onClose={onClose}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
         Mientras un producto esté dado de baja <strong>no existe</strong> para el sistema: no aparece en el
         inventario, ni en los almacenes, ni en el buscador, y no se puede pedir ni mover. Reactivalo para
@@ -97,7 +97,7 @@ export function ProductosInactivosModal({ productos, canWrite, onClose, onReacti
 
       {!visibles.length ? (
         <div className="empty" style={{ padding: '2rem', textAlign: 'center' }}>
-          {inactivos.length ? 'Ningún producto dado de baja coincide con esos filtros.' : 'No hay productos dados de baja.'}
+          {inactivos.length ? 'Ningún producto deshabilitado coincide con esos filtros.' : 'No hay productos deshabilitados.'}
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>

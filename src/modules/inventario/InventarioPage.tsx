@@ -899,9 +899,9 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
             <button
               className="btn btn-ghost"
               onClick={() => setModal({ kind: 'inactivos' })}
-              title="Productos dados de baja: mientras no se reactiven, no existen para el sistema"
+              title="Productos deshabilitados: mientras no se reactiven, no existen para el sistema"
             >
-              🗄 Dados de baja <span className="badge" style={{ marginLeft: '.35rem' }}>{inactivosCount}</span>
+              🗄 PRODUCTOS DESHABILITADOS <span className="badge" style={{ marginLeft: '.35rem' }}>{inactivosCount}</span>
             </button>
           )}
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
@@ -1724,7 +1724,7 @@ function EliminarProductoDialog({ producto, onCancel, onConfirm }: {
         ¿Seguro que deseas borrar el producto <strong>«{producto.nombre}»</strong> ({producto.sku})?
         Quedará <strong>inactivo</strong>: deja de existir para el sistema (no aparece en el inventario, ni en
         los almacenes, ni en el buscador) y su historial se conserva. Se puede reactivar desde el botón
-        <strong>«Dados de baja»</strong>.
+        <strong>«PRODUCTOS DESHABILITADOS»</strong>.
       </p>
       <div className="form-row">
         <label>¿Por qué se da de baja? <span style={{ color: 'var(--danger)' }}>*</span></label>

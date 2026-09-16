@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { SedesDestinoModal } from './SedesDestinoModal';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
@@ -13,8 +15,6 @@ import { ChoferVehiculoPicker } from './ChoferVehiculoPicker';
 import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
-import { almacenPrincipalDeSede, etiquetaAlmacen } from '@/modules/inventario/stockPorAlmacen';
-import { listCentrosAcopio } from './cajas.repository';
 import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type AsignacionSalida } from './asignacionPrioridad';
 import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
@@ -138,26 +138,21 @@ export function SalidaMaterialForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sede/centro de acopio destino (almacenes padre + centros de acopio).
+  // Sede destino: catálogo editable (📍 Sedes destino). Desde el 16/09/2026 ya no se arma
+  // con los almacenes y los centros de acopio: se agregan, renombran y deshabilitan a mano.
   const [sedeDestino, setSedeDestino] = useState('');
-  const [sedePrincipales, setSedePrincipales] = useState<string[]>([]);
-  const [sedeCentros, setSedeCentros] = useState<string[]>([]);
-  useEffect(() => {
-    Promise.all([listAlmacenes().catch(() => []), listCentrosAcopio().catch(() => [])])
-      .then(([alms, centros]) => {
-        setAlmacenesObj(alms);
-        // El almacén PADRE de cada sede. Antes se pedía que tuviera subalmacenes
-        // («conHijos») y eso dejaba a MATANZA y EL BURRO fuera de la lista: ninguno
-        // de los dos tiene jerarquía cargada, así que no se los podía elegir como
-        // destino. El padre se resuelve por nombre, igual que en Inventario.
-        const sedes = Array.from(new Set(
-          alms.filter((a) => a.estado === 'activo').map((a) => a.sede?.trim()).filter((s): s is string => !!s),
-        )).sort((a, b) => a.localeCompare(b, 'es'));
-        setSedePrincipales(sedes.map((s) => almacenPrincipalDeSede(s, alms)).filter((n): n is string => !!n));
-        setSedeCentros(centros.map((c) => c.nombre));
-      })
-      .catch(() => { /* sin sedes: el campo queda vacío */ });
+  const [sedesDestino, setSedesDestino] = useState<string[]>([]);
+  const [gestionarSedes, setGestionarSedes] = useState(false);
+  const cargarSedes = useCallback(() => {
+    listCatalogoPedido('sede_destino', true)
+      .then((rows) => setSedesDestino(rows.map((r) => r.nombre)))
+      .catch(() => setSedesDestino([]));
   }, []);
+  useEffect(() => {
+    cargarSedes();
+    listAlmacenes().then(setAlmacenesObj).catch(() => { /* sin almacenes: la sede de cada línea queda sin resolver */ });
+  }, [cargarSedes]);
+  useRealtime(['catalogos_pedido'], cargarSedes);
 
   // Salida a CLIENTE: genera una cuenta por cobrar (monto = valor del material, editable).
   const [esCliente, setEsCliente] = useState(false);
@@ -368,24 +363,21 @@ export function SalidaMaterialForm({
           <small className="muted">Se comparte con el catálogo de OP: lo que agregues acá aparece allá y viceversa.</small>
         </div>
 
-        {/* 1b) Sede / centro de acopio destino (almacenes padre + centros de acopio). */}
+        {/* 1b) Sede / centro de acopio destino: sale del catálogo 📍 Sedes destino. */}
         <div className="form-row">
           <label>Sede destino</label>
           <select className="select" value={sedeDestino} onChange={(e) => setSedeDestino(e.target.value)}>
             <option value="">— elegí la sede destino (opcional) —</option>
-            {sedePrincipales.length > 0 && (
-              <optgroup label="Almacenes / sedes">
-                {sedePrincipales.map((s) => <option key={`a-${s}`} value={s}>{etiquetaAlmacen(s, almacenesObj)}</option>)}
-              </optgroup>
-            )}
-            {sedeCentros.length > 0 && (
-              <optgroup label="Centros de acopio">
-                {sedeCentros.map((c) => <option key={`c-${c}`} value={c}>{c}</option>)}
-              </optgroup>
-            )}
+            {sedesDestino.map((s) => <option key={s} value={s}>{s}</option>)}
+            {/* Si la eligieron y alguien la deshabilitó mientras tanto, no se pierde. */}
+            {sedeDestino && !sedesDestino.includes(sedeDestino) && <option value={sedeDestino}>{sedeDestino}</option>}
           </select>
-          <small className="muted">A dónde va el material (almacén padre o centro de acopio, ej. La Esperanza).</small>
+          <div data-enter-omitir="" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.4rem', marginTop: '.3rem' }}>
+            <small className="muted">A dónde va el material (sede o centro de acopio).</small>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setGestionarSedes(true)}>📍 Gestionar sedes</button>
+          </div>
         </div>
+        {gestionarSedes && <SedesDestinoModal actor={actor} onClose={() => { setGestionarSedes(false); cargarSedes(); }} />}
 
         {/* 2) Materiales (varias líneas) — producto buscable; el almacén se asigna solo. */}
         <div className="form-row" style={{ marginBottom: '.3rem' }}><label>Materiales</label></div>

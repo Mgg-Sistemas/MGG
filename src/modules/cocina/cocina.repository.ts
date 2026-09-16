@@ -25,9 +25,16 @@ export const CATEGORIAS_COCINA = [
   'LIMPIEZA',
   'MATERIAL DE LIMPIEZA',
 ];
-/** ¿La categoría de un producto surte la distribución de comida? */
+/**
+ * ¿La categoría de un producto surte la distribución de comida?
+ *
+ * Se compara sin tildes y sin la S final: el 16/09/2026 el POLLO BENEFICIADO llegó con
+ * categoría «PROTEINAS» y Cocina no lo veía en ninguna lista (ni en «Repartir»).
+ */
 export function esCategoriaCocina(cat?: string | null): boolean {
-  return CATEGORIAS_COCINA.includes((cat ?? '').trim().toUpperCase());
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase().replace(/\s+/g, ' ').replace(/S$/, '');
+  const c = norm(cat ?? '');
+  return !!c && CATEGORIAS_COCINA.some((x) => norm(x) === c);
 }
 
 /* ───────── Cocinas (cada una vinculada a un almacén/subalmacén) ───────── */

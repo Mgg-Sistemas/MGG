@@ -24,6 +24,7 @@ import {
 } from './salidas.repository';
 // descargarSalidaDineroPdf, descargarTrasladoDineroPdf y descargarOrdenSalidaPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { SalidaMaterialForm } from './SalidaMaterialForm';
+import { listCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
 import { TrasladoMaterialForm } from './TrasladoMaterialForm';
 import { SalidaDineroForm } from './SalidaDineroForm';
 import { TrasladoDineroForm } from './TrasladoDineroForm';
@@ -722,6 +723,13 @@ function SolicitudDetalleModal({
   const [edDirDespacho, setEdDirDespacho] = useState(sol.direccion_despacho ?? '');
   const [edDirDestino, setEdDirDestino] = useState(sol.direccion_destino ?? '');
   const [edSedeDestino, setEdSedeDestino] = useState(sol.sede_destino ?? '');
+  // Sedes del catálogo 📍 Sedes destino (solo las habilitadas; la que ya tenía se conserva).
+  const [sedesCatalogo, setSedesCatalogo] = useState<string[]>([]);
+  const cargarSedesCatalogo = useCallback(() => {
+    listCatalogoPedido('sede_destino', true).then((r) => setSedesCatalogo(r.map((x) => x.nombre))).catch(() => setSedesCatalogo([]));
+  }, []);
+  useEffect(() => { cargarSedesCatalogo(); }, [cargarSedesCatalogo]);
+  useRealtime(['catalogos_pedido'], cargarSedesCatalogo);
   // Cliente + cuenta por cobrar.
   const [edEsCliente, setEdEsCliente] = useState(!!sol.cliente_id);
   const [edCliente, setEdCliente] = useState<Cliente | null>(sol.cliente_id ? ({ id: sol.cliente_id, nombre: sol.cliente_nombre ?? '' } as Cliente) : null);
@@ -755,12 +763,6 @@ function SolicitudDetalleModal({
   // Sede de cada almacén: define si una línea puede ir al piso de fundición.
   const sedePorAlmacen = useMemo(
     () => new Map(almacenes.map((a) => [a.nombre, (a.sede ?? '').trim()])),
-    [almacenes],
-  );
-  // Sedes / centros como en Inventario (CENTRO DE ACOPIO - …, LOS PINOS, …).
-  const sedes = useMemo(
-    () => Array.from(new Set(almacenes.filter((a) => a.estado === 'activo').map((a) => a.sede?.trim()).filter((s): s is string => !!s)))
-      .sort((a, b) => a.localeCompare(b, 'es')),
     [almacenes],
   );
   // Destino de un traslado: los MISMOS almacenes que ofrece el alta (padre de cada
@@ -982,7 +984,7 @@ function SolicitudDetalleModal({
             <label>Sede / destino (opcional)</label>
             <select className="select" value={edSedeDestino} onChange={(e) => setEdSedeDestino(e.target.value)}>
               <option value="">— sin sede —</option>
-              {Array.from(new Set([...sedes, ...(edSedeDestino ? [edSedeDestino] : [])])).map((s) => <option key={s} value={s}>{s}</option>)}
+              {Array.from(new Set([...sedesCatalogo, ...(edSedeDestino ? [edSedeDestino] : [])])).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         )}
