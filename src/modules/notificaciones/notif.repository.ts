@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Notificacion, NotifKind } from '@/shared/lib/types';
 
 export async function listLatest(limit = 50): Promise<Notificacion[]> {
@@ -111,7 +111,7 @@ export async function scanStockAndNotify(): Promise<number> {
   const [productos, { data: existing }] = await Promise.all([
     todasLasFilas<{ id: string; sku: string; nombre: string; stock: number; stock_min: number; estado: string }>((d, h) =>
       supabase.from('productos').select('id, sku, nombre, stock, stock_min, estado')
-        .eq('estado', 'activo').order('id', { ascending: true }).range(d, h)).catch(() => null),
+        .eq('estado', 'activo').order('id', { ascending: true }).range(d, h), PAGINA_SUPABASE, 2).catch(() => null),
     supabase
       .from('notificaciones')
       .select('dedup_key')

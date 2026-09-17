@@ -416,8 +416,7 @@ async function guardarSnapshotsThrottled(
 export async function refrescarTasasSiVencido(horas = 11): Promise<void> {
   const anclas = ['USDT_VES', 'COP_USD'];
   let masReciente = 0;
-  for (const par of anclas) {
-    const s = await ultimoSnapshot(par);
+  for (const s of await Promise.all(anclas.map((par) => ultimoSnapshot(par)))) {
     if (s) masReciente = Math.max(masReciente, new Date(s.at).getTime());
   }
   const venc = masReciente === 0 || (Date.now() - masReciente) / 3600000 >= horas;

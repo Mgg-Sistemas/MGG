@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { cachedQuery } from '@/shared/lib/queryCache';
 import { nombreASellar, nombrePorEmail } from '@/shared/lib/personas';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
@@ -114,13 +114,15 @@ export async function listProductosActivos(): Promise<Producto[]> {
   return todasLasFilas<Producto>((desde, hasta) =>
     supabase.from('productos').select('*').eq('estado', 'activo')
       .order('nombre', { ascending: true }).order('id', { ascending: true })
-      .range(desde, hasta));
+      .range(desde, hasta), PAGINA_SUPABASE, 2);
 }
 
 /** Lee el rol del usuario actual desde la tabla `usuarios`. */
 export async function getCurrentUsuario(): Promise<Usuario | null> {
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth?.user?.id;
+  // La sesión local basta para saber el id (sin viaje al servidor de auth);
+  // lo que se muestra/permite lo sigue controlando el RLS con el JWT.
+  const { data: auth } = await supabase.auth.getSession();
+  const uid = auth?.session?.user?.id;
   if (!uid) return null;
   const { data, error } = await supabase
     .from('usuarios')

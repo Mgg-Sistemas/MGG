@@ -211,10 +211,13 @@ export async function disponibilidadFinanciera(): Promise<Disponibilidad> {
   // (p. ej. Peramanal, externo=true) o a un CENTRO DE ACOPIO interno
   // (tipo='centro_acopio') ya salió de Tesorería, así que esas cajas se excluyen
   // de la disponibilidad (si no, el traspaso nunca se vería descontar del total).
+  // La tasa no depende de las cajas: se pide a la vez.
+  const tasaP = getTasaHoy();
+  tasaP.catch(() => { /* si falla antes de usarla, el error sale al hacer await */ });
   const { data: internas } = await supabase.from('cajas').select('id').eq('externo', false).neq('tipo', 'centro_acopio');
   const ids = (internas ?? []).map((c) => (c as { id: string }).id);
   if (!ids.length) {
-    const tasaVacia = await getTasaHoy();
+    const tasaVacia = await tasaP;
     return { usd: 0, usdt: 0, bs: 0, tasaUsd: tasaVacia.usd, usdEnBs: 0, totalBs: 0, fecha: tasaVacia.fecha };
   }
   const { data, error } = await supabase.from('caja_saldos').select('moneda, saldo, tasa_prom').in('caja_id', ids);
@@ -229,7 +232,7 @@ export async function disponibilidadFinanciera(): Promise<Disponibilidad> {
   const usdt = round2(rows.filter((r) => r.moneda === 'USDT').reduce((a, r) => a + (Number(r.saldo) || 0), 0));
   const usdEnBs = round2(rows.filter((r) => esDolar(r.moneda)).reduce((a, r) => a + equiv(r), 0));
   const totalBs = round2(rows.reduce((a, r) => a + equiv(r), 0));
-  const tasa = await getTasaHoy();
+  const tasa = await tasaP;
   return { usd, usdt, bs, tasaUsd: tasa.usd, usdEnBs, totalBs, fecha: tasa.fecha };
 }
 

@@ -271,13 +271,12 @@ export async function listRecetas(tipo: ProduccionTipo = 'fundicion'): Promise<R
 }
 
 export async function getProduccionConMateriales(id: string): Promise<Produccion | null> {
-  const { data, error } = await supabase.from('produccion').select('*').eq('id', id).maybeSingle();
+  const [{ data, error }, { data: mats, error: mErr }] = await Promise.all([
+    supabase.from('produccion').select('*').eq('id', id).maybeSingle(),
+    supabase.from('produccion_materiales').select('*').eq('produccion_id', id),
+  ]);
   if (error) throw error;
   if (!data) return null;
-  const { data: mats, error: mErr } = await supabase
-    .from('produccion_materiales')
-    .select('*')
-    .eq('produccion_id', id);
   if (mErr) throw mErr;
   return { ...(data as Produccion), materiales: (mats ?? []) as ProduccionMaterial[] };
 }

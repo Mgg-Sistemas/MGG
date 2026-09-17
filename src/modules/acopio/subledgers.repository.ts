@@ -767,11 +767,9 @@ export interface ResumenCobrar {
 /** Suma los saldos por cobrar de todas las cuentas del centro (deuda $ y Kg recibidos). */
 export async function resumenPorCobrar(centroNombre = CENTRO_ACOPIO_DEFECTO): Promise<ResumenCobrar> {
   const cuentas = await listCuentasCobrar(centroNombre);
-  const items: ResumenCobrarItem[] = [];
-  for (const c of cuentas) {
-    const led = await getCobrarLedger(c);
-    items.push({ cuenta: c, deuda: led.deuda, saldoKg: led.totalKg });
-  }
+  // Los libros de cada cuenta son independientes: se piden todos a la vez.
+  const ledgers = await Promise.all(cuentas.map((c) => getCobrarLedger(c)));
+  const items: ResumenCobrarItem[] = cuentas.map((c, i) => ({ cuenta: c, deuda: ledgers[i].deuda, saldoKg: ledgers[i].totalKg }));
   return {
     items,
     totalDeuda: r2(items.reduce((a, i) => a + i.deuda, 0)),

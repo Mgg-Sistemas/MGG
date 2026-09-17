@@ -21,15 +21,30 @@ type Pagina<T> = PromiseLike<{ data: T[] | null; error: { message?: string } | n
  *
  *   const filas = await todasLasFilas<Producto>((d, h) =>
  *     supabase.from('productos').select('*').order('nombre').order('id').range(d, h));
+ *
+ * `paralelas`: cuántas páginas se piden A LA VEZ. Cada viaje a Supabase cuesta
+ * ~0,3–0,5 s para el usuario, así que en tablas que SIEMPRE pasan de 1.000 filas
+ * (productos, existencias) conviene pedir 2 juntas: llegan en un solo viaje en vez
+ * de dos seguidos. En consultas que suelen caber en una página dejarlo en 1, para
+ * no hacer un pedido vacío de más.
  */
-export async function todasLasFilas<T>(pagina: (desde: number, hasta: number) => Pagina<T>, tamano = PAGINA_SUPABASE): Promise<T[]> {
+export async function todasLasFilas<T>(
+  pagina: (desde: number, hasta: number) => Pagina<T>,
+  tamano = PAGINA_SUPABASE,
+  paralelas = 1,
+): Promise<T[]> {
   const todas: T[] = [];
-  for (let desde = 0; ; desde += tamano) {
-    const { data, error } = await pagina(desde, desde + tamano - 1);
-    if (error) throw error;
-    const filas = data ?? [];
-    todas.push(...filas);
-    if (filas.length < tamano) break;
+  const lote = Math.max(1, Math.floor(paralelas));
+  for (let desde = 0; ; desde += tamano * lote) {
+    const respuestas = await Promise.all(
+      Array.from({ length: lote }, (_, k) => pagina(desde + k * tamano, desde + (k + 1) * tamano - 1)),
+    );
+    for (const { data, error } of respuestas) {
+      if (error) throw error;
+      const filas = data ?? [];
+      todas.push(...filas);
+      // Una página incompleta es la última: las siguientes del lote vienen vacías.
+      if (filas.length < tamano) return todas;
+    }
   }
-  return todas;
 }

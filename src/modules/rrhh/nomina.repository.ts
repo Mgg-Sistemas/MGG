@@ -150,11 +150,13 @@ export interface NominaPeriodoResumen extends NominaPeriodo {
 }
 
 export async function listNominas(): Promise<NominaPeriodoResumen[]> {
-  const { data: pers, error } = await supabase.from('nomina_periodos').select('*').order('created_at', { ascending: false });
+  const [{ data: pers, error }, { data: regs, error: rErr }] = await Promise.all([
+    supabase.from('nomina_periodos').select('*').order('created_at', { ascending: false }),
+    supabase.from('nomina_renglones').select('periodo_id, estado'),
+  ]);
   if (error) throw error;
   const periodos = (pers ?? []) as NominaPeriodo[];
   if (!periodos.length) return [];
-  const { data: regs, error: rErr } = await supabase.from('nomina_renglones').select('periodo_id, estado');
   if (rErr) throw rErr;
   const rows = (regs ?? []) as Array<{ periodo_id: string; estado: string }>;
   return periodos.map((p) => {

@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Movimiento, Producto } from '@/shared/lib/types';
 
 export type BucketKind = 'day' | 'week' | 'month';
@@ -91,7 +91,7 @@ export async function getSerieValorInventario(rango: RangoFechas): Promise<Serie
   // Por páginas: productos supera las 1.000 filas y los movimientos de un rango largo también.
   const [prods, movs] = await Promise.all([
     todasLasFilas<{ id: string; stock: number | null; precio: number | null; precio_promedio: number | null }>((d, h) =>
-      supabase.from('productos').select('id, stock, precio, precio_promedio').order('id').range(d, h)),
+      supabase.from('productos').select('id, stock, precio, precio_promedio').order('id').range(d, h), PAGINA_SUPABASE, 2),
     todasLasFilas<{ producto_id: string; delta: number; at: string }>((d, h) =>
       supabase
         .from('movimientos')

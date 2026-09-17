@@ -198,7 +198,7 @@ export function TesoreriaPage() {
   const [transfers, setTransfers] = useState<TransferenciaInter[]>([]);
 
   const reload = useCallback(async () => {
-    const [d, cs, sal, mov, lm, pp, cr, cxp, tr, nc, cxc, ret] = await Promise.all([
+    const [d, cs, sal, mov, lm, pp, cr, cxp, tr, nc, cxc, ret, dir] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
@@ -212,11 +212,11 @@ export function TesoreriaPage() {
       countRenglonesPorPagar().catch(() => 0),
       listCuentasPorCobrar(true).catch(() => [] as CuentaPorCobrar[]),
       listRetencionesHechas().catch(() => [] as RetencionItem[]),
+      // Compras + servicios directos POR PAGAR (los montó el analista): se suman a las órdenes
+      // pendientes por pagar (mismo botón) con una etiqueta DIRECTO.
+      cargarDirectosPorPagar().catch(() => [] as DirectoFila[]),
     ]);
     const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
-    // Compras + servicios directos POR PAGAR (los montó el analista): se suman a las órdenes
-    // pendientes por pagar (mismo botón) con una etiqueta DIRECTO.
-    const dir = await cargarDirectosPorPagar().catch(() => [] as DirectoFila[]);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
     setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setLmMovs(lm); setPorPagarCount(pp.length + dir.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length); setRetencionListas(ret);
     setCxpList(cxp); setCxcList(cxc); setDirectos(dir);

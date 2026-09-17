@@ -5,6 +5,10 @@
     <link rel="icon" type="image/jpeg" href="/image.jpeg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0d1014" />
+    <!-- Supabase: abrir la conexión (DNS + TLS, ~0,2 s) mientras baja el JS, para que
+         la primera consulta (sesión, permisos) no tenga que esperarla. -->
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" crossorigin />
+    <link rel="dns-prefetch" href="%VITE_SUPABASE_URL%" />
     <!-- Fuentes: preconnect + carga no bloqueante (no frena el primer render;
          con display=swap el texto se ve de inmediato con la fuente del sistema). -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

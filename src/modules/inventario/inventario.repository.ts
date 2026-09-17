@@ -4,7 +4,7 @@
    exclusivamente desde `movimientos.repository.ts` (kardex).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { cachedQuery, bustCache } from '@/shared/lib/queryCache';
 import type { EstadoGenerico, Orden, Producto, RecetaFundicion } from '@/shared/lib/types';
 import { ubicacionAlRecibir } from './ubicacionProducto';
@@ -258,7 +258,7 @@ export async function addUnidad(nombre: string, actorEmail?: string): Promise<st
 
 /** Elimina una unidad del catálogo, solo si ningún producto la usa (case-insensitive). */
 export async function eliminarUnidad(nombre: string): Promise<void> {
-  const data = await todasLasFilas<{ unidad: string }>((d, h) => supabase.from('productos').select('unidad').order('id').range(d, h));
+  const data = await todasLasFilas<{ unidad: string }>((d, h) => supabase.from('productos').select('unidad').order('id').range(d, h), PAGINA_SUPABASE, 2);
   const k = claveTaxonomia(nombre);
   const usos = data.filter((r) => claveTaxonomia((r as { unidad: string }).unidad) === k).length;
   if (usos > 0) throw new Error(`No se puede eliminar: ${usos} producto(s) usan esta medida`);
@@ -267,7 +267,7 @@ export async function eliminarUnidad(nombre: string): Promise<void> {
 
 /** Conteo de productos por unidad (agrupado por clave normalizada para los selectores deduplicados). */
 export async function contarProductosPorUnidad(): Promise<Record<string, number>> {
-  const data = await todasLasFilas<{ unidad: string }>((d, h) => supabase.from('productos').select('unidad').order('id').range(d, h));
+  const data = await todasLasFilas<{ unidad: string }>((d, h) => supabase.from('productos').select('unidad').order('id').range(d, h), PAGINA_SUPABASE, 2);
   return data.reduce<Record<string, number>>((acc, row) => {
     const u = (row as { unidad: string }).unidad;
     if (u) acc[u] = (acc[u] ?? 0) + 1;
@@ -291,7 +291,7 @@ export async function renombrarUnidad(oldNombre: string, newNombre: string, acto
 }
 
 export async function contarProductosPorCategoria(): Promise<Record<string, number>> {
-  const data = await todasLasFilas<{ categoria: string }>((d, h) => supabase.from('productos').select('categoria').order('id').range(d, h));
+  const data = await todasLasFilas<{ categoria: string }>((d, h) => supabase.from('productos').select('categoria').order('id').range(d, h), PAGINA_SUPABASE, 2);
   return data.reduce<Record<string, number>>((acc, row) => {
     const c = (row as { categoria: string }).categoria;
     if (c) acc[c] = (acc[c] ?? 0) + 1;
@@ -311,7 +311,7 @@ export async function listProductos(espacio: Espacio = 'principal'): Promise<Pro
     // Por páginas: la tabla ya supera las 1.000 filas (tope por respuesta de Supabase) y
     // una sola llamada dejaba productos fuera del inventario sin ningún error.
     const data = await todasLasFilas<Producto>((desde, hasta) =>
-      supabase.from('productos').select('*').order('nombre', { ascending: true }).order('id', { ascending: true }).range(desde, hasta));
+      supabase.from('productos').select('*').order('nombre', { ascending: true }).order('id', { ascending: true }).range(desde, hasta), PAGINA_SUPABASE, 2);
     return data.filter((p) => (p.espacio ?? 'principal') === espacio);
   }, { tables: ['productos'], ttl: 30_000 });
 }
@@ -321,7 +321,7 @@ export async function listProductos(espacio: Espacio = 'principal'): Promise<Pro
 export async function siguienteSkuGlobal(categoria: string): Promise<string> {
   // TODAS las filas: con la tabla cortada en 1.000 el máximo de una categoría podía quedar
   // fuera y el correlativo salir repetido (choca con la restricción única de `sku`).
-  const data = await todasLasFilas<Pick<Producto, 'sku' | 'categoria'>>((d, h) => supabase.from('productos').select('sku, categoria').order('id').range(d, h));
+  const data = await todasLasFilas<Pick<Producto, 'sku' | 'categoria'>>((d, h) => supabase.from('productos').select('sku, categoria').order('id').range(d, h), PAGINA_SUPABASE, 2);
   return siguienteSku(categoria, data as Producto[]);
 }
 
@@ -348,7 +348,7 @@ export async function listProductosConStock(): Promise<ProductoConStock[]> {
     listProductos(),
     // Por páginas (ver listExistencias): la tabla supera las 1.000 filas.
     todasLasFilas<{ producto_id: string; almacen: string; stock: number }>((d, h) =>
-      supabase.from('existencias').select('producto_id, almacen, stock').order('producto_id').order('almacen').range(d, h)),
+      supabase.from('existencias').select('producto_id, almacen, stock').order('producto_id').order('almacen').range(d, h), PAGINA_SUPABASE, 2),
   ]);
   const porProducto = new Map<string, { almacen: string; stock: number }[]>();
   for (const e of existencias) {

@@ -6,7 +6,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { cachedQuery } from '@/shared/lib/queryCache';
-import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 import type { Espacio } from './inventario.repository';
 
@@ -217,7 +217,7 @@ export async function listExistencias(): Promise<Existencia[]> {
     // Por páginas: en producción hay más de 1.000 existencias (tope por respuesta de
     // Supabase); una sola llamada las cortaba y esos productos «no aparecían» en su sede.
     return todasLasFilas<Existencia>((desde, hasta) =>
-      supabase.from('existencias').select('*').order('producto_id').order('almacen').range(desde, hasta));
+      supabase.from('existencias').select('*').order('producto_id').order('almacen').range(desde, hasta), PAGINA_SUPABASE, 2);
   }, { tables: ['existencias'], ttl: 15_000 });
 }
 

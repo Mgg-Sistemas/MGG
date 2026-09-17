@@ -329,10 +329,10 @@ export function PedidosPage() {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      const [u] = await Promise.all([getCurrentUsuario()]);
+      // Usuario y listas a la vez: refresh() no depende del usuario.
+      const [u] = await Promise.all([getCurrentUsuario(), refresh()]);
       if (cancelled) return;
       setUsuario(u);
-      await refresh();
       if (!cancelled) setLoading(false);
     })();
     return () => {
