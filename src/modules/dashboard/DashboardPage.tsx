@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -73,7 +73,7 @@ export function DashboardPage() {
 
   useEffect(() => { setLoading(true); void reload(); }, [reload]);
   // Realtime: el tablero refleja en vivo movimientos, compras, producción y catálogo.
-  useRealtime(['movimientos', 'ordenes', 'produccion', 'productos', 'existencias'], reload);
+  useRealtime(['movimientos', 'ordenes', 'produccion', 'productos', 'existencias', 'almacenes'], reload);
 
   return (
     <div>
@@ -150,10 +150,18 @@ function KpiGrid({ kpis }: { kpis: DashboardKpis | null }) {
       />
       <Kpi
         icon="$"
-        label="Valor del inventario"
+        label="Valor del inventario (todas las sedes)"
         value={money(kpis.valorInventario)}
         deltaClassName="delta"
-        deltaText="stock × precio (activos)"
+        deltaText={kpis.valorPorSede.length ? (
+          <span style={{ display: 'grid', gap: '.1rem' }}>
+            {kpis.valorPorSede.map((s) => (
+              <span key={s.sede} style={{ display: 'flex', justifyContent: 'space-between', gap: '.75rem' }}>
+                <span>{s.sede}</span><span className="mono">{money(s.valor)}</span>
+              </span>
+            ))}
+          </span>
+        ) : 'stock × precio (activos)'}
         onClick={() => navigate('/app/inventario')}
       />
     </div>
@@ -165,7 +173,7 @@ interface KpiProps {
   label: string;
   value: string;
   deltaClassName: string;
-  deltaText: string;
+  deltaText: ReactNode;
   onClick?: () => void;
 }
 
