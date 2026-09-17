@@ -230,6 +230,11 @@
   border-radius: var(--r-lg);
   position: relative;
   overflow: hidden;
+  /* Centrado vertical: las tarjetas de una fila miden lo mismo, y la que tiene
+     menos texto (p. ej. «Órdenes pendientes») ya no queda pegada arriba. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .kpi::after {
   content: ""; position: absolute; top: 0; right: 0;
