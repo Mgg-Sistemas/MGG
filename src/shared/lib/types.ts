@@ -1246,6 +1246,16 @@ export interface ProduccionMaterial {
   subtotal: number;
 }
 
+/** Una corrección de la cantidad producida de una colada/refinación ya finalizada. */
+export interface AjusteCantidadProducida {
+  at: string;
+  actor: string;
+  de: number;
+  a: number;
+  nota: string;
+  movio_inventario?: boolean;
+}
+
 export interface Produccion {
   id: string;
   producto_id?: string | null;
@@ -1268,6 +1278,8 @@ export interface Produccion {
   /** false = CARGA HISTÓRICA: los materiales no se descontaron del inventario,
    *  porque la colada ya ocurrió y el stock de hoy ya lo refleja. */
   descontar_inventario?: boolean;
+  /** Correcciones de la cantidad producida después de finalizar (con su nota obligatoria). */
+  ajustes?: AjusteCantidadProducida[] | null;
   inicio_at: string;
   fin_at?: string | null;
   created_by?: string | null;

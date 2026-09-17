@@ -179,18 +179,28 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
                 const esReRef = c.origen === 'refinacion';
                 return (
                   <tr key={c.produccion_id} style={sel ? { background: 'rgba(255,138,0,0.06)' } : undefined}>
-                    <td><input type="checkbox" checked={sel} onChange={() => toggleColada(c)} /></td>
+                    <td><input type="checkbox" checked={sel} disabled={!sel && c.estano_kg <= 0} onChange={() => toggleColada(c)} /></td>
                     <td>
                       <strong>{esReRef ? '♻ ' : ''}{c.etiqueta ?? `#${c.colada_num || '—'}`}</strong>
                       {esReRef && <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.62rem', background: 'var(--primary)', color: '#1a1205', fontWeight: 700 }}>2ª refinación</span>}
                       {c.fecha ? <div className="muted" style={{ fontSize: '.7rem' }}>{c.fecha}</div> : null}
                     </td>
                     <td>{c.producto_nombre}<div className="muted" style={{ fontSize: '.7rem' }}>{c.almacen}</div></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(c.estano_kg)} kg</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      {num(c.estano_kg)} kg
+                      {/* El inventario manda: si se corrigió, se avisa cuánto dio el proceso. */}
+                      {c.producido_kg != null && c.producido_kg > c.estano_kg && (
+                        <div className="muted" style={{ fontSize: '.68rem', fontWeight: 400 }}>
+                          el proceso dio {num(c.producido_kg)} · inventario corregido
+                        </div>
+                      )}
+                      {c.estano_kg <= 0 && <div style={{ fontSize: '.68rem', color: 'var(--danger)', fontWeight: 400 }}>sin stock</div>}
+                    </td>
                     <td style={{ textAlign: 'right' }}>
-                      <input className="input mono" type="number" min={0} step="any" style={{ width: 88, textAlign: 'right' }}
-                        value={sel ? String(tomado) : ''} disabled={!sel}
-                        onChange={(e) => setColadaKg(c.produccion_id, Number(e.target.value) || 0)} />
+                      <input className="input mono" type="number" min={0} max={c.estano_kg} step="any" style={{ width: 88, textAlign: 'right' }}
+                        value={sel ? String(tomado) : ''} disabled={!sel || c.estano_kg <= 0}
+                        title={`Máximo ${num(c.estano_kg)} kg: es lo que hay en ${c.almacen}`}
+                        onChange={(e) => setColadaKg(c.produccion_id, Math.min(Number(e.target.value) || 0, c.estano_kg))} />
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <input className="input mono" type="number" min={0} step="any" style={{ width: 88, textAlign: 'right' }}

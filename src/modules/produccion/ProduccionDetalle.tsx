@@ -5,11 +5,80 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
 import type { Produccion } from '@/shared/lib/types';
-import { getProduccionConMateriales } from './produccion.repository';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { ajustarCantidadProducida, getProduccionConMateriales } from './produccion.repository';
 // descargarProduccionPdf / descargarProduccionExcel se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
 import { enviarProduccionAMultiples } from './enviarProduccion';
 import { ColadaPanel } from './ColadaPanel';
 import { RefinacionPanel } from './RefinacionPanel';
+
+/** Corrección de la cantidad producida: pide la nota (obligatoria) y sincroniza el inventario. */
+function AjustarCantidadModal({ prod, actor, actorName, onClose, onListo }: {
+  prod: Produccion; actor: string; actorName: string | null; onClose: () => void; onListo: () => void;
+}) {
+  const esRef = (prod.tipo ?? 'fundicion') === 'refinacion';
+  const [cantidad, setCantidad] = useState(String(prod.cantidad ?? ''));
+  const [nota, setNota] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const nueva = Number(String(cantidad).replace(',', '.')) || 0;
+  const delta = Math.round((nueva - (Number(prod.cantidad) || 0)) * 100) / 100;
+  const color = delta > 0 ? 'var(--success)' : 'var(--danger)';
+
+  async function guardar() {
+    setGuardando(true);
+    try {
+      await ajustarCantidadProducida({ produccionId: prod.id, cantidadNueva: nueva, nota, actor, actorName });
+      toast('Cantidad corregida · inventario sincronizado', 'success');
+      onListo();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo corregir la cantidad', 'error');
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={'Corregir ' + (esRef ? 'kg refinados' : 'kg obtenidos') + ' · ' + prod.producto_nombre}
+      onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" onClick={guardar} disabled={guardando || !nota.trim() || delta === 0}>
+          {guardando ? '…' : 'Corregir y ajustar inventario'}
+        </button>
+      </>}
+    >
+      <p className="hint muted" style={{ marginTop: 0 }}>
+        Se corrige lo que dio {esRef ? 'la refinación' : 'la colada'} y el inventario se ajusta <strong>solo por la diferencia</strong>,
+        en <strong>{prod.almacen_destino}</strong>. El costo del proceso no cambia: se reparte entre la nueva cantidad.
+      </p>
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Cantidad actual</label>
+          <input className="input mono" value={num(prod.cantidad)} disabled style={{ textAlign: 'right' }} />
+        </div>
+        <div className="form-row">
+          <label>Cantidad corregida</label>
+          <input className="input mono" inputMode="decimal" value={cantidad} autoFocus
+            onChange={(e) => setCantidad(e.target.value)} style={{ textAlign: 'right' }} />
+        </div>
+      </div>
+      {delta !== 0 && (
+        <div className="card" style={{ padding: '.5rem .7rem', margin: '.2rem 0 .6rem', borderLeft: '3px solid ' + color }}>
+          <span className="mono" style={{ fontSize: '.85rem' }}>
+            En inventario: <strong style={{ color }}>{delta > 0 ? '+' : ''}{num(delta)}</strong>
+            {' '}· {delta > 0 ? 'entra la diferencia' : 'sale la diferencia'}
+          </span>
+        </div>
+      )}
+      <div className="form-row">
+        <label>Motivo de la corrección <span style={{ color: 'var(--danger)' }}>*</span></label>
+        <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
+          placeholder="Ej.: se pesó de más al cerrar la colada; faltó un lingote en el conteo" />
+        <small className="muted">Obligatorio. Queda en el kardex del producto y en el historial de {esRef ? 'la refinación' : 'la colada'}.</small>
+      </div>
+    </Modal>
+  );
+}
 
 export function duracionProd(inicio: string, fin?: string | null): string {
   if (!fin) return 'En curso';
@@ -36,15 +105,21 @@ export function ProduccionDetalle({
   const [prod, setProd] = useState<Produccion | null>(null);
   const [loading, setLoading] = useState(true);
   const [enviar, setEnviar] = useState(false);
+  const [ajustando, setAjustando] = useState(false);
+  const [recarga, setRecarga] = useState(0);
+  const { can, appUser } = usePermissions();
+  const puedeCorregir = can('produccion', 'escritura');
+  const esRefinacion = (prod?.tipo ?? 'fundicion') === 'refinacion';
 
   useEffect(() => {
     let cancelled = false;
+    void recarga;
     getProduccionConMateriales(id)
       .then((p) => { if (!cancelled) setProd(p); })
       .catch(() => { if (!cancelled) setProd(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, recarga]);
 
   async function handlePdf() {
     try { const { descargarProduccionPdf } = await import('./produccionPdf'); await descargarProduccionPdf(id); }
@@ -66,6 +141,15 @@ export function ProduccionDetalle({
       footer={
         <>
           {onEditar && <button className="btn btn-ghost" onClick={onEditar}>✎ Editar receta</button>}
+          {puedeCorregir && prod?.estado === 'finalizado' && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => setAjustando(true)}
+              title={'Corregir los ' + (esRefinacion ? 'kg refinados' : 'kg obtenidos') + ' y ajustar el inventario por la diferencia'}
+            >
+              ⚖ Corregir cantidad
+            </button>
+          )}
           <button className="btn btn-ghost" onClick={handlePdf}>↓ PDF</button>
           <button className="btn btn-ghost" onClick={handleExcel}>↓ Excel</button>
           <button className="btn btn-ghost" onClick={() => setEnviar(true)} disabled={!prod}>✉ Enviar por correo</button>
@@ -140,11 +224,38 @@ export function ProduccionDetalle({
           {(prod.tipo ?? 'fundicion') === 'fundicion' && (
             <ColadaPanel produccionId={id} editable={prod.estado !== 'finalizado'} />
           )}
+          {/* Correcciones hechas después de finalizar: qué cambió y por qué. */}
+          {!!(prod.ajustes ?? []).length && (
+            <div className="card" style={{ padding: '.6rem .8rem', marginTop: '.75rem', borderLeft: '3px solid var(--warning)' }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '.3rem' }}>Correcciones de cantidad</div>
+              <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '.82rem' }}>
+                {(prod.ajustes ?? []).map((a, i) => (
+                  <li key={i}>
+                    <strong className="mono">{num(a.de)} → {num(a.a)}</strong> · {a.nota}
+                    <div className="muted" style={{ fontSize: '.74rem' }}>
+                      {a.actor} · {dateTime(a.at)}{a.movio_inventario === false ? ' · no movió inventario' : ' · inventario ajustado'}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Reporte de refinación (MGG-FR-002): origen + parámetros + etapas + PDF */}
           {prod.tipo === 'refinacion' && (
             <RefinacionPanel produccionId={id} editable={prod.estado !== 'finalizado'} />
           )}
         </div>
+      )}
+
+      {ajustando && prod && (
+        <AjustarCantidadModal
+          prod={prod}
+          actor={appUser?.email ?? 'sistema'}
+          actorName={appUser?.nombre ?? null}
+          onClose={() => setAjustando(false)}
+          onListo={() => { setAjustando(false); setRecarga((n) => n + 1); }}
+        />
       )}
 
       {enviar && prod && (

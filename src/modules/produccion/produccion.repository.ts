@@ -7,6 +7,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto, Produccion, ProduccionMaterial } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { calcularAjusteProduccion, detalleAjuste } from './ajusteProduccion';
 import { validaStock } from './almacenFundicion';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
@@ -566,4 +567,93 @@ export async function finalizarProduccion(id: string, actor: string, actorName?:
     .single();
   if (uErr) throw uErr;
   return upd as Produccion;
+}
+
+/**
+ * Corrige la CANTIDAD PRODUCIDA de una colada o refinación ya finalizada y
+ * sincroniza el inventario con la diferencia (ajuste + / −). La nota es
+ * obligatoria: viaja al kardex y queda en el historial de la orden.
+ *
+ * El costo del proceso no cambia: se reparte entre la nueva cantidad, así que el
+ * costo unitario se recalcula. El movimiento va SIN precio para no tocar el PMP
+ * del almacén con un número que ya está contado.
+ */
+export async function ajustarCantidadProducida(input: {
+  produccionId: string;
+  cantidadNueva: number;
+  nota: string;
+  actor: string;
+  actorName?: string | null;
+}): Promise<Produccion> {
+  const { data, error } = await supabase.from('produccion').select('*').eq('id', input.produccionId).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('No se encontró la orden.');
+  const prod = data as Produccion & { ajustes?: Array<Record<string, unknown>> | null };
+  if (prod.estado !== 'finalizado') throw new Error('Esto es para corregir una orden FINALIZADA. Mientras está en curso, editá los materiales.');
+
+  const costoProceso = (Number(prod.costo_material) || 0) + (Number(prod.mano_obra) || 0) + (Number(prod.costos_indirectos) || 0);
+  const aj = calcularAjusteProduccion({
+    cantidadActual: Number(prod.cantidad) || 0,
+    cantidadNueva: input.cantidadNueva,
+    costoProceso,
+    precioVenta: prod.precio_venta,
+    nota: input.nota,
+  });
+
+  const esRef = (prod.tipo ?? 'fundicion') === 'refinacion';
+  const numero = await numeroDeProceso(prod.id, esRef);
+  const detalle = detalleAjuste(prod.tipo ?? 'fundicion', numero, Number(prod.cantidad) || 0, aj.cantidad, input.nota);
+
+  // El inventario solo se toca si esta orden sumó stock al finalizar.
+  if (prod.sumar_inventario !== false && prod.producto_id) {
+    await registrarMovimiento({
+      producto_id: prod.producto_id,
+      tipo: 'ajuste',
+      delta: aj.delta,
+      almacen: prod.almacen_destino,
+      actor: input.actor,
+      actor_name: input.actorName ?? null,
+      ref_tipo: 'produccion_ajuste',
+      ref_id: prod.id,
+      detalle,
+      precio_unitario: null,   // conserva el PMP del almacén
+    });
+  }
+
+  const ajustes = [...(prod.ajustes ?? []), {
+    at: new Date().toISOString(),
+    actor: input.actorName || input.actor,
+    de: Number(prod.cantidad) || 0,
+    a: aj.cantidad,
+    nota: input.nota.trim(),
+    movio_inventario: prod.sumar_inventario !== false && !!prod.producto_id,
+  }];
+
+  const { data: upd, error: uErr } = await supabase.from('produccion')
+    .update({ cantidad: aj.cantidad, costo_unitario: aj.costoUnitario, ganancia: aj.ganancia, ajustes })
+    .eq('id', prod.id).select('*').single();
+  if (uErr) throw uErr;
+
+  // El reporte (colada / refinación) muestra su propio kg obtenido: se alinea.
+  await alinearReporte(prod.id, esRef, aj.cantidad).catch(() => { /* el reporte no bloquea la corrección */ });
+  return upd as Produccion;
+}
+
+/** N° de colada o de refinación, para el texto del movimiento. */
+async function numeroDeProceso(produccionId: string, esRef: boolean): Promise<number | null> {
+  const tabla = esRef ? 'produccion_refinacion' : 'produccion_colada';
+  const campo = esRef ? 'refinacion_num' : 'colada_num';
+  const { data } = await supabase.from(tabla).select(campo).eq('produccion_id', produccionId).maybeSingle();
+  const n = Number((data as Record<string, unknown> | null)?.[campo]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Deja el kg obtenido del reporte igual a la cantidad corregida. */
+async function alinearReporte(produccionId: string, esRef: boolean, cantidad: number): Promise<void> {
+  const tabla = esRef ? 'produccion_refinacion' : 'produccion_colada';
+  const { data } = await supabase.from(tabla).select('datos').eq('produccion_id', produccionId).maybeSingle();
+  const datos = ((data as { datos?: Record<string, unknown> } | null)?.datos ?? {}) as Record<string, unknown>;
+  const campo = esRef ? 'estano_refinado_kg' : 'estano_kg';
+  if (datos[campo] == null) return;
+  await supabase.from(tabla).update({ datos: { ...datos, [campo]: cantidad } }).eq('produccion_id', produccionId);
 }

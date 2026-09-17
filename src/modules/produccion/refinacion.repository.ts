@@ -9,9 +9,18 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { RefinacionDatos, ProduccionRefinacion } from '@/shared/lib/types';
 import { finalizarProduccion } from './produccion.repository';
+import { conDisponibleReal, type StockAlmacen } from './disponibleRefinar';
 
 const TABLE = 'produccion_refinacion';
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Stock actual de esos productos, para topar lo que ofrece la lista de orígenes. */
+async function stockDe(productoIds: string[]): Promise<StockAlmacen[]> {
+  const ids = [...new Set(productoIds.filter(Boolean))];
+  if (!ids.length) return [];
+  const { data } = await supabase.from('existencias').select('producto_id, almacen, stock').in('producto_id', ids);
+  return (data ?? []) as StockAlmacen[];
+}
 
 /** Etapas estándar del proceso de refinación (formato MGG-FR-002). */
 export const ETAPAS_REFINACION = [
@@ -72,7 +81,8 @@ export interface ColadaFinalizada {
   producto_id: string | null;
   producto_nombre: string;
   almacen: string;
-  estano_kg: number;       // estaño disponible (= cantidad finalizada)
+  estano_kg: number;       // estaño DISPONIBLE hoy en inventario (topado contra el stock)
+  producido_kg?: number;   // lo que dio el proceso (puede ser mayor si se corrigió el inventario)
   costo_unitario: number;  // costo/kg
   origen?: 'colada' | 'refinacion';
   etiqueta?: string;       // "Colada #5" / "Refinación #2"
@@ -101,7 +111,7 @@ export async function listColadasFinalizadas(): Promise<ColadaFinalizada[]> {
   const cMap = new Map<string, { colada_num: number; fecha: string }>();
   (coladas ?? []).forEach((c) => cMap.set(c.produccion_id as string, { colada_num: Number(c.colada_num) || 0, fecha: c.fecha as string }));
 
-  return rows.map((r) => {
+  const base = rows.map((r) => {
     const c = cMap.get(r.id as string);
     const numColada = c?.colada_num ?? 0;
     return {
@@ -117,6 +127,9 @@ export async function listColadasFinalizadas(): Promise<ColadaFinalizada[]> {
       etiqueta: `Colada #${numColada || 's/n'}`,
     };
   });
+  // Lo que se ofrece para refinar es lo que HAY, no lo que dio la colada: si se
+  // corrigió el inventario (ajuste, merma, salida), la lista lo refleja.
+  return conDisponibleReal(base, await stockDe(base.map((b) => b.producto_id ?? '')));
 }
 
 /**
@@ -143,7 +156,7 @@ export async function listRefinacionesFinalizadas(excluirProduccionId?: string):
   const rMap = new Map<string, { refinacion_num: number; fecha: string }>();
   (refs ?? []).forEach((r) => rMap.set(r.produccion_id as string, { refinacion_num: Number(r.refinacion_num) || 0, fecha: r.fecha as string }));
 
-  return rows.map((r) => {
+  const base = rows.map((r) => {
     const rr = rMap.get(r.id as string);
     const numRef = rr?.refinacion_num ?? 0;
     return {
@@ -159,6 +172,7 @@ export async function listRefinacionesFinalizadas(excluirProduccionId?: string):
       etiqueta: `Refinación #${numRef || 's/n'}`,
     };
   });
+  return conDisponibleReal(base, await stockDe(base.map((b) => b.producto_id ?? '')));
 }
 
 /** Una fila del RESUMEN GENERAL de refinación (una refinación finalizada). */
