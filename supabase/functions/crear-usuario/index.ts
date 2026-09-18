@@ -1,6 +1,11 @@
 // MGG · Edge Function: crear-usuario
-// Solo callable por admin. Crea el usuario en auth.users con clave por defecto
-// '123456' (must_change_password=true) e inserta su ficha en public.usuarios.
+// Solo callable por admin. Crea el usuario en auth.users con una CLAVE TEMPORAL aleatoria
+// (must_change_password=true) e inserta su ficha en public.usuarios. Devuelve la clave
+// temporal para que el admin se la pase al usuario.
+//
+// Antes la clave inicial era siempre '123456': con la protección de claves filtradas de
+// Supabase activada, Auth la rechaza («Password is known to be weak») y no se podía crear
+// a nadie. Una clave distinta por usuario tampoco queda adivinable.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -10,7 +15,16 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-const DEFAULT_PASSWORD = '123456';
+
+/** Clave temporal legible: Mgg-XXXX-0000 (sin letras que se confunden: I, l, O, 0…). */
+function claveTemporal(): string {
+  const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+  const rnd = new Uint32Array(8);
+  crypto.getRandomValues(rnd);
+  const parte = Array.from(rnd.slice(0, 4), (n) => letras[n % letras.length]).join('');
+  const num = Array.from(rnd.slice(4), (n) => String(2 + (n % 8))).join('');
+  return `Mgg-${parte}-${num}`;
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -53,24 +67,34 @@ serve(async (req) => {
     apellido?: string;
     ci?: string;
     role?: string;
+    telefono?: string;
+    departamento?: string;
   };
   try {
     payload = await req.json();
   } catch {
     return json({ error: 'Body JSON inválido' }, 400);
   }
-  const { email, nombre, apellido, ci, role } = payload;
+  const { email, nombre, apellido, ci, role, telefono, departamento } = payload;
   if (!email || !/\S+@\S+\.\S+/.test(email))
     return json({ error: 'Email inválido' }, 400);
   if (!nombre || !nombre.trim()) return json({ error: 'Nombre requerido' }, 400);
-  const VALID_ROLES = ['admin', 'analista', 'obrero', 'supervisor', 'jefe', 'contabilidad', 'gerencia'];
-  if (!role || !VALID_ROLES.includes(role))
-    return json({ error: 'Rol inválido' }, 400);
+  if (!role || typeof role !== 'string') return json({ error: 'Rol requerido' }, 400);
 
-  // 3) Crear auth user
+  // Validar el rol contra la tabla custom_roles (catalogo dinamico)
+  const { data: roleRow, error: roleErr } = await admin
+    .from('custom_roles')
+    .select('key')
+    .eq('key', role)
+    .maybeSingle();
+  if (roleErr) return json({ error: 'No se pudo validar el rol: ' + roleErr.message }, 500);
+  if (!roleRow) return json({ error: `Rol "${role}" no existe en el catalogo` }, 400);
+
+  // 3) Crear auth user con su clave temporal
+  const clave = claveTemporal();
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email,
-    password: DEFAULT_PASSWORD,
+    password: clave,
     email_confirm: true,
     user_metadata: { nombre, apellido, ci },
   });
@@ -86,6 +110,8 @@ serve(async (req) => {
       nombre: nombre.trim(),
       apellido: apellido?.trim() || null,
       ci: ci?.trim() || null,
+      telefono: telefono?.trim() || null,
+      departamento: departamento?.trim() || null,
       role,
       estado: 'activo',
       must_change_password: true,
@@ -98,5 +124,5 @@ serve(async (req) => {
     return json({ error: upErr.message }, 500);
   }
 
-  return json({ ok: true, id: created.user.id, email });
+  return json({ ok: true, id: created.user.id, email, clave_temporal: clave });
 });

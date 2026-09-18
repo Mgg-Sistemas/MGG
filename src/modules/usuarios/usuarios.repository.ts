@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { traducirErrorAuth } from '@/shared/lib/funcionesError';
 import type { Role, Usuario } from '@/shared/lib/types';
 import { listRoles, type CustomRole } from './roles.repository';
 import { addTaxonomia, deleteTaxonomia, listTaxonomia, renameTaxonomia } from '@/shared/lib/taxonomias';
@@ -121,14 +122,15 @@ export async function eliminarDepartamento(nombre: string): Promise<void> {
   await deleteTaxonomia('usuario.departamento', nombre);
 }
 
-/** Llama a la Edge Function crear-usuario (clave por defecto: 123456). */
-export async function crearUsuario(input: CrearUsuarioInput): Promise<{ id: string }> {
+/** Llama a la Edge Function crear-usuario. Devuelve la CLAVE TEMPORAL que generó (una
+ *  distinta por usuario; la fija 123456 la rechaza la protección de claves filtradas). */
+export async function crearUsuario(input: CrearUsuarioInput): Promise<{ id: string; claveTemporal: string | null }> {
   const { data, error } = await supabase.functions.invoke<
-    { ok: true; id: string; email: string } | { error: string }
+    { ok: true; id: string; email: string; clave_temporal?: string } | { error: string }
   >('crear-usuario', { body: input });
   if (error) throw new Error(error.message ?? 'Error al crear usuario');
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
-  return { id: data.id };
+  return { id: data.id, claveTemporal: data.clave_temporal ?? null };
 }
 
 export interface ActualizarUsuarioInput {
@@ -194,13 +196,14 @@ export async function cambiarCorreoUsuario(userId: string, email: string): Promi
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
 }
 
-/** Llama a la Edge Function resetear-clave. */
-export async function resetearClave(userId: string): Promise<void> {
+/** Llama a la Edge Function resetear-clave. Devuelve la clave temporal nueva. */
+export async function resetearClave(userId: string): Promise<string | null> {
   const { data, error } = await supabase.functions.invoke<
-    { ok: true } | { error: string }
+    { ok: true; clave_temporal?: string } | { error: string }
   >('resetear-clave', { body: { user_id: userId } });
   if (error) throw new Error(error.message ?? 'Error al resetear');
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
+  return data.clave_temporal ?? null;
 }
 
 export async function setEstadoUsuario(id: string, estado: 'activo' | 'inactivo'): Promise<void> {
@@ -214,7 +217,7 @@ export async function setEstadoUsuario(id: string, estado: 'activo' | 'inactivo'
  *  fila directamente — un UPDATE plano se rechazaba en silencio. */
 export async function cambiarMiClave(nuevaClave: string): Promise<void> {
   const { error: pwErr } = await supabase.auth.updateUser({ password: nuevaClave });
-  if (pwErr) throw pwErr;
+  if (pwErr) throw new Error(traducirErrorAuth(pwErr.message));
   const { data, error: rpcErr } = await supabase.rpc('clear_must_change_password');
   if (rpcErr) {
     throw new Error(`Clave actualizada pero no se pudo limpiar la bandera de cambio obligatorio: ${rpcErr.message}`);
