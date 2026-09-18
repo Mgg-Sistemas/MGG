@@ -82,7 +82,7 @@ const MAP: Record<string, ModuloInfo> = {
   combustible_planta_movimientos: { modulo: 'Combustible · Planta', icon: '⚡' },
   combustible_tanque_movimientos: { modulo: 'Combustible · Tanque', icon: '⛽' },
   cocina_comidas: { modulo: 'Cocina', icon: '🍽' },
-  ventas: { modulo: 'Ventas', icon: '🏷' },
+  ventas: { modulo: 'Ventas', icon: '🧾' },
   cierres_caja: { modulo: 'Cierres de caja', icon: '🔒' },
   recepciones: { modulo: 'Recepciones', icon: '📥' },
   recepcion_pesajes: { modulo: 'Recepciones · Pesos', icon: '⚖' },
@@ -109,7 +109,7 @@ export function moduloDeTabla(tabla: string): ModuloInfo {
 }
 
 const ACCION_ICON: Record<string, string> = {
-  'creó': '➕', 'aprobó': '✔', 'ejecutó': '⚙', 'confirmó': '✅', 'cerró': '🔒',
+  'creó': '➕', 'aprobó': '✔', 'ejecutó': '⚙', 'confirmó': '✅', 'cerró': '🔒', 'anuló': '✖',
 };
 export function iconoAccion(accion: string): string { return ACCION_ICON[accion] ?? '•'; }
 

@@ -3581,7 +3581,8 @@ declare
     'aprobada_por|aprobada_en|aprobó',
     'ejecutada_por|ejecutada_en|ejecutó',
     'confirmada_por|confirmada_at|confirmó',
-    'cerrado_por|cerrado_en|cerró'
+    'cerrado_por|cerrado_en|cerró',
+    'anulada_por|anulada_en|anuló'
   ];
   p text;
   sql text;

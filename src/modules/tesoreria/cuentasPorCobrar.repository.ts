@@ -173,6 +173,31 @@ export async function crearCuentaCobrarDocumento(input: {
   return data as CuentaPorCobrar;
 }
 
+/**
+ * Cambia el monto de la deuda de un documento que se editó (p. ej. una venta a
+ * crédito a la que se le cambió el total). No puede quedar por debajo de lo que
+ * ya se cobró: eso sería devolver plata que entró, y es decisión de Tesorería.
+ */
+export async function ajustarMontoCuentaCobrarDocumento(id: string, montoNuevo: number, motivo: string): Promise<CuentaPorCobrar> {
+  const c = await getCuentaPorCobrar(id);
+  if (!c) throw new Error('No se encontró la cuenta por cobrar de este documento.');
+  const monto = round2(montoNuevo);
+  const abonado = round2(Number(c.abonado) || 0);
+  if (monto <= 0) throw new Error('El nuevo monto de la deuda debe ser mayor que 0.');
+  if (monto < abonado) {
+    throw new Error(
+      `El cliente ya abonó ${abonado} ${c.moneda}: el nuevo total (${monto}) no puede ser menor. ` +
+      'Resolvelo en Tesorería → Cuentas por cobrar.',
+    );
+  }
+  const nota = [c.nota, motivo].filter(Boolean).join(' · ');
+  const { data, error } = await supabase.from(CXC)
+    .update({ monto, estado: abonado >= monto ? 'saldada' : 'abierta', nota, updated_at: new Date().toISOString() })
+    .eq('id', id).select('*').single();
+  if (error) throw error;
+  return data as CuentaPorCobrar;
+}
+
 /** Una cuenta puntual por id (null si ya no está). */
 export async function getCuentaPorCobrar(id: string): Promise<CuentaPorCobrar | null> {
   const { data, error } = await supabase.from(CXC).select('*').eq('id', id).maybeSingle();
