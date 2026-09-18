@@ -4,6 +4,36 @@ import { createPortal } from 'react-dom';
 export interface SearchOption {
   value: string;
   label: string;
+  /** Texto secundario a la derecha (código, cantidad…); también se busca. */
+  hint?: string;
+  /** Otras características por las que se puede encontrar la opción (no se muestran, salvo la que coincide). */
+  keywords?: string[];
+}
+
+/** Minúsculas y sin acentos, para buscar «plomeria» y encontrar «PLOMERÍA». */
+function normalizar(t: string): string {
+  return t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+/**
+ * Filtra por TODAS las características de la opción (etiqueta, texto secundario y keywords).
+ * Cada palabra escrita tiene que aparecer en alguna de ellas. Devuelve, por opción, la
+ * keyword que coincidió cuando la etiqueta y el texto secundario no alcanzan, para mostrarla.
+ */
+export function filtrarOpciones(options: SearchOption[], query: string): { opcion: SearchOption; por: string | null }[] {
+  const palabras = normalizar(query).split(/\s+/).filter(Boolean);
+  if (!palabras.length) return options.map((opcion) => ({ opcion, por: null }));
+  const out: { opcion: SearchOption; por: string | null }[] = [];
+  for (const o of options) {
+    const base = normalizar(`${o.label} ${o.hint ?? ''}`);
+    const kws = (o.keywords ?? []).map((k) => ({ k, n: normalizar(k) }));
+    const todo = `${base} ${kws.map((x) => x.n).join(' ')}`;
+    if (!palabras.every((p) => todo.includes(p))) continue;
+    const faltan = palabras.filter((p) => !base.includes(p));
+    const por = faltan.length ? kws.find((x) => faltan.every((p) => x.n.includes(p)))?.k ?? kws.find((x) => faltan.some((p) => x.n.includes(p)))?.k ?? null : null;
+    out.push({ opcion: o, por });
+  }
+  return out;
 }
 
 /**
@@ -54,11 +84,8 @@ export function SearchSelect({
 
   const selected = options.find((o) => o.value === value) ?? null;
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q));
-  }, [options, query]);
+  const coincidencias = useMemo(() => filtrarOpciones(options, query), [options, query]);
+  const filtered = useMemo(() => coincidencias.map((c) => c.opcion), [coincidencias]);
 
   // Opción de "crear" (combobox creable): aparece si lo escrito no calza exacto con una opción.
   const queryTrim = query.trim();
@@ -165,7 +192,7 @@ export function SearchSelect({
               ➕ Usar «{queryTrim}»
             </div>
           )}
-          {filtered.map((o, i) => (
+          {coincidencias.map(({ opcion: o, por }, i) => (
             <div
               key={o.value}
               role="option"
@@ -179,7 +206,15 @@ export function SearchSelect({
                 fontWeight: o.value === value ? 600 : 400,
               }}
             >
-              {o.label}
+              {o.hint || por ? (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '.6rem' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div>{o.label}</div>
+                    {por && <div className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>contiene: {por}</div>}
+                  </div>
+                  {o.hint && <span className="muted mono" style={{ fontSize: '.72rem', fontWeight: 400, whiteSpace: 'nowrap' }}>{o.hint}</span>}
+                </div>
+              ) : o.label}
             </div>
           ))}
         </div>,

@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, num } from '@/shared/lib/format';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { opcionesCategoria } from '@/modules/inventario/opcionesCategoria';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { crearOrden, ensureUnidadSolicitante, ultimaOrdenMercado, FINALIDAD_MERCADO } from './pedidos.repository';
@@ -102,6 +103,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
   const [avisadoPara, setAvisadoPara] = useState<string | null>(null);
   const [medidas, setMedidas] = useState<string[]>([]);
   const [categoriasInv, setCategoriasInv] = useState<string[]>([]);
+  const opcionesCat = useMemo(() => opcionesCategoria(categoriasInv, productos), [categoriasInv, productos]);
   useEffect(() => {
     getUnidades(productos).then(setMedidas).catch(() => { /* usa los defaults del repo */ });
     getCategorias(productos).then(setCategoriasInv).catch(() => setCategoriasInv([]));
@@ -459,12 +461,11 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
 
                 <div className="form-grid">
                   <div>
-                    <input className="input" list="mercado-categorias" placeholder="Categoría * (elegí o escribí una nueva)"
-                      value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+                    <SearchSelect allowCreate options={opcionesCat} value={nuevoCategoria}
+                      onChange={(v) => setNuevoCategoria(v.toUpperCase())}
+                      placeholder="Categoría * (buscá por nombre, código o producto, o escribí una nueva)"
+                      emptyText="Ninguna categoría coincide" />
                     <small className="muted" style={{ fontSize: '.72rem' }}>Define el código del producto (VIVERES → VIV-…). El número lo asigna el sistema.</small>
-                    <datalist id="mercado-categorias">
-                      {categoriasInv.map((c) => <option key={c} value={c} />)}
-                    </datalist>
                   </div>
                   <select className="select" value={nuevoUnidad} onChange={(e) => setNuevoUnidad(e.target.value)}>
                     {!medidas.includes(nuevoUnidad) && nuevoUnidad && <option value={nuevoUnidad}>{nuevoUnidad}</option>}

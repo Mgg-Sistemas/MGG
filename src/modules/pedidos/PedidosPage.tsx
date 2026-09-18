@@ -4,6 +4,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { opcionesCategoria } from '@/modules/inventario/opcionesCategoria';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, relTime } from '@/shared/lib/format';
@@ -4225,6 +4226,7 @@ function CrearOrdenModal({
   const [nuevoUnidad, setNuevoUnidad] = useState('UNIDAD');
   const [medidas, setMedidas] = useState<string[]>([]);
   const [categoriasInv, setCategoriasInv] = useState<string[]>([]);
+  const opcionesCat = useMemo(() => opcionesCategoria(categoriasInv, productos), [categoriasInv, productos]);
   const [creandoNuevo, setCreandoNuevo] = useState(false);
 
   // Lista de medidas (unidades) y de CATEGORÍAS del inventario para el "Producto nuevo".
@@ -4689,12 +4691,11 @@ function CrearOrdenModal({
 
               <div className="form-grid">
                 <div>
-                  <input className="input" list="nuevo-prod-categorias" placeholder="Categoría * (elegí o escribí una nueva)"
-                    value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+                  <SearchSelect allowCreate options={opcionesCat} value={nuevoCategoria}
+                    onChange={(v) => setNuevoCategoria(v.toUpperCase())}
+                    placeholder="Categoría * (buscá por nombre, código o producto, o escribí una nueva)"
+                    emptyText="Ninguna categoría coincide" />
                   <small className="muted" style={{ fontSize: '.72rem' }}>Define el código: PLOMERIA → PLO-044.</small>
-                  <datalist id="nuevo-prod-categorias">
-                    {categoriasInv.map((c) => <option key={c} value={c} />)}
-                  </datalist>
                 </div>
                 <select className="select" value={nuevoUnidad} onChange={(e) => setNuevoUnidad(e.target.value)}>
                   {!medidas.includes(nuevoUnidad) && nuevoUnidad && <option value={nuevoUnidad}>{nuevoUnidad}</option>}
