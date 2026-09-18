@@ -10,6 +10,8 @@ import { num } from '@/shared/lib/format';
 import type { ProduccionRefinacion, RefinacionEtapa } from '@/shared/lib/types';
 import { getRefinacion, actualizarRefinacionDatos } from './refinacion.repository';
 import { ColadaAnalisisQuimico } from './ColadaAnalisisQuimico';
+import { HoraInput } from '@/shared/ui/HoraInput';
+import { horaLegible } from '@/shared/lib/hora';
 
 const secStyle: CSSProperties = { margin: '0 0 .7rem', padding: '.65rem .8rem', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-1)' };
 const tituloSec: CSSProperties = { fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', marginBottom: '.5rem' };
@@ -115,8 +117,8 @@ export function RefinacionPanel({ produccionId, editable }: { produccionId: stri
                   <tr key={i}>
                     <td className="mono">{i + 1}</td>
                     <td>{editable
-                      ? <input className="input" value={et.hora ?? ''} onChange={(e) => setEtapa(i, { hora: e.target.value })} placeholder="HH:MM" style={{ minWidth: 72 }} />
-                      : (et.hora || '—')}</td>
+                      ? <HoraInput value={et.hora} onChange={(h) => setEtapa(i, { hora: h })} />
+                      : (horaLegible(et.hora) || '—')}</td>
                     <td style={{ textAlign: 'right' }}>{editable
                       ? <input className="input mono" type="number" step="any" value={et.temp_bano ?? ''} onChange={(e) => setEtapa(i, { temp_bano: toNum(e.target.value) })} style={{ ...numInput, width: 84 }} />
                       : (et.temp_bano ?? '—')}</td>

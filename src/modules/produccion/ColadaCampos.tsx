@@ -11,6 +11,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import type { CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
+import { HoraInput } from '@/shared/ui/HoraInput';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -421,7 +422,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
                 {temperaturas.map((t, i) => (
                   <tr key={i}>
                     <td className="mono">{i + 1}</td>
-                    <td><input className="input" value={t.hora ?? ''} onChange={(e) => setTemp(i, { hora: e.target.value })} placeholder="HH:MM" style={{ minWidth: 72 }} /></td>
+                    <td><HoraInput value={t.hora} onChange={(h) => setTemp(i, { hora: h })} /></td>
                     <td style={{ textAlign: 'right' }}><input className="input mono" type="number" step="any" value={t.temp_int ?? ''} onChange={(e) => setTemp(i, { temp_int: toNum(e.target.value) })} style={{ ...numInput, width: 84 }} /></td>
                     <td style={{ textAlign: 'right' }}><input className="input mono" type="number" step="any" value={t.temp_ext ?? ''} onChange={(e) => setTemp(i, { temp_ext: toNum(e.target.value) })} style={{ ...numInput, width: 84 }} /></td>
                     <td><input className="input" value={t.obs ?? ''} onChange={(e) => setTemp(i, { obs: e.target.value })} placeholder="Observación / acción" /></td>

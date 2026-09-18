@@ -10,6 +10,7 @@ import { num, money } from '@/shared/lib/format';
 import type { RefinacionColadaOrigen, RefinacionDatos } from '@/shared/lib/types';
 import type { ColadaFinalizada } from './refinacion.repository';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
+import { HoraInput } from '@/shared/ui/HoraInput';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 let _manualSeq = 0;
@@ -321,7 +322,7 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
                 {etapas.map((et, i) => (
                   <tr key={i}>
                     <td className="mono">{i + 1}</td>
-                    <td><input className="input" value={et.hora ?? ''} onChange={(e) => setEtapa(i, { hora: e.target.value })} placeholder="HH:MM" style={{ minWidth: 72 }} /></td>
+                    <td><HoraInput value={et.hora} onChange={(h) => setEtapa(i, { hora: h })} /></td>
                     <td style={{ textAlign: 'right' }}><input className="input mono" type="number" step="any" value={et.temp_bano ?? ''} onChange={(e) => setEtapa(i, { temp_bano: toNum(e.target.value) })} style={{ ...numInput, width: 84 }} /></td>
                     <td style={{ textAlign: 'right' }}><input className="input mono" type="number" step="any" value={et.temp_quemador ?? ''} onChange={(e) => setEtapa(i, { temp_quemador: toNum(e.target.value) })} style={{ ...numInput, width: 84 }} /></td>
                     <td><input className="input" value={et.accion ?? ''} onChange={(e) => setEtapa(i, { accion: e.target.value })} placeholder="Acción operativa / reactivo añadido" /></td>

@@ -13,6 +13,7 @@ import type { Produccion, ProduccionRefinacion } from '@/shared/lib/types';
 import { getRefinacion, finalizarRefinacionConResultados } from './refinacion.repository';
 import { fmtJornada } from './colada.repository';
 import { tiemposRefinacion, type TiemposRefinacion } from './tiemposRefinacion';
+import { HoraInput } from '@/shared/ui/HoraInput';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -150,7 +151,7 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
         <div className="form-grid">
           <div className="form-row">
             <label>Hora inicio de vaciado</label>
-            <input className="input" value={horaVaciado} onChange={(e) => setHoraVaciado(e.target.value)} />
+            <HoraInput value={horaVaciado} onChange={setHoraVaciado} />
           </div>
           <div className="form-row">
             <label>Temp. de colada (°C)</label>

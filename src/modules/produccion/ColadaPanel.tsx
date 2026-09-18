@@ -10,6 +10,8 @@ import { num } from '@/shared/lib/format';
 import type { ColadaTemperatura, ProduccionColada } from '@/shared/lib/types';
 import { getColada, actualizarColadaDatos } from './colada.repository';
 import { ColadaAnalisisQuimico } from './ColadaAnalisisQuimico';
+import { HoraInput } from '@/shared/ui/HoraInput';
+import { horaLegible } from '@/shared/lib/hora';
 
 const secStyle: CSSProperties = { margin: '0 0 .7rem', padding: '.65rem .8rem', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-1)' };
 const tituloSec: CSSProperties = { fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', marginBottom: '.5rem' };
@@ -104,8 +106,8 @@ export function ColadaPanel({ produccionId, editable }: { produccionId: string; 
                   <tr key={i}>
                     <td className="mono">{i + 1}</td>
                     <td>{editable
-                      ? <input className="input" value={t.hora} onChange={(e) => setTemp(i, { hora: e.target.value })} placeholder="HH:MM" style={{ minWidth: 80 }} />
-                      : (t.hora || '—')}</td>
+                      ? <HoraInput value={t.hora} onChange={(h) => setTemp(i, { hora: h })} />
+                      : (horaLegible(t.hora) || '—')}</td>
                     <td style={{ textAlign: 'right' }}>{editable
                       ? <input className="input mono" type="number" step="any" value={t.temp_int ?? ''} onChange={(e) => setTemp(i, { temp_int: toNum(e.target.value) })} style={{ ...numInput, width: 90 }} />
                       : (t.temp_int ?? '—')}</td>
@@ -143,7 +145,7 @@ export function ColadaPanel({ produccionId, editable }: { produccionId: string; 
         <div className="form-grid">
           <div className="form-row">
             <label>Hora de sangrado</label>
-            <input className="input" value={horaSangrado} onChange={(e) => setHoraSangrado(e.target.value)} disabled={!editable} />
+            <HoraInput value={horaSangrado} onChange={setHoraSangrado} disabled={!editable} />
           </div>
           <div className="form-row">
             <label>Temp. de colada (°C)</label>

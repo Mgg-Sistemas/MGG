@@ -10,6 +10,7 @@ import { getRefinacion } from './refinacion.repository';
 import { listColadaAnalisis } from './coladaAnalisis.repository';
 import { listMinerales, type RecepcionMineral, type RecepcionAnalisis } from '@/modules/recepciones/recepciones.repository';
 import { renderAnalisisQuimicoPdf } from './analisisQuimicoPdf';
+import { horaLegible } from '@/shared/lib/hora';
 
 const ORANGE: [number, number, number] = [214, 90, 24];
 const GREY: [number, number, number] = [90, 90, 90];
@@ -144,7 +145,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
     startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
     head: [['N°', 'Hora', 'T. baño', 'T. quemador', 'Acción operativa / reactivo']],
     body: etapas.length
-      ? etapas.map((et, i) => [String(i + 1), txt(et.hora), tempC(et.temp_bano), tempC(et.temp_quemador), txt(et.accion || et.etapa)])
+      ? etapas.map((et, i) => [String(i + 1), txt(horaLegible(et.hora)), tempC(et.temp_bano), tempC(et.temp_quemador), txt(et.accion || et.etapa)])
       : [['—', '', '', '', '']],
     theme: 'grid',
     headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 8 },
@@ -158,7 +159,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
   barra('TIEMPOS DE COLADA Y MOLDEO DE LINGOTES');
   ficha([
     ['Hora inicio de refinación', txt(d.hora_inicio_refinacion), 'Hora fin de refinación', txt(d.hora_fin_refinacion)],
-    ['Hora inicio de vaciado', txt(d.hora_inicio_vaciado), 'Temp. de colada', tempC(d.temp_colada)],
+    ['Hora inicio de vaciado', txt(horaLegible(d.hora_inicio_vaciado)), 'Temp. de colada', tempC(d.temp_colada)],
     ['Tiempo total de proceso (h)', d.tiempo_total_horas == null ? '—' : `${d.tiempo_total_horas} h`, '', ''],
   ]);
 

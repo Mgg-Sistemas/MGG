@@ -11,6 +11,7 @@ import { getColada, fmtJornada } from './colada.repository';
 import { listColadaAnalisis } from './coladaAnalisis.repository';
 import { listMinerales, type RecepcionMineral, type RecepcionAnalisis } from '@/modules/recepciones/recepciones.repository';
 import { renderAnalisisQuimicoPdf } from './analisisQuimicoPdf';
+import { horaLegible } from '@/shared/lib/hora';
 
 const ORANGE: [number, number, number] = [214, 90, 24];
 const GREY: [number, number, number] = [90, 90, 90];
@@ -195,7 +196,7 @@ async function construir(prod: Produccion, colada: ProduccionColada | null, anal
     startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
     head: [['N°', 'Hora', 'Temp. interna', 'Temp. externa', 'Observación / acción']],
     body: temps.length
-      ? temps.map((t, i) => [String(i + 1), txt(t.hora), tempC(t.temp_int), tempC(t.temp_ext), txt(t.obs)])
+      ? temps.map((t, i) => [String(i + 1), txt(horaLegible(t.hora)), tempC(t.temp_int), tempC(t.temp_ext), txt(t.obs)])
       : [['—', '', '', '', '']],
     theme: 'grid',
     headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 8 },
@@ -209,7 +210,7 @@ async function construir(prod: Produccion, colada: ProduccionColada | null, anal
   barra('SANGRADO Y TIEMPOS DE COLADA');
   ficha([
     ['Hora inicio del proceso', txt(d.hora_inicio_proceso), 'Hora fin del proceso', txt(d.hora_fin_proceso)],
-    ['Hora de sangrado', txt(d.hora_sangrado), 'Temp. de colada', tempC(d.temp_colada)],
+    ['Hora de sangrado', txt(horaLegible(d.hora_sangrado)), 'Temp. de colada', tempC(d.temp_colada)],
     ['Duración total de la colada (h)', d.duracion_horas == null ? '—' : `${d.duracion_horas} h`, '', ''],
   ]);
 

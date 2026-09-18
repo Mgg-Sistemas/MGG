@@ -19,6 +19,7 @@ import { getColada } from './colada.repository';
 import { getRefinacion } from './refinacion.repository';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { horaLegible } from '@/shared/lib/hora';
 
 const ORANGE: [number, number, number] = [255, 138, 0];
 
@@ -215,14 +216,14 @@ async function construir(prod: Produccion, det: Detalle) {
       ['Carga del horno', V(d.carga_horno), 'Homogeneización', V(d.homogeneizacion)],
       ['Inicio de carga', `${V(d.fecha_inicio_carga)} ${T(d.hora_inicio_carga ?? '')}`.trim(), 'Fin de carga', `${V(d.fecha_fin_carga)} ${T(d.hora_fin_carga ?? '')}`.trim()],
       ['Inicio del proceso', V(d.hora_inicio_proceso), 'Fin del proceso', V(d.hora_fin_proceso)],
-      ['Hora de sangrado', V(d.hora_sangrado), 'Temperatura de colada', grados(d.temp_colada)],
+      ['Hora de sangrado', V(horaLegible(d.hora_sangrado)), 'Temperatura de colada', grados(d.temp_colada)],
       ['Duración de la colada', d.duracion_horas == null ? '—' : `${num(Number(d.duracion_horas))} h`, 'Jornada (h)', d.jornada_horas == null ? '—' : `${num(Number(d.jornada_horas))} h`],
     ]);
     const temps = (d.temperaturas ?? []).filter((t) => t && (t.hora || t.temp_int != null || t.temp_ext != null));
     if (temps.length) {
       tabla(
         ['Hora', 'Temp. interna', 'Temp. externa', 'Observación'],
-        temps.map((t) => [V(t.hora), grados(t.temp_int), grados(t.temp_ext), T(t.obs ?? '')]),
+        temps.map((t) => [V(horaLegible(t.hora)), grados(t.temp_int), grados(t.temp_ext), T(t.obs ?? '')]),
         { 1: { halign: 'right' }, 2: { halign: 'right' } },
       );
     }
@@ -236,13 +237,13 @@ async function construir(prod: Produccion, det: Detalle) {
       ['Método de agitación', V(r.metodo_agitacion), 'Desespumado', V(r.desespumado)],
       ['Estaño crudo (kg)', kg(r.estano_crudo_kg), 'Jornada (h)', r.jornada_horas == null ? '—' : `${num(Number(r.jornada_horas))} h`],
       ['Inicio de refinación', V(r.hora_inicio_refinacion), 'Fin de refinación', V(r.hora_fin_refinacion)],
-      ['Inicio de vaciado', V(r.hora_inicio_vaciado), 'Temperatura de colada', grados(r.temp_colada)],
+      ['Inicio de vaciado', V(horaLegible(r.hora_inicio_vaciado)), 'Temperatura de colada', grados(r.temp_colada)],
     ]);
     const etapas = (r.etapas ?? []).filter((e) => e && (e.etapa || e.hora || e.temp_bano != null));
     if (etapas.length) {
       tabla(
         ['Etapa', 'Hora', 'Temp. baño', 'Temp. quemador', 'Acción'],
-        etapas.map((e) => [V(e.etapa), V(e.hora), grados(e.temp_bano), grados(e.temp_quemador), T(e.accion ?? '')]),
+        etapas.map((e) => [V(e.etapa), V(horaLegible(e.hora)), grados(e.temp_bano), grados(e.temp_quemador), T(e.accion ?? '')]),
         { 2: { halign: 'right' }, 3: { halign: 'right' } },
       );
     }
