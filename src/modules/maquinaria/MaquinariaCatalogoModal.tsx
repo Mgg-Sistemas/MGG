@@ -12,10 +12,13 @@ const TABS: { key: TipoCatalogoMaquinaria; label: string; singular: string }[] =
   { key: 'tipo_maquinaria', label: 'Tipo de maquinaria', singular: 'tipo de maquinaria' },
   { key: 'propietario', label: 'Propietario', singular: 'propietario' },
   { key: 'status', label: 'Status', singular: 'status' },
+  // Nombres de los documentos de cada equipo (📁): desactivar uno lo quita del selector;
+  // los documentos ya cargados conservan su nombre.
+  { key: 'documento', label: 'Documentos', singular: 'nombre de documento' },
 ];
 
 /**
- * Catálogo de Control de Maquinaria (2 partes: tipo de maquinaria + propietario).
+ * Catálogo de Control de Maquinaria: tipo de maquinaria, propietario, status y nombres de documentos.
  * Mismo patrón que el catálogo de la OP: pestañas, agregar, filtrar, editar y
  * activar/desactivar (los inactivos dejan de aparecer en los selectores). En vivo.
  */
@@ -124,7 +127,9 @@ export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boole
       {borrarId && (
         <ConfirmDialog
           title="Eliminar del catálogo"
-          message={`¿Eliminar este ${tabActual.singular} del catálogo?`}
+          message={tab === 'documento'
+            ? '¿Eliminar este nombre de documento del catálogo? Los documentos ya cargados conservan su nombre.'
+            : `¿Eliminar este ${tabActual.singular} del catálogo?`}
           confirmText="Eliminar"
           danger
           onCancel={() => setBorrarId(null)}
