@@ -34,7 +34,7 @@ import type { ClasificacionAcopio } from '@/shared/lib/types';
 import type { CajaCierre } from '@/shared/lib/types';
 import {
   listResumenes, crearResumen, eliminarResumen,
-  computeTotales, acopiadoMggSector, resguardoSector, esGt, sectoresPorDefecto,
+  computeTotales, acopiadoMggSector, resguardoSector, esGt, sectoresPorDefecto, baseDesdeUltimo,
   leerMetricaExterna, METRICAS_EXTERNAS, METRICAS_SECTOR, rutaDeFuente,
   type ResumenSemanal, type SectorResumen, type FuenteExterna,
 } from './resumenSemanal.repository';
@@ -1265,17 +1265,31 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
   const [correoOpen, setCorreoOpen] = useState(false);
   const [borrar, setBorrar] = useState<ResumenSemanal | null>(null);
 
-  const cargarHist = useCallback(() => { listResumenes().then(setHistorico).catch(() => setHistorico([])); }, []);
+  // El editor arranca del ÚLTIMO reporte archivado (como la hoja del Drive, que se copia del día
+  // anterior): los valores cargados a mano no vuelven a 0. Solo si nadie tocó el editor todavía;
+  // sin histórico (o si no carga) se queda con los sectores por defecto.
+  const editado = useRef(false);
+  const [baseLista, setBaseLista] = useState(false);
+  const cargarHist = useCallback(() => {
+    listResumenes().then((h) => {
+      setHistorico(h);
+      setBaseLista((lista) => {
+        if (!lista && !editado.current && h[0]) setSectores(baseDesdeUltimo(h[0].filas));
+        return true;
+      });
+    }).catch(() => { setHistorico([]); setBaseLista(true); });
+  }, []);
   useEffect(() => { cargarHist(); }, [cargarHist]);
+  const editar = (fn: (prev: SectorResumen[]) => SectorResumen[]) => { editado.current = true; setSectores(fn); };
   useRealtime(['acopio_resumen_semanal'], cargarHist);
 
   const totales = useMemo(() => computeTotales(sectores), [sectores]);
 
   // Mutadores inmutables sobre el árbol de sectores.
   const patchSector = (si: number, patch: Partial<SectorResumen>) =>
-    setSectores((prev) => prev.map((s, i) => (i === si ? { ...s, ...patch } : s)));
+    editar((prev) => prev.map((s, i) => (i === si ? { ...s, ...patch } : s)));
   const patchCentro = (si: number, ci: number, patch: Partial<{ centro: string; kg_cobrar: number; kg_disponible: number; fuente: FuenteExterna | null; fuente_cobrar: FuenteExterna | null }>) =>
-    setSectores((prev) => prev.map((s, i) => i !== si ? s : {
+    editar((prev) => prev.map((s, i) => i !== si ? s : {
       ...s, centros: s.centros.map((c, j) => (j === ci ? { ...c, ...patch } : c)),
     }));
 
@@ -1309,7 +1323,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
     }));
     // Solo actualizamos el estado si algo CAMBIÓ (evita re-render/parpadeo cuando el
     // realtime dispara pero los valores vinculados siguen iguales).
-    setSectores((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    editar((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
     if (!silencioso) setResolviendo(false);
     if (!silencioso) {
       if (fallidos) toast(`Vínculos: ${n} actualizado(s), ${fallidos} con error`, fallidos ? 'error' : 'success');
@@ -1318,14 +1332,14 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
     return { n, fallidos };
   }, [sectores]);
 
-  // Al abrir el editor, resolvé los vínculos una vez (en silencio).
+  // Al abrir el editor (ya con su base), resolvé los vínculos una vez (en silencio).
   const yaResolvio = useMemo(() => ({ done: false }), []);
   useEffect(() => {
-    if (yaResolvio.done) return;
+    if (yaResolvio.done || !baseLista) return;
     const hay = sectores.some((s) => s.fuente_saldo || s.fuente_precio || s.centros.some((c) => c.fuente || c.fuente_cobrar));
     if (hay) { yaResolvio.done = true; void resolverVinculos(true); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [baseLista]);
 
   // EN VIVO: cuando cambian los datos de las cajas/aliados de acopio (recepciones,
   // cierres, cobros…), re-resolvé los vínculos para que el preliminar coincida
@@ -1348,12 +1362,12 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
     },
   );
   const addCentro = (si: number) =>
-    setSectores((prev) => prev.map((s, i) => i !== si ? s : { ...s, centros: [...s.centros, { centro: '', kg_cobrar: 0, kg_disponible: 0 }] }));
+    editar((prev) => prev.map((s, i) => i !== si ? s : { ...s, centros: [...s.centros, { centro: '', kg_cobrar: 0, kg_disponible: 0 }] }));
   const delCentro = (si: number, ci: number) =>
-    setSectores((prev) => prev.map((s, i) => i !== si ? s : { ...s, centros: s.centros.filter((_, j) => j !== ci) }));
+    editar((prev) => prev.map((s, i) => i !== si ? s : { ...s, centros: s.centros.filter((_, j) => j !== ci) }));
   const addSector = () =>
-    setSectores((prev) => [...prev, { nombre: `SECTOR ${prev.length + 1}`, centros: [{ centro: '', kg_cobrar: 0, kg_disponible: 0 }], resguardos_gt: 0, precio_prom: 0, saldo_usd: 0, color: '#dbeafe' }]);
-  const delSector = (si: number) => setSectores((prev) => prev.filter((_, i) => i !== si));
+    editar((prev) => [...prev, { nombre: `SECTOR ${prev.length + 1}`, centros: [{ centro: '', kg_cobrar: 0, kg_disponible: 0 }], resguardos_gt: 0, precio_prom: 0, saldo_usd: 0, color: '#dbeafe' }]);
+  const delSector = (si: number) => editar((prev) => prev.filter((_, i) => i !== si));
 
   // Input plano tipo "celda de planilla" (sin píldora) para que el grid se vea limpio.
   const cellInputStyle: React.CSSProperties = {
@@ -1506,6 +1520,7 @@ function ResumenSemanalModal({ canWrite, actor, actorName, onClose, asPage }: {
 
   function cargarDesdeHist(r: ResumenSemanal) {
     setTitulo(r.titulo); setDesde(r.periodo_desde ?? ''); setHasta(r.periodo_hasta ?? '');
+    editado.current = true;
     setFecha(r.fecha); setSectores(structuredClone(r.filas)); setNota(r.nota ?? '');
     setTab('editor');
     toast(`Reporte ${r.numero} cargado al editor (podés ajustarlo y archivar uno nuevo)`, 'info');

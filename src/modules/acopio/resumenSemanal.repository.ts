@@ -320,13 +320,8 @@ export function sectoresPorDefecto(): SectorResumen[] {
   return [
     sector('SECTOR MGG · LOS PINOS', '#fde68a', [
       'C.A. LOS PINOS MGG',
-      'MATERIAL DE FUNDICIÓN #1',
-      'MATERIAL DE FUNDICIÓN #3',
-      'MATERIAL DE FUNDICIÓN #4',
-      'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #52)',
-      'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #53)',
-      'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #54)',
-      'C.A. LOS PINOS - MERCANCÍA EN TRÁNSITO (EXPORTACIÓN #55)',
+      'C.A. LOS PINOS - LOTE #MGG-0059 - EN TRÁNSITO (PARA EXPORTACIÓN #57)',
+      'C.A. LOS PINOS - LOTE #MGG-0060 - EN TRÁNSITO (PARA EXPORTACIÓN #58)',
     ]),
     // Resguardos de Los Pinos en su PROPIO segmento (separados del sector MGG · LOS PINOS).
     sector('RESGUARDOS LOS PINOS', '#99f6e4', [
@@ -428,6 +423,40 @@ export function sectoresPorDefecto(): SectorResumen[] {
       'C.A. P-MGG11- A EL BURRO - PIJIGUAOS - PARGUAZA',
     ]),
   ];
+}
+
+const normNombre = (t: string) => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+
+/**
+ * Punto de partida del editor: el ÚLTIMO reporte archivado, igual que en la hoja del Drive
+ * (cada día se copia el anterior y se corrige). Así los valores cargados a mano —Los Pinos,
+ * resguardos, Campos Yepez, precios…— pasan de un reporte al siguiente en vez de volver a 0.
+ * Se respetan sus filas, nombres y vínculos; a la fila o sector que no tenga vínculo se le
+ * pone el estándar del sistema (mismo nombre en `sectoresPorDefecto`), para que un reporte
+ * archivado con una configuración vieja igual quede en vivo. Un vínculo en `null` es una celda
+ * que alguien dejó MANUAL a propósito: esa no se vuelve a vincular.
+ */
+export function baseDesdeUltimo(ultimo: SectorResumen[] | null | undefined): SectorResumen[] {
+  if (!ultimo?.length) return sectoresPorDefecto();
+  const defSectores = new Map(sectoresPorDefecto().map((s) => [normNombre(s.nombre), s]));
+  const defCentros = new Map<string, CentroResumen>();
+  for (const s of defSectores.values()) for (const c of s.centros) defCentros.set(normNombre(c.centro), c);
+  return structuredClone(ultimo).map((s) => {
+    const ds = defSectores.get(normNombre(s.nombre));
+    return {
+      ...s,
+      fuente_saldo: s.fuente_saldo !== undefined ? s.fuente_saldo : ds?.fuente_saldo ?? null,
+      fuente_precio: s.fuente_precio !== undefined ? s.fuente_precio : ds?.fuente_precio ?? null,
+      centros: s.centros.map((c) => {
+        const dc = defCentros.get(normNombre(c.centro));
+        return {
+          ...c,
+          fuente: c.fuente !== undefined ? c.fuente : dc?.fuente ?? null,
+          fuente_cobrar: c.fuente_cobrar !== undefined ? c.fuente_cobrar : dc?.fuente_cobrar ?? null,
+        };
+      }),
+    };
+  });
 }
 
 /** Próximo correlativo RS-AAAA-NNNN (por año). */

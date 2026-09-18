@@ -16,7 +16,7 @@ import { ClientePicker } from './ClientePicker';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type AsignacionSalida } from './asignacionPrioridad';
-import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
+import { puedeMoverEnSede, nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
@@ -404,7 +404,7 @@ export function SalidaMaterialForm({
                   <small className="muted">
                     {l.productoId
                       ? (stock > 0
-                        ? <>📦 Sale de <strong>{tramos.map((t) => `${t.almacen} (${num(t.cantidad)})`).join(' + ') || '—'}</strong> · disponible {l.almacen ? 'en este almacén' : 'total'} <strong className="mono">{num(stock)} {prod?.unidad ?? ''}</strong></>
+                        ? <>📦 Sale de <strong>{tramos.map((t) => `${nombreAlmacenVisible(t.almacen)} (${num(t.cantidad)})`).join(' + ') || '—'}</strong> · disponible {l.almacen ? 'en este almacén' : 'total'} <strong className="mono">{num(stock)} {prod?.unidad ?? ''}</strong></>
                         : <span style={{ color: 'var(--danger)' }}>Sin stock en {l.almacen ? 'ese almacén' : 'ningún almacén'}</span>)
                       : 'Se descuenta por prioridad: Los Pinos primero, luego Matanzas.'}
                   </small>
@@ -413,7 +413,7 @@ export function SalidaMaterialForm({
                       onChange={(e) => setLinea(l.id, { almacen: e.target.value })}>
                       <option value="">📦 Automático (por prioridad)</option>
                       {almacenesConStock(l.productoId).map((c) => (
-                        <option key={c.almacen} value={c.almacen}>{c.almacen} · {num(c.stock)} {prod?.unidad ?? ''}</option>
+                        <option key={c.almacen} value={c.almacen}>{nombreAlmacenVisible(c.almacen)} · {num(c.stock)} {prod?.unidad ?? ''}</option>
                       ))}
                     </select>
                   )}

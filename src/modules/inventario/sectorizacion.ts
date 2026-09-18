@@ -139,6 +139,16 @@ export const DESTINOS_RECEPCION: { label: string; almacen: string; sede: string 
   { label: 'MATANZA', almacen: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS' },
 ];
 
+/**
+ * Nombre con el que se MUESTRA un almacén. «General» es el almacén principal de Matanza
+ * (ahí cae lo recibido en MATANZA), pero leído así parece otro lugar: se muestra MATANZA.
+ * Solo es la etiqueta; el valor guardado sigue siendo «General».
+ */
+export function nombreAlmacenVisible(almacen: string | null | undefined): string {
+  const a = String(almacen ?? '').trim();
+  return DESTINOS_RECEPCION.find((d) => d.almacen === a)?.label === 'MATANZA' ? 'MATANZA' : a;
+}
+
 /** Destinos visibles para este usuario: si está sectorizado, solo sus sedes. */
 export function opcionesRecepcion(sedesPermitidas?: string[] | null): typeof DESTINOS_RECEPCION {
   const permit = sedesPermitidas?.length ? sedesPermitidas : SEDES_RECEPCION;
