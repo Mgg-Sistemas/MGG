@@ -54,7 +54,7 @@ export interface VentaTotales {
   ganancia_pct: number;  // margen sobre la base (sin impuestos)
 }
 
-export type AccionVenta = 'creada' | 'editada' | 'emitida' | 'cobrada' | 'anulada';
+export type AccionVenta = 'creada' | 'editada' | 'enviada' | 'autorizada' | 'devuelta' | 'emitida' | 'cobrada' | 'anulada';
 
 export interface EventoVenta {
   at: string;

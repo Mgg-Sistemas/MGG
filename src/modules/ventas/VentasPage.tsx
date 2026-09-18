@@ -16,6 +16,7 @@ import { almacenVentaInicial, almacenesDeVenta, existenciaEn, productosVendibles
 import {
   listVentas, crearVenta, actualizarVenta, emitirVenta, marcarPagada, anularVenta, eliminarVenta,
   resumenVentas, esVentaACredito, esIntercambio, sincronizarCredito, saldoPorCobrar, efectosAnulacion,
+  enviarAAutorizar, autorizarVenta, devolverVenta, puedeAutorizarVentas, nombreAutorizante, yaEmitida,
   type Venta, type VentaInput, type EstadoVenta,
 } from './ventas.repository';
 import {
@@ -33,6 +34,8 @@ import { listClientes, crearCliente, actualizarCliente, eliminarCliente, type Cl
 
 const ESTADO: Record<EstadoVenta, { label: string; color: string }> = {
   borrador: { label: '● Borrador', color: 'var(--muted)' },
+  por_aprobar: { label: '⏳ Por autorizar', color: 'var(--warning)' },
+  aprobada: { label: '✔ Autorizada', color: 'var(--primary)' },
   emitida: { label: '✔ Emitida', color: 'var(--primary-3)' },
   pagada: { label: '✓ Pagada', color: 'var(--success, #45c08a)' },
   anulada: { label: '✖ Anulada', color: 'var(--danger)' },
@@ -41,6 +44,8 @@ const ESTADO: Record<EstadoVenta, { label: string; color: string }> = {
 // Columnas tipo kanban (igual que Compras): una por estado, en orden de flujo.
 const COLS_VENTAS: { key: EstadoVenta; label: string; accent: string }[] = [
   { key: 'borrador', label: 'Borrador', accent: 'var(--muted)' },
+  { key: 'por_aprobar', label: 'Por autorizar', accent: 'var(--warning)' },
+  { key: 'aprobada', label: 'Autorizada', accent: 'var(--primary)' },
   { key: 'emitida', label: 'Emitida', accent: 'var(--primary-3)' },
   { key: 'pagada', label: 'Pagada', accent: 'var(--success, #45c08a)' },
   { key: 'anulada', label: 'Anulada', accent: 'var(--danger)' },
@@ -64,6 +69,8 @@ export function VentasPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
   const canWrite = can('ventas', 'escritura');
+  // Autorizan SOLO Leydis Rengel y Jesús Lozada (por correo, no por rol).
+  const autoriza = puedeAutorizarVentas(user?.email);
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
@@ -84,6 +91,9 @@ export function VentasPage() {
   const [anular, setAnular] = useState<Venta | null>(null);
   const [emitirConf, setEmitirConf] = useState<Venta | null>(null);
   const [eliminarConf, setEliminarConf] = useState<Venta | null>(null);
+  const [enviarConf, setEnviarConf] = useState<Venta | null>(null);
+  const [autorizarConf, setAutorizarConf] = useState<Venta | null>(null);
+  const [devolver, setDevolver] = useState<Venta | null>(null);
   const [vista, setVista] = useState<'tarjetas' | 'lista'>('tarjetas');
   const [busca, setBusca] = useState('');
   const [filtroDoc, setFiltroDoc] = useState<'todos' | TipoDocumentoVenta>('todos');
@@ -141,6 +151,20 @@ export function VentasPage() {
       await cargar();
     } catch (e) { toast(errMsg(e, 'No se pudo emitir'), 'error'); }
   }
+  async function confirmarEnviar(v: Venta) {
+    try {
+      await enviarAAutorizar(v, actor, actorName);
+      notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} por autorizar · Leydis Rengel / Jesús Lozada`, 'info', { link: '#/app/ventas' });
+      setEnviarConf(null); await cargar();
+    } catch (e) { toast(errMsg(e, 'No se pudo enviar'), 'error'); }
+  }
+  async function confirmarAutorizar(v: Venta) {
+    try {
+      await autorizarVenta(v, actor, actorName);
+      notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} autorizada · ya se puede emitir`, 'success', { link: '#/app/ventas' });
+      setAutorizarConf(null); await cargar();
+    } catch (e) { toast(errMsg(e, 'No se pudo autorizar'), 'error'); }
+  }
   async function confirmarEliminar(v: Venta) {
     try { await eliminarVenta(v.id); toast('Borrador eliminado', 'success'); setEliminarConf(null); await cargar(); }
     catch (e) { toast(errMsg(e, 'No se pudo eliminar'), 'error'); }
@@ -162,8 +186,15 @@ export function VentasPage() {
         <button className="btn btn-sm btn-ghost" title={`${nombreDocumento(v.tipo_documento)} en PDF (vista previa)`}
           onClick={() => void pdf().then((m) => m.verDocumentoVentaPdf(v)).catch((e) => toast(errMsg(e, 'Error PDF'), 'error'))}>↓ PDF</button>
         {canWrite && v.estado !== 'anulada' && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setEditar(v)}>✎</button>}
-        {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-primary" title="Emitir (mueve el inventario)" onClick={() => setEmitirConf(v)}>Emitir</button>}
+        {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-primary" title="Enviar a Leydis Rengel / Jesús Lozada" onClick={() => setEnviarConf(v)}>Enviar a autorizar</button>}
         {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-ghost" title="Eliminar borrador" onClick={() => setEliminarConf(v)}>🗑</button>}
+        {v.estado === 'por_aprobar' && (autoriza
+          ? <button className="btn btn-sm btn-success" title="Autorizar la venta" onClick={() => setAutorizarConf(v)}>✔ Autorizar</button>
+          : <span className="badge" style={{ fontSize: '.66rem', borderColor: 'var(--warning)', color: 'var(--warning)' }} title="La autorizan Leydis Rengel o Jesús Lozada">esperando autorización</span>)}
+        {autoriza && (v.estado === 'por_aprobar' || v.estado === 'aprobada') && (
+          <button className="btn btn-sm btn-ghost" title="Devolver a borrador para corregir" onClick={() => setDevolver(v)}>↩ Devolver</button>
+        )}
+        {canWrite && v.estado === 'aprobada' && <button className="btn btn-sm btn-primary" title="Emitir (mueve el inventario)" onClick={() => setEmitirConf(v)}>Emitir</button>}
         {/* A crédito no se cobra acá: el dinero (o el material) entra por Tesorería. */}
         {canWrite && v.estado === 'emitida' && !esVentaACredito(v) && falta > 0 && (
           <button className="btn btn-sm btn-primary" title="Registrar cobro (entra a caja)" onClick={() => setCobrar(v)}>
@@ -299,7 +330,7 @@ export function VentasPage() {
 
       {(modal === 'nueva' || editar) && (
         <VentaModal venta={editar} clientes={clientes} productos={productos} existencias={existencias} almacenes={almacenes}
-          vendedorDefault={actorName ?? ''} actor={actor} actorName={actorName}
+          vendedorDefault={actorName ?? ''} actor={actor} actorName={actorName} autoriza={autoriza}
           onClose={() => { setModal(null); setEditar(null); }}
           onSaved={async () => { setModal(null); setEditar(null); await cargar(); }} />
       )}
@@ -315,6 +346,18 @@ export function VentasPage() {
         <ConfirmDialog title={`Emitir ${emitirConf.numero}`} message={resumenEmision(emitirConf)} confirmText="Emitir"
           onConfirm={() => void confirmarEmitir(emitirConf)} onCancel={() => setEmitirConf(null)} />
       )}
+      {enviarConf && (
+        <ConfirmDialog title={`Enviar ${enviarConf.numero} a autorizar`} confirmText="Enviar a autorizar"
+          message={`La ${nombreDocumento(enviarConf.tipo_documento).toLowerCase()} ${enviarConf.numero} de ${enviarConf.cliente_nombre || 'cliente ocasional'} por ${money(enviarConf.total, enviarConf.moneda)} queda esperando la autorización de Leydis Rengel o Jesús Lozada.\n\nTodavía no mueve inventario ni dinero: eso pasa al emitirla, después de autorizada.`}
+          onConfirm={() => void confirmarEnviar(enviarConf)} onCancel={() => setEnviarConf(null)} />
+      )}
+      {autorizarConf && (
+        <ConfirmDialog title={`Autorizar ${autorizarConf.numero}`} confirmText="Autorizar" success
+          message={`¿Autorizás la ${nombreDocumento(autorizarConf.tipo_documento).toLowerCase()} ${autorizarConf.numero}?\n\n${resumenEmision(autorizarConf)}\n\nQueda autorizada a tu nombre (${nombreAutorizante(actor)}). Después se emite y recién ahí se mueve el inventario.`}
+          onConfirm={() => void confirmarAutorizar(autorizarConf)} onCancel={() => setAutorizarConf(null)} />
+      )}
+      {devolver && <DevolverModal venta={devolver} actor={actor} actorName={actorName}
+        onClose={() => setDevolver(null)} onDone={async () => { setDevolver(null); await cargar(); }} />}
       {eliminarConf && (
         <ConfirmDialog title={`Eliminar ${eliminarConf.numero}`} danger confirmText="Eliminar borrador"
           message={`¿Eliminar el borrador ${eliminarConf.numero}? No movió inventario ni dinero, así que no hay nada que revertir.`}
@@ -347,12 +390,16 @@ function resumenEmision(v: Pick<Venta, 'tipo_documento' | 'items' | 'condicion_p
 interface FilaItem extends VentaItem { _k: number }
 interface FilaMaterial extends PagoMaterial { _k: number; nuevo: boolean }
 
-function VentaModal({ venta, clientes, productos, existencias, almacenes, vendedorDefault, actor, actorName, onClose, onSaved }: {
+function VentaModal({ venta, clientes, productos, existencias, almacenes, vendedorDefault, actor, actorName, autoriza, onClose, onSaved }: {
   venta: Venta | null; clientes: Cliente[]; productos: Producto[]; existencias: Existencia[]; almacenes: Almacen[];
-  vendedorDefault: string; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+  vendedorDefault: string; actor: string; actorName: string | null; autoriza: boolean; onClose: () => void; onSaved: () => void;
 }) {
   const editando = !!venta;
-  const emitida = !!venta && venta.estado !== 'borrador';
+  // «emitida» = ya movió inventario o dinero (emitida o pagada): ahí se edita con motivo.
+  const emitida = !!venta && yaEmitida(venta);
+  // En autorización (por autorizar / autorizada): se edita libre, pero si estaba
+  // autorizada vuelve a autorización.
+  const enAutorizacion = !!venta && (venta.estado === 'por_aprobar' || venta.estado === 'aprobada');
   const [tipo, setTipo] = useState<TipoDocumentoVenta>(venta?.tipo_documento ?? 'factura');
   const [fecha, setFecha] = useState(venta?.fecha ?? new Date().toISOString().slice(0, 10));
   // La venta sale de UN almacén: por defecto el padre de Matanza.
@@ -375,7 +422,7 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
     (venta?.pago_material ?? []).map((p, i) => ({ ...p, _k: i, nuevo: !p.producto_id })));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmar, setConfirmar] = useState<'emitir' | 'guardar' | null>(null);
+  const [confirmar, setConfirmar] = useState<'enviar' | 'autorizar' | 'guardar' | null>(null);
 
   const gruposAlmacen = useMemo(() => almacenesDeVenta(almacenes), [almacenes]);
   // Solo se ofrece lo que se puede despachar: ficha activa y con stock en ese almacén.
@@ -448,26 +495,39 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
     return null;
   }
 
-  function pedir(accion: 'emitir' | 'guardar') {
+  function pedir(accion: 'enviar' | 'autorizar' | 'guardar') {
     setError(null);
     const e = validar();
     if (e) { setError(e); return; }
-    if (accion === 'guardar' && !emitida) { void guardar(false); return; }
+    // Guardar un borrador o una venta en autorización no mueve nada: sin confirmación.
+    if (accion === 'guardar' && !emitida && !(enAutorizacion && venta?.estado === 'aprobada')) { void guardar('guardar'); return; }
     setConfirmar(accion);
   }
 
-  async function guardar(emitir: boolean) {
+  /**
+   * guardar = solo guarda · enviar = guarda y la manda a autorizar ·
+   * autorizar = (solo Leydis / Jesús) guarda, autoriza y emite en un paso.
+   */
+  async function guardar(accion: 'enviar' | 'autorizar' | 'guardar') {
     setSaving(true); setConfirmar(null);
     try {
       let v: Venta;
       if (editando) v = await actualizarVenta(venta!, input(), actor, actorName, motivo);
       else v = await crearVenta(input(), actor, actorName);
-      if (emitir) {
+      if (accion === 'enviar' || accion === 'autorizar') {
+        if (v.estado === 'borrador') v = await enviarAAutorizar(v, actor, actorName);
+      }
+      if (accion === 'autorizar') {
+        if (v.estado === 'por_aprobar') v = await autorizarVenta(v, actor, actorName);
         const r = await emitirVenta(v, actor, actorName);
-        notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} emitida · inventario actualizado`, 'success', { link: '#/app/ventas' });
+        notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} autorizada y emitida · inventario actualizado`, 'success', { link: '#/app/ventas' });
         if (r.estado === 'pagada') toast('El material cubrió el total: la venta quedó pagada', 'success');
+      } else if (accion === 'enviar') {
+        notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} por autorizar · Leydis Rengel / Jesús Lozada`, 'info', { link: '#/app/ventas' });
       } else {
-        notify(emitida ? `${v.numero} editada · inventario ajustado por la diferencia` : `${nombreDocumento(v.tipo_documento)} ${v.numero} guardada (borrador)`, 'success', { link: '#/app/ventas' });
+        notify(emitida ? `${v.numero} editada · inventario ajustado por la diferencia`
+          : v.estado === 'por_aprobar' && venta?.estado === 'aprobada' ? `${v.numero} editada · vuelve a autorización`
+          : `${nombreDocumento(v.tipo_documento)} ${v.numero} guardada`, 'success', { link: '#/app/ventas' });
       }
       onSaved();
     } catch (e) { setError(errMsg(e, 'No se pudo guardar.')); setSaving(false); }
@@ -502,12 +562,17 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      {emitida ? (
+      {emitida || enAutorizacion ? (
         <button className="btn btn-primary" onClick={() => pedir('guardar')} disabled={saving}>{saving ? '…' : 'Guardar cambios'}</button>
       ) : (
         <>
           <button className="btn btn-ghost" onClick={() => pedir('guardar')} disabled={saving}>{saving ? '…' : 'Guardar borrador'}</button>
-          <button className="btn btn-primary" onClick={() => pedir('emitir')} disabled={saving}>{saving ? '…' : `Emitir ${tipo === 'nota_entrega' ? 'nota de entrega' : 'factura'}`}</button>
+          <button className="btn btn-primary" onClick={() => pedir('enviar')} disabled={saving}
+            title="La autorizan Leydis Rengel o Jesús Lozada">{saving ? '…' : 'Enviar a autorizar'}</button>
+          {autoriza && (
+            <button className="btn btn-success" onClick={() => pedir('autorizar')} disabled={saving}
+              title="Solo Leydis Rengel / Jesús Lozada: autoriza y emite en un paso">{saving ? '…' : 'Autorizar y emitir'}</button>
+          )}
         </>
       )}
     </>
@@ -516,6 +581,13 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
   return (
     <Modal title={editando ? `Editar ${venta!.numero}` : 'Nueva venta'} size="xl" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      {enAutorizacion && (
+        <div className="card" style={{ borderLeft: '3px solid var(--warning)', padding: '.55rem .8rem', marginBottom: '.75rem', fontSize: '.84rem' }}>
+          {venta!.estado === 'aprobada'
+            ? <>Esta venta ya está <strong>autorizada</strong> por {nombreAutorizante(venta!.aprobada_por)}. Si la cambiás, <strong>vuelve a autorización</strong>.</>
+            : <>Esta venta está <strong>esperando autorización</strong>. Podés corregirla: la autorización se hace sobre lo último que guardes.</>}
+        </div>
+      )}
       {emitida && (
         <div className="card" style={{ borderLeft: '3px solid var(--warning)', padding: '.55rem .8rem', marginBottom: '.75rem', fontSize: '.84rem' }}>
           Esta venta ya está <strong>{venta!.estado}</strong>. Al guardar, el inventario se mueve <strong>solo por la diferencia</strong>
@@ -528,8 +600,8 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
       <div className="form-row">
         <label>Tipo de documento</label>
         <div className="view-toggle" role="tablist" aria-label="Tipo de documento" style={{ width: 'fit-content' }}>
-          <button type="button" className={tipo === 'factura' ? 'active' : ''} disabled={emitida} onClick={() => setTipo('factura')}>🧾 Factura</button>
-          <button type="button" className={tipo === 'nota_entrega' ? 'active' : ''} disabled={emitida} onClick={() => setTipo('nota_entrega')}>📄 Nota de entrega</button>
+          <button type="button" className={tipo === 'factura' ? 'active' : ''} disabled={emitida || enAutorizacion} onClick={() => setTipo('factura')}>🧾 Factura</button>
+          <button type="button" className={tipo === 'nota_entrega' ? 'active' : ''} disabled={emitida || enAutorizacion} onClick={() => setTipo('nota_entrega')}>📄 Nota de entrega</button>
         </div>
         <small className="muted">{tipo === 'nota_entrega' ? 'Sin impuestos. Correlativo NE-AAAA-NNNN.' : 'IVA e IGTF opcionales con su casilla. Correlativo FAC-AAAA-NNNN.'}</small>
       </div>
@@ -725,14 +797,20 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
         </div>
       )}
 
-      {confirmar === 'emitir' && (
-        <ConfirmDialog title={`Emitir ${nombreDocumento(tipo).toLowerCase()}`} confirmText="Emitir"
-          message={resumenEmision({ ...input(), items, total: totales.total, moneda, pago_material: input().pago_material ?? [], valor_material: valorMat } as Venta)}
-          onConfirm={() => void guardar(true)} onCancel={() => setConfirmar(null)} />
+      {confirmar === 'enviar' && (
+        <ConfirmDialog title="Enviar a autorizar" confirmText="Enviar a autorizar"
+          message={`La ${nombreDocumento(tipo).toLowerCase()} de ${clienteNombre || 'cliente ocasional'} por ${money(totales.total, moneda)} queda esperando la autorización de Leydis Rengel o Jesús Lozada.\n\nTodavía no mueve inventario ni dinero: eso pasa al emitirla, después de autorizada.`}
+          onConfirm={() => void guardar('enviar')} onCancel={() => setConfirmar(null)} />
+      )}
+      {confirmar === 'autorizar' && (
+        <ConfirmDialog title={`Autorizar y emitir ${nombreDocumento(tipo).toLowerCase()}`} confirmText="Autorizar y emitir" success
+          message={`${resumenEmision({ ...input(), items, total: totales.total, moneda, pago_material: input().pago_material ?? [], valor_material: valorMat } as Venta)}\n\nQueda autorizada a tu nombre (${nombreAutorizante(actor)}).`}
+          onConfirm={() => void guardar('autorizar')} onCancel={() => setConfirmar(null)} />
       )}
       {confirmar === 'guardar' && (
         <ConfirmDialog title={`Guardar cambios en ${venta!.numero}`} confirmText="Guardar cambios"
-          message={resumenEdicion} onConfirm={() => void guardar(false)} onCancel={() => setConfirmar(null)} />
+          message={emitida ? resumenEdicion : 'Esta venta está autorizada. Si guardás los cambios, vuelve a autorización (Leydis Rengel / Jesús Lozada) antes de poder emitirse.'}
+          onConfirm={() => void guardar('guardar')} onCancel={() => setConfirmar(null)} />
       )}
     </Modal>
   );
@@ -783,6 +861,9 @@ function Row({ l, v, big, muted }: { l: ReactNode; v: ReactNode; big?: boolean; 
 
 const ACCION_UI: Record<EventoVenta['accion'], { icon: string; label: string; color: string }> = {
   creada: { icon: '➕', label: 'Creada', color: 'var(--muted)' },
+  enviada: { icon: '📨', label: 'Enviada a autorizar', color: 'var(--warning)' },
+  autorizada: { icon: '✔', label: 'Autorizada', color: 'var(--primary)' },
+  devuelta: { icon: '↩', label: 'Devuelta a borrador', color: 'var(--warning)' },
   editada: { icon: '✎', label: 'Editada', color: 'var(--warning)' },
   emitida: { icon: '✔', label: 'Emitida', color: 'var(--primary-3)' },
   cobrada: { icon: '💵', label: 'Cobrada', color: 'var(--success, #45c08a)' },
@@ -811,6 +892,9 @@ function DetalleVentaModal({ venta: v, cuenta, onClose }: { venta: Venta; cuenta
         {dato('Cliente', v.cliente_nombre || 'Cliente ocasional')}
         {dato('Fecha', date(v.fecha))}
         {dato('Forma de pago', nombreCondicion(v.condicion_pago))}
+        {dato('Autorizada por', v.aprobada_por
+          ? <>{nombreAutorizante(v.aprobada_por)}{v.aprobada_en ? <span className="muted" style={{ fontWeight: 400 }}> · {dateTime(v.aprobada_en)}</span> : null}</>
+          : <span style={{ color: 'var(--warning)' }}>{v.estado === 'por_aprobar' ? 'esperando a Leydis / Jesús' : 'sin autorizar'}</span>)}
         {dato('Total', <span className="mono">{money(v.total, v.moneda)}</span>)}
         {dato('Cobrado', <span className="mono">{money(v.pagado_monto, v.moneda)}{falta > 0 ? <span style={{ color: 'var(--danger)' }}> · falta {money(falta, v.moneda)}</span> : null}</span>)}
         {esVentaACredito(v) && dato('Cuenta por cobrar', cuenta ? `${money(cuenta.abonado, v.moneda)} de ${money(cuenta.monto, v.moneda)}` : '—')}
@@ -868,6 +952,40 @@ function DetalleVentaModal({ venta: v, cuenta, onClose }: { venta: Venta; cuenta
           })}
         </ol>
       )}
+    </Modal>
+  );
+}
+
+/* ───────────── Devolver (autorizantes) ───────────── */
+
+function DevolverModal({ venta, actor, actorName, onClose, onDone }: {
+  venta: Venta; actor: string; actorName: string | null; onClose: () => void; onDone: () => void;
+}) {
+  const [motivo, setMotivo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function confirmar() {
+    setError(null); setSaving(true);
+    try {
+      await devolverVenta(venta, actor, actorName, motivo);
+      notify(`${venta.numero} devuelta a borrador: ${motivo.trim()}`, 'info', { link: '#/app/ventas' });
+      onDone();
+    } catch (e) { setError(errMsg(e, 'No se pudo devolver')); setSaving(false); }
+  }
+  return (
+    <Modal title={`Devolver ${venta.numero}`} size="md" onClose={() => !saving && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving || motivo.trim().length < 4}>{saving ? '…' : 'Devolver a borrador'}</button>
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <p style={{ marginTop: 0 }}>La venta vuelve a <strong>borrador</strong> para que la corrijan y la envíen de nuevo. No se movió nada todavía.</p>
+      <div className="form-row">
+        <label>Qué hay que corregir <span style={{ color: 'var(--danger)' }}>*</span></label>
+        <textarea className="input" rows={2} value={motivo} autoFocus onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: revisar el precio del estaño; falta el RIF del cliente" />
+        <small className="muted">Queda en la trazabilidad de la venta.</small>
+      </div>
     </Modal>
   );
 }
@@ -1102,11 +1220,12 @@ function ReporteModal({ ventas, onClose }: { ventas: Venta[]; onClose: () => voi
   const [anuladas, setAnuladas] = useState(false);
 
   const filtradas = useMemo(() => ventas.filter((v) =>
-    v.fecha >= desde && v.fecha <= hasta && v.estado !== 'borrador'
-    && (anuladas || v.estado !== 'anulada')
+    v.fecha >= desde && v.fecha <= hasta
+    // Solo lo emitido es venta: un borrador o una venta por autorizar todavía no.
+    && (yaEmitida(v) || (anuladas && v.estado === 'anulada'))
     && (doc === 'todos' || (v.tipo_documento ?? 'factura') === doc)
     && (pago === 'todos' || (v.condicion_pago ?? 'contado') === pago)), [ventas, desde, hasta, doc, pago, anuladas]);
-  const vivas = filtradas.filter((v) => v.estado !== 'anulada');
+  const vivas = filtradas.filter(yaEmitida);
   const r = resumenVentas(vivas);
   const porCliente = useMemo(() => {
     const m = new Map<string, number>();

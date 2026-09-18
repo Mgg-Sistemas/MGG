@@ -17,6 +17,7 @@ import { ProduccionDetalle, duracionProd } from './ProduccionDetalle';
 import { RecetasModal } from './RecetasModal';
 import { GestionarHornosModal } from './GestionarHornosModal';
 import { ReporteFundicionMatanzaModal } from './ReporteFundicionMatanzaModal';
+import { ReporteRefinacionMatanzaModal } from './ReporteRefinacionMatanzaModal';
 import { GestionarInvolucradosModal } from './GestionarInvolucradosModal';
 import { PisoFundicionModal } from './PisoFundicionModal';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
@@ -68,6 +69,8 @@ type Modal =
   | { kind: 'ver-receta'; id: string; productoId: string }
   | { kind: 'hornos' }
   | { kind: 'reporte-matanza' }
+  | { kind: 'reporte-refinacion' }
+  | { kind: 'reporte-cadena' }
   | { kind: 'involucrados' }
   | { kind: 'piso' }
   | { kind: 'editar-materiales'; id: string }
@@ -177,6 +180,12 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
               <button className="btn btn-ghost" onClick={() => setModal({ kind: 'reporte-matanza' })}
                 title="REPORTE FUNDICIÓN MATANZA · reporte formal de producción de la planta: rendimiento por colada y por ciclo de escoria">📄 Reporte Matanza</button>
             )}
+            {tipo === 'refinacion' && (
+              <button className="btn btn-ghost" onClick={() => setModal({ kind: 'reporte-refinacion' })}
+                title="REPORTE REFINACIÓN MATANZA · reporte formal de refinación: crudo, refinado, dross, reactivos, rendimiento y costo por kg">📄 Reporte Refinación</button>
+            )}
+            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'reporte-cadena' })}
+              title="COLADA + REFINACIÓN · la cadena del estaño: casiterita → estaño bruto → lingote refinado, con el rendimiento de cada etapa y el global">🔗 Colada + Refinación</button>
           </div>
 
           <div className="btn-grupo">
@@ -353,6 +362,9 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
       )}
       {modal.kind === 'reporte-matanza' && (
         <ReporteFundicionMatanzaModal onClose={() => setModal({ kind: 'none' })} />
+      )}
+      {(modal.kind === 'reporte-refinacion' || modal.kind === 'reporte-cadena') && (
+        <ReporteRefinacionMatanzaModal modo={modal.kind === 'reporte-cadena' ? 'cadena' : 'refinacion'} onClose={() => setModal({ kind: 'none' })} />
       )}
       {modal.kind === 'involucrados' && (
         <GestionarInvolucradosModal actor={actor} onClose={() => setModal({ kind: 'none' })} />

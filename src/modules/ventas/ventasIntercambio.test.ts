@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resumenVentas, saldoPorCobrar, cobradoEnCaja, efectosAnulacion, type Venta } from './ventas.repository';
+import { resumenVentas, saldoPorCobrar, cobradoEnCaja, efectosAnulacion, puedeAutorizarVentas, nombreAutorizante, type Venta } from './ventas.repository';
 
 const venta = (p: Partial<Venta>): Venta => ({
   id: 'v1', numero: 'FAC-2026-0001', fecha: '2026-09-18', cliente_id: null, tipo_documento: 'factura',
@@ -41,7 +41,16 @@ describe('anular: qué se revierte', () => {
     expect(e.join(' ')).toMatch(/Se devuelve 180 USD/);
   });
 
-  it('un borrador no tiene nada que revertir', () => {
-    expect(efectosAnulacion(venta({ estado: 'borrador' }))[0]).toMatch(/borrador/);
+  it('lo que no se emitió (borrador, por autorizar, autorizada) no tiene nada que revertir', () => {
+    for (const estado of ['borrador', 'por_aprobar', 'aprobada'] as const) {
+      expect(efectosAnulacion(venta({ estado }))[0]).toMatch(/no movió inventario ni dinero/);
+    }
+  });
+
+  it('autorizan solo Leydis Rengel y Jesús Lozada', () => {
+    expect(puedeAutorizarVentas('jhzgcontabilidad@gmail.com')).toBe(true);
+    expect(puedeAutorizarVentas('MineralGroupGuayanaCA@gmail.com')).toBe(true);
+    expect(puedeAutorizarVentas('almacen@mgg.com')).toBe(false);
+    expect(nombreAutorizante('jhzgcontabilidad@gmail.com')).toBe('LEYDIS RENGEL');
   });
 });

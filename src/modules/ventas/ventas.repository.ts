@@ -12,6 +12,11 @@
    Editar una venta emitida mueve el inventario solo por la DIFERENCIA y exige
    motivo. Anular revierte todo (stock, material, caja o cuenta por cobrar).
    Cada paso queda en `historial` (quién, cuándo, qué y por qué).
+
+   AUTORIZACIÓN PREVIA: borrador → por autorizar → autorizada → emitida.
+   Autorizan SOLO Leydis Rengel y Jesús Lozada (misma regla que Salidas),
+   en la pantalla y en la base (trigger `trg_ventas_solo_autorizados`).
+   Editar una venta autorizada (antes de emitir) la vuelve a autorización.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -23,6 +28,7 @@ import {
   ajustarMontoCuentaCobrarDocumento, type CuentaPorCobrar,
 } from '@/modules/tesoreria/cuentasPorCobrar.repository';
 import type { CuentaCaja } from '@/shared/lib/types';
+import { puedeAutorizarSalidas, AUTORIZAN_SALIDAS } from '@/modules/salidas/autorizanteSalida';
 import {
   r2, calcItem, calcVenta, impuestosAplicados, materialValido, valorMaterial, costoUnitMaterial,
   porCobrarEnDinero, errorIntercambio, diferenciasStock, cambiosVenta, exigirMotivo,
@@ -37,7 +43,17 @@ export {
   type TipoDocumentoVenta, type CondicionPagoVenta,
 };
 
-export type EstadoVenta = 'borrador' | 'emitida' | 'pagada' | 'anulada';
+export type EstadoVenta = 'borrador' | 'por_aprobar' | 'aprobada' | 'emitida' | 'pagada' | 'anulada';
+
+/** Autorizan ventas los mismos que autorizan salidas: Leydis Rengel y Jesús Lozada. */
+export const puedeAutorizarVentas = puedeAutorizarSalidas;
+export function nombreAutorizante(correo: string | null | undefined): string {
+  return AUTORIZAN_SALIDAS[(correo ?? '').trim().toLowerCase()] ?? (correo ?? '');
+}
+/** ¿La venta ya movió inventario o dinero? (emitida o pagada) */
+export function yaEmitida(v: Pick<Venta, 'estado'>): boolean {
+  return v.estado === 'emitida' || v.estado === 'pagada';
+}
 
 export interface Venta extends VentaTotales {
   id: string;
@@ -71,6 +87,10 @@ export interface Venta extends VentaTotales {
   vendedor?: string | null;
   nota?: string | null;
   historial?: EventoVenta[] | null;
+  enviada_por?: string | null;
+  enviada_en?: string | null;
+  aprobada_por?: string | null;
+  aprobada_en?: string | null;
   emitida_en?: string | null;
   emitida_por?: string | null;
   anulada_en?: string | null;
@@ -310,7 +330,11 @@ async function salidaMaterial(v: Pick<Venta, 'numero' | 'cliente_nombre'>, p: { 
  * van antes de mover nada.
  */
 export async function emitirVenta(v: Venta, actor: string, actorName?: string | null): Promise<Venta> {
-  if (v.estado !== 'borrador') throw new Error('Solo se emiten ventas en borrador.');
+  if (v.estado !== 'aprobada') {
+    throw new Error(v.estado === 'borrador' || v.estado === 'por_aprobar'
+      ? 'La venta necesita la autorización de Leydis Rengel o Jesús Lozada antes de emitirse.'
+      : 'Solo se emiten ventas autorizadas.');
+  }
   const p = buildPayload({ ...v, items: v.items, pago_material: v.pago_material ?? [] } as VentaInput);
   validarPayload(p);
   const items = p.items.filter((i) => i.producto_id && i.cantidad > 0);
@@ -355,7 +379,49 @@ export async function emitirVenta(v: Venta, actor: string, actorName?: string | 
     pagado_monto: p.condicion_pago === 'intercambio' ? valorMat : 0,
     historial: [...(v.historial ?? []), evento('emitida', actor, actorName, { detalle })],
     updated_at: ahora(),
+  }).eq('id', v.id).eq('estado', 'aprobada').select('*').single();
+  if (error) throw error;
+  return data as Venta;
+}
+
+/* ───────────── Autorización previa ───────────── */
+
+/** Borrador → por autorizar. Valida todo antes, para que no llegue algo incompleto. */
+export async function enviarAAutorizar(v: Venta, actor: string, actorName?: string | null): Promise<Venta> {
+  if (v.estado !== 'borrador') throw new Error('Solo se envían a autorizar ventas en borrador.');
+  validarPayload(buildPayload({ ...v, pago_material: v.pago_material ?? [] } as VentaInput));
+  const { data, error } = await supabase.from('ventas').update({
+    estado: 'por_aprobar', enviada_por: actor, enviada_en: ahora(),
+    historial: [...(v.historial ?? []), evento('enviada', actor, actorName, { detalle: 'Enviada a autorizar (Leydis Rengel / Jesús Lozada)' })],
+    updated_at: ahora(),
   }).eq('id', v.id).eq('estado', 'borrador').select('*').single();
+  if (error) throw error;
+  return data as Venta;
+}
+
+/** Por autorizar → autorizada. Solo Leydis Rengel o Jesús Lozada (la base también lo exige). */
+export async function autorizarVenta(v: Venta, actor: string, actorName?: string | null): Promise<Venta> {
+  if (!puedeAutorizarVentas(actor)) throw new Error('Solo Leydis Rengel o Jesús Lozada pueden autorizar ventas.');
+  if (v.estado !== 'por_aprobar') throw new Error('Solo se autorizan ventas que están por autorizar.');
+  const { data, error } = await supabase.from('ventas').update({
+    estado: 'aprobada', aprobada_por: actor.trim().toLowerCase(), aprobada_en: ahora(),
+    historial: [...(v.historial ?? []), evento('autorizada', actor, actorName ?? nombreAutorizante(actor))],
+    updated_at: ahora(),
+  }).eq('id', v.id).eq('estado', 'por_aprobar').select('*').single();
+  if (error) throw error;
+  return data as Venta;
+}
+
+/** Por autorizar / autorizada → borrador, con motivo (para que la corrijan). */
+export async function devolverVenta(v: Venta, actor: string, actorName: string | null | undefined, motivo: string): Promise<Venta> {
+  if (!puedeAutorizarVentas(actor)) throw new Error('Solo Leydis Rengel o Jesús Lozada pueden devolver una venta.');
+  if (v.estado !== 'por_aprobar' && v.estado !== 'aprobada') throw new Error('Solo se devuelven ventas por autorizar o autorizadas sin emitir.');
+  const m = exigirMotivo(motivo, 'devolver la venta');
+  const { data, error } = await supabase.from('ventas').update({
+    estado: 'borrador', aprobada_por: null, aprobada_en: null,
+    historial: [...(v.historial ?? []), evento('devuelta', actor, actorName ?? nombreAutorizante(actor), { motivo: m, detalle: 'Devuelta a borrador para corregir' })],
+    updated_at: ahora(),
+  }).eq('id', v.id).select('*').single();
   if (error) throw error;
   return data as Venta;
 }
@@ -376,20 +442,24 @@ export async function actualizarVenta(
   if (v.estado === 'anulada') throw new Error('Una venta anulada no se edita.');
   const p = buildPayload(input);
 
-  if (v.estado === 'borrador') {
+  if (!yaEmitida(v)) {
     if (!p.fecha) throw new Error('Indicá la fecha.');
     const cambios = cambiosVenta(v, p);
+    // Una venta autorizada que se cambia vuelve a autorización: lo que se autorizó ya no es lo mismo.
+    const reautorizar = v.estado === 'aprobada' && cambios.length > 0;
+    if (reautorizar) cambios.push('Vuelve a autorización: se cambió después de autorizada');
     let numero = v.numero;
     const anioNumero = /-(\d{4})-/.exec(numero)?.[1];
-    if ((v.tipo_documento ?? 'factura') !== p.tipo_documento || anioNumero !== p.fecha.slice(0, 4)) {
+    if (v.estado === 'borrador' && ((v.tipo_documento ?? 'factura') !== p.tipo_documento || anioNumero !== p.fecha.slice(0, 4))) {
       numero = await nextNumero(p.fecha, p.tipo_documento);
       if (numero !== v.numero) cambios.unshift(`Número: ${v.numero} → ${numero}`);
     }
     const { data, error } = await supabase.from('ventas').update({
       ...p, numero,
+      ...(reautorizar ? { estado: 'por_aprobar', aprobada_por: null, aprobada_en: null } : {}),
       historial: [...(v.historial ?? []), evento('editada', actor, actorName, { cambios, motivo: motivo?.trim() || null })],
       updated_at: ahora(),
-    }).eq('id', v.id).eq('estado', 'borrador').select('*').single();
+    }).eq('id', v.id).eq('estado', v.estado).select('*').single();
     if (error) throw error;
     return data as Venta;
   }
@@ -555,7 +625,7 @@ export async function sincronizarCredito(ventas: Venta[]): Promise<Map<string, C
 
 /** Lo que va a pasar al anular (para mostrarlo antes de confirmar). */
 export function efectosAnulacion(v: Venta): string[] {
-  if (v.estado === 'borrador') return ['Es un borrador: no movió inventario ni dinero.'];
+  if (!yaEmitida(v)) return ['Todavía no se emitió: no movió inventario ni dinero. Solo queda anulada, con el motivo.'];
   const out: string[] = [];
   const items = (v.items ?? []).filter((i) => i.producto_id && Number(i.cantidad) > 0);
   if (items.length) out.push(`Vuelven al inventario: ${items.map((i) => `${r2(i.cantidad)} ${i.unidad ?? ''} ${i.producto_nombre} (${i.almacen})`.replace(/\s+/g, ' ')).join(', ')}.`);
@@ -571,7 +641,7 @@ export function efectosAnulacion(v: Venta): string[] {
 export async function anularVenta(v: Venta, actor: string, actorName?: string | null, motivo?: string | null): Promise<void> {
   if (v.estado === 'anulada') throw new Error('La venta ya está anulada.');
   const m = exigirMotivo(motivo, 'anular');
-  const movio = v.estado === 'emitida' || v.estado === 'pagada';
+  const movio = yaEmitida(v);
   const doc = `${nombreDocumento(v.tipo_documento)} ${v.numero}`;
   const mat = (v.pago_material ?? []).filter((p) => p.producto_id && Number(p.cantidad) > 0);
 

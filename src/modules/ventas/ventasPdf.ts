@@ -6,6 +6,7 @@
    ============================================================ */
 import type { Venta } from './ventas.repository';
 import { nombreDocumento, nombreCondicion, costoUnitMaterial } from './ventasLogica';
+import { autorizanteDe } from '@/modules/salidas/autorizanteSalida';
 
 const MARGIN = 42.52;
 const fmt = (v: number | null | undefined) => Number(v || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -126,14 +127,30 @@ export async function verDocumentoVentaPdf(v: Venta): Promise<void> {
   }
   doc.text(`Generado: ${dateTime(new Date().toISOString())}`, MARGIN, y);
 
-  // Firmas de recibido (sobre todo para la nota de entrega).
+  // Firmas: entregado · AUTORIZADO (Leydis Rengel / Jesús Lozada) · recibido.
+  // La firma escaneada va solo si autorizó su dueña, como en Salidas.
   const H = doc.internal.pageSize.getHeight();
-  const fy = Math.max(y + 60, H - 110);
-  if (fy < H - 40) {
-    doc.setDrawColor(150); doc.setLineWidth(0.5); doc.setTextColor(60); doc.setFontSize(9);
-    doc.line(MARGIN, fy, MARGIN + 190, fy); doc.text('Entregado por', MARGIN, fy + 12);
-    doc.line(PAGE_W - MARGIN - 190, fy, PAGE_W - MARGIN, fy); doc.text('Recibido conforme (cliente)', PAGE_W - MARGIN - 190, fy + 12);
-  }
+  let fy = Math.max(y + 70, H - 100);
+  if (fy > H - 50) { doc.addPage(); fy = MARGIN + 70; }
+  const autoriza = autorizanteDe(v.aprobada_por);
+  const firma = autoriza.firma
+    ? await import('@/shared/lib/pdfLogo').then((m) => m.loadFirmaSalidasDataUrl()).catch(() => null)
+    : null;
+  const colW = (PAGE_W - MARGIN * 2 - 40) / 3;
+  const xs = [MARGIN, MARGIN + colW + 20, MARGIN + 2 * colW + 40];
+  if (firma) { try { doc.addImage(firma, 'JPEG', xs[1] + colW / 2 - 60, fy - 44, 120, 42); } catch { /* firma opcional */ } }
+  doc.setDrawColor(150); doc.setLineWidth(0.5); doc.setTextColor(60);
+  const etiquetas = ['Entregado por', 'Autorizado por', 'Recibido conforme (cliente)'];
+  const nombres = [v.actor_name || v.created_by || '', autoriza.nombre, v.cliente_nombre || ''];
+  xs.forEach((x, i) => {
+    doc.line(x, fy, x + colW, fy);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    doc.text(etiquetas[i], x + colW / 2, fy + 12, { align: 'center' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    if (i === 1 && autoriza.pendiente) doc.setTextColor(200, 120, 0);
+    doc.text(nombres[i] || ' ', x + colW / 2, fy + 24, { align: 'center', maxWidth: colW });
+    doc.setTextColor(60);
+  });
   if (v.estado === 'anulada') marcaAnulada(doc);
 
   previewPdfDoc(doc, `${v.numero}.pdf`);
@@ -146,7 +163,7 @@ export async function verReporteVentasPdf(input: { ventas: Venta[]; desde: strin
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   let y = encabezado(doc, logo, 'Reporte de ventas', [`${date(input.desde)} → ${date(input.hasta)}`, input.filtro, `Generado ${dateTime(new Date().toISOString())}`]);
 
-  const vivas = input.ventas.filter((v) => v.estado !== 'anulada' && v.estado !== 'borrador');
+  const vivas = input.ventas.filter((v) => v.estado === 'emitida' || v.estado === 'pagada');
   const sum = (f: (v: Venta) => number) => vivas.reduce((a, v) => a + (f(v) || 0), 0);
   autoTable(doc, {
     startY: y,
@@ -195,7 +212,7 @@ export async function verReporteVentasPdf(input: { ventas: Venta[]; desde: strin
 
 /* ───────────── Ficha de trazabilidad ───────────── */
 
-const ACCION: Record<string, string> = { creada: 'Creada', editada: 'Editada', emitida: 'Emitida', cobrada: 'Cobrada', anulada: 'Anulada' };
+const ACCION: Record<string, string> = { creada: 'Creada', enviada: 'Enviada a autorizar', autorizada: 'Autorizada', devuelta: 'Devuelta', editada: 'Editada', emitida: 'Emitida', cobrada: 'Cobrada', anulada: 'Anulada' };
 
 export async function verTrazabilidadVentaPdf(v: Venta): Promise<void> {
   const { dateTime, date, previewPdfDoc, jsPDF, autoTable, logo } = await base();
@@ -207,7 +224,8 @@ export async function verTrazabilidadVentaPdf(v: Venta): Promise<void> {
     body: [
       ['Cliente', v.cliente_nombre || 'Cliente ocasional', 'Forma de pago', nombreCondicion(v.condicion_pago)],
       ['Total', `${v.moneda} ${fmt(v.total)}`, 'Cobrado', `${v.moneda} ${fmt(v.pagado_monto)}`],
-      ['Creada por', v.actor_name || v.created_by || '—', 'Emitida', v.emitida_en ? `${dateTime(v.emitida_en)} · ${v.emitida_por ?? ''}` : '—'],
+      ['Autorizada por', autorizanteDe(v.aprobada_por).nombre, 'Autorizada el', v.aprobada_en ? dateTime(v.aprobada_en) : '—'],
+      ['Creada por', v.actor_name || v.created_by || '—', 'Emitida',v.emitida_en ? `${dateTime(v.emitida_en)} · ${v.emitida_por ?? ''}` : '—'],
       ...(v.estado === 'anulada' ? [['Anulada', v.anulada_en ? dateTime(v.anulada_en) : '—', 'Motivo', v.motivo_anulacion || '—']] : []),
     ],
     theme: 'plain', styles: { fontSize: 9, cellPadding: 3 },
