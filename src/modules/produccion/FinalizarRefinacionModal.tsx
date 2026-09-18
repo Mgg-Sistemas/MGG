@@ -11,6 +11,8 @@ import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { Produccion, ProduccionRefinacion } from '@/shared/lib/types';
 import { getRefinacion, finalizarRefinacionConResultados } from './refinacion.repository';
+import { fmtJornada } from './colada.repository';
+import { tiemposRefinacion, type TiemposRefinacion } from './tiemposRefinacion';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -34,6 +36,8 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rendTocado, setRendTocado] = useState(false);
+  // Inicio/fin/total vienen de la jornada cargada al crear: acá solo se muestran.
+  const [tiempos, setTiempos] = useState<TiemposRefinacion>({ inicio: '', fin: '', totalHoras: null, delReporte: false });
 
   useEffect(() => {
     let cancel = false;
@@ -41,8 +45,11 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
       if (cancel) return;
       setRef(r);
       const d = r?.datos ?? {};
-      setHoraIni(d.hora_inicio_refinacion ?? '');
-      setHoraFin(d.hora_fin_refinacion ?? '');
+      const t = tiemposRefinacion(d);
+      setTiempos(t);
+      setHoraIni(t.inicio);
+      setHoraFin(t.fin);
+      setTiempoTotal(t.totalHoras == null ? '' : String(t.totalHoras));
       setHoraVaciado(d.hora_inicio_vaciado ?? '');
       setTempColada(d.temp_colada == null ? '' : String(d.temp_colada));
       setInvolucrados(sinRepetidos(d.involucrados ?? []));
@@ -116,17 +123,30 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
           El <strong>estaño refinado</strong> entra a inventario como <strong>{prod.producto_nombre}</strong> en <strong>{prod.almacen_destino}</strong> · estaño crudo cargado: <strong>{num(crudoKg)} kg</strong>.
         </p>
 
-        {/* Tiempos de colada y moldeo */}
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Hora inicio de refinación</label>
-            <input className="input" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} placeholder="Ej.: 4:29pm 28/03/26" />
+        {/* Tiempos: ya se cargaron al crear (jornada). Solo se piden si faltan. */}
+        {tiempos.delReporte ? (
+          <div className="card" style={{ padding: '.55rem .8rem', borderLeft: '3px solid var(--border)', margin: '0 0 .6rem' }}>
+            <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Jornada de refinación · cargada al crear</div>
+            <div className="mono" style={{ fontSize: '.85rem', lineHeight: 1.7 }}>
+              Inicio <strong>{tiempos.inicio}</strong>
+              {' · '}Fin <strong>{tiempos.fin || '—'}</strong>
+              {' · '}Total <strong>{fmtJornada(tiempos.totalHoras)}</strong>
+            </div>
+            <small className="muted" style={{ fontSize: '.7rem' }}>Si hay que corregirla, se edita en el reporte de refinación (✎), no acá.</small>
           </div>
-          <div className="form-row">
-            <label>Hora fin de refinación</label>
-            <input className="input" value={horaFin} onChange={(e) => setHoraFin(e.target.value)} placeholder="Ej.: 7:20pm 28/03/26" />
+        ) : (
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Hora inicio de refinación</label>
+              <input className="input" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} placeholder="Ej.: 4:29pm 28/03/26" />
+              <small className="muted" style={{ fontSize: '.7rem' }}>No se cargó la jornada al crear: completala acá.</small>
+            </div>
+            <div className="form-row">
+              <label>Hora fin de refinación</label>
+              <input className="input" value={horaFin} onChange={(e) => setHoraFin(e.target.value)} placeholder="Ej.: 7:20pm 28/03/26" />
+            </div>
           </div>
-        </div>
+        )}
         <div className="form-grid">
           <div className="form-row">
             <label>Hora inicio de vaciado</label>
@@ -137,10 +157,12 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
             <input className="input mono" type="number" step="any" value={tempColada} onChange={(e) => setTempColada(e.target.value)} style={{ textAlign: 'right' }} />
           </div>
         </div>
-        <div className="form-row" style={{ maxWidth: 260 }}>
-          <label>Tiempo total de proceso (h)</label>
-          <input className="input mono" type="number" step="any" value={tiempoTotal} onChange={(e) => setTiempoTotal(e.target.value)} placeholder="Ej.: 2,88" style={{ textAlign: 'right' }} />
-        </div>
+        {!tiempos.delReporte && (
+          <div className="form-row" style={{ maxWidth: 260 }}>
+            <label>Tiempo total de proceso (h)</label>
+            <input className="input mono" type="number" step="any" value={tiempoTotal} onChange={(e) => setTiempoTotal(e.target.value)} placeholder="Ej.: 2,88" style={{ textAlign: 'right' }} />
+          </div>
+        )}
 
         <div style={{ height: 1, background: 'var(--border)', margin: '.85rem 0' }} />
 
