@@ -293,11 +293,7 @@ export function ProveedoresPage() {
                   </td>
                   <td className="mono">{p.telefono || '—'}</td>
                   <td>
-                    {(p.categorias ?? []).map((c) => (
-                      <span key={c} className="badge" style={{ marginRight: '.2rem' }}>
-                        {c}
-                      </span>
-                    ))}
+                    <EtiquetasProveedor categorias={p.categorias ?? []} />
                   </td>
                   <td>
                     <StatusBadge estado={p.estado} />
@@ -628,7 +624,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
             <input
               className="input"
               style={{ maxWidth: 260 }}
-              placeholder="Nueva categoría…"
+              placeholder="Nueva etiqueta (1-3 palabras)…"
               value={nuevaCat}
               onChange={(e) => setNuevaCat(e.target.value)}
               onKeyDown={(e) => {
@@ -637,7 +633,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
                   handleAddCategoria();
                 }
               }}
-              maxLength={40}
+              maxLength={25}
             />
             <button type="button" className="btn btn-sm btn-ghost" onClick={handleAddCategoria}>
               + Añadir
@@ -713,11 +709,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
           value={
             (proveedor.categorias ?? []).length === 0
               ? '—'
-              : (proveedor.categorias ?? []).map((c) => (
-                  <span key={c} className="badge" style={{ marginRight: '.2rem' }}>
-                    {c}
-                  </span>
-                ))
+              : <EtiquetasProveedor categorias={proveedor.categorias ?? []} max={Infinity} />
           }
         />
         <DetailRow label="Estado" value={<StatusBadge estado={proveedor.estado} />} />
@@ -795,6 +787,32 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
         {label}
       </div>
       <div>{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Categorías como etiquetas cortas, en una sola línea cada una. En la tabla se ven las
+ * primeras `max` y el resto queda en «+N» (con la lista completa al pasar el mouse),
+ * para que un proveedor con muchos rubros no ocupe media pantalla.
+ */
+function EtiquetasProveedor({ categorias, max = 3 }: { categorias: string[]; max?: number }) {
+  if (!categorias.length) return <span className="dim">—</span>;
+  const visibles = categorias.slice(0, max);
+  const resto = categorias.slice(max);
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.25rem' }}>
+      {visibles.map((c) => (
+        <span key={c} className="badge" title={c}
+          style={{ whiteSpace: 'nowrap', maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '.72rem' }}>
+          {c}
+        </span>
+      ))}
+      {resto.length > 0 && (
+        <span className="badge" title={resto.join(' · ')} style={{ whiteSpace: 'nowrap', fontSize: '.72rem', opacity: 0.75 }}>
+          +{resto.length}
+        </span>
+      )}
     </div>
   );
 }
