@@ -14,7 +14,7 @@ const TABS: { key: TipoCatalogoMaquinaria; label: string; singular: string }[] =
   { key: 'status', label: 'Status', singular: 'status' },
   // Nombres de los documentos de cada equipo (📁): desactivar uno lo quita del selector;
   // los documentos ya cargados conservan su nombre.
-  { key: 'documento', label: 'Documentos', singular: 'nombre de documento' },
+  { key: 'documento', label: 'Nombres de documentos', singular: 'nombre de documento' },
 ];
 
 /**
