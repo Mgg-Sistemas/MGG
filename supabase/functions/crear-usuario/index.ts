@@ -1,11 +1,10 @@
 // MGG · Edge Function: crear-usuario
-// Solo callable por admin. Crea el usuario en auth.users con una CLAVE TEMPORAL aleatoria
+// Solo callable por admin. Crea el usuario en auth.users con la clave inicial 'mgg2026'
 // (must_change_password=true) e inserta su ficha en public.usuarios. Devuelve la clave
-// temporal para que el admin se la pase al usuario.
+// inicial para que la pantalla la muestre.
 //
-// Antes la clave inicial era siempre '123456': con la protección de claves filtradas de
-// Supabase activada, Auth la rechaza («Password is known to be weak») y no se podía crear
-// a nadie. Una clave distinta por usuario tampoco queda adivinable.
+// Antes era '123456': con la protección de claves filtradas de Supabase activada, Auth la
+// rechaza («Password is known to be weak») y no se podía crear a nadie.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -16,15 +15,10 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-/** Clave temporal legible: Mgg-XXXX-0000 (sin letras que se confunden: I, l, O, 0…). */
-function claveTemporal(): string {
-  const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
-  const rnd = new Uint32Array(8);
-  crypto.getRandomValues(rnd);
-  const parte = Array.from(rnd.slice(0, 4), (n) => letras[n % letras.length]).join('');
-  const num = Array.from(rnd.slice(4), (n) => String(2 + (n % 8))).join('');
-  return `Mgg-${parte}-${num}`;
-}
+/** Clave inicial fija. Tiene que ser una que NO figure en las listas de claves filtradas
+ *  (HaveIBeenPwned): con esa protección activada, Auth rechaza 123456 / 654321. Verificada
+ *  el 18-09-2026. El usuario queda obligado a cambiarla en su primer ingreso. */
+const CLAVE_INICIAL = 'mgg2026';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -90,8 +84,8 @@ serve(async (req) => {
   if (roleErr) return json({ error: 'No se pudo validar el rol: ' + roleErr.message }, 500);
   if (!roleRow) return json({ error: `Rol "${role}" no existe en el catalogo` }, 400);
 
-  // 3) Crear auth user con su clave temporal
-  const clave = claveTemporal();
+  // 3) Crear auth user con la clave inicial
+  const clave = CLAVE_INICIAL;
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email,
     password: clave,

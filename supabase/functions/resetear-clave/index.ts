@@ -1,10 +1,9 @@
 // MGG · Edge Function: resetear-clave
-// Solo admin. Pone al usuario objetivo una CLAVE TEMPORAL aleatoria, marca
-// must_change_password=true para forzar el cambio en el próximo login y devuelve
-// la clave temporal para que el admin se la pase.
+// Solo admin. Resetea la clave del usuario objetivo a la inicial 'mgg2026', marca
+// must_change_password=true para forzar el cambio en el próximo login y la devuelve.
 //
-// Antes reseteaba siempre a '123456': con la protección de claves filtradas de
-// Supabase activada, Auth la rechaza («Password is known to be weak»).
+// Antes reseteaba a '123456': con la protección de claves filtradas de Supabase
+// activada, Auth la rechaza («Password is known to be weak»).
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -15,15 +14,10 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-/** Clave temporal legible: Mgg-XXXX-0000 (sin letras que se confunden: I, l, O, 0…). */
-function claveTemporal(): string {
-  const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
-  const rnd = new Uint32Array(8);
-  crypto.getRandomValues(rnd);
-  const parte = Array.from(rnd.slice(0, 4), (n) => letras[n % letras.length]).join('');
-  const num = Array.from(rnd.slice(4), (n) => String(2 + (n % 8))).join('');
-  return `Mgg-${parte}-${num}`;
-}
+/** Clave inicial fija. Tiene que ser una que NO figure en las listas de claves filtradas
+ *  (HaveIBeenPwned): con esa protección activada, Auth rechaza 123456 / 654321. Verificada
+ *  el 18-09-2026. El usuario queda obligado a cambiarla en su primer ingreso. */
+const CLAVE_INICIAL = 'mgg2026';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -69,8 +63,8 @@ serve(async (req) => {
   const targetId = payload.user_id;
   if (!targetId) return json({ error: 'user_id requerido' }, 400);
 
-  // 3) Resetear a una clave temporal nueva
-  const clave = claveTemporal();
+  // 3) Resetear a la clave inicial
+  const clave = CLAVE_INICIAL;
   const { error: pwErr } = await admin.auth.admin.updateUserById(targetId, {
     password: clave,
   });

@@ -122,8 +122,8 @@ export async function eliminarDepartamento(nombre: string): Promise<void> {
   await deleteTaxonomia('usuario.departamento', nombre);
 }
 
-/** Llama a la Edge Function crear-usuario. Devuelve la CLAVE TEMPORAL que generó (una
- *  distinta por usuario; la fija 123456 la rechaza la protección de claves filtradas). */
+/** Llama a la Edge Function crear-usuario. Devuelve la clave inicial que puso (mgg2026;
+ *  la vieja 123456 la rechaza la protección de claves filtradas). */
 export async function crearUsuario(input: CrearUsuarioInput): Promise<{ id: string; claveTemporal: string | null }> {
   const { data, error } = await supabase.functions.invoke<
     { ok: true; id: string; email: string; clave_temporal?: string } | { error: string }
@@ -196,7 +196,7 @@ export async function cambiarCorreoUsuario(userId: string, email: string): Promi
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
 }
 
-/** Llama a la Edge Function resetear-clave. Devuelve la clave temporal nueva. */
+/** Llama a la Edge Function resetear-clave. Devuelve la clave inicial que puso (mgg2026). */
 export async function resetearClave(userId: string): Promise<string | null> {
   const { data, error } = await supabase.functions.invoke<
     { ok: true; clave_temporal?: string } | { error: string }

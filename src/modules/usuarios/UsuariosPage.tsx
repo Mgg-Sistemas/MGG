@@ -408,7 +408,7 @@ export function UsuariosPage() {
       {modal.kind === 'reset-confirm' && (
         <ConfirmDialog
           title="Resetear clave"
-          message={`A ${modal.usuario.email} se le asignará una clave temporal nueva (se muestra al confirmar) y deberá cambiarla al ingresar. ¿Continuar?`}
+          message={`La clave de ${modal.usuario.email} se cambiará a "mgg2026" y el usuario deberá cambiarla al ingresar. ¿Continuar?`}
           confirmText="Resetear"
           onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
           onConfirm={async () => {
@@ -705,7 +705,7 @@ function UsuarioFormModal({
 
       <div className="card" style={{ marginTop: '1rem', background: 'var(--bg-2)' }}>
         <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>
-          🔑 Al crearlo, el sistema le genera una <strong>clave temporal</strong> (se muestra una sola vez para que se la pases).
+          🔑 El usuario se creará con la clave inicial <strong className="mono">mgg2026</strong>.
           En su primer inicio de sesión deberá cambiarla obligatoriamente.
         </p>
       </div>
@@ -1254,10 +1254,7 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, o
   );
 }
 
-/**
- * Clave temporal de un usuario recién creado o reseteado. Se muestra UNA vez: no se
- * guarda en notificaciones ni en la base (Auth solo guarda su hash).
- */
+/** Clave inicial de un usuario recién creado o reseteado (la devuelve el servidor). */
 function ClaveTemporalModal({ email, clave, motivo, onClose }: {
   email: string; clave: string | null; motivo: 'creado' | 'reseteado'; onClose: () => void;
 }) {
@@ -1272,7 +1269,7 @@ function ClaveTemporalModal({ email, clave, motivo, onClose }: {
       footer={<button type="button" className="btn btn-primary" onClick={onClose}>Listo</button>}>
       {clave ? (
         <div style={{ display: 'grid', gap: '.75rem' }}>
-          <p style={{ margin: 0 }}>Clave temporal de <strong>{email}</strong>:</p>
+          <p style={{ margin: 0 }}>Clave inicial de <strong>{email}</strong>:</p>
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
             <code className="mono" style={{ flex: 1, fontSize: '1.25rem', padding: '.6rem .8rem', borderRadius: 8, background: 'var(--bg-2)', userSelect: 'all', letterSpacing: '.04em' }}>
               {clave}
@@ -1280,13 +1277,12 @@ function ClaveTemporalModal({ email, clave, motivo, onClose }: {
             <button type="button" className="btn" onClick={() => void copiar()}>{copiada ? '✔ Copiada' : '📋 Copiar'}</button>
           </div>
           <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>
-            Pasásela al usuario: con ella entra la primera vez y el sistema le pide elegir una propia.
-            <strong> Anotala ahora:</strong> no se vuelve a mostrar (si se pierde, se resetea otra vez).
+            Con ella entra la primera vez y el sistema le pide elegir una clave propia.
           </p>
         </div>
       ) : (
         <p style={{ margin: 0 }}>
-          Listo. El servidor no devolvió la clave temporal: reseteá la clave de <strong>{email}</strong> para generar una nueva.
+          Listo. La clave inicial de <strong>{email}</strong> es <strong className="mono">mgg2026</strong>.
         </p>
       )}
     </Modal>
