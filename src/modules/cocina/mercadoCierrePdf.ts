@@ -4,6 +4,7 @@
    Se usa para vista previa/descarga y para enviarlo por correo (base64).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { filaPdf, textoPdf } from '@/shared/lib/textoPdf';
 import type { CierreSnapshot, MercadoCocina } from './mercados.repository';
 
 function money(n: number | null | undefined): string {
@@ -30,15 +31,16 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('CIERRE DE MERCADO', W / 2 + 24, y + 18, { align: 'center' });
   doc.setTextColor(40, 40, 40); doc.setFontSize(11);
-  doc.text(`🍳 ${cocinaNombre}`, W / 2 + 24, y + 34, { align: 'center' });
+  // Sin el emoji 🍳 y sin la flecha «→»: la helvetica de jsPDF no los tiene y abría el renglón letra por letra.
+  doc.text(textoPdf(`Cocina: ${cocinaNombre}`), W / 2 + 24, y + 34, { align: 'center' });
   doc.setTextColor(90, 90, 90); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`Mercado #${mercado.numero} · ${fmtDia(mercado.fecha_inicio)} → ${fmtDia(mercado.fecha_fin)}`, W / 2 + 24, y + 48, { align: 'center' });
+  doc.text(textoPdf(`Mercado #${mercado.numero} · del ${fmtDia(mercado.fecha_inicio)} al ${fmtDia(mercado.fecha_fin)}`), W / 2 + 24, y + 48, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 66;
 
   doc.setFontSize(10); doc.setFont('helvetica', 'bold');
   doc.text(
-    `Platos: ${num(snap.totales.platos)}   ·   Consumo total: ${money(snap.totales.valor)}   ·   Entradas del período: ${money(snap.totales.entradasValor)}`,
+    textoPdf(`Platos: ${num(snap.totales.platos)}   ·   Consumo total: ${money(snap.totales.valor)}   ·   Entradas del período: ${money(snap.totales.entradasValor)}`),
     MARGIN, y,
   );
   y += 12;
@@ -46,10 +48,10 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   // Consumos por ítem
   autoTable(doc, {
     startY: y + 6,
-    head: [['CONSUMIDO POR ÍTEM', 'CANTIDAD', 'VALOR $']],
+    head: [filaPdf(['CONSUMIDO POR ÍTEM', 'CANTIDAD', 'VALOR $'])],
     body: snap.consumos.length
-      ? snap.consumos.map((v) => [`${v.nombre} (${v.sku})`, num(v.cantidad), money(v.valor)])
-      : [['Sin consumos en el período', '', '']],
+      ? snap.consumos.map((v) => filaPdf([`${v.nombre} (${v.sku})`, num(v.cantidad), money(v.valor)]))
+      : [filaPdf(['Sin consumos en el período', '', ''])],
     styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
     columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
@@ -61,14 +63,14 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
 
   // LO QUE QUEDA (remanente) — resaltado en verde
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(30, 130, 60);
-  doc.text('LO QUE QUEDA (pasa al próximo mercado)', MARGIN, y);
+  doc.text(textoPdf('LO QUE QUEDA (pasa al próximo mercado)'), MARGIN, y);
   doc.setTextColor(0, 0, 0);
   autoTable(doc, {
     startY: y + 6,
-    head: [['VÍVER', 'DISPONIBLE PARA EL PRÓXIMO MERCADO']],
+    head: [filaPdf(['VÍVER', 'DISPONIBLE PARA EL PRÓXIMO MERCADO'])],
     body: snap.remanente.length
-      ? snap.remanente.map((v) => [`${v.nombre} (${v.sku})`, num(v.cantidad)])
-      : [['Sin remanente', '—']],
+      ? snap.remanente.map((v) => filaPdf([`${v.nombre} (${v.sku})`, num(v.cantidad)]))
+      : [filaPdf(['Sin remanente', '—'])],
     styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
     headStyles: { fillColor: [46, 160, 80], textColor: [255, 255, 255], fontStyle: 'bold' },
     columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' } },
@@ -79,11 +81,11 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   // Entradas del período
   if (snap.entradas.length) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Entradas del período', MARGIN, y);
+    doc.text(textoPdf('Entradas del período'), MARGIN, y);
     autoTable(doc, {
       startY: y + 6,
-      head: [['VÍVER', 'CANTIDAD', 'VALOR $']],
-      body: snap.entradas.map((v) => [`${v.nombre} (${v.sku})`, num(v.cantidad), money(v.valor)]),
+      head: [filaPdf(['VÍVER', 'CANTIDAD', 'VALOR $'])],
+      body: snap.entradas.map((v) => filaPdf([`${v.nombre} (${v.sku})`, num(v.cantidad), money(v.valor)])),
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
@@ -96,11 +98,11 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   // cierres anteriores al 14/09/2026 no los tienen: ahí lo recibido quedó en las entradas.
   if (snap.traslados?.length) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Traslados del período (− enviado · + recibido)', MARGIN, y);
+    doc.text(textoPdf('Traslados del período (− enviado · + recibido)'), MARGIN, y);
     autoTable(doc, {
       startY: y + 6,
-      head: [['VÍVER', 'CANTIDAD', 'VALOR $']],
-      body: snap.traslados.map((v) => [`${v.nombre} (${v.sku})`, `${v.cantidad > 0 ? '+' : ''}${num(v.cantidad)}`, money(Math.abs(v.valor))]),
+      head: [filaPdf(['VÍVER', 'CANTIDAD', 'VALOR $'])],
+      body: snap.traslados.map((v) => filaPdf([`${v.nombre} (${v.sku})`, `${v.cantidad > 0 ? '+' : ''}${num(v.cantidad)}`, money(Math.abs(v.valor))])),
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
@@ -113,11 +115,11 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   // desde el 15/09/2026; los cierres anteriores no las tienen.
   if (snap.mermas?.length) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Mermas / salidas del período (pérdidas, salidas manuales, ajustes)', MARGIN, y);
+    doc.text(textoPdf('Mermas / salidas del período (pérdidas, salidas manuales, ajustes)'), MARGIN, y);
     autoTable(doc, {
       startY: y + 6,
-      head: [['VÍVER', 'CANTIDAD', 'VALOR $']],
-      body: snap.mermas.map((v) => [`${v.nombre} (${v.sku})`, `−${num(v.cantidad)}`, money(v.valor)]),
+      head: [filaPdf(['VÍVER', 'CANTIDAD', 'VALOR $'])],
+      body: snap.mermas.map((v) => filaPdf([`${v.nombre} (${v.sku})`, `−${num(v.cantidad)}`, money(v.valor)])),
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
@@ -127,7 +129,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   }
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(textoPdf(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`), MARGIN, doc.internal.pageSize.getHeight() - 16);
   return doc;
 }
 
