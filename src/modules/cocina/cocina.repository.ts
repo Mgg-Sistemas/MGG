@@ -5,6 +5,7 @@
    de los víveres consumidos (salida en el kardex) y guarda el detalle.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { PARAMETROS_EOQ_DEFECTO, type ParametrosEoq } from './distribucionEoq';
 import type { CocinaComida, ItemCocina, TipoComida, Producto, Existencia, Cocina, Almacen } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listExistencias, listAlmacenes } from '@/modules/inventario/almacenes.repository';
@@ -104,6 +105,32 @@ export async function actualizarCocina(id: string, patch: { nombre?: string; alm
   if (patch.nombre !== undefined) { const n = patch.nombre.trim(); if (!n) throw new Error('El nombre no puede quedar vacío.'); payload.nombre = n; }
   if (patch.almacenId !== undefined) payload.almacen_id = patch.almacenId;
   const { error } = await supabase.from('cocinas').update(payload).eq('id', id);
+  if (error) throw error;
+}
+
+/* ───────── Parámetros del control de distribución (EOQ) ─────────
+   S (costo de emitir una orden), H (costo de almacenar una unidad al año) y L
+   (días de entrega) son de la COCINA: dependen de quién compra y de dónde queda
+   el centro, no del víver. Con ellos se calcula el lote óptimo de cada uno. */
+
+export async function parametrosEoqDeCocina(cocinaId: string): Promise<ParametrosEoq> {
+  const { data, error } = await supabase.from('cocinas')
+    .select('eoq_costo_orden, eoq_costo_almacenar, eoq_lead_time_dias').eq('id', cocinaId).maybeSingle();
+  if (error) throw error;
+  const r = (data ?? {}) as { eoq_costo_orden?: number; eoq_costo_almacenar?: number; eoq_lead_time_dias?: number };
+  return {
+    costoOrden: Number(r.eoq_costo_orden ?? PARAMETROS_EOQ_DEFECTO.costoOrden),
+    costoAlmacenar: Number(r.eoq_costo_almacenar ?? PARAMETROS_EOQ_DEFECTO.costoAlmacenar),
+    leadTimeDias: Number(r.eoq_lead_time_dias ?? PARAMETROS_EOQ_DEFECTO.leadTimeDias),
+  };
+}
+
+export async function guardarParametrosEoq(cocinaId: string, p: ParametrosEoq): Promise<void> {
+  if (p.costoOrden <= 0 || p.costoAlmacenar <= 0) throw new Error('El costo de ordenar y el de almacenar tienen que ser mayores que 0.');
+  if (p.leadTimeDias < 0) throw new Error('El tiempo de entrega no puede ser negativo.');
+  const { error } = await supabase.from('cocinas').update({
+    eoq_costo_orden: p.costoOrden, eoq_costo_almacenar: p.costoAlmacenar, eoq_lead_time_dias: Math.round(p.leadTimeDias),
+  }).eq('id', cocinaId);
   if (error) throw error;
 }
 

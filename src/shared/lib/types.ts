@@ -1901,6 +1901,10 @@ export interface Cocina {
   nombre: string;
   almacen_id?: string | null;
   activa: boolean;
+  /** Parámetros del lote óptimo (EOQ) del control de distribución. */
+  eoq_costo_orden?: number | null;
+  eoq_costo_almacenar?: number | null;
+  eoq_lead_time_dias?: number | null;
   created_at: string;
   created_by?: string | null;
 }

@@ -26,13 +26,14 @@ import {
   type KardexMerma, type KardexRow, type KardexTraslado, type MercadoCocina,
 } from './mercados.repository';
 import { RepartirMercadoModal } from './RepartirMercadoModal';
+import { DistribucionPanel } from './DistribucionPanel';
 import {
   describirEvento, explicarSobrante, productosAjustados, separarMovidos,
   type DiferenciaViver, type SalidaFueraDelCiclo,
 } from './mercadoComparar';
 
 /** Qué bloque se está mirando. Se recuerda por usuario. */
-type Vista = 'disponible' | 'movimientos' | 'ambos';
+type Vista = 'disponible' | 'movimientos' | 'ambos' | 'distribucion';
 const VISTA_KEY = 'mgg.cocina.mercado.vista';
 
 /** Mismo criterio que Inventario para confirmar acciones destructivas. */
@@ -278,7 +279,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       {/* ── CAPA 2 · Qué se quiere mirar ───────────────────────────────────── */}
       <div className="view-switch" style={{ display: 'flex', gap: '.35rem', marginBottom: '.7rem', flexWrap: 'wrap' }}>
         <span className="muted" style={{ fontSize: '.76rem', alignSelf: 'center', marginRight: '.2rem' }}>Ver:</span>
-        {([['disponible', 'Disponible'], ['movimientos', 'Movimientos'], ['ambos', 'Ambos']] as [Vista, string][]).map(([v, label]) => (
+        {([['disponible', 'Disponible'], ['movimientos', 'Movimientos'], ['ambos', 'Ambos'], ['distribucion', '📊 Distribución']] as [Vista, string][]).map(([v, label]) => (
           <button key={v} type="button" className={`btn btn-sm ${vista === v ? 'btn-primary' : 'btn-ghost'}`} onClick={() => elegirVista(v)}>
             {label}
           </button>
@@ -342,7 +343,11 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       )}
 
       {/* ── CAPA 3a · Disponible a consumir ──────────────────────────────── */}
-      {vista !== 'movimientos' && (
+      {vista === 'distribucion' && (
+        <DistribucionPanel resumen={resumen} cocinaId={mercado.cocina_id} cocinaNombre={cocinaNombre} canWrite={canWrite} />
+      )}
+
+      {vista !== 'movimientos' && vista !== 'distribucion' && (
       <div className="card" style={{ marginBottom: '.9rem' }}>
         <div className="card-title" style={{ marginBottom: '.5rem' }}>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas ± traslados − consumos − mermas · tocá un víver para el detalle</span></div>
         {/* Una tabla filtrada que no lo dice se lee como si fuera todo el mercado, y
@@ -453,7 +458,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       )}
 
       {/* ── CAPA 3b · Kardex: entradas (verde) y consumos (rojo) ─────────── */}
-      {vista !== 'disponible' && (
+      {vista !== 'disponible' && vista !== 'distribucion' && (
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
           <div className="card-title" style={{ margin: 0 }}>Movimientos del mercado <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· entradas, traslados, consumos y mermas</span></div>
