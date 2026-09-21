@@ -1,20 +1,21 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { Personal, NominaRenglon } from '@/shared/lib/types';
 import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal,
-  subirFotoCarnet, type PersonalInput,
+  subirFotoCarnet, subirDocumentoRif, urlDocumentoRif, digitosCedula, type PersonalInput,
 } from './personal.repository';
 import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import { generarFrenteBlob, generarReversoBlob, descargarCarnet } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', rif: '', rif_path: '', rif_nombre: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
 /** Limita la cédula a formato venezolano: prefijo opcional (V/E/J/G/P) + hasta 8 dígitos. */
 function sanitizarCedula(v: string): string {
@@ -22,6 +23,17 @@ function sanitizarCedula(v: string): string {
   const letra = /^[VEJGP]/.test(limpio) ? limpio[0] : '';
   const digitos = limpio.replace(/[^0-9]/g, '').slice(0, 8);
   return letra && digitos ? `${letra}-${digitos}` : letra + digitos;
+}
+
+/** RIF venezolano: letra + hasta 8 dígitos + dígito verificador (V-12345678-9). */
+function sanitizarRif(v: string): string {
+  const limpio = (v || '').toUpperCase().replace(/[^VEJGP0-9]/g, '');
+  const letra = /^[VEJGP]/.test(limpio) ? limpio[0] : '';
+  const digitos = limpio.replace(/[^0-9]/g, '').slice(0, 9);
+  if (!letra && !digitos) return '';
+  const cuerpo = digitos.slice(0, 8);
+  const verificador = digitos.slice(8, 9);
+  return [letra || '', cuerpo, verificador].filter(Boolean).join('-');
 }
 
 /**
@@ -99,6 +111,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   const [form, setForm] = useState<PersonalInput>(VACIO);
   const [guardando, setGuardando] = useState(false);
   const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const [subiendoRif, setSubiendoRif] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
   const [carnetPersona, setCarnetPersona] = useState<Personal | null>(null);
@@ -106,6 +119,14 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   const [formOpen, setFormOpen] = useState(false);
   const [cargos, setCargos] = useState<string[]>([]);
   const [departamentos, setDepartamentos] = useState<string[]>([]);
+
+  // ¿La cédula que se está escribiendo ya es de otra ficha? Se resuelve contra la
+  // lista que la pestaña ya tiene cargada: no hace falta ir a la base para avisar.
+  const duenoCedula = useMemo(() => {
+    const d = digitosCedula(form.cedula);
+    if (!d) return null;
+    return lista.find((p) => digitosCedula(p.cedula) === d && p.id !== editId) ?? null;
+  }, [form.cedula, lista, editId]);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -124,7 +145,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   function abrirNuevo() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
-    setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
+    setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '', rif_path: p.rif_path ?? '', rif_nombre: p.rif_nombre ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
     setError(null); setFormOpen(true);
   }
   function cerrarForm() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(false); }
@@ -141,9 +162,31 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   }
   function quitarFoto() { setForm((f) => ({ ...f, foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 })); }
 
+  async function onPickRif(file: File | null) {
+    if (!file) return;
+    setSubiendoRif(true); setError(null);
+    try {
+      const { path, nombre } = await subirDocumentoRif(file);
+      setForm((f) => ({ ...f, rif_path: path, rif_nombre: nombre }));
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo subir el RIF'); }
+    finally { setSubiendoRif(false); }
+  }
+
+  /** El bucket es privado: se abre con un enlace firmado que caduca. */
+  async function verRif(path: string, nombre?: string | null) {
+    try {
+      const url = await urlDocumentoRif(path);
+      previewFileUrl(url, nombre ?? 'RIF');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el RIF', 'error'); }
+  }
+
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!form.nombre.trim()) { setError('Indicá el nombre.'); return; }
+    if (duenoCedula) {
+      setError(`La cédula ${form.cedula} ya es de ${duenoCedula.nombre} ${duenoCedula.apellido ?? ''}. No puede haber dos fichas con la misma cédula.`);
+      return;
+    }
     setGuardando(true);
     try {
       if (editId) await actualizarPersonal(editId, form);
@@ -165,10 +208,12 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
     try { await setPersonalActivo(p.id, !p.activo); await recargar(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
-  async function borrar(p: Personal) {
-    if (!window.confirm(`¿Eliminar a ${p.nombre} ${p.apellido} de la nómina? (no afecta los pagos ya hechos)`)) return;
-    try { await eliminarPersonal(p.id); await recargar(); toast('Eliminado', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  // El cartel del navegador se reemplaza por el diálogo del sistema.
+  const [porBorrar, setPorBorrar] = useState<Personal | null>(null);
+  async function confirmarBorrado() {
+    if (!porBorrar) return;
+    try { await eliminarPersonal(porBorrar.id); setPorBorrar(null); await recargar(); toast('Eliminado', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setPorBorrar(null); }
   }
 
   return (
@@ -187,7 +232,20 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
             {!loading && !lista.length && <tr><td colSpan={6}><EmptyState message="Sin personal. Usá “+ Ingresar Registro de Personal”." icon="👥" /></td></tr>}
             {!loading && lista.map((p) => (
               <tr key={p.id} style={{ opacity: p.activo ? 1 : 0.55 }}>
-                <td>{p.nombre} {p.apellido}{p.cedula ? <span className="muted"> · {p.cedula}</span> : null}</td>
+                <td>
+                  {p.nombre} {p.apellido}{p.cedula ? <span className="muted"> · {p.cedula}</span> : null}
+                  {/* El RIF y su documento, a la vista: es lo que se busca acá. */}
+                  {(p.rif || p.rif_path) && (
+                    <div className="muted mono" style={{ fontSize: '.72rem', display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap' }}>
+                      {p.rif ? <span>RIF {p.rif}</span> : null}
+                      {p.rif_path && (
+                        <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', fontSize: '.72rem' }}
+                          onClick={() => void verRif(p.rif_path!, p.rif_nombre)}
+                          title={`Ver el RIF · ${p.rif_nombre ?? 'documento'}`}>📄 Ver RIF</button>
+                      )}
+                    </div>
+                  )}
+                </td>
                 <td className="muted">{p.departamento || '—'}</td>
                 <td className="muted">{p.cargo || '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{Number(p.sueldo_base) > 0 ? money(p.sueldo_base) : '—'}</td>
@@ -199,7 +257,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => toggleActivo(p)} title={p.activo ? 'Desactivar' : 'Activar'}>{p.activo ? '⏸' : '▶'}</button>
-                    <button className="btn btn-sm btn-ghost" onClick={() => borrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
                   </>}
                 </td>
               </tr>
@@ -263,7 +321,41 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
             <div className="form-grid">
               <div className="form-row"><label>Nombre *</label><input className="input" autoFocus value={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} required /></div>
               <div className="form-row"><label>Apellido</label><input className="input" value={form.apellido ?? ''} onChange={(e) => setForm((f) => ({ ...f, apellido: e.target.value }))} /></div>
-              <div className="form-row"><label>Cédula</label><input className="input" value={form.cedula ?? ''} onChange={(e) => setForm((f) => ({ ...f, cedula: sanitizarCedula(e.target.value) }))} placeholder="V-12345678" maxLength={11} inputMode="numeric" /></div>
+              <div className="form-row">
+                <label>Cédula</label>
+                <input className="input" value={form.cedula ?? ''} onChange={(e) => setForm((f) => ({ ...f, cedula: sanitizarCedula(e.target.value) }))}
+                  placeholder="V-12345678" maxLength={11} inputMode="numeric"
+                  style={duenoCedula ? { borderColor: 'var(--danger)' } : undefined} />
+                {/* La cédula no se repite. Se avisa MIENTRAS se escribe, con el
+                    nombre de quien ya la tiene: un error al guardar llega tarde. */}
+                {duenoCedula && (
+                  <small style={{ color: 'var(--danger)', marginTop: '.3rem', display: 'block' }}>
+                    Esa cédula ya es de <strong>{duenoCedula.nombre} {duenoCedula.apellido ?? ''}</strong>. No puede haber dos fichas con la misma.
+                  </small>
+                )}
+              </div>
+              <div className="form-row">
+                <label>RIF</label>
+                <input className="input mono" value={form.rif ?? ''} onChange={(e) => setForm((f) => ({ ...f, rif: sanitizarRif(e.target.value) }))}
+                  placeholder="V-12345678-9" maxLength={13} />
+                <small className="muted">Para la constancia de trabajo y las retenciones. Se puede corregir al editar.</small>
+              </div>
+              <div className="form-row">
+                <label>Documento del RIF (PDF o imagen)</label>
+                {form.rif_path ? (
+                  <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="badge">📄 {form.rif_nombre || 'RIF'}</span>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => void verRif(form.rif_path!, form.rif_nombre)}>👁 Ver</button>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm((f) => ({ ...f, rif_path: '', rif_nombre: '' }))}>Quitar</button>
+                  </div>
+                ) : (
+                  <input className="input" type="file" accept="application/pdf,image/*" disabled={subiendoRif}
+                    onChange={(e) => void onPickRif(e.target.files?.[0] ?? null)} />
+                )}
+                <small className="muted">
+                  {subiendoRif ? 'Subiendo…' : 'Queda en un depósito privado: se abre con un enlace temporal, no con una dirección pública.'}
+                </small>
+              </div>
               <ComboConAgregar
                 label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
                 onChange={(v) => setForm((f) => ({ ...f, cargo: v }))}
@@ -286,6 +378,14 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {carnetPersona && <CarnetModal persona={carnetPersona} onClose={() => setCarnetPersona(null)} />}
       {constanciaPersona && <ConstanciaModal persona={constanciaPersona} onClose={() => setConstanciaPersona(null)} />}
+      {porBorrar && (
+        <ConfirmDialog
+          title="Eliminar del personal"
+          message={`¿Eliminar a ${porBorrar.nombre} ${porBorrar.apellido ?? ''} de la nómina? No afecta los pagos ya hechos.`}
+          confirmText="Eliminar" danger
+          onConfirm={() => void confirmarBorrado()}
+          onCancel={() => setPorBorrar(null)} />
+      )}
     </div>
   );
 }

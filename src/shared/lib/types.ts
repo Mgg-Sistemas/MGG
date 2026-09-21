@@ -1016,7 +1016,13 @@ export interface Personal {
   id: string;
   nombre: string;
   apellido: string;
+  /** Cédula de identidad. ÚNICA entre el personal: se compara solo por los dígitos. */
   cedula?: string | null;
+  /** RIF del trabajador (V/E/J-XXXXXXXX-X). */
+  rif?: string | null;
+  /** Documento del RIF (PDF o imagen) en el bucket PRIVADO `personal-docs`. */
+  rif_path?: string | null;
+  rif_nombre?: string | null;
   cargo?: string | null;
   departamento?: string | null;
   sueldo_base: number;          // sueldo MENSUAL (USD)

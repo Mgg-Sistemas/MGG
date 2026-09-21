@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date } from '@/shared/lib/format';
@@ -69,10 +70,12 @@ export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: bo
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); }
     finally { setGuardando(false); }
   }
-  async function borrar(ev: RrhhEvento) {
-    if (!window.confirm('¿Eliminar este registro?')) return;
-    try { await eliminarEvento(ev.id); await recargar(); toast('Eliminado', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  // El cartel del navegador se reemplaza por el diálogo del sistema.
+  const [porBorrar, setPorBorrar] = useState<RrhhEvento | null>(null);
+  async function confirmarBorrado() {
+    if (!porBorrar) return;
+    try { await eliminarEvento(porBorrar.id); setPorBorrar(null); await recargar(); toast('Eliminado', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setPorBorrar(null); }
   }
 
   // Filtro por fecha: un registro entra si su período [desde, hasta] se solapa con
@@ -188,12 +191,21 @@ export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: bo
                 <td className="mono" style={{ textAlign: 'right' }}>{e.dias != null ? e.dias : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{e.monto != null ? money(e.monto) : '—'}</td>
                 <td className="muted">{e.descripcion || '—'}</td>
-                {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => borrar(e)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button></td>}
+                {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(e)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button></td>}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {porBorrar && (
+        <ConfirmDialog
+          title="Eliminar registro"
+          message="¿Eliminar este registro del histórico administrativo?"
+          confirmText="Eliminar" danger
+          onConfirm={() => void confirmarBorrado()}
+          onCancel={() => setPorBorrar(null)} />
+      )}
     </div>
   );
 }

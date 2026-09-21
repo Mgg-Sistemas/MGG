@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -223,16 +223,17 @@ function VacacionDetalleModal({ evento, persona, enConflicto, canWrite, actor, a
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo procesar', 'error'); setSaving(false); }
   }
 
+  // El cartel del navegador se reemplaza por el diálogo del sistema.
+  const [confirmarBorrar, setConfirmarBorrar] = useState(false);
   async function borrar() {
-    if (!window.confirm('¿Eliminar esta vacación?')) return;
-    try { await eliminarEvento(evento.id); onChanged(); toast('Eliminada', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    try { await eliminarEvento(evento.id); setConfirmarBorrar(false); onChanged(); toast('Eliminada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setConfirmarBorrar(false); }
   }
 
   return (
     <Modal title="Detalle de vacaciones" size="md" onClose={onClose} footer={
       <>
-        {canWrite && !evento.procesada && <button className="btn btn-ghost" onClick={borrar} style={{ color: 'var(--danger)' }}>🗑 Eliminar</button>}
+        {canWrite && !evento.procesada && <button className="btn btn-ghost" onClick={() => setConfirmarBorrar(true)} style={{ color: 'var(--danger)' }}>🗑 Eliminar</button>}
         {canWrite && !evento.procesada && <button className="btn btn-primary" onClick={procesar} disabled={saving || sueldo <= 0}>{saving ? 'Procesando…' : '💸 Procesar Vacación'}</button>}
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
@@ -264,6 +265,15 @@ function VacacionDetalleModal({ evento, persona, enConflicto, canWrite, actor, a
         <div className="muted" style={{ marginTop: '.6rem', fontSize: '.84rem' }}>✓ Ya procesada — está en la cola de pago de Tesorería (o ya pagada).</div>
       ) : (
         <div className="muted" style={{ marginTop: '.6rem', fontSize: '.84rem' }}>Al <strong>Procesar Vacación</strong> se genera un renglón en Tesorería (motivo <strong>Vacaciones</strong>) para pagarlo.</div>
+      )}
+
+      {confirmarBorrar && (
+        <ConfirmDialog
+          title="Eliminar vacación"
+          message="¿Eliminar esta vacación? El registro sale del histórico del trabajador."
+          confirmText="Eliminar" danger
+          onConfirm={() => void borrar()}
+          onCancel={() => setConfirmarBorrar(false)} />
       )}
     </Modal>
   );

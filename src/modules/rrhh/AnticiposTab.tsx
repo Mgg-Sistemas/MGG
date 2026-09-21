@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date } from '@/shared/lib/format';
@@ -49,10 +50,12 @@ export function AnticiposTab({ canWrite, actor, actorName }: { canWrite: boolean
     finally { setGuardando(false); }
   }
 
-  async function borrar(a: AnticipoPrestamo) {
-    if (!window.confirm('¿Eliminar este registro?')) return;
-    try { await eliminarAnticipo(a.id); await recargar(); toast('Eliminado', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  // El cartel del navegador se reemplaza por el diálogo del sistema.
+  const [porBorrar, setPorBorrar] = useState<AnticipoPrestamo | null>(null);
+  async function confirmarBorrado() {
+    if (!porBorrar) return;
+    try { await eliminarAnticipo(porBorrar.id); setPorBorrar(null); await recargar(); toast('Eliminado', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setPorBorrar(null); }
   }
 
   const visibles = lista.filter((a) => verSaldadas || a.estado === 'activo');
@@ -112,12 +115,21 @@ export function AnticiposTab({ canWrite, actor, actorName }: { canWrite: boolean
                 <td className="mono" style={{ textAlign: 'right', color: Number(a.saldo) > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(a.saldo)}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: a.estado === 'activo' ? 'var(--warning)' : 'var(--success)' }}>{a.estado === 'activo' ? 'Activo' : 'Saldado'}</span></td>
                 <td className="muted">{date(a.created_at)}</td>
-                {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => borrar(a)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button></td>}
+                {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(a)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button></td>}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {porBorrar && (
+        <ConfirmDialog
+          title="Eliminar anticipo"
+          message="¿Eliminar este anticipo o préstamo? Si ya tiene descuentos aplicados en nómina, revisalos antes."
+          confirmText="Eliminar" danger
+          onConfirm={() => void confirmarBorrado()}
+          onCancel={() => setPorBorrar(null)} />
+      )}
     </div>
   );
 }

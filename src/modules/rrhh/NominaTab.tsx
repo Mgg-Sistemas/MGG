@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -33,10 +33,13 @@ export function NominaTab({ canWrite, actor, actorName }: { canWrite: boolean; a
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['nomina_periodos', 'nomina_renglones'], () => { void recargar(); });
 
-  async function borrar(p: NominaPeriodoResumen) {
-    if (!window.confirm(`¿Eliminar la nómina ${p.codigo}? Solo se puede si no tiene pagos.`)) return;
-    try { await eliminarNomina(p.id); await recargar(); toast('Nómina eliminada', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  // El cartel del navegador (gris, con el dominio arriba) se reemplaza por el
+  // diálogo del sistema: mismo estilo que el resto de la aplicación.
+  const [porBorrar, setPorBorrar] = useState<NominaPeriodoResumen | null>(null);
+  async function confirmarBorrado() {
+    if (!porBorrar) return;
+    try { await eliminarNomina(porBorrar.id); setPorBorrar(null); await recargar(); toast('Nómina eliminada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setPorBorrar(null); }
   }
 
   // Comprobante de pago (PDF, uno por trabajador, con firmas).
@@ -85,7 +88,7 @@ export function NominaTab({ canWrite, actor, actorName }: { canWrite: boolean; a
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => setVerPeriodo(p)} title="Ver detalle">👁</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => pdfNomina(p)} title="Comprobante de pago (PDF con firmas)">📄 PDF</button>
-                  {canWrite && p.pagados === 0 && <button className="btn btn-sm btn-ghost" onClick={() => borrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>}
+                  {canWrite && p.pagados === 0 && <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>}
                 </td>
               </tr>
             ))}
@@ -96,6 +99,14 @@ export function NominaTab({ canWrite, actor, actorName }: { canWrite: boolean; a
       {cargarOpen && <CargarNominaModal actor={actor} actorName={actorName} onClose={() => setCargarOpen(false)} onSaved={async () => { setCargarOpen(false); await recargar(); }} />}
       {liqOpen && <LiquidacionModal actor={actor} actorName={actorName} onClose={() => setLiqOpen(false)} onSaved={async () => { setLiqOpen(false); await recargar(); }} />}
       {verPeriodo && <NominaDetalleModal periodo={verPeriodo} onClose={() => setVerPeriodo(null)} />}
+      {porBorrar && (
+        <ConfirmDialog
+          title="Eliminar nómina"
+          message={`¿Eliminar la nómina ${porBorrar.codigo}? Solo se puede si no tiene pagos.`}
+          confirmText="Eliminar" danger
+          onConfirm={() => void confirmarBorrado()}
+          onCancel={() => setPorBorrar(null)} />
+      )}
     </div>
   );
 }
