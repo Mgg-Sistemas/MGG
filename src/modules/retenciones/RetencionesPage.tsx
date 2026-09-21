@@ -15,8 +15,9 @@ import {
   urlRetencion, comprobantesDeOrden, labelRetencionModo,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
+import { LibroFiscalView, RegistrarRetencionModal, type SemillaRetencion } from './LibroFiscal';
 
-type Vista = 'pendientes' | 'hechas';
+type Vista = 'pendientes' | 'hechas' | 'libro';
 
 /** Formatea un monto según la moneda de la fila (compra directa puede ser Bs). */
 function fmtMonto(n: number | null | undefined, moneda: string): string {
@@ -36,6 +37,7 @@ export function RetencionesPage() {
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
+  const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
 
   // Filtros del historial (vista Realizadas).
   const [fDesde, setFDesde] = useState('');
@@ -60,7 +62,7 @@ export function RetencionesPage() {
   }, [reload]);
 
   // Realtime multiusuario: lo que registra otro (o paga Tesorería) se refleja al instante.
-  useRealtime(['ordenes', 'compras_directas'], () => { void reload(); });
+  useRealtime(['ordenes', 'compras_directas', 'retenciones'], () => { void reload(); });
 
   // Historial filtrado (solo aplica a la vista Realizadas).
   const hechasFiltradas = useMemo(() => {
@@ -86,11 +88,12 @@ export function RetencionesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>🧾 Retenciones</h1>
-          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>Retenciones fiscales de las OC con soporte de factura.</p>
+          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>Libro fiscal (IVA, ISLR, municipal, estadal e IGTF) y comprobantes de las OC con factura.</p>
         </div>
         <div className="view-toggle" role="tablist" aria-label="Vista de retenciones">
           <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}</button>
           <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
+          <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')}>📒 Libro fiscal</button>
         </div>
       </div>
 
@@ -133,6 +136,9 @@ export function RetencionesPage() {
         </div>
       )}
 
+      {vista === 'libro' && <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />}
+
+      {vista !== 'libro' && (
       <div className="card">
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.86rem' }}>
@@ -159,7 +165,11 @@ export function RetencionesPage() {
                   <td className="mono" style={{ textAlign: 'right' }}>{fmtMonto(it.total, it.moneda)}</td>
                   <td>{it.tesoreria === 'pagada' ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span> : it.tesoreria === 'por_pagar' ? <span className="muted">Por pagar</span> : <span className="muted">—</span>}</td>
                   {vista === 'hechas' && <td className="muted">{it.finalizadaEn ? dateTime(it.finalizadaEn) : '—'}</td>}
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {canWrite && (
+                      <button className="btn btn-sm btn-ghost" title="Calcular y registrar la retención en el libro"
+                        onClick={() => setRegistrar(semillaDeItem(it))}>🧾</button>
+                    )}
                     <button className="btn btn-sm btn-primary" onClick={() => setSel(it)}>Ver</button>
                   </td>
                 </tr>
@@ -168,6 +178,7 @@ export function RetencionesPage() {
           </table>
         </div>
       </div>
+      )}
 
       {sel && sel.kind === 'oc' && sel.orden && (
         <RetencionModal
@@ -183,8 +194,35 @@ export function RetencionesPage() {
           onSaved={async () => { setSel(null); await reload(); }}
         />
       )}
+      {registrar && (
+        <RegistrarRetencionModal
+          semilla={registrar} actor={actor} actorName={actorName}
+          onClose={() => setRegistrar(null)}
+          onHecho={async () => { setRegistrar(null); await reload(); }}
+        />
+      )}
     </div>
   );
+}
+
+/**
+ * Con qué datos se abre el libro desde una fila: el documento, la contraparte y
+ * la base. La compra directa trae el IVA de la factura; la OC no lo separa, así
+ * que ahí la base es el total y el IVA se carga a mano si lo hay.
+ */
+function semillaDeItem(it: RetencionItem): SemillaRetencion {
+  const iva = it.kind === 'compra_directa' ? Number(it.compra?.iva) || 0 : 0;
+  const igtf = it.kind === 'compra_directa' ? Number(it.compra?.igtf) || 0 : 0;
+  return {
+    direccion: 'practicada',
+    docKind: it.kind, docId: it.id, codigo: it.ocCodigo,
+    contraparteId: it.proveedorId,
+    contraparteNombre: it.proveedorNombre,
+    contraparteRif: it.proveedorRif,
+    moneda: it.moneda === 'USD' ? 'USD' : it.moneda,
+    total: it.total, iva,
+    baseImponible: Math.max(0, it.total - iva - igtf),
+  };
 }
 
 function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: {

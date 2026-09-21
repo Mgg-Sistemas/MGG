@@ -644,6 +644,34 @@
       <li><strong>Reflejo en Tesorería:</strong> al ver/pagar la OC, Tesorería muestra el <strong>tipo de soporte y de retención</strong> y permite <strong>descargar los comprobantes</strong> cargados. La vista <strong>Realizadas</strong> de Retenciones también conserva las descargas.</li>
       <li><strong>Cargar factura / nota de entrega desde una OC finalizada:</strong> en una OC <span class="badge">Finalizada</span> (en Compras) el botón <strong>📎 Cargar factura / nota de entrega</strong> permite subir el comprobante (<strong>PDF o imagen</strong>) e indicar si es <strong>Factura</strong> o <strong>Nota de entrega</strong>. Al subirlo, la OC <strong>entra a Retenciones</strong> y el comprobante se ve allí en <strong>Vista previa</strong> (junto con los certificados IVA / ISLR / Municipal). Sirve para regularizar las OC que ya cerraron sin su soporte cargado.</li>
     </ul>
+
+    <h3>📒 Libro fiscal (la tercera pestaña)</h3>
+    <p>Las dos primeras pestañas son el <strong>trámite</strong> de las OC: cargar el comprobante y cerrarlo. El <strong>Libro fiscal</strong> es otra cosa: es el <strong>registro de impuestos</strong> de la empresa, y contesta una sola pregunta — <strong>¿cuánto impuesto está adelantado y cuánto se debe?</strong></p>
+    <ul>
+      <li><strong>Lo primero: quién retuvo a quién.</strong> Una retención no siempre la practica MGG. Casi siempre pasa al revés — es el <strong>cliente</strong> el que retiene cuando paga. Y las dos cosas <strong>no significan lo mismo</strong>:
+        <ul>
+          <li><strong>Nos la practicaron:</strong> es un <strong>anticipo de impuesto a favor</strong>. Se descuenta de lo que toca pagar en la declaración. Es plata nuestra adelantada.</li>
+          <li><strong>La practicamos:</strong> es <strong>plata de un tercero</strong> que la empresa retuvo y tiene que <strong>enterar al fisco</strong>. Es deuda, no activo.</li>
+        </ul>
+      </li>
+      <li><strong>El IGTF no es ninguna de las dos.</strong> Se paga al pagar en divisas y <strong>no se recupera</strong>: va a costo. Por eso tiene su propia tarjeta y nunca suma al crédito fiscal.</li>
+      <li><strong>Los cuatro números de arriba:</strong> <strong>A favor (nos retuvieron)</strong> — lo que se descuenta del impuesto a pagar; <strong>IGTF pagado</strong> — lo que no se recupera; <strong>Por enterar al fisco</strong> — lo que la empresa retuvo y todavía no declaró; y <strong>Registros</strong> — cuántos renglones hay. Las <strong>anuladas no suman en ninguno</strong>: un comprobante anulado no es crédito ni es deuda.</li>
+      <li><strong>Filtros:</strong> <em>Quién retuvo</em>, <em>Impuesto</em> (IVA, ISLR, Municipal, Regional, IGTF), <em>Estado</em> (Registrada, Declarada, Anuladas), <em>Desde / Hasta</em> por fecha de la factura y un buscador por <strong>contraparte, RIF, comprobante o factura</strong>. Arranca en el <strong>mes en curso</strong> y en <strong>«Nos la practicaron»</strong>, que es el caso normal.</li>
+      <li><strong>+ Registrar retención:</strong> abre la carga. Lo primero que se elige es <strong>quién retuvo</strong>, porque cambia todo lo demás:
+        <ul>
+          <li><strong>Nos la practicaron:</strong> el número ya está en el comprobante que entregó el cliente — <strong>se copia tal cual, no se inventa</strong>. Se carga la contraparte con su RIF, el impuesto, la base, el % y el monto (si se deja vacío se toma base × %).</li>
+          <li><strong>La practicamos:</strong> acá <strong>el sistema calcula</strong>. El ISLR sale del <strong>concepto</strong> del Decreto 1.808 y del <strong>sujeto</strong> (no es lo mismo una persona natural que una empresa), con su <strong>sustraendo</strong> y su mínimo. El IVA aplica los supuestos del <strong>art. 5 de la Providencia SNAT/2015/0049</strong> que llevan la retención al 100%. Siempre se muestra <strong>la cuenta a la vista</strong>: base, impuesto, porcentaje y sustraendo.</li>
+        </ul>
+      </li>
+      <li><strong>El correlativo lo da la base, no la pantalla.</strong> Cuando la retención de IVA la practica MGG, el número <strong>AAAAMM + 8 dígitos</strong> lo asigna el servidor: dos personas emitiendo a la vez <strong>no pueden sacar el mismo número</strong>. El de una retención que nos practicaron lo puso otra empresa, así que puede repetirse entre clientes distintos sin que eso sea un error.</li>
+      <li><strong>Una retención no se borra: se anula.</strong> Queda en el libro con su motivo y <strong>conserva su número</strong>, porque el correlativo no se reusa. El libro no puede tener huecos.</li>
+      <li><strong>Marcar como declarada:</strong> lo que la empresa retuvo sale de «Por enterar» cuando se marca con <strong>✓</strong>. Se puede devolver a Registrada con <strong>↩</strong>.</li>
+      <li><strong>📄 comprobante y 📎 adjunto:</strong> el <strong>📄</strong> arma el comprobante imprimible con el formato de la Providencia (número, período, agente, sujeto retenido, factura, base, impuesto, % y monto). El <strong>📎</strong> abre el archivo que se cargó — el que firmó el proveedor, o el que entregó el cliente.</li>
+      <li><strong>↓ PDF del libro:</strong> el listado del rango con sus cuatro totales, para el contador. Como todo en el sistema, es <strong>vista previa por botón</strong>: no se descarga nada solo.</li>
+      <li><strong>⚙ Parámetros:</strong> los datos de la empresa (<strong>razón social, RIF, dirección fiscal, municipio y estado</strong>), el <strong>valor de la Unidad Tributaria</strong> —sin eso el sustraendo del ISLR queda en cero— y el <strong>% de IGTF</strong>. La casilla <strong>«contribuyente especial»</strong> <strong>arranca apagada a propósito</strong>: solo el especial designado por el SENIAT retiene IVA, y de eso depende que se calcule o no.</li>
+      <li><strong>Catálogo de conceptos:</strong> los <strong>23 conceptos de ISLR del Decreto 1.808</strong> vienen cargados con su fundamento. Los de <strong>municipal (ISAE)</strong> y <strong>timbre estadal</strong> nacen en <strong>0% y desactivados</strong> a propósito: esa alícuota la fija <strong>la ordenanza de cada municipio y la ley de cada estado</strong>, no hay un número nacional que el sistema pueda suponer. Hay que cargar el de ustedes y activarlo.</li>
+      <li><strong>Atajo desde una fila:</strong> en «Por realizar» y «Realizadas», el botón <strong>🧾</strong> de cada renglón abre la carga ya con el documento, el proveedor con su RIF y la base cargados.</li>
+    </ul>
   </section>
 
   <section class="modulo" id="srrhh">

@@ -44,6 +44,9 @@ export interface RetencionItem {
   ocCodigo: string | null;      // N°OC (OC) o código CD (compra directa)
   opCodigo: string | null;      // OP (OC) o null (compra directa)
   proveedorNombre: string;
+  /** Datos que el comprobante de retención necesita del sujeto retenido. */
+  proveedorId: string | null;
+  proveedorRif: string | null;
   condicionLabel: string;       // condición de pago (OC) o "Compra directa"
   retencionLabel: string;       // modo de retención (OC) o "16% IVA · Bs X" (compra directa)
   moneda: string;
@@ -57,20 +60,29 @@ export interface RetencionItem {
   compra?: CompraDirecta;
 }
 
-async function mapProveedores(): Promise<Map<string, string>> {
-  const { data } = await supabase.from('proveedores').select('id, razon_social');
-  return new Map((data ?? []).map((p) => [p.id as string, p.razon_social as string]));
+/** Proveedor por id: el nombre para mostrar y el RIF, que el comprobante pide. */
+export interface ProveedorBreve { nombre: string; rif: string | null }
+
+async function mapProveedores(): Promise<Map<string, ProveedorBreve>> {
+  const { data } = await supabase.from('proveedores').select('id, razon_social, rif');
+  return new Map((data ?? []).map((p) => [
+    p.id as string,
+    { nombre: (p.razon_social as string) ?? '—', rif: (p.rif as string) ?? null },
+  ]));
 }
 
 // OC que entran a Retenciones: las de soporte Factura, y las Notas de entrega que
 // tengan un comprobante cargado (factura/nota subida desde la OC finalizada).
 const FILTRO_COMPROBANTE = 'comprobante_tipo.eq.factura,and(comprobante_tipo.eq.nota_entrega,factura_path.not.is.null)';
 
-function ocToItem(o: Orden, pm: Map<string, string>): RetencionItem {
+function ocToItem(o: Orden, pm: Map<string, ProveedorBreve>): RetencionItem {
+  const prov = o.proveedor_id ? pm.get(o.proveedor_id as string) : undefined;
   return {
     kind: 'oc', id: o.id,
     ocCodigo: o.oc_codigo ?? null, opCodigo: o.codigo,
-    proveedorNombre: (o.proveedor_id && pm.get(o.proveedor_id as string)) || '—',
+    proveedorNombre: prov?.nombre || '—',
+    proveedorId: (o.proveedor_id as string) ?? null,
+    proveedorRif: prov?.rif ?? null,
     condicionLabel: labelCondicionPago(o.condiciones_pago),
     retencionLabel: labelRetencionModo(o.retencion_modo),
     moneda: 'USD', total: Number(o.total) || 0,
@@ -81,11 +93,14 @@ function ocToItem(o: Orden, pm: Map<string, string>): RetencionItem {
   };
 }
 
-function compraToItem(c: CompraDirecta): RetencionItem {
+function compraToItem(c: CompraDirecta, pm: Map<string, ProveedorBreve>): RetencionItem {
+  const prov = c.proveedor_id ? pm.get(c.proveedor_id) : undefined;
   return {
     kind: 'compra_directa', id: c.id,
     ocCodigo: c.codigo, opCodigo: null,
-    proveedorNombre: c.proveedor_nombre || '—',
+    proveedorNombre: c.proveedor_nombre || prov?.nombre || '—',
+    proveedorId: c.proveedor_id ?? null,
+    proveedorRif: prov?.rif ?? null,
     condicionLabel: 'Compra directa',
     retencionLabel: `${c.retencion_pct}% IVA · ${fmtMonto(c.retencion_monto, c.moneda)}`,
     moneda: c.moneda || 'Bs', total: Number(c.gasto) || 0,
@@ -108,7 +123,7 @@ export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
   ]);
   if (error) throw error;
   const ocs = (data ?? []).map((o) => ocToItem(o as Orden, pm));
-  return [...ocs, ...compras.map(compraToItem)];
+  return [...ocs, ...compras.map((c) => compraToItem(c, pm))];
 }
 
 /** Retenciones ya finalizadas (comprobantes cargados). */
@@ -122,7 +137,7 @@ export async function listRetencionesHechas(): Promise<RetencionItem[]> {
     listComprasConRetencion(true).catch(() => [] as CompraDirecta[]),
   ]);
   if (error) throw error;
-  const items = [...(data ?? []).map((o) => ocToItem(o as Orden, pm)), ...compras.map(compraToItem)];
+  const items = [...(data ?? []).map((o) => ocToItem(o as Orden, pm)), ...compras.map((c) => compraToItem(c, pm))];
   // Historial ordenado por fecha de finalización (desc).
   return items.sort((a, b) => (b.finalizadaEn ?? '').localeCompare(a.finalizadaEn ?? ''));
 }
