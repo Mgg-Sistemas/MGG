@@ -9,6 +9,7 @@ import type { Caja, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
+import { efectoTasaPago, explicacionTasaPago } from './tasaPagoDirecto';
 import { aPagarConRetencion, conceptoReembolsoDirecto, convertirRetencion, separarReembolso } from '@/modules/tesoreria/reembolsoPago';
 import {
   listComprasPorPagar, pagarCompraDirecta, urlAdjuntoCompra, type CompraDirecta, type PagoLeg,
@@ -208,6 +209,16 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   const cruzaBsUsd = !esSplit
     ? (!!saldoSel && saldoSel.moneda !== monedaBase && (saldoSel.moneda === 'Bs' || monedaBase === 'Bs'))
     : legsSplitActivos.some((s) => (s.moneda === 'Bs') !== (monedaBase === 'Bs'));
+  // Qué hace la tasa en ESTE pago: convertir lo que sale de la caja, valorar el material
+  // que entra al inventario, las dos, o nada. De eso depende lo que se explica abajo.
+  const efectoTasa = efectoTasaPago({ kind: fila.kind, monedaBase, cruzaBsUsd: cruzaBsUsd || esSplit });
+  // La tasa con la que Compras montó la compra, para poder comparar.
+  const tasaCompraOriginal = Number(fila.compra?.tasa_bcv) || 0;
+  // Solo pisa la tasa de la compra si Tesorería ESCRIBIÓ una. Dejar el campo vacío no
+  // puede reemplazar la del montaje por la BCV de hoy sin que nadie lo haya pedido.
+  const tasaPagoElegida = (Number(tasaManualStr) || 0) > 0 ? Number(tasaManualStr) : null;
+  // Con cuál va a entrar el material: la escrita, si no la del montaje, si no la BCV.
+  const tasaValoracion = tasaPagoElegida ?? (tasaCompraOriginal > 0 ? tasaCompraOriginal : tasa);
 
   // Pagar de más no se bloquea, igual que al pagar una OC: con una confirmación, lo que
   // corresponde queda como pago y el excedente sale en OTRO egreso, «REEMBOLSO DE …».
@@ -299,7 +310,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
     try {
       const extras = { retencionMonto, retencionDetalle, reembolsoLegs, reembolsoMonto: reembolsoLegs.length ? reembolsoBase : 0 };
       if (fila.kind === 'compra' && fila.compra) {
-        await pagarCompraDirecta({ compra: fila.compra, cajaId, legs, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision, actor, actorName, ...extras });
+        await pagarCompraDirecta({ compra: fila.compra, cajaId, legs, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision, tasaPago: tasaPagoElegida, actor, actorName, ...extras });
       } else if (fila.kind === 'servicio' && fila.servicio) {
         await pagarServicioDirecto({ servicio: fila.servicio, cajaId, legs, gastoCategoria: catNombre, gastoSubcategoria: subNombre, actor, actorName, ...extras });
       }
@@ -483,21 +494,35 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           </div>
         )}
 
-        {/* Tasa manual (Bs/$) para este pago: aparece cuando el pago cruza Bs↔$ o al repartir. */}
-        {(cruzaBsUsd || esSplit) && (
-          <div className="form-row">
-            <label>Tasa de pago (Bs por $) {tasa > 0 && <span className="muted" style={{ fontWeight: 400 }}>· BCV {montoCaja(tasa, 'Bs')}</span>}</label>
-            <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 200 }}
-              value={tasaManualStr} placeholder={tasa > 0 ? String(tasa) : '0,00'}
-              onChange={(e) => setTasaManualStr(dosDecimales(e.target.value))} />
-            <small className="muted">
-              {monedaBase === 'USD'
-                ? `A pagar ${montoCaja(aPagar, 'USD')} equivale a ${montoCaja(montoEnMoneda('Bs', totalUsd), 'Bs')} a la tasa ${tasaEff > 0 ? montoCaja(tasaEff, 'Bs') : '—'}.`
-                : `A pagar ${montoCaja(aPagar, 'Bs')} equivale a ${montoCaja(totalUsd, 'USD')} a la tasa ${tasaEff > 0 ? montoCaja(tasaEff, 'Bs') : '—'}.`}
-              {' '}Si la dejás vacía se usa la tasa BCV.
+        {/* Tasa de pago (Bs/$). Está SIEMPRE: antes solo aparecía cuando el pago cruzaba
+            Bs↔$, y en una compra en Bs pagada en Bs la tasa quedaba clavada en la del
+            montaje, que es la que valora el material al entrar al inventario. */}
+        <div className="form-row">
+          <label>Tasa de pago (Bs por $) {tasa > 0 && <span className="muted" style={{ fontWeight: 400 }}>· BCV {montoCaja(tasa, 'Bs')}</span>}</label>
+          <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 200 }}
+            value={tasaManualStr} placeholder={tasa > 0 ? String(tasa) : '0,00'}
+            onChange={(e) => setTasaManualStr(dosDecimales(e.target.value))} />
+          <small className="muted">
+            {(cruzaBsUsd || esSplit) && (
+              <>
+                {monedaBase === 'USD'
+                  ? `A pagar ${montoCaja(aPagar, 'USD')} equivale a ${montoCaja(montoEnMoneda('Bs', totalUsd), 'Bs')} a la tasa ${tasaEff > 0 ? montoCaja(tasaEff, 'Bs') : '—'}.`
+                  : `A pagar ${montoCaja(aPagar, 'Bs')} equivale a ${montoCaja(totalUsd, 'USD')} a la tasa ${tasaEff > 0 ? montoCaja(tasaEff, 'Bs') : '—'}.`}
+                {' '}
+              </>
+            )}
+            {explicacionTasaPago(efectoTasa)}
+          </small>
+          {efectoTasa === 'valora' || efectoTasa === 'ambas' ? (
+            <small className="muted" style={{ marginTop: '.25rem' }}>
+              📦 Con {tasaValoracion > 0 ? montoCaja(tasaValoracion, 'Bs') : '—'} por dólar, el material entra al inventario por{' '}
+              <strong className="mono">{tasaValoracion > 0 ? montoCaja(round2(total / tasaValoracion), 'USD') : '—'}</strong>
+              {tasaCompraOriginal > 0 && tasaPagoElegida != null && Math.abs(tasaCompraOriginal - tasaPagoElegida) > 0.005 ? (
+                <> · Compras lo montó a {montoCaja(tasaCompraOriginal, 'Bs')} ({montoCaja(round2(total / tasaCompraOriginal), 'USD')}).</>
+              ) : null}
             </small>
-          </div>
-        )}
+          ) : null}
+        </div>
 
         {esSplit && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>

@@ -549,6 +549,10 @@ export interface PagarCompraInput {
   reembolsoLegs?: PagoLeg[];
   /** Ese excedente en la moneda de la compra, para dejarlo anotado en ella. */
   reembolsoMonto?: number | null;
+  /** Tasa (Bs por $) que Tesorería usó para pagar. En una compra EN Bs manda sobre la
+   *  que guardó Compras al montar: el inventario está en dólares y el material entra a
+   *  (gasto/cantidad) ÷ tasa, así que vale la que de verdad se pagó, no la del montaje. */
+  tasaPago?: number | null;
   /** Quién paga (usuario de Tesorería). */
   actor: string;
   actorName?: string | null;
@@ -643,6 +647,9 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
       estado: yaRecibida ? 'finalizada' : 'abierta', gasto: total, items,
       gasto_categoria: gcat ?? null, gasto_subcategoria: gsub ?? null,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
+      // La tasa con la que Tesorería pagó manda sobre la del montaje: es la que valora el
+      // material al recibirlo. Solo aplica a las compras EN Bs (las de $ no se convierten).
+      ...(esCompraEnBs(compra.moneda) && tasaValida(input.tasaPago) ? { tasa_bcv: input.tasaPago } : {}),
       ...camposPagoDirecto(retencion, input.retencionDetalle, reembolsoLegs.length ? input.reembolsoMonto : 0, compra.moneda),
       pagada_por: input.actorName || input.actor,
       finalizada_at: yaRecibida ? nowIso : null,
