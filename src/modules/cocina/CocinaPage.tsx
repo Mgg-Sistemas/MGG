@@ -30,6 +30,7 @@ import {
   type MercadoCocina, type ResumenMercado,
 } from './mercados.repository';
 import { cicloQueSePisa, ventanaCicloDe } from './mercadoComparar';
+import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
 import { MercadoPanel } from './MercadoPanel';
 import { LeyendaMercado } from './LeyendaMercado';
 import { MercadosHistoricoModal } from './MercadosHistorico';
@@ -380,7 +381,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
 
       {(modal === 'add' || editComida) && (
         <AnadirMovimientoModal cocinaId={cocinaId} almacen={almacen} actor={actor} actorName={userEmail}
-          comida={editComida}
+          comida={editComida} mercado={mercado}
           onClose={() => { setModal('none'); setEditComida(null); }}
           onSaved={async () => { setModal('none'); setEditComida(null); await reload(); await loadMercado({ background: true }); }} />
       )}
@@ -407,9 +408,9 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
 }
 
 /* ───────────── Añadir movimiento (consumo de víveres) ───────────── */
-function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, onClose, onSaved }: {
+function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, mercado, onClose, onSaved }: {
   cocinaId: string; almacen: string | null; actor: string; actorName: string | null;
-  comida?: CocinaComida | null; onClose: () => void; onSaved: () => void;
+  comida?: CocinaComida | null; mercado?: MercadoCocina | null; onClose: () => void; onSaved: () => void;
 }) {
   const esEdicion = !!comida;
   const [viveres, setViveres] = useState<ViverDisponible[]>([]);
@@ -448,6 +449,8 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, on
     return a + (v ? (Number(c) || 0) * v.precio : 0);
   }, 0)), [sel, mapV]);
   const nPlatos = Number(platos) || 0;
+  // Aviso de fecha: se calcula contra el mercado abierto, no contra "hoy".
+  const avisoCiclo = useMemo(() => avisoFueraDelCiclo(fueraDelCiclo(fecha, mercado), mercado), [fecha, mercado]);
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -502,6 +505,18 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, on
             <small className="muted" style={{ marginTop: '.25rem' }}>📅 Se registrará con fecha <strong>{fecha}</strong> (día desfasado).</small>
           )}
         </div>
+
+        {/* La comida descuenta el inventario HOY, pero el libro del mercado la ordena por SU
+            fecha. Si la fecha cae fuera del ciclo abierto las dos cuentas se separan, y si
+            esos víveres ya pasaron por un conteo real se descuentan dos veces (pasó el
+            17/09/2026: hubo que devolver 211,21 unidades a mano). No se bloquea: cargar una
+            comida atrasada es legítimo, pero quien la carga tiene que saber qué implica. */}
+        {avisoCiclo && (
+          <div className="card" style={{ borderColor: 'var(--warning)', margin: '0 0 .75rem' }}>
+            <strong style={{ color: 'var(--warning)' }}>⚠ La fecha queda fuera del mercado abierto</strong>
+            <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.85rem' }}>{avisoCiclo}</p>
+          </div>
+        )}
 
         {/* Víveres: TODOS los del inventario (categoría VÍVERES), sin importar el almacén.
             Se eligen con checkboxes; al tildar aparece la cantidad. */}
