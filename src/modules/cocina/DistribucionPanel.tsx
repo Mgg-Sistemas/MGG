@@ -18,6 +18,7 @@ import {
   PARAMETROS_EOQ_DEFECTO,
   type EstadoStock, type ParametrosEoq, type ResumenDistribucion,
 } from './distribucionEoq';
+import { etiquetaSeleccion, filtrarDistribucion, type SeleccionKpi } from './distribucionFiltro';
 import type { ResumenMercado } from './mercados.repository';
 
 const colorEstado: Record<EstadoStock, string> = {
@@ -41,6 +42,8 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
   const [detalle, setDetalle] = useState<ResumenDistribucion | null>(null);
   const [filtro, setFiltro] = useState('');
   const [soloReponer, setSoloReponer] = useState(false);
+  // Tarjeta tocada: la tabla se queda con esos víveres. Tocarla de nuevo la suelta.
+  const [seleccion, setSeleccion] = useState<SeleccionKpi>('todos');
 
   const cargarParams = useCallback(() => {
     parametrosEoqDeCocina(cocinaId).then(setParams).catch(() => setParams(PARAMETROS_EOQ_DEFECTO));
@@ -53,17 +56,10 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
   );
   const totales = useMemo(() => totalesDistribucion(items), [items]);
 
-  const lista = useMemo(() => {
-    const q = filtro.trim().toLowerCase();
-    return items
-      .filter((i) => (!q || `${i.nombre} ${i.sku}`.toLowerCase().includes(q)))
-      .filter((i) => (!soloReponer || i.estado !== 'NORMAL'))
-      // Primero lo que hay que reponer, después lo que más se consume.
-      .sort((a, b) => {
-        const peso = (e: EstadoStock) => (e === 'REORDENAR' ? 0 : e === 'ALERTA' ? 1 : 2);
-        return peso(a.estado) - peso(b.estado) || b.consumoTotal - a.consumoTotal || a.nombre.localeCompare(b.nombre, 'es');
-      });
-  }, [items, filtro, soloReponer]);
+  const lista = useMemo(
+    () => filtrarDistribucion(items, { q: filtro, seleccion, soloReponer }),
+    [items, filtro, seleccion, soloReponer],
+  );
 
   async function verPdf() {
     try {
@@ -94,20 +90,33 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
         )}
       </div>
 
-      {/* Tarjetas del ciclo */}
+      {/* Tarjetas del ciclo: son BOTONES. Al tocar una, la tabla se queda con esos
+          víveres; al tocarla de nuevo, se suelta y vuelven todos. */}
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.7rem' }}>
-        {[
-          ['Víveres', String(totales.viveres), 'var(--text)'],
-          ['Por reponer', String(totales.reordenar), colorEstado.REORDENAR],
-          ['En alerta', String(totales.alerta), colorEstado.ALERTA],
-          ['Consumido', num(totales.consumoTotal), 'var(--text)'],
-          ['Mermas', num(totales.mermas), totales.mermas > 0 ? colorEstado.ALERTA : 'var(--text)'],
-        ].map(([label, valor, color]) => (
-          <div key={label} className="card" style={{ padding: '.5rem .75rem', minWidth: 110, background: 'var(--bg-2)' }}>
-            <div className="muted" style={{ fontSize: '.7rem' }}>{label}</div>
-            <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color }}>{valor}</div>
-          </div>
-        ))}
+        {([
+          ['todos', 'Víveres', String(totales.viveres), 'var(--text)', 'Ver todos los víveres del mercado'],
+          ['reponer', 'Por reponer', String(totales.reordenar), colorEstado.REORDENAR, 'Ver solo los que están en el punto de reorden'],
+          ['alerta', 'En alerta', String(totales.alerta), colorEstado.ALERTA, 'Ver solo los que están por caer'],
+          ['consumido', 'Consumido', num(totales.consumoTotal), 'var(--text)', 'Ver solo los que se consumieron en el ciclo'],
+          ['mermas', 'Mermas', num(totales.mermas), totales.mermas > 0 ? colorEstado.ALERTA : 'var(--text)', 'Ver solo los que tuvieron mermas'],
+        ] as Array<[SeleccionKpi, string, string, string, string]>).map(([clave, label, valor, color, ayuda]) => {
+          const activa = seleccion === clave || (clave === 'todos' && seleccion === 'todos');
+          return (
+            <button key={clave} type="button" className="card" title={ayuda}
+              aria-pressed={activa}
+              onClick={() => setSeleccion(seleccion === clave ? 'todos' : clave)}
+              style={{
+                padding: '.5rem .75rem', minWidth: 110, background: 'var(--bg-2)', cursor: 'pointer',
+                textAlign: 'left', font: 'inherit',
+                borderColor: activa ? color : 'var(--border)',
+                borderWidth: activa ? 2 : 1,
+                boxShadow: activa ? `inset 0 -3px 0 ${color}` : undefined,
+              }}>
+              <div className="muted" style={{ fontSize: '.7rem' }}>{label}</div>
+              <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color }}>{valor}</div>
+            </button>
+          );
+        })}
         <div className="card" style={{ padding: '.5rem .75rem', background: 'var(--bg-2)', flex: '1 1 220px' }}>
           <div className="muted" style={{ fontSize: '.7rem' }}>Parámetros de compra (cocina)</div>
           <div className="mono" style={{ fontSize: '.8rem' }}>
@@ -122,6 +131,17 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
           <input type="checkbox" checked={soloReponer} onChange={(e) => setSoloReponer(e.target.checked)} />
           Solo los que hay que reponer
         </label>
+      </div>
+
+      {/* Qué se está viendo. Sin esto, una tabla recortada parece una tabla vacía. */}
+      <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.4rem', display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+        <span>Mostrando <strong className="mono">{num(lista.length)}</strong> de <strong className="mono">{num(items.length)}</strong> víveres</span>
+        {seleccion !== 'todos' && (
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSeleccion('todos')}
+            title="Quitar el filtro de la tarjeta">
+            {etiquetaSeleccion(seleccion)} ✕
+          </button>
+        )}
       </div>
 
       <div className="table-wrap" style={{ maxHeight: 460, overflow: 'auto' }}>
@@ -170,7 +190,8 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
         </table>
       </div>
       <div className="hint muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
-        Tocá un víver para ver su <strong>registro diario</strong>. El <strong>lote EOQ</strong> es cuánto conviene comprar de una vez
+        Tocá una <strong>tarjeta de arriba</strong> para dejar en la tabla solo esos víveres (de nuevo para soltarla), y un
+        <strong> víver</strong> para ver su <strong>registro diario</strong>. El <strong>lote EOQ</strong> es cuánto conviene comprar de una vez
         y el <strong>reorden</strong> es el stock con el que hay que pedirlo, para que no falte mientras llega.
       </div>
 
