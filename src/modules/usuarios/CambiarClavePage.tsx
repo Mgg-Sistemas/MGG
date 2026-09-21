@@ -11,6 +11,9 @@ export function CambiarClavePage() {
   const [clave, setClave] = useState('');
   const [confirmacion, setConfirmacion] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // El error también se muestra EN la tarjeta, no solo en un toast: el toast se
+  // va solo y el usuario se queda mirando la pantalla sin saber qué pasó.
+  const [error, setError] = useState<string | null>(null);
 
   // Si el usuario llega desde otra pantalla del app (ej. Ajustes), `state.from`
   // viene seteado: "Volver" lo lleva de regreso allá sin cerrar sesión.
@@ -34,12 +37,20 @@ export function CambiarClavePage() {
 
   async function handleAceptar() {
     const c = clave.trim();
+    setError(null);
     if (c.length < 6) {
-      toast('La clave debe tener al menos 6 caracteres', 'error');
+      const faltan = 6 - c.length;
+      const msg = c.length === 0
+        ? 'Escribí la clave nueva: tiene que tener al menos 6 caracteres.'
+        : `La clave es muy corta: le ${faltan === 1 ? 'falta 1 caracter' : `faltan ${faltan} caracteres`} para llegar al mínimo de 6.`;
+      setError(msg);
+      toast(msg, 'error');
       return;
     }
     if (c !== confirmacion.trim()) {
-      toast('Las claves no coinciden', 'error');
+      const msg = 'Las dos claves no coinciden. Repetí la misma en los dos campos.';
+      setError(msg);
+      toast(msg, 'error');
       return;
     }
     setSubmitting(true);
@@ -51,7 +62,9 @@ export function CambiarClavePage() {
       await signOut();
       navigate('/', { replace: true });
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo cambiar la clave', 'error');
+      const msg = e instanceof Error ? e.message : 'No se pudo cambiar la clave';
+      setError(msg);
+      toast(msg, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -121,6 +134,16 @@ export function CambiarClavePage() {
           </p>
         </div>
 
+        {error && (
+          <div
+            className="card"
+            role="alert"
+            style={{ borderColor: 'var(--danger)', margin: '0 0 1rem', padding: '.6rem .8rem' }}
+          >
+            <span style={{ color: 'var(--danger)', fontWeight: 600 }}>⚠ {error}</span>
+          </div>
+        )}
+
         <div className="form-row">
           <label>Ingrese clave nueva</label>
           <input
@@ -128,11 +151,24 @@ export function CambiarClavePage() {
             className="input"
             autoComplete="new-password"
             value={clave}
-            onChange={(e) => setClave(e.target.value)}
+            onChange={(e) => { setClave(e.target.value); setError(null); }}
             placeholder="Mínimo 6 caracteres"
             disabled={submitting}
+            style={claveTrim.length > 0 && !largoOk ? { borderColor: 'var(--danger)' } : undefined}
             autoFocus
           />
+          {/* El largo se dice MIENTRAS se escribe: antes el botón quedaba
+              deshabilitado en silencio y parecía que el sistema no hacía nada. */}
+          {claveTrim.length > 0 && !largoOk && (
+            <small style={{ color: 'var(--danger)', marginTop: '.35rem', display: 'block' }}>
+              Le {6 - claveTrim.length === 1 ? 'falta 1 caracter' : `faltan ${6 - claveTrim.length} caracteres`} para llegar al mínimo de 6.
+            </small>
+          )}
+          {largoOk && (
+            <small style={{ color: 'var(--success)', marginTop: '.35rem', display: 'block' }}>
+              ✓ Largo suficiente ({claveTrim.length} caracteres).
+            </small>
+          )}
         </div>
 
         <div className="form-row">
@@ -142,11 +178,11 @@ export function CambiarClavePage() {
             className="input"
             autoComplete="new-password"
             value={confirmacion}
-            onChange={(e) => setConfirmacion(e.target.value)}
+            onChange={(e) => { setConfirmacion(e.target.value); setError(null); }}
             placeholder="Repite la clave nueva"
             disabled={submitting}
             style={mostrarNoCoincide ? { borderColor: 'var(--danger)' } : undefined}
-            onKeyDown={(e) => { if (e.key === 'Enter' && coincide) handleAceptar(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !submitting) handleAceptar(); }}
           />
           {mostrarNoCoincide && (
             <small style={{ color: 'var(--danger)', marginTop: '.35rem', display: 'block' }}>
@@ -172,8 +208,10 @@ export function CambiarClavePage() {
           <button
             className="btn btn-primary"
             onClick={handleAceptar}
-            disabled={submitting || !coincide}
-            title={!coincide ? 'Las dos claves deben coincidir (mínimo 6 caracteres)' : ''}
+            /* A propósito NO se deshabilita por la validación: un botón apagado
+               en silencio es lo que hacía parecer que el sistema no respondía.
+               Ahora se puede hacer clic siempre y el motivo aparece en pantalla. */
+            disabled={submitting}
             style={{ minWidth: 160, justifyContent: 'center', textAlign: 'center' }}
           >
             {submitting ? 'Guardando…' : 'Aceptar'}
