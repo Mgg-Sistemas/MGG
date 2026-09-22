@@ -5,11 +5,17 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { RrhhEvento } from '@/shared/lib/types';
+import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 
 const TABLE = 'rrhh_eventos';
 
-export async function listEventos(personalId?: string, tipo?: RrhhEvento['tipo']): Promise<RrhhEvento[]> {
-  let q = supabase.from(TABLE).select('*').order('created_at', { ascending: false });
+/** Los eventos de UNA empresa. La empresa la hereda la fila de su persona. */
+export async function listEventos(
+  personalId?: string,
+  tipo?: RrhhEvento['tipo'],
+  empresa: Empresa = EMPRESA_POR_DEFECTO,
+): Promise<RrhhEvento[]> {
+  let q = supabase.from(TABLE).select('*').eq('empresa', empresa).order('created_at', { ascending: false });
   if (personalId) q = q.eq('personal_id', personalId);
   if (tipo) q = q.eq('tipo', tipo);
   const { data, error } = await q;

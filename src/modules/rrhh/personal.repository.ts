@@ -10,14 +10,33 @@ import { aCentavos, huboCambioSueldo, validarCambioSueldo, type TipoCambioSueldo
 import {
   nombreSeguro, validarArchivoDocumento, type TipoDocumentoPersonal,
 } from './documentosPersonal';
+import { EMPRESA_POR_DEFECTO, normalizarEmpresa, type Empresa } from './empresa';
 
 const TABLE = 'personal';
 const TABLA_SUELDOS = 'personal_sueldos';
 const TABLA_DOCS = 'personal_documentos';
 
-/** Lista el personal, ordenado por departamento y nombre. */
-export async function listPersonal(soloActivos = false): Promise<Personal[]> {
-  let q = supabase.from(TABLE).select('*').order('departamento', { ascending: true, nullsFirst: false }).order('nombre', { ascending: true });
+/**
+ * Lista el personal de UNA empresa, ordenado por departamento y nombre.
+ *
+ * La empresa se filtra siempre: mostrar las dos nóminas juntas es justo el
+ * error que este módulo evita. Sin `empresa` se asume MGG, que es lo que
+ * había antes de que existiera GoMetal.
+ */
+export async function listPersonal(soloActivos = false, empresa: Empresa = EMPRESA_POR_DEFECTO): Promise<Personal[]> {
+  let q = supabase.from(TABLE).select('*')
+    .eq('empresa', empresa)
+    .order('departamento', { ascending: true, nullsFirst: false })
+    .order('nombre', { ascending: true });
+  if (soloActivos) q = q.eq('activo', true);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as Personal[];
+}
+
+/** El personal de las DOS empresas. Solo para contar en el interruptor. */
+export async function listPersonalTodasLasEmpresas(soloActivos = false): Promise<Personal[]> {
+  let q = supabase.from(TABLE).select('*').order('nombre', { ascending: true });
   if (soloActivos) q = q.eq('activo', true);
   const { data, error } = await q;
   if (error) throw error;
@@ -25,6 +44,8 @@ export async function listPersonal(soloActivos = false): Promise<Personal[]> {
 }
 
 export interface PersonalInput {
+  /** A qué empresa pertenece. La pone el interruptor de RRHH, no el formulario. */
+  empresa?: Empresa;
   nombre: string;
   apellido?: string;
   cedula?: string | null;
@@ -78,6 +99,7 @@ export async function borrarFotoCarnet(url: string): Promise<void> {
  */
 function payload(input: PersonalInput) {
   return {
+    empresa: normalizarEmpresa(input.empresa),
     nombre: input.nombre.trim(),
     apellido: (input.apellido ?? '').trim(),
     cedula: input.cedula?.trim() || null,
@@ -226,6 +248,9 @@ export const digitosCedula = (v: string | null | undefined): string =>
 /**
  * ¿Ya hay otra ficha con esa cédula? Devuelve a quién pertenece, para poder
  * decirlo con nombre y apellido en vez de un error seco.
+ *
+ * Se busca en LAS DOS empresas: una persona no puede estar en las dos nóminas
+ * con la misma cédula, y si estuviera hay que verlo, no esconderlo.
  *
  * La guarda REAL es el índice único de la base (`personal_cedula_unica_idx`):
  * dos personas cargando a la vez desde dos máquinas pasan esta consulta al

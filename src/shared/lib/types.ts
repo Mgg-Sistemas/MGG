@@ -1014,6 +1014,8 @@ export interface OcMensaje {
 /** Personal de nómina (no necesariamente usuario del sistema). */
 export interface Personal {
   id: string;
+  /** A qué empresa pertenece: define en qué nómina entra. Ver `rrhh/empresa.ts`. */
+  empresa?: string | null;
   nombre: string;
   apellido: string;
   /** Cédula de identidad. ÚNICA entre el personal: se compara solo por los dígitos. */
@@ -1044,6 +1046,8 @@ export interface Personal {
 /** Anticipo o préstamo a una persona; se descuenta de la nómina hasta saldar. */
 export interface AnticipoPrestamo {
   id: string;
+  /** Empresa: MGG o GOMETAL. La hereda de la ficha de la persona. */
+  empresa?: string | null;
   personal_id: string;
   tipo: 'anticipo' | 'prestamo';
   monto_total: number;
@@ -1059,6 +1063,8 @@ export interface AnticipoPrestamo {
 /** Período de nómina (una por quincena), cargado desde RRHH. */
 export interface NominaPeriodo {
   id: string;
+  /** Empresa: MGG o GOMETAL. La hereda de la ficha de la persona. */
+  empresa?: string | null;
   codigo: string;
   tipo: string;
   periodo_desde?: string | null;
@@ -1083,6 +1089,8 @@ export interface DeduccionRef {
 /** Renglón de nómina = pago individual de una persona (su histórico quincenal). */
 export interface NominaRenglon {
   id: string;
+  /** Empresa de la nómina. La hereda de la ficha de la persona. */
+  empresa?: string | null;
   periodo_id: string;
   personal_id?: string | null;
   nombre: string;
@@ -1117,6 +1125,8 @@ export interface NominaRenglon {
 /** Evento administrativo de RRHH (Fase 3): vacaciones, permisos, utilidades, notas. */
 export interface RrhhEvento {
   id: string;
+  /** Empresa: MGG o GOMETAL. La hereda de la ficha de la persona. */
+  empresa?: string | null;
   personal_id: string;
   tipo: 'vacacion' | 'permiso' | 'utilidad' | 'nota';
   fecha_desde?: string | null;

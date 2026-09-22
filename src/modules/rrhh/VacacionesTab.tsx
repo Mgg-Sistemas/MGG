@@ -8,6 +8,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Personal, RrhhEvento } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
 import { listEventos, crearEvento, eliminarEvento, marcarVacacionProcesada } from './eventos.repository';
+import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 import { procesarVacacion, montoVacacion } from './nomina.repository';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -29,7 +30,9 @@ function solapan(aDesde: string, aHasta: string, bDesde: string, bHasta: string)
   return a1 <= b2 && b1 <= a2;
 }
 
-export function VacacionesTab({ canWrite, actor, actorName }: { canWrite: boolean; actor: string; actorName: string | null }) {
+export function VacacionesTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
+  canWrite: boolean; actor: string; actorName: string | null; empresa?: Empresa;
+}) {
   const now = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [personal, setPersonal] = useState<Personal[]>([]);
@@ -42,8 +45,8 @@ export function VacacionesTab({ canWrite, actor, actorName }: { canWrite: boolea
     setLoading(true);
     // Cada carga con su propio catch: un fallo en eventos no deja sin personal al selector.
     const [ps, ev] = await Promise.all([
-      listPersonal(false).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); return [] as Personal[]; }),
-      listEventos(undefined, 'vacacion').catch(() => [] as RrhhEvento[]),
+      listPersonal(false, empresa).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); return [] as Personal[]; }),
+      listEventos(undefined, 'vacacion', empresa).catch(() => [] as RrhhEvento[]),
     ]);
     setPersonal(ps); setEventos(ev);
     setLoading(false);

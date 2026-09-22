@@ -17,6 +17,7 @@ import { GestionarCajasModal } from '@/modules/salidas/GestionarCajasModal';
 import {
   listRenglonesPorPagar, countRenglonesPorPagar, pagarRenglon, getRenglonById, urlComprobanteNomina, labelMotivoNomina,
 } from '@/modules/rrhh/nomina.repository';
+import { EMPRESAS, colorEmpresa, contarPorEmpresa, labelEmpresa, normalizarEmpresa, type Empresa } from '@/modules/rrhh/empresa';
 import type { NominaRenglon } from '@/shared/lib/types';
 import type { Caja, MovimientoCaja, Orden, Producto, Almacen } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
@@ -3007,6 +3008,10 @@ function NominaPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const [loading, setLoading] = useState(true);
   const [pagar, setPagar] = useState<NominaRenglon | null>(null);
 
+  // Filtro por empresa. Arranca en «todas» a propósito: Tesorería tiene que
+  // ver de entrada cuánto debe en total, no una nómina de las dos.
+  const [filtroEmpresa, setFiltroEmpresa] = useState<'' | Empresa>('');
+
   const recargar = useCallback(async () => {
     setLoading(true);
     try { setRows(await listRenglonesPorPagar()); }
@@ -3016,22 +3021,50 @@ function NominaPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['nomina_renglones'], () => { void recargar(); });
 
-  const total = useMemo(() => round2(rows.reduce((a, r) => a + (Number(r.neto_usd) || 0), 0)), [rows]);
+  const porEmpresa = useMemo(() => contarPorEmpresa(rows.map((r) => ({ empresa: r.empresa }))), [rows]);
+  const visibles = useMemo(
+    () => (filtroEmpresa ? rows.filter((r) => normalizarEmpresa(r.empresa) === filtroEmpresa) : rows),
+    [rows, filtroEmpresa],
+  );
+  const total = useMemo(() => round2(visibles.reduce((a, r) => a + (Number(r.neto_usd) || 0), 0)), [visibles]);
 
   return (
     <Modal title="Pagar nómina" size="xl" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <div className="muted" style={{ marginBottom: '.6rem', fontSize: '.86rem' }}>
         Renglones cargados desde <strong>RRHH</strong>. Tesorería paga uno a uno (efectivo USD con seriales, o Bs a tasa BCV) y adjunta el comprobante (opcional).
-        {rows.length > 0 && <> · {rows.length} pendiente(s) · Total <strong className="mono">{monto(total, 'USD')}</strong></>}
+        {visibles.length > 0 && <> · {visibles.length} pendiente(s) · Total <strong className="mono">{monto(total, 'USD')}</strong></>}
+      </div>
+
+      {/* MGG y GoMetal son empresas distintas: la cola las trae juntas porque
+          Tesorería paga las dos, pero cada renglón dice de cuál es. */}
+      <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginBottom: '.6rem', alignItems: 'center' }}>
+        <button className={`btn btn-sm ${filtroEmpresa === '' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setFiltroEmpresa('')}>Todas ({rows.length})</button>
+        {EMPRESAS.map((e) => (
+          <button key={e.key} className="btn btn-sm"
+            onClick={() => setFiltroEmpresa(filtroEmpresa === e.key ? '' : e.key)}
+            style={{
+              background: filtroEmpresa === e.key ? e.color : 'transparent',
+              color: filtroEmpresa === e.key ? '#fff' : 'var(--text)',
+              border: `1px solid ${filtroEmpresa === e.key ? e.color : 'var(--border)'}`,
+            }}>
+            {e.icono} {e.label} ({porEmpresa[e.key]})
+          </button>
+        ))}
       </div>
       <div className="table-wrap" style={{ maxHeight: 440, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.84rem' }}>
-          <thead><tr><th>Trabajador</th><th>Nómina</th><th>Motivo</th><th>Departamento</th><th style={{ textAlign: 'right' }}>Días</th><th style={{ textAlign: 'right' }}>Neto USD</th><th style={{ textAlign: 'center' }}>Acción</th></tr></thead>
+          <thead><tr><th>Empresa</th><th>Trabajador</th><th>Nómina</th><th>Motivo</th><th>Departamento</th><th style={{ textAlign: 'right' }}>Días</th><th style={{ textAlign: 'right' }}>Neto USD</th><th style={{ textAlign: 'center' }}>Acción</th></tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={7}><EmptyState message="No hay nómina pendiente por pagar" icon="✅" /></td></tr>}
-            {!loading && rows.map((r) => (
+            {loading && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !visibles.length && <tr><td colSpan={8}><EmptyState message="No hay nómina pendiente por pagar" icon="✅" /></td></tr>}
+            {!loading && visibles.map((r) => (
               <tr key={r.id}>
+                <td>
+                  <span className="badge" style={{ background: colorEmpresa(r.empresa), color: '#fff' }}>
+                    {labelEmpresa(r.empresa)}
+                  </span>
+                </td>
                 <td>{r.nombre}</td>
                 <td className="mono muted">{r.periodo?.codigo ?? '—'}</td>
                 <td><span className="badge" style={{ background: r.periodo?.tipo === 'vacaciones' ? 'var(--danger, #e5484d)' : r.periodo?.tipo === 'liquidacion' ? 'var(--warning, #ffae00)' : 'var(--primary-2, #2b6cb0)', color: '#fff' }}>{labelMotivoNomina(r.periodo?.tipo)}</span></td>

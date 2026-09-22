@@ -4,6 +4,7 @@
    desglose del pago y las líneas de firma (trabajador y RRHH).
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { definicionEmpresa, normalizarEmpresa } from './empresa';
 import { date as fmtDate } from '@/shared/lib/format';
 import type { NominaPeriodo, NominaRenglon } from '@/shared/lib/types';
 
@@ -48,7 +49,9 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* logo opcional */ } }
     const tx = logoDataUrl ? MARGIN + LOGO + 14 : MARGIN;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-    doc.text('Mineral Group Guayana C.A.', tx, y + 16);
+    // La razón social sale de la EMPRESA del renglón: el recibo de GoMetal no
+    // puede salir a nombre de MGG.
+    doc.text(definicionEmpresa(normalizarEmpresa(r.empresa)).razonSocial, tx, y + 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     doc.text('Comprobante de Pago de Personal', tx, y + 32);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);

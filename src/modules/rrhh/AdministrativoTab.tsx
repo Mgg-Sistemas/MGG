@@ -7,6 +7,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Personal, RrhhEvento } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
 import { listEventos, crearEvento, eliminarEvento, type EventoInput } from './eventos.repository';
+import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 
 const TIPOS: { key: RrhhEvento['tipo']; label: string; conMonto?: boolean; conDias?: boolean }[] = [
   { key: 'vacacion', label: 'Vacaciones', conDias: true },
@@ -29,7 +30,9 @@ function diasInclusive(desde?: string | null, hasta?: string | null): number {
   return d > 0 ? d : 0;
 }
 
-export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: boolean; actor: string; actorName: string | null }) {
+export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
+  canWrite: boolean; actor: string; actorName: string | null; empresa?: Empresa;
+}) {
   const [personal, setPersonal] = useState<Personal[]>([]);
   const [lista, setLista] = useState<RrhhEvento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,8 +46,8 @@ export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: bo
   const recargar = useCallback(async () => {
     setLoading(true);
     const [ps, ev] = await Promise.all([
-      listPersonal(false).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); return [] as Personal[]; }),
-      listEventos().catch(() => [] as RrhhEvento[]),
+      listPersonal(false, empresa).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); return [] as Personal[]; }),
+      listEventos(undefined, undefined, empresa).catch(() => [] as RrhhEvento[]),
     ]);
     setPersonal(ps); setLista(ev);
     setLoading(false);

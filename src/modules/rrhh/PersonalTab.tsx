@@ -17,6 +17,7 @@ import {
   TIPOS_DOCUMENTO_PERSONAL, documentacionCompleta, megas, resumenDocumentos,
   validarArchivoDocumento, type TipoDocumentoPersonal,
 } from './documentosPersonal';
+import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa';
 import {
   TIPOS_CAMBIO_SUELDO, huboCambioSueldo, labelTipoCambio, textoVariacion, tipoSugerido,
   validarCambioSueldo, variacionSueldo, type TipoCambioSueldo,
@@ -115,7 +116,9 @@ function FotoEncuadre({ url, posX, posY, zoom, onChange }: {
   );
 }
 
-export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean; actor: string; actorName?: string | null }) {
+export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
+  canWrite: boolean; actor: string; actorName?: string | null; empresa?: Empresa;
+}) {
   const [lista, setLista] = useState<Personal[]>([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
@@ -143,6 +146,8 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
 
   // ¿La cédula que se está escribiendo ya es de otra ficha? Se resuelve contra la
   // lista que la pestaña ya tiene cargada: no hace falta ir a la base para avisar.
+  // Ojo: esta lista es SOLO de la empresa que se está mirando. La guarda real
+  // contra las dos nóminas la hace el repositorio antes de guardar.
   const duenoCedula = useMemo(() => {
     const d = digitosCedula(form.cedula);
     if (!d) return null;
@@ -154,7 +159,7 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
     try {
       // En paralelo: los papeles no deben hacer esperar al listado.
       const [gente, docs] = await Promise.all([
-        listPersonal(false),
+        listPersonal(false, empresa),
         listDocumentosDeTodos().catch(() => [] as DocumentoPersonal[]),
       ]);
       setLista(gente);
@@ -164,7 +169,7 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
     }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); }
     finally { setLoading(false); }
-  }, []);
+  }, [empresa]);
   const cargarCatalogos = useCallback(() => {
     listCargos().then(setCargos).catch(() => { /* catálogo opcional */ });
     listDepartamentos().then(setDepartamentos).catch(() => { /* catálogo opcional */ });
@@ -181,14 +186,17 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
     setVigenteDesde(new Date().toISOString().slice(0, 10));
   }
 
-  function abrirNuevo() { setEditId(null); setForm(VACIO); limpiarCambioSueldo(0); setError(null); setFormOpen(true); }
+  // La ficha nueva nace en la empresa que se está mirando. No es un campo del
+  // formulario a propósito: quién pertenece a cada nómina lo decide el
+  // interruptor de arriba, y así no se puede elegir mal sin darse cuenta.
+  function abrirNuevo() { setEditId(null); setForm({ ...VACIO, empresa }); limpiarCambioSueldo(0); setError(null); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
-    setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
+    setForm({ empresa, nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
     limpiarCambioSueldo(Number(p.sueldo_base) || 0);
     setError(null); setFormOpen(true);
   }
-  function cerrarForm() { setEditId(null); setForm(VACIO); limpiarCambioSueldo(0); setError(null); setFormOpen(false); }
+  function cerrarForm() { setEditId(null); setForm({ ...VACIO, empresa }); limpiarCambioSueldo(0); setError(null); setFormOpen(false); }
 
   async function onPickFoto(file: File | null) {
     if (!file) return;
@@ -321,6 +329,16 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
         >
           <form id="rrhh-personal-form" onSubmit={guardar}>
             {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+            {/* De qué nómina es esta ficha. Que se vea antes de escribir nada:
+                crear a alguien en la empresa equivocada se arrastra a su
+                anticipo, su vacación y su pago. */}
+            <div className="card" style={{ background: 'var(--bg-2)', margin: '0 0 .7rem', padding: '.5rem .75rem', borderLeft: `3px solid ${definicionEmpresa(empresa).color}` }}>
+              <span style={{ fontSize: '.86rem' }}>
+                {definicionEmpresa(empresa).icono} {editId ? 'Ficha de la' : 'Se va a crear en la'} <strong>nómina {definicionEmpresa(empresa).label}</strong>
+                <span className="muted"> · {definicionEmpresa(empresa).razonSocial}</span>
+              </span>
+            </div>
 
             {/* Foto del carnet (opcional): subir / cambiar / quitar. */}
             <div className="form-row">

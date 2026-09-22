@@ -5,11 +5,17 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { AnticipoPrestamo } from '@/shared/lib/types';
+import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 
 const TABLE = 'anticipos_prestamos';
 
-export async function listAnticipos(personalId?: string, soloActivos = false): Promise<AnticipoPrestamo[]> {
-  let q = supabase.from(TABLE).select('*').order('created_at', { ascending: false });
+/** Los anticipos de UNA empresa. La empresa la hereda la fila de su persona. */
+export async function listAnticipos(
+  personalId?: string,
+  soloActivos = false,
+  empresa: Empresa = EMPRESA_POR_DEFECTO,
+): Promise<AnticipoPrestamo[]> {
+  let q = supabase.from(TABLE).select('*').eq('empresa', empresa).order('created_at', { ascending: false });
   if (personalId) q = q.eq('personal_id', personalId);
   if (soloActivos) q = q.eq('estado', 'activo');
   const { data, error } = await q;
@@ -17,9 +23,15 @@ export async function listAnticipos(personalId?: string, soloActivos = false): P
   return (data ?? []) as AnticipoPrestamo[];
 }
 
-/** Activos con saldo > 0 de TODO el personal (para armar la nómina). */
-export async function listAnticiposActivos(): Promise<AnticipoPrestamo[]> {
-  const { data, error } = await supabase.from(TABLE).select('*').eq('estado', 'activo').gt('saldo', 0).order('created_at', { ascending: true });
+/**
+ * Activos con saldo > 0 del personal de una empresa (para armar su nómina).
+ * Filtrar acá es lo que impide que el anticipo de alguien de GoMetal se
+ * descuente en una nómina de MGG.
+ */
+export async function listAnticiposActivos(empresa: Empresa = EMPRESA_POR_DEFECTO): Promise<AnticipoPrestamo[]> {
+  const { data, error } = await supabase.from(TABLE).select('*')
+    .eq('empresa', empresa).eq('estado', 'activo').gt('saldo', 0)
+    .order('created_at', { ascending: true });
   if (error) throw error;
   return (data ?? []) as AnticipoPrestamo[];
 }

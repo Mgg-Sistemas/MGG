@@ -9,6 +9,7 @@ import type { Personal, AnticipoPrestamo, NominaRenglon, DeduccionRef } from '@/
 import { getTasaHoy, round2 } from '../tesoreria/tasas.repository';
 import { listPersonal, setPersonalActivo } from './personal.repository';
 import { listAnticiposActivos } from './anticipos.repository';
+import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 // descargarNominaReciboPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import {
   cargarNomina, listNominas, listRenglones, eliminarNomina, calcularRenglon,
@@ -17,7 +18,9 @@ import {
 
 const bs = (n: number) => 'Bs ' + Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function NominaTab({ canWrite, actor, actorName }: { canWrite: boolean; actor: string; actorName: string | null }) {
+export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
+  canWrite: boolean; actor: string; actorName: string | null; empresa?: Empresa;
+}) {
   const [nominas, setNominas] = useState<NominaPeriodoResumen[]>([]);
   const [loading, setLoading] = useState(true);
   const [cargarOpen, setCargarOpen] = useState(false);
@@ -26,7 +29,7 @@ export function NominaTab({ canWrite, actor, actorName }: { canWrite: boolean; a
 
   const recargar = useCallback(async () => {
     setLoading(true);
-    try { setNominas(await listNominas()); }
+    try { setNominas(await listNominas(empresa)); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
     finally { setLoading(false); }
   }, []);
@@ -45,7 +48,7 @@ export function NominaTab({ canWrite, actor, actorName }: { canWrite: boolean; a
   // Comprobante de pago (PDF, uno por trabajador, con firmas).
   async function pdfNomina(p: NominaPeriodoResumen) {
     try {
-      const [rens, pers] = await Promise.all([listRenglones(p.id), listPersonal(false)]);
+      const [rens, pers] = await Promise.all([listRenglones(p.id), listPersonal(false, empresa)]);
       if (!rens.length) { toast('La nómina no tiene renglones', 'error'); return; }
       const cedulas = Object.fromEntries(pers.map((x) => [x.id, x.cedula]));
       const { descargarNominaReciboPdf } = await import('./nominaReciboPdf');
@@ -96,9 +99,9 @@ export function NominaTab({ canWrite, actor, actorName }: { canWrite: boolean; a
         </table>
       </div>
 
-      {cargarOpen && <CargarNominaModal actor={actor} actorName={actorName} onClose={() => setCargarOpen(false)} onSaved={async () => { setCargarOpen(false); await recargar(); }} />}
-      {liqOpen && <LiquidacionModal actor={actor} actorName={actorName} onClose={() => setLiqOpen(false)} onSaved={async () => { setLiqOpen(false); await recargar(); }} />}
-      {verPeriodo && <NominaDetalleModal periodo={verPeriodo} onClose={() => setVerPeriodo(null)} />}
+      {cargarOpen && <CargarNominaModal empresa={empresa} actor={actor} actorName={actorName} onClose={() => setCargarOpen(false)} onSaved={async () => { setCargarOpen(false); await recargar(); }} />}
+      {liqOpen && <LiquidacionModal empresa={empresa} actor={actor} actorName={actorName} onClose={() => setLiqOpen(false)} onSaved={async () => { setLiqOpen(false); await recargar(); }} />}
+      {verPeriodo && <NominaDetalleModal periodo={verPeriodo} empresa={empresa} onClose={() => setVerPeriodo(null)} />}
       {porBorrar && (
         <ConfirmDialog
           title="Eliminar nómina"
@@ -119,8 +122,8 @@ interface FilaUI {
   deduc: Record<string, string>;   // anticipoId -> monto a descontar
 }
 
-function CargarNominaModal({ actor, actorName, onClose, onSaved }: {
-  actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
+  empresa: Empresa; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
   // Fecha del día (local) y mes presente — la nómina se marca "hoy".
   const ahora = new Date();
@@ -137,7 +140,7 @@ function CargarNominaModal({ actor, actorName, onClose, onSaved }: {
 
   useEffect(() => {
     getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); }).catch(() => {});
-    Promise.all([listPersonal(true), listAnticiposActivos()]).then(([ps, as]) => {
+    Promise.all([listPersonal(true, empresa), listAnticiposActivos(empresa)]).then(([ps, as]) => {
       setAnticipos(as);
       setFilas(ps.map((p) => ({
         persona: p,
@@ -189,6 +192,7 @@ function CargarNominaModal({ actor, actorName, onClose, onSaved }: {
         };
       });
       const per = await cargarNomina({
+        empresa,
         periodo_desde: hoyIso, periodo_hasta: hoyIso, dias_base: diasBase,
         tasa_bcv: tasa || null, notas: notas || null, renglones, actorEmail: actor, actorName,
       });
@@ -298,7 +302,8 @@ function CargarNominaModal({ actor, actorName, onClose, onSaved }: {
 }
 
 /* ───────── Liquidación / pago extraordinario (incluye renuncia) ───────── */
-function LiquidacionModal({ actor, actorName, onClose, onSaved }: {
+function LiquidacionModal({ empresa, actor, actorName, onClose, onSaved }: {
+  empresa: Empresa;
   actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const [personal, setPersonal] = useState<Personal[]>([]);
@@ -314,7 +319,7 @@ function LiquidacionModal({ actor, actorName, onClose, onSaved }: {
 
   useEffect(() => {
     getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => {});
-    Promise.all([listPersonal(true), listAnticiposActivos()]).then(([ps, as]) => { setPersonal(ps); setAnticipos(as); }).catch(() => {});
+    Promise.all([listPersonal(true, empresa), listAnticiposActivos(empresa)]).then(([ps, as]) => { setPersonal(ps); setAnticipos(as); }).catch(() => {});
   }, []);
 
   const persona = personal.find((p) => p.id === personaId) ?? null;
@@ -334,6 +339,7 @@ function LiquidacionModal({ actor, actorName, onClose, onSaved }: {
     setSaving(true);
     try {
       const per = await cargarNomina({
+        empresa,
         tipo: 'liquidacion', dias_base: 0, tasa_bcv: tasa || null,
         notas: concepto.trim() ? `Liquidación: ${concepto.trim()}` : 'Liquidación / pago extraordinario',
         renglones: [{
@@ -402,12 +408,12 @@ function LiquidacionModal({ actor, actorName, onClose, onSaved }: {
 }
 
 /* ───────── Detalle de una nómina (renglones) ───────── */
-function NominaDetalleModal({ periodo, onClose }: { periodo: NominaPeriodoResumen; onClose: () => void }) {
+function NominaDetalleModal({ periodo, empresa, onClose }: { periodo: NominaPeriodoResumen; empresa: Empresa; onClose: () => void }) {
   const [rows, setRows] = useState<NominaRenglon[]>([]);
   const [loading, setLoading] = useState(true);
   const [cedulas, setCedulas] = useState<Record<string, string | null | undefined>>({});
   useEffect(() => { listRenglones(periodo.id).then(setRows).catch(() => setRows([])).finally(() => setLoading(false)); }, [periodo.id]);
-  useEffect(() => { listPersonal(false).then((ps) => setCedulas(Object.fromEntries(ps.map((x) => [x.id, x.cedula])))).catch(() => {}); }, []);
+  useEffect(() => { listPersonal(false, empresa).then((ps) => setCedulas(Object.fromEntries(ps.map((x) => [x.id, x.cedula])))).catch(() => {}); }, [empresa]);
 
   async function reciboDe(r: NominaRenglon) {
     try { const { descargarNominaReciboPdf } = await import('./nominaReciboPdf'); await descargarNominaReciboPdf([r], { periodo, cedulas }); }

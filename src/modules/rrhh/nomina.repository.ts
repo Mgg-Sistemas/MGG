@@ -15,6 +15,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { round2 } from '../tesoreria/tasas.repository';
 import type { Caja, NominaPeriodo, NominaRenglon, DeduccionRef, Personal, CuentaCaja } from '@/shared/lib/types';
+import { EMPRESA_POR_DEFECTO, normalizarEmpresa, type Empresa } from './empresa';
 
 const BUCKET = 'nomina-comprobantes';
 const CAJAS = 'cajas';
@@ -62,11 +63,15 @@ export function calcularRenglon(input: RenglonCalcInput): RenglonCalc {
 
 /* ───────────── Carga de la nómina ───────────── */
 
-async function nextCodigoNomina(): Promise<string> {
-  const year = new Date().getFullYear();
-  const { count, error } = await supabase.from('nomina_periodos').select('id', { count: 'exact', head: true });
+/**
+ * El código de la próxima nómina. Lo da la BASE, no el front: cada empresa
+ * numera la suya desde 1 y dos personas cargando a la vez no pueden sacar el
+ * mismo número.
+ */
+async function nextCodigoNomina(empresa: Empresa): Promise<string> {
+  const { data, error } = await supabase.rpc('siguiente_codigo_nomina', { p_empresa: empresa });
   if (error) throw error;
-  return `NOM-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`;
+  return String(data);
 }
 
 export interface RenglonInput {
@@ -82,6 +87,8 @@ export interface RenglonInput {
 }
 
 export interface CargarNominaInput {
+  /** De qué empresa es esta nómina. Los renglones tienen que ser todos de ella. */
+  empresa?: Empresa;
   tipo?: string;                 // 'quincena'
   periodo_desde?: string | null;
   periodo_hasta?: string | null;
@@ -100,10 +107,12 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
 
   const calculados = renglones.map((r) => ({ r, c: calcularRenglon(r) }));
   const total = round2(calculados.reduce((a, x) => a + x.c.neto_usd, 0));
-  const codigo = await nextCodigoNomina();
+  const empresa = normalizarEmpresa(input.empresa);
+  const codigo = await nextCodigoNomina(empresa);
 
   const { data: per, error: pErr } = await supabase.from('nomina_periodos').insert({
     codigo,
+    empresa,
     tipo: input.tipo || 'quincena',
     periodo_desde: input.periodo_desde || null,
     periodo_hasta: input.periodo_hasta || null,
@@ -149,10 +158,10 @@ export interface NominaPeriodoResumen extends NominaPeriodo {
   pendientes: number;
 }
 
-export async function listNominas(): Promise<NominaPeriodoResumen[]> {
+export async function listNominas(empresa: Empresa = EMPRESA_POR_DEFECTO): Promise<NominaPeriodoResumen[]> {
   const [{ data: pers, error }, { data: regs, error: rErr }] = await Promise.all([
-    supabase.from('nomina_periodos').select('*').order('created_at', { ascending: false }),
-    supabase.from('nomina_renglones').select('periodo_id, estado'),
+    supabase.from('nomina_periodos').select('*').eq('empresa', empresa).order('created_at', { ascending: false }),
+    supabase.from('nomina_renglones').select('periodo_id, estado').eq('empresa', empresa),
   ]);
   if (error) throw error;
   const periodos = (pers ?? []) as NominaPeriodo[];
@@ -172,13 +181,20 @@ export async function listRenglones(periodoId: string): Promise<NominaRenglon[]>
   return (data ?? []) as NominaRenglon[];
 }
 
-/** Renglones pendientes de pago (cola de Tesorería), con datos de su período. */
-export async function listRenglonesPorPagar(): Promise<NominaRenglon[]> {
-  const { data, error } = await supabase
+/**
+ * Renglones pendientes de pago (cola de Tesorería), con datos de su período.
+ *
+ * Trae LAS DOS empresas a propósito: Tesorería paga las dos y necesita verlas
+ * juntas para saber cuánto debe en total. Cada renglón viene etiquetado, y la
+ * pantalla las separa con un filtro. Pasando `empresa` se trae una sola.
+ */
+export async function listRenglonesPorPagar(empresa?: Empresa): Promise<NominaRenglon[]> {
+  let q = supabase
     .from('nomina_renglones')
     .select('*, periodo:nomina_periodos!nomina_renglones_periodo_id_fkey(codigo, tipo, periodo_desde, periodo_hasta, tasa_bcv)')
-    .eq('estado', 'por_pagar')
-    .order('created_at', { ascending: true });
+    .eq('estado', 'por_pagar');
+  if (empresa) q = q.eq('empresa', empresa);
+  const { data, error } = await q.order('created_at', { ascending: true });
   if (error) throw error;
   return (data ?? []) as NominaRenglon[];
 }
@@ -194,8 +210,10 @@ export async function getRenglonById(id: string): Promise<NominaRenglon | null> 
   return (data ?? null) as NominaRenglon | null;
 }
 
-export async function countRenglonesPorPagar(): Promise<number> {
-  const { count, error } = await supabase.from('nomina_renglones').select('id', { count: 'exact', head: true }).eq('estado', 'por_pagar');
+export async function countRenglonesPorPagar(empresa?: Empresa): Promise<number> {
+  let q = supabase.from('nomina_renglones').select('id', { count: 'exact', head: true }).eq('estado', 'por_pagar');
+  if (empresa) q = q.eq('empresa', empresa);
+  const { count, error } = await q;
   if (error) throw error;
   return count ?? 0;
 }
@@ -348,10 +366,13 @@ export async function procesarVacacion(input: {
   if (sueldo <= 0) throw new Error('El trabajador no tiene sueldo base cargado.');
   const c = calcularRenglon({ sueldo_base_mensual: sueldo, dias_trabajados: dias });
 
-  const codigo = await nextCodigoNomina();
+  // La empresa sale de la FICHA de la persona, no de lo que esté mirando la
+  // pantalla: la vacación es de quien la toma.
+  const empresa = normalizarEmpresa(input.persona.empresa);
+  const codigo = await nextCodigoNomina(empresa);
   const notas = `Vacaciones ${input.persona.nombre} ${input.persona.apellido}`.trim() + (input.desde ? ` (${input.desde}${input.hasta ? ` → ${input.hasta}` : ''})` : '');
   const { data: per, error: pErr } = await supabase.from('nomina_periodos').insert({
-    codigo, tipo: 'vacaciones', periodo_desde: input.desde || null, periodo_hasta: input.hasta || null,
+    codigo, empresa, tipo: 'vacaciones', periodo_desde: input.desde || null, periodo_hasta: input.hasta || null,
     dias_base: dias, estado: 'cargada', total_usd: c.neto_usd, notas,
     creada_por: input.actorEmail, actor_name: input.actorName ?? null,
   }).select('id').single();
