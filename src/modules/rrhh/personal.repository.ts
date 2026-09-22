@@ -11,10 +11,12 @@ import {
   nombreSeguro, validarArchivoDocumento, type TipoDocumentoPersonal,
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, normalizarEmpresa, type Empresa } from './empresa';
+import type { Genero, Parentesco } from './fichaPersonal';
 
 const TABLE = 'personal';
 const TABLA_SUELDOS = 'personal_sueldos';
 const TABLA_DOCS = 'personal_documentos';
+const TABLA_FAMILIA = 'personal_carga_familiar';
 
 /**
  * Lista el personal de UNA empresa, ordenado por departamento y nombre.
@@ -52,6 +54,14 @@ export interface PersonalInput {
   rif?: string | null;
   cargo?: string | null;
   departamento?: string | null;
+  /* ── Ficha técnica ── */
+  genero?: string | null;
+  estado_civil?: string | null;
+  fecha_nacimiento?: string | null;
+  grupo_sanguineo?: string | null;
+  nacionalidad?: string | null;
+  direccion?: string | null;
+  contacto_emergencia_parentesco?: string | null;
   sueldo_base?: number;
   fecha_ingreso?: string | null;
   telefono?: string | null;
@@ -106,6 +116,16 @@ function payload(input: PersonalInput) {
     rif: input.rif?.trim() || null,
     cargo: input.cargo?.trim() || null,
     departamento: input.departamento?.trim() || null,
+    // Los campos de la ficha técnica van vacíos (null) y no en blanco: una
+    // cadena vacía pasaría la restricción de la base y luego no se sabría
+    // si el dato falta o alguien escribió nada.
+    genero: input.genero?.trim() || null,
+    estado_civil: input.estado_civil?.trim() || null,
+    fecha_nacimiento: input.fecha_nacimiento || null,
+    grupo_sanguineo: input.grupo_sanguineo?.trim() || null,
+    nacionalidad: input.nacionalidad?.trim().toUpperCase() || null,
+    direccion: input.direccion?.trim() || null,
+    contacto_emergencia_parentesco: input.contacto_emergencia_parentesco?.trim() || null,
     fecha_ingreso: input.fecha_ingreso || null,
     telefono: input.telefono?.trim() || null,
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
@@ -239,6 +259,101 @@ export async function borrarDocumentoPersonal(doc: DocumentoPersonal): Promise<v
 /** Enlace firmado del RIF. Se conserva el nombre viejo: lo usa el listado. */
 export async function urlDocumentoRif(path: string): Promise<string> {
   return urlDocumentoPersonal(path);
+}
+
+/* ───────── Carga familiar ─────────
+   De acá sale, sin preguntarlo aparte, quién tiene hijos. Una casilla
+   «¿tiene hijos?» abriría la puerta a que diga una cosa y la lista de
+   familiares diga otra.                                                   */
+
+export interface FamiliarPersonal {
+  id: string;
+  personalId: string;
+  nombre: string;
+  parentesco: Parentesco;
+  fechaNacimiento: string | null;
+  genero: Genero | null;
+  observacion: string | null;
+  createdAt: string;
+}
+
+function aFamiliar(r: Record<string, unknown>): FamiliarPersonal {
+  return {
+    id: String(r.id),
+    personalId: String(r.personal_id),
+    nombre: String(r.nombre ?? ''),
+    parentesco: r.parentesco as Parentesco,
+    fechaNacimiento: (r.fecha_nacimiento as string) ?? null,
+    genero: (r.genero as Genero) ?? null,
+    observacion: (r.observacion as string) ?? null,
+    createdAt: String(r.created_at ?? ''),
+  };
+}
+
+/** La familia de una persona: primero los hijos, que son los que más se miran. */
+export async function listCargaFamiliar(personalId: string): Promise<FamiliarPersonal[]> {
+  const { data, error } = await supabase.from(TABLA_FAMILIA).select('*')
+    .eq('personal_id', personalId)
+    .order('parentesco', { ascending: true })
+    .order('fecha_nacimiento', { ascending: true, nullsFirst: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => aFamiliar(r as Record<string, unknown>));
+}
+
+/**
+ * La carga familiar de TODO el personal, para poder filtrar y agrupar por
+ * «con hijos» sin preguntar persona por persona. Por páginas: Supabase corta
+ * en 1.000 filas sin avisar, y un hijo que no llega es alguien que aparecería
+ * como sin hijos.
+ */
+export async function listCargaFamiliarDeTodos(): Promise<FamiliarPersonal[]> {
+  const filas = await todasLasFilas<Record<string, unknown>>((d, h) =>
+    supabase.from(TABLA_FAMILIA).select('*').order('personal_id').order('id').range(d, h));
+  return filas.map((r) => aFamiliar(r));
+}
+
+export interface FamiliarInput {
+  nombre: string;
+  parentesco: Parentesco;
+  fechaNacimiento?: string | null;
+  genero?: Genero | null;
+  observacion?: string | null;
+}
+
+export async function agregarFamiliar(
+  personalId: string, input: FamiliarInput, actor?: string | null,
+): Promise<FamiliarPersonal> {
+  const nombre = input.nombre.trim();
+  if (!nombre) throw new Error('Indicá el nombre del familiar.');
+  const { data, error } = await supabase.from(TABLA_FAMILIA).insert({
+    personal_id: personalId,
+    nombre,
+    parentesco: input.parentesco,
+    fecha_nacimiento: input.fechaNacimiento || null,
+    genero: input.genero || null,
+    observacion: input.observacion?.trim() || null,
+    creado_por: actor ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return aFamiliar(data as Record<string, unknown>);
+}
+
+export async function actualizarFamiliar(id: string, input: FamiliarInput): Promise<void> {
+  const nombre = input.nombre.trim();
+  if (!nombre) throw new Error('Indicá el nombre del familiar.');
+  const { error } = await supabase.from(TABLA_FAMILIA).update({
+    nombre,
+    parentesco: input.parentesco,
+    fecha_nacimiento: input.fechaNacimiento || null,
+    genero: input.genero || null,
+    observacion: input.observacion?.trim() || null,
+  }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarFamiliar(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLA_FAMILIA).delete().eq('id', id);
+  if (error) throw error;
 }
 
 /** Solo los dígitos: «V-12.345.678», «V12345678» y «12345678» son la misma persona. */

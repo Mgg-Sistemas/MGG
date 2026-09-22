@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -19,6 +19,18 @@ import {
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa';
 import {
+  AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRUPOS_SANGUINEOS, PARENTESCOS,
+  agruparPersonal, antiguedad, cantidadHijos, filtrarPersonal, labelEstadoCivil, labelGenero,
+  labelParentesco, numeroFicha, porDepartamento, resumenPersonal, textoEdad, tieneHijos,
+  type Agrupador, type EstadoFiltro, type FiltroPersonal, type Genero, type HijosFiltro,
+  type Parentesco,
+} from './fichaPersonal';
+import {
+  listCargaFamiliar, listCargaFamiliarDeTodos, agregarFamiliar, actualizarFamiliar, eliminarFamiliar,
+  type FamiliarPersonal, type FamiliarInput,
+} from './personal.repository';
+import { verFichaTecnicaPdf } from './fichaTecnicaPdf';
+import {
   TIPOS_CAMBIO_SUELDO, huboCambioSueldo, labelTipoCambio, textoVariacion, tipoSugerido,
   validarCambioSueldo, variacionSueldo, type TipoCambioSueldo,
 } from './cambioSueldo';
@@ -27,7 +39,18 @@ import { listCargos, listDepartamentos, addCargo, addDepartamento } from './cata
 import { generarFrenteBlob, generarReversoBlob, descargarCarnet } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+
+/** Un familiar mientras se edita el formulario. Sin \`id\` = todavía no está guardado. */
+interface FamiliarUI {
+  id?: string;
+  nombre: string;
+  parentesco: Parentesco;
+  fechaNacimiento: string;
+  genero: '' | Genero;
+  observacion: string;
+}
+const FAMILIAR_VACIO: FamiliarUI = { nombre: '', parentesco: 'hijo', fechaNacimiento: '', genero: '', observacion: '' };
 
 /** Limita la cédula a formato venezolano: prefijo opcional (V/E/J/G/P) + hasta 8 dígitos. */
 function sanitizarCedula(v: string): string {
@@ -132,6 +155,27 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   // Los papeles de todo el personal, para poder marcar en el listado quién los
   // tiene completos sin pedir uno por uno.
   const [docsPorPersona, setDocsPorPersona] = useState<Map<string, DocumentoPersonal[]>>(new Map());
+  // La carga familiar de todo el personal: sin esto no se puede filtrar ni
+  // agrupar por «con hijos» sin preguntar persona por persona.
+  const [familiaPorPersona, setFamiliaPorPersona] = useState<Map<string, FamiliarPersonal[]>>(new Map());
+  const [fichaPersona, setFichaPersona] = useState<Personal | null>(null);
+  // La familia que se está editando en el formulario. Se guarda al guardar la
+  // ficha, para que al crear a alguien se pueda cargar todo de una vez.
+  const [familiaForm, setFamiliaForm] = useState<FamiliarUI[]>([]);
+  const [familiaBorrada, setFamiliaBorrada] = useState<string[]>([]);
+
+  /* Filtros y agrupación del listado. */
+  const [fTexto, setFTexto] = useState('');
+  const [fDepto, setFDepto] = useState('');
+  const [fCargo, setFCargo] = useState('');
+  const [fGenero, setFGenero] = useState('');
+  const [fCivil, setFCivil] = useState('');
+  const [fEstado, setFEstado] = useState<EstadoFiltro>('todos');
+  const [fHijos, setFHijos] = useState<HijosFiltro>('');
+  const [fEdadDesde, setFEdadDesde] = useState('');
+  const [fEdadHasta, setFEdadHasta] = useState('');
+  const [agrupar, setAgrupar] = useState<Agrupador>('');
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
   // El sueldo con el que se abrió la ficha: contra esto se compara para saber
   // si hubo cambio. No se compara contra la lista, que puede recargarse sola.
   const [sueldoOriginal, setSueldoOriginal] = useState(0);
@@ -158,14 +202,18 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
     setLoading(true);
     try {
       // En paralelo: los papeles no deben hacer esperar al listado.
-      const [gente, docs] = await Promise.all([
+      const [gente, docs, familia] = await Promise.all([
         listPersonal(false, empresa),
         listDocumentosDeTodos().catch(() => [] as DocumentoPersonal[]),
+        listCargaFamiliarDeTodos().catch(() => [] as FamiliarPersonal[]),
       ]);
       setLista(gente);
       const mapa = new Map<string, DocumentoPersonal[]>();
       for (const d of docs) mapa.set(d.personalId, [...(mapa.get(d.personalId) ?? []), d]);
       setDocsPorPersona(mapa);
+      const fam = new Map<string, FamiliarPersonal[]>();
+      for (const x of familia) fam.set(x.personalId, [...(fam.get(x.personalId) ?? []), x]);
+      setFamiliaPorPersona(fam);
     }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); }
     finally { setLoading(false); }
@@ -176,7 +224,39 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
   useEffect(() => { cargarCatalogos(); }, [cargarCatalogos]);
-  useRealtime(['personal', 'personal_sueldos', 'personal_documentos'], () => { void recargar(); });
+  useRealtime(['personal', 'personal_sueldos', 'personal_documentos', 'personal_carga_familiar'], () => { void recargar(); });
+
+  /* ── Lo que se ve: filtrado y agrupado ── */
+  const tieneHijosDe = useCallback(
+    (id: string) => tieneHijos(familiaPorPersona.get(id) ?? []),
+    [familiaPorPersona],
+  );
+
+  const filtro: FiltroPersonal = useMemo(() => ({
+    texto: fTexto, departamento: fDepto, cargo: fCargo, genero: fGenero,
+    estadoCivil: fCivil, estado: fEstado, hijos: fHijos,
+    edadDesde: fEdadDesde ? Number(fEdadDesde) : null,
+    edadHasta: fEdadHasta ? Number(fEdadHasta) : null,
+  }), [fTexto, fDepto, fCargo, fGenero, fCivil, fEstado, fHijos, fEdadDesde, fEdadHasta]);
+
+  const visibles = useMemo(() => filtrarPersonal(lista, filtro, tieneHijosDe), [lista, filtro, tieneHijosDe]);
+  const grupos = useMemo(() => agruparPersonal(visibles, agrupar, tieneHijosDe), [visibles, agrupar, tieneHijosDe]);
+  const resumen = useMemo(() => resumenPersonal(visibles, tieneHijosDe), [visibles, tieneHijosDe]);
+  const deptos = useMemo(() => porDepartamento(visibles), [visibles]);
+
+  const hayFiltro = !!(fTexto || fDepto || fCargo || fGenero || fCivil || fHijos || fEdadDesde || fEdadHasta || fEstado !== 'todos');
+  function limpiarFiltros() {
+    setFTexto(''); setFDepto(''); setFCargo(''); setFGenero(''); setFCivil('');
+    setFEstado('todos'); setFHijos(''); setFEdadDesde(''); setFEdadHasta('');
+  }
+
+  /** Los valores que existen de verdad, para no ofrecer filtros vacíos. */
+  const deptosUsados = useMemo(
+    () => [...new Set(lista.map((p) => p.departamento || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')),
+    [lista]);
+  const cargosUsados = useMemo(
+    () => [...new Set(lista.map((p) => p.cargo || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')),
+    [lista]);
 
   /** Deja el bloque del cambio de sueldo en blanco. */
   function limpiarCambioSueldo(base: number) {
@@ -189,14 +269,58 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   // La ficha nueva nace en la empresa que se está mirando. No es un campo del
   // formulario a propósito: quién pertenece a cada nómina lo decide el
   // interruptor de arriba, y así no se puede elegir mal sin darse cuenta.
-  function abrirNuevo() { setEditId(null); setForm({ ...VACIO, empresa }); limpiarCambioSueldo(0); setError(null); setFormOpen(true); }
+  function abrirNuevo() {
+    setEditId(null); setForm({ ...VACIO, empresa }); limpiarCambioSueldo(0);
+    setFamiliaForm([]); setFamiliaBorrada([]);
+    setError(null); setFormOpen(true);
+  }
   function editar(p: Personal) {
     setEditId(p.id);
     setForm({ empresa, nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
     limpiarCambioSueldo(Number(p.sueldo_base) || 0);
+    setFamiliaBorrada([]);
+    setFamiliaForm((familiaPorPersona.get(p.id) ?? []).map((x) => ({
+      id: x.id, nombre: x.nombre, parentesco: x.parentesco,
+      fechaNacimiento: x.fechaNacimiento ?? '', genero: x.genero ?? '', observacion: x.observacion ?? '',
+    })));
     setError(null); setFormOpen(true);
   }
-  function cerrarForm() { setEditId(null); setForm({ ...VACIO, empresa }); limpiarCambioSueldo(0); setError(null); setFormOpen(false); }
+  function cerrarForm() {
+    setEditId(null); setForm({ ...VACIO, empresa }); limpiarCambioSueldo(0);
+    setFamiliaForm([]); setFamiliaBorrada([]);
+    setError(null); setFormOpen(false);
+  }
+
+  /* ── La carga familiar del formulario ── */
+  function agregarFila() { setFamiliaForm((f) => [...f, { ...FAMILIAR_VACIO }]); }
+  function cambiarFila(i: number, patch: Partial<FamiliarUI>) {
+    setFamiliaForm((f) => f.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  }
+  function quitarFila(i: number) {
+    setFamiliaForm((f) => {
+      const fila = f[i];
+      // Si ya estaba guardada, hay que borrarla de la base al guardar.
+      if (fila?.id) setFamiliaBorrada((b) => [...b, fila.id as string]);
+      return f.filter((_, k) => k !== i);
+    });
+  }
+
+  /** Guarda la familia del formulario contra la base. */
+  async function guardarFamilia(personalId: string) {
+    for (const id of familiaBorrada) await eliminarFamiliar(id).catch(() => { /* ya no estaba */ });
+    for (const fam of familiaForm) {
+      const nombre = fam.nombre.trim();
+      if (!nombre) continue;   // una fila vacía que quedó abierta no es un familiar
+      const input: FamiliarInput = {
+        nombre, parentesco: fam.parentesco,
+        fechaNacimiento: fam.fechaNacimiento || null,
+        genero: fam.genero || null,
+        observacion: fam.observacion || null,
+      };
+      if (fam.id) await actualizarFamiliar(fam.id, input);
+      else await agregarFamiliar(personalId, input, actor);
+    }
+  }
 
   async function onPickFoto(file: File | null) {
     if (!file) return;
@@ -224,12 +348,18 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
     }
     setGuardando(true);
     try {
+      let personaId = editId;
       if (editId) {
         await actualizarPersonal(editId, form, {
           motivo: motivoSueldo, tipo: tipoSueldo, vigenteDesde,
           actor, actorName: actorName ?? null,
         });
-      } else await crearPersonal(form, actor);
+      } else {
+        // Al crear, la familia se guarda con el id recién asignado: así se
+        // puede cargar todo de una sola vez, en el mismo formulario.
+        personaId = (await crearPersonal(form, actor)).id;
+      }
+      if (personaId) await guardarFamilia(personaId);
       // Si el cargo/departamento es nuevo, lo agregamos al catálogo compartido.
       const cargo = (form.cargo ?? '').trim();
       const depto = (form.departamento ?? '').trim();
@@ -263,16 +393,163 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         </div>
       )}
 
+      {/* Las tarjetas cuentan lo que se está viendo, no todo el personal: si
+          hay un filtro puesto, los números tienen que acompañarlo. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.7rem', marginBottom: '.75rem' }}>
+        <Tarjeta titulo="Empleados" valor={resumen.total}
+          pie={resumen.inactivos ? `${resumen.activos} activos · ${resumen.inactivos} inactivos` : 'Todos activos'} />
+        <Tarjeta titulo="Mujeres" valor={resumen.mujeres} color="#ec4899"
+          pie={resumen.total ? `${Math.round((resumen.mujeres / resumen.total) * 100)}% del total` : '—'} />
+        <Tarjeta titulo="Hombres" valor={resumen.hombres} color="#3b82f6"
+          pie={resumen.total ? `${Math.round((resumen.hombres / resumen.total) * 100)}% del total` : '—'} />
+        <Tarjeta titulo="Con hijos" valor={resumen.conHijos} color="var(--success)"
+          pie={`${resumen.total - resumen.conHijos} sin hijos cargados`} />
+        <Tarjeta titulo="Edad promedio" valor={resumen.edadPromedio ?? '—'}
+          pie={resumen.edadPromedio == null ? 'Sin fechas de nacimiento' : 'años'} />
+      </div>
+
+      {/* Si falta el género en muchas fichas, las dos tarjetas de arriba dicen
+          menos de lo que parece. Mejor avisarlo que dejar suponer. */}
+      {resumen.sinGenero > 0 && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem', padding: '.5rem .75rem' }}>
+          <small>
+            ⚠ <strong>{resumen.sinGenero}</strong> {resumen.sinGenero === 1 ? 'ficha no tiene' : 'fichas no tienen'} el <strong>género</strong> cargado,
+            así que no {resumen.sinGenero === 1 ? 'cuenta' : 'cuentan'} ni en Mujeres ni en Hombres. Se carga al editar la ficha.
+          </small>
+        </div>
+      )}
+
+      {/* Cuánta gente hay en cada departamento */}
+      {deptos.length > 1 && (
+        <div className="card" style={{ marginBottom: '.75rem', padding: '.6rem .75rem' }}>
+          <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.03em', marginBottom: '.4rem' }}>Por departamento</div>
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+            {deptos.map((d) => (
+              <button key={d.nombre} className="btn btn-sm"
+                onClick={() => setFDepto(fDepto === d.nombre ? '' : (d.nombre === 'Sin departamento' ? '' : d.nombre))}
+                disabled={d.nombre === 'Sin departamento'}
+                style={{
+                  border: `1px solid ${fDepto === d.nombre ? 'var(--primary)' : 'var(--border)'}`,
+                  background: fDepto === d.nombre ? 'var(--primary)' : 'transparent',
+                  color: fDepto === d.nombre ? '#fff' : 'var(--text)',
+                }}>
+                {d.nombre} <strong>{d.cantidad}</strong>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Filtros */}
+      <div className="card" style={{ marginBottom: '.75rem' }}>
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div className="form-row" style={{ margin: 0, flex: '1 1 220px' }}>
+            <label>Buscar</label>
+            <input className="input" value={fTexto} onChange={(e) => setFTexto(e.target.value)}
+              placeholder="Nombre, cédula, cargo o departamento…" />
+          </div>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label>Agrupar por</label>
+            <select className="select" value={agrupar} onChange={(e) => setAgrupar(e.target.value as Agrupador)}>
+              {AGRUPADORES.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
+            </select>
+          </div>
+          <button className="btn btn-ghost" onClick={() => setFiltrosAbiertos((v) => !v)}>
+            {filtrosAbiertos ? '▲ Menos filtros' : '▼ Más filtros'}
+          </button>
+          {hayFiltro && <button className="btn btn-ghost" onClick={limpiarFiltros}>✕ Limpiar</button>}
+          <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>
+            {visibles.length} de {lista.length}
+          </span>
+        </div>
+
+        {filtrosAbiertos && (
+          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', marginTop: '.6rem' }}>
+            <div className="form-row" style={{ margin: 0, flex: '1 1 150px' }}>
+              <label>Departamento</label>
+              <select className="select" value={fDepto} onChange={(e) => setFDepto(e.target.value)}>
+                <option value="">Todos</option>
+                {deptosUsados.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div className="form-row" style={{ margin: 0, flex: '1 1 150px' }}>
+              <label>Cargo</label>
+              <select className="select" value={fCargo} onChange={(e) => setFCargo(e.target.value)}>
+                <option value="">Todos</option>
+                {cargosUsados.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="form-row" style={{ margin: 0, flex: '0 1 130px' }}>
+              <label>Género</label>
+              <select className="select" value={fGenero} onChange={(e) => setFGenero(e.target.value)}>
+                <option value="">Todos</option>
+                {GENEROS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+              </select>
+            </div>
+            <div className="form-row" style={{ margin: 0, flex: '0 1 140px' }}>
+              <label>Estado civil</label>
+              <select className="select" value={fCivil} onChange={(e) => setFCivil(e.target.value)}>
+                <option value="">Todos</option>
+                {ESTADOS_CIVILES.map((e) => <option key={e.key} value={e.key}>{e.label}</option>)}
+              </select>
+            </div>
+            <div className="form-row" style={{ margin: 0, flex: '0 1 130px' }}>
+              <label>Hijos</label>
+              <select className="select" value={fHijos} onChange={(e) => setFHijos(e.target.value as HijosFiltro)}>
+                <option value="">Todos</option>
+                <option value="con">Con hijos</option>
+                <option value="sin">Sin hijos</option>
+              </select>
+            </div>
+            <div className="form-row" style={{ margin: 0, flex: '0 1 130px' }}>
+              <label>Estado</label>
+              <select className="select" value={fEstado} onChange={(e) => setFEstado(e.target.value as EstadoFiltro)}>
+                <option value="todos">Todos</option>
+                <option value="activos">Activos</option>
+                <option value="inactivos">Inactivos</option>
+              </select>
+            </div>
+            <div className="form-row" style={{ margin: 0, flex: '0 1 100px' }}>
+              <label>Edad desde</label>
+              <input className="input mono" type="number" min={0} max={110} value={fEdadDesde}
+                onChange={(e) => setFEdadDesde(e.target.value)} placeholder="—" />
+            </div>
+            <div className="form-row" style={{ margin: 0, flex: '0 1 100px' }}>
+              <label>Edad hasta</label>
+              <input className="input mono" type="number" min={0} max={110} value={fEdadHasta}
+                onChange={(e) => setFEdadHasta(e.target.value)} placeholder="—" />
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
-          <thead><tr><th>Persona</th><th>Departamento</th><th>Cargo</th><th style={{ textAlign: 'right' }}>Sueldo base</th><th style={{ textAlign: 'center' }}>Estado</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+          <thead><tr><th>Persona</th><th>Departamento</th><th>Cargo</th><th style={{ textAlign: 'center' }}>Edad</th><th style={{ textAlign: 'center' }}>Familia</th><th style={{ textAlign: 'right' }}>Sueldo base</th><th style={{ textAlign: 'center' }}>Estado</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !lista.length && <tr><td colSpan={6}><EmptyState message="Sin personal. Usá “+ Ingresar Registro de Personal”." icon="👥" /></td></tr>}
-            {!loading && lista.map((p) => (
+            {loading && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !lista.length && <tr><td colSpan={8}><EmptyState message="Sin personal. Usá “+ Ingresar Registro de Personal”." icon="👥" /></td></tr>}
+            {!loading && lista.length > 0 && !visibles.length && (
+              <tr><td colSpan={8}><EmptyState message="Ningún trabajador coincide con esos filtros" icon="🔍" /></td></tr>
+            )}
+            {!loading && grupos.map((g) => (
+              <Fragment key={g.nombre || 'todos'}>
+                {g.nombre && (
+                  <tr>
+                    <td colSpan={8} style={{ background: 'var(--bg-2)', fontWeight: 700, fontSize: '.82rem', padding: '.4rem .6rem' }}>
+                      {g.nombre} <span className="muted" style={{ fontWeight: 400 }}>· {g.filas.length}</span>
+                    </td>
+                  </tr>
+                )}
+                {g.filas.map((p) => (
               <tr key={p.id} style={{ opacity: p.activo ? 1 : 0.55 }}>
                 <td>
                   {p.nombre} {p.apellido}{p.cedula ? <span className="muted"> · {p.cedula}</span> : null}
+                  <div className="muted" style={{ fontSize: '.7rem' }}>
+                    {numeroFicha(p.numero_ficha)}
+                    {p.genero ? ` · ${labelGenero(p.genero)}` : ''}
+                    {p.estado_civil ? ` · ${labelEstadoCivil(p.estado_civil)}` : ''}
+                  </div>
                   {/* El RIF y el estado de los papeles, a la vista: es lo que se busca acá. */}
                   <div className="muted mono" style={{ fontSize: '.72rem', display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
                     {p.rif ? <span>RIF {p.rif}</span> : null}
@@ -293,9 +570,23 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 </td>
                 <td className="muted">{p.departamento || '—'}</td>
                 <td className="muted">{p.cargo || '—'}</td>
+                <td className="mono muted" style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>{textoEdad(p.fecha_nacimiento)}</td>
+                <td style={{ textAlign: 'center' }}>
+                  {(() => {
+                    const fam = familiaPorPersona.get(p.id) ?? [];
+                    const hijos = cantidadHijos(fam);
+                    if (!fam.length) return <span className="muted">—</span>;
+                    return (
+                      <span className="badge" title={`${fam.length} familiar(es) cargado(s)`}>
+                        👨‍👩‍👧 {fam.length}{hijos ? ` · ${hijos} 🧒` : ''}
+                      </span>
+                    );
+                  })()}
+                </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{Number(p.sueldo_base) > 0 ? money(p.sueldo_base) : '—'}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: p.activo ? 'var(--success)' : 'var(--muted)' }}>{p.activo ? 'Activo' : 'Inactivo'}</span></td>
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setFichaPersona(p)} title="Ficha técnica">📋</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setCarnetPersona(p)} title="Carnet (imagen con QR)">🪪</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
@@ -308,6 +599,8 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   </>}
                 </td>
               </tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -473,6 +766,117 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
               </div>
             )}
 
+            {/* ── Datos personales de la ficha tecnica ── */}
+            <div className="card" style={{ margin: '.7rem 0', padding: '.7rem .8rem' }}>
+              <div style={{ fontWeight: 700, marginBottom: '.5rem' }}>🪪 Datos personales</div>
+              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
+                  <label>Género</label>
+                  <select className="select" value={form.genero ?? ''} onChange={(e) => setForm((x) => ({ ...x, genero: e.target.value }))}>
+                    <option value="">— sin cargar —</option>
+                    {GENEROS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+                  </select>
+                </div>
+                <div className="form-row" style={{ flex: '0 1 160px', margin: 0 }}>
+                  <label>Estado civil</label>
+                  <select className="select" value={form.estado_civil ?? ''} onChange={(e) => setForm((x) => ({ ...x, estado_civil: e.target.value }))}>
+                    <option value="">— sin cargar —</option>
+                    {ESTADOS_CIVILES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                  </select>
+                </div>
+                <div className="form-row" style={{ flex: '0 1 165px', margin: 0 }}>
+                  <label>Fecha de nacimiento</label>
+                  <input className="input" type="date" value={form.fecha_nacimiento ?? ''}
+                    onChange={(e) => setForm((x) => ({ ...x, fecha_nacimiento: e.target.value }))} />
+                  {/* La edad no se guarda: se calcula. Una edad guardada queda
+                      vieja al dia siguiente del cumpleaños. */}
+                  <small className="muted">{form.fecha_nacimiento ? textoEdad(form.fecha_nacimiento) : 'De acá sale la edad.'}</small>
+                </div>
+                <div className="form-row" style={{ flex: '0 1 120px', margin: 0 }}>
+                  <label>Grupo sanguíneo</label>
+                  <select className="select" value={form.grupo_sanguineo ?? ''} onChange={(e) => setForm((x) => ({ ...x, grupo_sanguineo: e.target.value }))}>
+                    <option value="">—</option>
+                    {GRUPOS_SANGUINEOS.map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+                <div className="form-row" style={{ flex: '1 1 150px', margin: 0 }}>
+                  <label>Nacionalidad</label>
+                  <input className="input" value={form.nacionalidad ?? ''}
+                    onChange={(e) => setForm((x) => ({ ...x, nacionalidad: e.target.value }))} placeholder="VENEZOLANO" />
+                </div>
+              </div>
+              <div className="form-row" style={{ marginBottom: 0, marginTop: '.5rem' }}>
+                <label>Dirección</label>
+                <input className="input" value={form.direccion ?? ''}
+                  onChange={(e) => setForm((x) => ({ ...x, direccion: e.target.value }))}
+                  placeholder="Ciudad, sector, calle…" />
+              </div>
+              <div className="form-row" style={{ marginBottom: 0, marginTop: '.5rem' }}>
+                <label>Parentesco del contacto de emergencia</label>
+                <input className="input" value={form.contacto_emergencia_parentesco ?? ''}
+                  onChange={(e) => setForm((x) => ({ ...x, contacto_emergencia_parentesco: e.target.value }))}
+                  placeholder="Hija, esposa, hermano…" />
+              </div>
+            </div>
+
+            {/* ── CARGA FAMILIAR ── */}
+            <div className="card" style={{ margin: '.7rem 0', padding: '.7rem .8rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>👨‍👩‍👧 CARGA FAMILIAR</div>
+                  <small className="muted">
+                    De acá sale quién tiene hijos: no se pregunta aparte, para que no pueda decir
+                    una cosa la casilla y otra la lista.
+                  </small>
+                </div>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={agregarFila}>+ Agregar familiar</button>
+              </div>
+
+              {!familiaForm.length && (
+                <small className="muted">Sin carga familiar cargada. Con <strong>+ Agregar familiar</strong> se suman hijos, cónyuge y quien corresponda.</small>
+              )}
+
+              {familiaForm.map((fam, i) => (
+                <div key={i} style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'flex-end', padding: '.45rem 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
+                  <div className="form-row" style={{ flex: '2 1 170px', margin: 0 }}>
+                    <label style={{ fontSize: '.72rem' }}>Nombre y apellido</label>
+                    <input className="input" value={fam.nombre} onChange={(e) => cambiarFila(i, { nombre: e.target.value })} placeholder="Nombre del familiar" />
+                  </div>
+                  <div className="form-row" style={{ flex: '0 1 140px', margin: 0 }}>
+                    <label style={{ fontSize: '.72rem' }}>Parentesco</label>
+                    <select className="select" value={fam.parentesco} onChange={(e) => cambiarFila(i, { parentesco: e.target.value as Parentesco })}>
+                      {PARENTESCOS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
+                    <label style={{ fontSize: '.72rem' }}>Fecha de nacimiento</label>
+                    <input className="input" type="date" value={fam.fechaNacimiento} onChange={(e) => cambiarFila(i, { fechaNacimiento: e.target.value })} />
+                    {fam.fechaNacimiento && <small className="muted">{textoEdad(fam.fechaNacimiento)}</small>}
+                  </div>
+                  <div className="form-row" style={{ flex: '0 1 120px', margin: 0 }}>
+                    <label style={{ fontSize: '.72rem' }}>Género</label>
+                    <select className="select" value={fam.genero} onChange={(e) => cambiarFila(i, { genero: e.target.value as '' | Genero })}>
+                      <option value="">—</option>
+                      {GENEROS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
+                    <label style={{ fontSize: '.72rem' }}>Observación</label>
+                    <input className="input" value={fam.observacion} onChange={(e) => cambiarFila(i, { observacion: e.target.value })} placeholder="Opcional" />
+                  </div>
+                  <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
+                    onClick={() => quitarFila(i)} title="Quitar">🗑</button>
+                </div>
+              ))}
+
+              {familiaForm.length > 0 && (
+                <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
+                  {familiaForm.length} familiar(es) · {familiaForm.filter((x) => x.parentesco === 'hijo').length} hijo(s).
+                  Se guardan junto con la ficha.
+                </small>
+              )}
+            </div>
+
             <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina. El <strong>teléfono</strong> y el <strong>contacto de emergencia</strong> se incluyen en el <strong>QR del carnet</strong> (🪪).</small>
           </form>
         </Modal>
@@ -480,6 +884,10 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
 
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {sueldoPersona && <HistorialSueldoModal persona={sueldoPersona} onClose={() => setSueldoPersona(null)} />}
+      {fichaPersona && (
+        <FichaTecnicaModal persona={fichaPersona} onClose={() => setFichaPersona(null)}
+          onEditar={() => { const p = fichaPersona; setFichaPersona(null); editar(p); }} canWrite={canWrite} />
+      )}
       {docsPersona && (
         <DocumentacionModal persona={docsPersona} canWrite={canWrite} actor={actor} actorName={actorName ?? null}
           onClose={() => setDocsPersona(null)} onCambio={() => { void recargar(); }} />
@@ -638,6 +1046,154 @@ function ComboConAgregar({ label, valor, opciones, onChange, hint }: {
 }
 
 /* ───────── Histórico de pagos individuales de una persona ───────── */
+/* ───────── Tarjeta de un número del encabezado ───────── */
+function Tarjeta({ titulo, valor, pie, color }: { titulo: string; valor: number | string; pie: string; color?: string }) {
+  return (
+    <div className="card" style={{ margin: 0, padding: '.6rem .75rem' }}>
+      <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>{titulo}</div>
+      <div className="mono" style={{ fontSize: '1.8rem', fontWeight: 800, lineHeight: 1.1, color: color ?? 'inherit' }}>{valor}</div>
+      <div className="muted" style={{ fontSize: '.72rem' }}>{pie}</div>
+    </div>
+  );
+}
+
+/* ───────── Ficha técnica: todo de una persona, en una hoja ───────── */
+function FichaTecnicaModal({ persona, canWrite, onClose, onEditar }: {
+  persona: Personal; canWrite: boolean; onClose: () => void; onEditar: () => void;
+}) {
+  const [familia, setFamilia] = useState<FamiliarPersonal[]>([]);
+  const [docs, setDocs] = useState<DocumentoPersonal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [generando, setGenerando] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    Promise.all([
+      listCargaFamiliar(persona.id).catch(() => [] as FamiliarPersonal[]),
+      listDocumentosPersonal(persona.id).catch(() => [] as DocumentoPersonal[]),
+    ]).then(([fam, dd]) => { if (vivo) { setFamilia(fam); setDocs(dd); } })
+      .finally(() => { if (vivo) setLoading(false); });
+    return () => { vivo = false; };
+  }, [persona.id]);
+
+  async function verPdf() {
+    setGenerando(true);
+    try { await verFichaTecnicaPdf(persona, familia); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar la ficha', 'error'); }
+    finally { setGenerando(false); }
+  }
+
+  const emp = definicionEmpresa(persona.empresa);
+  const emergencia = [persona.contacto_emergencia, persona.contacto_emergencia_parentesco]
+    .map((x) => String(x ?? '').trim()).filter(Boolean).join(', ');
+
+  return (
+    <Modal title={`Ficha técnica · ${persona.nombre} ${persona.apellido}`} size="xl" onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+          {canWrite && <button className="btn btn-ghost" onClick={onEditar}>✎ Editar datos</button>}
+          <button className="btn btn-primary" onClick={() => void verPdf()} disabled={generando}>
+            {generando ? 'Generando…' : '📄 Ver ficha en PDF'}
+          </button>
+        </>
+      }>
+      {/* Encabezado: quién es y en qué nómina está */}
+      <div className="card" style={{ margin: '0 0 .75rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', borderLeft: `3px solid ${emp.color}` }}>
+        <div style={{ width: 72, height: 82, borderRadius: 8, overflow: 'hidden', background: 'var(--bg-1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '2px solid var(--primary)' }}>
+          {persona.foto_url
+            ? <img src={persona.foto_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <span className="muted" style={{ fontSize: '1.6rem' }}>👤</span>}
+        </div>
+        <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+          <div style={{ fontSize: '1.15rem', fontWeight: 800 }}>{persona.nombre} {persona.apellido}</div>
+          <div className="muted" style={{ fontSize: '.84rem' }}>
+            {numeroFicha(persona.numero_ficha)} · {persona.cargo || 'Sin cargo'} · {persona.departamento || 'Sin departamento'}
+          </div>
+          <div style={{ marginTop: '.3rem', display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
+            <span className="badge" style={{ color: persona.activo ? 'var(--success)' : 'var(--muted)' }}>{persona.activo ? 'Activo' : 'Inactivo'}</span>
+            <span className="badge" style={{ background: emp.color, color: '#fff' }}>Nómina {emp.label}</span>
+            <span className="badge">{resumenDocumentos(docs)} papeles</span>
+          </div>
+        </div>
+      </div>
+
+      <BloqueFicha titulo="Identificación" pares={[
+        ['Cédula', persona.cedula || '—'],
+        ['RIF', persona.rif || '—'],
+        ['Fecha de nacimiento', persona.fecha_nacimiento ? date(persona.fecha_nacimiento) : '—'],
+        ['Edad', textoEdad(persona.fecha_nacimiento)],
+        ['Grupo sanguíneo', persona.grupo_sanguineo || '—'],
+        ['Género', persona.genero ? labelGenero(persona.genero) : '—'],
+        ['Nacionalidad', persona.nacionalidad || '—'],
+        ['Estado civil', persona.estado_civil ? labelEstadoCivil(persona.estado_civil) : '—'],
+      ]} />
+
+      <BloqueFicha titulo="Contacto" pares={[
+        ['Teléfono', persona.telefono || '—'],
+        ['En una emergencia, llamar a', [emergencia || null, persona.contacto_emergencia_tlf || null].filter(Boolean).join(' · ') || '—'],
+        ['Dirección', persona.direccion || '—'],
+      ]} />
+
+      <BloqueFicha titulo="Datos laborales" pares={[
+        ['Cargo', persona.cargo || '—'],
+        ['Departamento', persona.departamento || '—'],
+        ['Fecha de ingreso', persona.fecha_ingreso ? date(persona.fecha_ingreso) : '—'],
+        ['Antigüedad', antiguedad(persona.fecha_ingreso)],
+        ['Sueldo base mensual', Number(persona.sueldo_base) > 0 ? money(persona.sueldo_base) : '—'],
+        ['Empresa', emp.razonSocial],
+      ]} />
+
+      {/* Carga familiar */}
+      <div style={{ marginTop: '.9rem' }}>
+        <div style={{ color: 'var(--primary)', fontWeight: 800, fontSize: '.8rem', textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid var(--primary)', paddingBottom: '.25rem', marginBottom: '.5rem' }}>
+          Carga familiar
+        </div>
+        {loading && <div className="muted" style={{ fontSize: '.85rem' }}>Cargando…</div>}
+        {!loading && !familia.length && <div className="muted" style={{ fontSize: '.85rem' }}>Sin carga familiar registrada.</div>}
+        {!loading && familia.length > 0 && (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr><th>Nombre</th><th>Parentesco</th><th>Nacimiento</th><th style={{ textAlign: 'center' }}>Edad</th><th>Género</th><th>Observación</th></tr></thead>
+              <tbody>
+                {familia.map((x) => (
+                  <tr key={x.id}>
+                    <td>{x.nombre}</td>
+                    <td><span className="badge">{labelParentesco(x.parentesco)}</span></td>
+                    <td className="mono muted">{x.fechaNacimiento ? date(x.fechaNacimiento) : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'center' }}>{textoEdad(x.fechaNacimiento)}</td>
+                    <td className="muted">{x.genero ? labelGenero(x.genero) : '—'}</td>
+                    <td className="muted">{x.observacion || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Un bloque de la ficha: título con línea y los datos de a dos por renglón. */
+function BloqueFicha({ titulo, pares }: { titulo: string; pares: [string, string][] }) {
+  return (
+    <div style={{ marginBottom: '.9rem' }}>
+      <div style={{ color: 'var(--primary)', fontWeight: 800, fontSize: '.8rem', textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid var(--primary)', paddingBottom: '.25rem', marginBottom: '.4rem' }}>
+        {titulo}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0 1.5rem' }}>
+        {pares.map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '.35rem 0', borderBottom: '1px solid var(--border)', fontSize: '.86rem' }}>
+            <span className="muted">{k}</span>
+            <span style={{ fontWeight: 700, textAlign: 'right' }}>{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ───────── Documentación: cédula, RIF y currículum ───────── */
 function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCambio }: {
   persona: Personal; canWrite: boolean; actor: string; actorName: string | null;

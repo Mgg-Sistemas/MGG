@@ -1027,6 +1027,16 @@ export interface Personal {
   rif_nombre?: string | null;
   cargo?: string | null;
   departamento?: string | null;
+  /** Correlativo por empresa: «Ficha 0005». Lo pone la base. */
+  numero_ficha?: number | null;
+  genero?: string | null;
+  estado_civil?: string | null;
+  /** De acá sale la edad. La edad NO se guarda: quedaría vieja al día siguiente. */
+  fecha_nacimiento?: string | null;
+  grupo_sanguineo?: string | null;
+  nacionalidad?: string | null;
+  direccion?: string | null;
+  contacto_emergencia_parentesco?: string | null;
   sueldo_base: number;          // sueldo MENSUAL (USD)
   activo: boolean;
   fecha_ingreso?: string | null;
