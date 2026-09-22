@@ -8,7 +8,7 @@ import { GlobalSearch } from '@/shared/ui/GlobalSearch';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
-import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
+import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, textoPaso, BACKUP_EMAIL, type AvanceRespaldo } from '@/shared/lib/backup';
 import { Modal } from '@/shared/ui/Modal';
 import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
@@ -197,30 +197,44 @@ export function AppShell() {
 
   // Respaldo manual: al hacer clic se elige Descargar o Enviar por correo.
   const [respaldoOpen, setRespaldoOpen] = useState(false);
+  /* Generar el respaldo tarda MINUTOS: la base recorre 139 tablas. Sin nada que
+     mirar, el usuario cree que se colgó y recarga la página justo antes de que
+     termine. Por eso se muestra en qué paso va y cuánto lleva esperando. */
+  const [avance, setAvance] = useState<AvanceRespaldo | null>(null);
+  const [segundos, setSegundos] = useState(0);
+  useEffect(() => {
+    if (!descargandoBackup) { setSegundos(0); return; }
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [descargandoBackup]);
+
+  const actorRespaldo = user?.email ?? 'sistema';
+
   async function handleRespaldoDescargar() {
     if (descargandoBackup) return;
-    setDescargandoBackup(true);
+    setDescargandoBackup(true); setAvance(null);
     try {
-      await descargarRespaldoSql(user?.email ?? 'sistema', false);
-      toast('Respaldo de datos descargado (.sql)', 'success');
+      const { bytes } = await descargarRespaldoSql(actorRespaldo, false, setAvance);
+      toast(`Respaldo descargado (.sql · ${(bytes / (1024 * 1024)).toFixed(1)} MB)`, 'success');
       setRespaldoOpen(false);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el respaldo', 'error');
     } finally {
-      setDescargandoBackup(false);
+      setDescargandoBackup(false); setAvance(null);
     }
   }
   async function handleRespaldoCorreo() {
     if (descargandoBackup) return;
-    setDescargandoBackup(true);
+    setDescargandoBackup(true); setAvance(null);
     try {
-      const { destinatarios } = await enviarRespaldoPorCorreo(user?.email ?? 'sistema', false);
-      toast(`Respaldo enviado por correo a ${destinatarios.join(', ')}`, 'success');
+      const { destinatarios, bytesSql, bytesZip } = await enviarRespaldoPorCorreo(actorRespaldo, false, undefined, setAvance);
+      const mb = (b: number) => `${(b / (1024 * 1024)).toFixed(1)} MB`;
+      toast(`Respaldo enviado a ${destinatarios.join(', ')} · ${mb(bytesZip)} comprimido (${mb(bytesSql)} sin comprimir)`, 'success');
       setRespaldoOpen(false);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo enviar el respaldo', 'error');
     } finally {
-      setDescargandoBackup(false);
+      setDescargandoBackup(false); setAvance(null);
     }
   }
 
@@ -478,9 +492,45 @@ export function AppShell() {
             </>
           }
         >
-          <p className="muted" style={{ margin: 0, fontSize: '.9rem' }}>
-            {descargandoBackup ? 'Generando el respaldo…' : <>¿Cómo querés el respaldo de la base de datos (.sql)? El envío por correo va a <strong>{BACKUP_EMAIL}</strong>.</>}
-          </p>
+          {!descargandoBackup ? (
+            <p className="muted" style={{ margin: 0, fontSize: '.9rem' }}>
+              ¿Cómo querés el respaldo de la base de datos (.sql)? El envío por correo va a <strong>{BACKUP_EMAIL}</strong>,
+              comprimido en <strong>.zip</strong> para que entre en el adjunto.
+            </p>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', marginBottom: '.4rem' }}>
+                <strong style={{ fontSize: '.9rem' }}>
+                  {avance ? `${avance.numero}/${avance.total} · ${textoPaso(avance.paso)}` : 'Preparando…'}
+                </strong>
+                <span className="mono muted" style={{ fontSize: '.8rem' }}>
+                  {Math.floor(segundos / 60)}:{String(segundos % 60).padStart(2, '0')}
+                </span>
+              </div>
+              {/* La barra avanza por PASOS cumplidos, no por un porcentaje
+                  inventado: la base no informa cuánto le falta, y una barra que
+                  miente es peor que ninguna. Dentro del paso se mueve sola para
+                  que se vea que sigue trabajando. */}
+              <div style={{ height: 8, borderRadius: 999, background: 'var(--bg-2)', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: avance ? `${Math.round(((avance.numero - 1) / avance.total) * 100)}%` : '4%',
+                  minWidth: 24,
+                  borderRadius: 999,
+                  background: 'var(--primary, #ff8a00)',
+                  transition: 'width .4s ease',
+                  backgroundImage: 'linear-gradient(90deg, rgba(255,255,255,.0) 0%, rgba(255,255,255,.35) 50%, rgba(255,255,255,.0) 100%)',
+                  backgroundSize: '200% 100%',
+                  animation: 'mgg-barra 1.2s linear infinite',
+                }} />
+              </div>
+              <style>{'@keyframes mgg-barra{0%{background-position:200% 0}100%{background-position:-200% 0}}'}</style>
+              <p className="muted" style={{ margin: '.5rem 0 0', fontSize: '.8rem' }}>
+                {avance?.detalle ? `${avance.detalle} · ` : ''}
+                La base recorre 139 tablas: esto puede tardar <strong>varios minutos</strong>. No cierres la ventana.
+              </p>
+            </div>
+          )}
         </Modal>
       )}
     </div>

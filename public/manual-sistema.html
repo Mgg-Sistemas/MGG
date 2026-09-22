@@ -988,6 +988,13 @@
     <ul>
       <li><strong>Manual:</strong> al hacer clic se abre una ventana que pregunta <strong>¿Descargar o Enviar por correo?</strong>. Con <strong>↓ Descargar</strong> se baja el archivo <code>.sql</code> con todos los datos del sistema (un <code>INSERT</code> por registro de cada tabla). Con <strong>✉ Enviar por correo</strong> el respaldo se envía como adjunto a <strong>mineralgroupsistemas@gmail.com</strong> y <strong>sistemas@mineralgroupguayana.com</strong>. El archivo incluye un <strong>encabezado con quién lo generó y la fecha y hora</strong>.</li>
       <li><strong>Automático:</strong> <strong>cada 30 días</strong>, la primera vez que entra un administrador o analista, el respaldo se <strong>envía por correo automáticamente</strong> a <strong>mineralgroupsistemas@gmail.com</strong> y <strong>sistemas@mineralgroupguayana.com</strong>, y queda registrada la fecha del último respaldo.</li>
+      <li><strong>⏳ Tarda varios minutos, y ahora se ve:</strong> la base recorre <strong>139 tablas</strong> para armar el archivo, así que no es instantáneo. La ventana muestra <strong>en qué paso va</strong> (generando → comprimiendo → enviando) con una <strong>barra</strong> y el <strong>tiempo transcurrido</strong>. Antes solo decía «Generando el respaldo…» sin moverse, y parecía colgado. <strong>No cierres la ventana</strong> mientras trabaja.</li>
+      <li><strong>📦 El correo va comprimido en .zip:</strong> el respaldo ya pesa <strong>más de 20 MB de texto</strong>, y un adjunto de correo se manda codificado, lo que lo hace pesar <strong>un tercio más</strong>. El proveedor de correo corta en 20 MB, así que el envío rebotaba con <em>«Mail size too large»</em> después de esperar todo el rato. Comprimido entra con margen: un <code>.sql</code> se achica como <strong>10 a 1</strong>. Adentro del <code>.zip</code> viene el <code>.sql</code> de siempre.
+        <ul>
+          <li>Si algún día ni comprimido entra, el sistema <strong>avisa antes de mandarlo</strong>, diciendo cuánto pesa y cuánto admite el correo, en vez de esperar a que el correo lo rechace.</li>
+          <li>La opción <strong>↓ Descargar</strong> sigue bajando el <code>.sql</code> sin comprimir: no tiene tope de tamaño y se restaura directo.</li>
+        </ul>
+      </li>
       <li>Solo <strong>admin/analista</strong> pueden generarlo (el filtro de usuarios se afinará más adelante).</li>
     </ul>
   </section>

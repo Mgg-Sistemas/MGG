@@ -73,49 +73,111 @@ function descargarTexto(texto: string, nombre: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Genera y descarga el respaldo .sql (con encabezado de autor/fecha). Registra la fecha. */
-export async function descargarRespaldoSql(actorEmail: string, automatico = false): Promise<void> {
+/**
+ * Genera y descarga el respaldo .sql (con encabezado de autor/fecha).
+ * La descarga NO se comprime: no tiene tope de tamaño y un .sql suelto se abre
+ * y se restaura directo, sin pasar por un descompresor.
+ */
+export async function descargarRespaldoSql(
+  actorEmail: string,
+  automatico = false,
+  onAvance?: (a: AvanceRespaldo) => void,
+): Promise<{ bytes: number }> {
+  onAvance?.({ paso: 'generando', numero: 1, total: 2 });
   const sql = encabezadoRespaldo(actorEmail, automatico) + await generarRespaldoSql();
   const fecha = new Date().toISOString().slice(0, 10);
+  onAvance?.({ paso: 'enviando', numero: 2, total: 2, detalle: 'guardando el archivo' });
   descargarTexto(sql, `mgg-respaldo${automatico ? '-auto' : ''}-${fecha}.sql`);
   await registrarUltimoRespaldo(actorEmail, automatico);
+  return { bytes: new TextEncoder().encode(sql).length };
 }
 
-/** Base64 seguro para UTF-8 (btoa solo maneja latin1). */
-function toBase64Utf8(s: string): string {
-  return btoa(unescape(encodeURIComponent(s)));
+/** Tope de adjunto del proveedor de correo (Brevo). Es del ADJUNTO, no del archivo. */
+export const TOPE_CORREO_BYTES = 20 * 1024 * 1024;
+
+/** En qué anda el respaldo, para poder mostrarlo en pantalla. */
+export type PasoRespaldo = 'generando' | 'comprimiendo' | 'enviando';
+
+export interface AvanceRespaldo {
+  paso: PasoRespaldo;
+  /** 1, 2 o 3: cuál de los tres pasos es. */
+  numero: number;
+  total: number;
+  detalle?: string;
+}
+
+const PASOS: Record<PasoRespaldo, { numero: number; texto: string }> = {
+  generando: { numero: 1, texto: 'Generando el respaldo en la base…' },
+  comprimiendo: { numero: 2, texto: 'Comprimiendo…' },
+  enviando: { numero: 3, texto: 'Enviando el correo…' },
+};
+
+export function textoPaso(paso: PasoRespaldo): string {
+  return PASOS[paso].texto;
 }
 
 /**
- * Genera el respaldo .sql y lo ENVÍA POR CORREO (adjunto) vía la Edge Function
- * `enviar-reporte` (Brevo). Por defecto al correo de respaldos. Registra la fecha.
+ * Genera el respaldo .sql, lo COMPRIME en .zip y lo envía por correo vía la
+ * Edge Function `enviar-reporte` (Brevo). Registra la fecha.
+ *
+ * POR QUÉ COMPRIMIDO: el respaldo ya pesa más de 20 MB de texto, y el adjunto
+ * se manda en base64, que pesa un tercio MÁS que el archivo. Sin comprimir, el
+ * correo lo rechaza ("Mail size too large") después de esperar varios minutos
+ * a que la base termine de generarlo. Un .sql comprime como 10 a 1, así que
+ * zipeado entra con margen. Además Brevo acepta `.zip` y no acepta `.sql`.
  */
 export async function enviarRespaldoPorCorreo(
   actorEmail: string,
   automatico = false,
   toEmails: string[] = BACKUP_EMAILS,
-): Promise<{ destinatarios: string[] }> {
+  onAvance?: (a: AvanceRespaldo) => void,
+): Promise<{ destinatarios: string[]; bytesSql: number; bytesZip: number }> {
+  const avisar = (paso: PasoRespaldo, detalle?: string) =>
+    onAvance?.({ paso, numero: PASOS[paso].numero, total: 3, detalle });
+
   const cuando = ahoraVE();
+  avisar('generando');
   const sql = encabezadoRespaldo(actorEmail, automatico) + await generarRespaldoSql();
   const fecha = new Date().toISOString().slice(0, 10);
-  // Brevo no admite adjuntos `.sql`; se envía como `.sql.txt` (mismo contenido,
-  // extensión aceptada). La descarga manual sí mantiene `.sql`.
-  const nombre = `mgg-respaldo${automatico ? '-auto' : ''}-${fecha}.sql.txt`;
+  const bytesSql = new TextEncoder().encode(sql).length;
+
+  avisar('comprimiendo', megas(bytesSql));
+  const { zipDeUnArchivo, bytesABase64, pesoEnBase64, megas: mb } = await import('./zip');
+  const base = `mgg-respaldo${automatico ? '-auto' : ''}-${fecha}`;
+  const zip = await zipDeUnArchivo(`${base}.sql`, sql);
+
+  // Se revisa ANTES de mandar: esperar tres minutos para que el correo lo
+  // rechace por tamaño es la peor forma de enterarse.
+  const pesoAdjunto = pesoEnBase64(zip.length);
+  if (pesoAdjunto > TOPE_CORREO_BYTES) {
+    throw new Error(
+      `El respaldo comprimido pesa ${mb(zip.length)} (${mb(pesoAdjunto)} como adjunto) y el correo admite ${mb(TOPE_CORREO_BYTES)}. ` +
+      'Usá «↓ Descargar», que no tiene tope.',
+    );
+  }
+
+  avisar('enviando', mb(zip.length));
   const { data, error } = await supabase.functions.invoke<
     { ok: true; destinatarios: string[] } | { error: string }
   >('enviar-reporte', {
     body: {
-      pdf_base64: toBase64Utf8(sql),
-      nombre_archivo: nombre,
+      pdf_base64: bytesABase64(zip),
+      nombre_archivo: `${base}.zip`,
       asunto: `Respaldo de base de datos · MGG · ${fecha}`,
-      mensaje: `${automatico ? 'Respaldo automático (cada 30 días)' : 'Respaldo manual'} · Generado por ${actorEmail || 'sistema'} · ${cuando} (America/Caracas).`,
+      mensaje: `${automatico ? 'Respaldo automático (cada 30 días)' : 'Respaldo manual'} · Generado por ${actorEmail || 'sistema'} · ${cuando} (America/Caracas).\n\n`
+        + `Adjunto: ${base}.zip (${mb(zip.length)} comprimido · ${mb(bytesSql)} sin comprimir). Adentro viene ${base}.sql.`,
       to_emails: toEmails,
     },
   });
   if (error) throw new Error(error.message ?? 'No se pudo enviar el respaldo por correo.');
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida del envío.');
   await registrarUltimoRespaldo(actorEmail, automatico);
-  return { destinatarios: data.destinatarios ?? toEmails };
+  return { destinatarios: data.destinatarios ?? toEmails, bytesSql, bytesZip: zip.length };
+}
+
+/** MB con un decimal, para los mensajes de esta pantalla. */
+function megas(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Fecha del último respaldo (o null si nunca se hizo). */
