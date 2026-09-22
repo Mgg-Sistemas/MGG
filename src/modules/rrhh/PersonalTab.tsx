@@ -8,8 +8,13 @@ import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { Personal, NominaRenglon } from '@/shared/lib/types';
 import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal,
-  subirFotoCarnet, subirDocumentoRif, urlDocumentoRif, digitosCedula, type PersonalInput,
+  subirFotoCarnet, subirDocumentoRif, urlDocumentoRif, digitosCedula, listHistorialSueldo,
+  type PersonalInput, type CambioSueldoRegistro,
 } from './personal.repository';
+import {
+  TIPOS_CAMBIO_SUELDO, huboCambioSueldo, labelTipoCambio, textoVariacion, tipoSugerido,
+  validarCambioSueldo, variacionSueldo, type TipoCambioSueldo,
+} from './cambioSueldo';
 import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import { generarFrenteBlob, generarReversoBlob, descargarCarnet } from './carnetImagen';
@@ -104,7 +109,7 @@ function FotoEncuadre({ url, posX, posY, zoom, onChange }: {
   );
 }
 
-export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: string }) {
+export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean; actor: string; actorName?: string | null }) {
   const [lista, setLista] = useState<Personal[]>([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
@@ -114,6 +119,13 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   const [subiendoRif, setSubiendoRif] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
+  const [sueldoPersona, setSueldoPersona] = useState<Personal | null>(null);
+  // El sueldo con el que se abrió la ficha: contra esto se compara para saber
+  // si hubo cambio. No se compara contra la lista, que puede recargarse sola.
+  const [sueldoOriginal, setSueldoOriginal] = useState(0);
+  const [motivoSueldo, setMotivoSueldo] = useState('');
+  const [tipoSueldo, setTipoSueldo] = useState<TipoCambioSueldo>('aumento');
+  const [vigenteDesde, setVigenteDesde] = useState('');
   const [carnetPersona, setCarnetPersona] = useState<Personal | null>(null);
   const [constanciaPersona, setConstanciaPersona] = useState<Personal | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -140,15 +152,24 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
   useEffect(() => { cargarCatalogos(); }, [cargarCatalogos]);
-  useRealtime(['personal'], () => { void recargar(); });
+  useRealtime(['personal', 'personal_sueldos'], () => { void recargar(); });
 
-  function abrirNuevo() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(true); }
+  /** Deja el bloque del cambio de sueldo en blanco. */
+  function limpiarCambioSueldo(base: number) {
+    setSueldoOriginal(base);
+    setMotivoSueldo('');
+    setTipoSueldo('aumento');
+    setVigenteDesde(new Date().toISOString().slice(0, 10));
+  }
+
+  function abrirNuevo() { setEditId(null); setForm(VACIO); limpiarCambioSueldo(0); setError(null); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
     setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '', rif_path: p.rif_path ?? '', rif_nombre: p.rif_nombre ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
+    limpiarCambioSueldo(Number(p.sueldo_base) || 0);
     setError(null); setFormOpen(true);
   }
-  function cerrarForm() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(false); }
+  function cerrarForm() { setEditId(null); setForm(VACIO); limpiarCambioSueldo(0); setError(null); setFormOpen(false); }
 
   async function onPickFoto(file: File | null) {
     if (!file) return;
@@ -187,10 +208,19 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
       setError(`La cédula ${form.cedula} ya es de ${duenoCedula.nombre} ${duenoCedula.apellido ?? ''}. No puede haber dos fichas con la misma cédula.`);
       return;
     }
+    // El sueldo no se pisa en silencio: si cambió, hay que decir por qué.
+    if (editId) {
+      const falla = validarCambioSueldo({ anterior: sueldoOriginal, nuevo: form.sueldo_base, motivo: motivoSueldo, vigenteDesde });
+      if (falla) { setError(falla); return; }
+    }
     setGuardando(true);
     try {
-      if (editId) await actualizarPersonal(editId, form);
-      else await crearPersonal(form, actor);
+      if (editId) {
+        await actualizarPersonal(editId, form, {
+          motivo: motivoSueldo, tipo: tipoSueldo, vigenteDesde,
+          actor, actorName: actorName ?? null,
+        });
+      } else await crearPersonal(form, actor);
       // Si el cargo/departamento es nuevo, lo agregamos al catálogo compartido.
       const cargo = (form.cargo ?? '').trim();
       const depto = (form.departamento ?? '').trim();
@@ -254,6 +284,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                   <button className="btn btn-sm btn-ghost" onClick={() => setCarnetPersona(p)} title="Carnet (imagen con QR)">🪪</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setSueldoPersona(p)} title="Historial de sueldos: cuándo cambió y por qué">💵</button>
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => toggleActivo(p)} title={p.activo ? 'Desactivar' : 'Activar'}>{p.activo ? '⏸' : '▶'}</button>
@@ -364,18 +395,61 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                 label="Departamento" valor={form.departamento ?? ''} opciones={departamentos}
                 onChange={(v) => setForm((f) => ({ ...f, departamento: v }))}
                 hint="Toma los de Usuarios; podés agregar uno nuevo." />
-              <div className="form-row"><label>Sueldo base mensual (USD)</label><input className="input mono" type="number" min={0} step="any" value={form.sueldo_base ?? 0} onChange={(e) => setForm((f) => ({ ...f, sueldo_base: Number(e.target.value) || 0 }))} placeholder="0,00" /></div>
+              <div className="form-row">
+                <label>Sueldo base mensual (USD)</label>
+                <input className="input mono" type="number" min={0} step="any" value={form.sueldo_base ?? 0}
+                  onChange={(e) => {
+                    const v = Number(e.target.value) || 0;
+                    setForm((f) => ({ ...f, sueldo_base: v }));
+                    // El tipo se sugiere solo según hacia dónde se mueve; se puede cambiar.
+                    if (editId) setTipoSueldo(tipoSugerido(sueldoOriginal, v));
+                  }} placeholder="0,00" />
+              </div>
               <div className="form-row"><label>Fecha de ingreso</label><input className="input" type="date" value={form.fecha_ingreso ?? ''} onChange={(e) => setForm((f) => ({ ...f, fecha_ingreso: e.target.value }))} /></div>
               <div className="form-row"><label>Teléfono</label><input className="input mono" value={form.telefono ?? ''} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
               <div className="form-row"><label>Contacto de emergencia</label><input className="input" value={form.contacto_emergencia ?? ''} onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia: e.target.value }))} placeholder="Nombre y parentesco" /></div>
               <div className="form-row"><label>Tel. de emergencia</label><input className="input mono" value={form.contacto_emergencia_tlf ?? ''} onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia_tlf: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
             </div>
+            {/* Cambió el sueldo: acá se explica por qué. Es lo que queda en el historial. */}
+            {editId && huboCambioSueldo(sueldoOriginal, form.sueldo_base) && (
+              <div className="card" style={{ borderColor: 'var(--warning)', margin: '.6rem 0' }}>
+                <div style={{ fontWeight: 700, marginBottom: '.2rem' }}>💵 Estás cambiando el sueldo</div>
+                <div className="muted mono" style={{ fontSize: '.84rem', marginBottom: '.5rem' }}>
+                  {textoVariacion(variacionSueldo(sueldoOriginal, form.sueldo_base))}
+                </div>
+                <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                  <div className="form-row" style={{ flex: '1 1 190px', margin: 0 }}>
+                    <label>¿Qué tipo de cambio es?</label>
+                    <select className="select" value={tipoSueldo} onChange={(e) => setTipoSueldo(e.target.value as TipoCambioSueldo)}>
+                      {TIPOS_CAMBIO_SUELDO.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                    </select>
+                    <small className="muted">{TIPOS_CAMBIO_SUELDO.find((t) => t.key === tipoSueldo)?.ayuda ?? ''}</small>
+                  </div>
+                  <div className="form-row" style={{ flex: '0 1 165px', margin: 0 }}>
+                    <label>Rige desde</label>
+                    <input className="input" type="date" value={vigenteDesde} onChange={(e) => setVigenteDesde(e.target.value)} />
+                    <small className="muted">No siempre es hoy.</small>
+                  </div>
+                </div>
+                <div className="form-row" style={{ marginBottom: 0 }}>
+                  <label>¿Por qué cambia el sueldo? <span style={{ color: 'var(--danger)' }}>*</span></label>
+                  <input className="input" value={motivoSueldo} onChange={(e) => setMotivoSueldo(e.target.value)} autoFocus
+                    placeholder="Ej.: aumento acordado en la reunión del 15/09" />
+                  <small className="muted">
+                    Queda en el historial de la persona, con la fecha y con tu nombre. Un aumento y una corrección
+                    de un error se ven igual en la ficha: el motivo es lo que los distingue.
+                  </small>
+                </div>
+              </div>
+            )}
+
             <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina. El <strong>teléfono</strong> y el <strong>contacto de emergencia</strong> se incluyen en el <strong>QR del carnet</strong> (🪪).</small>
           </form>
         </Modal>
       )}
 
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
+      {sueldoPersona && <HistorialSueldoModal persona={sueldoPersona} onClose={() => setSueldoPersona(null)} />}
       {carnetPersona && <CarnetModal persona={carnetPersona} onClose={() => setCarnetPersona(null)} />}
       {constanciaPersona && <ConstanciaModal persona={constanciaPersona} onClose={() => setConstanciaPersona(null)} />}
       {porBorrar && (
@@ -530,6 +604,88 @@ function ComboConAgregar({ label, valor, opciones, onChange, hint }: {
 }
 
 /* ───────── Histórico de pagos individuales de una persona ───────── */
+/* ───────── Historial de sueldos: cuándo cambió, cuánto y por qué ───────── */
+function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
+  const [filas, setFilas] = useState<CambioSueldoRegistro[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    listHistorialSueldo(persona.id)
+      .then((r) => { if (vivo) setFilas(r); })
+      .catch((e) => { if (vivo) setError(e instanceof Error ? e.message : 'No se pudo cargar el historial'); })
+      .finally(() => { if (vivo) setLoading(false); });
+    return () => { vivo = false; };
+  }, [persona.id]);
+
+  // Los cambios reales son los que movieron el número; la carga inicial no lo es.
+  const cambios = filas.filter((f) => f.tipo !== 'inicial').length;
+
+  return (
+    <Modal title={`Historial de sueldos · ${persona.nombre} ${persona.apellido}`} size="lg" onClose={onClose}
+      footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', marginBottom: '.6rem', fontSize: '.86rem' }}>
+        <div>
+          <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase' }}>Sueldo actual</div>
+          <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 800 }}>
+            {Number(persona.sueldo_base) > 0 ? money(persona.sueldo_base) : '—'}
+          </div>
+        </div>
+        <div>
+          <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase' }}>Cambios registrados</div>
+          <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 800 }}>{cambios}</div>
+        </div>
+      </div>
+
+      <div className="table-wrap" style={{ maxHeight: 400, overflowY: 'auto' }}>
+        <table className="table" style={{ fontSize: '.82rem' }}>
+          <thead>
+            <tr>
+              <th>Rige desde</th><th>Tipo</th>
+              <th style={{ textAlign: 'right' }}>Antes</th>
+              <th style={{ textAlign: 'right' }}>Después</th>
+              <th style={{ textAlign: 'right' }}>Variación</th>
+              <th>Motivo</th><th>Cargado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !filas.length && (
+              <tr><td colSpan={7}><EmptyState icon="💵" message="Sin cambios de sueldo registrados" /></td></tr>
+            )}
+            {!loading && filas.map((r) => {
+              const v = variacionSueldo(r.sueldoAnterior, r.sueldoNuevo);
+              return (
+                <tr key={r.id}>
+                  <td className="mono">{date(r.vigenteDesde)}</td>
+                  <td><span className="badge">{labelTipoCambio(r.tipo)}</span></td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{r.sueldoAnterior > 0 ? money(r.sueldoAnterior) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.sueldoNuevo)}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: v.direccion === 'aumento' ? 'var(--success)' : v.direccion === 'rebaja' ? 'var(--danger)' : undefined }}>
+                    {v.direccion === 'igual' ? '—' : `${v.monto > 0 ? '+' : ''}${money(v.monto)}${v.pct == null ? '' : ` (${v.pct > 0 ? '+' : ''}${v.pct}%)`}`}
+                  </td>
+                  <td style={{ maxWidth: 260, whiteSpace: 'normal' }}>{r.motivo}</td>
+                  <td className="muted" style={{ fontSize: '.74rem' }}>
+                    {r.createdAt ? dateTime(r.createdAt) : '—'}
+                    <div>{r.actorName || r.actor || ''}</div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
+        Un renglón del historial <strong>no se edita ni se borra</strong>. Si alguno quedó mal cargado, se registra
+        otro cambio que lo corrija: un historial que se puede reescribir no sirve para respaldar una nómina vieja.
+      </small>
+    </Modal>
+  );
+}
+
 function HistoricoPersonaModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
   const [rows, setRows] = useState<NominaRenglon[]>([]);
   const [loading, setLoading] = useState(true);

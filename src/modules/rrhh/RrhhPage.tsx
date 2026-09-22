@@ -40,7 +40,7 @@ export function RrhhPage() {
         ))}
       </div>
 
-      {vista === 'personal' && <PersonalTab canWrite={canWrite} actor={actor} />}
+      {vista === 'personal' && <PersonalTab canWrite={canWrite} actor={actor} actorName={actorName} />}
       {vista === 'anticipos' && <AnticiposTab canWrite={canWrite} actor={actor} actorName={actorName} />}
       {vista === 'nomina' && <NominaTab canWrite={canWrite} actor={actor} actorName={actorName} />}
       {vista === 'vacaciones' && <VacacionesTab canWrite={canWrite} actor={actor} actorName={actorName} />}

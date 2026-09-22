@@ -6,8 +6,10 @@
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Personal } from '@/shared/lib/types';
+import { aCentavos, huboCambioSueldo, validarCambioSueldo, type TipoCambioSueldo } from './cambioSueldo';
 
 const TABLE = 'personal';
+const TABLA_SUELDOS = 'personal_sueldos';
 
 /** Lista el personal, ordenado por departamento y nombre. */
 export async function listPersonal(soloActivos = false): Promise<Personal[]> {
@@ -67,6 +69,12 @@ export async function borrarFotoCarnet(url: string): Promise<void> {
   try { await supabase.storage.from(BUCKET_FOTOS).remove([path]); } catch { /* el Storage no bloquea */ }
 }
 
+/**
+ * Los campos de la ficha, SIN el sueldo.
+ *
+ * El sueldo no viaja en el update común a propósito: la base lo rechaza si no
+ * viene con su motivo (`cambiar_sueldo_personal`). Ver `cambiarSueldo`.
+ */
 function payload(input: PersonalInput) {
   return {
     nombre: input.nombre.trim(),
@@ -77,7 +85,6 @@ function payload(input: PersonalInput) {
     rif_nombre: input.rif_nombre?.trim() || null,
     cargo: input.cargo?.trim() || null,
     departamento: input.departamento?.trim() || null,
-    sueldo_base: Math.round((Number(input.sueldo_base) || 0) * 100) / 100,
     fecha_ingreso: input.fecha_ingreso || null,
     telefono: input.telefono?.trim() || null,
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
@@ -163,27 +170,144 @@ async function verificarCedulaLibre(cedula: string | null | undefined, excluirId
   }
 }
 
+/**
+ * Alta de una ficha. Acá el sueldo SÍ va en el insert: no hay un sueldo
+ * anterior que pisar. El renglón inicial del historial lo escribe sola la
+ * base (trigger `trg_personal_sueldo_inicial`).
+ */
 export async function crearPersonal(input: PersonalInput, actorEmail?: string): Promise<Personal> {
   if (!input.nombre.trim()) throw new Error('Indicá el nombre.');
   await verificarCedulaLibre(input.cedula);
-  const { data, error } = await supabase.from(TABLE).insert({ ...payload(input), created_by: actorEmail ?? null }).select('*').single();
+  const { data, error } = await supabase.from(TABLE).insert({
+    ...payload(input),
+    sueldo_base: aCentavos(input.sueldo_base),
+    created_by: actorEmail ?? null,
+  }).select('*').single();
   if (error) throw errorCedulaRepetida(error, input.cedula);
   return data as Personal;
 }
 
-export async function actualizarPersonal(id: string, patch: PersonalInput): Promise<Personal> {
+/** Lo que hace falta para poder mover un sueldo. */
+export interface CambioSueldoOpts {
+  motivo?: string | null;
+  tipo?: TipoCambioSueldo | null;
+  /** Desde cuándo rige el nuevo sueldo. Por defecto, hoy. */
+  vigenteDesde?: string | null;
+  actor?: string | null;
+  actorName?: string | null;
+}
+
+/**
+ * Edita la ficha. Si además cambió el sueldo, lo mueve por la puerta que exige
+ * el motivo, en dos pasos deliberados:
+ *
+ * 1º el sueldo, porque ahí está la regla que puede rechazar el guardado;
+ * 2º el resto de la ficha.
+ *
+ * Si el sueldo se rechaza (sin motivo, sin permiso), no se toca nada más: no
+ * queda una ficha a medias. El paso del sueldo es atómico en la base — el
+ * renglón del historial y el nuevo sueldo entran o no entran juntos.
+ */
+export async function actualizarPersonal(
+  id: string,
+  patch: PersonalInput,
+  cambio: CambioSueldoOpts = {},
+): Promise<Personal> {
   if (!patch.nombre.trim()) throw new Error('Indicá el nombre.');
   // Al editar se excluye la propia ficha: cambiar el cargo no puede chocar consigo misma.
   await verificarCedulaLibre(patch.cedula, id);
+
+  // El sueldo anterior se lee de la BASE, no de la pantalla: si otro lo movió
+  // mientras esta ficha estaba abierta, el historial tiene que decir la verdad.
+  const { data: actual, error: errLeer } = await supabase
+    .from(TABLE).select('sueldo_base').eq('id', id).maybeSingle();
+  if (errLeer) throw errLeer;
+  const anterior = Number(actual?.sueldo_base) || 0;
+  const nuevo = aCentavos(patch.sueldo_base);
+
+  if (huboCambioSueldo(anterior, nuevo)) {
+    const falla = validarCambioSueldo({ anterior, nuevo, motivo: cambio.motivo, vigenteDesde: cambio.vigenteDesde });
+    if (falla) throw new Error(falla);
+    await cambiarSueldo(id, nuevo, cambio);
+  }
+
   const { data, error } = await supabase.from(TABLE).update(payload(patch)).eq('id', id).select('*').single();
   if (error) throw errorCedulaRepetida(error, patch.cedula);
   return data as Personal;
 }
 
-/** Solo el sueldo base (para "guardar sueldos" desde la carga de nómina). */
-export async function guardarSueldoBase(id: string, sueldoBase: number): Promise<void> {
-  const { error } = await supabase.from(TABLE).update({ sueldo_base: Math.round((Number(sueldoBase) || 0) * 100) / 100 }).eq('id', id);
+/**
+ * Mueve el sueldo de una persona. Es la ÚNICA forma: un `update` directo de
+ * `sueldo_base` lo rechaza la base, justamente para que no exista un cambio
+ * de sueldo sin su motivo y sin su renglón en el historial.
+ */
+export async function cambiarSueldo(id: string, sueldoNuevo: number, cambio: CambioSueldoOpts): Promise<Personal> {
+  const { data, error } = await supabase.rpc('cambiar_sueldo_personal', {
+    p_personal_id: id,
+    p_sueldo_nuevo: aCentavos(sueldoNuevo),
+    p_motivo: (cambio.motivo ?? '').trim(),
+    p_tipo: cambio.tipo ?? null,
+    p_vigente_desde: cambio.vigenteDesde || null,
+    p_actor: cambio.actor ?? null,
+    p_actor_name: cambio.actorName ?? null,
+  });
+  if (error) throw new Error(error.message || 'No se pudo cambiar el sueldo.');
+  return data as Personal;
+}
+
+/* ───────── Historial de sueldos ───────── */
+
+export interface CambioSueldoRegistro {
+  id: string;
+  personalId: string;
+  sueldoAnterior: number;
+  sueldoNuevo: number;
+  vigenteDesde: string;
+  motivo: string;
+  tipo: TipoCambioSueldo | null;
+  actor: string | null;
+  actorName: string | null;
+  createdAt: string;
+}
+
+function aCambio(r: Record<string, unknown>): CambioSueldoRegistro {
+  return {
+    id: String(r.id),
+    personalId: String(r.personal_id),
+    sueldoAnterior: Number(r.sueldo_anterior) || 0,
+    sueldoNuevo: Number(r.sueldo_nuevo) || 0,
+    vigenteDesde: String(r.vigente_desde ?? '').slice(0, 10),
+    motivo: String(r.motivo ?? ''),
+    tipo: (r.tipo as TipoCambioSueldo) ?? null,
+    actor: (r.actor as string) ?? null,
+    actorName: (r.actor_name as string) ?? null,
+    createdAt: String(r.created_at ?? ''),
+  };
+}
+
+/** El historial de una persona, del cambio más nuevo al más viejo. */
+export async function listHistorialSueldo(personalId: string): Promise<CambioSueldoRegistro[]> {
+  const { data, error } = await supabase.from(TABLA_SUELDOS).select('*')
+    .eq('personal_id', personalId)
+    .order('vigente_desde', { ascending: false })
+    .order('created_at', { ascending: false });
   if (error) throw error;
+  return (data ?? []).map((r) => aCambio(r as Record<string, unknown>));
+}
+
+/** Todos los cambios de sueldo, para ver el movimiento de la nómina completa. */
+export async function listCambiosSueldo(desde?: string, hasta?: string): Promise<CambioSueldoRegistro[]> {
+  const filas = await todasLasFilas<Record<string, unknown>>((d, h) => {
+    let q = supabase.from(TABLA_SUELDOS).select('*')
+      .order('vigente_desde', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(d, h);
+    if (desde) q = q.gte('vigente_desde', desde);
+    if (hasta) q = q.lte('vigente_desde', hasta);
+    return q;
+  });
+  return filas.map((r) => aCambio(r));
 }
 
 /** Activa o desactiva (no borra: conserva el histórico de pagos). */
