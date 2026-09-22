@@ -48,13 +48,21 @@ const periodo = (fs: Array<{ fecha: string }>) => {
   return f.length ? { desde: f[0], hasta: f[f.length - 1] } : null;
 };
 
-/** Documento con encabezado MGG y las ayudas de maquetado del reporte formal. */
-async function lienzo(subtitulo: string) {
+/**
+ * Documento con encabezado MGG y las ayudas de maquetado del reporte formal.
+ *
+ * La orientación se pide: no todos los reportes de este archivo tienen el mismo
+ * ancho. El de la cadena va VERTICAL —se archiva y se firma como los demás
+ * formatos de producción— y para eso su tabla ancha se partió en dos. El de
+ * refinación sigue horizontal porque su resumen tiene 17 columnas: en vertical
+ * quedarían de 30 puntos cada una y no se leerían.
+ */
+async function lienzo(subtitulo: string, orientacion: 'portrait' | 'landscape' = 'landscape') {
   const [{ jsPDF }, { default: autoTable }, { dateTime }, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'), import('jspdf-autotable'), import('@/shared/lib/format'), import('@/shared/lib/pdfLogo'),
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacion });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const ANCHO = W - MARGIN * 2;
@@ -86,10 +94,16 @@ async function lienzo(subtitulo: string) {
     st.y += 21;
   }
   function ficha(filas: Array<[string, string, string?, string?]>): void {
+    // En vertical la hoja es 265 puntos más angosta: con el reparto de la
+    // horizontal, etiquetas como «Estaño bruto a refinación» se parten en dos
+    // líneas. Se le da más a las etiquetas y menos al valor, que es corto.
+    const rot = orientacion === 'portrait';
+    const wEtiqueta = ANCHO * (rot ? 0.27 : 0.2);
+    const wValor = ANCHO * (rot ? 0.23 : 0.3);
     autoTable(doc, {
       startY: st.y, body: filas.map((f) => f.map((c) => T(c ?? ''))), theme: 'plain',
       styles: { fontSize: 8.5, cellPadding: 2 },
-      columnStyles: { 0: { fontStyle: 'bold', cellWidth: ANCHO * 0.2 }, 1: { cellWidth: ANCHO * 0.3 }, 2: { fontStyle: 'bold', cellWidth: ANCHO * 0.2 } },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: wEtiqueta }, 1: { cellWidth: wValor }, 2: { fontStyle: 'bold', cellWidth: wEtiqueta } },
       margin,
     });
     st.y = finY() + 10;
@@ -213,7 +227,7 @@ export async function generarReporteColadaRefinacion(
   const per = periodo(filas);
   const pendientes = brutoSinRefinar(coladas, todasLasRefinaciones);
   const hs = hallazgosCadena(cs, tot, op.tenorPct);
-  const { st, barra, ficha, parrafo, tabla, firma, emision, doc } = await lienzo('Colada + Refinación · Cadena del estaño · Planta Matanzas');
+  const { st, barra, ficha, parrafo, tabla, firma, emision, doc } = await lienzo('Colada + Refinación · Cadena del estaño · Planta Matanzas', 'portrait');
 
   barra('IDENTIFICACIÓN DEL REPORTE');
   ficha([
@@ -236,29 +250,45 @@ export async function generarReporteColadaRefinacion(
     ['RENDIMIENTO GLOBAL', pct(tot.rendimiento_global_pct), '', ''],
   ]);
 
-  barra('DETALLE POR REFINACIÓN Y SUS COLADAS DE ORIGEN');
-  const body: string[][] = [];
+  // El detalle iba en UNA tabla de 13 columnas, que es lo que obligaba a la hoja
+  // horizontal. En vertical esas 13 columnas quedan de 40 puntos y todo se parte
+  // en tres líneas. Se separa en las dos mitades que la cadena ya tiene: primero
+  // de dónde salió el estaño (una fila por colada de origen), después qué dio
+  // cada refinación (una fila por refinación). No se pierde ningún número.
+  barra('DE LA CASITERITA AL ESTAÑO BRUTO · COLADAS DE ORIGEN');
+  const origenes: string[][] = [];
   cs.forEach((c) => {
     const f = c.refinacion;
     c.tramos.forEach((t, i) => {
-      body.push([
+      origenes.push([
         i === 0 ? `#${f.refinacion_num} · ${fecha(f.fecha)}` : '',
         t.etiqueta + (t.origen !== 'colada' ? ` (${t.origen === 'manual' ? 'manual' : '2ª refinación'})` : ''),
         t.fecha_colada ? fecha(t.fecha_colada) : '—',
         kg(t.casiterita_kg), kg(t.sn_teorico_kg), kg(t.estano_colada_kg), pct(t.rendimiento_fundicion_pct),
         kg(t.tomado_kg), t.fraccion == null ? '—' : `${kg(t.fraccion * 100)} %`,
-        i === 0 ? kg(f.refinado_kg) : '', i === 0 ? kg(f.dross_kg) : '', i === 0 ? pct(f.rendimiento_pct) : '',
-        i === 0 ? pct(c.rendimiento_global_pct) : '',
       ]);
     });
-    if (!c.tramos.length) body.push([`#${f.refinacion_num} · ${fecha(f.fecha)}`, 'sin origen registrado', '—', '—', '—', '—', '—', kg(f.crudo_kg), '—', kg(f.refinado_kg), kg(f.dross_kg), pct(f.rendimiento_pct), '—']);
+    if (!c.tramos.length) origenes.push([`#${f.refinacion_num} · ${fecha(f.fecha)}`, 'sin origen registrado', '—', '—', '—', '—', '—', kg(f.crudo_kg), '—']);
   });
   tabla({
-    head: ['Refinación', 'Colada de origen', 'Fecha colada', 'Casiterita atrib. (kg)', 'Sn teórico (kg)', 'Bruto colada (kg)', 'Rend. fundición', 'Tomado (kg)', '% de la colada', 'Refinado (kg)', 'Dross (kg)', 'Rend. refinación', 'Rend. global'],
-    body,
-    foot: ['TOTALES', '', '', kg(tot.casiterita_kg), kg(tot.sn_teorico_kg), '', pct(tot.rendimiento_fundicion_pct), kg(tot.crudo_kg), '', kg(tot.refinado_kg), kg(tot.dross_kg), pct(tot.rendimiento_refinacion_pct), pct(tot.rendimiento_global_pct)],
-    fontSize: 6.6,
-    columnStyles: { 0: { halign: 'left' }, 1: { halign: 'left' }, 2: { halign: 'center' } },
+    head: ['Refinación', 'Colada de origen', 'Fecha colada', 'Casiterita atrib. (kg)', 'Sn teórico (kg)', 'Bruto colada (kg)', 'Rend. fundición', 'Tomado (kg)', '% de la colada'],
+    body: origenes,
+    foot: ['TOTALES', '', '', kg(tot.casiterita_kg), kg(tot.sn_teorico_kg), '', pct(tot.rendimiento_fundicion_pct), kg(tot.crudo_kg), ''],
+    fontSize: 6.8,
+    columnStyles: { 0: { halign: 'left', cellWidth: 68 }, 1: { halign: 'left' }, 2: { halign: 'center' } },
+  });
+
+  barra('DEL ESTAÑO BRUTO AL LINGOTE REFINADO · RESULTADO DE CADA REFINACIÓN');
+  tabla({
+    head: ['Refinación', 'Fecha', 'Crudo cargado (kg)', 'Refinado (kg)', 'Dross (kg)', 'Rend. refinación', 'Rend. global'],
+    body: cs.map((c) => [
+      `#${c.refinacion.refinacion_num}`, fecha(c.refinacion.fecha),
+      kg(c.refinacion.crudo_kg), kg(c.refinacion.refinado_kg), kg(c.refinacion.dross_kg),
+      pct(c.refinacion.rendimiento_pct), pct(c.rendimiento_global_pct),
+    ]),
+    foot: ['TOTALES', '', kg(tot.crudo_kg), kg(tot.refinado_kg), kg(tot.dross_kg), pct(tot.rendimiento_refinacion_pct), pct(tot.rendimiento_global_pct)],
+    fontSize: 7.5,
+    columnStyles: { 0: { halign: 'center' }, 1: { halign: 'center' } },
   });
 
   if (pendientes.length) {
