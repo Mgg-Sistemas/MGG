@@ -402,6 +402,11 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
         gastos: nzr(gastos), nominas: nzr(nominas), traslado: nzr(traslado), compra_material: nzr(compraMaterial),
         compra_material_kg: Number(compraMaterialKg) || 0, compra_material_tasa: nzr(compraMaterialTasa), kg_recibidos: nzr(kgRecibidos),
         clasif_grupo: grupo || null, clasif_valor: clasifValor.trim() || null,
+        // El formulario no los muestra, pero son del movimiento: sin esto,
+        // corregir la fecha de un gasto borraba a qué equipo estaba imputado.
+        costo_clasificacion: mov.costo_clasificacion ?? null,
+        costo_subclasificacion: mov.costo_subclasificacion ?? null,
+        vehiculo: mov.vehiculo ?? null,
       });
       toast('Movimiento actualizado', 'success');
       onSaved();

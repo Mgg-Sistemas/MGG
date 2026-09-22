@@ -1270,6 +1270,8 @@ export interface ProduccionMaterial {
   cantidad: number;
   costo_unitario: number;
   subtotal: number;
+  /** El material salio del PISO DE FUNDICION: ya se descontó del inventario. */
+  desde_fundicion?: boolean | null;
 }
 
 /** Una corrección de la cantidad producida de una colada/refinación ya finalizada. */

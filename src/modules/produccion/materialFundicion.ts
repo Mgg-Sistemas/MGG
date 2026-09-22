@@ -26,3 +26,31 @@ export function esMaterialDeFundicion(p: FichaFundicion | null | undefined): boo
   if (p.es_receta === true) return true;
   return (p.categoria ?? '').trim().toUpperCase() === CATEGORIA_MATERIA_PRIMA;
 }
+
+/* ───────────── Qué se descuenta del inventario ───────────── */
+
+export interface MaterialConsumible {
+  /** null = material MANUAL: no está en inventario, no se descuenta. */
+  producto_id?: string | null;
+  /**
+   * Vino del PISO DE FUNDICIÓN: ya se descontó del inventario cuando se hizo
+   * su salida marcada «va para fundición».
+   */
+  desde_fundicion?: boolean | null;
+}
+
+/**
+ * Los materiales que HAY que descontar del inventario al producir.
+ *
+ * Quedan afuera dos casos, por razones distintas:
+ * · el material MANUAL, porque nunca estuvo en el inventario;
+ * · el que vino del PISO, porque ya se descontó al sacarlo.
+ *
+ * Descontar uno del piso otra vez deja el inventario corto sin que nadie lo
+ * note. Ya pasó una vez: el formulario de edición no arrastraba la marca
+ * `desde_fundicion`, así que al editar una colada el material del piso volvía
+ * a descontarse.
+ */
+export function materialesAConsumir<T extends MaterialConsumible>(materiales: T[]): T[] {
+  return (materiales ?? []).filter((m) => !!m.producto_id && m.desde_fundicion !== true);
+}

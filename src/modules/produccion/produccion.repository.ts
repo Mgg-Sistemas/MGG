@@ -5,6 +5,7 @@
    entra al inventario con su costo de fundición (PMP).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { materialesAConsumir } from './materialFundicion';
 import type { Producto, Produccion, ProduccionMaterial } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { calcularAjusteProduccion, detalleAjuste } from './ajusteProduccion';
@@ -391,7 +392,7 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
   // Los del PISO no se consumen: su salida ya los descontó del inventario.
   // Descontarlos otra vez acá era el doble descuento que había que sacar.
   // Y en una CARGA HISTÓRICA no se consume nada: la colada ya pasó.
-  if (descuenta) await Promise.all(detallesInv.filter((d) => !d.desde_fundicion).map((d) => registrarMovimiento({
+  if (descuenta) await Promise.all(materialesAConsumir(detallesInv).map((d) => registrarMovimiento({
     producto_id: d.producto_id as string,
     tipo: 'consumo',
     delta: -d.cantidad,
@@ -510,7 +511,7 @@ export async function editarMaterialesProduccion(input: {
   // 5) Consumir los nuevos.
   // Los del piso, otra vez, no se consumen del inventario. Y una carga histórica
   // no consume nada.
-  if (descuentaAhora) await Promise.all(detallesInv.filter((d) => !d.desde_fundicion).map((d) => registrarMovimiento({
+  if (descuentaAhora) await Promise.all(materialesAConsumir(detallesInv).map((d) => registrarMovimiento({
     producto_id: d.producto_id as string, tipo: 'consumo', delta: -d.cantidad, almacen: d.almacen,
     actor: input.actor, actor_name: input.actorName ?? null,
     ref_tipo: 'produccion', ref_id: input.produccionId,

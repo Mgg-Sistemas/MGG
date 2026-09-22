@@ -474,7 +474,9 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       ...form,
       rif: numero ? `${letra}-${numero}` : '',
       razon_social: form.razon_social.trim().toUpperCase(),
-      contacto: null,
+      // Estaba fijo en null: editar cualquier otro dato borraba el contacto de
+      // los proveedores que lo tenían cargado.
+      contacto: form.contacto?.trim() || null,
       telefono: form.telefono?.trim() || null,
       email: emailClean || null,
       direccion: form.direccion?.trim().toUpperCase() || null,

@@ -23,7 +23,17 @@ import { ColadaCampos } from './ColadaCampos';
 import { getColada, actualizarColadaDatos, actualizarColadaCabecera, coladaDatosVacios, getConsumoBigBags } from './colada.repository';
 import { listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 
-interface Row { key: string; producto_id: string | null; material_nombre: string; almacen: string; cantidad: number | null }
+interface Row {
+  key: string; producto_id: string | null; material_nombre: string; almacen: string; cantidad: number | null;
+  /**
+   * El material salió del PISO DE FUNDICIÓN: ya se descontó del inventario
+   * cuando se hizo su salida. Tiene que viajar en la edición: si se pierde,
+   * al guardar se vuelve a descontar y el inventario queda corto.
+   */
+  desde_fundicion: boolean;
+  /** Override del costo unitario. Sin esto, la orden se re-costea sola al PMP. */
+  costo: number | null;
+}
 
 export function EditarMaterialesModal({
   produccionId, tipo = 'fundicion', productos, existencias, almacenesMatanza = [], actor, actorName, onClose, onSaved,
@@ -75,6 +85,10 @@ export function EditarMaterialesModal({
       setRows((p.materiales ?? []).map((m, i) => ({
         key: `m${i}`, producto_id: m.producto_id ?? null, material_nombre: m.material_nombre,
         almacen: m.almacen, cantidad: Number(m.cantidad) || null,
+        // Estos dos viajan aunque el formulario no los muestre: son del material,
+        // no de la pantalla, y perderlos descuenta inventario de más.
+        desde_fundicion: m.desde_fundicion === true,
+        costo: m.costo_unitario == null ? null : Number(m.costo_unitario),
       })));
       // Reporte de colada (fundición).
       if (tipo === 'fundicion') {
@@ -114,7 +128,9 @@ export function EditarMaterialesModal({
     const p = productos.find((x) => x.id === pid);
     if (!p) return;
     const alm = almacenDeFundicion(p.id, existencias, almacenesMatanza);
-    setRows((rs) => [...rs, { key: `n${rs.length}-${pid}`, producto_id: p.id, material_nombre: p.nombre, almacen: alm, cantidad: null }]);
+    // Un material agregado a mano sale del inventario: no viene del piso de
+    // fundición y no trae un costo propio que respetar.
+    setRows((rs) => [...rs, { key: `n${rs.length}-${pid}`, producto_id: p.id, material_nombre: p.nombre, almacen: alm, cantidad: null, desde_fundicion: false, costo: null }]);
     setAddSel('');
   }
 
@@ -132,6 +148,7 @@ export function EditarMaterialesModal({
     try {
       const materiales: MaterialInput[] = validas.map((r) => ({
         producto_id: r.producto_id, material_nombre: r.material_nombre, almacen: r.almacen, cantidad: Number(r.cantidad) || 0,
+        desde_fundicion: r.desde_fundicion, costo: r.costo,
       }));
       await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, descontarInventario: !cargaHistorica, materiales, actor, actorName });
       // Reporte de colada: guarda todo el detalle + cabecera (Colada N° / fecha).

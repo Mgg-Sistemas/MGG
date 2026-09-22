@@ -262,6 +262,9 @@ function MovimientoModal({ mov, cajaId, clasificaciones, costoClases, actor, act
       kg_recibidos: Number(kgRecibidos) || 0,
       clasif_grupo: grupo || null, clasif_valor: valor || null,
       costo_clasificacion: costoCl || null, costo_subclasificacion: costoSub || null,
+      // Este formulario no edita el vehículo, así que se conserva el que tenía.
+      // Mandarlo en null lo borraría del consumo por vehículo.
+      vehiculo: mov?.vehiculo ?? null,
       caja_id: cajaId,
     };
   }

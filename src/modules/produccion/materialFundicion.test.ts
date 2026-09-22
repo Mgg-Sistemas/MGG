@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { esMaterialDeFundicion } from './materialFundicion';
+import { esMaterialDeFundicion, materialesAConsumir } from './materialFundicion';
 
 describe('esMaterialDeFundicion · qué puede ir al piso de fundición', () => {
   it('toda la materia prima entra, esté o no marcada como receta', () => {
@@ -34,5 +34,36 @@ describe('esMaterialDeFundicion · qué puede ir al piso de fundición', () => {
   it('no confunde una categoría que apenas empieza con MP', () => {
     expect(esMaterialDeFundicion({ categoria: 'MPX' })).toBe(false);
     expect(esMaterialDeFundicion({ categoria: 'EMPAQUE' })).toBe(false);
+  });
+});
+
+describe('materialesAConsumir · qué se descuenta del inventario', () => {
+  const materiales = [
+    { producto_id: 'p1', material_nombre: 'CASITERITA', desde_fundicion: false },
+    { producto_id: 'p2', material_nombre: 'ESTAÑO DEL PISO', desde_fundicion: true },
+    { producto_id: null, material_nombre: 'REACTIVO SUELTO' },
+    { producto_id: 'p3', material_nombre: 'CARBÓN' },
+  ];
+
+  it('descuenta lo que está en inventario y no vino del piso', () => {
+    expect(materialesAConsumir(materiales).map((m) => m.material_nombre)).toEqual(['CASITERITA', 'CARBÓN']);
+  });
+
+  it('el material del PISO no se descuenta otra vez', () => {
+    // Ya se descontó al sacarlo con «va para fundición». Descontarlo de nuevo
+    // deja el inventario corto sin que nadie lo note: pasó al editar una colada.
+    expect(materialesAConsumir(materiales).some((m) => m.desde_fundicion)).toBe(false);
+  });
+
+  it('el material MANUAL no se descuenta: nunca estuvo en inventario', () => {
+    expect(materialesAConsumir(materiales).some((m) => !m.producto_id)).toBe(false);
+  });
+
+  it('sin la marca cargada se descuenta, que es lo normal', () => {
+    expect(materialesAConsumir([{ producto_id: 'p9' }])).toHaveLength(1);
+  });
+
+  it('una lista vacía o ausente no rompe', () => {
+    expect(materialesAConsumir([])).toEqual([]);
   });
 });

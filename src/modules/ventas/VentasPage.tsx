@@ -483,6 +483,9 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
       condicion_pago: condicion,
       pago_material: material.map(({ _k: _omit, nuevo, ...p }) => ({ ...p, producto_id: nuevo ? null : p.producto_id })),
       vendedor, nota,
+      // Lo escribe el cobro, no este formulario. Sin conservarlo, editar un
+      // precio de una venta ya cobrada borraba con qué se había cobrado.
+      metodo_pago: venta?.metodo_pago ?? null,
     };
   }
 

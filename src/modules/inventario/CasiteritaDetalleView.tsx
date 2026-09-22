@@ -360,6 +360,12 @@ function EntradaModal({ entrada, actor, actorName, onClose, onSaved }: {
     setError(null); setSaving(true);
     const input: CasiteritaDetalleInput = {
       grupo_id: entrada?.grupo_id ?? null,
+      // De dónde vino esta fila. Si se pierde al editar, la recepción vuelve a
+      // aparecer en «⬇ Traer desde recepción» y se importa dos veces: kilos
+      // de casiterita duplicados.
+      cierre_id: entrada?.cierre_id ?? null,
+      almacen: entrada?.almacen ?? undefined,
+      nota: entrada?.nota ?? null,
       procedencia: d.procedencia, precinto: d.precinto, n_analisis: d.n_analisis,
       categoria: d.categoria, cant, peso_neto_kgs: pesoNeto, prom_sn: prom, tasa,
     };
