@@ -10,6 +10,7 @@ import { num, money } from '@/shared/lib/format';
 import type { RefinacionColadaOrigen, RefinacionDatos } from '@/shared/lib/types';
 import type { ColadaFinalizada } from './refinacion.repository';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
+import { listaPrecintos, resumenPrecintos } from './precintosOrigen';
 import { HoraInput } from '@/shared/ui/HoraInput';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -77,6 +78,10 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
           producto_id: c.producto_id, producto_nombre: c.producto_nombre, almacen: c.almacen,
           estano_kg: c.estano_kg, costo_unitario: c.costo_unitario,
           origen: c.origen, etiqueta: c.etiqueta,
+          // El precinto se COPIA al elegir el origen, no se lee después de la
+          // colada: este reporte se firma, y si mañana alguien corrige un
+          // precinto allá, lo firmado tiene que seguir diciendo lo que decía.
+          precintos: c.precintos ?? [],
         };
         arr.push(nueva);
       }
@@ -185,6 +190,14 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
                       <strong>{esReRef ? '♻ ' : ''}{c.etiqueta ?? `#${c.colada_num || '—'}`}</strong>
                       {esReRef && <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.62rem', background: 'var(--primary)', color: '#1a1205', fontWeight: 700 }}>2ª refinación</span>}
                       {c.fecha ? <div className="muted" style={{ fontSize: '.7rem' }}>{c.fecha}</div> : null}
+                      {/* El precinto es lo único que identifica físicamente el bulto:
+                          sin esto hay que abrir la colada para saber de qué saco salió. */}
+                      {(c.precintos?.length ?? 0) > 0 && (
+                        <div style={{ fontSize: '.7rem', color: 'var(--primary-3)', fontWeight: 600 }}
+                          title={`${esReRef ? 'Precinto del lote refinado' : 'Precintos de los big bags de casiterita'}: ${listaPrecintos(c.precintos ?? [])}`}>
+                          🏷 {resumenPrecintos(c.precintos ?? [])}
+                        </div>
+                      )}
                     </td>
                     <td>{c.producto_nombre}<div className="muted" style={{ fontSize: '.7rem' }}>{c.almacen}</div></td>
                     <td className="mono" style={{ textAlign: 'right' }}>

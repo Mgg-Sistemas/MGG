@@ -1442,6 +1442,17 @@ export interface RefinacionColadaOrigen {
   origen?: 'colada' | 'refinacion' | 'manual';
   /** Etiqueta para mostrar: "Colada #5" / "Refinación #2" / lo que se escriba en manual. */
   etiqueta?: string;
+  /**
+   * Precintos del material que entró por este origen: los de los big bags de
+   * casiterita si es una colada, el del lote final si es una 2ª refinación.
+   *
+   * Se GUARDAN acá, copiados al elegir el origen, en vez de leerse de la colada
+   * cada vez. El reporte de refinación se firma: si mañana alguien corrige un
+   * precinto en la colada, el documento firmado tiene que seguir diciendo lo
+   * que decía. Esto es trazabilidad, NO mueve inventario (el descuento ya lo
+   * hizo la colada al tomar el big bag).
+   */
+  precintos?: string[] | null;
 }
 
 /** Una fila del control de temperatura y etapas del proceso de refinación. */

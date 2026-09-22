@@ -11,6 +11,7 @@ import { listColadaAnalisis } from './coladaAnalisis.repository';
 import { listMinerales, type RecepcionMineral, type RecepcionAnalisis } from '@/modules/recepciones/recepciones.repository';
 import { renderAnalisisQuimicoPdf } from './analisisQuimicoPdf';
 import { horaLegible } from '@/shared/lib/hora';
+import { listaPrecintos } from './precintosOrigen';
 
 const ORANGE: [number, number, number] = [214, 90, 24];
 const GREY: [number, number, number] = [90, 90, 90];
@@ -95,6 +96,31 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
     ['Turno', txt(d.turno), 'N° Horno / Olla', txt(d.n_horno_olla)],
     ['Responsable', txt(d.responsable), 'Origen del material', origen],
   ]);
+
+  // ── TRAZABILIDAD DEL MATERIAL QUE ENTRÓ ──
+  // El precinto es lo único que identifica físicamente el bulto. Sin esta tabla,
+  // para saber de qué saco de casiterita salió un lingote había que ir a buscar
+  // la colada a mano. Acá la cadena queda escrita en el documento que se firma.
+  if (coladas.length) {
+    barra('TRAZABILIDAD · ORIGEN DEL MATERIAL Y PRECINTOS');
+    autoTable(doc, {
+      startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+      head: [['Origen', 'Fecha', 'Almacén', 'Kg tomados', 'Precintos']],
+      body: coladas.map((c) => [
+        c.etiqueta ?? `#${c.colada_num || 's/n'}`,
+        c.fecha ? fmtFecha(c.fecha) : '—',
+        txt(c.almacen),
+        n2(Number(c.estano_kg) || 0),
+        listaPrecintos(c.precintos ?? []) || '—',
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 8 },
+      styles: { fontSize: 8, cellPadding: 3 },
+      columnStyles: { 3: { halign: 'right' }, 4: { cellWidth: CW * 0.28 } },
+    });
+    // @ts-expect-error lastAutoTable
+    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+  }
 
   // ── ENTRADA DE MATERIAS PRIMAS Y REACTIVOS ──
   barra('ENTRADA DE MATERIAS PRIMAS Y REACTIVOS DE REFINACIÓN');

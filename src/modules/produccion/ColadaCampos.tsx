@@ -11,6 +11,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import type { CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
+import { listaPrecintos, precintosDeColada, resumenPrecintos } from './precintosOrigen';
 import { HoraInput } from '@/shared/ui/HoraInput';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -37,9 +38,9 @@ function Chips({ value, options, onChange }: { value?: string; options: string[]
 }
 
 /** Mini-tarjeta del resumen en vivo (etiqueta + valor). */
-function Stat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function Stat({ label, value, strong, title }: { label: string; value: string; strong?: boolean; title?: string }) {
   return (
-    <div style={{ flex: '1 1 120px', minWidth: 110, padding: '.25rem .5rem', borderRight: '1px solid var(--border)' }}>
+    <div style={{ flex: '1 1 120px', minWidth: 110, padding: '.25rem .5rem', borderRight: '1px solid var(--border)' }} title={title}>
       <div className="muted" style={{ fontSize: '.66rem', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
       <div className="mono" style={{ fontSize: strong ? '1.05rem' : '.92rem', fontWeight: strong ? 800 : 600, color: strong ? 'var(--primary-3)' : undefined }}>{value}</div>
     </div>
@@ -72,6 +73,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
 
   const bigBags = datos.big_bags ?? [];
   const totalBigBags = round2(bigBags.reduce((a, b) => a + (Number(b.kg) || 0), 0));
+  const precintosCargados = precintosDeColada(datos);
 
   // Total Casiterita = Σ big bags (se mantiene en sync; editable manualmente igual).
   useEffect(() => {
@@ -195,6 +197,9 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         <Stat label="Sn contenido" value={snTotal ? `${snTotal} kg` : '—'} />
         <Stat label="Costo casiterita" value={costoCasiterita ? `$ ${costoCasiterita.toFixed(2)}` : '—'} />
         <Stat label="Jornada" value={jornadaH != null ? fmtJornada(jornadaH) : '—'} />
+        {/* Los precintos de los sacos que entraron, a la vista sin tener que
+            bajar bolsa por bolsa. Es el número que va a viajar hasta el lingote. */}
+        <Stat label="Precintos" value={resumenPrecintos(precintosCargados) || '—'} title={listaPrecintos(precintosCargados)} />
       </div>
 
       {/* Identificación */}

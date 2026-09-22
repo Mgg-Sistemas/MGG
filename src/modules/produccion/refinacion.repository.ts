@@ -7,7 +7,8 @@
    en `datos` (jsonb) para iterar sin ALTERs.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { RefinacionDatos, ProduccionRefinacion } from '@/shared/lib/types';
+import type { ColadaDatos, RefinacionDatos, ProduccionRefinacion } from '@/shared/lib/types';
+import { precintosDeColada, precintosDeRefinacion } from './precintosOrigen';
 import { finalizarProduccion } from './produccion.repository';
 import { conDisponibleReal, type StockAlmacen } from './disponibleRefinar';
 
@@ -86,6 +87,8 @@ export interface ColadaFinalizada {
   costo_unitario: number;  // costo/kg
   origen?: 'colada' | 'refinacion';
   etiqueta?: string;       // "Colada #5" / "Refinación #2"
+  /** Precintos del material de este origen: los big bags de la colada, o el lote final de la refinación. */
+  precintos?: string[];
 }
 
 /**
@@ -104,12 +107,19 @@ export async function listColadasFinalizadas(): Promise<ColadaFinalizada[]> {
   const rows = prods ?? [];
   if (!rows.length) return [];
 
+  // Se trae la columna `datos` para sacar los PRECINTOS de los big bags: es lo
+  // único que identifica físicamente el saco del que salió ese estaño, y sin
+  // esto la cadena saco → colada → refinación se corta acá.
   const { data: coladas } = await supabase
     .from('produccion_colada')
-    .select('produccion_id, colada_num, fecha')
+    .select('produccion_id, colada_num, fecha, datos')
     .in('produccion_id', rows.map((r) => r.id as string));
-  const cMap = new Map<string, { colada_num: number; fecha: string }>();
-  (coladas ?? []).forEach((c) => cMap.set(c.produccion_id as string, { colada_num: Number(c.colada_num) || 0, fecha: c.fecha as string }));
+  const cMap = new Map<string, { colada_num: number; fecha: string; precintos: string[] }>();
+  (coladas ?? []).forEach((c) => cMap.set(c.produccion_id as string, {
+    colada_num: Number(c.colada_num) || 0,
+    fecha: c.fecha as string,
+    precintos: precintosDeColada((c as { datos?: ColadaDatos }).datos),
+  }));
 
   const base = rows.map((r) => {
     const c = cMap.get(r.id as string);
@@ -125,6 +135,7 @@ export async function listColadasFinalizadas(): Promise<ColadaFinalizada[]> {
       costo_unitario: Number(r.costo_unitario) || 0,
       origen: 'colada' as const,
       etiqueta: `Colada #${numColada || 's/n'}`,
+      precintos: c?.precintos ?? [],
     };
   });
   // Lo que se ofrece para refinar es lo que HAY, no lo que dio la colada: si se
@@ -151,10 +162,16 @@ export async function listRefinacionesFinalizadas(excluirProduccionId?: string):
 
   const { data: refs } = await supabase
     .from('produccion_refinacion')
-    .select('produccion_id, refinacion_num, fecha')
+    .select('produccion_id, refinacion_num, fecha, datos')
     .in('produccion_id', rows.map((r) => r.id as string));
-  const rMap = new Map<string, { refinacion_num: number; fecha: string }>();
-  (refs ?? []).forEach((r) => rMap.set(r.produccion_id as string, { refinacion_num: Number(r.refinacion_num) || 0, fecha: r.fecha as string }));
+  const rMap = new Map<string, { refinacion_num: number; fecha: string; precintos: string[] }>();
+  (refs ?? []).forEach((r) => rMap.set(r.produccion_id as string, {
+    refinacion_num: Number(r.refinacion_num) || 0,
+    fecha: r.fecha as string,
+    // De una 2ª refinación lo que entra al crisol es el LINGOTE: su precinto es
+    // el del lote final, no el de la casiterita de hace dos pasos.
+    precintos: precintosDeRefinacion((r as { datos?: RefinacionDatos }).datos),
+  }));
 
   const base = rows.map((r) => {
     const rr = rMap.get(r.id as string);
@@ -170,6 +187,7 @@ export async function listRefinacionesFinalizadas(excluirProduccionId?: string):
       costo_unitario: Number(r.costo_unitario) || 0,
       origen: 'refinacion' as const,
       etiqueta: `Refinación #${numRef || 's/n'}`,
+      precintos: rr?.precintos ?? [],
     };
   });
   return conDisponibleReal(base, await stockDe(base.map((b) => b.producto_id ?? '')));

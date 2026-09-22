@@ -20,6 +20,7 @@ import {
   type CasiteritaDetalle, type CasiteritaCategoria, type CasiteritaDetalleInput, type CasiteritaSugerencia, type CierreOpcion,
 } from './casiteritaDetalle.repository';
 import { getConsumoBigBagsDetallado, type ConsumoBigBagDetalle } from '@/modules/produccion/colada.repository';
+import { filtrarCasiterita } from './casiteritaBusqueda';
 
 const CAT_LABEL: Record<CasiteritaCategoria, string> = {
   bigbag: 'BIG BAG', saco: 'SACO', tobo: 'TOBO', hielo: 'BOLSA DE HIELO',
@@ -169,13 +170,22 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
   useEffect(() => { cargarConsumo(); }, [cargarConsumo]);
   useRealtime(['produccion_colada'], cargarConsumo);
 
+  // Buscador por TODAS las características (precinto, análisis, procedencia,
+  // categoría, pesos, tenor, tasa, valor, nota y hasta el estado usado/sin usar).
+  const [q, setQ] = useState('');
+  const visibles = useMemo(() => filtrarCasiterita(rows, q, consumo), [rows, q, consumo]);
+  const buscando = q.trim() !== '';
+
   // Orden: por procedencia, luego por creación. Subtotales por procedencia.
   const ordenadas = useMemo(
-    () => [...rows].sort((a, b) => (a.procedencia || '').localeCompare(b.procedencia || '') || a.created_at.localeCompare(b.created_at)),
-    [rows],
+    () => [...visibles].sort((a, b) => (a.procedencia || '').localeCompare(b.procedencia || '') || a.created_at.localeCompare(b.created_at)),
+    [visibles],
   );
-  const subtot = useMemo(() => agrupaPorProc(rows), [rows]);
-  const tot = useMemo(() => rows.reduce((a, d) => ({
+  // Subtotales y totales son de lo QUE SE VE: con un filtro puesto, un total de
+  // todo el inventario debajo de tres filas es una trampa. El control de
+  // descuadre de más abajo sí mira todo, porque eso no es una vista.
+  const subtot = useMemo(() => agrupaPorProc(visibles), [visibles]);
+  const tot = useMemo(() => visibles.reduce((a, d) => ({
     peso: a.peso + (Number(d.peso_neto_kgs) || 0),
     casiterita: a.casiterita + (Number(d.peso_casiterita_kgs) || 0),
     puro: a.puro + (Number(d.peso_puro_sn) || 0),
@@ -184,16 +194,19 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
   // Usado (por coladas) agregado por procedencia y total, para los saldos de los subtotales.
   const usadoPorProc = useMemo(() => {
     const m = new Map<string, number>();
-    for (const d of rows) {
+    for (const d of visibles) {
       const u = consumo.get(d.id)?.kg ?? 0;
       if (u <= 0) continue;
       const k = d.procedencia || '—';
       m.set(k, round2((m.get(k) ?? 0) + u));
     }
     return m;
-  }, [rows, consumo]);
-  const totalUsado = useMemo(() => round2(rows.reduce((a, d) => a + (consumo.get(d.id)?.kg ?? 0), 0)), [rows, consumo]);
+  }, [visibles, consumo]);
+  const totalUsado = useMemo(() => round2(visibles.reduce((a, d) => a + (consumo.get(d.id)?.kg ?? 0), 0)), [visibles, consumo]);
   const recepcionado = useRecepcionadoCasiterita();
+  // El descuadre se mide contra TODO el inventario, no contra lo filtrado: es
+  // un control de datos, no una vista.
+  const casiteritaTotal = useMemo(() => round2(rows.reduce((a, d) => a + (Number(d.peso_casiterita_kgs) || 0), 0)), [rows]);
 
   // Filas + subtotal cuando cambia la procedencia.
   const filas: Array<{ tipo: 'dato'; d: CasiteritaDetalle } | { tipo: 'sub'; proc: string }> = [];
@@ -215,7 +228,21 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
         </div>
       </div>
 
-      <AlertaDescuadreCasiterita detallado={tot.casiterita} recepcionado={recepcionado} />
+      <AlertaDescuadreCasiterita detallado={casiteritaTotal} recepcionado={recepcionado} />
+
+      {/* Buscador por todas las características: quien busca no se acuerda de
+          en qué columna estaba el dato, se acuerda del dato. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem', marginBottom: '.6rem' }}>
+        <input
+          className="input" value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="🔎 Buscar por precinto, análisis, procedencia, categoría, peso, tenor, tasa, nota, «sin usar», «colada 5»…"
+          style={{ flex: '1 1 320px', minWidth: 220 }}
+        />
+        {buscando && <button className="btn btn-sm btn-ghost" onClick={() => setQ('')}>✕ Limpiar</button>}
+        <span className="muted" style={{ fontSize: '.78rem' }}>
+          {buscando ? <><strong>{visibles.length}</strong> de {rows.length} fila(s)</> : <>{rows.length} fila(s)</>}
+        </span>
+      </div>
 
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem', margin: 0 }}>
@@ -237,8 +264,10 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
           <tbody>
             {loading ? (
               <tr><td colSpan={COLS + (canWrite ? 1 : 0)} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>
-            ) : !rows.length ? (
-              <tr><td colSpan={COLS + (canWrite ? 1 : 0)}><EmptyState message="Sin mercancía cargada. Usá «+ Agregar» o «Traer desde recepción»." icon="⛏" /></td></tr>
+            ) : !visibles.length ? (
+              <tr><td colSpan={COLS + (canWrite ? 1 : 0)}><EmptyState
+                message={buscando ? `Ninguna fila coincide con «${q.trim()}».` : 'Sin mercancía cargada. Usá «+ Agregar» o «Traer desde recepción».'}
+                icon={buscando ? '🔎' : '⛏'} /></td></tr>
             ) : filas.map((f, i) => f.tipo === 'sub' ? (
               <tr key={`sub-${f.proc}-${i}`} style={{ background: 'rgba(148,163,184,0.10)' }}>
                 <td colSpan={5} style={{ fontWeight: 700, textAlign: 'right', textTransform: 'uppercase' }}>Subtotal {f.proc}</td>
@@ -285,9 +314,11 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
               </tr>
             ))}
           </tbody>
-          {rows.length > 0 && (
+          {visibles.length > 0 && (
             <tfoot><tr style={{ background: 'rgba(255,138,0,0.14)' }}>
-              <td colSpan={5} style={{ fontWeight: 800, textAlign: 'right' }}>TOTAL GENERAL</td>
+              <td colSpan={5} style={{ fontWeight: 800, textAlign: 'right' }}>
+                {buscando ? <>TOTAL DE LO BUSCADO <span className="muted" style={{ fontWeight: 400, fontSize: '.72rem' }}>({visibles.length} de {rows.length})</span></> : 'TOTAL GENERAL'}
+              </td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(tot.peso)}</td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{n2(tot.casiterita)}</td>
               <td></td>
