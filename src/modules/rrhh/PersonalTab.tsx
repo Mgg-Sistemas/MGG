@@ -23,7 +23,7 @@ import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa'
 import {
   AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRUPOS_SANGUINEOS, PARENTESCOS, SIN_DATO,
   agruparPersonal, antiguedad, cantidadHijos, filtrarPersonal, labelEstadoCivil, labelGenero,
-  labelParentesco, numeroFicha, porDepartamento, resumenPersonal, textoEdad, tieneHijos,
+  labelParentesco, numeroFicha, porDepartamento, textoEdad, tieneHijos,
   type Agrupador, type EstadoFiltro, type FiltroPersonal, type Genero, type HijosFiltro,
   type Parentesco,
 } from './fichaPersonal';
@@ -286,22 +286,15 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   const deptos = useMemo(() => porDepartamento(visibles), [visibles]);
 
   /**
-   * Las tarjetas SON los filtros: se tocan y filtran la tabla. Por eso cuentan
-   * sobre la lista achicada por todo lo demás (la búsqueda, el departamento,
-   * el cargo, la edad) pero NO por ellas mismas. Si «Mujeres» se contara ya
-   * filtrada por género, al tocarla «Hombres» diría 0 y no habría forma de
-   * pasar de una a la otra sin limpiar antes.
+   * La lista sobre la que cuentan las tarjetas: achicada por todo lo que NO es
+   * una tarjeta (la búsqueda, el departamento, el cargo, la edad). Lo de las
+   * tarjetas se aplica después, tarjeta por tarjeta, en `contarTarjeta`.
    */
   const baseTarjetas = useMemo(() => filtrarPersonal(lista, {
     texto: fTexto, departamento: fDepto, cargo: fCargo,
     edadDesde: fEdadDesde ? Number(fEdadDesde) : null,
     edadHasta: fEdadHasta ? Number(fEdadHasta) : null,
   }, tieneHijosDe), [lista, fTexto, fDepto, fCargo, fEdadDesde, fEdadHasta, tieneHijosDe]);
-
-  const cuenta = useMemo(() => {
-    const r = resumenPersonal(baseTarjetas, tieneHijosDe);
-    return { ...r, solteros: baseTarjetas.filter((p) => p.estado_civil === 'soltero').length };
-  }, [baseTarjetas, tieneHijosDe]);
 
   const hayFiltro = !!(fTexto || fDepto || fCargo || fGenero || fCivil || fHijos || fEdadDesde || fEdadHasta || fEstado !== 'todos');
   function limpiarFiltros() {
@@ -310,28 +303,69 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   }
 
   /* ── Las tarjetas como filtro ──
-     Son cuatro filtros distintos (género, estado, hijos, estado civil) pero una
-     sola fila de tarjetas, así que se comportan como una sola elección: la que
-     se toca queda puesta y las otras se apagan. Combinar «mujeres» con «con
-     hijos» sigue siendo posible, pero abajo, en «Más filtros», donde se ve qué
-     se está combinando. */
+     SE COMBINAN: mujeres + con hijos + activos se van sumando y cada una acota
+     más la tabla. Tocar una que ya está puesta la apaga.
+
+     Dos tarjetas del MISMO campo no pueden convivir —nadie es hombre y mujer a
+     la vez, ni activo e inactivo—, así que ahí la nueva reemplaza a la
+     anterior en vez de dar una tabla vacía. */
+  const CAMPOS_TARJETA = ['genero', 'estadoCivil', 'estado', 'hijos'] as const;
+  type CampoTarjeta = typeof CAMPOS_TARJETA[number];
+
+  /** Qué valor significa «este campo no filtra». `estado` usa 'todos', no ''. */
+  const NEUTRO: Record<CampoTarjeta, string> = { genero: '', estadoCivil: '', estado: 'todos', hijos: '' };
+  const puesto: Record<CampoTarjeta, string> = { genero: fGenero, estadoCivil: fCivil, estado: fEstado, hijos: fHijos };
+
+  function ponerTarjeta(campo: CampoTarjeta, valor: string) {
+    if (campo === 'genero') setFGenero(valor);
+    else if (campo === 'estadoCivil') setFCivil(valor);
+    else if (campo === 'estado') setFEstado(valor as EstadoFiltro);
+    else setFHijos(valor as HijosFiltro);
+  }
+
   function limpiarTarjetas() {
     setFGenero(''); setFCivil(''); setFEstado('todos'); setFHijos('');
   }
-  const sinFiltroDeTarjeta = !fGenero && !fCivil && !fHijos && fEstado === 'todos';
+  const sinFiltroDeTarjeta = CAMPOS_TARJETA.every((c) => puesto[c] === NEUTRO[c]);
 
-  function soloTarjeta(x: { genero?: string; civil?: string; estado?: EstadoFiltro; hijos?: HijosFiltro }) {
-    const yaPuesta = (x.genero !== undefined && fGenero === x.genero)
-      || (x.civil !== undefined && fCivil === x.civil)
-      || (x.estado !== undefined && fEstado === x.estado)
-      || (x.hijos !== undefined && fHijos === x.hijos);
-    limpiarTarjetas();
-    if (yaPuesta) return;                       // tocar la puesta la apaga
-    if (x.genero !== undefined) setFGenero(x.genero);
-    if (x.civil !== undefined) setFCivil(x.civil);
-    if (x.estado !== undefined) setFEstado(x.estado);
-    if (x.hijos !== undefined) setFHijos(x.hijos);
+  /** Tocar una tarjeta: la pone si estaba apagada, la apaga si ya estaba. */
+  function alternarTarjeta(campo: CampoTarjeta, valor: string) {
+    ponerTarjeta(campo, puesto[campo] === valor ? NEUTRO[campo] : valor);
   }
+
+  /**
+   * El número de una tarjeta = cuánta gente quedaría si se tocara AHORA.
+   *
+   * Se aplican las demás tarjetas puestas —por eso «Mujeres» baja cuando se
+   * pone «Con hijos»— pero NO la del propio campo: si «Hombres» se contara con
+   * «Mujeres» puesta diría 0, y no habría forma de pasar de una a la otra.
+   */
+  function contarTarjeta(campo: CampoTarjeta, valor: string): number {
+    const f = { ...puesto, [campo]: valor };
+    return filtrarPersonal(baseTarjetas, {
+      genero: f.genero, estadoCivil: f.estadoCivil,
+      estado: f.estado as EstadoFiltro, hijos: f.hijos as HijosFiltro,
+    }, tieneHijosDe).length;
+  }
+
+  const totalBase = baseTarjetas.length;
+  const pct = (n: number) => (totalBase ? `${Math.round((n / totalBase) * 100)}% del total` : '—');
+
+  const TARJETAS: Array<{
+    campo: CampoTarjeta; valor: string; titulo: string; icono: string;
+    color?: string; pie: (n: number) => string;
+  }> = [
+    { campo: 'genero', valor: 'masculino', titulo: 'Hombres', icono: '👨', color: '#3b82f6', pie: pct },
+    { campo: 'genero', valor: 'femenino', titulo: 'Mujeres', icono: '👩', color: '#ec4899', pie: pct },
+    { campo: 'estado', valor: 'activos', titulo: 'Activos', icono: '✅', color: 'var(--success)', pie: () => 'Trabajando hoy' },
+    { campo: 'estado', valor: 'inactivos', titulo: 'Inactivos', icono: '⏸', pie: () => 'Dados de baja' },
+    { campo: 'hijos', valor: 'con', titulo: 'Con hijos', icono: '👨‍👩‍👧', color: 'var(--success)', pie: () => 'Con carga familiar' },
+    { campo: 'estadoCivil', valor: 'soltero', titulo: 'Solteros', icono: '🙋', pie: () => 'Según el estado civil' },
+    // Sin género no suma ni en Hombres ni en Mujeres: la tarjeta está para
+    // poder ir a completar justo esas fichas.
+    { campo: 'genero', valor: SIN_DATO, titulo: 'Sin género cargado', icono: '⚠', color: 'var(--warning)', pie: () => 'No suman en Hombres ni Mujeres' },
+  ];
+  const tarjetasPuestas = TARJETAS.filter((t) => puesto[t.campo] === t.valor);
 
   /**
    * Parentescos para el contacto de emergencia: el catálogo de siempre más
@@ -506,37 +540,39 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         </div>
       )}
 
-      {/* Las tarjetas se tocan y filtran. La primera es el «todos»: apaga las
-          otras. Tocar la que ya está puesta la apaga, así se sale sin buscar
-          el botón de limpiar. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.7rem', marginBottom: '.75rem' }}>
-        <Tarjeta titulo="Personal" icono="👥" valor={cuenta.total}
-          pie={cuenta.inactivos ? `${cuenta.activos} activos · ${cuenta.inactivos} inactivos` : 'Todos activos'}
+      {/* Las tarjetas se tocan y filtran, y SE COMBINAN entre sí. La primera es
+          el «todos»: apaga las demás. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.7rem', marginBottom: '.5rem' }}>
+        <Tarjeta titulo="Personal" icono="👥" valor={totalBase}
+          pie={sinFiltroDeTarjeta ? 'Sin filtros puestos' : 'Tocá para ver a todos'}
           activa={sinFiltroDeTarjeta} onClick={limpiarTarjetas} />
-        <Tarjeta titulo="Hombres" icono="👨" valor={cuenta.hombres} color="#3b82f6"
-          pie={cuenta.total ? `${Math.round((cuenta.hombres / cuenta.total) * 100)}% del total` : '—'}
-          activa={fGenero === 'masculino'} onClick={() => soloTarjeta({ genero: 'masculino' })} />
-        <Tarjeta titulo="Mujeres" icono="👩" valor={cuenta.mujeres} color="#ec4899"
-          pie={cuenta.total ? `${Math.round((cuenta.mujeres / cuenta.total) * 100)}% del total` : '—'}
-          activa={fGenero === 'femenino'} onClick={() => soloTarjeta({ genero: 'femenino' })} />
-        <Tarjeta titulo="Activos" icono="✅" valor={cuenta.activos} color="var(--success)"
-          pie="Trabajando hoy"
-          activa={fEstado === 'activos'} onClick={() => soloTarjeta({ estado: 'activos' })} />
-        <Tarjeta titulo="Inactivos" icono="⏸" valor={cuenta.inactivos}
-          pie="Dados de baja"
-          activa={fEstado === 'inactivos'} onClick={() => soloTarjeta({ estado: 'inactivos' })} />
-        <Tarjeta titulo="Con hijos" icono="👨‍👩‍👧" valor={cuenta.conHijos} color="var(--success)"
-          pie={`${cuenta.total - cuenta.conHijos} sin hijos cargados`}
-          activa={fHijos === 'con'} onClick={() => soloTarjeta({ hijos: 'con' })} />
-        <Tarjeta titulo="Solteros" icono="🙋" valor={cuenta.solteros}
-          pie="Según el estado civil"
-          activa={fCivil === 'soltero'} onClick={() => soloTarjeta({ civil: 'soltero' })} />
-        {/* Sin género cargado no cuenta ni en Hombres ni en Mujeres: la tarjeta
-            está para poder ir a completar justo esas fichas. */}
-        <Tarjeta titulo="Sin género cargado" icono="⚠" valor={cuenta.sinGenero} color="var(--warning)"
-          pie="No suman en Hombres ni Mujeres"
-          activa={fGenero === SIN_DATO} onClick={() => soloTarjeta({ genero: SIN_DATO })} />
+        {TARJETAS.map((t) => {
+          const n = contarTarjeta(t.campo, t.valor);
+          return (
+            <Tarjeta key={t.titulo} titulo={t.titulo} icono={t.icono} valor={n} color={t.color}
+              pie={t.pie(n)} activa={puesto[t.campo] === t.valor}
+              onClick={() => alternarTarjeta(t.campo, t.valor)} />
+          );
+        })}
       </div>
+
+      {/* Qué tarjetas están puestas y cómo sacarlas. Con varias combinadas hace
+          falta verlo escrito: si no, un número raro en la tabla parece un error
+          del sistema en vez de un filtro que quedó prendido. */}
+      {tarjetasPuestas.length > 0 && (
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.75rem' }}>
+          <span className="muted" style={{ fontSize: '.78rem' }}>Filtrando por:</span>
+          {tarjetasPuestas.map((t) => (
+            <button key={t.titulo} className="btn btn-sm"
+              onClick={() => alternarTarjeta(t.campo, NEUTRO[t.campo])}
+              title={`Quitar «${t.titulo}»`}
+              style={{ background: t.color ?? 'var(--primary, #ff8a00)', color: '#fff', border: 'none' }}>
+              {t.icono} {t.titulo} ✕
+            </button>
+          ))}
+          <button className="btn btn-sm btn-ghost" onClick={limpiarTarjetas}>✕ Quitar todos</button>
+        </div>
+      )}
 
       {/* Cuánta gente hay en cada departamento */}
       {deptos.length > 1 && (
