@@ -10,8 +10,11 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type {
   Almacen, Caja, Existencia, Movimiento, MovimientoCaja, Producto,
-  SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida,
+  SolicitudSalida, ScopeSalida, TipoSalida,
 } from '@/shared/lib/types';
+import { SOL_COLS, colDe, etiquetaCol, etiquetaDe, type SolColKey } from './columnasSalida';
+import { HistoricoSolicitudes } from './HistoricoSolicitudes';
+import { TOPE_COLUMNA, conteoPorColumna, recorteDeColumna, type FiltroHistorico } from './historicoSalidas';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
 import {
@@ -46,7 +49,7 @@ import {
 
 type Scope = 'salidas' | 'traslados' | 'temporales';
 type Tipo = 'material' | 'dinero';
-type Vista = 'kanban' | 'lista' | 'resumen';
+type Vista = 'kanban' | 'historico' | 'lista' | 'resumen';
 type Modal =
   | { kind: 'none' }
   | { kind: 'salida-material' }
@@ -60,23 +63,8 @@ type Modal =
   | { kind: 'cajas' }
   | { kind: 'choferes-vehiculos' };
 
-// Columnas del kanban. «Ejecutada» se parte en dos: la que SÍ descontó stock/caja y la
-// que se cerró «sin descontar» (mov_ref = 'manual_externo', el descuento se hizo por fuera).
-// Es la misma fila de la base (estado 'ejecutada'): la diferencia vive en mov_ref, no en un
-// estado nuevo. Los almacenistas confundían ambos botones porque el kanban las mezclaba.
-type SolColKey = EstadoSolicitudSalida | 'ejecutada_sin_descuento';
-const SOL_COLS: { key: SolColKey; label: string; labelTraslado?: string; badge: string; match: (s: SolicitudSalida) => boolean }[] = [
-  { key: 'por_aprobar', label: 'Por aprobar', badge: 'warning', match: (s) => s.estado === 'por_aprobar' },
-  { key: 'aprobada', label: 'Aprobada', badge: 'info', match: (s) => s.estado === 'aprobada' },
-  { key: 'ejecutada', label: 'Ejecutada (descontó)', labelTraslado: 'Ejecutada (movió stock)', badge: 'success', match: (s) => s.estado === 'ejecutada' && s.mov_ref !== 'manual_externo' },
-  { key: 'ejecutada_sin_descuento', label: 'Cerrada sin descontar', labelTraslado: 'Cerrada sin mover', badge: 'warning', match: (s) => s.estado === 'ejecutada' && s.mov_ref === 'manual_externo' },
-  { key: 'cancelada', label: 'Cancelada', badge: 'danger', match: (s) => s.estado === 'cancelada' },
-];
-/** Columna (etiqueta + color) que le corresponde a una solicitud. */
-const colDe = (s: SolicitudSalida) => SOL_COLS.find((c) => c.match(s));
-/** Etiqueta de la columna según la pestaña: en Traslados el stock se «mueve», no se «descuenta». */
-const etiquetaCol = (col: (typeof SOL_COLS)[number] | undefined, scope: ScopeSalida): string => (scope === 'traslado' && col?.labelTraslado) || col?.label || '';
-const etiquetaDe = (s: SolicitudSalida): string => etiquetaCol(colDe(s), s.scope);
+// Las columnas del tablero viven en columnasSalida.ts: las comparten esta página
+// y el histórico, y con una sola definición no pueden decir cosas distintas.
 
 export function SalidasPage() {
   const { can, appUser, role } = usePermissions();
@@ -108,6 +96,15 @@ export function SalidasPage() {
   // Filtros del tablero de solicitudes: por USUARIO (quien la hizo, actor) y por SOLICITANTE.
   const [fUsuario, setFUsuario] = useState('');
   const [fSolicitante, setFSolicitante] = useState('');
+  // Con qué filtro abrir el histórico. Se usa al saltar desde una columna del
+  // tablero («ver las otras 176»): llega directo a esa columna, no a todo.
+  const [filtroHist, setFiltroHist] = useState<FiltroHistorico>({});
+  const [histNonce, setHistNonce] = useState(0);
+  function abrirHistorico(f: FiltroHistorico = {}) {
+    setFiltroHist(f);
+    setHistNonce((n) => n + 1);   // remonta el histórico para que tome el filtro nuevo
+    setVista('historico');
+  }
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
@@ -208,6 +205,7 @@ export function SalidasPage() {
       {/* Vista: Kanban (trámite) / Lista (historial de movimientos ejecutados) */}
       <div className="view-toggle" role="tablist" aria-label="Kanban o lista" style={{ marginBottom: '1rem' }}>
         <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
+        <button className={vista === 'historico' ? 'active' : ''} onClick={() => abrirHistorico()} title="Todas las solicitudes, con filtros y quién hizo cada cosa">📚 Histórico</button>
         <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>📜 Historial</button>
         {esSalida && esMaterial && <button className={vista === 'resumen' ? 'active' : ''} onClick={() => setVista('resumen')}>📊 Resumen</button>}
       </div>
@@ -240,7 +238,19 @@ export function SalidasPage() {
       ) : (vista === 'resumen' && esSalida && esMaterial) ? (
         <ResumenSalidas solicitudes={solicitudes} actor={actor} />
       ) : vista === 'kanban' ? (
-        <SolicitudesKanban sols={solsFiltradas} scope={scopeSol} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
+        /* El histórico se lleva lo que ya estaba filtrado en el tablero: si venías
+           mirando lo de Kelvin, al abrirse no te lo borra. */
+        <SolicitudesKanban
+          sols={solsFiltradas} scope={scopeSol}
+          onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })}
+          onVerHistorico={(columna) => abrirHistorico({ columna, persona: fUsuario, solicitante: fSolicitante })}
+        />
+      ) : vista === 'historico' ? (
+        <HistoricoSolicitudes
+          key={`${scopeSol}-${histNonce}`}
+          sols={solsVista} scope={scopeSol} filtroInicial={filtroHist}
+          onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })}
+        />
       ) : (
         <Historial
           key={`${scope}-${tipo}`}
@@ -570,7 +580,12 @@ function guardarColsOcultas(keys: SolColKey[]) {
   try { localStorage.setItem(LS_COLS_OCULTAS, JSON.stringify(keys)); } catch { /* sin localStorage: queda solo en memoria */ }
 }
 
-function SolicitudesKanban({ sols, scope, onVer }: { sols: SolicitudSalida[]; scope: ScopeSalida; onVer: (s: SolicitudSalida) => void }) {
+function SolicitudesKanban({ sols, scope, onVer, onVerHistorico }: {
+  sols: SolicitudSalida[];
+  scope: ScopeSalida;
+  onVer: (s: SolicitudSalida) => void;
+  onVerHistorico: (columna: SolColKey) => void;
+}) {
   const [ocultas, setOcultas] = useState<SolColKey[]>(leerColsOcultas);
   const alternar = (key: SolColKey) =>
     setOcultas((prev) => {
@@ -580,23 +595,27 @@ function SolicitudesKanban({ sols, scope, onVer }: { sols: SolicitudSalida[]; sc
     });
   const mostrarTodas = () => { setOcultas([]); guardarColsOcultas([]); };
   const visibles = SOL_COLS.filter((c) => !ocultas.includes(c.key));
+  const conteo = conteoPorColumna(sols);
   return (
     <div>
-      {/* Selector de columnas: el conteo se ve aunque la columna esté oculta, para no perder de vista lo pendiente. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.4rem', marginBottom: '.6rem' }}>
-        <span className="muted" style={{ fontSize: '.78rem' }}>Mostrar:</span>
+      {/* Selector de columnas: el conteo se ve aunque la columna esté oculta, para no
+          perder de vista lo pendiente. Cada chip lleva el color de su columna, así el
+          ojo lo empata con el tablero de abajo sin tener que leer. */}
+      <div className="chips-columnas">
+        <span className="chips-columnas-titulo">Mostrar</span>
         {SOL_COLS.map((col) => {
           const activa = !ocultas.includes(col.key);
-          const n = sols.filter(col.match).length;
           return (
-            <button key={col.key} type="button" className={`chip ${activa ? 'chip-active' : ''}`} aria-pressed={activa}
+            <button key={col.key} type="button" className={`chip chip-col tono-${col.badge} ${activa ? 'is-on' : ''}`} aria-pressed={activa}
               title={activa ? 'Ocultar esta columna' : 'Mostrar esta columna'} onClick={() => alternar(col.key)}>
-              {activa ? '☑' : '☐'} {etiquetaCol(col, scope)} <span className="dim">· {n}</span>
+              <span className="chip-col-punto" aria-hidden="true" />
+              <span className="chip-col-texto">{etiquetaCol(col, scope)}</span>
+              <span className="chip-col-n">{conteo[col.key]}</span>
             </button>
           );
         })}
         {ocultas.length > 0 && (
-          <button type="button" className="btn btn-sm btn-ghost" onClick={mostrarTodas}>Mostrar todas</button>
+          <button type="button" className="chip chip-col chip-col-limpiar" onClick={mostrarTodas}>✕ Mostrar todas</button>
         )}
       </div>
       {!sols.length ? (
@@ -606,12 +625,15 @@ function SolicitudesKanban({ sols, scope, onVer }: { sols: SolicitudSalida[]; sc
       ) : (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '.75rem' }}>
       {visibles.map((col) => {
-        const items = sols.filter(col.match);
+        const todas = sols.filter(col.match);
+        // El tablero muestra las ÚLTIMAS; el resto vive en el histórico, que sí
+        // tiene con qué buscarlas. Una columna de 186 tarjetas no se trabaja.
+        const { visibles: items, enHistorico } = recorteDeColumna(todas, TOPE_COLUMNA);
         return (
           <div key={col.key} className="card" style={{ margin: 0, padding: '.6rem', background: 'var(--bg-1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
               <strong style={{ fontSize: '.82rem' }}>{etiquetaCol(col, scope)}</strong>
-              <span className={`badge ${col.badge}`}>{items.length}</span>
+              <span className={`badge ${col.badge}`} title={enHistorico ? `${todas.length} en total · se ven las ${items.length} últimas` : undefined}>{todas.length}</span>
             </div>
             {/* Lista con scroll propio: la columna no empuja la página aunque tenga muchas. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', maxHeight: 'max(320px, calc(100vh - 300px))', overflowY: 'auto', paddingRight: '.15rem' }}>
@@ -637,6 +659,13 @@ function SolicitudesKanban({ sols, scope, onVer }: { sols: SolicitudSalida[]; sc
               ))}
               {!items.length && <div className="muted" style={{ fontSize: '.74rem', padding: '.25rem' }}>—</div>}
             </div>
+            {enHistorico > 0 && (
+              <button type="button" className="btn btn-sm btn-ghost" style={{ width: '100%', marginTop: '.45rem', fontSize: '.74rem' }}
+                title={`Ver las ${enHistorico} anteriores en el histórico, con filtros`}
+                onClick={() => onVerHistorico(col.key)}>
+                📚 Ver las {num(enHistorico)} anteriores
+              </button>
+            )}
           </div>
         );
       })}

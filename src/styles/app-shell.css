@@ -671,6 +671,105 @@
 }
 
 /* ============================================================
+   Chips de columna del tablero de Salidas
+   ------------------------------------------------------------
+   Antes eran cinco pastillas naranjas idénticas con un ☑ delante: el naranja
+   no decía nada (todas estaban activas) y el ☑ cargaba la fila de ruido. Ahora
+   cada chip lleva EL COLOR DE SU COLUMNA —el mismo del badge de abajo—, así el
+   ojo empata el filtro con el tablero sin leer, y prendido/apagado se distingue
+   por el relleno y por el punto (lleno / hueco), no por un símbolo.
+   ============================================================ */
+.chips-columnas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  margin-bottom: .75rem;
+  padding: .45rem .55rem;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.chips-columnas-titulo {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding-left: .35rem;
+  margin-right: .1rem;
+}
+/* Cada tono trae su color y dos velos del MISMO color, escritos a mano en rgba:
+   color-mix() no se usa en ninguna otra parte de la hoja y un navegador que no
+   lo entienda tiraría la regla entera. */
+.chip.chip-col {
+  --tono: var(--text-muted);
+  --tono-suave: rgba(154,166,181,0.10);
+  --tono-medio: rgba(154,166,181,0.18);
+  gap: .45rem;
+  padding: .3rem .55rem .3rem .5rem;
+  font-size: .78rem;
+  background: transparent;
+  border-color: var(--border);
+}
+.chip-col.tono-warning { --tono: var(--warning); --tono-suave: rgba(245,177,51,0.12); --tono-medio: rgba(245,177,51,0.20); }
+.chip-col.tono-info    { --tono: var(--info);    --tono-suave: rgba(74,168,255,0.12); --tono-medio: rgba(74,168,255,0.20); }
+.chip-col.tono-success { --tono: var(--success); --tono-suave: rgba(41,192,129,0.12); --tono-medio: rgba(41,192,129,0.20); }
+.chip-col.tono-danger  { --tono: var(--danger);  --tono-suave: rgba(239,79,94,0.12);  --tono-medio: rgba(239,79,94,0.20); }
+
+.chip-col-punto {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+  border: 2px solid var(--tono);
+  background: transparent;
+  transition: background .15s;
+}
+.chip-col-texto { line-height: 1; }
+.chip-col-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  padding: .05rem .3rem;
+  font-size: .7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: var(--bg-2);
+  border-radius: 999px;
+}
+/* Prendido: el chip se tiñe de su color y el punto se rellena. */
+.chip.chip-col.is-on {
+  color: var(--text);
+  border-color: var(--tono);
+  background: var(--tono-suave);
+  box-shadow: none;
+}
+.chip.chip-col.is-on .chip-col-punto { background: var(--tono); }
+.chip.chip-col.is-on .chip-col-n {
+  color: var(--tono);
+  background: var(--tono-medio);
+}
+/* Apagado: se ve, pero se nota que está fuera del tablero. */
+.chip.chip-col:not(.is-on) {
+  color: var(--text-muted);
+  border-style: dashed;
+  opacity: .72;
+}
+.chip.chip-col:not(.is-on) .chip-col-texto { text-decoration: line-through; text-decoration-thickness: 1px; }
+.chip.chip-col:hover { opacity: 1; border-color: var(--tono); background: var(--tono-suave); }
+.chip.chip-col:focus-visible { outline: 2px solid var(--tono); outline-offset: 2px; }
+/* «Mostrar todas» es una acción, no una columna apagada: sin borde punteado. */
+.chip.chip-col.chip-col-limpiar { --tono: var(--text-muted); font-weight: 600; border-style: solid; opacity: 1; }
+
+@media (max-width: 640px) {
+  .chips-columnas { border-radius: var(--r-md); }
+  .chip.chip-col { font-size: .74rem; }
+}
+
+/* ============================================================
    Hover/affordance para filas seleccionables (comparativa ofertas)
    ============================================================ */
 tr.row-selectable { transition: background .15s, transform .1s; }
