@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { FechaVe } from '@/shared/ui/FechaVe';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date, dateTime } from '@/shared/lib/format';
@@ -40,6 +42,46 @@ import { generarFrenteBlob, generarReversoBlob, descargarCarnet } from './carnet
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+
+/**
+ * La ficha guardada → el formulario.
+ *
+ * El tipo de retorno es \`Required<PersonalInput>\` A PROPÓSITO: obliga a que
+ * estén TODOS los campos. Si mañana se agrega uno al formulario y se olvida
+ * acá, el proyecto no compila.
+ *
+ * Sin esa guarda pasó esto: se agregaron género, estado civil, fecha de
+ * nacimiento, grupo sanguíneo, nacionalidad, dirección y parentesco, pero
+ * \`editar()\` no los cargaba. Llegaban vacíos al guardar y el dato se BORRABA
+ * al editar cualquier otra cosa de la persona.
+ */
+function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
+  return {
+    empresa,
+    nombre: p.nombre,
+    apellido: p.apellido ?? '',
+    cedula: p.cedula ?? '',
+    rif: p.rif ?? '',
+    cargo: p.cargo ?? '',
+    departamento: p.departamento ?? '',
+    genero: p.genero ?? '',
+    estado_civil: p.estado_civil ?? '',
+    fecha_nacimiento: p.fecha_nacimiento ?? '',
+    grupo_sanguineo: p.grupo_sanguineo ?? '',
+    nacionalidad: p.nacionalidad ?? '',
+    direccion: p.direccion ?? '',
+    contacto_emergencia_parentesco: p.contacto_emergencia_parentesco ?? '',
+    sueldo_base: Number(p.sueldo_base) || 0,
+    fecha_ingreso: p.fecha_ingreso ?? '',
+    telefono: p.telefono ?? '',
+    contacto_emergencia: p.contacto_emergencia ?? '',
+    contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '',
+    foto_url: p.foto_url ?? '',
+    foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x),
+    foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y),
+    foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom),
+  };
+}
 
 /** Un familiar mientras se edita el formulario. Sin \`id\` = todavía no está guardado. */
 interface FamiliarUI {
@@ -250,6 +292,36 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
     setFEstado('todos'); setFHijos(''); setFEdadDesde(''); setFEdadHasta('');
   }
 
+  /**
+   * Parentescos para el contacto de emergencia: el catálogo de siempre más
+   * los que alguien ya escribió a mano. Así el que se agrega una vez queda
+   * disponible la próxima, sin tener que mantener una lista aparte.
+   */
+  const parentescosContacto = useMemo(() => {
+    const usados = lista.map((p) => (p.contacto_emergencia_parentesco ?? '').trim()).filter(Boolean);
+    const base = PARENTESCOS.map((p) => p.label);
+    const extras = ['Esposo/a', 'Tío/a', 'Abuelo/a', 'Primo/a', 'Amigo/a', 'Vecino/a'];
+    const todos = [...new Set([...base, ...extras, ...usados])];
+    return todos
+      .sort((a, b) => a.localeCompare(b, 'es'))
+      .map((x) => ({ value: x, label: x }));
+  }, [lista]);
+
+  /**
+   * Nacionalidades: las de la región más las que ya se cargaron. Igual que el
+   * parentesco, la que alguien escriba una vez queda para la próxima.
+   */
+  const nacionalidades = useMemo(() => {
+    const usadas = lista.map((p) => (p.nacionalidad ?? '').trim()).filter(Boolean);
+    const base = ['VENEZOLANO', 'VENEZOLANA', 'COLOMBIANO', 'COLOMBIANA', 'BRASILEÑO', 'BRASILEÑA',
+      'ECUATORIANO', 'ECUATORIANA', 'PERUANO', 'PERUANA', 'ARGENTINO', 'ARGENTINA',
+      'CHILENO', 'CHILENA', 'ESPAÑOL', 'ESPAÑOLA', 'PORTUGUÉS', 'PORTUGUESA',
+      'CHINO', 'CHINA', 'ITALIANO', 'ITALIANA', 'EXTRANJERO'];
+    return [...new Set([...base, ...usadas.map((x) => x.toUpperCase())])]
+      .sort((a, b) => a.localeCompare(b, 'es'))
+      .map((x) => ({ value: x, label: x }));
+  }, [lista]);
+
   /** Los valores que existen de verdad, para no ofrecer filtros vacíos. */
   const deptosUsados = useMemo(
     () => [...new Set(lista.map((p) => p.departamento || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')),
@@ -276,7 +348,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   }
   function editar(p: Personal) {
     setEditId(p.id);
-    setForm({ empresa, nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
+    setForm(formDePersona(p, empresa));
     limpiarCambioSueldo(Number(p.sueldo_base) || 0);
     setFamiliaBorrada([]);
     setFamiliaForm((familiaPorPersona.get(p.id) ?? []).map((x) => ({
@@ -404,8 +476,6 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
           pie={resumen.total ? `${Math.round((resumen.hombres / resumen.total) * 100)}% del total` : '—'} />
         <Tarjeta titulo="Con hijos" valor={resumen.conHijos} color="var(--success)"
           pie={`${resumen.total - resumen.conHijos} sin hijos cargados`} />
-        <Tarjeta titulo="Edad promedio" valor={resumen.edadPromedio ?? '—'}
-          pie={resumen.edadPromedio == null ? 'Sin fechas de nacimiento' : 'años'} />
       </div>
 
       {/* Si falta el género en muchas fichas, las dos tarjetas de arriba dicen
@@ -544,7 +614,19 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 {g.filas.map((p) => (
               <tr key={p.id} style={{ opacity: p.activo ? 1 : 0.55 }}>
                 <td>
-                  {p.nombre} {p.apellido}{p.cedula ? <span className="muted"> · {p.cedula}</span> : null}
+                  {/* El nombre abre la ficha: es lo que uno intenta tocar primero.
+                      Quien no puede escribir la ve, no la edita. */}
+                  <button type="button"
+                    onClick={() => (canWrite ? editar(p) : setFichaPersona(p))}
+                    title={canWrite ? 'Editar la ficha' : 'Ver la ficha técnica'}
+                    style={{
+                      background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit',
+                      color: 'inherit', cursor: 'pointer', textAlign: 'left', textDecoration: 'underline',
+                      textDecorationColor: 'var(--border)', textUnderlineOffset: '3px',
+                    }}>
+                    <strong>{p.nombre} {p.apellido}</strong>
+                  </button>
+                  {p.cedula ? <span className="muted"> · {p.cedula}</span> : null}
                   <div className="muted" style={{ fontSize: '.7rem' }}>
                     {numeroFicha(p.numero_ficha)}
                     {p.genero ? ` · ${labelGenero(p.genero)}` : ''}
@@ -728,9 +810,38 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                     if (editId) setTipoSueldo(tipoSugerido(sueldoOriginal, v));
                   }} placeholder="0,00" />
               </div>
-              <div className="form-row"><label>Fecha de ingreso</label><input className="input" type="date" value={form.fecha_ingreso ?? ''} onChange={(e) => setForm((f) => ({ ...f, fecha_ingreso: e.target.value }))} /></div>
+              <div className="form-row">
+                <label>Fecha de ingreso</label>
+                <FechaVe
+                  value={form.fecha_ingreso ?? ''}
+                  onChange={(iso) => setForm((x) => ({ ...x, fecha_ingreso: iso }))}
+                  futuro={false} minAnio={1950}
+                  ayuda={form.fecha_ingreso
+                    ? <>Antigüedad: <strong>{antiguedad(form.fecha_ingreso)}</strong></>
+                    : 'dd/mm/aaaa · de acá sale la antigüedad'}
+                />
+              </div>
               <div className="form-row"><label>Teléfono</label><input className="input mono" value={form.telefono ?? ''} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
-              <div className="form-row"><label>Contacto de emergencia</label><input className="input" value={form.contacto_emergencia ?? ''} onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia: e.target.value }))} placeholder="Nombre y parentesco" /></div>
+              {/* El nombre y el parentesco, separados: juntos en un solo campo
+                  no se puede buscar «todos los que dejaron a un hijo de contacto». */}
+              <div className="form-row">
+                <label>Contacto de emergencia</label>
+                <input className="input" value={form.contacto_emergencia ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia: e.target.value }))}
+                  placeholder="Nombre y apellido" />
+              </div>
+              <div className="form-row">
+                <label>Parentesco</label>
+                <SearchSelect
+                  options={parentescosContacto}
+                  value={form.contacto_emergencia_parentesco ?? ''}
+                  onChange={(v) => setForm((f) => ({ ...f, contacto_emergencia_parentesco: v }))}
+                  placeholder="Buscar o escribir…"
+                  allowCreate
+                  sinPreseleccion
+                />
+                <small className="muted">Se busca escribiendo. Si no está en la lista, se escribe y queda para la próxima.</small>
+              </div>
               <div className="form-row"><label>Tel. de emergencia</label><input className="input mono" value={form.contacto_emergencia_tlf ?? ''} onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia_tlf: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
             </div>
             {/* Cambió el sueldo: acá se explica por qué. Es lo que queda en el historial. */}
@@ -784,13 +895,18 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                     {ESTADOS_CIVILES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                   </select>
                 </div>
-                <div className="form-row" style={{ flex: '0 1 165px', margin: 0 }}>
+                <div className="form-row" style={{ flex: '0 1 210px', margin: 0 }}>
                   <label>Fecha de nacimiento</label>
-                  <input className="input" type="date" value={form.fecha_nacimiento ?? ''}
-                    onChange={(e) => setForm((x) => ({ ...x, fecha_nacimiento: e.target.value }))} />
-                  {/* La edad no se guarda: se calcula. Una edad guardada queda
-                      vieja al dia siguiente del cumpleaños. */}
-                  <small className="muted">{form.fecha_nacimiento ? textoEdad(form.fecha_nacimiento) : 'De acá sale la edad.'}</small>
+                  {/* Se escribe a mano en dd/mm/aaaa o se elige en el calendario.
+                      La EDAD no se guarda: sale de acá y se actualiza sola. */}
+                  <FechaVe
+                    value={form.fecha_nacimiento ?? ''}
+                    onChange={(iso) => setForm((x) => ({ ...x, fecha_nacimiento: iso }))}
+                    futuro={false} minAnio={1900}
+                    ayuda={form.fecha_nacimiento
+                      ? <>Edad: <strong>{textoEdad(form.fecha_nacimiento)}</strong></>
+                      : 'dd/mm/aaaa · de acá sale la edad'}
+                  />
                 </div>
                 <div className="form-row" style={{ flex: '0 1 120px', margin: 0 }}>
                   <label>Grupo sanguíneo</label>
@@ -799,10 +915,17 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                     {GRUPOS_SANGUINEOS.map((g) => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
-                <div className="form-row" style={{ flex: '1 1 150px', margin: 0 }}>
+                <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
                   <label>Nacionalidad</label>
-                  <input className="input" value={form.nacionalidad ?? ''}
-                    onChange={(e) => setForm((x) => ({ ...x, nacionalidad: e.target.value }))} placeholder="VENEZOLANO" />
+                  <SearchSelect
+                    options={nacionalidades}
+                    value={form.nacionalidad ?? ''}
+                    onChange={(v) => setForm((x) => ({ ...x, nacionalidad: v.toUpperCase() }))}
+                    placeholder="Buscar o escribir…"
+                    allowCreate
+                    sinPreseleccion
+                  />
+                  <small className="muted">Si no está, se escribe y queda para la próxima.</small>
                 </div>
               </div>
               <div className="form-row" style={{ marginBottom: 0, marginTop: '.5rem' }}>
@@ -810,12 +933,6 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 <input className="input" value={form.direccion ?? ''}
                   onChange={(e) => setForm((x) => ({ ...x, direccion: e.target.value }))}
                   placeholder="Ciudad, sector, calle…" />
-              </div>
-              <div className="form-row" style={{ marginBottom: 0, marginTop: '.5rem' }}>
-                <label>Parentesco del contacto de emergencia</label>
-                <input className="input" value={form.contacto_emergencia_parentesco ?? ''}
-                  onChange={(e) => setForm((x) => ({ ...x, contacto_emergencia_parentesco: e.target.value }))}
-                  placeholder="Hija, esposa, hermano…" />
               </div>
             </div>
 
@@ -848,10 +965,14 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                       {PARENTESCOS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
                     </select>
                   </div>
-                  <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
+                  <div className="form-row" style={{ flex: '0 1 195px', margin: 0 }}>
                     <label style={{ fontSize: '.72rem' }}>Fecha de nacimiento</label>
-                    <input className="input" type="date" value={fam.fechaNacimiento} onChange={(e) => cambiarFila(i, { fechaNacimiento: e.target.value })} />
-                    {fam.fechaNacimiento && <small className="muted">{textoEdad(fam.fechaNacimiento)}</small>}
+                    <FechaVe
+                      value={fam.fechaNacimiento}
+                      onChange={(iso) => cambiarFila(i, { fechaNacimiento: iso })}
+                      futuro={false} minAnio={1900}
+                      ayuda={fam.fechaNacimiento ? textoEdad(fam.fechaNacimiento) : undefined}
+                    />
                   </div>
                   <div className="form-row" style={{ flex: '0 1 120px', margin: 0 }}>
                     <label style={{ fontSize: '.72rem' }}>Género</label>

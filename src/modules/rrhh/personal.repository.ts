@@ -101,14 +101,26 @@ export async function borrarFotoCarnet(url: string): Promise<void> {
   try { await supabase.storage.from(BUCKET_FOTOS).remove([path]); } catch { /* el Storage no bloquea */ }
 }
 
+/** Quita del objeto los campos que no vinieron. Ver `payload`. */
+function soloLoQueVino<T extends Record<string, unknown>>(o: T): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) if (v !== undefined) out[k] = v;
+  return out as Partial<T>;
+}
+
 /**
  * Los campos de la ficha, SIN el sueldo.
  *
  * El sueldo no viaja en el update común a propósito: la base lo rechaza si no
  * viene con su motivo (`cambiar_sueldo_personal`). Ver `cambiarSueldo`.
+ *
+ * Un campo que NO viene en el input se OMITE del update, en vez de escribirse
+ * como null. Vaciarlo a mano (cadena vacía → null) sigue funcionando; lo que
+ * ya no puede pasar es que un formulario que se olvidó de cargar un campo lo
+ * borre de la base sin que nadie lo haya pedido.
  */
 function payload(input: PersonalInput) {
-  return {
+  return soloLoQueVino({
     empresa: normalizarEmpresa(input.empresa),
     nombre: input.nombre.trim(),
     apellido: (input.apellido ?? '').trim(),
@@ -119,13 +131,13 @@ function payload(input: PersonalInput) {
     // Los campos de la ficha técnica van vacíos (null) y no en blanco: una
     // cadena vacía pasaría la restricción de la base y luego no se sabría
     // si el dato falta o alguien escribió nada.
-    genero: input.genero?.trim() || null,
-    estado_civil: input.estado_civil?.trim() || null,
-    fecha_nacimiento: input.fecha_nacimiento || null,
-    grupo_sanguineo: input.grupo_sanguineo?.trim() || null,
-    nacionalidad: input.nacionalidad?.trim().toUpperCase() || null,
-    direccion: input.direccion?.trim() || null,
-    contacto_emergencia_parentesco: input.contacto_emergencia_parentesco?.trim() || null,
+    genero: input.genero === undefined ? undefined : (input.genero?.trim() || null),
+    estado_civil: input.estado_civil === undefined ? undefined : (input.estado_civil?.trim() || null),
+    fecha_nacimiento: input.fecha_nacimiento === undefined ? undefined : (input.fecha_nacimiento || null),
+    grupo_sanguineo: input.grupo_sanguineo === undefined ? undefined : (input.grupo_sanguineo?.trim() || null),
+    nacionalidad: input.nacionalidad === undefined ? undefined : (input.nacionalidad?.trim().toUpperCase() || null),
+    direccion: input.direccion === undefined ? undefined : (input.direccion?.trim() || null),
+    contacto_emergencia_parentesco: input.contacto_emergencia_parentesco === undefined ? undefined : (input.contacto_emergencia_parentesco?.trim() || null),
     fecha_ingreso: input.fecha_ingreso || null,
     telefono: input.telefono?.trim() || null,
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
@@ -135,7 +147,7 @@ function payload(input: PersonalInput) {
     foto_pos_x: clamp(Number(input.foto_pos_x ?? 0.5), 0, 1),
     foto_pos_y: clamp(Number(input.foto_pos_y ?? 0.5), 0, 1),
     foto_zoom: clamp(Number(input.foto_zoom ?? 1), 1, 4),
-  };
+  });
 }
 
 const BUCKET_DOCS = 'personal-docs';
