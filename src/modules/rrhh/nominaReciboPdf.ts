@@ -150,3 +150,19 @@ export async function descargarNominaReciboPdf(renglones: NominaRenglon[], meta:
   const doc = await construir(renglones, meta);
   doc.save(nombreArchivo(renglones, meta));
 }
+
+/**
+ * Abre los comprobantes en VISTA PREVIA, uno por página, para revisarlos
+ * antes de mandarlos a la impresora.
+ *
+ * Es lo que se usa al imprimir por lote: cuando salen veinte recibos de una,
+ * bajar el archivo y abrirlo aparte para recién ahí ver que faltaba uno es el
+ * camino largo. Acá se ven, se imprimen desde el visor, y nada se descarga si
+ * no se pide.
+ */
+export async function verNominaRecibosPdf(renglones: NominaRenglon[], meta: ReciboMeta): Promise<void> {
+  if (!renglones.length) throw new Error('No hay recibos seleccionados para imprimir.');
+  const { previewPdfDoc } = await import('@/shared/lib/reportPreview');
+  const doc = await construir(renglones, meta);
+  previewPdfDoc(doc, nombreArchivo(renglones, meta));
+}

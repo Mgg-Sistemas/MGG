@@ -10,6 +10,10 @@ import { getTasaHoy, round2 } from '../tesoreria/tasas.repository';
 import { listPersonal, setPersonalActivo } from './personal.repository';
 import { listAnticiposActivos } from './anticipos.repository';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
+import {
+  agruparRecibosPorFecha, alternarGrupo, alternarUno, estadoDelGrupo, etiquetaGrupo,
+  nombreNomina, nombreSugerido, seleccionados,
+} from './nominaLote';
 // descargarNominaReciboPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import {
   cargarNomina, listNominas, listRenglones, eliminarNomina, calcularRenglon,
@@ -82,7 +86,15 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
             {!loading && !nominas.length && <tr><td colSpan={7}><EmptyState message="Sin nóminas cargadas" icon="📋" /></td></tr>}
             {!loading && nominas.map((p) => (
               <tr key={p.id}>
-                <td className="mono">{p.codigo}</td>
+                {/* El nombre abre la nómina. Es el gesto natural —se toca lo que
+                    se quiere ver— y el 👁 de la derecha sigue estando. */}
+                <td>
+                  <button className="btn-link" onClick={() => setVerPeriodo(p)} title="Ver los renglones de esta nómina"
+                    style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--primary, #ff8a00)', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}>
+                    {nombreNomina(p)}
+                  </button>
+                  <div className="mono muted" style={{ fontSize: '.7rem' }}>{p.codigo}</div>
+                </td>
                 <td className="muted">{p.periodo_desde ? (p.periodo_hasta && p.periodo_hasta !== p.periodo_desde ? `${date(p.periodo_desde)} → ${date(p.periodo_hasta)}` : date(p.periodo_desde)) : '—'}</td>
                 <td style={{ textAlign: 'center' }}>{p.pagados}/{p.total_renglones}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(p.total_usd)}</td>
@@ -105,7 +117,7 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
       {porBorrar && (
         <ConfirmDialog
           title="Eliminar nómina"
-          message={`¿Eliminar la nómina ${porBorrar.codigo}? Solo se puede si no tiene pagos.`}
+          message={`¿Eliminar la nómina «${nombreNomina(porBorrar)}» (${porBorrar.codigo})? Solo se puede si no tiene pagos.`}
           confirmText="Eliminar" danger
           onConfirm={() => void confirmarBorrado()}
           onCancel={() => setPorBorrar(null)} />
@@ -132,6 +144,9 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   const [diasBase, setDiasBase] = useState(15);
   const [tasa, setTasa] = useState(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
+  // Arranca con una sugerencia en vez de vacío: el campo se puede pisar, pero
+  // así ninguna nómina queda sin nombre solo porque nadie escribió nada.
+  const [nombre, setNombre] = useState(() => nombreSugerido('quincena', hoyIso));
   const [notas, setNotas] = useState('');
   const [anticipos, setAnticipos] = useState<AnticipoPrestamo[]>([]);
   const [filas, setFilas] = useState<FilaUI[]>([]);
@@ -192,11 +207,11 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
         };
       });
       const per = await cargarNomina({
-        empresa,
+        empresa, nombre: nombre || null,
         periodo_desde: hoyIso, periodo_hasta: hoyIso, dias_base: diasBase,
         tasa_bcv: tasa || null, notas: notas || null, renglones, actorEmail: actor, actorName,
       });
-      notify(`Nómina ${per.codigo} cargada · ${renglones.length} persona(s) · ${money(per.total_usd)}`, 'success', { link: '#/app/tesoreria' });
+      notify(`Nómina «${nombreNomina(per)}» cargada · ${renglones.length} persona(s) · ${money(per.total_usd)}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cargar la nómina'); setSaving(false); }
   }
@@ -211,6 +226,14 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
 
       <div className="card" style={{ padding: '.75rem', marginBottom: '.75rem' }}>
+        {/* El nombre va primero y ancho: es por lo que se la va a buscar
+            después. El código (NOM-2026-0001) lo pone la base sola. */}
+        <div className="form-row" style={{ marginBottom: '.7rem' }}>
+          <label>Nombre de la nómina</label>
+          <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)}
+            placeholder="Ej: Primera quincena de septiembre 2026" />
+          <small className="muted">Así la vas a reconocer en la lista. Si lo dejás vacío queda solo el código.</small>
+        </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.2rem', alignItems: 'flex-end' }}>
           <div>
             <div className="muted" style={{ fontSize: '.72rem' }}>Mes</div>
@@ -341,6 +364,9 @@ function LiquidacionModal({ empresa, actor, actorName, onClose, onSaved }: {
       const per = await cargarNomina({
         empresa,
         tipo: 'liquidacion', dias_base: 0, tasa_bcv: tasa || null,
+        // Nombre armado por el sistema: es de una sola persona, y el concepto
+        // que se escribió arriba es justo lo que la distingue de otra suya.
+        nombre: `Liquidación · ${`${persona.nombre} ${persona.apellido ?? ''}`.trim()}${concepto.trim() ? ` · ${concepto.trim()}` : ''}`,
         notas: concepto.trim() ? `Liquidación: ${concepto.trim()}` : 'Liquidación / pago extraordinario',
         renglones: [{
           personal_id: persona.id,
@@ -412,45 +438,101 @@ function NominaDetalleModal({ periodo, empresa, onClose }: { periodo: NominaPeri
   const [rows, setRows] = useState<NominaRenglon[]>([]);
   const [loading, setLoading] = useState(true);
   const [cedulas, setCedulas] = useState<Record<string, string | null | undefined>>({});
-  useEffect(() => { listRenglones(periodo.id).then(setRows).catch(() => setRows([])).finally(() => setLoading(false)); }, [periodo.id]);
+  /** Los que SÍ se van a imprimir. Arrancan todos marcados: lo normal es
+      imprimir el lote entero y sacar alguno, no ir marcando de a uno. */
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    listRenglones(periodo.id)
+      .then((rs) => { setRows(rs); setMarcados(new Set(rs.map((r) => r.id))); })
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  }, [periodo.id]);
   useEffect(() => { listPersonal(false, empresa).then((ps) => setCedulas(Object.fromEntries(ps.map((x) => [x.id, x.cedula])))).catch(() => {}); }, [empresa]);
 
-  async function reciboDe(r: NominaRenglon) {
-    try { const { descargarNominaReciboPdf } = await import('./nominaReciboPdf'); await descargarNominaReciboPdf([r], { periodo, cedulas }); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+  const grupos = useMemo(() => agruparRecibosPorFecha(rows), [rows]);
+  const aImprimir = useMemo(() => seleccionados(grupos, marcados), [grupos, marcados]);
+
+  async function imprimir(lote: NominaRenglon[]) {
+    try {
+      const { verNominaRecibosPdf } = await import('./nominaReciboPdf');
+      await verNominaRecibosPdf(lote, { periodo, cedulas });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
   return (
-    <Modal title={`Nómina ${periodo.codigo}`} size="xl" onClose={onClose} footer={
+    <Modal title={`Nómina · ${nombreNomina(periodo)}`} size="xl" onClose={onClose} footer={
       <>
-        <button className="btn btn-ghost" onClick={() => void import('./nominaReciboPdf').then(({ descargarNominaReciboPdf }) => descargarNominaReciboPdf(rows, { periodo, cedulas })).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!rows.length}>📄 Comprobantes (todos)</button>
+        <button className="btn btn-primary" onClick={() => void imprimir(aImprimir)} disabled={!aImprimir.length}>
+          🖨 Imprimir {aImprimir.length} recibo{aImprimir.length === 1 ? '' : 's'}
+        </button>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
       <div className="muted" style={{ marginBottom: '.5rem', fontSize: '.85rem' }}>
-        {periodo.periodo_desde ? `${periodo.periodo_hasta && periodo.periodo_hasta !== periodo.periodo_desde ? `${date(periodo.periodo_desde)} → ${date(periodo.periodo_hasta)}` : date(periodo.periodo_desde)} · ` : ''}
-        {periodo.pagados}/{periodo.total_renglones} pagados · Total <strong className="mono">{money(periodo.total_usd)}</strong>
+        <span className="mono">{periodo.codigo}</span>
+        {periodo.periodo_desde ? ` · ${periodo.periodo_hasta && periodo.periodo_hasta !== periodo.periodo_desde ? `${date(periodo.periodo_desde)} → ${date(periodo.periodo_hasta)}` : date(periodo.periodo_desde)}` : ''}
+        {' · '}{periodo.pagados}/{periodo.total_renglones} pagados · Total <strong className="mono">{money(periodo.total_usd)}</strong>
         {periodo.tasa_bcv ? ` · BCV ${bs(periodo.tasa_bcv)}` : ''}
       </div>
-      <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
-        <table className="table" style={{ fontSize: '.8rem' }}>
-          <thead><tr><th>Trabajador</th><th style={{ textAlign: 'right' }}>Días</th><th style={{ textAlign: 'right' }}>Bruto</th><th style={{ textAlign: 'right' }}>Deduc.</th><th style={{ textAlign: 'right' }}>Neto</th><th style={{ textAlign: 'center' }}>Estado</th><th>Pago</th><th style={{ textAlign: 'center' }}>Recibo</th></tr></thead>
-          <tbody>
-            {loading && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && rows.map((r) => (
-              <tr key={r.id}>
-                <td>{r.nombre}<div className="muted" style={{ fontSize: '.7rem' }}>{r.departamento || ''}</div></td>
-                <td className="mono" style={{ textAlign: 'right' }}>{r.dias_trabajados}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{money(r.salario_bruto)}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{money(round2((Number(r.deduc_anticipos) || 0) + (Number(r.deduc_prestamos) || 0)))}</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.neto_usd)}</td>
-                <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: r.estado === 'pagada' ? 'var(--success)' : 'var(--warning)' }}>{r.estado === 'pagada' ? 'Pagada' : 'Por pagar'}</span></td>
-                <td className="muted">{r.pagada_en ? `${dateTime(r.pagada_en)}${r.moneda_pago ? ` · ${r.moneda_pago}` : ''}` : '—'}</td>
-                <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => reciboDe(r)} title="Comprobante con firmas">📄</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
+        <span className="muted" style={{ fontSize: '.78rem' }}>Se imprimen los marcados:</span>
+        <button className="btn btn-sm btn-ghost" onClick={() => setMarcados(new Set(rows.map((r) => r.id)))} disabled={!rows.length}>Marcar todos</button>
+        <button className="btn btn-sm btn-ghost" onClick={() => setMarcados(new Set())} disabled={!marcados.size}>Desmarcar todos</button>
+      </div>
+
+      {loading && <div className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Cargando…</div>}
+      {!loading && !rows.length && <EmptyState message="Esta nómina no tiene renglones" icon="📋" />}
+
+      {/* Un bloque por día de pago. Lo que todavía no se pagó queda al final. */}
+      <div style={{ maxHeight: 440, overflowY: 'auto' }}>
+        {!loading && grupos.map((g) => {
+          const estado = estadoDelGrupo(g, marcados);
+          return (
+            <div key={g.fecha || 'sin-pagar'} className="card" style={{ padding: '.5rem .6rem', marginBottom: '.6rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', marginBottom: '.4rem' }}>
+                <input type="checkbox"
+                  checked={estado === 'todos'}
+                  ref={(el) => { if (el) el.indeterminate = estado === 'algunos'; }}
+                  onChange={() => setMarcados(alternarGrupo(g, marcados))} />
+                <strong style={{ fontSize: '.85rem' }}>{etiquetaGrupo(g.fecha, date)}</strong>
+                <span className="muted" style={{ fontSize: '.78rem' }}>
+                  {g.renglones.length} recibo{g.renglones.length === 1 ? '' : 's'} · <span className="mono">{money(g.totalUsd)}</span>
+                </span>
+              </label>
+              <div className="table-wrap">
+                <table className="table" style={{ fontSize: '.8rem' }}>
+                  <thead><tr><th style={{ width: 32 }}></th><th>Trabajador</th><th style={{ textAlign: 'right' }}>Días</th><th style={{ textAlign: 'right' }}>Bruto</th><th style={{ textAlign: 'right' }}>Deduc.</th><th style={{ textAlign: 'right' }}>Neto</th><th style={{ textAlign: 'center' }}>Estado</th><th>Pago</th><th style={{ textAlign: 'center' }}>Recibo</th></tr></thead>
+                  <tbody>
+                    {g.renglones.map((r) => (
+                      <tr key={r.id} style={{ opacity: marcados.has(r.id) ? 1 : .5 }}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input type="checkbox" checked={marcados.has(r.id)}
+                            onChange={() => setMarcados(alternarUno(r.id, marcados))}
+                            aria-label={`Imprimir el recibo de ${r.nombre}`} />
+                        </td>
+                        <td>{r.nombre}<div className="muted" style={{ fontSize: '.7rem' }}>{r.departamento || ''}</div></td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{r.dias_trabajados}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{money(r.salario_bruto)}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{money(round2((Number(r.deduc_anticipos) || 0) + (Number(r.deduc_prestamos) || 0)))}</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.neto_usd)}</td>
+                        <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: r.estado === 'pagada' ? 'var(--success)' : 'var(--warning)' }}>{r.estado === 'pagada' ? 'Pagada' : 'Por pagar'}</span></td>
+                        <td className="muted">{r.pagada_en ? `${dateTime(r.pagada_en)}${r.moneda_pago ? ` · ${r.moneda_pago}` : ''}` : '—'}</td>
+                        <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => void imprimir([r])} title="Ver solo este recibo">📄</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ textAlign: 'right', marginTop: '.35rem' }}>
+                <button className="btn btn-sm btn-ghost" onClick={() => void imprimir(g.renglones)}>
+                  🖨 Imprimir este día ({g.renglones.length})
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </Modal>
   );

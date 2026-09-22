@@ -90,6 +90,8 @@ export interface CargarNominaInput {
   /** De qué empresa es esta nómina. Los renglones tienen que ser todos de ella. */
   empresa?: Empresa;
   tipo?: string;                 // 'quincena'
+  /** Cómo se la va a reconocer en la lista. Si no viene, queda el código. */
+  nombre?: string | null;
   periodo_desde?: string | null;
   periodo_hasta?: string | null;
   dias_base?: number;            // 15
@@ -112,6 +114,7 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
 
   const { data: per, error: pErr } = await supabase.from('nomina_periodos').insert({
     codigo,
+    nombre: input.nombre?.trim() || null,
     empresa,
     tipo: input.tipo || 'quincena',
     periodo_desde: input.periodo_desde || null,
@@ -373,6 +376,9 @@ export async function procesarVacacion(input: {
   const notas = `Vacaciones ${input.persona.nombre} ${input.persona.apellido}`.trim() + (input.desde ? ` (${input.desde}${input.hasta ? ` → ${input.hasta}` : ''})` : '');
   const { data: per, error: pErr } = await supabase.from('nomina_periodos').insert({
     codigo, empresa, tipo: 'vacaciones', periodo_desde: input.desde || null, periodo_hasta: input.hasta || null,
+    // El nombre lo arma el sistema porque acá no hay quién lo escriba: son
+    // las vacaciones de UNA persona, y así se reconoce sin abrirla.
+    nombre: `Vacaciones · ${`${input.persona.nombre} ${input.persona.apellido ?? ''}`.trim()}`,
     dias_base: dias, estado: 'cargada', total_usd: c.neto_usd, notas,
     creada_por: input.actorEmail, actor_name: input.actorName ?? null,
   }).select('id').single();

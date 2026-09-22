@@ -1076,6 +1076,12 @@ export interface NominaPeriodo {
   /** Empresa de la fila. La hereda de la ficha de la persona. */
   empresa?: string | null;
   codigo: string;
+  /**
+   * Cómo la llama quien la carga («Quincena 1 de septiembre»). El `codigo` lo
+   * pone la base y no se repite, pero no dice nada; el nombre es para
+   * reconocerla. Las nóminas viejas no tienen, y ahí se muestra el código.
+   */
+  nombre?: string | null;
   tipo: string;
   periodo_desde?: string | null;
   periodo_hasta?: string | null;
