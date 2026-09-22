@@ -1056,7 +1056,7 @@ export interface Personal {
 /** Anticipo o préstamo a una persona; se descuenta de la nómina hasta saldar. */
 export interface AnticipoPrestamo {
   id: string;
-  /** Empresa: MGG o GOMETAL. La hereda de la ficha de la persona. */
+  /** Empresa de la fila. La hereda de la ficha de la persona. */
   empresa?: string | null;
   personal_id: string;
   tipo: 'anticipo' | 'prestamo';
@@ -1073,7 +1073,7 @@ export interface AnticipoPrestamo {
 /** Período de nómina (una por quincena), cargado desde RRHH. */
 export interface NominaPeriodo {
   id: string;
-  /** Empresa: MGG o GOMETAL. La hereda de la ficha de la persona. */
+  /** Empresa de la fila. La hereda de la ficha de la persona. */
   empresa?: string | null;
   codigo: string;
   tipo: string;
@@ -1135,7 +1135,7 @@ export interface NominaRenglon {
 /** Evento administrativo de RRHH (Fase 3): vacaciones, permisos, utilidades, notas. */
 export interface RrhhEvento {
   id: string;
-  /** Empresa: MGG o GOMETAL. La hereda de la ficha de la persona. */
+  /** Empresa de la fila. La hereda de la ficha de la persona. */
   empresa?: string | null;
   personal_id: string;
   tipo: 'vacacion' | 'permiso' | 'utilidad' | 'nota';

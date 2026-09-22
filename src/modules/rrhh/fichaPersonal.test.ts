@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  agruparPersonal, antiguedad, cantidadHijos, edadEn, filtrarPersonal, grupoDe, hijosMenores,
-  labelEstadoCivil, labelGenero, labelParentesco, numeroFicha, porDepartamento, resumenPersonal,
-  textoEdad, tieneHijos,
+  SIN_DATO, agruparPersonal, antiguedad, cantidadHijos, edadEn, filtrarPersonal, grupoDe,
+  hijosMenores, labelEstadoCivil, labelGenero, labelParentesco, numeroFicha, porDepartamento,
+  resumenPersonal, textoEdad, tieneHijos,
 } from './fichaPersonal';
 
 const HOY = '2026-09-22';
@@ -135,6 +135,23 @@ describe('filtrar por todo', () => {
     expect(filtrarPersonal(GENTE, { cargo: 'Obrero' }).map((p) => p.id)).toEqual(['4']);
     expect(filtrarPersonal(GENTE, { genero: 'femenino' }).map((p) => p.id)).toEqual(['1', '3']);
     expect(filtrarPersonal(GENTE, { estadoCivil: 'casado' }).map((p) => p.id)).toEqual(['2', '3']);
+  });
+
+  it('SIN_DATO trae justo las fichas incompletas, que son las que hay que ir a llenar', () => {
+    // Juan (4) es el único sin género ni estado civil cargados.
+    expect(filtrarPersonal(GENTE, { genero: SIN_DATO }).map((p) => p.id)).toEqual(['4']);
+    expect(filtrarPersonal(GENTE, { estadoCivil: SIN_DATO }).map((p) => p.id)).toEqual(['4']);
+  });
+
+  it('SIN_DATO no se confunde con «no filtres»: el vacío sigue trayendo a todos', () => {
+    expect(filtrarPersonal(GENTE, { genero: '' })).toHaveLength(4);
+    expect(filtrarPersonal(GENTE, { estadoCivil: '' })).toHaveLength(4);
+    expect(filtrarPersonal(GENTE, {})).toHaveLength(4);
+  });
+
+  it('SIN_DATO se acumula con los demás filtros como cualquier otro valor', () => {
+    expect(filtrarPersonal(GENTE, { genero: SIN_DATO, estado: 'activos' }).map((p) => p.id)).toEqual(['4']);
+    expect(filtrarPersonal(GENTE, { genero: SIN_DATO, departamento: 'Tesorería' })).toHaveLength(0);
   });
 
   it('por activo o inactivo', () => {

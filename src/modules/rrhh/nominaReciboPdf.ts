@@ -49,8 +49,8 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* logo opcional */ } }
     const tx = logoDataUrl ? MARGIN + LOGO + 14 : MARGIN;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-    // La razón social sale de la EMPRESA del renglón: el recibo de GoMetal no
-    // puede salir a nombre de MGG.
+    // La razón social sale de la EMPRESA del renglón, no de una constante: el
+    // recibo tiene que decir a nombre de quién se paga.
     doc.text(definicionEmpresa(normalizarEmpresa(r.empresa)).razonSocial, tx, y + 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     doc.text('Comprobante de Pago de Personal', tx, y + 32);

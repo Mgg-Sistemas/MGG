@@ -21,7 +21,7 @@ import {
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa';
 import {
-  AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRUPOS_SANGUINEOS, PARENTESCOS,
+  AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRUPOS_SANGUINEOS, PARENTESCOS, SIN_DATO,
   agruparPersonal, antiguedad, cantidadHijos, filtrarPersonal, labelEstadoCivil, labelGenero,
   labelParentesco, numeroFicha, porDepartamento, resumenPersonal, textoEdad, tieneHijos,
   type Agrupador, type EstadoFiltro, type FiltroPersonal, type Genero, type HijosFiltro,
@@ -283,13 +283,54 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
 
   const visibles = useMemo(() => filtrarPersonal(lista, filtro, tieneHijosDe), [lista, filtro, tieneHijosDe]);
   const grupos = useMemo(() => agruparPersonal(visibles, agrupar, tieneHijosDe), [visibles, agrupar, tieneHijosDe]);
-  const resumen = useMemo(() => resumenPersonal(visibles, tieneHijosDe), [visibles, tieneHijosDe]);
   const deptos = useMemo(() => porDepartamento(visibles), [visibles]);
+
+  /**
+   * Las tarjetas SON los filtros: se tocan y filtran la tabla. Por eso cuentan
+   * sobre la lista achicada por todo lo demás (la búsqueda, el departamento,
+   * el cargo, la edad) pero NO por ellas mismas. Si «Mujeres» se contara ya
+   * filtrada por género, al tocarla «Hombres» diría 0 y no habría forma de
+   * pasar de una a la otra sin limpiar antes.
+   */
+  const baseTarjetas = useMemo(() => filtrarPersonal(lista, {
+    texto: fTexto, departamento: fDepto, cargo: fCargo,
+    edadDesde: fEdadDesde ? Number(fEdadDesde) : null,
+    edadHasta: fEdadHasta ? Number(fEdadHasta) : null,
+  }, tieneHijosDe), [lista, fTexto, fDepto, fCargo, fEdadDesde, fEdadHasta, tieneHijosDe]);
+
+  const cuenta = useMemo(() => {
+    const r = resumenPersonal(baseTarjetas, tieneHijosDe);
+    return { ...r, solteros: baseTarjetas.filter((p) => p.estado_civil === 'soltero').length };
+  }, [baseTarjetas, tieneHijosDe]);
 
   const hayFiltro = !!(fTexto || fDepto || fCargo || fGenero || fCivil || fHijos || fEdadDesde || fEdadHasta || fEstado !== 'todos');
   function limpiarFiltros() {
     setFTexto(''); setFDepto(''); setFCargo(''); setFGenero(''); setFCivil('');
     setFEstado('todos'); setFHijos(''); setFEdadDesde(''); setFEdadHasta('');
+  }
+
+  /* ── Las tarjetas como filtro ──
+     Son cuatro filtros distintos (género, estado, hijos, estado civil) pero una
+     sola fila de tarjetas, así que se comportan como una sola elección: la que
+     se toca queda puesta y las otras se apagan. Combinar «mujeres» con «con
+     hijos» sigue siendo posible, pero abajo, en «Más filtros», donde se ve qué
+     se está combinando. */
+  function limpiarTarjetas() {
+    setFGenero(''); setFCivil(''); setFEstado('todos'); setFHijos('');
+  }
+  const sinFiltroDeTarjeta = !fGenero && !fCivil && !fHijos && fEstado === 'todos';
+
+  function soloTarjeta(x: { genero?: string; civil?: string; estado?: EstadoFiltro; hijos?: HijosFiltro }) {
+    const yaPuesta = (x.genero !== undefined && fGenero === x.genero)
+      || (x.civil !== undefined && fCivil === x.civil)
+      || (x.estado !== undefined && fEstado === x.estado)
+      || (x.hijos !== undefined && fHijos === x.hijos);
+    limpiarTarjetas();
+    if (yaPuesta) return;                       // tocar la puesta la apaga
+    if (x.genero !== undefined) setFGenero(x.genero);
+    if (x.civil !== undefined) setFCivil(x.civil);
+    if (x.estado !== undefined) setFEstado(x.estado);
+    if (x.hijos !== undefined) setFHijos(x.hijos);
   }
 
   /**
@@ -465,29 +506,37 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         </div>
       )}
 
-      {/* Las tarjetas cuentan lo que se está viendo, no todo el personal: si
-          hay un filtro puesto, los números tienen que acompañarlo. */}
+      {/* Las tarjetas se tocan y filtran. La primera es el «todos»: apaga las
+          otras. Tocar la que ya está puesta la apaga, así se sale sin buscar
+          el botón de limpiar. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.7rem', marginBottom: '.75rem' }}>
-        <Tarjeta titulo="Empleados" valor={resumen.total}
-          pie={resumen.inactivos ? `${resumen.activos} activos · ${resumen.inactivos} inactivos` : 'Todos activos'} />
-        <Tarjeta titulo="Mujeres" valor={resumen.mujeres} color="#ec4899"
-          pie={resumen.total ? `${Math.round((resumen.mujeres / resumen.total) * 100)}% del total` : '—'} />
-        <Tarjeta titulo="Hombres" valor={resumen.hombres} color="#3b82f6"
-          pie={resumen.total ? `${Math.round((resumen.hombres / resumen.total) * 100)}% del total` : '—'} />
-        <Tarjeta titulo="Con hijos" valor={resumen.conHijos} color="var(--success)"
-          pie={`${resumen.total - resumen.conHijos} sin hijos cargados`} />
+        <Tarjeta titulo="Personal" icono="👥" valor={cuenta.total}
+          pie={cuenta.inactivos ? `${cuenta.activos} activos · ${cuenta.inactivos} inactivos` : 'Todos activos'}
+          activa={sinFiltroDeTarjeta} onClick={limpiarTarjetas} />
+        <Tarjeta titulo="Hombres" icono="👨" valor={cuenta.hombres} color="#3b82f6"
+          pie={cuenta.total ? `${Math.round((cuenta.hombres / cuenta.total) * 100)}% del total` : '—'}
+          activa={fGenero === 'masculino'} onClick={() => soloTarjeta({ genero: 'masculino' })} />
+        <Tarjeta titulo="Mujeres" icono="👩" valor={cuenta.mujeres} color="#ec4899"
+          pie={cuenta.total ? `${Math.round((cuenta.mujeres / cuenta.total) * 100)}% del total` : '—'}
+          activa={fGenero === 'femenino'} onClick={() => soloTarjeta({ genero: 'femenino' })} />
+        <Tarjeta titulo="Activos" icono="✅" valor={cuenta.activos} color="var(--success)"
+          pie="Trabajando hoy"
+          activa={fEstado === 'activos'} onClick={() => soloTarjeta({ estado: 'activos' })} />
+        <Tarjeta titulo="Inactivos" icono="⏸" valor={cuenta.inactivos}
+          pie="Dados de baja"
+          activa={fEstado === 'inactivos'} onClick={() => soloTarjeta({ estado: 'inactivos' })} />
+        <Tarjeta titulo="Con hijos" icono="👨‍👩‍👧" valor={cuenta.conHijos} color="var(--success)"
+          pie={`${cuenta.total - cuenta.conHijos} sin hijos cargados`}
+          activa={fHijos === 'con'} onClick={() => soloTarjeta({ hijos: 'con' })} />
+        <Tarjeta titulo="Solteros" icono="🙋" valor={cuenta.solteros}
+          pie="Según el estado civil"
+          activa={fCivil === 'soltero'} onClick={() => soloTarjeta({ civil: 'soltero' })} />
+        {/* Sin género cargado no cuenta ni en Hombres ni en Mujeres: la tarjeta
+            está para poder ir a completar justo esas fichas. */}
+        <Tarjeta titulo="Sin género cargado" icono="⚠" valor={cuenta.sinGenero} color="var(--warning)"
+          pie="No suman en Hombres ni Mujeres"
+          activa={fGenero === SIN_DATO} onClick={() => soloTarjeta({ genero: SIN_DATO })} />
       </div>
-
-      {/* Si falta el género en muchas fichas, las dos tarjetas de arriba dicen
-          menos de lo que parece. Mejor avisarlo que dejar suponer. */}
-      {resumen.sinGenero > 0 && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem', padding: '.5rem .75rem' }}>
-          <small>
-            ⚠ <strong>{resumen.sinGenero}</strong> {resumen.sinGenero === 1 ? 'ficha no tiene' : 'fichas no tienen'} el <strong>género</strong> cargado,
-            así que no {resumen.sinGenero === 1 ? 'cuenta' : 'cuentan'} ni en Mujeres ni en Hombres. Se carga al editar la ficha.
-          </small>
-        </div>
-      )}
 
       {/* Cuánta gente hay en cada departamento */}
       {deptos.length > 1 && (
@@ -551,9 +600,13 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
             </div>
             <div className="form-row" style={{ margin: 0, flex: '0 1 130px' }}>
               <label>Género</label>
+              {/* La opción «sin cargar» tiene que existir acá también: si no,
+                  al tocar esa tarjeta el select se queda en blanco —el valor
+                  no coincide con ninguna opción— y el filtro puesto no se ve. */}
               <select className="select" value={fGenero} onChange={(e) => setFGenero(e.target.value)}>
                 <option value="">Todos</option>
                 {GENEROS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+                <option value={SIN_DATO}>Sin cargar</option>
               </select>
             </div>
             <div className="form-row" style={{ margin: 0, flex: '0 1 140px' }}>
@@ -561,6 +614,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
               <select className="select" value={fCivil} onChange={(e) => setFCivil(e.target.value)}>
                 <option value="">Todos</option>
                 {ESTADOS_CIVILES.map((e) => <option key={e.key} value={e.key}>{e.label}</option>)}
+                <option value={SIN_DATO}>Sin cargar</option>
               </select>
             </div>
             <div className="form-row" style={{ margin: 0, flex: '0 1 130px' }}>
@@ -704,16 +758,6 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         >
           <form id="rrhh-personal-form" onSubmit={guardar}>
             {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
-
-            {/* De qué nómina es esta ficha. Que se vea antes de escribir nada:
-                crear a alguien en la empresa equivocada se arrastra a su
-                anticipo, su vacación y su pago. */}
-            <div className="card" style={{ background: 'var(--bg-2)', margin: '0 0 .7rem', padding: '.5rem .75rem', borderLeft: `3px solid ${definicionEmpresa(empresa).color}` }}>
-              <span style={{ fontSize: '.86rem' }}>
-                {definicionEmpresa(empresa).icono} {editId ? 'Ficha de la' : 'Se va a crear en la'} <strong>nómina {definicionEmpresa(empresa).label}</strong>
-                <span className="muted"> · {definicionEmpresa(empresa).razonSocial}</span>
-              </span>
-            </div>
 
             {/* Foto del carnet (opcional): subir / cambiar / quitar. */}
             <div className="form-row">
@@ -1167,14 +1211,34 @@ function ComboConAgregar({ label, valor, opciones, onChange, hint }: {
 }
 
 /* ───────── Histórico de pagos individuales de una persona ───────── */
-/* ───────── Tarjeta de un número del encabezado ───────── */
-function Tarjeta({ titulo, valor, pie, color }: { titulo: string; valor: number | string; pie: string; color?: string }) {
+/* ───────── Tarjeta del encabezado: un número que además filtra ─────────
+   Es un <button> de verdad, no un <div> con onClick: así se llega con el
+   tabulador, se activa con Enter y el lector de pantalla dice si está puesta
+   (aria-pressed) en vez de leer un número suelto. */
+function Tarjeta({ titulo, icono, valor, pie, color, activa, onClick }: {
+  titulo: string; icono?: string; valor: number | string; pie: string;
+  color?: string; activa?: boolean; onClick?: () => void;
+}) {
+  const borde = activa ? (color ?? 'var(--primary, #ff8a00)') : 'var(--border)';
   return (
-    <div className="card" style={{ margin: 0, padding: '.6rem .75rem' }}>
-      <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>{titulo}</div>
+    <button
+      type="button"
+      className="card"
+      onClick={onClick}
+      aria-pressed={!!activa}
+      title={activa ? `Quitar el filtro «${titulo}»` : `Ver solo: ${titulo}`}
+      style={{
+        margin: 0, padding: '.6rem .75rem', textAlign: 'left', width: '100%',
+        cursor: 'pointer', font: 'inherit',
+        borderColor: borde,
+        boxShadow: activa ? `inset 0 0 0 1px ${borde}` : 'none',
+      }}>
+      <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>
+        {icono ? `${icono} ` : ''}{titulo}
+      </div>
       <div className="mono" style={{ fontSize: '1.8rem', fontWeight: 800, lineHeight: 1.1, color: color ?? 'inherit' }}>{valor}</div>
       <div className="muted" style={{ fontSize: '.72rem' }}>{pie}</div>
-    </div>
+    </button>
   );
 }
 

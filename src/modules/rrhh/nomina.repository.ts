@@ -184,9 +184,9 @@ export async function listRenglones(periodoId: string): Promise<NominaRenglon[]>
 /**
  * Renglones pendientes de pago (cola de Tesorería), con datos de su período.
  *
- * Trae LAS DOS empresas a propósito: Tesorería paga las dos y necesita verlas
- * juntas para saber cuánto debe en total. Cada renglón viene etiquetado, y la
- * pantalla las separa con un filtro. Pasando `empresa` se trae una sola.
+ * Trae la cola completa: hay una sola nómina. El parámetro `empresa` queda
+ * porque la columna existe y porque, si volviera una segunda, acá es donde se
+ * filtra; hoy no hace falta pasarlo.
  */
 export async function listRenglonesPorPagar(empresa?: Empresa): Promise<NominaRenglon[]> {
   let q = supabase

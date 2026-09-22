@@ -19,11 +19,11 @@ const TABLA_DOCS = 'personal_documentos';
 const TABLA_FAMILIA = 'personal_carga_familiar';
 
 /**
- * Lista el personal de UNA empresa, ordenado por departamento y nombre.
+ * Lista el personal, ordenado por departamento y nombre.
  *
- * La empresa se filtra siempre: mostrar las dos nóminas juntas es justo el
- * error que este módulo evita. Sin `empresa` se asume MGG, que es lo que
- * había antes de que existiera GoMetal.
+ * Sigue filtrando por empresa aunque hoy haya una sola: la columna está en
+ * la base y el filtro es lo que habría que conservar si volviera una segunda
+ * nómina. Sin `empresa` se asume MGG.
  */
 export async function listPersonal(soloActivos = false, empresa: Empresa = EMPRESA_POR_DEFECTO): Promise<Personal[]> {
   let q = supabase.from(TABLE).select('*')
@@ -36,17 +36,12 @@ export async function listPersonal(soloActivos = false, empresa: Empresa = EMPRE
   return (data ?? []) as Personal[];
 }
 
-/** El personal de las DOS empresas. Solo para contar en el interruptor. */
-export async function listPersonalTodasLasEmpresas(soloActivos = false): Promise<Personal[]> {
-  let q = supabase.from(TABLE).select('*').order('nombre', { ascending: true });
-  if (soloActivos) q = q.eq('activo', true);
-  const { data, error } = await q;
-  if (error) throw error;
-  return (data ?? []) as Personal[];
-}
-
 export interface PersonalInput {
-  /** A qué empresa pertenece. La pone el interruptor de RRHH, no el formulario. */
+  /**
+   * A qué empresa pertenece. Hoy hay una sola —MGG— y la pone la pantalla, no
+   * el formulario. La columna queda porque cada ficha la lleva y porque los
+   * anticipos, las vacaciones y los renglones de nómina la heredan por trigger.
+   */
   empresa?: Empresa;
   nombre: string;
   apellido?: string;
@@ -376,8 +371,8 @@ export const digitosCedula = (v: string | null | undefined): string =>
  * ¿Ya hay otra ficha con esa cédula? Devuelve a quién pertenece, para poder
  * decirlo con nombre y apellido en vez de un error seco.
  *
- * Se busca en LAS DOS empresas: una persona no puede estar en las dos nóminas
- * con la misma cédula, y si estuviera hay que verlo, no esconderlo.
+ * Se busca en toda la tabla, sin filtrar por empresa: una cédula repetida hay
+ * que verla venga de donde venga, no esconderla.
  *
  * La guarda REAL es el índice único de la base (`personal_cedula_unica_idx`):
  * dos personas cargando a la vez desde dos máquinas pasan esta consulta al

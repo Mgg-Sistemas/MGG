@@ -1054,7 +1054,6 @@ export async function crearConciliacion(input: ConciliacionInput, actor: string,
 export async function actualizarConciliacion(id: string, input: ConciliacionInput, actor: string, actorName?: string | null): Promise<void> {
   const s = snapshotConcil(input);
   const res = await procesarResguardos(id, s.centros, actor, actorName ?? null);
-  // El neto seco ya no entra desde la conciliación (entra al cerrar la recepción).
   const p: Record<string, unknown> = {
     numero: Math.floor(Number(input.numero) || 0),
     centros: res.centros,
@@ -1062,10 +1061,17 @@ export async function actualizarConciliacion(id: string, input: ConciliacionInpu
     kg_peso_bolsas: input.kg_peso_bolsas ?? null,
     muestras_laboratorio: input.muestras_laboratorio ?? null,
     total_reportado: s.totalReportado, kg_faltante: s.kgFaltante, kg_no_llego: s.kgNoLlego, pct_no_llego: s.pctNoLlego,
-    tasa: input.tasa ?? null, almacen_neto: input.almacen_neto?.trim() || null,
     nota: input.nota?.trim() || null,
     updated_at: new Date().toISOString(),
   };
+  // El neto seco ya NO entra desde la conciliación: entra al cerrar la recepción,
+  // y por eso el formulario manda tasa y almacén en null. Pero "el formulario no
+  // los edita" no es lo mismo que "hay que borrarlos": escribir null acá vaciaría
+  // esas columnas en cualquier fila vieja que sí las tenga. Solo se tocan si
+  // vienen con algo.
+  if (input.tasa != null) p.tasa = input.tasa;
+  const almacenNeto = input.almacen_neto?.trim();
+  if (almacenNeto) p.almacen_neto = almacenNeto;
   const { error } = await supabase.from('recepcion_conciliaciones').update(p).eq('id', id);
   if (error) throw error;
 }

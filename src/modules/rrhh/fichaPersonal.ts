@@ -153,6 +153,14 @@ export interface PersonaFiltrable {
 export type EstadoFiltro = 'todos' | 'activos' | 'inactivos';
 export type HijosFiltro = '' | 'con' | 'sin';
 
+/**
+ * Filtro por «esta ficha no lo tiene cargado». Vale para género y estado civil.
+ * Hace falta porque el vacío ya significa otra cosa —«no filtres por esto»— y
+ * sin un valor aparte no habría forma de pedir justo las fichas incompletas,
+ * que son las que hay que ir a completar.
+ */
+export const SIN_DATO = '__sin__';
+
 export interface FiltroPersonal {
   texto?: string;
   departamento?: string;
@@ -181,8 +189,14 @@ export function filtrarPersonal<T extends PersonaFiltrable & { id: string }>(
     if (f.estado === 'inactivos' && p.activo !== false) return false;
     if (f.departamento && (p.departamento ?? '') !== f.departamento) return false;
     if (f.cargo && (p.cargo ?? '') !== f.cargo) return false;
-    if (f.genero && (p.genero ?? '') !== f.genero) return false;
-    if (f.estadoCivil && (p.estado_civil ?? '') !== f.estadoCivil) return false;
+    if (f.genero) {
+      const g = p.genero ?? '';
+      if (f.genero === SIN_DATO ? g !== '' : g !== f.genero) return false;
+    }
+    if (f.estadoCivil) {
+      const c = p.estado_civil ?? '';
+      if (f.estadoCivil === SIN_DATO ? c !== '' : c !== f.estadoCivil) return false;
+    }
     if (f.hijos === 'con' && !hijosDe(p.id)) return false;
     if (f.hijos === 'sin' && hijosDe(p.id)) return false;
     if (f.edadDesde != null || f.edadHasta != null) {

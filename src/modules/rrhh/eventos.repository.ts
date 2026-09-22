@@ -9,7 +9,7 @@ import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 
 const TABLE = 'rrhh_eventos';
 
-/** Los eventos de UNA empresa. La empresa la hereda la fila de su persona. */
+/** Los eventos de la nómina. La empresa la hereda la fila de su persona. */
 export async function listEventos(
   personalId?: string,
   tipo?: RrhhEvento['tipo'],

@@ -9,7 +9,7 @@ import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 
 const TABLE = 'anticipos_prestamos';
 
-/** Los anticipos de UNA empresa. La empresa la hereda la fila de su persona. */
+/** Los anticipos de la nómina. La empresa la hereda la fila de su persona. */
 export async function listAnticipos(
   personalId?: string,
   soloActivos = false,
@@ -24,9 +24,9 @@ export async function listAnticipos(
 }
 
 /**
- * Activos con saldo > 0 del personal de una empresa (para armar su nómina).
- * Filtrar acá es lo que impide que el anticipo de alguien de GoMetal se
- * descuente en una nómina de MGG.
+ * Activos con saldo > 0, para armar la nómina. El filtro por empresa quedó
+ * de cuando había dos: hoy trae lo mismo, pero es la pieza que habría que
+ * mantener si volviera una segunda nómina.
  */
 export async function listAnticiposActivos(empresa: Empresa = EMPRESA_POR_DEFECTO): Promise<AnticipoPrestamo[]> {
   const { data, error } = await supabase.from(TABLE).select('*')
