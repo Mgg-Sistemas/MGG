@@ -7,9 +7,13 @@ import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Personal } from '@/shared/lib/types';
 import { aCentavos, huboCambioSueldo, validarCambioSueldo, type TipoCambioSueldo } from './cambioSueldo';
+import {
+  nombreSeguro, validarArchivoDocumento, type TipoDocumentoPersonal,
+} from './documentosPersonal';
 
 const TABLE = 'personal';
 const TABLA_SUELDOS = 'personal_sueldos';
+const TABLA_DOCS = 'personal_documentos';
 
 /** Lista el personal, ordenado por departamento y nombre. */
 export async function listPersonal(soloActivos = false): Promise<Personal[]> {
@@ -25,9 +29,6 @@ export interface PersonalInput {
   apellido?: string;
   cedula?: string | null;
   rif?: string | null;
-  /** Documento del RIF (PDF o imagen) en el bucket privado. */
-  rif_path?: string | null;
-  rif_nombre?: string | null;
   cargo?: string | null;
   departamento?: string | null;
   sueldo_base?: number;
@@ -81,8 +82,6 @@ function payload(input: PersonalInput) {
     apellido: (input.apellido ?? '').trim(),
     cedula: input.cedula?.trim() || null,
     rif: input.rif?.trim() || null,
-    rif_path: input.rif_path?.trim() || null,
-    rif_nombre: input.rif_nombre?.trim() || null,
     cargo: input.cargo?.trim() || null,
     departamento: input.departamento?.trim() || null,
     fecha_ingreso: input.fecha_ingreso || null,
@@ -99,33 +98,125 @@ function payload(input: PersonalInput) {
 
 const BUCKET_DOCS = 'personal-docs';
 
-/**
- * Sube el documento del RIF (PDF o imagen) al bucket PRIVADO. Es un documento
- * de identidad: no va al bucket público de las fotos del carnet.
- */
-export async function subirDocumentoRif(file: File): Promise<{ path: string; nombre: string }> {
-  const esPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-  if (!esPdf && !file.type.startsWith('image/')) throw new Error('El RIF debe ser un PDF o una imagen.');
-  if (file.size > 10 * 1024 * 1024) throw new Error('El archivo no puede superar 10 MB.');
-  const safe = file.name.replace(/[^\w.\-]+/g, '_');
-  const rand = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-  const path = `rif/${rand}_${safe}`;
-  const { error } = await supabase.storage.from(BUCKET_DOCS)
-    .upload(path, file, { contentType: file.type || 'application/pdf', upsert: false });
-  if (error) throw error;
-  return { path, nombre: file.name };
+/* ───────── Documentación del trabajador (cédula, RIF, currículum) ───────── */
+
+export interface DocumentoPersonal {
+  id: string;
+  personalId: string;
+  tipo: TipoDocumentoPersonal;
+  path: string;
+  nombre: string;
+  mime: string | null;
+  tamano: number | null;
+  subidoPor: string | null;
+  subidoPorNombre: string | null;
+  createdAt: string;
 }
 
-/** Enlace firmado (10 min) para ver el RIF. El bucket es privado a propósito. */
-export async function urlDocumentoRif(path: string): Promise<string> {
+function aDocumento(r: Record<string, unknown>): DocumentoPersonal {
+  return {
+    id: String(r.id),
+    personalId: String(r.personal_id),
+    tipo: r.tipo as TipoDocumentoPersonal,
+    path: String(r.path),
+    nombre: String(r.nombre ?? ''),
+    mime: (r.mime as string) ?? null,
+    tamano: r.tamano == null ? null : Number(r.tamano),
+    subidoPor: (r.subido_por as string) ?? null,
+    subidoPorNombre: (r.subido_por_nombre as string) ?? null,
+    createdAt: String(r.created_at ?? ''),
+  };
+}
+
+/** Los papeles de una persona. */
+export async function listDocumentosPersonal(personalId: string): Promise<DocumentoPersonal[]> {
+  const { data, error } = await supabase.from(TABLA_DOCS).select('*')
+    .eq('personal_id', personalId).order('tipo', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((r) => aDocumento(r as Record<string, unknown>));
+}
+
+/**
+ * Los papeles de TODO el personal, para poder marcar en el listado quién los
+ * tiene completos. Por páginas: Supabase corta en 1.000 filas sin avisar, y
+ * un documento que no llega parecería un papel que falta.
+ */
+export async function listDocumentosDeTodos(): Promise<DocumentoPersonal[]> {
+  const filas = await todasLasFilas<Record<string, unknown>>((d, h) =>
+    supabase.from(TABLA_DOCS).select('*').order('personal_id').order('tipo').range(d, h));
+  return filas.map((r) => aDocumento(r));
+}
+
+/**
+ * Sube (o reemplaza) un documento. El bucket es PRIVADO: son papeles de
+ * identidad, no van al bucket público donde vive la foto del carnet.
+ *
+ * Reemplazar borra el archivo viejo del Storage DESPUÉS de que la fila nueva
+ * quedó guardada. Al revés se corre el riesgo de quedarse sin ninguno de los
+ * dos si algo falla en el medio.
+ */
+export async function subirDocumentoPersonal(
+  personalId: string,
+  tipo: TipoDocumentoPersonal,
+  file: File,
+  quien: { actor?: string | null; actorName?: string | null } = {},
+): Promise<DocumentoPersonal> {
+  const falla = validarArchivoDocumento(file);
+  if (falla) throw new Error(falla);
+
+  const previo = await documentoDe(personalId, tipo).catch(() => null);
+
+  const rand = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const path = `${tipo}/${personalId}/${rand}_${nombreSeguro(file.name)}`;
+  const { error: errSubir } = await supabase.storage.from(BUCKET_DOCS)
+    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+  if (errSubir) throw errSubir;
+
+  const fila = {
+    personal_id: personalId, tipo, path, nombre: file.name,
+    mime: file.type || null, tamano: file.size ?? null,
+    subido_por: quien.actor ?? null, subido_por_nombre: quien.actorName ?? null,
+    created_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase.from(TABLA_DOCS)
+    .upsert(fila, { onConflict: 'personal_id,tipo' }).select('*').single();
+  if (error) {
+    // La fila no quedó: el archivo recién subido sobra, se limpia.
+    await supabase.storage.from(BUCKET_DOCS).remove([path]).catch(() => { /* el Storage no bloquea */ });
+    throw error;
+  }
+
+  if (previo && previo.path !== path) {
+    await supabase.storage.from(BUCKET_DOCS).remove([previo.path]).catch(() => { /* quedó huérfano, no rompe */ });
+  }
+  return aDocumento(data as Record<string, unknown>);
+}
+
+/** El documento de un tipo, si está cargado. */
+export async function documentoDe(personalId: string, tipo: TipoDocumentoPersonal): Promise<DocumentoPersonal | null> {
+  const { data, error } = await supabase.from(TABLA_DOCS).select('*')
+    .eq('personal_id', personalId).eq('tipo', tipo).maybeSingle();
+  if (error) throw error;
+  return data ? aDocumento(data as Record<string, unknown>) : null;
+}
+
+/** Enlace firmado (10 min). El bucket es privado a propósito. */
+export async function urlDocumentoPersonal(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET_DOCS).createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
 }
 
-/** Borra el archivo del RIF del Storage. No lanza si ya no está. */
-export async function borrarDocumentoRif(path: string): Promise<void> {
-  try { await supabase.storage.from(BUCKET_DOCS).remove([path]); } catch { /* el Storage no bloquea */ }
+/** Quita el documento: primero la fila, después el archivo. */
+export async function borrarDocumentoPersonal(doc: DocumentoPersonal): Promise<void> {
+  const { error } = await supabase.from(TABLA_DOCS).delete().eq('id', doc.id);
+  if (error) throw error;
+  await supabase.storage.from(BUCKET_DOCS).remove([doc.path]).catch(() => { /* el Storage no bloquea */ });
+}
+
+/** Enlace firmado del RIF. Se conserva el nombre viejo: lo usa el listado. */
+export async function urlDocumentoRif(path: string): Promise<string> {
+  return urlDocumentoPersonal(path);
 }
 
 /** Solo los dígitos: «V-12.345.678», «V12345678» y «12345678» son la misma persona. */

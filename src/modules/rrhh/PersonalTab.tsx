@@ -8,9 +8,15 @@ import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { Personal, NominaRenglon } from '@/shared/lib/types';
 import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal,
-  subirFotoCarnet, subirDocumentoRif, urlDocumentoRif, digitosCedula, listHistorialSueldo,
-  type PersonalInput, type CambioSueldoRegistro,
+  subirFotoCarnet, digitosCedula, listHistorialSueldo,
+  listDocumentosPersonal, listDocumentosDeTodos, subirDocumentoPersonal,
+  urlDocumentoPersonal, borrarDocumentoPersonal,
+  type PersonalInput, type CambioSueldoRegistro, type DocumentoPersonal,
 } from './personal.repository';
+import {
+  TIPOS_DOCUMENTO_PERSONAL, documentacionCompleta, megas, resumenDocumentos,
+  validarArchivoDocumento, type TipoDocumentoPersonal,
+} from './documentosPersonal';
 import {
   TIPOS_CAMBIO_SUELDO, huboCambioSueldo, labelTipoCambio, textoVariacion, tipoSugerido,
   validarCambioSueldo, variacionSueldo, type TipoCambioSueldo,
@@ -20,7 +26,7 @@ import { listCargos, listDepartamentos, addCargo, addDepartamento } from './cata
 import { generarFrenteBlob, generarReversoBlob, descargarCarnet } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', rif: '', rif_path: '', rif_nombre: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
 /** Limita la cédula a formato venezolano: prefijo opcional (V/E/J/G/P) + hasta 8 dígitos. */
 function sanitizarCedula(v: string): string {
@@ -116,10 +122,13 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
   const [form, setForm] = useState<PersonalInput>(VACIO);
   const [guardando, setGuardando] = useState(false);
   const [subiendoFoto, setSubiendoFoto] = useState(false);
-  const [subiendoRif, setSubiendoRif] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
   const [sueldoPersona, setSueldoPersona] = useState<Personal | null>(null);
+  const [docsPersona, setDocsPersona] = useState<Personal | null>(null);
+  // Los papeles de todo el personal, para poder marcar en el listado quién los
+  // tiene completos sin pedir uno por uno.
+  const [docsPorPersona, setDocsPorPersona] = useState<Map<string, DocumentoPersonal[]>>(new Map());
   // El sueldo con el que se abrió la ficha: contra esto se compara para saber
   // si hubo cambio. No se compara contra la lista, que puede recargarse sola.
   const [sueldoOriginal, setSueldoOriginal] = useState(0);
@@ -142,7 +151,17 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
 
   const recargar = useCallback(async () => {
     setLoading(true);
-    try { setLista(await listPersonal(false)); }
+    try {
+      // En paralelo: los papeles no deben hacer esperar al listado.
+      const [gente, docs] = await Promise.all([
+        listPersonal(false),
+        listDocumentosDeTodos().catch(() => [] as DocumentoPersonal[]),
+      ]);
+      setLista(gente);
+      const mapa = new Map<string, DocumentoPersonal[]>();
+      for (const d of docs) mapa.set(d.personalId, [...(mapa.get(d.personalId) ?? []), d]);
+      setDocsPorPersona(mapa);
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); }
     finally { setLoading(false); }
   }, []);
@@ -152,7 +171,7 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
   useEffect(() => { cargarCatalogos(); }, [cargarCatalogos]);
-  useRealtime(['personal', 'personal_sueldos'], () => { void recargar(); });
+  useRealtime(['personal', 'personal_sueldos', 'personal_documentos'], () => { void recargar(); });
 
   /** Deja el bloque del cambio de sueldo en blanco. */
   function limpiarCambioSueldo(base: number) {
@@ -165,7 +184,7 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
   function abrirNuevo() { setEditId(null); setForm(VACIO); limpiarCambioSueldo(0); setError(null); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
-    setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '', rif_path: p.rif_path ?? '', rif_nombre: p.rif_nombre ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
+    setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '', foto_url: p.foto_url ?? '', foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x), foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y), foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom) });
     limpiarCambioSueldo(Number(p.sueldo_base) || 0);
     setError(null); setFormOpen(true);
   }
@@ -182,24 +201,6 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
     finally { setSubiendoFoto(false); }
   }
   function quitarFoto() { setForm((f) => ({ ...f, foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 })); }
-
-  async function onPickRif(file: File | null) {
-    if (!file) return;
-    setSubiendoRif(true); setError(null);
-    try {
-      const { path, nombre } = await subirDocumentoRif(file);
-      setForm((f) => ({ ...f, rif_path: path, rif_nombre: nombre }));
-    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo subir el RIF'); }
-    finally { setSubiendoRif(false); }
-  }
-
-  /** El bucket es privado: se abre con un enlace firmado que caduca. */
-  async function verRif(path: string, nombre?: string | null) {
-    try {
-      const url = await urlDocumentoRif(path);
-      previewFileUrl(url, nombre ?? 'RIF');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el RIF', 'error'); }
-  }
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -264,17 +265,23 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
               <tr key={p.id} style={{ opacity: p.activo ? 1 : 0.55 }}>
                 <td>
                   {p.nombre} {p.apellido}{p.cedula ? <span className="muted"> · {p.cedula}</span> : null}
-                  {/* El RIF y su documento, a la vista: es lo que se busca acá. */}
-                  {(p.rif || p.rif_path) && (
-                    <div className="muted mono" style={{ fontSize: '.72rem', display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap' }}>
-                      {p.rif ? <span>RIF {p.rif}</span> : null}
-                      {p.rif_path && (
-                        <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', fontSize: '.72rem' }}
-                          onClick={() => void verRif(p.rif_path!, p.rif_nombre)}
-                          title={`Ver el RIF · ${p.rif_nombre ?? 'documento'}`}>📄 Ver RIF</button>
-                      )}
-                    </div>
-                  )}
+                  {/* El RIF y el estado de los papeles, a la vista: es lo que se busca acá. */}
+                  <div className="muted mono" style={{ fontSize: '.72rem', display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                    {p.rif ? <span>RIF {p.rif}</span> : null}
+                    {(() => {
+                      const docs = docsPorPersona.get(p.id) ?? [];
+                      const completa = documentacionCompleta(docs);
+                      return (
+                        <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', fontSize: '.72rem' }}
+                          onClick={() => setDocsPersona(p)}
+                          title={completa ? 'Documentación completa' : `Faltan papeles: ${resumenDocumentos(docs)}`}>
+                          📁 <span style={{ color: completa ? 'var(--success)' : docs.length ? 'var(--warning)' : 'var(--muted)' }}>
+                            {resumenDocumentos(docs)}
+                          </span>
+                        </button>
+                      );
+                    })()}
+                  </div>
                 </td>
                 <td className="muted">{p.departamento || '—'}</td>
                 <td className="muted">{p.cargo || '—'}</td>
@@ -285,6 +292,7 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
                   <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setSueldoPersona(p)} title="Historial de sueldos: cuándo cambió y por qué">💵</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setDocsPersona(p)} title="Documentación: cédula, RIF y currículum">📁</button>
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => toggleActivo(p)} title={p.activo ? 'Desactivar' : 'Activar'}>{p.activo ? '⏸' : '▶'}</button>
@@ -371,21 +379,25 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
                   placeholder="V-12345678-9" maxLength={13} />
                 <small className="muted">Para la constancia de trabajo y las retenciones. Se puede corregir al editar.</small>
               </div>
+              {/* Los papeles ya no se cargan acá: tienen su propia ventana, que
+                  necesita la ficha creada para saber de quién son. */}
               <div className="form-row">
-                <label>Documento del RIF (PDF o imagen)</label>
-                {form.rif_path ? (
-                  <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span className="badge">📄 {form.rif_nombre || 'RIF'}</span>
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => void verRif(form.rif_path!, form.rif_nombre)}>👁 Ver</button>
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm((f) => ({ ...f, rif_path: '', rif_nombre: '' }))}>Quitar</button>
+                <label>📁 Documentación (cédula, RIF, currículum)</label>
+                {editId ? (
+                  <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="badge">{resumenDocumentos(docsPorPersona.get(editId) ?? [])} cargados</span>
+                    <button type="button" className="btn btn-sm btn-ghost"
+                      onClick={() => { const p = lista.find((x) => x.id === editId); if (p) { cerrarForm(); setDocsPersona(p); } }}>
+                      📁 Abrir documentación
+                    </button>
                   </div>
                 ) : (
-                  <input className="input" type="file" accept="application/pdf,image/*" disabled={subiendoRif}
-                    onChange={(e) => void onPickRif(e.target.files?.[0] ?? null)} />
+                  <small className="muted">
+                    Primero guardá la ficha. Después, con el botón <strong>📁</strong> del listado se cargan
+                    la <strong>cédula</strong>, el <strong>RIF</strong> y el <strong>currículum</strong>.
+                  </small>
                 )}
-                <small className="muted">
-                  {subiendoRif ? 'Subiendo…' : 'Queda en un depósito privado: se abre con un enlace temporal, no con una dirección pública.'}
-                </small>
+                {editId && <small className="muted">Quedan en un depósito privado: se abren con un enlace temporal, no con una dirección pública.</small>}
               </div>
               <ComboConAgregar
                 label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
@@ -450,6 +462,10 @@ export function PersonalTab({ canWrite, actor, actorName }: { canWrite: boolean;
 
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {sueldoPersona && <HistorialSueldoModal persona={sueldoPersona} onClose={() => setSueldoPersona(null)} />}
+      {docsPersona && (
+        <DocumentacionModal persona={docsPersona} canWrite={canWrite} actor={actor} actorName={actorName ?? null}
+          onClose={() => setDocsPersona(null)} onCambio={() => { void recargar(); }} />
+      )}
       {carnetPersona && <CarnetModal persona={carnetPersona} onClose={() => setCarnetPersona(null)} />}
       {constanciaPersona && <ConstanciaModal persona={constanciaPersona} onClose={() => setConstanciaPersona(null)} />}
       {porBorrar && (
@@ -604,6 +620,136 @@ function ComboConAgregar({ label, valor, opciones, onChange, hint }: {
 }
 
 /* ───────── Histórico de pagos individuales de una persona ───────── */
+/* ───────── Documentación: cédula, RIF y currículum ───────── */
+function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCambio }: {
+  persona: Personal; canWrite: boolean; actor: string; actorName: string | null;
+  onClose: () => void; onCambio: () => void;
+}) {
+  const [docs, setDocs] = useState<DocumentoPersonal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [subiendo, setSubiendo] = useState<TipoDocumentoPersonal | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [porQuitar, setPorQuitar] = useState<DocumentoPersonal | null>(null);
+
+  const recargar = useCallback(async () => {
+    try { setDocs(await listDocumentosPersonal(persona.id)); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cargar la documentación'); }
+    finally { setLoading(false); }
+  }, [persona.id]);
+  useEffect(() => { void recargar(); }, [recargar]);
+
+  const porTipo = useMemo(() => {
+    const m = new Map<TipoDocumentoPersonal, DocumentoPersonal>();
+    for (const d of docs) m.set(d.tipo, d);
+    return m;
+  }, [docs]);
+
+  async function subir(tipo: TipoDocumentoPersonal, file: File | null) {
+    if (!file) return;
+    setError(null);
+    // Se avisa ANTES de subir: no tiene sentido esperar a que viaje un archivo
+    // de 40 MB para decir que no se acepta.
+    const falla = validarArchivoDocumento(file);
+    if (falla) { setError(falla); return; }
+    setSubiendo(tipo);
+    try {
+      await subirDocumentoPersonal(persona.id, tipo, file, { actor, actorName });
+      toast('Documento cargado', 'success');
+      await recargar();
+      onCambio();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo subir el documento'); }
+    finally { setSubiendo(null); }
+  }
+
+  async function ver(d: DocumentoPersonal) {
+    try { await previewFileUrl(await urlDocumentoPersonal(d.path), d.nombre, 'Documentación del trabajador'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el documento', 'error'); }
+  }
+
+  async function quitar() {
+    if (!porQuitar) return;
+    try {
+      await borrarDocumentoPersonal(porQuitar);
+      setPorQuitar(null);
+      toast('Documento quitado', 'success');
+      await recargar();
+      onCambio();
+    } catch (e) { setPorQuitar(null); toast(e instanceof Error ? e.message : 'No se pudo quitar', 'error'); }
+  }
+
+  const completa = documentacionCompleta(docs);
+
+  return (
+    <Modal title={`📁 Documentación · ${persona.nombre} ${persona.apellido}`} size="lg" onClose={onClose}
+      footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div className="card" style={{ background: 'var(--bg-2)', marginBottom: '.75rem', display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: '.88rem' }}>
+          {loading ? 'Cargando…' : completa
+            ? <><strong style={{ color: 'var(--success)' }}>✓ Documentación completa</strong> — están los tres papeles.</>
+            : <><strong>{resumenDocumentos(docs)}</strong> papeles cargados.</>}
+        </span>
+        <span className="muted" style={{ fontSize: '.78rem' }}>PDF o imagen · hasta 10 MB</span>
+      </div>
+
+      <div style={{ display: 'grid', gap: '.6rem' }}>
+        {TIPOS_DOCUMENTO_PERSONAL.map((t) => {
+          const d = porTipo.get(t.key);
+          const cargando = subiendo === t.key;
+          return (
+            <div key={t.key} className="card" style={{ margin: 0, borderColor: d ? 'var(--success)' : 'var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.7rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700 }}>{t.icono} {t.label}</div>
+                  {d ? (
+                    <div className="muted" style={{ fontSize: '.78rem', wordBreak: 'break-all' }}>
+                      {d.nombre}{d.tamano ? ` · ${megas(d.tamano)}` : ''}
+                      <div>Cargado {d.createdAt ? dateTime(d.createdAt) : ''}{d.subidoPorNombre ? ` por ${d.subidoPorNombre}` : ''}</div>
+                    </div>
+                  ) : (
+                    <div className="muted" style={{ fontSize: '.78rem' }}>{t.ayuda} <strong>Falta cargarlo.</strong></div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {d && <button className="btn btn-sm btn-ghost" onClick={() => void ver(d)}>👁 Ver</button>}
+                  {canWrite && (
+                    <label className="btn btn-sm btn-ghost" style={{ cursor: cargando ? 'wait' : 'pointer', margin: 0 }}>
+                      {cargando ? 'Subiendo…' : d ? '🔄 Reemplazar' : '📎 Cargar'}
+                      <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} disabled={cargando}
+                        onChange={(e) => { void subir(t.key, e.target.files?.[0] ?? null); e.target.value = ''; }} />
+                    </label>
+                  )}
+                  {d && canWrite && (
+                    <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
+                      onClick={() => setPorQuitar(d)} title="Quitar">🗑</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <small className="hint muted" style={{ display: 'block', marginTop: '.6rem' }}>
+        Son documentos de identidad: viven en un <strong>depósito privado</strong> y se abren con un enlace que
+        <strong> caduca a los 10 minutos</strong>, no con una dirección pública como la foto del carnet.
+        Cargar de nuevo <strong>reemplaza</strong> el anterior: queda uno solo por tipo, para no tener diez
+        versiones de la misma cédula sin saber cuál es la buena.
+      </small>
+
+      {porQuitar && (
+        <ConfirmDialog
+          title="Quitar el documento"
+          message={`¿Quitar «${porQuitar.nombre}» de la documentación de ${persona.nombre}? El archivo se borra del depósito.`}
+          confirmText="Quitar" danger
+          onConfirm={() => void quitar()}
+          onCancel={() => setPorQuitar(null)} />
+      )}
+    </Modal>
+  );
+}
+
 /* ───────── Historial de sueldos: cuándo cambió, cuánto y por qué ───────── */
 function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
   const [filas, setFilas] = useState<CambioSueldoRegistro[]>([]);
