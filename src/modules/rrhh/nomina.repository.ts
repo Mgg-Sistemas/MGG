@@ -6,9 +6,11 @@
 
    Cálculo por persona:
      salario_diario = sueldo_base_mensual / 30
-     salario_bruto  = salario_diario × dias_trabajados   (15 por defecto)
+     salario_bruto  = salario_diario × (dias_trabajados + dias_descanso)
      neto_usd       = salario_bruto + asignaciones(bonos)
                       − (anticipos + préstamos + faov)
+   Los días de descanso se pagan igual que los trabajados; van separados
+   porque el RECIBO los pide en dos renglones (ver `sueldoQuincena.ts`).
    NO se descuenta Seguro Social (IVSS): lo pidió el usuario el 16/09/2026.
    FAOV/bonos están montados (campos) pero hoy en 0 (deshabilitados en UI).
    ============================================================ */
@@ -35,6 +37,8 @@ export function labelMotivoNomina(tipo?: string | null): string {
 export interface RenglonCalcInput {
   sueldo_base_mensual: number;
   dias_trabajados: number;
+  /** Dias de descanso: se pagan al mismo diario, en renglon aparte del recibo. */
+  dias_descanso?: number;
   asignaciones?: number;
   deducciones?: DeduccionRef[];
   deduc_faov?: number;
@@ -51,7 +55,10 @@ export interface RenglonCalc {
 
 export function calcularRenglon(input: RenglonCalcInput): RenglonCalc {
   const diario = (Number(input.sueldo_base_mensual) || 0) / 30;
-  const salario_bruto = round2(diario * (Number(input.dias_trabajados) || 0));
+  // Los días de descanso se pagan igual que los trabajados: van en renglones
+  // separados en el recibo, pero los dos al mismo sueldo diario.
+  const dias = (Number(input.dias_trabajados) || 0) + (Number(input.dias_descanso) || 0);
+  const salario_bruto = round2(diario * dias);
   const deducs = input.deducciones ?? [];
   const deduc_anticipos = round2(deducs.filter((d) => d.tipo === 'anticipo').reduce((a, d) => a + (Number(d.monto) || 0), 0));
   const deduc_prestamos = round2(deducs.filter((d) => d.tipo === 'prestamo').reduce((a, d) => a + (Number(d.monto) || 0), 0));
@@ -81,7 +88,10 @@ export interface RenglonInput {
   departamento?: string | null;
   sueldo_base_mensual: number;
   dias_trabajados: number;
+  /** Dias de descanso de la quincena (renglon propio del recibo). */
+  dias_descanso?: number;
   asignaciones?: number;
+  viaticos?: number;
   deducciones?: DeduccionRef[];
   deduc_faov?: number;
 }
@@ -138,8 +148,10 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
     departamento: r.departamento ?? null,
     sueldo_base_mensual: round2(Number(r.sueldo_base_mensual) || 0),
     dias_trabajados: Number(r.dias_trabajados) || 0,
+    dias_descanso: Number(r.dias_descanso) || 0,
     salario_bruto: c.salario_bruto,
     asignaciones: c.asignaciones,
+    viaticos: round2(Number(r.viaticos) || 0),
     deduc_anticipos: c.deduc_anticipos,
     deduc_prestamos: c.deduc_prestamos,
     deduc_faov: c.deduc_faov,

@@ -130,7 +130,10 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
 interface FilaUI {
   persona: Personal;
   incluido: boolean;
+  /** Días trabajados. Se pagan al sueldo diario. */
   dias: string;
+  /** Días de descanso. Se pagan igual, pero el RECIBO los pide aparte. */
+  descanso: string;
   deduc: Record<string, string>;   // anticipoId -> monto a descontar
 }
 
@@ -161,6 +164,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
         persona: p,
         incluido: true,
         dias: String(15),
+        descanso: '0',
         deduc: as.filter((a) => a.personal_id === p.id).reduce<Record<string, string>>((acc, a) => {
           const sug = a.cuota_sugerida != null ? Math.min(Number(a.cuota_sugerida), Number(a.saldo)) : 0;
           acc[a.id] = sug > 0 ? String(round2(sug)) : '';
@@ -173,7 +177,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   // Al cambiar los días base, sincroniza las filas que aún no se tocaron individualmente.
   function aplicarDiasBase(n: number) {
     setDiasBase(n);
-    setFilas((fs) => fs.map((f) => ({ ...f, dias: String(n) })));
+    setFilas((fs) => fs.map((f) => ({ ...f, dias: String(n), descanso: '0' })));
   }
 
   const anticiposDe = (pid: string) => anticipos.filter((a) => a.personal_id === pid);
@@ -182,7 +186,12 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
     const deducciones: DeduccionRef[] = anticiposDe(f.persona.id)
       .map((a) => ({ id: a.id, tipo: a.tipo, monto: round2(Math.min(Number(f.deduc[a.id]) || 0, Number(a.saldo))) }))
       .filter((d) => d.monto > 0);
-    const c = calcularRenglon({ sueldo_base_mensual: Number(f.persona.sueldo_base) || 0, dias_trabajados: Number(f.dias) || 0, deducciones });
+    const c = calcularRenglon({
+      sueldo_base_mensual: Number(f.persona.sueldo_base) || 0,
+      dias_trabajados: Number(f.dias) || 0,
+      dias_descanso: Number(f.descanso) || 0,
+      deducciones,
+    });
     return { deducciones, ...c };
   }
 
@@ -203,6 +212,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           departamento: f.persona.departamento ?? null,
           sueldo_base_mensual: Number(f.persona.sueldo_base) || 0,
           dias_trabajados: Number(f.dias) || 0,
+          dias_descanso: Number(f.descanso) || 0,
           deducciones,
         };
       });
@@ -266,14 +276,15 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           <thead><tr>
             <th style={{ width: 28 }}></th><th>Trabajador</th>
             <th style={{ textAlign: 'right' }}>Sueldo mes</th>
-            <th style={{ textAlign: 'center', width: 70 }}>Días</th>
+            <th style={{ textAlign: 'center', width: 70 }}>Días trab.</th>
+            <th style={{ textAlign: 'center', width: 70 }}>Días desc.</th>
             <th style={{ textAlign: 'right' }}>Bruto</th>
             <th>Deducciones (anticipos/préstamos)</th>
             <th style={{ textAlign: 'right' }}>Neto USD</th>
             <th style={{ textAlign: 'right' }}>≈ Bs</th>
           </tr></thead>
           <tbody>
-            {!filas.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Sin personal activo. Agregá trabajadores en la pestaña Personal.</td></tr>}
+            {!filas.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Sin personal activo. Agregá trabajadores en la pestaña Personal.</td></tr>}
             {filas.map((f, i) => {
               const { deducciones, salario_bruto, neto_usd } = calcFila(f);
               const ants = anticiposDe(f.persona.id);
@@ -285,6 +296,14 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
                   <td style={{ textAlign: 'center' }}>
                     <input className="input mono" type="number" min={0} max={31} value={f.dias} disabled={!f.incluido}
                       onChange={(e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, dias: e.target.value } : x))}
+                      style={{ width: 56, textAlign: 'center' }} />
+                  </td>
+                  {/* Se pagan igual que los trabajados. Van aparte porque el
+                      recibo los exige en dos renglones. */}
+                  <td style={{ textAlign: 'center' }}>
+                    <input className="input mono" type="number" min={0} max={31} value={f.descanso} disabled={!f.incluido}
+                      title="Días de descanso: se pagan al mismo sueldo diario, pero salen en su propio renglón del recibo"
+                      onChange={(e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, descanso: e.target.value } : x))}
                       style={{ width: 56, textAlign: 'center' }} />
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(salario_bruto)}</td>

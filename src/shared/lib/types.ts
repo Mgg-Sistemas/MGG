@@ -1114,12 +1114,19 @@ export interface NominaRenglon {
   departamento?: string | null;
   sueldo_base_mensual: number;
   dias_trabajados: number;
+  /** Días de descanso: van en un renglón aparte del recibo, al mismo diario. */
+  dias_descanso?: number | null;
   salario_bruto: number;
+  /** Bonos extra de la quincena (aparte del bono que sale del reparto 20/80). */
   asignaciones: number;
+  viaticos?: number | null;
   deduc_anticipos: number;
   deduc_prestamos: number;
   deduc_ivss: number;
+  deduc_rpe?: number | null;
   deduc_faov: number;
+  deduc_sindicato?: number | null;
+  deduc_otros?: number | null;
   deducciones: DeduccionRef[];
   neto_usd: number;
   estado: 'por_pagar' | 'pagada';
