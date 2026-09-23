@@ -264,6 +264,12 @@ export function MaterialAProducirModal({
   const [recetaBase, setRecetaBase] = useState<RecetaBase | null>(null);
   const [recetaLoading, setRecetaLoading] = useState(false);
   const prevRecetaIds = useRef<string[]>([]);
+  /* La receta se aplica como PUNTO DE PARTIDA. Si el usuario ya tocó una
+     cantidad de material, cambiar lo que se va a producir no puede volver a
+     escalarle los insumos encima: le borraría lo que cargó a mano. Se vuelve
+     a aplicar solo si cambia la receta (o sea, si cambia el producto). */
+  const recetaAplicada = useRef<RecetaBase | null>(null);
+  const materialesTocados = useRef(false);
 
   // Alta de insumo: buscar uno del inventario y marcarlo receta, o crear uno nuevo.
   const [addOpen, setAddOpen] = useState(false);
@@ -333,6 +339,9 @@ export function MaterialAProducirModal({
   // Aplicar la receta a la checklist y escalar cantidades según lo que se va a
   // producir: cantidad_insumo = base × (cantidad ÷ rendimiento de la receta).
   useEffect(() => {
+    if (recetaAplicada.current === recetaBase && materialesTocados.current) return;
+    recetaAplicada.current = recetaBase;
+    materialesTocados.current = false;
     setRows((prev) => {
       const next = { ...prev };
       // Limpiar insumos de la receta anterior que ya no aplican.
@@ -367,6 +376,17 @@ export function MaterialAProducirModal({
     if (esRef) setCantidad(crudoKg > 0 ? String(crudoKg) : '0');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [esRef, crudoKg]);
+
+  /* En fundición, la cantidad producida ES el estaño obtenido de la colada, y
+     ese dato se carga una sola vez, en «Observaciones y resultados». Antes se
+     pedía además acá abajo: el mismo número dos veces, y encima el de abajo
+     era el que mandaba. Al abrir la colada casi nunca se tiene todavía, así
+     que mientras esté vacío la orden se crea con 1 und provisional y se ajusta
+     sola al finalizar, que es cuando el número existe de verdad. */
+  const estanoColada = esColada ? Number(coladaDatos.estano_kg) || 0 : 0;
+  useEffect(() => {
+    if (esColada) setCantidad(estanoColada > 0 ? String(estanoColada) : '1');
+  }, [esColada, estanoColada]);
 
   // Costos: CTM → CP → costo unitario. El posible precio de venta se MARCA solo
   // = costo unitario de fundición (no editable por el usuario).
@@ -753,7 +773,7 @@ export function MaterialAProducirModal({
                         <td className="mono" style={{ textAlign: 'right', color: exceso ? 'var(--danger)' : undefined }}>{num(disp)}</td>
                         <td style={{ textAlign: 'right' }}>
                           <input className="input mono" type="number" min={0} step="any" style={{ width: 90, textAlign: 'right' }}
-                            value={row.cantidad} onChange={(e) => setRow(m.id, { cantidad: e.target.value })} disabled={!row.checked} />
+                            value={row.cantidad} onChange={(e) => { materialesTocados.current = true; setRow(m.id, { cantidad: e.target.value }); }} disabled={!row.checked} />
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           <input className="input mono" type="text" inputMode="decimal" style={{ width: 96, textAlign: 'right' }}
@@ -862,10 +882,20 @@ export function MaterialAProducirModal({
           </label>
         </div>
 
+        {/* Acá ya no se escribe nada: es el mismo dato que se carga arriba. En
+            refinación sale del material seleccionado y en fundición del estaño
+            obtenido. Queda a la vista, en solo lectura, porque es el divisor
+            del costo unitario y conviene poder controlarlo. */}
         <div className="form-row">
-          <label>{esRef ? 'Cantidad refinada (kg)' : 'Cantidad producida'}</label>
-          <input className="input mono" type="number" min={esRef ? 0 : 1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} disabled={esRef} required style={{ maxWidth: 220 }} />
-          {esRef && <small className="muted" style={{ fontSize: '.7rem' }}>Σ material seleccionado. Al finalizar se ajusta al estaño refinado obtenido.</small>}
+          <label>{esRef ? 'Cantidad refinada (kg)' : 'Cantidad producida (kg)'}</label>
+          <input className="input mono" type="number" step="any" value={cantidad} disabled readOnly style={{ maxWidth: 220 }} />
+          <small className="muted" style={{ fontSize: '.7rem' }}>
+            {esRef
+              ? 'Σ material seleccionado. Al finalizar se ajusta al estaño refinado obtenido.'
+              : estanoColada > 0
+                ? 'Del estaño obtenido que cargaste arriba, en «Observaciones y resultados».'
+                : 'Provisional (1 und) hasta que cargues el estaño obtenido arriba, o hasta que finalices la colada.'}
+          </small>
         </div>
 
         {/* Horno a utilizar */}

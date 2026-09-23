@@ -33,7 +33,24 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
 
   useEffect(() => {
     let cancel = false;
-    getColada(prod.id).then((c) => { if (!cancel) setColada(c); }).catch(() => { /* opcional */ });
+    /* Traemos lo que ya se cargó al abrir la colada (estaño, lingotes, escoria,
+       observaciones…): son los mismos campos de «Observaciones y resultados»,
+       y hacerlos escribir de nuevo es pedir el dato dos veces. Se pueden
+       corregir acá, que es donde el número queda firme. */
+    getColada(prod.id).then((c) => {
+      if (cancel) return;
+      setColada(c);
+      const d = c?.datos ?? {};
+      const txt = (v: number | null | undefined) => (v == null ? '' : String(v));
+      if (d.estano_kg != null) setEstano(txt(d.estano_kg));
+      if (d.n_lingotes != null) setLingotes(txt(d.n_lingotes));
+      if (d.escoria_kg != null) setEscoria(txt(d.escoria_kg));
+      if (d.merma_kg != null) setMerma(txt(d.merma_kg));
+      if (d.observaciones) setObservaciones(d.observaciones);
+      setInvolucrados(sinRepetidos(d.involucrados ?? []));
+      // Si ya venía un rendimiento cargado, manda ese y no el sugerido.
+      if (d.rendimiento != null) { setRendTocado(true); setRendimiento(txt(d.rendimiento)); }
+    }).catch(() => { /* opcional */ });
     // Materiales crudos consumidos (casiterita + fundentes) = "mezcla" de la colada.
     getProduccionConMateriales(prod.id).then((p) => { if (!cancel) setMateriales(p?.materiales ?? []); }).catch(() => { /* opcional */ });
     return () => { cancel = true; };

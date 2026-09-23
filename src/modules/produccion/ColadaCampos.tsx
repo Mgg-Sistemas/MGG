@@ -464,6 +464,11 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         <div style={tituloSec}>Observaciones y resultados</div>
         <div className="form-grid">
           <div className="form-row">
+            <label>Estaño obtenido (kg)</label>
+            <DecimalInput className="input mono" value={datos.estano_kg} onChange={(n) => set('estano_kg', n)} style={numInput} placeholder="0,00" />
+            <small className="muted" style={{ fontSize: '.7rem' }}>Es la <strong>cantidad producida</strong>: se carga acá y en ningún otro lado. Si todavía no lo tenés, dejalo vacío y se completa al finalizar la colada.</small>
+          </div>
+          <div className="form-row">
             <label>N° de lingotes</label>
             <input className="input mono" type="number" step="any" min={0} value={datos.n_lingotes ?? ''} onChange={(e) => set('n_lingotes', toNum(e.target.value))} style={numInput} placeholder="Ej.: 42" title="Admite medios lingotes: la última colada rara vez llena el molde" />
           </div>
