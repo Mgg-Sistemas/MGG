@@ -292,6 +292,7 @@ export function SalidasPage() {
           sol={modal.sol}
           puedeAprobar={puedeAprobar}
           puedeEjecutar={puedeEjecutar}
+          puedeEditar={puedeAprobar || canWrite}
           actor={actor}
           actorName={actorName}
           productos={productos}
@@ -702,11 +703,13 @@ function SolicitudesKanban({ sols, scope, onVer, onVerHistorico }: {
 /* ───────────── Detalle + acciones de una solicitud ───────────── */
 
 function SolicitudDetalleModal({
-  sol, puedeAprobar, puedeEjecutar, actor, actorName, productos, existencias, almacenes, cajas, onClose, onChanged,
+  sol, puedeAprobar, puedeEjecutar, puedeEditar, actor, actorName, productos, existencias, almacenes, cajas, onClose, onChanged,
 }: {
   sol: SolicitudSalida;
   puedeAprobar: boolean;
   puedeEjecutar: boolean;
+  /** Corregir la solicitud antes de ejecutarla. Más amplio que APROBAR: ver abajo. */
+  puedeEditar: boolean;
   actor: string;
   actorName: string | null;
   productos: Producto[];
@@ -746,8 +749,14 @@ function SolicitudDetalleModal({
      un renglón es más sano que cancelar y volver a pedir (que rompe el correlativo
      y deja una cancelada de adorno en el histórico).
 
+     EDITAR NO ES APROBAR. Estaba atado a quien autoriza (Leydis y Jesús), y eso
+     dejaba afuera hasta a los administradores: un renglón mal escrito no tenía
+     más salida que cancelar la solicitud. Autorizar sigue siendo de ellos dos —la
+     base lo exige con un trigger—; corregir lo hace quien tiene escritura, que es
+     la misma gente que después la ejecuta.
+
      Reusa lo ya cargado (productos/existencias/almacenes/cajas) para los selects. */
-  const editable = (sol.estado === 'por_aprobar' || sol.estado === 'aprobada') && puedeAprobar;
+  const editable = (sol.estado === 'por_aprobar' || sol.estado === 'aprobada') && puedeEditar;
   const [editando, setEditando] = useState(false);
   type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string; observacion: string; paraFundicion?: boolean; equipoId?: string; equipoNombre?: string | null };
   const initLineas = (): LineaEd[] => {
@@ -1014,7 +1023,7 @@ function SolicitudDetalleModal({
           ✎ Editar solicitud
         </button>
       )}
-      {sol.estado === 'ejecutada' && (
+      {sol.estado === 'ejecutada' && puedeEditar && (
         <button className="btn btn-ghost" disabled={busy} style={{ marginRight: 'auto' }}
           onClick={() => { setNotaMotivo(sol.motivo ?? ''); setNotaEntrega(sol.nota_entrega ?? ''); setEditandoNota(true); }}
           title="Agregar o corregir la nota/motivo (no cambia lo despachado ni el estado)">
@@ -1414,6 +1423,7 @@ function SolicitudDetalleModal({
       {!puedeAprobar && sol.estado === 'por_aprobar' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
           Solo <strong>Leydis Rengel</strong> o <strong>Jesús Lozada</strong> pueden <strong>autorizar</strong> esta solicitud.{puedeEjecutar ? ' Una vez aprobada, vos podés ejecutarla.' : ''}
+          {editable ? ' Corregirla sí podés: usá ✎ Editar solicitud.' : ''}
         </div>
       )}
       {!puedeEjecutar && sol.estado === 'aprobada' && (
