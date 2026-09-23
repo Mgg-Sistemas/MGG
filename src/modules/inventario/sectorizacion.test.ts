@@ -112,9 +112,9 @@ describe('motivoAlmacenAjeno', () => {
 
 describe('recepción de compras', () => {
   it('sin restricción se ofrecen los dos destinos', () => {
-    expect(opcionesRecepcion().map((d) => d.label)).toEqual(['LOS PINOS', 'MATANZA']);
-    expect(opcionesRecepcion(null).map((d) => d.label)).toEqual(['LOS PINOS', 'MATANZA']);
-    expect(opcionesRecepcion([]).map((d) => d.label)).toEqual(['LOS PINOS', 'MATANZA']);
+    expect(opcionesRecepcion().map((d) => d.label)).toEqual(['LOS PINOS', 'MATANZA', 'LA ESPERANZA']);
+    expect(opcionesRecepcion(null).map((d) => d.label)).toEqual(['LOS PINOS', 'MATANZA', 'LA ESPERANZA']);
+    expect(opcionesRecepcion([]).map((d) => d.label)).toEqual(['LOS PINOS', 'MATANZA', 'LA ESPERANZA']);
   });
 
   it('el almacenista de Matanzas solo ve MATANZA', () => {
@@ -122,7 +122,10 @@ describe('recepción de compras', () => {
   });
 
   it('un centro de acopio no recibe compras', () => {
-    expect(opcionesRecepcion(['CENTRO DE ACOPIO - LA ESPERANZA'])).toEqual([]);
+    // LA ESPERANZA sí recibe compras (antes no): un sectorizado ahí ve su sede.
+    expect(opcionesRecepcion(['CENTRO DE ACOPIO - LA ESPERANZA']).map((d) => d.almacen)).toEqual(['La Esperanza']);
+    // Los demás centros de acopio siguen recibiendo solo por traslado.
+    expect(opcionesRecepcion(['CENTRO DE ACOPIO - EL BURRO'])).toEqual([]);
   });
 
   it('el destino por defecto sale de la base y, si no, del respaldo', () => {

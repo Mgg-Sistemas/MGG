@@ -126,17 +126,22 @@ export function motivoAlmacenAjeno(
 
 /* ---------------------------------------------------------------------------
    Recepción de compras
-   La mercancía comprada SOLO entra a Matanzas o Los Pinos: los centros de acopio
-   reciben por Traslados, nunca por compra.
+
+   Las sedes que reciben mercancía comprada. Eran dos —Matanzas y Los Pinos—
+   con la regla de que los centros de acopio recibían solo por Traslado. LA
+   ESPERANZA se sumó como destino directo: tiene cocina propia y compras que
+   llegan ahí, y hacerlas entrar por otra sede para trasladarlas después era
+   un paso de papel que no describía lo que pasa de verdad.
    --------------------------------------------------------------------------- */
 
 /** Sedes que pueden recibir compras. */
-export const SEDES_RECEPCION = ['CENTRO DE FUNDICION - MATANZAS', 'LOS PINOS'];
+export const SEDES_RECEPCION = ['CENTRO DE FUNDICION - MATANZAS', 'LOS PINOS', 'CENTRO DE ACOPIO - LA ESPERANZA'];
 
-/** Los dos únicos destinos de recepción: el almacén principal de cada sede. */
+/** Los destinos de recepción: el almacén principal de cada sede que recibe. */
 export const DESTINOS_RECEPCION: { label: string; almacen: string; sede: string }[] = [
   { label: 'LOS PINOS', almacen: 'Los Pinos', sede: 'LOS PINOS' },
   { label: 'MATANZA', almacen: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+  { label: 'LA ESPERANZA', almacen: 'La Esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA' },
 ];
 
 /**

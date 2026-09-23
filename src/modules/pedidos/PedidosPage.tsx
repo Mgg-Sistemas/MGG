@@ -1777,8 +1777,7 @@ function RecepcionParcialModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Destinos de recepción: LOS PINOS o MATANZA, los dos únicos por los que entra
-  // una compra (los centros de acopio reciben por traslado). Es la misma lista que
+  // Destinos de recepción: LOS PINOS, MATANZA o LA ESPERANZA. Es la misma lista que
   // ve el almacenista en Inventario; si el usuario está sectorizado, ve solo la suya.
   const { appUser: usuarioRecepcion } = usePermissions();
   const destinosRecepcion = useMemo(
@@ -1901,8 +1900,8 @@ function RecepcionParcialModal({
           ))}
         </select>
         <small className="muted">
-          Una compra entra solo por <strong>LOS PINOS</strong> o <strong>MATANZA</strong>; los centros de acopio
-          reciben por traslado. Si el producto se creó desde una solicitud y todavía no tenía almacén,
+          Una compra entra por <strong>LOS PINOS</strong>, <strong>MATANZA</strong> o <strong>LA ESPERANZA</strong>;
+          los demás centros de acopio reciben por traslado. Si el producto se creó desde una solicitud y todavía no tenía almacén,
           <strong> acá gana su ubicación</strong>.
         </small>
       </div>
