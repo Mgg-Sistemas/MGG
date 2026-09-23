@@ -6,7 +6,7 @@
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { definicionEmpresa, normalizarEmpresa } from './empresa';
 import { date as fmtDate } from '@/shared/lib/format';
-import { aBs, calcularRecibo, lineasConMonto } from './sueldoQuincena';
+import { aBs, calcularRecibo } from './sueldoQuincena';
 import type { NominaPeriodo, NominaRenglon } from '@/shared/lib/types';
 
 function usd(n: number | null | undefined): string {
@@ -120,29 +120,17 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       tasa,
     });
 
-    // Cabecera del desglose: sueldo quincenal y diario, en las dos monedas.
-    autoTable(doc, {
-      startY: y,
-      body: [
-        ['Forma de pago', r.moneda_pago === 'BS' ? 'Bolívares' : r.moneda_pago === 'USD' ? 'Dólares en efectivo' : 'Por definir',
-          'Tasa de la quincena', tasa > 0 ? `${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$` : '—'],
-        ['Sueldo quincenal', `${bsStr(aBs(c.reparto.sueldo, tasa))}  (${usd(c.reparto.sueldo)})`,
-          'Sueldo diario', `${bsStr(aBs(c.diario, tasa))}  (${usd(c.diario)})`],
-      ],
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
-      theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 5 },
-      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 90 }, 2: { fontStyle: 'bold', cellWidth: 90 } },
-    });
-    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 12;
+    /* LA TABLA: solo lo que se paga EN BOLÍVARES, o sea la parte «sueldo»
+       (20 %) repartida en días, más los extras, menos las deducciones. El
+       bono del 80 % va abajo, en su propio bloque, porque se entrega en
+       divisas.
 
-    // Los renglones. Se muestran solo los que tienen algo: un recibo con once
-    // ceros no se lee, y los conceptos en cero no le dicen nada a nadie.
-    const filas = lineasConMonto(c.lineas).map((l, i) => ([
+       Se imprimen TODOS los conceptos aunque estén en cero: así el recibo es
+       siempre el mismo documento y quien lo firma ve que no se le omitió
+       ningún descuento. */
+    const filas = c.lineas.map((l, i) => ([
       String(i + 1),
-      l.concepto,
-      l.dias != null ? String(l.dias) : '',
+      l.dias != null ? `${l.concepto} (${l.dias})` : l.concepto,
       l.tipo === 'devengado' ? bsStr(aBs(l.usd, tasa)) : '',
       l.tipo === 'devengado' ? usd(l.usd) : '',
       l.tipo === 'deduccion' ? bsStr(aBs(l.usd, tasa)) : '',
@@ -151,11 +139,11 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
 
     autoTable(doc, {
       startY: y,
-      head: [['#', 'CONCEPTO', 'DÍAS', 'DEVENGADO Bs', 'EN $', 'DEDUCCIÓN Bs', 'EN $']],
+      head: [['#', 'CONCEPTO', 'DEVENGADO Bs', 'en $', 'DEDUCCIÓN Bs', 'en $']],
       body: filas,
       foot: [
-        ['', 'TOTALES', '', bsStr(c.totalDevengadoBs), usd(c.totalDevengadoUsd), bsStr(c.totalDeduccionBs), usd(c.totalDeduccionUsd)],
-        ['', 'NETO A PAGAR', '', bsStr(c.netoBs), usd(c.netoUsd), '', ''],
+        ['', 'TOTALES', bsStr(c.totalDevengadoBs), usd(c.totalDevengadoUsd), bsStr(c.totalDeduccionBs), usd(c.totalDeduccionUsd)],
+        ['', 'NETO DEL RECIBO', bsStr(c.netoBs), usd(c.netoUsd), '', ''],
       ],
       margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
       styles: { fontSize: 8.5, cellPadding: 4 },
@@ -163,18 +151,51 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       columnStyles: {
         0: { cellWidth: 18, halign: 'center' },
-        2: { cellWidth: 32, halign: 'center' },
-        3: { halign: 'right' }, 4: { halign: 'right' },
-        5: { halign: 'right' }, 6: { halign: 'right' },
+        2: { halign: 'right' }, 3: { halign: 'right' },
+        4: { halign: 'right' }, 5: { halign: 'right' },
       },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
     y = (doc.lastAutoTable?.finalY ?? y) + 10;
 
+    /* EL BONO: el 80 %, en divisas. Va aparte porque no se paga en bolívares;
+       mezclarlo arriba haría que el «pagado en bolívares» dijera un monto que
+       nunca pasó por bolívares. */
+    autoTable(doc, {
+      startY: y,
+      head: [['BONO', 'Monto $']],
+      body: [['Bono de la quincena (80 % del total acordado)', usd(c.bonoUsd)]],
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      styles: { fontSize: 8.5, cellPadding: 4 },
+      headStyles: { fillColor: [55, 55, 55], textColor: 255, fontStyle: 'bold' },
+      columnStyles: { 1: { halign: 'right', cellWidth: 120 } },
+    });
+    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+
+    /* EL TOTAL: las dos partes juntas, cada una en la moneda en que se paga,
+       con la tasa a la vista. Es lo que la persona se lleva. */
+    autoTable(doc, {
+      startY: y,
+      head: [['TOTAL DEL RECIBO', 'Bs', 'Equivalente $']],
+      body: [
+        ['Pagado en bolívares (sueldo, 20 %)', bsStr(c.netoBs), usd(c.netoUsd)],
+        ['Tasa aplicada (BCV del día)', tasa > 0 ? `${bsStr(tasa)} / $` : '—', ''],
+        ['Bono en divisas', '', usd(c.bonoUsd)],
+      ],
+      foot: [['TOTAL RECIBIDO', '', usd(c.totalRecibidoUsd)]],
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      styles: { fontSize: 8.5, cellPadding: 4 },
+      headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+      footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
+      columnStyles: { 1: { halign: 'right', cellWidth: 115 }, 2: { halign: 'right', cellWidth: 115 } },
+    });
+    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+    y = (doc.lastAutoTable?.finalY ?? y) + 10;
     // La conformidad. Dice los dos montos porque el pago se entrega en una
     // moneda pero el sueldo se pactó en la otra.
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-    const conformidad = `Certifico haber recibido la cantidad de ${bsStr(c.netoBs)} (${usd(c.netoUsd)} a la tasa de ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$), que comprende la totalidad de mi salario del período indicado, y firmo en señal de conformidad.`;
+    const conformidad = `Certifico haber recibido ${bsStr(c.netoBs)} en bolívares (${usd(c.netoUsd)} a la tasa de ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$) más ${usd(c.bonoUsd)} de bono en divisas, lo que hace un total de ${usd(c.totalRecibidoUsd)}, que comprende la totalidad de mi remuneración del período indicado, y firmo en señal de conformidad.`;
     doc.text(doc.splitTextToSize(conformidad, PAGE_W - MARGIN * 2), MARGIN, y + 10);
     y += 10 + doc.splitTextToSize(conformidad, PAGE_W - MARGIN * 2).length * 11;
 
@@ -206,11 +227,18 @@ function nombreArchivo(renglones: NominaRenglon[], meta: ReciboMeta): string {
   return base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '.pdf';
 }
 
-/** Descarga el/los comprobante(s) de pago (uno por trabajador). */
+/**
+ * Abre el/los comprobante(s) de pago en VISTA PREVIA (uno por trabajador).
+ *
+ * Antes bajaba el archivo de una. En MGG ningún reporte se descarga solo: se
+ * muestra, y se baja o se imprime desde el visor si hace falta. Un recibo que
+ * se descarga sin verse es un recibo que se imprime con el error adentro.
+ */
 export async function descargarNominaReciboPdf(renglones: NominaRenglon[], meta: ReciboMeta): Promise<void> {
   if (!renglones.length) throw new Error('No hay renglones para el comprobante.');
+  const { previewPdfDoc } = await import('@/shared/lib/reportPreview');
   const doc = await construir(renglones, meta);
-  doc.save(nombreArchivo(renglones, meta));
+  previewPdfDoc(doc, nombreArchivo(renglones, meta));
 }
 
 /**

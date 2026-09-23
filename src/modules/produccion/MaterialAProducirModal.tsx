@@ -464,7 +464,9 @@ export function MaterialAProducirModal({
     }
 
     if (esRef) {
-      if (!crudoLines.length) { setError('Seleccioná al menos una colada finalizada como origen del estaño crudo.'); return; }
+      // Lo mismo para la refinación: el crudo puede venir de afuera (carga
+      // manual) y no de una colada del sistema. Lo único que se exige es que
+      // haya una cantidad a refinar, que se valida abajo.
     } else {
       if (!seleccion.length) { setError('Seleccioná al menos un material con cantidad.'); return; }
     }
@@ -477,8 +479,9 @@ export function MaterialAProducirModal({
     if (esColada) {
       if (!coladaNum.trim()) { setError('Indicá el Colada N°.'); return; }
       if (!(coladaDatos.responsable ?? '').trim()) { setError('Indicá el responsable de la colada.'); return; }
-      const bags = coladaDatos.big_bags ?? [];
-      if (!bags.some((b) => (Number(b.kg) || 0) > 0)) { setError('Cargá al menos un big bag de casiterita con su peso (kg).'); return; }
+      // Una colada puede NO tener big bags cargados: hay material que entra
+      // sin pasar por el inventario detallado, y hay coladas viejas que se
+      // cargan para dejar el registro. Exigirlo bloqueaba casos reales.
     }
 
     // En una carga histórica no se revisa el stock: la colada ya ocurrió y el

@@ -152,6 +152,10 @@ export interface ReciboCalculado {
   totalDevengadoBs: number;
   totalDeduccionBs: number;
   netoBs: number;
+  /** El bono del 80 %: se entrega en divisas, fuera de la tabla en bolívares. */
+  bonoUsd: number;
+  /** Lo que la persona se lleva: el neto de la tabla más el bono en divisas. */
+  totalRecibidoUsd: number;
   tasa: number;
 }
 
@@ -159,9 +163,11 @@ export interface ReciboCalculado {
  * Arma el recibo completo: los renglones, los totales y el neto, en dólares y
  * en bolívares a la tasa de la quincena.
  *
- * Los días trabajados y los de descanso se pagan los dos al sueldo diario. El
- * bono va como un renglón más del devengado: el recibo muestra TODO lo que la
- * persona cobra, no solo la parte que se convierte a bolívares.
+ * Los días trabajados y los de descanso se pagan los dos al sueldo diario, y
+ * entre los dos suman la parte «sueldo» (el 20 %), que es lo que se paga en
+ * bolívares. El bono (el 80 %) NO entra en la tabla: se entrega en divisas y
+ * sale en su propio bloque. El recibo muestra igual TODO lo que la persona
+ * cobra, pero cada parte en la moneda en que de verdad se paga.
  */
 export function calcularRecibo(d: DatosRecibo): ReciboCalculado {
   const reparto = repartirQuincena(d.brutoQuincena, d.porcionSueldo ?? PORCION_SUELDO);
@@ -173,14 +179,23 @@ export function calcularRecibo(d: DatosRecibo): ReciboCalculado {
      no de una fórmula fija: así los dos renglones de días suman exactamente
      esa parte, sin centavos sueltos, sea cual sea la cantidad de días. */
   const diario = sueldoDiario(reparto.sueldo, diasPagados || DIAS_QUINCENA);
-  const porTrabajados = round2(diario * trabajados);
+  /* OJO con el redondeo: el renglón se calcula con la división SIN redondear,
+     no multiplicando el diario ya redondeado a centavos. Con $40 en 15 días el
+     diario es 2,6666… y redondearlo a 2,67 antes de multiplicarlo por 11 mete
+     el error once veces: daría 29,37 donde la planilla dice 29,33. El `diario`
+     redondeado queda solo para MOSTRARLO. */
+  const porTrabajados = diasPagados > 0 ? round2((reparto.sueldo * trabajados) / diasPagados) : 0;
   // El último renglón absorbe el redondeo para que la suma cierre exacta.
   const porDescanso = diasPagados > 0 ? round2(reparto.sueldo - porTrabajados) : 0;
 
+  /* La tabla del recibo lleva SOLO lo que se paga en bolívares: la parte
+     «sueldo» (20 %) repartida en días, más los extras. El bono del 80 % NO va
+     acá — se entrega en divisas y tiene su propio bloque al pie. Meterlo en
+     esta tabla haría que el «pagado en bolívares» dijera un número que nunca
+     se pagó en bolívares. */
   const lineas: LineaRecibo[] = [
-    { concepto: 'Días Trabajados', dias: trabajados, usd: porTrabajados, tipo: 'devengado' },
-    { concepto: 'Días de Descanso', dias: descanso, usd: porDescanso, tipo: 'devengado' },
-    { concepto: 'Bono', dias: null, usd: reparto.bono, tipo: 'devengado' },
+    { concepto: 'Días trabajados', dias: trabajados, usd: porTrabajados, tipo: 'devengado' },
+    { concepto: 'Días de descanso', dias: descanso, usd: porDescanso, tipo: 'devengado' },
     { concepto: 'Bonos', dias: null, usd: round2(d.bonosExtra ?? 0), tipo: 'devengado' },
     { concepto: 'Viáticos', dias: null, usd: round2(d.viaticos ?? 0), tipo: 'devengado' },
   ];
@@ -200,6 +215,10 @@ export function calcularRecibo(d: DatosRecibo): ReciboCalculado {
     totalDevengadoBs: aBs(totalDevengadoUsd, tasa),
     totalDeduccionBs: aBs(totalDeduccionUsd, tasa),
     netoBs: aBs(netoUsd, tasa),
+    // El bono va en divisas, aparte de la tabla en bolívares.
+    bonoUsd: reparto.bono,
+    // Lo que la persona se lleva de verdad: lo de la tabla más el bono.
+    totalRecibidoUsd: round2(netoUsd + reparto.bono),
     tasa,
   };
 }

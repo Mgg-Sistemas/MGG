@@ -14,6 +14,7 @@ import {
   agruparRecibosPorFecha, alternarGrupo, alternarUno, estadoDelGrupo, etiquetaGrupo,
   nombreNomina, nombreSugerido, seleccionados,
 } from './nominaLote';
+import { diasDeFecha, DIAS_TRABAJADOS } from './diasQuincena';
 // descargarNominaReciboPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import {
   cargarNomina, listNominas, listRenglones, eliminarNomina, calcularRenglon,
@@ -144,7 +145,10 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   const ahora = new Date();
   const hoyIso = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}`;
   const mesLabel = ahora.toLocaleDateString('es-VE', { month: 'long', year: 'numeric', timeZone: 'America/Caracas' });
-  const [diasBase, setDiasBase] = useState(15);
+  // Los días de ESTA quincena: 11 trabajados fijos + el descanso que traiga el
+  // mes (16 días en los de 31, 13 en febrero). Antes se cargaban a mano.
+  const diasDeHoy = diasDeFecha(hoyIso);
+  const [diasBase, setDiasBase] = useState(diasDeHoy.total);
   const [tasa, setTasa] = useState(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
   // Arranca con una sugerencia en vez de vacío: el campo se puede pisar, pero
@@ -163,8 +167,8 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
       setFilas(ps.map((p) => ({
         persona: p,
         incluido: true,
-        dias: String(15),
-        descanso: '0',
+        dias: String(diasDeHoy.trabajados),
+        descanso: String(diasDeHoy.descanso),
         deduc: as.filter((a) => a.personal_id === p.id).reduce<Record<string, string>>((acc, a) => {
           const sug = a.cuota_sugerida != null ? Math.min(Number(a.cuota_sugerida), Number(a.saldo)) : 0;
           acc[a.id] = sug > 0 ? String(round2(sug)) : '';
@@ -175,9 +179,15 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   }, []);
 
   // Al cambiar los días base, sincroniza las filas que aún no se tocaron individualmente.
+  /**
+   * Cambiar los días base reparte: los 11 trabajados no se mueven y el resto
+   * es descanso. Si alguien pone menos de 11 —media quincena, un ingreso a
+   * mitad de mes— todos esos días son trabajados y no queda descanso.
+   */
   function aplicarDiasBase(n: number) {
     setDiasBase(n);
-    setFilas((fs) => fs.map((f) => ({ ...f, dias: String(n), descanso: '0' })));
+    const trabajados = Math.min(DIAS_TRABAJADOS, Math.max(0, n));
+    setFilas((fs) => fs.map((f) => ({ ...f, dias: String(trabajados), descanso: String(Math.max(0, n - trabajados)) })));
   }
 
   const anticiposDe = (pid: string) => anticipos.filter((a) => a.personal_id === pid);
@@ -255,7 +265,9 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           </div>
           <div className="form-row" style={{ minWidth: 130 }}>
             <label style={{ fontSize: '.72rem' }}>Días base (quincena)</label>
-            <input className="input mono" type="number" min={1} max={31} value={diasBase} onChange={(e) => aplicarDiasBase(Number(e.target.value) || 0)} />
+            <input className="input mono" type="number" min={1} max={31} value={diasBase} onChange={(e) => aplicarDiasBase(Number(e.target.value) || 0)}
+              title="11 trabajados fijos + el descanso que traiga el mes" />
+            <small className="muted" style={{ fontSize: '.68rem' }}>{diasDeHoy.trabajados} trab. + {diasDeHoy.descanso} desc.</small>
           </div>
           <div className="form-row" style={{ minWidth: 170 }}>
             <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$){tasaFecha ? ` · ${date(tasaFecha)}` : ''}</label>
@@ -267,7 +279,9 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           </div>
         </div>
         <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
-          Marcá los trabajadores a pagar. Sueldo diario = sueldo mensual ÷ 30. Bruto = diario × días. Neto = bruto − (anticipos + préstamos). Sin descuento de Seguro Social. FAOV/bonos: próximamente.
+          Marcá los trabajadores a pagar. Todo sale del <strong>ingreso mensual</strong>: sueldo diario = mensual ÷ 30, bruto = diario × (trabajados + descanso), neto = bruto − (anticipos + préstamos).
+          La quincena arranca en <strong>11 días trabajados</strong> fijos más los de descanso del mes (16 días en los meses de 31, 13 en febrero); se puede ajustar por persona.
+          En el <strong>recibo</strong> ese bruto se parte <strong>20 % sueldo</strong> y <strong>80 % bono</strong>, y se ve en Bs a la tasa de la quincena.
         </small>
       </div>
 

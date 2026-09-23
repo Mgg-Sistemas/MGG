@@ -98,8 +98,8 @@ describe('el recibo completo', () => {
   it('los días trabajados y los de descanso se pagan al mismo diario', () => {
     const r = calcularRecibo(LEYDIS);
     expect(r.diario).toBe(10);
-    const trab = r.lineas.find((l) => l.concepto === 'Días Trabajados');
-    const desc = r.lineas.find((l) => l.concepto === 'Días de Descanso');
+    const trab = r.lineas.find((l) => l.concepto === 'Días trabajados');
+    const desc = r.lineas.find((l) => l.concepto === 'Días de descanso');
     expect(trab?.usd).toBe(110);
     expect(desc?.usd).toBe(40);
   });
@@ -112,11 +112,31 @@ describe('el recibo completo', () => {
     }
   });
 
-  it('el bono va como un renglón más: el recibo muestra TODO lo que cobra', () => {
+  it('el bono NO va en la tabla: sale aparte, en divisas', () => {
+    // La tabla es lo que se paga EN BOLÍVARES (el 20 %). El bono se entrega en
+    // dólares y tiene su propio bloque; meterlo acá diría que se pagaron en
+    // bolívares $750 que nunca se pagaron en bolívares.
     const r = calcularRecibo(LEYDIS);
-    expect(r.lineas.find((l) => l.concepto === 'Bono')?.usd).toBe(600);
-    expect(r.totalDevengadoUsd).toBe(750);
-    expect(r.netoUsd).toBe(750);
+    expect(r.lineas.some((l) => l.concepto === 'Bono')).toBe(false);
+    expect(r.totalDevengadoUsd).toBe(150);   // solo el 20 %
+    expect(r.netoUsd).toBe(150);
+    expect(r.bonoUsd).toBe(600);             // el 80 %, en divisas
+  });
+
+  it('el TOTAL RECIBIDO es la tabla más el bono: todo lo que cobra', () => {
+    const r = calcularRecibo(LEYDIS);
+    expect(r.totalRecibidoUsd).toBe(750);
+    expect(r.totalRecibidoUsd).toBe(r.netoUsd + r.bonoUsd);
+  });
+
+  it('el caso del formato: $200 la quincena → $40 en Bs y $160 de bono', () => {
+    const r = calcularRecibo({ brutoQuincena: 200, diasTrabajados: 11, diasDescanso: 4, tasa: 853.5 });
+    expect(r.netoUsd).toBe(40);
+    expect(r.bonoUsd).toBe(160);
+    expect(r.totalRecibidoUsd).toBe(200);
+    expect(r.netoBs).toBe(34140);                                   // 40 × 853,50
+    expect(r.lineas[0].usd).toBeCloseTo(29.33, 2);                  // 11 días
+    expect(r.lineas[1].usd).toBeCloseTo(10.67, 2);                  // 4 días
   });
 
   it('EL RECIBO SIEMPRE SUMA LO QUE SE PAGA, con cualquier reparto de días', () => {
@@ -125,14 +145,16 @@ describe('el recibo completo', () => {
     for (const bruto of [750, 333.33, 0.05, 1234.56, 87.77]) {
       for (const dias of [[11, 4], [15, 0], [3, 1]]) {
         const r = calcularRecibo({ ...LEYDIS, brutoQuincena: bruto, diasTrabajados: dias[0], diasDescanso: dias[1] });
-        expect(r.totalDevengadoUsd).toBeCloseTo(bruto, 2);
+        // La tabla más el bono tienen que dar el bruto: no se pierde un centavo
+        // entre las dos monedas, sea cual sea el reparto de días.
+        expect(r.totalRecibidoUsd).toBeCloseTo(bruto, 2);
       }
     }
   });
 
-  it('el neto se muestra en bolívares a la tasa de la quincena', () => {
+  it('el neto en bolívares es el 20 %, que es lo que se paga en bolívares', () => {
     const r = calcularRecibo(LEYDIS);
-    expect(r.netoBs).toBe(631650);          // 750 × 842,20
+    expect(r.netoBs).toBe(126330);          // 150 × 842,20
     expect(r.tasa).toBe(842.2);
   });
 
@@ -142,16 +164,18 @@ describe('el recibo completo', () => {
     expect(aBs(r.reparto.sueldo, r.tasa)).toBe(126330);
   });
 
-  it('las deducciones restan y salen en los dos montos', () => {
+  it('las deducciones restan de la parte en bolívares', () => {
     const r = calcularRecibo({ ...LEYDIS, deducciones: { anticipos: 50, faov: 10 } });
     expect(r.totalDeduccionUsd).toBe(60);
-    expect(r.netoUsd).toBe(690);
-    expect(r.netoBs).toBe(581118);          // 690 × 842,20
+    expect(r.netoUsd).toBe(90);             // 150 − 60
+    expect(r.netoBs).toBe(75798);           // 90 × 842,20
+    expect(r.totalRecibidoUsd).toBe(690);   // 90 + 600 de bono
   });
 
-  it('bonos y viáticos extra suman al devengado', () => {
+  it('bonos y viáticos extra suman al devengado de la tabla', () => {
     const r = calcularRecibo({ ...LEYDIS, bonosExtra: 25, viaticos: 15 });
-    expect(r.totalDevengadoUsd).toBe(790);
+    expect(r.totalDevengadoUsd).toBe(190);  // 150 + 25 + 15
+    expect(r.totalRecibidoUsd).toBe(790);   // + 600 de bono
   });
 
   it('devengado menos deducción es el neto, siempre', () => {
@@ -169,12 +193,13 @@ describe('el recibo completo', () => {
 
   it('una quincena sin días de descanso sigue cuadrando', () => {
     const r = calcularRecibo({ ...LEYDIS, diasTrabajados: 15, diasDescanso: 0 });
-    expect(r.totalDevengadoUsd).toBe(750);
+    expect(r.totalDevengadoUsd).toBe(150);
+    expect(r.totalRecibidoUsd).toBe(750);
   });
 
-  it('se imprimen solo los renglones que tienen algo', () => {
+  it('los renglones con monto son los dos de días (el bono ya no está)', () => {
     const r = calcularRecibo(LEYDIS);
     const vistos = lineasConMonto(r.lineas).map((l) => l.concepto);
-    expect(vistos).toEqual(['Días Trabajados', 'Días de Descanso', 'Bono']);
+    expect(vistos).toEqual(['Días trabajados', 'Días de descanso']);
   });
 });
