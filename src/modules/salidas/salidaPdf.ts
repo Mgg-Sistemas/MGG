@@ -39,7 +39,7 @@ export async function descargarSalidaMaterialPdf(mov: Movimiento, esTraslado: bo
   const ficha: Array<[string, string]> = [
     ['Producto', prod ? `${prod.sku} — ${prod.nombre}` : '—'],
     ['Almacén origen', mov.almacen || '—'],
-    [esTraslado ? 'Almacén destino' : 'Dirigido a', mov.destino || '—'],
+    [esTraslado ? 'Almacén destino' : 'Unidad Solicitante', mov.destino || '—'],
     ['Cantidad', `${fmt.num(cant)} ${prod?.unidad ?? ''}`.trim()],
     ['Precio unitario', precio ? fmt.money(precio) : '—'],
     ['Precio total', precio ? fmt.money(precio * cant) : '—'],
@@ -72,7 +72,7 @@ export async function obtenerSalidaMaterialPdfBase64(
   const ficha: Array<[string, string]> = [
     ['Producto', prod ? `${prod.sku} — ${prod.nombre}` : '—'],
     ['Almacén origen', mov.almacen || '—'],
-    [esTraslado ? 'Almacén destino' : 'Dirigido a', mov.destino || '—'],
+    [esTraslado ? 'Almacén destino' : 'Unidad Solicitante', mov.destino || '—'],
     ['Cantidad', `${fmt.num(cant)} ${prod?.unidad ?? ''}`.trim()],
     ['Precio unitario', precio ? fmt.money(precio) : '—'],
     ['Precio total', precio ? fmt.money(precio * cant) : '—'],
@@ -216,7 +216,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // Datos a la derecha (label en negrita + valor)
   const datos: Array<[string, string]> = [
     ['Solicitado por', sol.solicitante || creo || '—'],
-    [esTraslado ? 'Almacén destino' : 'Dirigido a', (esTraslado ? sol.almacen_destino : sol.destino) || '—'],
+    [esTraslado ? 'Almacén destino' : 'Unidad Solicitante', (esTraslado ? sol.almacen_destino : sol.destino) || '—'],
     ...(sol.chofer ? [['Chofer / responsable', `${sol.chofer}${sol.chofer_cedula ? ` · C.I. ${sol.chofer_cedula}` : ''}`] as [string, string]] : []),
     ...(sol.vehiculo ? [['Vehículo', `${sol.vehiculo}${sol.vehiculo_placa ? ` · ${sol.vehiculo_placa}` : ''}`] as [string, string]] : []),
     ['Fecha de solicitud', fmt.dateTime(sol.created_at)],
