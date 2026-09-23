@@ -42,6 +42,7 @@ import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { destinosDeTraslado } from '@/modules/inventario/stockPorAlmacen';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
 import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
+import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import {
   descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
   type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
@@ -296,6 +297,7 @@ export function SalidasPage() {
           productos={productos}
           existencias={existencias}
           almacenes={almacenes}
+          cajas={cajas}
           onClose={() => setModal({ kind: 'none' })}
           onChanged={reload}
         />
@@ -700,7 +702,7 @@ function SolicitudesKanban({ sols, scope, onVer, onVerHistorico }: {
 /* ───────────── Detalle + acciones de una solicitud ───────────── */
 
 function SolicitudDetalleModal({
-  sol, puedeAprobar, puedeEjecutar, actor, actorName, productos, existencias, almacenes, onClose, onChanged,
+  sol, puedeAprobar, puedeEjecutar, actor, actorName, productos, existencias, almacenes, cajas, onClose, onChanged,
 }: {
   sol: SolicitudSalida;
   puedeAprobar: boolean;
@@ -710,6 +712,7 @@ function SolicitudDetalleModal({
   productos: Producto[];
   existencias: Existencia[];
   almacenes: Almacen[];
+  cajas: Caja[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -738,11 +741,15 @@ function SolicitudDetalleModal({
   const [sinDescOpen, setSinDescOpen] = useState(false);
   const [motivoSinDesc, setMotivoSinDesc] = useState('');
 
-  // Edición de la solicitud (solo material, antes de ejecutar). Reusa los datos ya
-  // cargados (productos/existencias/almacenes) para los selects.
-  const editable = sol.tipo === 'material' && (sol.estado === 'por_aprobar' || sol.estado === 'aprobada') && puedeAprobar;
+  /* Edición de la solicitud antes de ejecutarla: TODO lo que trae, sea de material
+     o de dinero. Mientras no se ejecuta no tocó stock ni saldo, así que corregir
+     un renglón es más sano que cancelar y volver a pedir (que rompe el correlativo
+     y deja una cancelada de adorno en el histórico).
+
+     Reusa lo ya cargado (productos/existencias/almacenes/cajas) para los selects. */
+  const editable = (sol.estado === 'por_aprobar' || sol.estado === 'aprobada') && puedeAprobar;
   const [editando, setEditando] = useState(false);
-  type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string; paraFundicion?: boolean; equipoId?: string; equipoNombre?: string | null };
+  type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string; observacion: string; paraFundicion?: boolean; equipoId?: string; equipoNombre?: string | null };
   const initLineas = (): LineaEd[] => {
     // Almacén de origen: si el guardado no tiene stock del producto, se elige el
     // almacén con MÁS stock (para que no quede mostrando "0 und").
@@ -754,9 +761,9 @@ function SolicitudDetalleModal({
       return top?.almacen ?? saved;
     };
     const base = (sol.items && sol.items.length)
-      ? sol.items.map((it) => ({ productoId: it.producto_id, almacen: it.almacen ?? sol.almacen_origen ?? '', cantidad: Number(it.cantidad) || 0, precio: it.precio_unit, paraFundicion: it.para_fundicion === true, equipoId: it.equipo_id ?? undefined, equipoNombre: it.equipo_nombre ?? null }))
-      : [{ productoId: sol.producto_id ?? '', almacen: sol.almacen_origen ?? '', cantidad: Number(sol.cantidad) || 0, precio: sol.precio_unit, paraFundicion: false, equipoId: undefined, equipoNombre: null }];
-    return base.map((it, i) => ({ id: i + 1, productoId: it.productoId, almacen: mejorAlmacen(it.productoId, it.almacen), cantidad: String(it.cantidad || 0), precio: it.precio != null ? String(it.precio) : '', paraFundicion: it.paraFundicion === true, equipoId: it.equipoId, equipoNombre: it.equipoNombre ?? null }));
+      ? sol.items.map((it) => ({ productoId: it.producto_id, almacen: it.almacen ?? sol.almacen_origen ?? '', cantidad: Number(it.cantidad) || 0, precio: it.precio_unit, observacion: it.observacion ?? '', paraFundicion: it.para_fundicion === true, equipoId: it.equipo_id ?? undefined, equipoNombre: it.equipo_nombre ?? null }))
+      : [{ productoId: sol.producto_id ?? '', almacen: sol.almacen_origen ?? '', cantidad: Number(sol.cantidad) || 0, precio: sol.precio_unit, observacion: '', paraFundicion: false, equipoId: undefined, equipoNombre: null }];
+    return base.map((it, i) => ({ id: i + 1, productoId: it.productoId, almacen: mejorAlmacen(it.productoId, it.almacen), cantidad: String(it.cantidad || 0), precio: it.precio != null ? String(it.precio) : '', observacion: it.observacion ?? '', paraFundicion: it.paraFundicion === true, equipoId: it.equipoId, equipoNombre: it.equipoNombre ?? null }));
   };
   const [edLineas, setEdLineas] = useState<LineaEd[]>([]);
   const [edSeq, setEdSeq] = useState(1);
@@ -788,6 +795,40 @@ function SolicitudDetalleModal({
   const [edCxcMoneda, setEdCxcMoneda] = useState(sol.cxc_moneda ?? 'USD');
   // Nota adicional (se imprime en la orden).
   const [edNotaEntrega, setEdNotaEntrega] = useState(sol.nota_entrega ?? '');
+  // Solicitudes de DINERO: caja(s) y monto.
+  const [edCajaId, setEdCajaId] = useState(sol.caja_id ?? '');
+  const [edCajaDestino, setEdCajaDestino] = useState(sol.caja_destino_id ?? '');
+  const [edMonto, setEdMonto] = useState(sol.monto != null ? String(sol.monto) : '');
+  /* Las cajas del desplegable: las activas, más la que la solicitud ya tenía
+     aunque esté dada de baja (editar el monto no debe cambiarle la caja sola). */
+  const cajasElegibles = useMemo(
+    () => cajas.filter((c) => c.estado === 'activo' || c.id === sol.caja_id || c.id === sol.caja_destino_id),
+    [cajas, sol.caja_id, sol.caja_destino_id],
+  );
+  const cajaOrigenSel = useMemo(() => cajasElegibles.find((c) => c.id === edCajaId) ?? null, [cajasElegibles, edCajaId]);
+  // Un traslado de dinero va a otra caja de la MISMA moneda: no se convierte al pasar.
+  const cajasDestinoDinero = useMemo(
+    () => cajasElegibles.filter((c) => c.id !== edCajaId && c.moneda === cajaOrigenSel?.moneda),
+    [cajasElegibles, edCajaId, cajaOrigenSel],
+  );
+  /* Equipos de maquinaria: solo se piden cuando se abre la edición. Abrir el
+     detalle para mirarlo no tiene por qué costar un viaje más. */
+  const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+  useEffect(() => {
+    if (!editando) return;
+    let vivo = true;
+    listEquipos()
+      .then((es) => { if (vivo) setEquipos(es.filter((e) => e.activo)); })
+      .catch(() => { if (vivo) setEquipos([]); });
+    return () => { vivo = false; };
+  }, [editando]);
+  const opcionesEquipo = useMemo(() => [
+    { value: '', label: '— sin equipo —' },
+    ...equipos.map((eq) => ({
+      value: eq.id,
+      label: `${eq.equipo}${eq.tipo ? ` · ${eq.tipo}` : ''}${eq.ubicacion ? ` · ${eq.ubicacion}` : ''}`,
+    })),
+  ], [equipos]);
 
   // Edición SOLO de la nota/motivo (disponible incluso FINALIZADA: no toca stock ni estado).
   const [editandoNota, setEditandoNota] = useState(false);
@@ -844,13 +885,47 @@ function SolicitudDetalleModal({
     setEdCxcMonto(sol.cxc_monto != null ? String(sol.cxc_monto) : '');
     setEdCxcMoneda(sol.cxc_moneda ?? 'USD');
     setEdNotaEntrega(sol.nota_entrega ?? '');
+    setEdCajaId(sol.caja_id ?? '');
+    setEdCajaDestino(sol.caja_destino_id ?? '');
+    setEdMonto(sol.monto != null ? String(sol.monto) : '');
     setEditando(true);
   }
   const setLinea = (id: number, patch: Partial<LineaEd>) => setEdLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLinea = () => { setEdLineas((ls) => [...ls, { id: edSeq, productoId: '', almacen: '', cantidad: '1', precio: '', paraFundicion: false }]); setEdSeq((s) => s + 1); };
+  const addLinea = () => { setEdLineas((ls) => [...ls, { id: edSeq, productoId: '', almacen: '', cantidad: '1', precio: '', observacion: '', paraFundicion: false }]); setEdSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setEdLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
 
+  /** Guarda una solicitud de DINERO: cajas, monto, destino, motivo y nota. */
+  async function guardarEdicionDinero() {
+    const monto = Number(edMonto) || 0;
+    if (!edCajaId) { toast('Elegí la caja de origen.', 'error'); return; }
+    if (monto <= 0) { toast('El monto debe ser mayor que 0.', 'error'); return; }
+    const cajaDest = cajasElegibles.find((c) => c.id === edCajaDestino) ?? null;
+    if (sol.scope === 'traslado') {
+      if (!cajaDest) { toast('Elegí la caja de destino.', 'error'); return; }
+      if (cajaDest.id === edCajaId) { toast('La caja de origen y la de destino deben ser distintas.', 'error'); return; }
+    } else if (!edDestino.trim()) { toast('Indicá a quién va dirigido el dinero.', 'error'); return; }
+    setBusy(true);
+    try {
+      await editarSolicitudSalida(sol, {
+        cajaId: edCajaId,
+        cajaDestinoId: sol.scope === 'traslado' ? (cajaDest?.id ?? null) : undefined,
+        monto,
+        // La moneda es la de la caja que paga: no se elige aparte.
+        moneda: cajaOrigenSel?.moneda ?? sol.moneda ?? null,
+        destino: sol.scope === 'traslado' ? (cajaDest?.nombre ?? sol.destino ?? null) : edDestino,
+        motivo: edMotivo, solicitante: edSolicitante, notaEntrega: edNotaEntrega,
+      }, actor);
+      notify(`Solicitud ${sol.codigo} actualizada`, 'success');
+      setEditando(false);
+      onChanged();
+      onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo editar la solicitud', 'error');
+    } finally { setBusy(false); }
+  }
+
   async function guardarEdicion() {
+    if (sol.tipo === 'dinero') { await guardarEdicionDinero(); return; }
     const items = edLineas.map((l) => {
       const p = prodById.get(l.productoId);
       // La marca de fundición se conserva al editar: si se perdiera acá, el
@@ -858,7 +933,9 @@ function SolicitudDetalleModal({
       // volvería a descontarlo — justo el doble descuento que esto corrige.
       // El equipo también: si se perdiera al editar, el consumo dejaría de llegar
       // a la máquina y su ficha quedaría contando de menos.
-      return { producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: Number(l.cantidad) || 0, precio_unit: l.precio !== '' ? Number(l.precio) : null, unidad: p?.unidad ?? null, almacen: l.almacen || null, observacion: null, para_fundicion: l.paraFundicion === true, equipo_id: l.equipoId || null, equipo_nombre: l.equipoNombre ?? null };
+      // La observación del renglón se escribía en null al guardar: editar cualquier
+      // otra cosa de la solicitud borraba el detalle que traía cada material.
+      return { producto_id: l.productoId, producto_nombre: p?.nombre ?? null, cantidad: Number(l.cantidad) || 0, precio_unit: l.precio !== '' ? Number(l.precio) : null, unidad: p?.unidad ?? null, almacen: l.almacen || null, observacion: l.observacion.trim() || null, para_fundicion: l.paraFundicion === true, equipo_id: l.equipoId || null, equipo_nombre: l.equipoNombre ?? null };
     });
     if (items.some((it) => !it.producto_id)) { toast('Elegí el material en cada renglón.', 'error'); return; }
     if (items.some((it) => !it.almacen)) { toast('Elegí el almacén de origen en cada renglón.', 'error'); return; }
@@ -933,7 +1010,7 @@ function SolicitudDetalleModal({
       )}
       {editable && (
         <button className="btn btn-ghost" disabled={busy} onClick={abrirEdicion} style={{ marginRight: 'auto' }}
-          title="Editar los datos de la solicitud antes de ejecutarla">
+          title="Editar TODOS los datos de la solicitud antes de ejecutarla">
           ✎ Editar solicitud
         </button>
       )}
@@ -990,6 +1067,72 @@ function SolicitudDetalleModal({
         <div className="form-row">
           <label>Nota adicional</label>
           <textarea className="input" rows={3} value={notaEntrega} onChange={(e) => setNotaEntrega(e.target.value)} placeholder="Nota / observación adicional…" />
+        </div>
+      </ModalUI>
+    );
+  }
+
+  /* DINERO. El saldo se mira pero no frena: la solicitud es un pedido, y el saldo
+     de verdad se valida al ejecutar, que es cuando la plata sale de la caja. */
+  if (editando && sol.tipo === 'dinero') {
+    const saldoCaja = Number(cajaOrigenSel?.saldo) || 0;
+    const montoNum = Number(edMonto) || 0;
+    return (
+      <ModalUI title={`Editar solicitud ${sol.codigo}`} size="lg" onClose={() => setEditando(false)} footer={footer}>
+        <div className="muted" style={{ fontSize: '.82rem', marginBottom: '.6rem' }}>
+          {sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de dinero · estado <strong>{etiquetaDe(sol)}</strong>. Editás antes de ejecutar (todavía no tocó la caja).
+        </div>
+        <div className="form-row">
+          <label>Solicitante</label>
+          <input className="input" value={edSolicitante} onChange={(e) => setEdSolicitante(e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label>Caja {sol.scope === 'traslado' ? 'origen' : 'de donde sale'}</label>
+          <select className="select" value={edCajaId} onChange={(e) => setEdCajaId(e.target.value)}>
+            <option value="">— elegí la caja —</option>
+            {cajasElegibles.map((c) => (
+              <option key={c.id} value={c.id}>{c.nombre} · {c.moneda} · saldo {money(Number(c.saldo) || 0)}</option>
+            ))}
+          </select>
+          {cajaOrigenSel && <small className="muted">Saldo disponible: <strong className="mono">{money(saldoCaja)} {cajaOrigenSel.moneda}</strong></small>}
+        </div>
+        {sol.scope === 'traslado' ? (
+          <div className="form-row">
+            <label>Caja destino (misma moneda)</label>
+            <select className="select" value={edCajaDestino} onChange={(e) => setEdCajaDestino(e.target.value)}>
+              <option value="">— elegí la caja destino —</option>
+              {cajasDestinoDinero.map((c) => (
+                <option key={c.id} value={c.id}>{c.nombre} · {money(Number(c.saldo) || 0)}</option>
+              ))}
+            </select>
+            {!cajasDestinoDinero.length && <small className="muted">No hay otra caja en {cajaOrigenSel?.moneda ?? sol.moneda}. El dinero no cambia de moneda al trasladarse.</small>}
+          </div>
+        ) : (
+          <div className="form-row">
+            <label>A quién va dirigido el dinero</label>
+            <input className="input" value={edDestino} onChange={(e) => setEdDestino(e.target.value)} placeholder="Nombre, unidad o proveedor…" />
+          </div>
+        )}
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Monto ({cajaOrigenSel?.moneda ?? sol.moneda ?? '—'})</label>
+            <input className="input mono" type="number" min={0} step="any" value={edMonto} onChange={(e) => setEdMonto(e.target.value)} />
+            {montoNum > saldoCaja && cajaOrigenSel && (
+              <small style={{ color: 'var(--warning)' }}>Pasa el saldo de la caja ({money(saldoCaja)} {cajaOrigenSel.moneda}). Se valida al ejecutar.</small>
+            )}
+          </div>
+          <div className="form-row">
+            <label>Saldo resultante</label>
+            <input className="input mono" value={money(saldoCaja - montoNum)} readOnly tabIndex={-1} />
+          </div>
+        </div>
+        <div className="form-row">
+          <label>Motivo / detalle</label>
+          <input className="input" value={edMotivo} onChange={(e) => setEdMotivo(e.target.value)} placeholder="Motivo del movimiento…" />
+        </div>
+        <div className="form-row">
+          <label>Nota adicional (se imprime en el comprobante)</label>
+          <textarea className="input" rows={2} value={edNotaEntrega} onChange={(e) => setEdNotaEntrega(e.target.value)} placeholder="Nota / observación adicional…" />
         </div>
       </ModalUI>
     );
@@ -1131,6 +1274,25 @@ function SolicitudDetalleModal({
                 <div className="form-row">
                   <label>Precio unit. (costo)</label>
                   <input className="input mono" type="number" min={0} step="any" value={l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} />
+                </div>
+                {/* El equipo se conservaba al editar pero no se podía cambiar ni quitar:
+                    una salida cargada a la máquina equivocada no tenía arreglo. */}
+                {equipos.length > 0 && (
+                  <div className="form-row">
+                    <label>Equipo (opcional)</label>
+                    <SearchSelect
+                      value={l.equipoId ?? ''}
+                      onChange={(v) => setLinea(l.id, { equipoId: v || undefined, equipoNombre: equipos.find((eq) => eq.id === v)?.equipo ?? null })}
+                      options={opcionesEquipo}
+                      placeholder="🔧 ¿Para qué equipo? (opcional)"
+                      emptyText="Ningún equipo coincide" />
+                    {l.equipoId && <small className="muted">El consumo llega a la ficha de <strong>{l.equipoNombre}</strong>.</small>}
+                  </div>
+                )}
+                <div className="form-row">
+                  <label>Observación del renglón</label>
+                  <input className="input" value={l.observacion} onChange={(e) => setLinea(l.id, { observacion: e.target.value })}
+                    placeholder="Detalle de este material…" />
                 </div>
               </div>
             </div>
