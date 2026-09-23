@@ -2053,8 +2053,16 @@ export interface RecepcionDespiezada {
   kgRecibidos: number;
   cortes: CorteDespiece[];
   mermaKg: number;
-  /** Cuánto de cada corte va a cada cocina. Entra directo al almacén de esa cocina. */
-  reparto: DestinoCorte[];
+  /**
+   * Cuánto de cada corte va a otra cocina. Entra directo al almacén de esa
+   * cocina.
+   *
+   * Hoy la recepción no lo usa: los cortes entran completos al almacén de la
+   * sede y la cocina los consume desde ahí al cargar sus comidas, que es donde
+   * el reparto se ve de verdad. Queda porque las recepciones viejas lo tienen
+   * guardado y porque partir una res entre dos sedes sigue siendo posible.
+   */
+  reparto?: DestinoCorte[];
 }
 
 /**
@@ -2066,15 +2074,14 @@ export interface RecepcionDespiezada {
  * escrita en la orden —es trazabilidad de la compra— pero no entra a ningún
  * almacén, porque no se puede cocinar.
  *
- * La DISTRIBUCIÓN se hace en la misma pantalla y entra directo: cada corte se
- * parte entre las cocinas que se indiquen y lo que no se reparte queda en el
- * almacén que recibió. Cada pedazo genera su propia entrada de inventario,
- * con el mismo costo por kg y con la orden como referencia, así la traza dice
- * de qué compra y de qué res salió cada kilo.
+ * Los cortes entran COMPLETOS al almacén de la sede que recibe, cada uno con su
+ * propia entrada de inventario, el costo por kg del despiece y la orden como
+ * referencia: la traza dice de qué compra y de qué res salió cada kilo.
  *
- * Antes el reparto salía como solicitud de traslado a autorizar. Se cambió a
- * pedido del usuario: el analista de compras distribuye en el acto, desde una
- * sola pantalla, y el stock queda donde de verdad está la carne.
+ * No se reparten acá. Las fichas se crean en la categoría CARNES, que es una de
+ * las que surten la cocina, así que la cocina de esa sede los ve y los descuenta
+ * al cargar sus comidas: ahí es donde el reparto se refleja de verdad. Si hiciera
+ * falta partir una res entre dos sedes, `reparto` sigue soportado.
  */
 export async function recibirOrdenDespiezada(
   o: Orden,
@@ -2115,7 +2122,7 @@ export async function recibirOrdenDespiezada(
     mermaKg: d.mermaKg,
   });
   if (!calc.cuadra) throw new Error(calc.problemas.join(' '));
-  const rep = calcularReparto(calc.cortes, d.reparto.map((r) => ({ corte: r.corte, cocinaId: r.almacen, kg: r.kg })));
+  const rep = calcularReparto(calc.cortes, (d.reparto ?? []).map((r) => ({ corte: r.corte, cocinaId: r.almacen, kg: r.kg })));
   if (!rep.cuadra) throw new Error(rep.problemas.join(' '));
 
   /* A dónde va cada kilo: lo repartido a cada cocina y lo que queda en el
@@ -2184,7 +2191,7 @@ export async function recibirOrdenDespiezada(
         kg_recibidos: kgRec, costo_total: calc.totalCortes, costo_por_kg: calc.costoPorKg,
         merma_kg: calc.mermaKg, costo_merma: calc.costoMerma,
         cortes: calc.cortes.map((c) => ({ nombre: c.nombre, kg: c.kg, costo_unitario: c.costoUnitario, subtotal: c.subtotal, producto_id: idsPorCorte.get(c.nombre) ?? null })),
-        reparto: d.reparto.filter((r) => Number(r.kg) > 0),
+        reparto: (d.reparto ?? []).filter((r) => Number(r.kg) > 0),
         almacen: destino,
         // Cuánto quedó en cada almacén: es lo que sale en el PDF de la compra.
         por_almacen: Array.from(porAlmacen.entries()).map(([almacen, cortes]) => ({

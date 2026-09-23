@@ -8,8 +8,7 @@ import { date, money, num } from '@/shared/lib/format';
 import { textoDeError } from '@/shared/lib/errores';
 import { recibirOrdenParcial, recibirOrdenDespiezada } from '@/modules/pedidos/pedidos.repository';
 import { esDespiezable } from './despieceRes';
-import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece, type CocinaDestino } from './DespieceResForm';
-import { listCocinas } from '@/modules/cocina/cocina.repository';
+import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece } from './DespieceResForm';
 import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
 import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedidos/compraDirectaMoneda';
 import { destinoRecepcionPorUsuario, opcionesRecepcion } from './sectorizacion';
@@ -382,17 +381,6 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
   // cortes. Si la orden trae una, la recepcion cambia de forma.
   const itemRes = items.find((it) => esDespiezable(it.nombre));
   const [despiece, setDespiece] = useState<EstadoDespiece>(despieceInicial);
-  const [cocinas, setCocinas] = useState<CocinaDestino[]>([]);
-  useEffect(() => {
-    if (!itemRes) return;
-    let vivo = true;
-    listCocinas()
-      .then((cs) => { if (vivo) setCocinas(cs.filter((c) => c.almacenNombre).map((c) => ({ nombre: c.cocina.nombre, almacen: c.almacenNombre as string }))); })
-      .catch(() => { if (vivo) setCocinas([]); });
-    return () => { vivo = false; };
-  }, [itemRes]);
-  // Todas las cocinas: ver la nota en la recepción de Pedidos.
-  const cocinasDestino = cocinas;
   const kgRes = itemRes ? Math.max(0, Number(recibidas[itemRes.sku]) || 0) : 0;
   const costoRes = itemRes ? Math.round(kgRes * (Number(itemRes.precio) || 0) * 100) / 100 : 0;
 
@@ -422,12 +410,6 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
             kgRecibidos: kgRes,
             cortes: despiece.cortes.map((c) => ({ nombre: c.nombre, kg: Number(String(c.kg).replace(',', '.')) || 0 })),
             mermaKg: Number(String(despiece.merma).replace(',', '.')) || 0,
-            reparto: despiece.reparto
-              .filter((r) => r.corte && r.almacen && Number(String(r.kg).replace(',', '.')) > 0)
-              .map((r) => ({
-                corte: r.corte, almacen: r.almacen, kg: Number(String(r.kg).replace(',', '.')) || 0,
-                cocinaNombre: cocinas.find((c) => c.almacen === r.almacen)?.nombre ?? r.almacen,
-              })),
           },
           almacenFinal, nota.trim() || null, actor, actorName ?? null,
         );
@@ -497,7 +479,6 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
             kgRecibidos={kgRes}
             precioUnitario={Number(itemRes.precio) || 0}
             almacenDestino={almacenFinal}
-            cocinas={cocinasDestino}
             estado={despiece}
             onChange={setDespiece}
           />

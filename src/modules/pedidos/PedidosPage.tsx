@@ -14,8 +14,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { opcionesRecepcion, destinoRecepcionPorUsuario } from '@/modules/inventario/sectorizacion';
 import { esDespiezable } from '@/modules/inventario/despieceRes';
-import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece, type CocinaDestino } from '@/modules/inventario/DespieceResForm';
-import { listCocinas } from '@/modules/cocina/cocina.repository';
+import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece } from '@/modules/inventario/DespieceResForm';
 import {
   listAlertasMercadoPendientes, marcarTodasAtendidas, type AlertaMercado,
 } from '@/modules/cocina/alertasMercado.repository';
@@ -1753,16 +1752,6 @@ function RecepcionParcialModal({
      de Inventario ya lo hacía, y recibir por acá se saltaba el despiece. */
   const itemRes = orden.items.find((it) => esDespiezable(it.nombre));
   const [despiece, setDespiece] = useState<EstadoDespiece>(despieceInicial);
-  const [cocinas, setCocinas] = useState<CocinaDestino[]>([]);
-  useEffect(() => {
-    if (!itemRes) return;
-    let vivo = true;
-    listCocinas()
-      .then((cs) => { if (vivo) setCocinas(cs.filter((c) => c.almacenNombre).map((c) => ({ nombre: c.cocina.nombre, almacen: c.almacenNombre as string }))); })
-      .catch(() => { if (vivo) setCocinas([]); });
-    return () => { vivo = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemRes?.sku]);
 
   useEffect(() => {
     if (esServicio) return; // los servicios no eligen almacén
@@ -1792,13 +1781,6 @@ function RecepcionParcialModal({
   }
 
 
-  /* TODAS las cocinas, incluida la de la sede que recibe.
-
-     Se filtraba la del almacén de destino «porque ahí queda lo que no se
-     reparta». Pero la cocina de Los Pinos usa el almacén Los Pinos: al recibir
-     por esa sede desaparecía del reparto y solo quedaba La Esperanza. Y unos
-     kilos de carne se dividen entre las dos, así que hay que poder decirlo. */
-  const cocinasDestino = cocinas;
   const kgRes = itemRes ? Math.max(0, Number(recs[itemRes.sku]) || 0) : 0;
   const costoRes = itemRes ? Math.round(kgRes * (Number(itemRes.precio) || 0) * 100) / 100 : 0;
 
@@ -1824,12 +1806,6 @@ function RecepcionParcialModal({
           kgRecibidos: kgRes,
           cortes: despiece.cortes.map((c) => ({ nombre: c.nombre, kg: n(String(c.kg)) })),
           mermaKg: n(String(despiece.merma)),
-          reparto: despiece.reparto
-            .filter((r) => r.corte && r.almacen && n(String(r.kg)) > 0)
-            .map((r) => ({
-              corte: r.corte, almacen: r.almacen, kg: n(String(r.kg)),
-              cocinaNombre: cocinas.find((c) => c.almacen === r.almacen)?.nombre ?? r.almacen,
-            })),
         },
       };
     }
@@ -1916,14 +1892,13 @@ function RecepcionParcialModal({
             kgRecibidos={kgRes}
             precioUnitario={Number(itemRes.precio) || 0}
             almacenDestino={almacen}
-            cocinas={cocinasDestino}
             estado={despiece}
             onChange={setDespiece}
           />
         ) : (
           <div className="card" style={{ borderColor: 'var(--warning)', background: 'rgba(245,177,51,0.08)', margin: '.6rem 0 0', padding: '.55rem .7rem', fontSize: '.84rem' }}>
             🥩 <strong>{itemRes.nombre}</strong> no entra como res: entra despiezada en cortes.
-            <strong> Elegí primero la sede</strong> y acá se abre el despiece y la distribución a las cocinas.
+            <strong> Elegí primero la sede</strong> y acá se abre el despiece.
           </div>
         )
       )}

@@ -12,37 +12,31 @@
 import { useMemo } from 'react';
 import { money, num } from '@/shared/lib/format';
 import {
-  CORTES_SUGERIDOS, calcularDespiece, calcularReparto, normalizarCorte,
+  CORTES_SUGERIDOS, calcularDespiece, normalizarCorte,
   type CorteDespiece,
 } from './despieceRes';
-
-export interface CocinaDestino { nombre: string; almacen: string }
-export interface LineaRepartoUI { corte: string; almacen: string; kg: string }
 
 export interface EstadoDespiece {
   cortes: Array<{ nombre: string; kg: string }>;
   merma: string;
-  reparto: LineaRepartoUI[];
 }
 
 /** Arranca con los tres cortes de siempre, en blanco. */
 export function despieceInicial(): EstadoDespiece {
-  return { cortes: CORTES_SUGERIDOS.map((nombre) => ({ nombre, kg: '' })), merma: '', reparto: [] };
+  return { cortes: CORTES_SUGERIDOS.map((nombre) => ({ nombre, kg: '' })), merma: '' };
 }
 
 const n = (v: string) => Number(String(v).replace(',', '.')) || 0;
 
 export function DespieceResForm({
-  nombreRes, kgRecibidos, precioUnitario, almacenDestino, cocinas, estado, onChange,
+  nombreRes, kgRecibidos, precioUnitario, almacenDestino, estado, onChange,
 }: {
   nombreRes: string;
   kgRecibidos: number;
   /** $/kg pagado por la res. */
   precioUnitario: number;
-  /** Almacén al que entran los cortes. */
+  /** Almacén de la sede que recibe: ahí entran TODOS los cortes. */
   almacenDestino: string;
-  /** Cocinas a las que se puede mandar parte (sin la del almacén que recibe). */
-  cocinas: CocinaDestino[];
   estado: EstadoDespiece;
   onChange: (e: EstadoDespiece) => void;
 }) {
@@ -54,53 +48,10 @@ export function DespieceResForm({
     mermaKg: n(estado.merma),
   }), [kgRecibidos, costoTotal, estado.cortes, estado.merma]);
 
-  const rep = useMemo(
-    () => calcularReparto(calc.cortes, estado.reparto.map((r) => ({ corte: r.corte, cocinaId: r.almacen, kg: n(r.kg) }))),
-    [calc.cortes, estado.reparto],
-  );
-
   const setCorte = (i: number, patch: Partial<{ nombre: string; kg: string }>) =>
     onChange({ ...estado, cortes: estado.cortes.map((c, k) => (k === i ? { ...c, ...patch } : c)) });
   const addCorte = () => onChange({ ...estado, cortes: [...estado.cortes, { nombre: '', kg: '' }] });
   const delCorte = (i: number) => onChange({ ...estado, cortes: estado.cortes.filter((_, k) => k !== i) });
-
-  /* El reparto se carga como una MATRIZ: una fila por corte, una columna por
-     cocina. Por dentro sigue siendo la misma lista de líneas (corte, almacén,
-     kg); la celda solo busca la suya y la escribe. Así el analista distribuye
-     de un vistazo —5 kg a Los Pinos, 10 a La Esperanza— sin ir agregando
-     renglones de a uno. */
-  const celda = (corte: string, almacen: string): string =>
-    estado.reparto.find((r) => r.corte === corte && r.almacen === almacen)?.kg ?? '';
-  const setCelda = (corte: string, almacen: string, kg: string) => {
-    const i = estado.reparto.findIndex((r) => r.corte === corte && r.almacen === almacen);
-    if (i >= 0) {
-      const lista = [...estado.reparto];
-      if (kg.trim() === '') lista.splice(i, 1); else lista[i] = { ...lista[i], kg };
-      onChange({ ...estado, reparto: lista });
-      return;
-    }
-    if (kg.trim() === '') return;
-    onChange({ ...estado, reparto: [...estado.reparto, { corte, almacen, kg }] });
-  };
-  /* Las filas de la distribución salen de los cortes NOMBRADOS, no solo de los
-     que ya tienen kg: así las columnas de las cocinas se ven desde el
-     principio y se entiende que hay que repartir. */
-  const cortesParaRepartir = useMemo(() => {
-    const vistos = new Set<string>();
-    const fuera: Array<{ nombre: string; kg: number }> = [];
-    for (const c of estado.cortes) {
-      const nombre = normalizarCorte(c.nombre);
-      if (!nombre || vistos.has(nombre)) continue;
-      vistos.add(nombre);
-      fuera.push({ nombre, kg: calc.cortes.find((x) => x.nombre === nombre)?.kg ?? 0 });
-    }
-    return fuera;
-  }, [estado.cortes, calc.cortes]);
-
-  /** Cuánto de ese corte ya se repartió a todas las cocinas. */
-  const repartidoDe = (corte: string) =>
-    Math.round(estado.reparto.filter((r) => r.corte === corte).reduce((a, r) => a + n(r.kg), 0) * 10000) / 10000;
-
 
   return (
     <div className="card" style={{ margin: '.6rem 0', padding: '.75rem', borderLeft: '3px solid var(--primary)' }}>
@@ -190,68 +141,11 @@ export function DespieceResForm({
       {calc.cuadra && (
         <p className="hint muted" style={{ fontSize: '.8rem', margin: '.5rem 0 0' }}>
           ✅ Cuadra. Entran <strong>{num(calc.kgUtiles)} kg</strong> a <strong>📦 {almacenDestino || '—'}</strong> a <strong>{money(calc.costoPorKg)}/kg</strong>.
+          {' '}Los cortes quedan en la categoría <strong>CARNES</strong>, así que la cocina de esa sede los ve
+          en <strong>sus comidas</strong> y los descuenta al cargarlas: el reparto se refleja ahí, no acá.
         </p>
       )}
 
-      {/* DISTRIBUCIÓN a las cocinas: matriz corte × cocina, en la misma pantalla */}
-      {cocinas.length > 0 && cortesParaRepartir.length > 0 && (
-        <div style={{ marginTop: '.9rem', paddingTop: '.7rem', borderTop: '1px solid var(--border)' }}>
-          <div style={{ fontWeight: 700, fontSize: '.86rem' }}>🍳 Distribución a las cocinas</div>
-          <p className="hint muted" style={{ fontSize: '.78rem', margin: '.15rem 0 .5rem' }}>
-            Escribí los kg de cada corte que van a cada cocina: <strong>entran directo a su almacén</strong>, con su traza.
-            Lo que no repartas <strong>queda en {almacenDestino || 'el almacén que recibe'}</strong>.
-          </p>
-          <div className="table-wrap">
-            <table className="table" style={{ fontSize: '.82rem' }}>
-              <thead>
-                <tr>
-                  <th>Corte</th>
-                  <th style={{ textAlign: 'right' }}>Obtenido</th>
-                  {cocinas.map((c) => <th key={c.almacen} style={{ textAlign: 'right' }}>🍳 {c.nombre}</th>)}
-                  <th style={{ textAlign: 'right' }}>Queda en {almacenDestino || 'el almacén'}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cortesParaRepartir.map((c) => {
-                  const repartido = repartidoDe(c.nombre);
-                  const queda = Math.round((c.kg - repartido) * 10000) / 10000;
-                  return (
-                    <tr key={c.nombre}>
-                      <td>{c.nombre}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{num(c.kg)}</td>
-                      {cocinas.map((k) => (
-                        <td key={k.almacen} style={{ textAlign: 'right' }}>
-                          <input className="input mono" type="number" min={0} step="any" placeholder="0"
-                            value={celda(c.nombre, k.almacen)}
-                            onChange={(e) => setCelda(c.nombre, k.almacen, e.target.value)}
-                            style={{ width: 90, textAlign: 'right' }} />
-                        </td>
-                      ))}
-                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: queda < -0.01 ? 'var(--danger)' : undefined }}>
-                        {num(queda)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {rep.problemas.map((p) => (
-            <div key={p} className="card" style={{ borderColor: 'var(--danger)', background: 'rgba(239,79,94,0.08)', margin: '.5rem 0 0', padding: '.5rem .65rem', fontSize: '.82rem' }}>
-              ⚠ {p}
-            </div>
-          ))}
-          {rep.cuadra && rep.porCocina.size > 0 && (
-            <div className="muted" style={{ fontSize: '.78rem', marginTop: '.4rem' }}>
-              Entrará a {Array.from(rep.porCocina.entries()).map(([alm, ls]) => (
-                `${cocinas.find((c) => c.almacen === alm)?.nombre ?? alm}: ${ls.map((l) => `${num(l.kg)} kg ${l.corte}`).join(', ')}`
-              )).join(' · ')}.
-              {' '}Queda en {almacenDestino}: {rep.quedaEnOrigen.map((x) => `${num(x.kg)} kg ${x.corte}`).join(', ') || 'nada'}.
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -264,7 +158,5 @@ export function despieceValido(e: EstadoDespiece, kgRecibidos: number, costoTota
     mermaKg: n(e.merma),
   });
   if (!calc.cuadra) return { ok: false, motivo: calc.problemas[0] };
-  const rep = calcularReparto(calc.cortes, e.reparto.map((r) => ({ corte: r.corte, cocinaId: r.almacen, kg: n(r.kg) })));
-  if (!rep.cuadra) return { ok: false, motivo: rep.problemas[0] };
   return { ok: true, motivo: '' };
 }
