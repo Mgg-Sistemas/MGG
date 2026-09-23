@@ -133,7 +133,14 @@ export function MaterialAProducirModal({
   }, [esRef]);
   // Orígenes disponibles = coladas primarias (crudo) + refinaciones finalizadas (2ª refinación).
   const origenesRefinables = useMemo(() => [...coladasFin, ...refinadosFin], [coladasFin, refinadosFin]);
-  const producibles = useMemo(() => productos.filter((p) => p.es_producible), [productos]);
+  /* Solo los ACTIVOS. Una ficha dada de baja no existe para el sistema: ofrecerla
+     como producto a producir solo consigue que una colada termine cargando stock
+     en un producto que el inventario ya no muestra. Misma regla que la lista de
+     materiales de abajo. */
+  const producibles = useMemo(
+    () => productos.filter((p) => p.es_producible && p.estado === 'activo'),
+    [productos],
+  );
   // Mismo criterio que el check de Salidas: si la salida deja marcar un material,
   // la colada tiene que poder consumirlo. Si no, quedaría trabado en el piso.
   const materiales = useMemo(
@@ -475,6 +482,21 @@ export function MaterialAProducirModal({
     }
   }
 
+  /**
+   * Rechaza el envío y hace que el motivo SE VEA.
+   *
+   * El cartel de error vive arriba del formulario y el botón «Iniciar colada»
+   * está en el pie, después de big bags, receta, costos y resumen. Al fallar una
+   * validación el aviso aparecía a varias pantallas de distancia: desde donde
+   * está el usuario, el botón simplemente no hacía nada. Ahora además salta un
+   * toast (que se ve siempre) y el formulario sube hasta el cartel.
+   */
+  function rechazar(motivo: string): void {
+    setError(motivo);
+    toast(motivo, 'error');
+    document.getElementById('prod-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -486,7 +508,7 @@ export function MaterialAProducirModal({
     for (const { m, row } of seleccion) {
       if (origenDe(m.id, row) !== 'piso') continue;
       const motivo = motivoNoAlcanza(piso, m.id, Number(row.cantidad) || 0, m.unidad);
-      if (motivo) { setError(`${m.nombre}: ${motivo}`); return; }
+      if (motivo) { rechazar(`${m.nombre}: ${motivo}`); return; }
     }
 
     if (esRef) {
@@ -494,17 +516,17 @@ export function MaterialAProducirModal({
       // manual) y no de una colada del sistema. Lo único que se exige es que
       // haya una cantidad a refinar, que se valida abajo.
     } else {
-      if (!seleccion.length) { setError('Seleccioná al menos un material con cantidad.'); return; }
+      if (!seleccion.length) { rechazar('Marcá al menos un insumo en «Materiales a utilizar (receta)» con su cantidad.'); return; }
     }
-    if (cantidadNum <= 0) { setError(esRef ? 'El estaño crudo a refinar debe ser mayor que 0.' : 'La cantidad a producir debe ser mayor que 0.'); return; }
-    if (!almacenDestino) { setError('Elegí el almacén destino.'); return; }
-    if (modoOutput === 'existente' && !productoSelId) { setError(esRef ? 'Elegí el material refinado resultante.' : 'Elegí el producto a producir.'); return; }
-    if (modoOutput === 'nuevo' && !nombreNuevo.trim()) { setError('Escribí el nombre del producto a producir.'); return; }
+    if (cantidadNum <= 0) { rechazar(esRef ? 'El estaño crudo a refinar debe ser mayor que 0.' : 'La cantidad a producir debe ser mayor que 0.'); return; }
+    if (!almacenDestino) { rechazar('Elegí el almacén destino.'); return; }
+    if (modoOutput === 'existente' && !productoSelId) { rechazar(esRef ? 'Elegí el material refinado resultante.' : 'Elegí el producto a producir.'); return; }
+    if (modoOutput === 'nuevo' && !nombreNuevo.trim()) { rechazar('Escribí el nombre del producto a producir.'); return; }
 
     // Validaciones del reporte de colada (MGG-FR-001): no iniciar con lo esencial vacío.
     if (esColada) {
-      if (!coladaNum.trim()) { setError('Indicá el Colada N°.'); return; }
-      if (!(coladaDatos.responsable ?? '').trim()) { setError('Indicá el responsable de la colada.'); return; }
+      if (!coladaNum.trim()) { rechazar('Indicá el Colada N°, arriba en «Identificación».'); return; }
+      if (!(coladaDatos.responsable ?? '').trim()) { rechazar('Indicá el responsable de la colada, arriba en «Identificación».'); return; }
       // Una colada puede NO tener big bags cargados: hay material que entra
       // sin pasar por el inventario detallado, y hay coladas viejas que se
       // cargan para dejar el registro. Exigirlo bloqueaba casos reales.
@@ -516,7 +538,7 @@ export function MaterialAProducirModal({
       const cant = Number(row.cantidad) || 0;
       const stock = exStock(m.id, row.almacen);
       if (cant > stock) {
-        setError(`"${m.nombre}" en ${row.almacen}: pedís ${num(cant)} pero hay ${num(stock)}.`);
+        rechazar(`"${m.nombre}" en ${row.almacen}: pedís ${num(cant)} pero hay ${num(stock)}.`);
         return;
       }
     }
@@ -614,7 +636,7 @@ export function MaterialAProducirModal({
       onCreated();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : `No se pudo iniciar la ${L.proceso}.`);
+      rechazar(err instanceof Error ? err.message : `No se pudo iniciar la ${L.proceso}.`);
     } finally {
       setSaving(false);
     }
