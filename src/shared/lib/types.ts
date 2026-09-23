@@ -1375,6 +1375,22 @@ export interface Produccion {
 /* ───────── Reporte de Colada (MGG-FR-001, horno de fundición primaria) ───────── */
 
 /** Una fila del control de temperatura horario (cada ~1 h) durante la colada. */
+/**
+ * Una carga de material al horno.
+ *
+ * Una colada rara vez se carga de una sola vez: se mete material, se funde, y
+ * se vuelve a cargar. Cada vuelta tiene su horario y su material, y la suma de
+ * todas es el tiempo real que llevó cargar el horno.
+ */
+export interface ColadaCargaExtra {
+  fecha?: string;               // aaaa-mm-dd
+  hora_inicio?: string;         // HH:MM
+  hora_fin?: string;            // HH:MM
+  /** Kg cargados por material. La clave es el nombre del insumo de la receta. */
+  materiales?: Array<{ nombre: string; kg: number | null }>;
+  obs?: string;
+}
+
 export interface ColadaTemperatura {
   hora: string;                 // 'HH:MM' o texto libre
   temp_int: number | null;      // temperatura interna (°C)
@@ -1441,6 +1457,8 @@ export interface ColadaDatos {
   temp_ext_cerrar?: number | null;
   // Control de temperatura del proceso (cada ~1 h)
   temperaturas?: ColadaTemperatura[];
+  /** Las vueltas de carga al horno, cada una con su horario y su material. */
+  cargas?: ColadaCargaExtra[];
   // Sangrado y tiempos de colada
   hora_inicio_proceso?: string;
   hora_fin_proceso?: string;

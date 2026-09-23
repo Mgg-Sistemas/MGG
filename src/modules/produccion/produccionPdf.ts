@@ -219,6 +219,22 @@ async function construir(prod: Produccion, det: Detalle) {
       ['Hora de sangrado', V(horaLegible(d.hora_sangrado)), 'Temperatura de colada', grados(d.temp_colada)],
       ['Duración de la colada', d.duracion_horas == null ? '—' : `${num(Number(d.duracion_horas))} h`, 'Jornada (h)', d.jornada_horas == null ? '—' : `${num(Number(d.jornada_horas))} h`],
     ]);
+    /* Las vueltas de carga al horno: una colada rara vez se carga de una sola
+       vez, y el formal tiene que decir a qué hora entró cada tanda y con qué. */
+    const cargas = (d.cargas ?? []).filter((c) => c && (c.hora_inicio || c.hora_fin || (c.materiales ?? []).length));
+    if (cargas.length) {
+      tabla(
+        ['#', 'Fecha', 'Desde', 'Hasta', 'Material cargado', 'Observación'],
+        cargas.map((c, i) => [
+          String(i + 2),
+          V(c.fecha), V(horaLegible(c.hora_inicio ?? '')), V(horaLegible(c.hora_fin ?? '')),
+          (c.materiales ?? []).filter((m) => (Number(m.kg) || 0) > 0)
+            .map((m) => `${num(Number(m.kg))} kg ${m.nombre}`).join(', ') || '—',
+          T(c.obs ?? ''),
+        ]),
+        { 0: { halign: 'center', cellWidth: 20 } },
+      );
+    }
     const temps = (d.temperaturas ?? []).filter((t) => t && (t.hora || t.temp_int != null || t.temp_ext != null));
     if (temps.length) {
       tabla(

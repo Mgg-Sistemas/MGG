@@ -6,7 +6,7 @@
    luego (en curso / al finalizar). El PDF replica el formato formal.
    ============================================================ */
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
-import type { ColadaDatos, ColadaBigBag, ColadaBigBagLey } from '@/shared/lib/types';
+import type { ColadaDatos, ColadaBigBag, ColadaBigBagLey, ColadaCargaExtra } from '@/shared/lib/types';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import type { CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
@@ -75,9 +75,17 @@ interface Props {
    * corrige una colada que ya puede estar cerrada.
    */
   fase?: 'inicio' | 'edicion';
+  /**
+   * Los insumos que se marcaron en «Materiales a utilizar (receta)».
+   *
+   * Se vuelven a mostrar acá abajo, en cada carga al horno, para poder decir
+   * cuánto de cada uno entró en esa vuelta sin tener que volver a escribir los
+   * nombres ni subir a mirarlos.
+   */
+  materialesReceta?: Array<{ nombre: string; unidad?: string | null }>;
 }
 
-export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos, slotMaterial, casiteritaDetalle = [], consumoBigBags, fase = 'inicio' }: Props) {
+export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos, slotMaterial, casiteritaDetalle = [], consumoBigBags, fase = 'inicio', materialesReceta = [] }: Props) {
   const cierre = fase === 'edicion';   // ¿se muestran los campos de cierre?
   const set = <K extends keyof ColadaDatos>(key: K, val: ColadaDatos[K]) => setDatos((p) => ({ ...p, [key]: val }));
   const numVal = (v: number | null | undefined) => (v == null ? '' : String(v));
@@ -214,6 +222,42 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
     setDatos((p) => { const arr = [...(p.big_bags ?? [])]; const leyes = [...(arr[bi].leyes ?? [])]; leyes.push({ letra: String.fromCharCode(65 + leyes.length), valor: null }); arr[bi] = { ...arr[bi], leyes }; return { ...p, big_bags: arr }; });
   const delLey = (bi: number, li: number) =>
     setDatos((p) => { const arr = [...(p.big_bags ?? [])]; const leyes = (arr[bi].leyes ?? []).filter((_, k) => k !== li); arr[bi] = { ...arr[bi], leyes }; return { ...p, big_bags: arr }; });
+
+  /* Cargas al horno. La primera vuelta ya está arriba («Fecha/Hora inicio de
+     carga»); acá van las EXTRA: cada una con su horario propio y cuánto se
+     metió de cada insumo de la receta. */
+  const cargas = datos.cargas ?? [];
+  const setCarga = (i: number, patch: Partial<ColadaCargaExtra>) =>
+    setDatos((p) => ({ ...p, cargas: (p.cargas ?? []).map((c, k) => (k === i ? { ...c, ...patch } : c)) }));
+  const addCarga = () => setDatos((p) => ({
+    ...p,
+    cargas: [...(p.cargas ?? []), {
+      fecha: p.fecha_inicio_carga ?? '', hora_inicio: '', hora_fin: '',
+      materiales: [], obs: '',
+    }],
+  }));
+  const delCarga = (i: number) => setDatos((p) => ({ ...p, cargas: (p.cargas ?? []).filter((_, k) => k !== i) }));
+  /** Kg de un insumo en una carga (la lista guarda solo los que tienen algo). */
+  const kgDe = (c: ColadaCargaExtra, nombre: string): string => {
+    const v = (c.materiales ?? []).find((m) => m.nombre === nombre)?.kg;
+    return v == null ? '' : String(v);
+  };
+  const setKgDe = (i: number, nombre: string, raw: string) => {
+    const kg = toNum(raw);
+    setCarga(i, {
+      materiales: (() => {
+        const lista = [...(cargas[i]?.materiales ?? [])];
+        const k = lista.findIndex((m) => m.nombre === nombre);
+        if (kg == null) { if (k >= 0) lista.splice(k, 1); return lista; }
+        if (k >= 0) lista[k] = { nombre, kg }; else lista.push({ nombre, kg });
+        return lista;
+      })(),
+    });
+  };
+  /** Horas de una carga: fin − inicio, dentro del mismo día. */
+  const horasDeCarga = (c: ColadaCargaExtra): number | null =>
+    calcJornadaHoras(c.fecha ?? '', c.hora_inicio ?? '', c.fecha ?? '', c.hora_fin ?? '');
+  const horasCargas = cargas.reduce((a, c) => a + (horasDeCarga(c) ?? 0), 0);
 
   // Lecturas de temperatura del proceso (tabla dinámica: cada ~1 h).
   const temperaturas = datos.temperaturas ?? [];
@@ -456,6 +500,77 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
             </div>
           </>
         )}
+      </div>
+
+      {/* Cargas al horno: las vueltas extra, con sus horas y su material */}
+      <div style={{ ...secStyle, marginTop: '.8rem', marginBottom: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+          <div style={tituloSec}>Cargas al horno <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· las vueltas extra de material</span></div>
+          {cargas.length > 0 && (
+            <span className="mono muted" style={{ fontSize: '.76rem' }}>{cargas.length} carga(s) · {fmtJornada(horasCargas || null)}</span>
+          )}
+        </div>
+        <p className="hint muted" style={{ fontSize: '.76rem', margin: '0 0 .5rem' }}>
+          La primera vuelta ya está arriba, en <strong>inicio de carga</strong>. Acá se agregan las que siguen:
+          cada una con <strong>su horario</strong> y <strong>cuánto entró de cada insumo</strong> de la receta.
+          {materialesReceta.length === 0 && <> Marcá primero los insumos en <strong>«Materiales a utilizar»</strong> y aparecen acá.</>}
+        </p>
+
+        {cargas.map((c, i) => {
+          const h = horasDeCarga(c);
+          return (
+            <div key={i} className="card" style={{ padding: '.6rem .7rem', marginBottom: '.5rem', background: 'var(--bg-2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                <strong style={{ fontSize: '.85rem' }}>Carga #{i + 2}</strong>
+                <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => delCarga(i)}>✕ Quitar</button>
+              </div>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Fecha</label>
+                  <input className="input" type="date" value={c.fecha ?? ''} onChange={(e) => setCarga(i, { fecha: e.target.value })} />
+                </div>
+                <div className="form-row">
+                  <label>Hora de inicio</label>
+                  <input className="input" type="time" value={c.hora_inicio ?? ''} onChange={(e) => setCarga(i, { hora_inicio: e.target.value })} />
+                </div>
+                <div className="form-row">
+                  <label>Hora de fin</label>
+                  <input className="input" type="time" value={c.hora_fin ?? ''} onChange={(e) => setCarga(i, { hora_fin: e.target.value })} />
+                </div>
+                <div className="form-row">
+                  <label>Horas de carga (automático)</label>
+                  <input className="input mono" readOnly value={fmtJornada(h)} style={{ background: 'var(--bg-1)', fontWeight: 700 }} />
+                </div>
+              </div>
+
+              {materialesReceta.length > 0 && (
+                <div className="table-wrap" style={{ marginTop: '.35rem' }}>
+                  <table className="table" style={{ fontSize: '.8rem' }}>
+                    <thead><tr><th>Material de la receta</th><th style={{ textAlign: 'right', width: 120 }}>Kg cargados</th></tr></thead>
+                    <tbody>
+                      {materialesReceta.map((m) => (
+                        <tr key={m.nombre}>
+                          <td>{m.nombre}{m.unidad ? <span className="muted" style={{ fontSize: '.74rem' }}> · {m.unidad}</span> : null}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <input className="input mono" type="number" step="any" min={0} placeholder="0"
+                              value={kgDe(c, m.nombre)} onChange={(e) => setKgDe(i, m.nombre, e.target.value)}
+                              style={{ width: 100, textAlign: 'right' }} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="form-row" style={{ marginTop: '.35rem' }}>
+                <label>Observación de la carga</label>
+                <input className="input" value={c.obs ?? ''} onChange={(e) => setCarga(i, { obs: e.target.value })} placeholder="Ej.: se agregó coque por baja temperatura…" />
+              </div>
+            </div>
+          );
+        })}
+        <button type="button" className="btn btn-sm btn-ghost" onClick={addCarga}>＋ Agregar una carga</button>
       </div>
 
       {/* Control de temperatura del proceso — lecturas dinámicas */}

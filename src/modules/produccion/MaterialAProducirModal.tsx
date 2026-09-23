@@ -408,6 +408,12 @@ export function MaterialAProducirModal({
     [materiales, qInsumo, rows, piso, existencias],
   );
   const nSeleccionados = materiales.filter((m) => rows[m.id]?.checked).length;
+  /* Los insumos marcados, para volver a mostrarlos abajo en cada carga al
+     horno: ahí se dice cuánto de cada uno entró en esa vuelta. */
+  const materialesElegidos = useMemo(
+    () => materiales.filter((m) => rows[m.id]?.checked).map((m) => ({ nombre: m.nombre, unidad: m.unidad })),
+    [materiales, rows],
+  );
 
   const seleccion = materiales
     .map((m) => ({ m, row: rows[m.id] }))
@@ -838,6 +844,7 @@ export function MaterialAProducirModal({
             slotMaterial={materialesChecklist}
             casiteritaDetalle={casiteritaDetalle}
             consumoBigBags={consumoBigBags}
+            materialesReceta={materialesElegidos}
           />
         )}
 
