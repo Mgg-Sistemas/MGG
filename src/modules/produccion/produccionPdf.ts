@@ -255,6 +255,21 @@ async function construir(prod: Produccion, det: Detalle) {
       ['Inicio de refinación', V(r.hora_inicio_refinacion), 'Fin de refinación', V(r.hora_fin_refinacion)],
       ['Inicio de vaciado', V(horaLegible(r.hora_inicio_vaciado)), 'Temperatura de colada', grados(r.temp_colada)],
     ]);
+    // Las vueltas de carga a la olla, igual que en la colada.
+    const cargasRef = (r.cargas ?? []).filter((c) => c && (c.hora_inicio || c.hora_fin || (c.materiales ?? []).length));
+    if (cargasRef.length) {
+      tabla(
+        ['#', 'Fecha', 'Desde', 'Hasta', 'Material cargado', 'Observación'],
+        cargasRef.map((c, i) => [
+          String(i + 2),
+          V(c.fecha), V(horaLegible(c.hora_inicio ?? '')), V(horaLegible(c.hora_fin ?? '')),
+          (c.materiales ?? []).filter((m) => (Number(m.kg) || 0) > 0)
+            .map((m) => `${num(Number(m.kg))} kg ${m.nombre}`).join(', ') || '—',
+          T(c.obs ?? ''),
+        ]),
+        { 0: { halign: 'center', cellWidth: 20 } },
+      );
+    }
     const etapas = (r.etapas ?? []).filter((e) => e && (e.etapa || e.hora || e.temp_bano != null));
     if (etapas.length) {
       tabla(

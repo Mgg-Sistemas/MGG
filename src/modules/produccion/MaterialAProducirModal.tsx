@@ -856,6 +856,7 @@ export function MaterialAProducirModal({
             datos={refinacionDatos} setDatos={setRefinacionDatos}
             coladasFin={origenesRefinables}
             slotMaterial={materialesChecklist}
+            materialesReceta={materialesElegidos}
           />
         )}
 

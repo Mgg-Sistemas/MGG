@@ -391,9 +391,8 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
       .catch(() => { if (vivo) setCocinas([]); });
     return () => { vivo = false; };
   }, [itemRes]);
-  // Las cocinas a las que tiene sentido MANDAR: no la del almacen que recibe,
-  // porque ahi ya queda todo lo que no se reparta.
-  const cocinasDestino = cocinas.filter((c) => c.almacen !== almacenFinal);
+  // Todas las cocinas: ver la nota en la recepción de Pedidos.
+  const cocinasDestino = cocinas;
   const kgRes = itemRes ? Math.max(0, Number(recibidas[itemRes.sku]) || 0) : 0;
   const costoRes = itemRes ? Math.round(kgRes * (Number(itemRes.precio) || 0) * 100) / 100 : 0;
 

@@ -1546,6 +1546,8 @@ export interface RefinacionDatos {
   fecha_fin_jornada?: string;        // yyyy-mm-dd
   hora_fin_jornada?: string;         // HH:mm
   jornada_horas?: number | null;     // (fecha+hora fin) − (fecha+hora inicio), en horas
+  /** Las vueltas de carga a la olla, cada una con su horario y su material. */
+  cargas?: ColadaCargaExtra[];
   // Tiempos de colada y moldeo de lingotes (al finalizar)
   hora_inicio_refinacion?: string;
   hora_fin_refinacion?: string;

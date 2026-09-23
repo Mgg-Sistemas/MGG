@@ -7,7 +7,7 @@
    ============================================================ */
 import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import { num, money } from '@/shared/lib/format';
-import type { RefinacionColadaOrigen, RefinacionDatos } from '@/shared/lib/types';
+import type { RefinacionColadaOrigen, RefinacionDatos, ColadaCargaExtra } from '@/shared/lib/types';
 import type { ColadaFinalizada } from './refinacion.repository';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
 import { listaPrecintos, resumenPrecintos } from './precintosOrigen';
@@ -50,9 +50,16 @@ interface Props {
   coladasFin: ColadaFinalizada[];
   /** Bloque de reactivos/insumos que se renderiza unido, debajo del origen (mismo bloque «Material a procesar»). */
   slotMaterial?: ReactNode;
+  /**
+   * Los insumos marcados en «Materiales a utilizar (receta)».
+   *
+   * Se vuelven a mostrar en cada carga a la olla, para decir cuánto de cada uno
+   * entró en esa vuelta sin volver a escribir los nombres.
+   */
+  materialesReceta?: Array<{ nombre: string; unidad?: string | null }>;
 }
 
-export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFecha, datos, setDatos, coladasFin, slotMaterial }: Props) {
+export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFecha, datos, setDatos, coladasFin, slotMaterial, materialesReceta = [] }: Props) {
   const set = <K extends keyof RefinacionDatos>(key: K, val: RefinacionDatos[K]) => setDatos((p) => ({ ...p, [key]: val }));
   const numVal = (v: number | null | undefined) => (v == null ? '' : String(v));
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s));
@@ -127,6 +134,37 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
     set('jornada_horas', jornadaH);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jornadaH]);
+
+  /* Cargas a la olla: las vueltas EXTRA de material, cada una con su horario y
+     cuánto entró de cada insumo de la receta. La primera está arriba, en el
+     inicio de jornada. */
+  const cargas = datos.cargas ?? [];
+  const setCarga = (i: number, patch: Partial<ColadaCargaExtra>) =>
+    setDatos((p) => ({ ...p, cargas: (p.cargas ?? []).map((c, k) => (k === i ? { ...c, ...patch } : c)) }));
+  const addCarga = () => setDatos((p) => ({
+    ...p,
+    cargas: [...(p.cargas ?? []), { fecha: p.fecha_inicio_jornada ?? '', hora_inicio: '', hora_fin: '', materiales: [], obs: '' }],
+  }));
+  const delCarga = (i: number) => setDatos((p) => ({ ...p, cargas: (p.cargas ?? []).filter((_, k) => k !== i) }));
+  const kgDe = (c: ColadaCargaExtra, nombre: string): string => {
+    const v = (c.materiales ?? []).find((m) => m.nombre === nombre)?.kg;
+    return v == null ? '' : String(v);
+  };
+  const setKgDe = (i: number, nombre: string, raw: string) => {
+    const kg = toNum(raw);
+    setCarga(i, {
+      materiales: (() => {
+        const lista = [...(cargas[i]?.materiales ?? [])];
+        const k = lista.findIndex((m) => m.nombre === nombre);
+        if (kg == null) { if (k >= 0) lista.splice(k, 1); return lista; }
+        if (k >= 0) lista[k] = { nombre, kg }; else lista.push({ nombre, kg });
+        return lista;
+      })(),
+    });
+  };
+  const horasDeCarga = (c: ColadaCargaExtra): number | null =>
+    calcJornadaHoras(c.fecha ?? '', c.hora_inicio ?? '', c.fecha ?? '', c.hora_fin ?? '');
+  const horasCargas = cargas.reduce((a, c) => a + (horasDeCarga(c) ?? 0), 0);
 
   // Etapas de temperatura (tabla dinámica).
   const etapas = datos.etapas ?? [];
@@ -325,6 +363,77 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
           <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
           <small className="muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de jornada.</small>
         </div>
+      </div>
+
+      {/* Cargas a la olla: las vueltas extra de material */}
+      <div style={{ ...secStyle }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+          <div style={tituloSec}>Cargas a la olla <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· las vueltas extra de material</span></div>
+          {cargas.length > 0 && (
+            <span className="mono muted" style={{ fontSize: '.76rem' }}>{cargas.length} carga(s) · {fmtJornada(horasCargas || null)}</span>
+          )}
+        </div>
+        <p className="hint muted" style={{ fontSize: '.76rem', margin: '0 0 .5rem' }}>
+          La primera vuelta ya está arriba, en <strong>inicio de jornada</strong>. Acá se agregan las que siguen:
+          cada una con <strong>su horario</strong> y <strong>cuánto entró de cada insumo</strong> de la receta.
+          {materialesReceta.length === 0 && <> Marcá primero los insumos en <strong>«Materiales a utilizar»</strong> y aparecen acá.</>}
+        </p>
+
+        {cargas.map((c, i) => {
+          const h = horasDeCarga(c);
+          return (
+            <div key={i} className="card" style={{ padding: '.6rem .7rem', marginBottom: '.5rem', background: 'var(--bg-2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                <strong style={{ fontSize: '.85rem' }}>Carga #{i + 2}</strong>
+                <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => delCarga(i)}>✕ Quitar</button>
+              </div>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Fecha</label>
+                  <input className="input" type="date" value={c.fecha ?? ''} onChange={(e) => setCarga(i, { fecha: e.target.value })} />
+                </div>
+                <div className="form-row">
+                  <label>Hora de inicio</label>
+                  <input className="input" type="time" value={c.hora_inicio ?? ''} onChange={(e) => setCarga(i, { hora_inicio: e.target.value })} />
+                </div>
+                <div className="form-row">
+                  <label>Hora de fin</label>
+                  <input className="input" type="time" value={c.hora_fin ?? ''} onChange={(e) => setCarga(i, { hora_fin: e.target.value })} />
+                </div>
+                <div className="form-row">
+                  <label>Horas de carga (automático)</label>
+                  <input className="input mono" readOnly value={fmtJornada(h)} style={{ background: 'var(--bg-1)', fontWeight: 700 }} />
+                </div>
+              </div>
+
+              {materialesReceta.length > 0 && (
+                <div className="table-wrap" style={{ marginTop: '.35rem' }}>
+                  <table className="table" style={{ fontSize: '.8rem' }}>
+                    <thead><tr><th>Material de la receta</th><th style={{ textAlign: 'right', width: 120 }}>Kg cargados</th></tr></thead>
+                    <tbody>
+                      {materialesReceta.map((m) => (
+                        <tr key={m.nombre}>
+                          <td>{m.nombre}{m.unidad ? <span className="muted" style={{ fontSize: '.74rem' }}> · {m.unidad}</span> : null}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <input className="input mono" type="number" step="any" min={0} placeholder="0"
+                              value={kgDe(c, m.nombre)} onChange={(e) => setKgDe(i, m.nombre, e.target.value)}
+                              style={{ width: 100, textAlign: 'right' }} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="form-row" style={{ marginTop: '.35rem' }}>
+                <label>Observación de la carga</label>
+                <input className="input" value={c.obs ?? ''} onChange={(e) => setCarga(i, { obs: e.target.value })} placeholder="Ej.: se agregó reactivo por pureza baja…" />
+              </div>
+            </div>
+          );
+        })}
+        <button type="button" className="btn btn-sm btn-ghost" onClick={addCarga}>＋ Agregar una carga</button>
       </div>
 
       {/* Control de temperatura y etapas */}

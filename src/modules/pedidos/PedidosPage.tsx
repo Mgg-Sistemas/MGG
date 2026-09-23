@@ -1793,9 +1793,13 @@ function RecepcionParcialModal({
   }
 
 
-  // Las cocinas a las que tiene sentido MANDAR: no la del almacén que recibe,
-  // porque ahí ya queda todo lo que no se reparta.
-  const cocinasDestino = cocinas.filter((c) => c.almacen !== almacen);
+  /* TODAS las cocinas, incluida la de la sede que recibe.
+
+     Se filtraba la del almacén de destino «porque ahí queda lo que no se
+     reparta». Pero la cocina de Los Pinos usa el almacén Los Pinos: al recibir
+     por esa sede desaparecía del reparto y solo quedaba La Esperanza. Y unos
+     kilos de carne se dividen entre las dos, así que hay que poder decirlo. */
+  const cocinasDestino = cocinas;
   const kgRes = itemRes ? Math.max(0, Number(recs[itemRes.sku]) || 0) : 0;
   const costoRes = itemRes ? Math.round(kgRes * (Number(itemRes.precio) || 0) * 100) / 100 : 0;
 

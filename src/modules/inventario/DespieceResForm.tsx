@@ -82,6 +82,21 @@ export function DespieceResForm({
     if (kg.trim() === '') return;
     onChange({ ...estado, reparto: [...estado.reparto, { corte, almacen, kg }] });
   };
+  /* Las filas de la distribución salen de los cortes NOMBRADOS, no solo de los
+     que ya tienen kg: así las columnas de las cocinas se ven desde el
+     principio y se entiende que hay que repartir. */
+  const cortesParaRepartir = useMemo(() => {
+    const vistos = new Set<string>();
+    const fuera: Array<{ nombre: string; kg: number }> = [];
+    for (const c of estado.cortes) {
+      const nombre = normalizarCorte(c.nombre);
+      if (!nombre || vistos.has(nombre)) continue;
+      vistos.add(nombre);
+      fuera.push({ nombre, kg: calc.cortes.find((x) => x.nombre === nombre)?.kg ?? 0 });
+    }
+    return fuera;
+  }, [estado.cortes, calc.cortes]);
+
   /** Cuánto de ese corte ya se repartió a todas las cocinas. */
   const repartidoDe = (corte: string) =>
     Math.round(estado.reparto.filter((r) => r.corte === corte).reduce((a, r) => a + n(r.kg), 0) * 10000) / 10000;
@@ -179,7 +194,7 @@ export function DespieceResForm({
       )}
 
       {/* DISTRIBUCIÓN a las cocinas: matriz corte × cocina, en la misma pantalla */}
-      {cocinas.length > 0 && calc.cortes.length > 0 && (
+      {cocinas.length > 0 && cortesParaRepartir.length > 0 && (
         <div style={{ marginTop: '.9rem', paddingTop: '.7rem', borderTop: '1px solid var(--border)' }}>
           <div style={{ fontWeight: 700, fontSize: '.86rem' }}>🍳 Distribución a las cocinas</div>
           <p className="hint muted" style={{ fontSize: '.78rem', margin: '.15rem 0 .5rem' }}>
@@ -197,7 +212,7 @@ export function DespieceResForm({
                 </tr>
               </thead>
               <tbody>
-                {calc.cortes.map((c) => {
+                {cortesParaRepartir.map((c) => {
                   const repartido = repartidoDe(c.nombre);
                   const queda = Math.round((c.kg - repartido) * 10000) / 10000;
                   return (
