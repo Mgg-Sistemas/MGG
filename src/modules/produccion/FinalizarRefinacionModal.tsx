@@ -175,7 +175,7 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
           </div>
           <div className="form-row">
             <label>N° de lingotes producidos</label>
-            <input className="input mono" type="number" min={0} step="1" value={lingotes} onChange={(e) => setLingotes(e.target.value)} style={{ textAlign: 'right' }} />
+            <input className="input mono" type="number" min={0} step="any" value={lingotes} onChange={(e) => setLingotes(e.target.value)} style={{ textAlign: 'right' }} title="Admite medios lingotes: la última colada rara vez llena el molde" />
             {pesoProm > 0 && <small className="muted" style={{ fontSize: '.7rem' }}>Peso prom./lingote: <strong>{num(pesoProm)} kg</strong></small>}
           </div>
         </div>

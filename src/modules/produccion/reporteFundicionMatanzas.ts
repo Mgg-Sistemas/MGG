@@ -196,7 +196,8 @@ export function totalesPeriodo(filas: FilaColada[]): TotalesPeriodo {
     sn_teorico_kg,
     estano_kg,
     escoria_kg: suma((f) => f.escoria_kg),
-    n_lingotes: Math.round(filas.reduce((a, f) => a + n(f.n_lingotes), 0)),
+    // Sin Math.round: si una colada dio 9,5 lingotes, el total es 9,5.
+    n_lingotes: r2(filas.reduce((a, f) => a + n(f.n_lingotes), 0)),
     sn_recuperable_kg,
     // Merma del período medida en ESTAÑO, no en masa: lo teórico menos lo que
     // se obtuvo y lo que todavía se puede sacar de la escoria. Restar la masa

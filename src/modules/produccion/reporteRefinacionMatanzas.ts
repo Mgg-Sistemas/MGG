@@ -107,7 +107,8 @@ export function totalesRefinacion(filas: FilaRefinacion[]): TotalesRefinacion {
     refinado_kg,
     dross_kg: suma((f) => f.dross_kg),
     merma_kg: suma((f) => f.merma_kg),
-    n_lingotes: Math.round(filas.reduce((a, f) => a + n(f.n_lingotes), 0)),
+    // Sin Math.round: si una colada dio 9,5 lingotes, el total es 9,5.
+    n_lingotes: r2(filas.reduce((a, f) => a + n(f.n_lingotes), 0)),
     costo_total,
     costo_kg: refinado_kg > 0 ? r2(costo_total / refinado_kg) : null,
     rendimiento_pct: rendimientoPct(refinado_kg, crudo_kg),

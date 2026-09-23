@@ -109,6 +109,14 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
   function delManual(produccionId: string) {
     setDatos((p) => ({ ...p, coladas: (p.coladas ?? []).filter((c) => c.produccion_id !== produccionId) }));
   }
+  // La refinación se archiva con la fecha en que EMPEZÓ la jornada: un solo
+  // campo manda, no dos que pueden discrepar.
+  useEffect(() => {
+    const f = (datos.fecha_inicio_jornada ?? '').trim();
+    if (f && f !== fecha) setFecha(f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datos.fecha_inicio_jornada]);
+
   const manuales = coladas.filter((c) => c.origen === 'manual');
   const costoInicialTotal = round2(coladas.reduce((a, c) => a + (Number(c.estano_kg) || 0) * (Number(c.costo_unitario) || 0), 0));
 
@@ -140,9 +148,13 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
             <input className="input mono" value={refinacionNum} onChange={(e) => setRefinacionNum(e.target.value)} placeholder="Ej.: 01" style={numInput} />
             <small className="muted" style={{ fontSize: '.7rem' }}>La 1ª vez la ingresás; luego se sugiere incremental.</small>
           </div>
+          {/* Igual que en la colada: la fecha del proceso es la del inicio de
+              jornada, que se carga más abajo. Se muestra, no se vuelve a pedir. */}
           <div className="form-row">
             <label>Fecha de proceso</label>
-            <input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+            <input className="input" readOnly value={fecha ? fecha.split('-').reverse().join('/') : '—'}
+              style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
+            <small className="muted" style={{ fontSize: '.7rem' }}>Sale de la <strong>fecha de inicio de jornada</strong>, más abajo.</small>
           </div>
         </div>
         <div className="form-grid">

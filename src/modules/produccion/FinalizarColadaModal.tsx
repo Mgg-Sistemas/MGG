@@ -105,7 +105,7 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
           </div>
           <div className="form-row">
             <label>N° de lingotes</label>
-            <input className="input mono" type="number" min={0} step="1" value={lingotes} onChange={(e) => setLingotes(e.target.value)} style={{ textAlign: 'right' }} />
+            <input className="input mono" type="number" min={0} step="any" value={lingotes} onChange={(e) => setLingotes(e.target.value)} style={{ textAlign: 'right' }} title="Admite medios lingotes: la última colada rara vez llena el molde" />
           </div>
         </div>
 

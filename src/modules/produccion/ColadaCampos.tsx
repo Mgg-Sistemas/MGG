@@ -75,6 +75,15 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
   const totalBigBags = round2(bigBags.reduce((a, b) => a + (Number(b.kg) || 0), 0));
   const precintosCargados = precintosDeColada(datos);
 
+  // La colada se archiva con la fecha en que EMPEZÓ la carga. Antes había dos
+  // campos de fecha —uno arriba y otro abajo— que podían discrepar; ahora el
+  // de arriba solo muestra lo que el de abajo decide.
+  useEffect(() => {
+    const f = (datos.fecha_inicio_carga ?? '').trim();
+    if (f && f !== fecha) setFecha(f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datos.fecha_inicio_carga]);
+
   // Total Casiterita = Σ big bags (se mantiene en sync; editable manualmente igual).
   useEffect(() => {
     set('total_casiterita', totalBigBags || null);
@@ -105,7 +114,10 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
   const jornadaH = calcJornadaHoras(datos.fecha_inicio_carga, datos.hora_inicio_carga, datos.fecha_fin_carga, datos.hora_fin_carga);
   useEffect(() => {
     set('jornada_horas', jornadaH);
-    if (jornadaH != null) set('turno', `${String(jornadaH).replace('.', ',')} horas`);
+    // «Turno / Jornada» ya NO se pisa con las horas calculadas. Al INICIAR la
+    // colada todavía no se sabe cómo terminó: los totales se cargan después, y
+    // escribirle «5,5 horas» encima borra lo que el responsable haya puesto.
+    // La jornada calculada se ve igual, en su propio campo de solo lectura.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jornadaH]);
 
@@ -218,9 +230,14 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
             <input className="input mono" value={coladaNum} onChange={(e) => setColadaNum(e.target.value)} placeholder="Ej.: 02" style={numInput} />
             <small className="muted" style={{ fontSize: '.7rem' }}>La 1ª vez la ingresás; luego se sugiere incremental.</small>
           </div>
+          {/* La fecha de la colada NO se pregunta acá: es la misma que la
+              «Fecha inicio de carga» de más abajo, y preguntarla dos veces solo
+              consigue que un día no coincidan. Se deriva de aquella. */}
           <div className="form-row">
             <label>Fecha de la colada</label>
-            <input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+            <input className="input" readOnly value={fecha ? fecha.split('-').reverse().join('/') : '—'}
+              style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
+            <small className="muted" style={{ fontSize: '.7rem' }}>Sale de la <strong>fecha de inicio de carga</strong>, más abajo.</small>
           </div>
         </div>
         <div className="form-grid">
@@ -448,7 +465,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         <div className="form-grid">
           <div className="form-row">
             <label>N° de lingotes</label>
-            <input className="input mono" type="number" step="1" min={0} value={datos.n_lingotes ?? ''} onChange={(e) => set('n_lingotes', toNum(e.target.value))} style={numInput} placeholder="Ej.: 42" />
+            <input className="input mono" type="number" step="any" min={0} value={datos.n_lingotes ?? ''} onChange={(e) => set('n_lingotes', toNum(e.target.value))} style={numInput} placeholder="Ej.: 42" title="Admite medios lingotes: la última colada rara vez llena el molde" />
           </div>
           <div className="form-row">
             <label>Escoria obtenida (kg)</label>

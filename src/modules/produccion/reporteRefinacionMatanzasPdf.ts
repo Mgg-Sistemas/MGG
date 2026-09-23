@@ -38,7 +38,12 @@ export interface OpcionesReporteCadena extends OpcionesReporteRefinacion {
 const kg = (v: number | null | undefined): string =>
   v == null ? '—' : Number(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pct = (v: number | null | undefined): string => (v == null ? '—' : `${kg(v)} %`);
-const ent = (v: number | null | undefined): string => (v == null ? '—' : String(Math.round(Number(v))));
+/**
+ * Cuenta de piezas. NO redondea: la última colada rara vez llena el molde, así
+ * que medio lingote es un dato real y decir «10» donde hubo 9,5 falsea el parte.
+ */
+const ent = (v: number | null | undefined): string =>
+  (v == null ? '—' : Number(v).toLocaleString('es-VE', { maximumFractionDigits: 2 }));
 const fecha = (iso: string): string => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
   return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || '—');

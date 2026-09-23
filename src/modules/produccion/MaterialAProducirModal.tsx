@@ -19,6 +19,7 @@ import { refinacionDatosVacios, proximaRefinacionNum, crearRefinacion, listColad
 import type { ColadaDatos, RefinacionDatos } from '@/shared/lib/types';
 import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
 import { almacenDeFundicion } from './almacenFundicion';
+import { filtrarInsumos } from './buscarInsumo';
 
 interface RecetaBase {
   rendimiento: number;
@@ -139,6 +140,9 @@ export function MaterialAProducirModal({
     () => productos.filter((p) => esMaterialDeFundicion(p) && p.estado === 'activo'),
     [productos],
   );
+  // Buscador de la lista de insumos: la receta se arma de una lista larga y
+  // buscar solo por nombre no alcanza (SKU del saco, almacen, disponible).
+  const [qInsumo, setQInsumo] = useState('');
   const almacenes = almacenesList.length ? almacenesList : ['General'];
   /** De qué almacén de Matanza sale este material (el que tenga stock; si no, el principal). */
   const almacenDe = (productoId: string) => almacenDeFundicion(productoId, existencias, almacenesMatanza);
@@ -366,6 +370,25 @@ export function MaterialAProducirModal({
 
   // Costos: CTM → CP → costo unitario. El posible precio de venta se MARCA solo
   // = costo unitario de fundición (no editable por el usuario).
+  // Lo que se ve en la lista tras el buscador. Los MARCADOS no se pierden al
+  // filtrar: la selección se arma de la lista COMPLETA, no de lo visible, así
+  // que buscar el siguiente insumo no borra los que ya se habían marcado.
+  const materialesVisibles = useMemo(
+    () => filtrarInsumos(materiales, qInsumo, (m) => {
+      const row = rows[m.id];
+      const alm = row?.almacen ?? almacenDe(m.id);
+      const esPiso = origenDe(m.id, row) === 'piso';
+      return {
+        almacen: esPiso ? 'Piso de fundición' : alm,
+        disponible: esPiso ? (pisoDe(m.id)?.disponible ?? 0) : exStock(m.id, alm),
+        enPiso: (pisoDe(m.id)?.disponible ?? 0) > 0,
+      };
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [materiales, qInsumo, rows, piso, existencias],
+  );
+  const nSeleccionados = materiales.filter((m) => rows[m.id]?.checked).length;
+
   const seleccion = materiales
     .map((m) => ({ m, row: rows[m.id] }))
     .filter((x) => x.row?.checked && (Number(x.row.cantidad) || 0) > 0);
@@ -645,9 +668,29 @@ export function MaterialAProducirModal({
             </div>
           )}
 
+          {/* Buscador por todas las características del insumo. La lista es larga:
+              nombre, SKU, categoría, almacén del que sale, disponible, y además
+              «sin stock» o «piso» para las dos preguntas que se hacen acá. */}
+          {materiales.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem', margin: '.1rem 0 .5rem' }}>
+              <input className="input" value={qInsumo} onChange={(e) => setQInsumo(e.target.value)}
+                placeholder="🔎 Buscar insumo: nombre, SKU, categoría, almacén, disponible, «sin stock», «piso»…"
+                style={{ flex: '1 1 300px', minWidth: 200 }} />
+              {qInsumo.trim() && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setQInsumo('')}>✕ Limpiar</button>}
+              <span className="muted" style={{ fontSize: '.76rem' }}>
+                {qInsumo.trim() ? <><strong>{materialesVisibles.length}</strong> de {materiales.length}</> : <>{materiales.length} insumo(s)</>}
+                {nSeleccionados > 0 && <> · <strong style={{ color: 'var(--primary-3)' }}>{nSeleccionados} marcado(s)</strong></>}
+              </span>
+            </div>
+          )}
+
           {!materiales.length ? (
             <div className="muted" style={{ fontSize: '.82rem', padding: '.5rem 0' }}>
               No hay insumos marcados como receta. Agregá uno con “+ Nuevo insumo”.
+            </div>
+          ) : !materialesVisibles.length ? (
+            <div className="muted" style={{ fontSize: '.82rem', padding: '.5rem 0' }}>
+              Ningún insumo coincide con «{qInsumo.trim()}». {nSeleccionados > 0 && <>Los <strong>{nSeleccionados} marcado(s)</strong> siguen incluidos.</>}
             </div>
           ) : (
             <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
@@ -664,7 +707,7 @@ export function MaterialAProducirModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {materiales.map((m) => {
+                  {materialesVisibles.map((m) => {
                     const enPiso = pisoDe(m.id);
                     const hayPiso = (enPiso?.disponible ?? 0) > 0;
                     const row = rows[m.id] ?? {
