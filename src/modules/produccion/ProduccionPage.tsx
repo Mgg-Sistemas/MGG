@@ -97,26 +97,43 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
   const [busqueda, setBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'todos' | 'produccion' | 'finalizado'>('todos');
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  /**
+   * Carga la página.
+   *
+   * El tablero solo necesita las PRODUCCIONES: productos, existencias,
+   * almacenes y hornos son para los modales (iniciar colada, editar
+   * materiales), que el usuario todavía no abrió. Antes el spinner
+   * «Cargando fundición…» esperaba a las cinco, o sea a las ~2.200 filas de
+   * productos+existencias, para recién mostrar un tablero que no las usa.
+   *
+   * Ahora se disparan las cinco a la vez —no se pierde nada de paralelismo—
+   * pero el spinner se apaga apenas contesta la primera. El resto termina de
+   * llegar en segundo plano, con la página ya usable.
+   *
+   * `silencioso` es para las recargas de tiempo real: un movimiento de
+   * inventario de otro usuario no puede reemplazar el tablero por un spinner.
+   */
+  const reload = useCallback(async (opts?: { silencioso?: boolean }) => {
+    if (!opts?.silencioso) setLoading(true);
+    const pProducciones = listProducciones(tipo);
+    const pResto = Promise.all([
+      listProductos().catch(() => [] as Producto[]),
+      listExistencias().catch(() => [] as Existencia[]),
+      listAlmacenes().catch(() => [] as Almacen[]),
+      getNombresHornosActivos().catch(() => [] as string[]),
+    ]);
     try {
-      const [prods, pds, exs, alms, hrns] = await Promise.all([
-        listProducciones(tipo),
-        listProductos(),
-        listExistencias().catch(() => [] as Existencia[]),
-        listAlmacenes().catch(() => [] as Almacen[]),
-        getNombresHornosActivos().catch(() => [] as string[]),
-      ]);
-      setProducciones(prods);
-      setProductos(pds);
-      setExistencias(exs);
-      setAlmacenes(alms);
-      setHornos(hrns);
+      setProducciones(await pProducciones);
     } catch (e) {
       toast(e instanceof Error ? e.message : `No se pudo cargar ${cfg.verbo}`, 'error');
     } finally {
       setLoading(false);
     }
+    const [pds, exs, alms, hrns] = await pResto;
+    setProductos(pds);
+    setExistencias(exs);
+    setAlmacenes(alms);
+    setHornos(hrns);
   }, [tipo, cfg.verbo]);
 
   useEffect(() => { void reload(); }, [reload]);
@@ -131,8 +148,14 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error');
     }
   }
-  // Realtime: fundición + sus insumos/almacenes/hornos (multiusuario en vivo).
-  useRealtime(['produccion', 'produccion_materiales', 'produccion_colada', 'produccion_refinacion', 'hornos', 'productos', 'existencias', 'almacenes'], reload);
+  /* Realtime: SOLO las tablas que pinta esta página.
+
+     Antes también escuchaba productos, existencias y almacenes. Como esas tres
+     cambian con CUALQUIER movimiento de inventario de CUALQUIER usuario en
+     CUALQUIER módulo, la fundición se recargaba entera —y mostraba «Cargando
+     fundición…»— varias veces por minuto sin que hubiera pasado nada en
+     fundición. Los modales igual traen lo suyo fresco cuando se abren. */
+  useRealtime(['produccion', 'produccion_materiales', 'produccion_colada', 'produccion_refinacion', 'hornos'], () => { void reload({ silencioso: true }); });
 
   // Filtros (solo aplican a la vista Lista).
   const filtradas = useMemo(() => {

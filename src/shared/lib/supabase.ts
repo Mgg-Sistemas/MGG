@@ -14,7 +14,12 @@ export function getSupabase(): SupabaseClient {
       'Supabase no configurado. Copia .env.example a .env.local y define VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.'
     );
   }
-  if (!client) client = createClient(url, anonKey);
+  /* `detectSessionInUrl: false`: la app usa HashRouter, así que el hash SIEMPRE
+     es una ruta (`#/app/...`), nunca un token. Con el valor por defecto
+     supabase-js parsea ese hash en cada carga buscando un login por enlace que
+     acá no existe (se entra con contraseña o WebAuthn): trabajo y bloqueos al
+     pedo en el arranque. */
+  if (!client) client = createClient(url, anonKey, { auth: { detectSessionInUrl: false } });
   return client;
 }
 

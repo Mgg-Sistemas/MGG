@@ -417,7 +417,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
     setSaving(true);
     try {
       if (itemRes) {
-        const { traslados } = await recibirOrdenDespiezada(
+        const { entradas } = await recibirOrdenDespiezada(
           orden, itemRes.sku,
           {
             kgRecibidos: kgRes,
@@ -433,8 +433,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
           almacenFinal, nota.trim() || null, actor, actorName ?? null,
         );
         notify(
-          `Res despiezada: entraron los cortes a 🏭 ${sedeDeAlmacen(almacenFinal, almacenes)}`
-          + (traslados.length ? ` · ${traslados.length} traslado(s) por autorizar: ${traslados.join(', ')}` : ''),
+          `Res despiezada: ${entradas.map((e) => `${num(e.kg)} kg → 📦 ${e.almacen}`).join(' · ')}`,
           'success', { link: '#/app/inventario' },
         );
         onSaved();

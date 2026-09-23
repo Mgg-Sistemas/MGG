@@ -64,12 +64,28 @@ export function DespieceResForm({
   const addCorte = () => onChange({ ...estado, cortes: [...estado.cortes, { nombre: '', kg: '' }] });
   const delCorte = (i: number) => onChange({ ...estado, cortes: estado.cortes.filter((_, k) => k !== i) });
 
-  const setRep = (i: number, patch: Partial<LineaRepartoUI>) =>
-    onChange({ ...estado, reparto: estado.reparto.map((r, k) => (k === i ? { ...r, ...patch } : r)) });
-  const addRep = () => onChange({ ...estado, reparto: [...estado.reparto, { corte: '', almacen: cocinas[0]?.almacen ?? '', kg: '' }] });
-  const delRep = (i: number) => onChange({ ...estado, reparto: estado.reparto.filter((_, k) => k !== i) });
+  /* El reparto se carga como una MATRIZ: una fila por corte, una columna por
+     cocina. Por dentro sigue siendo la misma lista de líneas (corte, almacén,
+     kg); la celda solo busca la suya y la escribe. Así el analista distribuye
+     de un vistazo —5 kg a Los Pinos, 10 a La Esperanza— sin ir agregando
+     renglones de a uno. */
+  const celda = (corte: string, almacen: string): string =>
+    estado.reparto.find((r) => r.corte === corte && r.almacen === almacen)?.kg ?? '';
+  const setCelda = (corte: string, almacen: string, kg: string) => {
+    const i = estado.reparto.findIndex((r) => r.corte === corte && r.almacen === almacen);
+    if (i >= 0) {
+      const lista = [...estado.reparto];
+      if (kg.trim() === '') lista.splice(i, 1); else lista[i] = { ...lista[i], kg };
+      onChange({ ...estado, reparto: lista });
+      return;
+    }
+    if (kg.trim() === '') return;
+    onChange({ ...estado, reparto: [...estado.reparto, { corte, almacen, kg }] });
+  };
+  /** Cuánto de ese corte ya se repartió a todas las cocinas. */
+  const repartidoDe = (corte: string) =>
+    Math.round(estado.reparto.filter((r) => r.corte === corte).reduce((a, r) => a + n(r.kg), 0) * 10000) / 10000;
 
-  const nombresCortes = calc.cortes.map((c) => c.nombre);
 
   return (
     <div className="card" style={{ margin: '.6rem 0', padding: '.75rem', borderLeft: '3px solid var(--primary)' }}>
@@ -162,29 +178,49 @@ export function DespieceResForm({
         </p>
       )}
 
-      {/* Reparto a las cocinas */}
+      {/* DISTRIBUCIÓN a las cocinas: matriz corte × cocina, en la misma pantalla */}
       {cocinas.length > 0 && calc.cortes.length > 0 && (
         <div style={{ marginTop: '.9rem', paddingTop: '.7rem', borderTop: '1px solid var(--border)' }}>
-          <div style={{ fontWeight: 700, fontSize: '.86rem' }}>🍳 Repartir a las cocinas <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>(opcional)</span></div>
+          <div style={{ fontWeight: 700, fontSize: '.86rem' }}>🍳 Distribución a las cocinas</div>
           <p className="hint muted" style={{ fontSize: '.78rem', margin: '.15rem 0 .5rem' }}>
-            Lo que va a otra cocina sale como <strong>solicitud de traslado</strong>, a autorizar en Salidas — igual que «Repartir mercado».
-            Lo que no repartas <strong>se queda en {almacenDestino || 'el almacén que recibe'}</strong>.
+            Escribí los kg de cada corte que van a cada cocina: <strong>entran directo a su almacén</strong>, con su traza.
+            Lo que no repartas <strong>queda en {almacenDestino || 'el almacén que recibe'}</strong>.
           </p>
-          {estado.reparto.map((r, i) => (
-            <div key={i} style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.35rem' }}>
-              <select className="select" value={r.corte} onChange={(e) => setRep(i, { corte: e.target.value })} style={{ flex: '1 1 160px' }}>
-                <option value="">— corte —</option>
-                {nombresCortes.map((nom) => <option key={nom} value={nom}>{nom}</option>)}
-              </select>
-              <select className="select" value={r.almacen} onChange={(e) => setRep(i, { almacen: e.target.value })} style={{ flex: '1 1 160px' }}>
-                {cocinas.map((c) => <option key={c.almacen} value={c.almacen}>🍳 {c.nombre}</option>)}
-              </select>
-              <input className="input mono" type="number" min={0} step="any" value={r.kg} placeholder="kg"
-                onChange={(e) => setRep(i, { kg: e.target.value })} style={{ width: 100, textAlign: 'right' }} />
-              <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => delRep(i)}>✕</button>
-            </div>
-          ))}
-          <button type="button" className="btn btn-sm btn-ghost" onClick={addRep}>＋ Mandar un corte a una cocina</button>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead>
+                <tr>
+                  <th>Corte</th>
+                  <th style={{ textAlign: 'right' }}>Obtenido</th>
+                  {cocinas.map((c) => <th key={c.almacen} style={{ textAlign: 'right' }}>🍳 {c.nombre}</th>)}
+                  <th style={{ textAlign: 'right' }}>Queda en {almacenDestino || 'el almacén'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {calc.cortes.map((c) => {
+                  const repartido = repartidoDe(c.nombre);
+                  const queda = Math.round((c.kg - repartido) * 10000) / 10000;
+                  return (
+                    <tr key={c.nombre}>
+                      <td>{c.nombre}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{num(c.kg)}</td>
+                      {cocinas.map((k) => (
+                        <td key={k.almacen} style={{ textAlign: 'right' }}>
+                          <input className="input mono" type="number" min={0} step="any" placeholder="0"
+                            value={celda(c.nombre, k.almacen)}
+                            onChange={(e) => setCelda(c.nombre, k.almacen, e.target.value)}
+                            style={{ width: 90, textAlign: 'right' }} />
+                        </td>
+                      ))}
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: queda < -0.01 ? 'var(--danger)' : undefined }}>
+                        {num(queda)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
           {rep.problemas.map((p) => (
             <div key={p} className="card" style={{ borderColor: 'var(--danger)', background: 'rgba(239,79,94,0.08)', margin: '.5rem 0 0', padding: '.5rem .65rem', fontSize: '.82rem' }}>
@@ -193,7 +229,10 @@ export function DespieceResForm({
           ))}
           {rep.cuadra && rep.porCocina.size > 0 && (
             <div className="muted" style={{ fontSize: '.78rem', marginTop: '.4rem' }}>
-              Se crearán <strong>{rep.porCocina.size} traslado(s)</strong>. Queda en {almacenDestino}: {rep.quedaEnOrigen.map((x) => `${num(x.kg)} kg ${x.corte}`).join(', ') || 'nada'}.
+              Entrará a {Array.from(rep.porCocina.entries()).map(([alm, ls]) => (
+                `${cocinas.find((c) => c.almacen === alm)?.nombre ?? alm}: ${ls.map((l) => `${num(l.kg)} kg ${l.corte}`).join(', ')}`
+              )).join(' · ')}.
+              {' '}Queda en {almacenDestino}: {rep.quedaEnOrigen.map((x) => `${num(x.kg)} kg ${x.corte}`).join(', ') || 'nada'}.
             </div>
           )}
         </div>

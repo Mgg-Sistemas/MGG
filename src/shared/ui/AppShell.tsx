@@ -87,16 +87,33 @@ export function AppShell() {
     }
   }
 
-  // Al montar (con sesión activa): pintamos primero el contador (rápido) y
-  // disparamos el scan de stock en segundo plano (no bloquea el render).
+  /* Al montar (con sesión activa): pintamos el contador, que es una consulta
+     chica, y dejamos el escaneo de stock para cuando el navegador esté ocioso.
+
+     El escaneo baja la tabla `productos` ENTERA (más de mil filas, paginadas)
+     para ver qué llegó al mínimo. Lo pagaba TODO usuario en TODO arranque,
+     compitiendo por la conexión justo mientras la primera página pedía sus
+     datos. Sigue corriendo igual; solo deja pasar primero a la página. */
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
     void refreshUnread();
-    scanStockAndNotify()
-      .then(() => { if (!cancelled) void refreshUnread(); })
-      .catch(() => {/* RLS u offline: el contador inicial sigue válido */});
-    return () => { cancelled = true; };
+    const escanear = () => {
+      if (cancelled) return;
+      scanStockAndNotify()
+        .then(() => { if (!cancelled) void refreshUnread(); })
+        .catch(() => {/* RLS u offline: el contador inicial sigue válido */});
+    };
+    const w = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(escanear, { timeout: 8000 });
+      return () => { cancelled = true; w.cancelIdleCallback?.(id); };
+    }
+    const id = window.setTimeout(escanear, 5000);
+    return () => { cancelled = true; window.clearTimeout(id); };
   }, [user?.id]);
 
   // Inicializa el contexto de audio (se "desbloquea" en el primer click/tecla).

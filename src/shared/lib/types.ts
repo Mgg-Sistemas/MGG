@@ -817,8 +817,10 @@ export interface DespieceItem {
   costo_merma: number;
   cortes: CorteDespiezado[];
   reparto: RepartoCorteCocina[];
-  /** Almacén al que entraron los cortes. */
+  /** Almacén que recibió la res (y donde queda lo que no se repartió). */
   almacen: string;
+  /** Dónde terminó cada kilo: lo repartido a cada cocina y lo que quedó acá. */
+  por_almacen?: Array<{ almacen: string; cortes: Array<{ nombre: string; kg: number }> }>;
 }
 
 export interface ItemOrden {

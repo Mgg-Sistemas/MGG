@@ -53,24 +53,35 @@ function PageLoader() {
  */
 function useRoutePrefetch() {
   useEffect(() => {
+    /* De a UNA, encadenadas. Las seis juntas son más de un mega de JavaScript
+       compitiendo por la conexión con el chunk de la página que el usuario sí
+       está esperando: la precarga terminaba retrasando lo que venía a acelerar.
+       Encadenadas dan lo mismo al final y no le pisan la banda a nadie. */
+    const rutas = [
+      () => import('./modules/inventario/InventarioPage'),
+      () => import('./modules/pedidos/PedidosPage'),
+      () => import('./modules/tesoreria/TesoreriaPage'),
+      () => import('./modules/salidas/SalidasPage'),
+      () => import('./modules/acopio/AcopioPage'),
+      () => import('./modules/recepciones/RecepcionesPage'),
+    ];
+    let cancelado = false;
     const prefetch = () => {
-      void import('./modules/inventario/InventarioPage');
-      void import('./modules/pedidos/PedidosPage');
-      void import('./modules/tesoreria/TesoreriaPage');
-      void import('./modules/salidas/SalidasPage');
-      void import('./modules/acopio/AcopioPage');
-      void import('./modules/recepciones/RecepcionesPage');
+      void rutas.reduce(
+        (cadena, cargar) => cadena.then(() => (cancelado ? undefined : cargar().then(() => undefined).catch(() => undefined))),
+        Promise.resolve<void>(undefined),
+      );
     };
     const w = window as unknown as {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
       cancelIdleCallback?: (id: number) => void;
     };
     if (w.requestIdleCallback) {
-      const id = w.requestIdleCallback(prefetch, { timeout: 4000 });
-      return () => w.cancelIdleCallback?.(id);
+      const id = w.requestIdleCallback(prefetch, { timeout: 6000 });
+      return () => { cancelado = true; w.cancelIdleCallback?.(id); };
     }
-    const id = window.setTimeout(prefetch, 2500);
-    return () => window.clearTimeout(id);
+    const id = window.setTimeout(prefetch, 4000);
+    return () => { cancelado = true; window.clearTimeout(id); };
   }, []);
 }
 

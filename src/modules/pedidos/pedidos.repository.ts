@@ -2043,7 +2043,7 @@ export async function recibirOrdenParcial(
 export interface DestinoCorte {
   corte: string;
   cocinaNombre: string;
-  /** Almacén de esa cocina: es adonde va el traslado. */
+  /** Almacén de esa cocina: es adonde entra el corte. */
   almacen: string;
   kg: number;
 }
@@ -2053,7 +2053,7 @@ export interface RecepcionDespiezada {
   kgRecibidos: number;
   cortes: CorteDespiece[];
   mermaKg: number;
-  /** Lo que se manda a otras cocinas (sale como solicitud de traslado). */
+  /** Cuánto de cada corte va a cada cocina. Entra directo al almacén de esa cocina. */
   reparto: DestinoCorte[];
 }
 
@@ -2066,9 +2066,15 @@ export interface RecepcionDespiezada {
  * escrita en la orden —es trazabilidad de la compra— pero no entra a ningún
  * almacén, porque no se puede cocinar.
  *
- * Lo que va a OTRA cocina no se mueve acá: sale como solicitud de traslado,
- * que alguien autoriza y alguien ejecuta, igual que el «repartir mercado» que
- * ya se usa. Mover stock entre sedes sin ese paso saltearía el control.
+ * La DISTRIBUCIÓN se hace en la misma pantalla y entra directo: cada corte se
+ * parte entre las cocinas que se indiquen y lo que no se reparte queda en el
+ * almacén que recibió. Cada pedazo genera su propia entrada de inventario,
+ * con el mismo costo por kg y con la orden como referencia, así la traza dice
+ * de qué compra y de qué res salió cada kilo.
+ *
+ * Antes el reparto salía como solicitud de traslado a autorizar. Se cambió a
+ * pedido del usuario: el analista de compras distribuye en el acto, desde una
+ * sola pantalla, y el stock queda donde de verdad está la carne.
  */
 export async function recibirOrdenDespiezada(
   o: Orden,
@@ -2078,7 +2084,7 @@ export async function recibirOrdenDespiezada(
   nota: string | null,
   actorEmail: string,
   actorName: string | null,
-): Promise<{ orden: Orden; traslados: string[] }> {
+): Promise<{ orden: Orden; entradas: Array<{ almacen: string; kg: number }> }> {
   if (!['por_recibir', 'cuenta_abierta', 'pagada', 'oc_emitida', 'aprobada'].includes(o.estado))
     throw new Error('La orden no está en un estado recibible.');
   if (o.recibida_en) throw new Error('Esta orden ya fue recibida.');
@@ -2112,39 +2118,61 @@ export async function recibirOrdenDespiezada(
   const rep = calcularReparto(calc.cortes, d.reparto.map((r) => ({ corte: r.corte, cocinaId: r.almacen, kg: r.kg })));
   if (!rep.cuadra) throw new Error(rep.problemas.join(' '));
 
-  // Cada corte entra como su propio producto. Si la ficha no existe se crea:
-  // el usuario escribió el nombre de un corte nuevo y ese nombre manda.
+  /* A dónde va cada kilo: lo repartido a cada cocina y lo que queda en el
+     almacén que recibió. Una entrada de inventario por cada pedazo. */
   const idsPorCorte = new Map<string, string>();
+  const porAlmacen = new Map<string, Map<string, number>>();   // almacén → corte → kg
+  const sumar = (almacen: string, corte: string, kg: number) => {
+    if (kg <= 0) return;
+    const m = porAlmacen.get(almacen) ?? new Map<string, number>();
+    m.set(corte, Math.round(((m.get(corte) ?? 0) + kg) * 10000) / 10000);
+    porAlmacen.set(almacen, m);
+  };
+  for (const [almacenCocina, lineas] of rep.porCocina) for (const l of lineas) sumar(almacenCocina, l.corte, l.kg);
+  for (const q of rep.quedaEnOrigen) sumar(destino, q.corte, q.kg);
+
+  // Las fichas primero: un corte nuevo se crea una sola vez, aunque vaya a tres cocinas.
   for (const c of calc.cortes) {
-    const productoId = c.productoId || await fichaDeCorte(c.nombre, item.unidad ?? 'KILOGRAMO', actorEmail);
-    idsPorCorte.set(c.nombre, productoId);
+    idsPorCorte.set(c.nombre, c.productoId || await fichaDeCorte(c.nombre, item.unidad ?? 'KILOGRAMO', actorEmail));
+  }
+  const costoDe = new Map(calc.cortes.map((c) => [c.nombre, c.costoUnitario]));
 
-    const { data: exRow } = await supabase.from('existencias')
-      .select('stock, costo_promedio').eq('producto_id', productoId).eq('almacen', destino).maybeSingle();
-    const stockAntes = Number(exRow?.stock) || 0;
-    const costoAntes = Number(exRow?.costo_promedio) || 0;
-    const stockDespues = Math.round((stockAntes + c.kg) * 10000) / 10000;
-    const pmp = stockDespues > 0
-      ? Number(((stockAntes * costoAntes + c.kg * c.costoUnitario) / stockDespues).toFixed(4))
-      : c.costoUnitario;
+  const entradas: Array<{ almacen: string; kg: number }> = [];
+  for (const [almacen, cortes] of porAlmacen) {
+    let kgAlmacen = 0;
+    for (const [nombre, kg] of cortes) {
+      const productoId = idsPorCorte.get(nombre) as string;
+      const costoUnitario = costoDe.get(nombre) ?? calc.costoPorKg;
 
-    const { error: mErr } = await supabase.from('movimientos').insert({
-      producto_id: productoId, tipo: 'entrada', delta: c.kg,
-      stock_antes: stockAntes, stock_despues: stockDespues,
-      actor: actorEmail, actor_name: actorName,
-      ref_tipo: 'orden', ref_id: o.id, ref_codigo: o.codigo, almacen: destino,
-      proveedor_id: o.proveedor_id,
-      precio_unitario: c.costoUnitario, costo_promedio: pmp,
-      detalle: `Despiece de ${item.nombre} (${kgRec} kg): ${c.kg} kg de ${c.nombre} @ $${c.costoUnitario.toFixed(4)} → ${destino}`,
-    });
-    if (mErr) throw mErr;
+      const { data: exRow } = await supabase.from('existencias')
+        .select('stock, costo_promedio').eq('producto_id', productoId).eq('almacen', almacen).maybeSingle();
+      const stockAntes = Number(exRow?.stock) || 0;
+      const costoAntes = Number(exRow?.costo_promedio) || 0;
+      const stockDespues = Math.round((stockAntes + kg) * 10000) / 10000;
+      const pmp = stockDespues > 0
+        ? Number(((stockAntes * costoAntes + kg * costoUnitario) / stockDespues).toFixed(4))
+        : costoUnitario;
 
-    const { error: exErr } = await supabase.from('existencias').upsert(
-      { producto_id: productoId, almacen: destino, stock: stockDespues, costo_promedio: pmp, updated_at: new Date().toISOString() },
-      { onConflict: 'producto_id,almacen' },
-    );
-    if (exErr) throw exErr;
-    await supabase.from('productos').update({ precio: c.costoUnitario, precio_promedio: pmp }).eq('id', productoId);
+      const { error: mErr } = await supabase.from('movimientos').insert({
+        producto_id: productoId, tipo: 'entrada', delta: kg,
+        stock_antes: stockAntes, stock_despues: stockDespues,
+        actor: actorEmail, actor_name: actorName,
+        ref_tipo: 'orden', ref_id: o.id, ref_codigo: o.codigo, almacen,
+        proveedor_id: o.proveedor_id,
+        precio_unitario: costoUnitario, costo_promedio: pmp,
+        detalle: `Despiece de ${item.nombre} (${kgRec} kg): ${kg} kg de ${nombre} @ ${costoUnitario.toFixed(4)} → ${almacen}`,
+      });
+      if (mErr) throw mErr;
+
+      const { error: exErr } = await supabase.from('existencias').upsert(
+        { producto_id: productoId, almacen, stock: stockDespues, costo_promedio: pmp, updated_at: new Date().toISOString() },
+        { onConflict: 'producto_id,almacen' },
+      );
+      if (exErr) throw exErr;
+      await supabase.from('productos').update({ precio: costoUnitario, precio_promedio: pmp }).eq('id', productoId);
+      kgAlmacen = Math.round((kgAlmacen + kg) * 10000) / 10000;
+    }
+    entradas.push({ almacen, kg: kgAlmacen });
   }
 
   // La orden guarda el despiece completo: es la trazabilidad de la compra.
@@ -2158,6 +2186,10 @@ export async function recibirOrdenDespiezada(
         cortes: calc.cortes.map((c) => ({ nombre: c.nombre, kg: c.kg, costo_unitario: c.costoUnitario, subtotal: c.subtotal, producto_id: idsPorCorte.get(c.nombre) ?? null })),
         reparto: d.reparto.filter((r) => Number(r.kg) > 0),
         almacen: destino,
+        // Cuánto quedó en cada almacén: es lo que sale en el PDF de la compra.
+        por_almacen: Array.from(porAlmacen.entries()).map(([almacen, cortes]) => ({
+          almacen, cortes: Array.from(cortes.entries()).map(([nombre, kg]) => ({ nombre, kg })),
+        })),
       },
     }
     : { ...it, cantidad_recibida: 0 });
@@ -2181,26 +2213,7 @@ export async function recibirOrdenDespiezada(
   }).eq('id', o.id).select('*').single();
   if (error) throw error;
 
-  // Lo de las otras cocinas: una solicitud de traslado por cocina, a autorizar.
-  // Si esto falla, la recepción ya quedó hecha: se avisa y se puede repartir a
-  // mano desde Cocina → Repartir mercado, sin volver a recibir nada.
-  const traslados: string[] = [];
-  for (const [almacenCocina, lineas] of rep.porCocina) {
-    const { crearSolicitudSalida } = await import('@/modules/salidas/salidas.repository');
-    const sol = await crearSolicitudSalida({
-      scope: 'traslado', tipo: 'material',
-      solicitante: 'COCINA', almacenOrigen: destino, almacenDestino: almacenCocina,
-      motivo: `Despiece de ${item.nombre} · ${o.oc_codigo ?? o.codigo}`,
-      items: lineas.map((l) => ({
-        producto_id: idsPorCorte.get(l.corte) as string,
-        producto_nombre: l.corte, cantidad: l.kg,
-        precio_unit: calc.costoPorKg, unidad: 'KILOGRAMO', almacen: destino,
-      })),
-      actor: actorEmail, actorName,
-    });
-    traslados.push(sol.codigo);
-  }
-  return { orden: data as Orden, traslados };
+  return { orden: data as Orden, entradas };
 }
 
 /** La ficha de un corte: la que ya existe con ese nombre, o una nueva. */

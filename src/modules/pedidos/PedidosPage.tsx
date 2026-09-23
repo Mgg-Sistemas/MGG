@@ -13,6 +13,9 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { opcionesRecepcion, destinoRecepcionPorUsuario } from '@/modules/inventario/sectorizacion';
+import { esDespiezable } from '@/modules/inventario/despieceRes';
+import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece, type CocinaDestino } from '@/modules/inventario/DespieceResForm';
+import { listCocinas } from '@/modules/cocina/cocina.repository';
 import {
   listAlertasMercadoPendientes, marcarTodasAtendidas, type AlertaMercado,
 } from '@/modules/cocina/alertasMercado.repository';
@@ -58,6 +61,8 @@ import {
   nextCodigo,
   nextCodigoServicio,
   recibirOrdenParcial,
+  recibirOrdenDespiezada,
+  type RecepcionDespiezada,
   esServicioOrden,
   enviarCreditoARecepcion,
   listAbonos,
@@ -1054,13 +1059,28 @@ export function PedidosPage() {
         <RecepcionParcialModal
           orden={modal.orden}
           onClose={() => setModal({ kind: 'none' })}
-          onConfirm={async (recepciones, nota, almacenDestino, sinInventario) => {
+          onConfirm={async (recepciones, nota, almacenDestino, sinInventario, despiece) => {
             try {
+              const quien = usuario?.email ?? user?.email ?? 'sistema';
+              // RES EN CANAL: entra despiezada en cortes y se reparte a las cocinas.
+              if (despiece) {
+                const { entradas } = await recibirOrdenDespiezada(
+                  modal.orden, despiece.skuRes, despiece.datos,
+                  almacenDestino, nota, quien, usuario?.nombre ?? null,
+                );
+                notify(
+                  `Res despiezada · ${modal.orden.codigo} · ${entradas.map((e) => `${num(e.kg)} kg → 📦 ${e.almacen}`).join(' · ')}`,
+                  'success', { link: '#/app/inventario' },
+                );
+                setModal({ kind: 'none' });
+                await refresh();
+                return;
+              }
               await recibirOrdenParcial(
                 modal.orden,
                 recepciones,
                 nota,
-                usuario?.email ?? user?.email ?? 'sistema',
+                quien,
                 usuario?.nombre ?? null,
                 almacenDestino,
                 sinInventario,
@@ -1694,7 +1714,12 @@ function RecepcionParcialModal({
 }: {
   orden: Orden;
   onClose: () => void;
-  onConfirm: (recepciones: { sku: string; cantidad_recibida: number }[], nota: string | null, almacenDestino: string, sinInventario: boolean) => Promise<void> | void;
+  /**
+   * `despiece` viene solo cuando la orden trae una RES EN CANAL: en ese caso
+   * la res no entra como res, entra despiezada en cortes (y se reparte a las
+   * cocinas). Lo demás se recibe como siempre.
+   */
+  onConfirm: (recepciones: { sku: string; cantidad_recibida: number }[], nota: string | null, almacenDestino: string, sinInventario: boolean, despiece?: { skuRes: string; datos: RecepcionDespiezada }) => Promise<void> | void;
 }) {
   const [recs, setRecs] = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {};
@@ -1722,6 +1747,22 @@ function RecepcionParcialModal({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /* Una RES EN CANAL no entra al inventario como res: entra despiezada en
+     cortes. Esta pantalla es la OTRA puerta de recepción (la de Pedidos); la
+     de Inventario ya lo hacía, y recibir por acá se saltaba el despiece. */
+  const itemRes = orden.items.find((it) => esDespiezable(it.nombre));
+  const [despiece, setDespiece] = useState<EstadoDespiece>(despieceInicial);
+  const [cocinas, setCocinas] = useState<CocinaDestino[]>([]);
+  useEffect(() => {
+    if (!itemRes) return;
+    let vivo = true;
+    listCocinas()
+      .then((cs) => { if (vivo) setCocinas(cs.filter((c) => c.almacenNombre).map((c) => ({ nombre: c.cocina.nombre, almacen: c.almacenNombre as string }))); })
+      .catch(() => { if (vivo) setCocinas([]); });
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemRes?.sku]);
 
   useEffect(() => {
     if (esServicio) return; // los servicios no eligen almacén
@@ -1752,6 +1793,12 @@ function RecepcionParcialModal({
   }
 
 
+  // Las cocinas a las que tiene sentido MANDAR: no la del almacén que recibe,
+  // porque ahí ya queda todo lo que no se reparta.
+  const cocinasDestino = cocinas.filter((c) => c.almacen !== almacen);
+  const kgRes = itemRes ? Math.max(0, Number(recs[itemRes.sku]) || 0) : 0;
+  const costoRes = itemRes ? Math.round(kgRes * (Number(itemRes.precio) || 0) * 100) / 100 : 0;
+
   const recibidoTotal = orden.items.reduce((a, it) => a + (Number(recs[it.sku]) || 0) * Number(it.precio), 0);
   const hayDiferencia = orden.items.some((it) => (Number(recs[it.sku]) || 0) < Number(it.cantidad));
 
@@ -1761,8 +1808,30 @@ function RecepcionParcialModal({
     if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
     if (!esServicio && !almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
+    // La res se recibe despiezada: los kg de los cortes + la merma tienen que
+    // dar exactamente lo recibido, o el inventario queda mintiendo.
+    let despieceEnvio: { skuRes: string; datos: RecepcionDespiezada } | undefined;
+    if (itemRes && kgRes > 0 && !sinInv) {
+      const v = despieceValido(despiece, kgRes, costoRes);
+      if (!v.ok) { setError(v.motivo); return; }
+      const n = (x: string) => Number(String(x).replace(',', '.')) || 0;
+      despieceEnvio = {
+        skuRes: itemRes.sku,
+        datos: {
+          kgRecibidos: kgRes,
+          cortes: despiece.cortes.map((c) => ({ nombre: c.nombre, kg: n(String(c.kg)) })),
+          mermaKg: n(String(despiece.merma)),
+          reparto: despiece.reparto
+            .filter((r) => r.corte && r.almacen && n(String(r.kg)) > 0)
+            .map((r) => ({
+              corte: r.corte, almacen: r.almacen, kg: n(String(r.kg)),
+              cocinaNombre: cocinas.find((c) => c.almacen === r.almacen)?.nombre ?? r.almacen,
+            })),
+        },
+      };
+    }
     setSaving(true);
-    try { await onConfirm(recepciones, nota.trim() || null, almacen.trim(), sinInv); }
+    try { await onConfirm(recepciones, nota.trim() || null, almacen.trim(), sinInv, despieceEnvio); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo confirmar'); setSaving(false); }
   }
 
@@ -1833,6 +1902,27 @@ function RecepcionParcialModal({
           <strong> acá gana su ubicación</strong>.
         </small>
       </div>
+      )}
+
+      {/* El despiece va DESPUÉS de la sede: hasta que no se elige, no hay
+          almacén al que mandar lo que no se reparte a las cocinas. */}
+      {itemRes && kgRes > 0 && !sinInv && !esServicio && (
+        almacen ? (
+          <DespieceResForm
+            nombreRes={itemRes.nombre ?? itemRes.sku}
+            kgRecibidos={kgRes}
+            precioUnitario={Number(itemRes.precio) || 0}
+            almacenDestino={almacen}
+            cocinas={cocinasDestino}
+            estado={despiece}
+            onChange={setDespiece}
+          />
+        ) : (
+          <div className="card" style={{ borderColor: 'var(--warning)', background: 'rgba(245,177,51,0.08)', margin: '.6rem 0 0', padding: '.55rem .7rem', fontSize: '.84rem' }}>
+            🥩 <strong>{itemRes.nombre}</strong> no entra como res: entra despiezada en cortes.
+            <strong> Elegí primero la sede</strong> y acá se abre el despiece y la distribución a las cocinas.
+          </div>
+        )
       )}
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>

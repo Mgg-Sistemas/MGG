@@ -284,6 +284,68 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
 
+  /* ─── 6. Despiece ───────────────────────────────────────
+     Una RES EN CANAL no entra al inventario como res: entra convertida en
+     cortes. El PDF de la compra tiene que decir en qué se convirtió y a qué
+     almacén fue cada kilo, o la traza se corta justo donde importa. */
+  const conDespiece = (orden.items ?? []).filter((it) => it.despiece);
+  for (const it of conDespiece) {
+    const d = it.despiece as NonNullable<typeof it.despiece>;
+    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+    y = (doc.lastAutoTable?.finalY ?? y) + 22;
+    if (y > doc.internal.pageSize.getHeight() - 200) { doc.addPage(); y = MARGIN; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(20);
+    doc.text(`6. Despiece de ${it.nombre}`, MARGIN, y);
+    y += 14;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(90);
+    doc.text(
+      `Llegaron ${d.kg_recibidos} kg. El costo se reparte entre los kilos útiles, así que la merma encarece el corte: ${money(d.costo_por_kg)}/kg.`,
+      MARGIN, y, { maxWidth: doc.internal.pageSize.getWidth() - MARGIN * 2 },
+    );
+    y += 16;
+    doc.setTextColor(20);
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Corte obtenido', 'Kg', '$/kg', 'Subtotal']],
+      body: (d.cortes ?? []).map((c) => [c.nombre, String(c.kg), money(c.costo_unitario), money(c.subtotal)]),
+      foot: [
+        ['Merma (no entra a ningún almacén)', String(d.merma_kg ?? 0), '', money(d.costo_merma ?? 0)],
+        ['TOTAL', String((d.cortes ?? []).reduce((a, c) => a + (Number(c.kg) || 0), 0)), '', money(d.costo_total)],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 4 },
+      headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+      footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    });
+
+    const reparto = d.por_almacen ?? [];
+    if (reparto.length) {
+      // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+      y = (doc.lastAutoTable?.finalY ?? y) + 12;
+      autoTable(doc, {
+        startY: y,
+        head: [['Entró a', 'Cortes', 'Kg']],
+        body: reparto.map((r) => [
+          r.almacen,
+          r.cortes.map((c) => `${c.kg} kg ${c.nombre}`).join(', '),
+          String(Math.round(r.cortes.reduce((a, c) => a + (Number(c.kg) || 0), 0) * 10000) / 10000),
+        ]),
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [55, 55, 55], textColor: 255, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 150 }, 2: { halign: 'right', cellWidth: 60 } },
+        margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      });
+    }
+  }
+
   // ─── Footer ────────────────────────────────────────────
   const pageH = doc.internal.pageSize.getHeight();
   doc.setFontSize(8);

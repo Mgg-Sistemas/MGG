@@ -116,31 +116,53 @@ export function SalidasPage() {
   const [trasDin, setTrasDin] = useState<MovimientoCaja[]>([]);
   const [solicitudes, setSolicitudes] = useState<SolicitudSalida[]>([]);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  /**
+   * Carga la página.
+   *
+   * El tablero de trámite, que es lo que se ve al entrar, solo necesita las
+   * SOLICITUDES y los almacenes. Todo lo demás —productos y existencias para
+   * los formularios, el histórico de movimientos, las cajas— vive en modales o
+   * en la pestaña «Historial». Antes el spinner esperaba a las nueve consultas
+   * (unas 2.200 filas de productos+existencias incluidas) para pintar un
+   * tablero que no usa ninguna.
+   *
+   * Se disparan todas juntas igual; lo que cambia es que la pantalla se libera
+   * con la primera y el resto aterriza detrás.
+   */
+  const reload = useCallback(async (opts?: { silencioso?: boolean }) => {
+    if (!opts?.silencioso) setLoading(true);
+    const pPrimero = Promise.all([
+      listSolicitudesSalida().catch(() => [] as SolicitudSalida[]),
+      listAlmacenes().catch(() => [] as Almacen[]),
+    ]);
+    const pResto = Promise.all([
+      listProductos().catch(() => [] as Producto[]),
+      listExistencias().catch(() => [] as Existencia[]),
+      listCajas().catch(() => [] as Caja[]),
+      listSalidasMaterial().catch(() => [] as Movimiento[]),
+      listTrasladosMaterial().catch(() => [] as Movimiento[]),
+      listSalidasDinero().catch(() => [] as MovimientoCaja[]),
+      listTrasladosDinero().catch(() => [] as MovimientoCaja[]),
+    ]);
     try {
-      const [pds, exs, alms, cjs, sm, tm, sd, td, sols] = await Promise.all([
-        listProductos(),
-        listExistencias().catch(() => [] as Existencia[]),
-        listAlmacenes().catch(() => [] as Almacen[]),
-        listCajas().catch(() => [] as Caja[]),
-        listSalidasMaterial().catch(() => [] as Movimiento[]),
-        listTrasladosMaterial().catch(() => [] as Movimiento[]),
-        listSalidasDinero().catch(() => [] as MovimientoCaja[]),
-        listTrasladosDinero().catch(() => [] as MovimientoCaja[]),
-        listSolicitudesSalida().catch(() => [] as SolicitudSalida[]),
-      ]);
-      setProductos(pds); setExistencias(exs); setAlmacenes(alms); setCajas(cjs);
-      setSalMat(sm); setTrasMat(tm); setSalDin(sd); setTrasDin(td); setSolicitudes(sols);
+      const [sols, alms] = await pPrimero;
+      setSolicitudes(sols); setAlmacenes(alms);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo cargar el módulo', 'error');
     } finally {
       setLoading(false);
     }
+    const [pds, exs, cjs, sm, tm, sd, td] = await pResto;
+    setProductos(pds); setExistencias(exs); setCajas(cjs);
+    setSalMat(sm); setTrasMat(tm); setSalDin(sd); setTrasDin(td);
   }, []);
 
-  // Realtime multiusuario: stock, cajas y solicitudes se reflejan al instante.
-  useRealtime(['movimientos', 'movimientos_caja', 'cajas', 'productos', 'existencias'], () => { void reload(); });
+  /* Realtime multiusuario. Dos arreglos acá:
+     · `solicitudes_salida` FALTABA, que es justo la tabla del tablero: crear o
+       aprobar una solicitud no se reflejaba sola en la pantalla de los demás.
+     · la recarga es SILENCIOSA: antes cada movimiento de inventario ajeno
+       devolvía la pantalla a «Cargando…» y hacía parpadear el tablero. */
+  useRealtime(['solicitudes_salida', 'movimientos', 'movimientos_caja', 'cajas'], () => { void reload({ silencioso: true }); });
   useEffect(() => { void reload(); }, [reload]);
 
 
