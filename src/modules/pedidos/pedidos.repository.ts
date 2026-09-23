@@ -2604,7 +2604,8 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
    scope 'unidad_solicitante' = unidad/área que solicita
    ───────────────────────────────────────────── */
 /** 'sede_destino' = sedes / centros de acopio a los que va una salida de material (catálogo de Salidas). */
-export type ScopeCatalogoPedido = 'clasificacion' | 'unidad_solicitante' | 'servicio_categoria' | 'servicio_tipo' | 'sede_destino';
+/** 'proveedor_coque' = de quién viene el coque que entra al horno (catálogo de Producción). */
+export type ScopeCatalogoPedido = 'clasificacion' | 'unidad_solicitante' | 'servicio_categoria' | 'servicio_tipo' | 'sede_destino' | 'proveedor_coque';
 export interface CatalogoPedido {
   id: string;
   scope: ScopeCatalogoPedido;

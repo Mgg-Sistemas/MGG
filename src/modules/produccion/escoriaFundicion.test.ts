@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { kgDeEscoria, ingresaEscoria, detalleEscoria, NOMBRE_ESCORIA, CATEGORIA_ESCORIA } from './escoriaFundicion';
+import {
+  kgDeEscoria, ingresaEscoria, detalleEscoria, detalleEscoriaRefinacion,
+  NOMBRE_ESCORIA, NOMBRE_ESCORIA_REFINACION, CATEGORIA_ESCORIA,
+} from './escoriaFundicion';
 
 describe('la escoria de una colada vuelve al inventario', () => {
   it('entra con los kg que se cargaron', () => {
@@ -35,8 +38,22 @@ describe('la escoria de una colada vuelve al inventario', () => {
     expect(detalleEscoria(null)).toContain('una colada');
   });
 
-  it('la ficha es materia prima, para poder volver a fundirla', () => {
+  it('el kardex dice de qué refinación vino el dross', () => {
+    expect(detalleEscoriaRefinacion(3)).toContain('refinación N° 3');
+    expect(detalleEscoriaRefinacion(null)).toContain('una refinación');
+  });
+
+  it('la ficha vive con la casiterita, para poder volver a fundirla', () => {
     expect(NOMBRE_ESCORIA).toBe('ESCOREA DE FUNDICION');
-    expect(CATEGORIA_ESCORIA).toBe('MP');
+    // MINERALES es la categoría real del catálogo (la de ESCOREA DE CASITERITA).
+    // Antes decía 'MP', que no existe: la ficha habría nacido en una categoría
+    // fantasma, fuera de los filtros del inventario.
+    expect(CATEGORIA_ESCORIA).toBe('MINERALES');
+  });
+
+  it('el horno y la olla no comparten ficha', () => {
+    // Leyes de Sn muy distintas: mezclarlas rompe el reporte de recuperación.
+    expect(NOMBRE_ESCORIA_REFINACION).toBe('ESCOREA DE REFINACION');
+    expect(NOMBRE_ESCORIA_REFINACION).not.toBe(NOMBRE_ESCORIA);
   });
 });

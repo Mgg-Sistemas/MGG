@@ -13,6 +13,7 @@ import type { CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.r
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
 import { listaPrecintos, precintosDeColada, resumenPrecintos } from './precintosOrigen';
 import { HoraInput } from '@/shared/ui/HoraInput';
+import { CampoCatalogo } from '@/shared/ui/CampoCatalogo';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -444,6 +445,15 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
           <label>Modo de carga al horno</label>
           <Chips value={datos.carga_horno} options={['Manual (pala)', 'Minicargador (mini shower)']} onChange={(v) => set('carga_horno', v)} />
         </div>
+        {/* El proveedor del coque ya salía en el PDF de la colada, pero no había
+            dónde cargarlo: el reporte lo imprimía siempre vacío. */}
+        <CampoCatalogo
+          scope="proveedor_coque"
+          label="Proveedor del coque"
+          value={datos.coque_proveedor}
+          onChange={(v) => set('coque_proveedor', v)}
+          placeholderNuevo="¿Otro proveedor? Escribilo y añadilo"
+          ayuda="Sale en el PDF de la colada. Lo que agregues queda para las próximas y también aparece en Refinación." />
       </div>
 
       {/* Temperaturas y tiempos — carga */}

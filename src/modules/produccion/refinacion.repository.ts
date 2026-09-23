@@ -11,6 +11,11 @@ import type { ColadaDatos, RefinacionDatos, ProduccionRefinacion } from '@/share
 import { precintosDeColada, precintosDeRefinacion } from './precintosOrigen';
 import { finalizarProduccion } from './produccion.repository';
 import { conDisponibleReal, type StockAlmacen } from './disponibleRefinar';
+import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import {
+  NOMBRE_ESCORIA_REFINACION, asegurarFichaEscoria, detalleEscoriaRefinacion,
+  ingresaEscoria, kgDeEscoria,
+} from './escoriaFundicion';
 
 const TABLE = 'produccion_refinacion';
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -352,5 +357,47 @@ export async function finalizarRefinacionConResultados(
   }
 
   // Entra el estaño refinado a inventario (recalcula PMP) y marca la orden finalizada.
+  // Va PRIMERO: si la refinación ya estaba finalizada, esto lanza error y así el
+  // dross no se puede ingresar dos veces por una segunda confirmación.
   await finalizarProduccion(produccionId, actor, actorName ?? null);
+
+  // El dross tampoco es descarte: vuelve al horno. Entra al inventario como
+  // materia prima, igual que la escoria de la colada pero en su propia ficha.
+  await ingresarDrossAlInventario(produccionId, resultados, actor, actorName ?? null);
+}
+
+/**
+ * Ingresa al inventario el dross / escoria obtenido en una refinación.
+ *
+ * Mismo criterio que la escoria de la colada: «mejor esfuerzo» (la refinación ya
+ * cerró y el estaño ya entró, un problema acá no puede tumbar el cierre) y SIN
+ * COSTO, porque lo que costó el proceso ya está cargado en el estaño refinado.
+ */
+async function ingresarDrossAlInventario(
+  produccionId: string, resultados: RefinacionResultados, actor: string, actorName: string | null,
+): Promise<void> {
+  try {
+    const { data: prod } = await supabase.from('produccion')
+      .select('sumar_inventario').eq('id', produccionId).maybeSingle();
+    if (!ingresaEscoria(resultados.dross_kg, (prod as { sumar_inventario?: boolean } | null)?.sumar_inventario)) return;
+
+    const ficha = await asegurarFichaEscoria(NOMBRE_ESCORIA_REFINACION);
+    if (!ficha) return;
+
+    const refi = await getRefinacion(produccionId);
+    await registrarMovimiento({
+      producto_id: ficha.id,
+      tipo: 'entrada',
+      delta: kgDeEscoria(resultados.dross_kg),
+      almacen: (ficha.almacen || 'General').trim() || 'General',
+      actor,
+      actor_name: actorName,
+      ref_tipo: 'produccion',
+      ref_id: produccionId,
+      precio_unitario: 0,
+      detalle: detalleEscoriaRefinacion(refi?.refinacion_num ?? null),
+    });
+  } catch {
+    // Silencio deliberado: ver el comentario de arriba.
+  }
 }

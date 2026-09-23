@@ -251,6 +251,7 @@ async function construir(prod: Produccion, det: Detalle) {
       ['Responsable', V(r.responsable), 'Turno', V(r.turno)],
       ['Horno / olla', V(r.n_horno_olla), 'Pureza inicial', pct(r.pureza_inicial)],
       ['Método de agitación', V(r.metodo_agitacion), 'Desespumado', V(r.desespumado)],
+      ['Proveedor del coque', V(r.coque_proveedor), '', ''],
       ['Estaño crudo (kg)', kg(r.estano_crudo_kg), 'Jornada (h)', r.jornada_horas == null ? '—' : `${num(Number(r.jornada_horas))} h`],
       ['Inicio de refinación', V(r.hora_inicio_refinacion), 'Fin de refinación', V(r.hora_fin_refinacion)],
       ['Inicio de vaciado', V(horaLegible(r.hora_inicio_vaciado)), 'Temperatura de colada', grados(r.temp_colada)],

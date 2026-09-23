@@ -162,6 +162,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
   barra('PARÁMETROS DE OPERACIÓN Y PROCESO');
   ficha([
     ['Método de agitación', txt(d.metodo_agitacion), 'Sistema de desespumado', txt(d.desespumado)],
+    ['Proveedor del coque', txt(d.coque_proveedor), '', ''],
   ]);
 
   // ── CONTROL DE TEMPERATURA Y ETAPAS ──

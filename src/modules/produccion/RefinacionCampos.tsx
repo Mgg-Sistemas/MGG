@@ -12,6 +12,7 @@ import type { ColadaFinalizada } from './refinacion.repository';
 import { calcJornadaHoras, fmtJornada } from './colada.repository';
 import { listaPrecintos, resumenPrecintos } from './precintosOrigen';
 import { HoraInput } from '@/shared/ui/HoraInput';
+import { CampoCatalogo } from '@/shared/ui/CampoCatalogo';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 let _manualSeq = 0;
@@ -333,6 +334,13 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
           <label>Sistema de desespumado / descoriado</label>
           <Chips value={datos.desespumado} options={['Raspado manual de dross', 'Separador mecánico']} onChange={(v) => set('desespumado', v)} />
         </div>
+        <CampoCatalogo
+          scope="proveedor_coque"
+          label="Proveedor del coque"
+          value={datos.coque_proveedor}
+          onChange={(v) => set('coque_proveedor', v)}
+          placeholderNuevo="¿Otro proveedor? Escribilo y añadilo"
+          ayuda="Sale en el PDF de la refinación. Es el mismo catálogo que usa Fundición." />
       </div>
 
       {/* Jornada de refinación (inicio/fin + total automático) */}

@@ -8,7 +8,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { ColadaDatos, ProduccionColada } from '@/shared/lib/types';
 import { finalizarProduccion } from './produccion.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import { NOMBRE_ESCORIA, detalleEscoria, ingresaEscoria, kgDeEscoria } from './escoriaFundicion';
+import { NOMBRE_ESCORIA, asegurarFichaEscoria, detalleEscoria, ingresaEscoria, kgDeEscoria } from './escoriaFundicion';
 
 const TABLE = 'produccion_colada';
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -296,6 +296,10 @@ export async function finalizarColadaConResultados(
  * Es «mejor esfuerzo»: la colada ya se finalizó y el estaño ya entró, así que un
  * problema acá no puede tumbar el cierre. Si falla, queda para cargarla a mano
  * con una entrada normal — pero nunca deja la colada a medio finalizar.
+ *
+ * Lo que YA NO se acepta en silencio es que falte la ficha: antes, si el catálogo
+ * no tenía «ESCOREA DE FUNDICION», esto se rendía y la escoria se perdía sin
+ * dejar rastro. Ahora la ficha se crea.
  */
 async function ingresarEscoriaAlInventario(
   produccionId: string, resultados: ColadaResultados, actor: string, actorName: string | null,
@@ -305,16 +309,15 @@ async function ingresarEscoriaAlInventario(
       .select('sumar_inventario').eq('id', produccionId).maybeSingle();
     if (!ingresaEscoria(resultados.escoria_kg, (prod as { sumar_inventario?: boolean } | null)?.sumar_inventario)) return;
 
-    const { data: ficha } = await supabase.from('productos')
-      .select('id, almacen').ilike('nombre', NOMBRE_ESCORIA).eq('estado', 'activo').limit(1).maybeSingle();
-    if (!ficha) return; // sin ficha no se inventa un producto en medio de un cierre
+    const ficha = await asegurarFichaEscoria(NOMBRE_ESCORIA);
+    if (!ficha) return;
 
     const colada = await getColada(produccionId);
     await registrarMovimiento({
-      producto_id: (ficha as { id: string }).id,
+      producto_id: ficha.id,
       tipo: 'entrada',
       delta: kgDeEscoria(resultados.escoria_kg),
-      almacen: ((ficha as { almacen?: string | null }).almacen || 'General').trim() || 'General',
+      almacen: (ficha.almacen || 'General').trim() || 'General',
       actor,
       actor_name: actorName,
       ref_tipo: 'produccion',

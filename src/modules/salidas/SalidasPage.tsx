@@ -27,7 +27,7 @@ import {
 } from './salidas.repository';
 // descargarSalidaDineroPdf, descargarTrasladoDineroPdf y descargarOrdenSalidaPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { SalidaMaterialForm } from './SalidaMaterialForm';
-import { listCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
+import { listCatalogoPedido, crearCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
 import { TrasladoMaterialForm } from './TrasladoMaterialForm';
 import { SalidaDineroForm } from './SalidaDineroForm';
 import { TrasladoDineroForm } from './TrasladoDineroForm';
@@ -38,6 +38,7 @@ import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
 import { SalidasTemporalesView } from './SalidasTemporalesView';
 import { SalidaDineroDetalle } from './SalidaDineroDetalle';
 import { ClientePicker } from './ClientePicker';
+import { DestinoSelect } from './DestinoSelect';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { destinosDeTraslado } from '@/modules/inventario/stockPorAlmacen';
 import type { Cliente } from '@/modules/ventas/clientes.repository';
@@ -790,13 +791,37 @@ function SolicitudDetalleModal({
   const [edDirDespacho, setEdDirDespacho] = useState(sol.direccion_despacho ?? '');
   const [edDirDestino, setEdDirDestino] = useState(sol.direccion_destino ?? '');
   const [edSedeDestino, setEdSedeDestino] = useState(sol.sede_destino ?? '');
-  // Sedes del catálogo 📍 Sedes destino (solo las habilitadas; la que ya tenía se conserva).
+  /* Los catálogos que alimentan la edición: 📍 Sedes destino y las unidades
+     solicitantes (el mismo catálogo que usan el alta y las órdenes de pedido).
+     Solo los habilitados; lo que la solicitud ya tenía se conserva aunque a
+     alguien le hayan dado de baja después. Se piden al ENTRAR a la edición:
+     abrir el detalle para mirarlo no tiene por qué costar dos viajes más. */
   const [sedesCatalogo, setSedesCatalogo] = useState<string[]>([]);
-  const cargarSedesCatalogo = useCallback(() => {
+  const [unidadesSol, setUnidadesSol] = useState<string[]>([]);
+  const cargarCatalogos = useCallback(() => {
     listCatalogoPedido('sede_destino', true).then((r) => setSedesCatalogo(r.map((x) => x.nombre))).catch(() => setSedesCatalogo([]));
+    listCatalogoPedido('unidad_solicitante', true).then((r) => setUnidadesSol(r.map((x) => x.nombre))).catch(() => setUnidadesSol([]));
   }, []);
-  useEffect(() => { cargarSedesCatalogo(); }, [cargarSedesCatalogo]);
-  useRealtime(['catalogos_pedido'], cargarSedesCatalogo);
+  useEffect(() => { if (editando) cargarCatalogos(); }, [editando, cargarCatalogos]);
+  useRealtime(['catalogos_pedido'], () => { if (editando) cargarCatalogos(); });
+  // Alta al vuelo de una unidad que todavía no está en el catálogo.
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [addingUnidad, setAddingUnidad] = useState(false);
+  async function handleAddUnidad() {
+    const n = nuevaUnidad.trim();
+    if (!n) { toast('Escribí el nombre de la unidad', 'error'); return; }
+    const existente = unidadesSol.find((u) => u.toLowerCase() === n.toLowerCase());
+    if (existente) { setEdDestino(existente); setNuevaUnidad(''); toast(`La unidad "${existente}" ya existe — se seleccionó`, 'warning'); return; }
+    setAddingUnidad(true);
+    try {
+      await crearCatalogoPedido('unidad_solicitante', n, actor);
+      setUnidadesSol((prev) => [...prev, n].sort((a, b) => a.localeCompare(b, 'es')));
+      setEdDestino(n);
+      setNuevaUnidad('');
+      toast(`Unidad "${n}" agregada al catálogo`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar la unidad', 'error'); }
+    finally { setAddingUnidad(false); }
+  }
   // Cliente + cuenta por cobrar.
   const [edEsCliente, setEdEsCliente] = useState(!!sol.cliente_id);
   const [edCliente, setEdCliente] = useState<Cliente | null>(sol.cliente_id ? ({ id: sol.cliente_id, nombre: sol.cliente_nombre ?? '' } as Cliente) : null);
@@ -1117,10 +1142,8 @@ function SolicitudDetalleModal({
             {!cajasDestinoDinero.length && <small className="muted">No hay otra caja en {cajaOrigenSel?.moneda ?? sol.moneda}. El dinero no cambia de moneda al trasladarse.</small>}
           </div>
         ) : (
-          <div className="form-row">
-            <label>A quién va dirigido el dinero</label>
-            <input className="input" value={edDestino} onChange={(e) => setEdDestino(e.target.value)} placeholder="Nombre, unidad o proveedor…" />
-          </div>
+          <DestinoSelect value={edDestino} onChange={setEdDestino} almacenes={almacenes}
+            label="A quién va dirigido el dinero" permitirAlmacen={false} />
         )}
         <div className="form-grid">
           <div className="form-row">
@@ -1160,7 +1183,23 @@ function SolicitudDetalleModal({
         {sol.scope === 'salida' ? (
           <div className="form-row">
             <label>Dirigido a / unidad solicitante</label>
-            <input className="input" value={edDestino} onChange={(e) => setEdDestino(e.target.value)} placeholder="Gerencia, Taller, Mina…" />
+            <select className="select" value={edDestino} onChange={(e) => setEdDestino(e.target.value)}>
+              <option value="">— elegí la unidad solicitante —</option>
+              {unidadesSol.map((u) => <option key={u} value={u}>{u}</option>)}
+              {/* La que ya tenía, aunque la hayan dado de baja: editar otra cosa de
+                  la solicitud no debe borrarle el destino que traía. */}
+              {edDestino && !unidadesSol.includes(edDestino) && <option value={edDestino}>{edDestino}</option>}
+            </select>
+            <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem' }}>
+              <input className="input" value={nuevaUnidad} onChange={(e) => setNuevaUnidad(e.target.value)}
+                placeholder="¿No está? Escribí una nueva (Gerencia, Taller, Mina…)"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddUnidad(); } }}
+                style={{ flex: 1, fontSize: '.82rem' }} />
+              <button type="button" className="btn btn-sm btn-ghost" onClick={handleAddUnidad} disabled={addingUnidad || !nuevaUnidad.trim()}>
+                {addingUnidad ? '…' : '+ Añadir'}
+              </button>
+            </div>
+            <small className="muted">Mismo catálogo que el alta y las órdenes de pedido: lo que agregues acá aparece allá.</small>
           </div>
         ) : (
           <div className="form-row">

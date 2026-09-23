@@ -1538,6 +1538,8 @@ export interface RefinacionDatos {
   // Parámetros de operación
   metodo_agitacion?: string;         // Mecánica (hélice) | Neumática | Manual
   desespumado?: string;              // Raspado manual de dross | Separador mecánico
+  /** De quién vino el coque de esta refinación (catálogo `proveedor_coque`). */
+  coque_proveedor?: string;
   // Etapas / control de temperatura
   etapas?: RefinacionEtapa[];
   // Jornada de refinación (inicio/fin + total automático)
