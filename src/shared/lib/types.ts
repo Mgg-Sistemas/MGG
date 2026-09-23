@@ -786,6 +786,41 @@ export interface Movimiento {
   created_at: string;
 }
 
+/** Un corte en que se despiezó la res, con lo que le tocó del costo. */
+export interface CorteDespiezado {
+  nombre: string;
+  kg: number;
+  /** $/kg con el que entró: ya lleva repartido el costo de la merma. */
+  costo_unitario: number;
+  subtotal: number;
+  producto_id?: string | null;
+}
+
+/** Cuánto de un corte se mandó a otra cocina (sale como traslado a autorizar). */
+export interface RepartoCorteCocina {
+  corte: string;
+  cocinaNombre: string;
+  almacen: string;
+  kg: number;
+}
+
+export interface DespieceItem {
+  /** Kg de res que llegaron y se despiezaron. */
+  kg_recibidos: number;
+  /** Lo que se pagó por esos kg. Los subtotales de los cortes suman esto exacto. */
+  costo_total: number;
+  /** costo_total ÷ kg útiles. Más alto que el $/kg de compra: la merma lo empuja. */
+  costo_por_kg: number;
+  /** Kg que no se pueden cocinar. No entran a ningún almacén, pero se pagaron. */
+  merma_kg: number;
+  /** Lo que la merma le cargó encima a los cortes. */
+  costo_merma: number;
+  cortes: CorteDespiezado[];
+  reparto: RepartoCorteCocina[];
+  /** Almacén al que entraron los cortes. */
+  almacen: string;
+}
+
 export interface ItemOrden {
   sku: string;
   nombre: string;
@@ -805,6 +840,13 @@ export interface ItemOrden {
   area?: string;
   /** Cantidad realmente recibida (recepción parcial). Si falta = aún no recibido. */
   cantidad_recibida?: number;
+  /**
+   * Despiece de una RES EN CANAL: en qué cortes se convirtió al recibirla.
+   * Vive en el ítem de la compra porque es la trazabilidad de ESA compra: al
+   * inventario entraron los cortes, no la res, y la merma no entró a ninguna
+   * parte pero se pagó. Solo lo tienen los ítems que se reciben despiezados.
+   */
+  despiece?: DespieceItem | null;
   /** Marca/modelo ofertados para ESTE renglón. Un proveedor puede cotizar el mismo
    *  producto en varias marcas: cada variante es un renglón propio con su precio. */
   marca?: string | null;

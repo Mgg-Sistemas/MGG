@@ -3158,6 +3158,61 @@ function OrdenDetailModal({
         );
       })()}
 
+      {/* Despiece: qué entró de verdad al inventario. La res se compró entera
+          pero al almacén entraron los cortes, y la merma no entró a ningún lado
+          aunque se pagó. Sin esto la traza de la compra no cierra con el kardex. */}
+      {(o.items ?? []).filter((it) => it.despiece).map((it) => {
+        const d = it.despiece!;
+        return (
+          <div key={`despiece-${it.sku}`} className="card" style={{ marginTop: '1rem', borderLeft: '3px solid var(--primary)' }}>
+            <div className="card-title" style={{ margin: '0 0 .3rem' }}>
+              🔪 Despiece de {it.nombre ?? it.sku}
+              <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}> · {num(d.kg_recibidos)} kg → 📦 {d.almacen}</span>
+            </div>
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem', margin: 0 }}>
+                <thead><tr>
+                  <th>Corte</th>
+                  <th className="num">Kg</th>
+                  <th className="num">Costo / kg</th>
+                  <th className="num">Valor</th>
+                </tr></thead>
+                <tbody>
+                  {d.cortes.map((c) => (
+                    <tr key={c.nombre}>
+                      <td style={{ fontWeight: 600 }}>{c.nombre}</td>
+                      <td className="num">{num(c.kg)}</td>
+                      <td className="num muted">{money(c.costo_unitario)}</td>
+                      <td className="num" style={{ fontWeight: 700 }}>{money(c.subtotal)}</td>
+                    </tr>
+                  ))}
+                  {d.merma_kg > 0 && (
+                    <tr style={{ background: 'rgba(245,177,51,0.08)' }}>
+                      <td>⚠ Merma <span className="muted" style={{ fontSize: '.74rem' }}>(no entró al inventario)</span></td>
+                      <td className="num">{num(d.merma_kg)}</td>
+                      <td className="num muted" style={{ fontSize: '.76rem' }}>encareció los cortes</td>
+                      <td className="num muted">{money(d.costo_merma)}</td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot><tr style={{ background: 'rgba(255,138,0,0.12)' }}>
+                  <td style={{ fontWeight: 800 }}>TOTAL</td>
+                  <td className="num" style={{ fontWeight: 800 }}>{num(d.kg_recibidos)}</td>
+                  <td className="num" style={{ fontWeight: 700 }}>{money(d.costo_por_kg)}</td>
+                  <td className="num" style={{ fontWeight: 800 }}>{money(d.costo_total)}</td>
+                </tr></tfoot>
+              </table>
+            </div>
+            {d.reparto.length > 0 && (
+              <p className="hint muted" style={{ fontSize: '.8rem', margin: '.5rem 0 0' }}>
+                🍳 Repartido a cocinas: {d.reparto.map((r) => `${num(r.kg)} kg ${r.corte} → ${r.cocinaNombre}`).join(' · ')}
+                <br />Cada envío salió como <strong>solicitud de traslado</strong>, a autorizar en Salidas.
+              </p>
+            )}
+          </div>
+        );
+      })}
+
       <h4 style={{ marginTop: '1.25rem' }}>Historial</h4>
       <Timeline historial={o.historial ?? []} proveedorMap={proveedorMap} personaMap={personaMap} />
 

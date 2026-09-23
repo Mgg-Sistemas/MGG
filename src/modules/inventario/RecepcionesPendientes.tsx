@@ -6,7 +6,10 @@ import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
 import { textoDeError } from '@/shared/lib/errores';
-import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
+import { recibirOrdenParcial, recibirOrdenDespiezada } from '@/modules/pedidos/pedidos.repository';
+import { esDespiezable } from './despieceRes';
+import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece, type CocinaDestino } from './DespieceResForm';
+import { listCocinas } from '@/modules/cocina/cocina.repository';
 import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
 import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedidos/compraDirectaMoneda';
 import { destinoRecepcionPorUsuario, opcionesRecepcion } from './sectorizacion';
@@ -375,6 +378,25 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Una RES EN CANAL no entra al inventario como res: entra despiezada en
+  // cortes. Si la orden trae una, la recepcion cambia de forma.
+  const itemRes = items.find((it) => esDespiezable(it.nombre));
+  const [despiece, setDespiece] = useState<EstadoDespiece>(despieceInicial);
+  const [cocinas, setCocinas] = useState<CocinaDestino[]>([]);
+  useEffect(() => {
+    if (!itemRes) return;
+    let vivo = true;
+    listCocinas()
+      .then((cs) => { if (vivo) setCocinas(cs.filter((c) => c.almacenNombre).map((c) => ({ nombre: c.cocina.nombre, almacen: c.almacenNombre as string }))); })
+      .catch(() => { if (vivo) setCocinas([]); });
+    return () => { vivo = false; };
+  }, [itemRes]);
+  // Las cocinas a las que tiene sentido MANDAR: no la del almacen que recibe,
+  // porque ahi ya queda todo lo que no se reparta.
+  const cocinasDestino = cocinas.filter((c) => c.almacen !== almacenFinal);
+  const kgRes = itemRes ? Math.max(0, Number(recibidas[itemRes.sku]) || 0) : 0;
+  const costoRes = itemRes ? Math.round(kgRes * (Number(itemRes.precio) || 0) * 100) / 100 : 0;
+
   const huboDiferencia = items.some((it) => (Number(recibidas[it.sku]) || 0) !== Number(it.cantidad));
 
   async function submit(e: FormEvent) {
@@ -388,8 +410,36 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
     }
     if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
     if (huboDiferencia && !nota.trim()) { setError('Hay diferencias con lo pedido: indicá una nota explicando.'); return; }
+    if (itemRes) {
+      const v = despieceValido(despiece, kgRes, costoRes);
+      if (!v.ok) { setError(v.motivo); return; }
+    }
     setSaving(true);
     try {
+      if (itemRes) {
+        const { traslados } = await recibirOrdenDespiezada(
+          orden, itemRes.sku,
+          {
+            kgRecibidos: kgRes,
+            cortes: despiece.cortes.map((c) => ({ nombre: c.nombre, kg: Number(String(c.kg).replace(',', '.')) || 0 })),
+            mermaKg: Number(String(despiece.merma).replace(',', '.')) || 0,
+            reparto: despiece.reparto
+              .filter((r) => r.corte && r.almacen && Number(String(r.kg).replace(',', '.')) > 0)
+              .map((r) => ({
+                corte: r.corte, almacen: r.almacen, kg: Number(String(r.kg).replace(',', '.')) || 0,
+                cocinaNombre: cocinas.find((c) => c.almacen === r.almacen)?.nombre ?? r.almacen,
+              })),
+          },
+          almacenFinal, nota.trim() || null, actor, actorName ?? null,
+        );
+        notify(
+          `Res despiezada: entraron los cortes a 🏭 ${sedeDeAlmacen(almacenFinal, almacenes)}`
+          + (traslados.length ? ` · ${traslados.length} traslado(s) por autorizar: ${traslados.join(', ')}` : ''),
+          'success', { link: '#/app/inventario' },
+        );
+        onSaved();
+        return;
+      }
       await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName ?? null, almacenFinal);
       notify(`Recepción registrada: ${orden.oc_codigo ?? orden.codigo} → 🏭 ${sedeDeAlmacen(almacenFinal, almacenes)}`, 'success', { link: '#/app/inventario' });
       onSaved();
@@ -442,6 +492,18 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
             </tbody>
           </table>
         </div>
+
+        {itemRes && kgRes > 0 && (
+          <DespieceResForm
+            nombreRes={itemRes.nombre ?? itemRes.sku}
+            kgRecibidos={kgRes}
+            precioUnitario={Number(itemRes.precio) || 0}
+            almacenDestino={almacenFinal}
+            cocinas={cocinasDestino}
+            estado={despiece}
+            onChange={setDespiece}
+          />
+        )}
 
         <div className="form-row" style={{ marginTop: '.6rem' }}>
           <label>Nota {huboDiferencia ? '(obligatoria: hay diferencia con lo pedido)' : '(opcional)'}</label>

@@ -12,6 +12,7 @@ import { fechaVE, tasaValida } from './compraDirectaMoneda';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
 import { ubicacionAlRecibir } from '@/modules/inventario/ubicacionProducto';
 import { identidadAlRecibir } from '@/modules/inventario/identidadProducto';
+import { calcularDespiece, calcularReparto, esDespiezable, type CorteDespiece } from '@/modules/inventario/despieceRes';
 import type {
   AbonoCredito,
   CuentaCaja,
@@ -2034,6 +2035,187 @@ export async function recibirOrdenParcial(
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
   return data as Orden;
+}
+
+/* ───────────── Recepción DESPIEZADA (res en canal → cortes) ───────────── */
+
+/** Una cocina a la que se le manda parte de un corte. */
+export interface DestinoCorte {
+  corte: string;
+  cocinaNombre: string;
+  /** Almacén de esa cocina: es adonde va el traslado. */
+  almacen: string;
+  kg: number;
+}
+
+export interface RecepcionDespiezada {
+  /** Kg de res que llegaron (lo que se despieza). */
+  kgRecibidos: number;
+  cortes: CorteDespiece[];
+  mermaKg: number;
+  /** Lo que se manda a otras cocinas (sale como solicitud de traslado). */
+  reparto: DestinoCorte[];
+}
+
+/**
+ * Recibe una RES EN CANAL despiezada: al inventario NO entra la res, entran
+ * sus CORTES.
+ *
+ * El costo de la res se reparte entre los kg útiles, así que la merma encarece
+ * el corte en vez de evaporarse: se pagó por el animal entero. La merma queda
+ * escrita en la orden —es trazabilidad de la compra— pero no entra a ningún
+ * almacén, porque no se puede cocinar.
+ *
+ * Lo que va a OTRA cocina no se mueve acá: sale como solicitud de traslado,
+ * que alguien autoriza y alguien ejecuta, igual que el «repartir mercado» que
+ * ya se usa. Mover stock entre sedes sin ese paso saltearía el control.
+ */
+export async function recibirOrdenDespiezada(
+  o: Orden,
+  sku: string,
+  d: RecepcionDespiezada,
+  almacenDestino: string,
+  nota: string | null,
+  actorEmail: string,
+  actorName: string | null,
+): Promise<{ orden: Orden; traslados: string[] }> {
+  if (!['por_recibir', 'cuenta_abierta', 'pagada', 'oc_emitida', 'aprobada'].includes(o.estado))
+    throw new Error('La orden no está en un estado recibible.');
+  if (o.recibida_en) throw new Error('Esta orden ya fue recibida.');
+  const destino = (almacenDestino || o.almacen_destino || '').trim();
+  if (!destino) throw new Error('Elegí el almacén al que entran los cortes.');
+
+  const item = o.items.find((it) => it.sku === sku);
+  if (!item) throw new Error(`La orden no tiene el ítem ${sku}.`);
+  if (!esDespiezable(item.nombre)) throw new Error(`${item.nombre} no se recibe despiezado.`);
+  const kgRec = Math.max(0, Number(d.kgRecibidos) || 0);
+  if (kgRec > Number(item.cantidad)) throw new Error('No podés recibir más res de la que se pidió.');
+
+  // Precio en $: una orden en Bs se convierte con la tasa del día de la orden.
+  // Nunca entra un bolívar crudo como si fuera dólar (inflaría el costo ×tasa).
+  let precioUsd = Number(item.precio) || 0;
+  if (o.moneda === 'Bs') {
+    const f = fechaVE(o.created_at);
+    const t = f ? await tasaBcvEnFecha(f).catch(() => null) : null;
+    const tasa = t && tasaValida(t.tasa) ? t.tasa : ((await getTasaHoy().catch(() => null))?.usd ?? null);
+    if (!tasaValida(tasa)) throw new Error('Esta orden está en bolívares y no hay tasa BCV para convertirla. Cargá la tasa en Tesorería y volvé a recibir.');
+    precioUsd = Number((precioUsd / (tasa as number)).toFixed(4));
+  }
+
+  const calc = calcularDespiece({
+    kgRecibidos: kgRec,
+    costoTotal: Math.round(kgRec * precioUsd * 100) / 100,
+    cortes: d.cortes,
+    mermaKg: d.mermaKg,
+  });
+  if (!calc.cuadra) throw new Error(calc.problemas.join(' '));
+  const rep = calcularReparto(calc.cortes, d.reparto.map((r) => ({ corte: r.corte, cocinaId: r.almacen, kg: r.kg })));
+  if (!rep.cuadra) throw new Error(rep.problemas.join(' '));
+
+  // Cada corte entra como su propio producto. Si la ficha no existe se crea:
+  // el usuario escribió el nombre de un corte nuevo y ese nombre manda.
+  const idsPorCorte = new Map<string, string>();
+  for (const c of calc.cortes) {
+    const productoId = c.productoId || await fichaDeCorte(c.nombre, item.unidad ?? 'KILOGRAMO', actorEmail);
+    idsPorCorte.set(c.nombre, productoId);
+
+    const { data: exRow } = await supabase.from('existencias')
+      .select('stock, costo_promedio').eq('producto_id', productoId).eq('almacen', destino).maybeSingle();
+    const stockAntes = Number(exRow?.stock) || 0;
+    const costoAntes = Number(exRow?.costo_promedio) || 0;
+    const stockDespues = Math.round((stockAntes + c.kg) * 10000) / 10000;
+    const pmp = stockDespues > 0
+      ? Number(((stockAntes * costoAntes + c.kg * c.costoUnitario) / stockDespues).toFixed(4))
+      : c.costoUnitario;
+
+    const { error: mErr } = await supabase.from('movimientos').insert({
+      producto_id: productoId, tipo: 'entrada', delta: c.kg,
+      stock_antes: stockAntes, stock_despues: stockDespues,
+      actor: actorEmail, actor_name: actorName,
+      ref_tipo: 'orden', ref_id: o.id, ref_codigo: o.codigo, almacen: destino,
+      proveedor_id: o.proveedor_id,
+      precio_unitario: c.costoUnitario, costo_promedio: pmp,
+      detalle: `Despiece de ${item.nombre} (${kgRec} kg): ${c.kg} kg de ${c.nombre} @ $${c.costoUnitario.toFixed(4)} → ${destino}`,
+    });
+    if (mErr) throw mErr;
+
+    const { error: exErr } = await supabase.from('existencias').upsert(
+      { producto_id: productoId, almacen: destino, stock: stockDespues, costo_promedio: pmp, updated_at: new Date().toISOString() },
+      { onConflict: 'producto_id,almacen' },
+    );
+    if (exErr) throw exErr;
+    await supabase.from('productos').update({ precio: c.costoUnitario, precio_promedio: pmp }).eq('id', productoId);
+  }
+
+  // La orden guarda el despiece completo: es la trazabilidad de la compra.
+  // La merma va acá y en ningún almacén — se pagó, pero no se puede cocinar.
+  const itemsRec = o.items.map((it) => it.sku === sku
+    ? {
+      ...it, cantidad_recibida: kgRec,
+      despiece: {
+        kg_recibidos: kgRec, costo_total: calc.totalCortes, costo_por_kg: calc.costoPorKg,
+        merma_kg: calc.mermaKg, costo_merma: calc.costoMerma,
+        cortes: calc.cortes.map((c) => ({ nombre: c.nombre, kg: c.kg, costo_unitario: c.costoUnitario, subtotal: c.subtotal, producto_id: idsPorCorte.get(c.nombre) ?? null })),
+        reparto: d.reparto.filter((r) => Number(r.kg) > 0),
+        almacen: destino,
+      },
+    }
+    : { ...it, cantidad_recibida: 0 });
+  const recibidoTotal = Math.round(kgRec * Number(item.precio) * 100) / 100;
+  const esCredito = o.condiciones_pago === 'credito';
+  const saldado = (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;
+
+  const resumen = calc.cortes.map((c) => `${c.kg} kg ${c.nombre}`).join(', ');
+  const { data, error } = await supabase.from(TABLE).update({
+    estado: (esCredito && !saldado ? 'cuenta_abierta' : 'recibida') as EstadoOrden,
+    items: itemsRec,
+    recibido_total: recibidoTotal,
+    almacen_destino: destino,
+    nota_recepcion: nota?.trim() || `Despiece: ${resumen}${calc.mermaKg > 0 ? ` · merma ${calc.mermaKg} kg` : ''}.`,
+    recibida_por: actorEmail,
+    recibida_en: new Date().toISOString(),
+    historial: appendHistorial(o, 'recibida despiezada', actorEmail, {
+      kg_recibidos: kgRec, cortes: resumen, merma_kg: calc.mermaKg,
+      costo_por_kg: calc.costoPorKg, almacen_destino: destino, nota: nota?.trim() || null,
+    }),
+  }).eq('id', o.id).select('*').single();
+  if (error) throw error;
+
+  // Lo de las otras cocinas: una solicitud de traslado por cocina, a autorizar.
+  // Si esto falla, la recepción ya quedó hecha: se avisa y se puede repartir a
+  // mano desde Cocina → Repartir mercado, sin volver a recibir nada.
+  const traslados: string[] = [];
+  for (const [almacenCocina, lineas] of rep.porCocina) {
+    const { crearSolicitudSalida } = await import('@/modules/salidas/salidas.repository');
+    const sol = await crearSolicitudSalida({
+      scope: 'traslado', tipo: 'material',
+      solicitante: 'COCINA', almacenOrigen: destino, almacenDestino: almacenCocina,
+      motivo: `Despiece de ${item.nombre} · ${o.oc_codigo ?? o.codigo}`,
+      items: lineas.map((l) => ({
+        producto_id: idsPorCorte.get(l.corte) as string,
+        producto_nombre: l.corte, cantidad: l.kg,
+        precio_unit: calc.costoPorKg, unidad: 'KILOGRAMO', almacen: destino,
+      })),
+      actor: actorEmail, actorName,
+    });
+    traslados.push(sol.codigo);
+  }
+  return { orden: data as Orden, traslados };
+}
+
+/** La ficha de un corte: la que ya existe con ese nombre, o una nueva. */
+async function fichaDeCorte(nombre: string, unidad: string, actor: string): Promise<string> {
+  const { data: ya } = await supabase.from('productos')
+    .select('id').ilike('nombre', nombre).limit(1).maybeSingle();
+  if (ya?.id) return ya.id as string;
+  const { siguienteSkuGlobal } = await import('@/modules/inventario/inventario.repository');
+  const sku = await siguienteSkuGlobal('CARNES');
+  const { data, error } = await supabase.from('productos').insert({
+    nombre, sku, categoria: 'CARNES', unidad, estado: 'activo',
+    stock: 0, precio: 0, created_by: actor,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id as string;
 }
 
 /**
