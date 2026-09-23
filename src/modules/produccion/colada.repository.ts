@@ -236,6 +236,15 @@ export async function actualizarColadaCabecera(produccionId: string, patch: { co
 }
 
 export interface ColadaResultados {
+  /* Cierre de la carga: cuándo terminó y cómo quedó el horno. Se piden al
+     finalizar porque al iniciar la colada todavía no existen. */
+  fecha_fin_carga?: string;
+  hora_fin_carga?: string;
+  jornada_horas?: number | null;
+  temp_int_cerrar?: number | null;
+  temp_ext_cerrar?: number | null;
+  /** Texto «Turno / Jornada» del reporte: sale de la jornada calculada. */
+  turno?: string;
   estano_kg?: number | null;
   escoria_kg?: number | null;
   destino_almacen?: string;

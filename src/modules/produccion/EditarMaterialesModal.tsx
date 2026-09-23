@@ -235,6 +235,7 @@ export function EditarMaterialesModal({
             <div style={{ marginTop: '1rem', borderTop: '2px dashed var(--border)', paddingTop: '.8rem' }}>
               <div className="card-title" style={{ marginBottom: '.4rem' }}>🔥 Reporte de colada (MGG-FR-001)</div>
               <ColadaCampos
+                fase="edicion"
                 coladaNum={coladaNum} setColadaNum={setColadaNum}
                 fecha={coladaFecha} setFecha={setColadaFecha}
                 datos={coladaDatos} setDatos={setColadaDatos}

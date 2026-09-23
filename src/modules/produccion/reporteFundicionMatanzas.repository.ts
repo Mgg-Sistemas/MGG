@@ -63,7 +63,10 @@ export async function listColadasParaReporte(): Promise<ColadaReporte[]> {
         produccion_id: id,
         colada_num: c ? n(c.colada_num) : 0,
         fecha: c?.fecha ?? '',
-        turno: (d.turno ?? '').trim(),
+        // La columna TURNO del reporte formal quiere «Diurno / Nocturno». El
+        // campo `turno` guarda la jornada en horas, así que manda `turno_tipo`
+        // y aquel queda solo de respaldo para las coladas viejas.
+        turno: (d.turno_tipo ?? '').trim() || (d.turno ?? '').trim(),
         casiterita_kg: n(d.total_casiterita) || bags,
         coque_kg: n(d.coque_kg) || f.coque,
         caliza_kg: n(d.caco3_kg) || f.caliza,

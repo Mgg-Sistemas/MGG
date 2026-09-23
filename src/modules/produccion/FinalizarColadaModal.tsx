@@ -10,7 +10,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { Produccion, ProduccionColada, ProduccionMaterial } from '@/shared/lib/types';
-import { getColada, finalizarColadaConResultados } from './colada.repository';
+import { getColada, finalizarColadaConResultados, calcJornadaHoras, fmtJornada } from './colada.repository';
 import { getProduccionConMateriales } from './produccion.repository';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -30,6 +30,12 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rendTocado, setRendTocado] = useState(false);
+  /* Cierre de la carga: cuándo terminó y cómo quedó el horno. Antes se pedían
+     al INICIAR la colada, donde todavía no existen. */
+  const [fechaFin, setFechaFin] = useState('');
+  const [horaFin, setHoraFin] = useState('');
+  const [tempIntCerrar, setTempIntCerrar] = useState('');
+  const [tempExtCerrar, setTempExtCerrar] = useState('');
 
   useEffect(() => {
     let cancel = false;
@@ -47,6 +53,10 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
       if (d.escoria_kg != null) setEscoria(txt(d.escoria_kg));
       if (d.merma_kg != null) setMerma(txt(d.merma_kg));
       if (d.observaciones) setObservaciones(d.observaciones);
+      setFechaFin(d.fecha_fin_carga ?? '');
+      setHoraFin(d.hora_fin_carga ?? '');
+      setTempIntCerrar(txt(d.temp_int_cerrar));
+      setTempExtCerrar(txt(d.temp_ext_cerrar));
       setInvolucrados(sinRepetidos(d.involucrados ?? []));
       // Si ya venía un rendimiento cargado, manda ese y no el sugerido.
       if (d.rendimiento != null) { setRendTocado(true); setRendimiento(txt(d.rendimiento)); }
@@ -56,8 +66,22 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
     return () => { cancel = true; };
   }, [prod.id]);
 
+  /* La jornada sale de lo que se cargó al iniciar (inicio) contra lo que se
+     carga acá (fin). Es el número que va al reporte como «Turno / Jornada». */
+  const jornadaH = calcJornadaHoras(
+    colada?.datos?.fecha_inicio_carga ?? '', colada?.datos?.hora_inicio_carga ?? '', fechaFin, horaFin,
+  );
+
   const snKg = Number(colada?.datos?.sn_kg) || 0;
   const estanoNum = Number(estano) || 0;
+
+  // Cómo se muestra el inicio de la carga en la ayuda de la jornada.
+  const inicioTxt = (() => {
+    const f = colada?.datos?.fecha_inicio_carga ?? '';
+    const h = colada?.datos?.hora_inicio_carga ?? '';
+    if (!f && !h) return 'sin cargar';
+    return [f ? f.split('-').reverse().join('/') : '', h].filter(Boolean).join(' ');
+  })();
 
   // Total de mezcla = Σ de las cantidades de produccion_materiales (casiterita + fundentes).
   const totalMezcla = useMemo(
@@ -83,6 +107,13 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
     setSaving(true);
     try {
       await finalizarColadaConResultados(prod.id, {
+        fecha_fin_carga: fechaFin || undefined,
+        hora_fin_carga: horaFin || undefined,
+        jornada_horas: jornadaH,
+        // El texto del reporte sale de la jornada; si no hay horas, se deja como estaba.
+        turno: jornadaH != null ? fmtJornada(jornadaH) : undefined,
+        temp_int_cerrar: tempIntCerrar.trim() === '' ? null : Number(tempIntCerrar),
+        temp_ext_cerrar: tempExtCerrar.trim() === '' ? null : Number(tempExtCerrar),
         estano_kg: estanoNum,
         escoria_kg: escoria.trim() === '' ? null : Number(escoria),
         n_lingotes: lingotes.trim() === '' ? null : Number(lingotes),
@@ -114,6 +145,38 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
           El <strong>estaño obtenido</strong> entra a inventario como <strong>{prod.producto_nombre}</strong> en <strong>{prod.almacen_destino}</strong>
           {snKg > 0 && <> · Sn contenido en la carga ≈ <strong>{num(snKg)} kg</strong></>}.
         </p>
+
+        {/* CIERRE DE LA CARGA — lo que solo se sabe ahora que terminó. */}
+        <div style={{ padding: '.65rem .8rem', margin: '0 0 .8rem', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-1)' }}>
+          <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: '.45rem' }}>Cierre de la carga</div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Fecha fin de carga</label>
+              <input className="input" type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
+            </div>
+            <div className="form-row">
+              <label>Hora fin de carga</label>
+              <input className="input" type="time" value={horaFin} onChange={(e) => setHoraFin(e.target.value)} />
+            </div>
+          </div>
+          <div className="form-row">
+            <label>Jornada laboral (automática)</label>
+            <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
+            <small className="muted" style={{ fontSize: '.7rem' }}>
+              Fin − inicio de carga. El inicio ({inicioTxt}) se cargó al abrir la colada. Es lo que sale en el reporte como «Turno / Jornada».
+            </small>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Temp. int. al cerrar (°C)</label>
+              <input className="input mono" type="number" step="any" value={tempIntCerrar} onChange={(e) => setTempIntCerrar(e.target.value)} style={{ textAlign: 'right' }} />
+            </div>
+            <div className="form-row">
+              <label>Temp. ext. al cerrar (°C)</label>
+              <input className="input mono" type="number" step="any" value={tempExtCerrar} onChange={(e) => setTempExtCerrar(e.target.value)} style={{ textAlign: 'right' }} />
+            </div>
+          </div>
+        </div>
 
         <div className="form-grid">
           <div className="form-row">

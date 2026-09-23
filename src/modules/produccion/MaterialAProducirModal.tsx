@@ -893,8 +893,8 @@ export function MaterialAProducirModal({
             {esRef
               ? 'Σ material seleccionado. Al finalizar se ajusta al estaño refinado obtenido.'
               : estanoColada > 0
-                ? 'Del estaño obtenido que cargaste arriba, en «Observaciones y resultados».'
-                : 'Provisional (1 und) hasta que cargues el estaño obtenido arriba, o hasta que finalices la colada.'}
+                ? 'Del estaño obtenido de la colada.'
+                : 'Provisional (1 und): la cantidad real es el estaño obtenido y se carga al FINALIZAR la colada.'}
           </small>
         </div>
 

@@ -5,7 +5,7 @@
    El control de temperatura horario, el sangrado y los resultados se cargan
    luego (en curso / al finalizar). El PDF replica el formato formal.
    ============================================================ */
-import { useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import type { ColadaDatos, ColadaBigBag, ColadaBigBagLey } from '@/shared/lib/types';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
@@ -64,9 +64,21 @@ interface Props {
   casiteritaDetalle?: CasiteritaDetalle[];
   /** Kg ya consumidos por OTRAS coladas, por id de big bag (disponible = peso − consumido). */
   consumoBigBags?: Map<string, number>;
+  /**
+   * En qué momento de la colada estamos.
+   *
+   * `inicio` (al darle «Iniciar colada») pide SOLO lo que se sabe al arrancar:
+   * quién, cuándo empezó, qué material entró y cómo se cargó. Lo que solo
+   * existe cuando la colada terminó —fecha y hora de fin, jornada, temperaturas
+   * al cerrar, estaño, lingotes, escoria— se carga al FINALIZAR, que es cuando
+   * el dato existe de verdad. `edicion` (✎ Editar) muestra todo, porque ahí se
+   * corrige una colada que ya puede estar cerrada.
+   */
+  fase?: 'inicio' | 'edicion';
 }
 
-export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos, slotMaterial, casiteritaDetalle = [], consumoBigBags }: Props) {
+export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, setDatos, slotMaterial, casiteritaDetalle = [], consumoBigBags, fase = 'inicio' }: Props) {
+  const cierre = fase === 'edicion';   // ¿se muestran los campos de cierre?
   const set = <K extends keyof ColadaDatos>(key: K, val: ColadaDatos[K]) => setDatos((p) => ({ ...p, [key]: val }));
   const numVal = (v: number | null | undefined) => (v == null ? '' : String(v));
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s));
@@ -112,12 +124,24 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
   // Jornada laboral = (fecha+hora fin) − (fecha+hora inicio) de la carga. Se calcula
   // sola y se copia al campo "Turno" (queda editable, igual que Total Casiterita).
   const jornadaH = calcJornadaHoras(datos.fecha_inicio_carga, datos.hora_inicio_carga, datos.fecha_fin_carga, datos.hora_fin_carga);
+  /* «Turno / Jornada» (el texto que sale en el PDF MGG-FR-001) se llena solo
+     con la jornada calculada, PERO nunca pisa lo que haya escrito el
+     responsable. Guardamos en un ref lo último que escribimos nosotros: si el
+     campo sigue con ese texto (o está vacío), lo refrescamos; si tiene algo
+     distinto, es de él y no se toca. Así el dato queda vinculado desde el
+     arranque —se ve arriba y también en el campo— y se sigue actualizando
+     mientras se cargan las horas, sin borrarle nada a nadie. */
+  const turnoAuto = useRef<string | null>(null);
   useEffect(() => {
     set('jornada_horas', jornadaH);
-    // «Turno / Jornada» ya NO se pisa con las horas calculadas. Al INICIAR la
-    // colada todavía no se sabe cómo terminó: los totales se cargan después, y
-    // escribirle «5,5 horas» encima borra lo que el responsable haya puesto.
-    // La jornada calculada se ve igual, en su propio campo de solo lectura.
+    if (jornadaH == null) return;
+    const texto = fmtJornada(jornadaH);
+    setDatos((p) => {
+      const actual = (p.turno ?? '').trim();
+      if (actual !== '' && actual !== turnoAuto.current) return p; // lo escribió el usuario
+      turnoAuto.current = texto;
+      return p.turno === texto ? p : { ...p, turno: texto };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jornadaH]);
 
@@ -208,7 +232,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         <Stat label="Ley global" value={leyGlobal ? `${leyGlobal.toFixed(2)} %` : '—'} strong />
         <Stat label="Sn contenido" value={snTotal ? `${snTotal} kg` : '—'} />
         <Stat label="Costo casiterita" value={costoCasiterita ? `$ ${costoCasiterita.toFixed(2)}` : '—'} />
-        <Stat label="Jornada" value={jornadaH != null ? fmtJornada(jornadaH) : '—'} />
+        {cierre && <Stat label="Jornada" value={jornadaH != null ? fmtJornada(jornadaH) : '—'} />}
         {/* Los precintos de los sacos que entraron, a la vista sin tener que
             bajar bolsa por bolsa. Es el número que va a viajar hasta el lingote. */}
         <Stat label="Precintos" value={resumenPrecintos(precintosCargados) || '—'} title={listaPrecintos(precintosCargados)} />
@@ -241,11 +265,15 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
           </div>
         </div>
         <div className="form-grid">
-          <div className="form-row">
-            <label>Turno / Jornada</label>
-            <input className="input" value={datos.turno ?? ''} onChange={(e) => set('turno', e.target.value)} placeholder="Ej.: 21,5 horas" />
-            <small className="muted" style={{ fontSize: '.7rem' }}>Se calcula solo de las horas de carga (podés ajustarlo).</small>
-          </div>
+          {/* La jornada en horas solo se sabe cuando la colada terminó: se
+              carga al finalizar, no al iniciar. */}
+          {cierre && (
+            <div className="form-row">
+              <label>Turno / Jornada</label>
+              <input className="input" value={datos.turno ?? ''} onChange={(e) => set('turno', e.target.value)} placeholder="Ej.: 21,5 horas" />
+              <small className="muted" style={{ fontSize: '.7rem' }}>Sale de las <strong>horas de carga</strong>. Si lo escribís a mano, se respeta y deja de actualizarse.</small>
+            </div>
+          )}
           <div className="form-row">
             <label>Responsable de colada</label>
             <input className="input" value={datos.responsable ?? ''} onChange={(e) => set('responsable', e.target.value)} placeholder="Nombre del responsable" />
@@ -397,31 +425,37 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
             <input className="input" type="time" value={datos.hora_inicio_carga ?? ''} onChange={(e) => set('hora_inicio_carga', e.target.value)} />
           </div>
         </div>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Fecha fin de carga</label>
-            <input className="input" type="date" value={datos.fecha_fin_carga ?? ''} onChange={(e) => set('fecha_fin_carga', e.target.value)} />
-          </div>
-          <div className="form-row">
-            <label>Hora fin de carga</label>
-            <input className="input" type="time" value={datos.hora_fin_carga ?? ''} onChange={(e) => set('hora_fin_carga', e.target.value)} />
-          </div>
-        </div>
-        <div className="form-row">
-          <label>Jornada laboral (automática)</label>
-          <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
-          <small className="muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de carga.</small>
-        </div>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Temp. int. al cerrar (°C)</label>
-            <input className="input mono" type="number" step="any" value={numVal(datos.temp_int_cerrar)} onChange={(e) => set('temp_int_cerrar', toNum(e.target.value))} style={numInput} />
-          </div>
-          <div className="form-row">
-            <label>Temp. ext. al cerrar (°C)</label>
-            <input className="input mono" type="number" step="any" value={numVal(datos.temp_ext_cerrar)} onChange={(e) => set('temp_ext_cerrar', toNum(e.target.value))} style={numInput} />
-          </div>
-        </div>
+        {/* Cierre de la carga: fin, jornada y temperaturas al cerrar. Nada de
+            esto se sabe al iniciar; se pide en «Finalizar colada». */}
+        {cierre && (
+          <>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Fecha fin de carga</label>
+                <input className="input" type="date" value={datos.fecha_fin_carga ?? ''} onChange={(e) => set('fecha_fin_carga', e.target.value)} />
+              </div>
+              <div className="form-row">
+                <label>Hora fin de carga</label>
+                <input className="input" type="time" value={datos.hora_fin_carga ?? ''} onChange={(e) => set('hora_fin_carga', e.target.value)} />
+              </div>
+            </div>
+            <div className="form-row">
+              <label>Jornada laboral (automática)</label>
+              <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
+              <small className="muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de carga.</small>
+            </div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Temp. int. al cerrar (°C)</label>
+                <input className="input mono" type="number" step="any" value={numVal(datos.temp_int_cerrar)} onChange={(e) => set('temp_int_cerrar', toNum(e.target.value))} style={numInput} />
+              </div>
+              <div className="form-row">
+                <label>Temp. ext. al cerrar (°C)</label>
+                <input className="input mono" type="number" step="any" value={numVal(datos.temp_ext_cerrar)} onChange={(e) => set('temp_ext_cerrar', toNum(e.target.value))} style={numInput} />
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Control de temperatura del proceso — lecturas dinámicas */}
@@ -458,8 +492,10 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
         </div>
       </details>
 
-      {/* Observaciones y resultados (se pueden cargar acá y salen en el reporte;
-          al finalizar la colada se confirman/actualizan) */}
+      {/* Observaciones y resultados: son datos de CIERRE. Se cargan al
+          finalizar la colada; acá solo aparecen cuando se está corrigiendo
+          una colada ya empezada. */}
+      {cierre && (
       <div style={{ ...secStyle, marginTop: '.8rem', marginBottom: 0 }}>
         <div style={tituloSec}>Observaciones y resultados</div>
         <div className="form-grid">
@@ -482,6 +518,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
           <textarea className="input" rows={3} value={datos.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Notas / incidencias de la colada (salen en el reporte)…" style={{ resize: 'vertical' }} />
         </div>
       </div>
+      )}
     </div>
   );
 }
