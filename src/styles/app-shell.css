@@ -205,7 +205,12 @@
 }
 .page-head h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
 .page-head p { margin: 0; font-size: .9rem; }
-.page-head .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+/* Alineados a la DERECHA también en escritorio. Con muchos botones (Fundición
+   tiene nueve) la barra envuelve en dos filas, y alineada a la izquierda la
+   segunda fila arrancaba pegada al título con un hueco en el medio: el botón
+   principal quedaba flotando por la mitad de la pantalla. Pegadas al borde
+   derecho, las dos filas leen como un bloque. Abajo de 900px ya era así. */
+.page-head .actions { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
 /* Grupo de botones afines (reportes, catálogos, planta): al achicarse la
    pantalla el corte cae ENTRE grupos y no en medio de uno, así la barra no
    queda con un botón suelto en su propia línea. */
