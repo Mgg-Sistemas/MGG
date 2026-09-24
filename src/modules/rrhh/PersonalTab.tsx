@@ -24,10 +24,10 @@ import {
 import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
-  AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRUPOS_SANGUINEOS, PARENTESCOS, SIN_DATO,
+  AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRADOS_INSTRUCCION, GRUPOS_SANGUINEOS, PARENTESCOS, SIN_DATO,
   agruparPersonal, antiguedad, cantidadHijos, filtrarPersonal, labelEstadoCivil, labelGenero,
-  labelParentesco, numeroFicha, porDepartamento, textoEdad, tieneHijos,
-  MIN_FICHA, errorNumeroFicha, normalizarNumeroFicha,
+  labelGradoInstruccion, labelParentesco, numeroFicha, porDepartamento, textoEdad, tieneHijos,
+  MIN_FICHA, errorNumeroFicha, normalizarNumeroFicha, ordenarPorFicha, errorCorreo,
   type Agrupador, type EstadoFiltro, type FiltroPersonal, type Genero, type HijosFiltro,
   type Parentesco,
 } from './fichaPersonal';
@@ -48,7 +48,7 @@ import {
 } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
 /**
  * La ficha guardada → el formulario.
@@ -76,12 +76,14 @@ function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
     estado_civil: p.estado_civil ?? '',
     fecha_nacimiento: p.fecha_nacimiento ?? '',
     grupo_sanguineo: p.grupo_sanguineo ?? '',
+    grado_instruccion: p.grado_instruccion ?? '',
     nacionalidad: p.nacionalidad ?? '',
     direccion: p.direccion ?? '',
     contacto_emergencia_parentesco: p.contacto_emergencia_parentesco ?? '',
     sueldo_base: Number(p.sueldo_base) || 0,
     fecha_ingreso: p.fecha_ingreso ?? '',
     telefono: p.telefono ?? '',
+    correo: p.correo ?? '',
     contacto_emergencia: p.contacto_emergencia ?? '',
     contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '',
     foto_url: p.foto_url ?? '',
@@ -293,7 +295,13 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
     edadHasta: fEdadHasta ? Number(fEdadHasta) : null,
   }), [fTexto, fDepto, fCargo, fGenero, fCivil, fEstado, fHijos, fEdadDesde, fEdadHasta]);
 
-  const visibles = useMemo(() => filtrarPersonal(lista, filtro, tieneHijosDe), [lista, filtro, tieneHijosDe]);
+  // El listado va por N° DE FICHA, que es como se lee una nómina en papel: se
+  // busca «el 014», no «el que está entre Díaz y Gil». El orden alfabético que
+  // traía la consulta se conserva solo dentro de los que aún no tienen ficha.
+  const visibles = useMemo(
+    () => ordenarPorFicha(filtrarPersonal(lista, filtro, tieneHijosDe)),
+    [lista, filtro, tieneHijosDe],
+  );
   const grupos = useMemo(() => agruparPersonal(visibles, agrupar, tieneHijosDe), [visibles, agrupar, tieneHijosDe]);
   const deptos = useMemo(() => porDepartamento(visibles), [visibles]);
 
@@ -525,6 +533,10 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
       setError(`La cédula ${form.cedula} ya es de ${duenoCedula.nombre} ${duenoCedula.apellido ?? ''}. No puede haber dos fichas con la misma cédula.`);
       return;
     }
+    // La base rechaza un correo mal formado; mejor decirlo acá que mostrar el
+    // error de Postgres. A diferencia de la ficha, repetido SÍ se acepta.
+    const malCorreo = errorCorreo(form.correo);
+    if (malCorreo) { setError(malCorreo); return; }
     // El sueldo no se pisa en silencio: si cambió, hay que decir por qué.
     if (editId) {
       const falla = validarCambioSueldo({ anterior: sueldoOriginal, nuevo: form.sueldo_base, motivo: motivoSueldo, vigenteDesde });
@@ -973,6 +985,17 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 />
               </div>
               <div className="form-row"><label>Teléfono</label><input className="input mono" value={form.telefono ?? ''} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
+              {/* El correo se guarda en minúsculas al grabar: así el mismo
+                  correo cargado por dos personas distintas queda igual. */}
+              <div className="form-row">
+                <label>Correo electrónico</label>
+                <input className="input" type="email" value={form.correo ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, correo: e.target.value }))}
+                  placeholder="nombre@gmail.com" inputMode="email" autoComplete="off" />
+                {errorCorreo(form.correo)
+                  ? <small style={{ color: 'var(--danger)' }}>{errorCorreo(form.correo)}</small>
+                  : <small className="muted">Opcional. Puede repetirse: hay familias con una sola cuenta.</small>}
+              </div>
               {/* El nombre y el parentesco, separados: juntos en un solo campo
                   no se puede buscar «todos los que dejaron a un hijo de contacto». */}
               <div className="form-row">
@@ -1064,6 +1087,13 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   <select className="select" value={form.grupo_sanguineo ?? ''} onChange={(e) => setForm((x) => ({ ...x, grupo_sanguineo: e.target.value }))}>
                     <option value="">—</option>
                     {GRUPOS_SANGUINEOS.map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+                <div className="form-row" style={{ flex: '0 1 200px', margin: 0 }}>
+                  <label>Grado de instrucción</label>
+                  <select className="select" value={form.grado_instruccion ?? ''} onChange={(e) => setForm((x) => ({ ...x, grado_instruccion: e.target.value }))}>
+                    <option value="">— sin cargar —</option>
+                    {GRADOS_INSTRUCCION.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
                   </select>
                 </div>
                 <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
@@ -1463,6 +1493,7 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar }: {
         ['Fecha de nacimiento', persona.fecha_nacimiento ? date(persona.fecha_nacimiento) : '—'],
         ['Edad', textoEdad(persona.fecha_nacimiento)],
         ['Grupo sanguíneo', persona.grupo_sanguineo || '—'],
+        ['Grado de instrucción', persona.grado_instruccion ? labelGradoInstruccion(persona.grado_instruccion) : '—'],
         ['Género', persona.genero ? labelGenero(persona.genero) : '—'],
         ['Nacionalidad', persona.nacionalidad || '—'],
         ['Estado civil', persona.estado_civil ? labelEstadoCivil(persona.estado_civil) : '—'],
@@ -1470,6 +1501,7 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar }: {
 
       <BloqueFicha titulo="Contacto" pares={[
         ['Teléfono', persona.telefono || '—'],
+        ['Correo', persona.correo || '—'],
         ['En una emergencia, llamar a', [emergencia || null, persona.contacto_emergencia_tlf || null].filter(Boolean).join(' · ') || '—'],
         ['Dirección', persona.direccion || '—'],
       ]} />

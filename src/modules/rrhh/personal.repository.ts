@@ -12,7 +12,7 @@ import {
   type TipoDocumentoPersonal,
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, normalizarEmpresa, type Empresa } from './empresa';
-import type { Genero, Parentesco } from './fichaPersonal';
+import { normalizarCorreo, type Genero, type Parentesco } from './fichaPersonal';
 
 const TABLE = 'personal';
 const TABLA_SUELDOS = 'personal_sueldos';
@@ -57,12 +57,14 @@ export interface PersonalInput {
   estado_civil?: string | null;
   fecha_nacimiento?: string | null;
   grupo_sanguineo?: string | null;
+  grado_instruccion?: string | null;
   nacionalidad?: string | null;
   direccion?: string | null;
   contacto_emergencia_parentesco?: string | null;
   sueldo_base?: number;
   fecha_ingreso?: string | null;
   telefono?: string | null;
+  correo?: string | null;
   contacto_emergencia?: string | null;
   contacto_emergencia_tlf?: string | null;
   foto_url?: string | null;
@@ -136,11 +138,15 @@ function payload(input: PersonalInput) {
     estado_civil: input.estado_civil === undefined ? undefined : (input.estado_civil?.trim() || null),
     fecha_nacimiento: input.fecha_nacimiento === undefined ? undefined : (input.fecha_nacimiento || null),
     grupo_sanguineo: input.grupo_sanguineo === undefined ? undefined : (input.grupo_sanguineo?.trim() || null),
+    grado_instruccion: input.grado_instruccion === undefined ? undefined : (input.grado_instruccion?.trim() || null),
     nacionalidad: input.nacionalidad === undefined ? undefined : (input.nacionalidad?.trim().toUpperCase() || null),
     direccion: input.direccion === undefined ? undefined : (input.direccion?.trim() || null),
     contacto_emergencia_parentesco: input.contacto_emergencia_parentesco === undefined ? undefined : (input.contacto_emergencia_parentesco?.trim() || null),
     fecha_ingreso: input.fecha_ingreso || null,
     telefono: input.telefono?.trim() || null,
+    // En minúsculas siempre: nadie escribe su correo dos veces igual, y así
+    // «J.Perez@Gmail.com» y «j.perez@gmail.com» no quedan como dos personas.
+    correo: input.correo === undefined ? undefined : (normalizarCorreo(input.correo) || null),
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
     contacto_emergencia_tlf: input.contacto_emergencia_tlf?.trim() || null,
     foto_url: input.foto_url?.trim() || null,

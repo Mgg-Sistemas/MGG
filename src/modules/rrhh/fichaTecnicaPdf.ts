@@ -16,7 +16,7 @@ import { date as fmtDate } from '@/shared/lib/format';
 import type { Personal } from '@/shared/lib/types';
 import { definicionEmpresa, normalizarEmpresa } from './empresa';
 import {
-  antiguedad, cantidadHijos, labelEstadoCivil, labelGenero, labelParentesco,
+  antiguedad, cantidadHijos, labelEstadoCivil, labelGenero, labelGradoInstruccion, labelParentesco,
   numeroFicha, textoEdad,
 } from './fichaPersonal';
 import type { FamiliarPersonal } from './personal.repository';
@@ -105,15 +105,17 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
     ['Género', p.genero ? labelGenero(p.genero) : '—'],
     ['Nacionalidad', raya(p.nacionalidad)],
     ['Estado civil', p.estado_civil ? labelEstadoCivil(p.estado_civil) : '—'],
+    ['Grado de instrucción', p.grado_instruccion ? labelGradoInstruccion(p.grado_instruccion) : '—'],
+    ['', ''],
   ]);
 
   const emergencia = [p.contacto_emergencia, p.contacto_emergencia_parentesco]
     .map((x) => String(x ?? '').trim()).filter(Boolean).join(', ');
   bloque('Contacto', [
     ['Teléfono', raya(p.telefono)],
+    ['Correo', raya(p.correo)],
     ['En una emergencia', [emergencia || null, p.contacto_emergencia_tlf || null].filter(Boolean).join(' · ') || '—'],
     ['Dirección', raya(p.direccion)],
-    ['', ''],
   ]);
 
   bloque('Datos laborales', [

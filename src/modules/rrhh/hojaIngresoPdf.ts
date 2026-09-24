@@ -28,7 +28,10 @@ const DATOS_PERSONALES: Array<[string, string]> = [
   ['Cédula de identidad', 'Fecha de nacimiento'],
   ['Nacionalidad', 'Lugar de nacimiento'],
   ['Estado civil', 'Género'],
-  ['Grupo sanguíneo / RH', 'Nivel de estudios'],
+  // «Grado de instrucción» y no «Nivel de estudios»: es el mismo rótulo que
+  // lleva el campo en el sistema, y quien transcribe la hoja no tiene que
+  // adivinar en qué casilla va.
+  ['Grupo sanguíneo / RH', 'Grado de instrucción'],
   ['Teléfono celular', 'Teléfono de habitación'],
   ['Correo electrónico', 'Cargo al que ingresa'],
 ];

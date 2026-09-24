@@ -1089,6 +1089,8 @@ export interface Personal {
   /** De acá sale la edad. La edad NO se guarda: quedaría vieja al día siguiente. */
   fecha_nacimiento?: string | null;
   grupo_sanguineo?: string | null;
+  /** Grado de instrucción. Lista cerrada: ver `GRADOS_INSTRUCCION`. */
+  grado_instruccion?: string | null;
   nacionalidad?: string | null;
   direccion?: string | null;
   contacto_emergencia_parentesco?: string | null;
@@ -1096,6 +1098,8 @@ export interface Personal {
   activo: boolean;
   fecha_ingreso?: string | null;
   telefono?: string | null;
+  /** Correo del trabajador. Opcional y NO único: varios comparten cuenta familiar. */
+  correo?: string | null;
   contacto_emergencia?: string | null;
   contacto_emergencia_tlf?: string | null;
   foto_url?: string | null;

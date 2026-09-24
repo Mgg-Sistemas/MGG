@@ -3,6 +3,7 @@ import {
   SIN_DATO, agruparPersonal, antiguedad, cantidadHijos, edadEn, filtrarPersonal, grupoDe,
   hijosMenores, labelEstadoCivil, labelGenero, labelParentesco, numeroFicha, porDepartamento,
   errorNumeroFicha, normalizarNumeroFicha, nombreDeCarnet,
+  errorCorreo, normalizarCorreo, GRADOS_INSTRUCCION, labelGradoInstruccion, ordenarPorFicha,
   resumenPersonal, textoEdad, tieneHijos,
 } from './fichaPersonal';
 
@@ -296,5 +297,93 @@ describe('el nombre que va impreso en el carnet', () => {
 
   it('sin datos no se cae', () => {
     expect(nombreDeCarnet(null, undefined)).toBe('');
+  });
+});
+
+describe('el correo del trabajador', () => {
+  it('uno normal pasa', () => {
+    expect(errorCorreo('jose.perez@gmail.com')).toBeNull();
+    expect(errorCorreo('rrhh@mineralgroupguayana.com')).toBeNull();
+  });
+
+  it('vacio pasa: hay gente que no tiene correo', () => {
+    expect(errorCorreo('')).toBeNull();
+    expect(errorCorreo(null)).toBeNull();
+    expect(errorCorreo('   ')).toBeNull();
+  });
+
+  it('sin arroba no pasa', () => {
+    expect(errorCorreo('josegmail.com')).toContain('incompleto');
+  });
+
+  it('sin dominio con punto no pasa', () => {
+    expect(errorCorreo('jose@gmail')).toContain('incompleto');
+  });
+
+  it('con espacios en el medio no pasa', () => {
+    expect(errorCorreo('jose perez@gmail.com')).toContain('espacios');
+  });
+
+  it('dos arrobas no pasa', () => {
+    expect(errorCorreo('jose@@gmail.com')).toContain('incompleto');
+  });
+
+  it('se guarda en minusculas y sin espacios de sobra', () => {
+    expect(normalizarCorreo('  Jose.Perez@GMAIL.com ')).toBe('jose.perez@gmail.com');
+    expect(normalizarCorreo(null)).toBe('');
+  });
+});
+
+describe('el grado de instruccion', () => {
+  it('va del mas bajo al mas alto', () => {
+    expect(GRADOS_INSTRUCCION.map((g) => g.key)).toEqual([
+      'ninguno', 'primaria', 'bachiller', 'tecnico_medio', 'tsu', 'universitario', 'postgrado', 'doctorado',
+    ]);
+  });
+
+  it('cada uno tiene su nombre en castellano', () => {
+    expect(labelGradoInstruccion('tsu')).toBe('TSU');
+    expect(labelGradoInstruccion('bachiller')).toBe('Bachiller');
+  });
+
+  it('uno que no esta en la lista no rompe la pantalla', () => {
+    expect(labelGradoInstruccion('doctorado_honoris')).toBe('—');
+    expect(labelGradoInstruccion(null)).toBe('—');
+  });
+});
+
+describe('el listado va por numero de ficha', () => {
+  const f = (numero_ficha: string | null, nombre = 'X') => ({ numero_ficha, nombre });
+
+  it('010 va despues de 002, no antes: el numero se compara como numero', () => {
+    const orden = ordenarPorFicha([f('010'), f('002'), f('001')]).map((p) => p.numero_ficha);
+    expect(orden).toEqual(['001', '002', '010']);
+  });
+
+  it('los prefijos se agrupan y adentro se ordena por numero', () => {
+    const orden = ordenarPorFicha([f('MGG-015'), f('A02'), f('002'), f('A01'), f('MGG-002')])
+      .map((p) => p.numero_ficha);
+    expect(orden).toEqual(['002', 'A01', 'A02', 'MGG-002', 'MGG-015']);
+  });
+
+  it('quien no tiene ficha va al final, ordenado por nombre', () => {
+    const orden = ordenarPorFicha([f(null, 'Rosa'), f('003'), f('', 'Ana'), f('001')]);
+    expect(orden.map((p) => p.numero_ficha)).toEqual(['001', '003', '', null]);
+    expect(orden.slice(2).map((p) => p.nombre)).toEqual(['Ana', 'Rosa']);
+  });
+
+  it('no altera la lista original', () => {
+    const lista = [f('003'), f('001')];
+    ordenarPorFicha(lista);
+    expect(lista.map((p) => p.numero_ficha)).toEqual(['003', '001']);
+  });
+
+  it('mayusculas y espacios no arman un grupo aparte', () => {
+    const orden = ordenarPorFicha([f(' a02 '), f('A01')]).map((p) => p.numero_ficha);
+    expect(orden).toEqual(['A01', ' a02 ']);
+  });
+
+  it('una lista vacia no rompe', () => {
+    expect(ordenarPorFicha([])).toEqual([]);
   });
 });

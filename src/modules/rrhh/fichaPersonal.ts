@@ -43,6 +43,32 @@ export function labelEstadoCivil(e: EstadoCivil | string | null | undefined): st
   return ESTADOS_CIVILES.find((x) => x.key === e)?.label ?? '—';
 }
 
+/* ─────────────────── Grado de instrucción ─────────────────── */
+
+export type GradoInstruccion =
+  | 'ninguno' | 'primaria' | 'bachiller' | 'tecnico_medio'
+  | 'tsu' | 'universitario' | 'postgrado' | 'doctorado';
+
+/**
+ * Los grados, del más bajo al más alto. Lista cerrada a propósito: escrito a
+ * mano, el mismo nivel entra como «BACHILLER», «Bto.» y «bachillerato», y
+ * después no se puede contar cuánta gente tiene cada grado.
+ */
+export const GRADOS_INSTRUCCION: { key: GradoInstruccion; label: string }[] = [
+  { key: 'ninguno', label: 'Sin estudios formales' },
+  { key: 'primaria', label: 'Primaria' },
+  { key: 'bachiller', label: 'Bachiller' },
+  { key: 'tecnico_medio', label: 'Técnico medio' },
+  { key: 'tsu', label: 'TSU' },
+  { key: 'universitario', label: 'Universitario' },
+  { key: 'postgrado', label: 'Postgrado / Maestría' },
+  { key: 'doctorado', label: 'Doctorado' },
+];
+
+export function labelGradoInstruccion(g: GradoInstruccion | string | null | undefined): string {
+  return GRADOS_INSTRUCCION.find((x) => x.key === g)?.label ?? '—';
+}
+
 export const GRUPOS_SANGUINEOS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'] as const;
 export type GrupoSanguineo = typeof GRUPOS_SANGUINEOS[number];
 
@@ -137,6 +163,65 @@ export function errorNumeroFicha(v: string | null | undefined): string | null {
 /** Cómo se guarda: sin espacios de sobra y en mayúsculas, para que «a01» y «A01» sean la misma. */
 export function normalizarNumeroFicha(v: string | null | undefined): string {
   return (v ?? '').trim().toUpperCase();
+}
+
+/**
+ * Ordena por N° de ficha, como se lee un listado de nómina.
+ *
+ * Es texto, así que un `sort` común pondría «10» antes que «2». Se compara el
+ * TRAMO NUMÉRICO como número y el resto como texto: «001» < «002» < «010» <
+ * «A01» < «MGG-015». Quien todavía no tiene ficha va al final —no encabeza la
+ * lista un renglón sin número— y entre esos se ordena por nombre.
+ */
+export function ordenarPorFicha<T extends { numero_ficha?: string | null; nombre?: string; apellido?: string | null }>(filas: T[]): T[] {
+  const partes = (v: string) => {
+    const m = /^(\D*)(\d*)(.*)$/.exec(v) ?? [];
+    return { pre: m[1] ?? '', num: m[2] ? Number(m[2]) : null, post: m[3] ?? '' };
+  };
+  return [...(filas ?? [])].sort((a, b) => {
+    const fa = normalizarNumeroFicha(a.numero_ficha);
+    const fb = normalizarNumeroFicha(b.numero_ficha);
+    if (!fa || !fb) {
+      if (fa !== fb) return fa ? -1 : 1;                  // sin ficha, al final
+      return `${a.nombre ?? ''} ${a.apellido ?? ''}`.localeCompare(`${b.nombre ?? ''} ${b.apellido ?? ''}`, 'es');
+    }
+    const pa = partes(fa); const pb = partes(fb);
+    if (pa.pre !== pb.pre) return pa.pre.localeCompare(pb.pre, 'es');
+    if (pa.num != null && pb.num != null && pa.num !== pb.num) return pa.num - pb.num;
+    if ((pa.num == null) !== (pb.num == null)) return pa.num == null ? 1 : -1;
+    return pa.post.localeCompare(pb.post, 'es') || fa.localeCompare(fb, 'es');
+  });
+}
+
+/* ───────────────────── Correo electrónico ───────────────────── */
+
+/**
+ * Cómo se guarda un correo: sin espacios y en minúsculas.
+ *
+ * Los correos no distinguen mayúsculas en la parte del dominio, y en la
+ * práctica tampoco en la del nombre. Guardarlos tal cual se escribieron deja
+ * el mismo correo cargado de tres formas distintas según quién lo tipeó.
+ */
+export function normalizarCorreo(v: string | null | undefined): string {
+  return (v ?? '').trim().toLowerCase();
+}
+
+/**
+ * ¿Sirve este correo? Devuelve el motivo, o `null` si está bien.
+ *
+ * Vacío es válido: hay gente que no tiene correo y no se le puede trabar la
+ * ficha por eso. Lo que se revisa es la FORMA —que haya algo, una arroba, un
+ * dominio con punto—, no que la casilla exista: eso solo lo dice mandarle un
+ * mensaje. Es la misma comprobación que hace la base de datos.
+ */
+export function errorCorreo(v: string | null | undefined): string | null {
+  const s = normalizarCorreo(v);
+  if (!s) return null;
+  if (/\s/.test(s)) return 'El correo no puede llevar espacios.';
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)) {
+    return 'El correo está incompleto (ej.: nombre@gmail.com).';
+  }
+  return null;
 }
 
 /* ───────────────────── Carga familiar ───────────────────── */
