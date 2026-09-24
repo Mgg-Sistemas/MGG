@@ -70,10 +70,18 @@ function useRecepcionadoCasiterita(): number | null {
   return recepcionado;
 }
 
-/** Aviso NO bloqueante: se muestra solo cuando el inventario detallado supera lo recepcionado. */
-function AlertaDescuadreCasiterita({ detallado, recepcionado }: { detallado: number; recepcionado: number | null }) {
+/**
+ * Aviso NO bloqueante: el detallado que QUEDA no puede superar lo que hay en stock.
+ *
+ * Se compara el saldo, no el peso original: desde que la fundición descuenta la
+ * casiterita que quema, el stock baja con cada colada mientras las filas del
+ * detallado siguen enteras. Comparar peso contra stock daría un «exceso» igual a
+ * todo lo fundido, que es justamente lo que sí está bien.
+ */
+function AlertaDescuadreCasiterita({ detallado, usado, recepcionado }: { detallado: number; usado: number; recepcionado: number | null }) {
   if (recepcionado == null) return null;
-  const exceso = round2(detallado - recepcionado);
+  const saldo = round2(detallado - usado);
+  const exceso = round2(saldo - recepcionado);
   if (exceso <= TOLERANCIA_KG) return null;
   return (
     <div className="card" style={{ borderColor: 'var(--danger)', background: 'rgba(239,68,68,0.08)', marginBottom: '.8rem' }}>
@@ -82,7 +90,9 @@ function AlertaDescuadreCasiterita({ detallado, recepcionado }: { detallado: num
         <div style={{ fontSize: '.85rem' }}>
           <strong>El inventario detallado supera lo recepcionado.</strong> Verificá las cargas: el detallado (SnO₂) no debería dar <strong>más</strong> que el total recepcionado de casiterita.
           <div className="muted" style={{ marginTop: '.25rem' }}>
-            Detallado <strong className="mono">{n2(detallado)}</strong> Kg · Recepcionado <strong className="mono">{n2(recepcionado)}</strong> Kg · Exceso <strong className="mono">{n2(exceso)}</strong> Kg
+            Detallado <strong className="mono">{n2(detallado)}</strong> Kg
+            {usado > TOLERANCIA_KG && <> · Fundido <strong className="mono">{n2(usado)}</strong> Kg · Saldo <strong className="mono">{n2(saldo)}</strong> Kg</>}
+            {' '}· Recepcionado <strong className="mono">{n2(recepcionado)}</strong> Kg · Exceso <strong className="mono">{n2(exceso)}</strong> Kg
           </div>
         </div>
       </div>
@@ -103,10 +113,20 @@ export function CasiteritaResumen({ onOpenDetalle }: { onOpenDetalle: () => void
     valor: a.valor + valorFila(d),
   }), { casiterita: 0, valor: 0 }), [rows]);
   const recepcionado = useRecepcionadoCasiterita();
+  // Lo que ya se quemó en coladas: sin esto el aviso se dispararía solo, porque
+  // el stock baja con cada fundición y las filas del detallado no.
+  const [usado, setUsado] = useState(0);
+  const cargarUsado = useCallback(() => {
+    getConsumoBigBagsDetallado()
+      .then((m) => setUsado(round2([...m.values()].reduce((a, c) => a + (Number(c.kg) || 0), 0))))
+      .catch(() => setUsado(0));
+  }, []);
+  useEffect(() => { cargarUsado(); }, [cargarUsado]);
+  useRealtime(['produccion_colada'], cargarUsado);
 
   return (
     <>
-    <AlertaDescuadreCasiterita detallado={tot.casiterita} recepcionado={recepcionado} />
+    <AlertaDescuadreCasiterita detallado={tot.casiterita} usado={usado} recepcionado={recepcionado} />
     <div className="card" style={{ marginBottom: '.8rem' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '.6rem', marginBottom: grupos.length ? '.6rem' : 0 }}>
         <div className="card-title" style={{ margin: 0 }}>⛏ Casiterita valorizada <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>(Peso Casiterita × Tasa, por centro/aliado)</span></div>
@@ -207,6 +227,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
   // El descuadre se mide contra TODO el inventario, no contra lo filtrado: es
   // un control de datos, no una vista.
   const casiteritaTotal = useMemo(() => round2(rows.reduce((a, d) => a + (Number(d.peso_casiterita_kgs) || 0), 0)), [rows]);
+  const usadoTotal = useMemo(() => round2(rows.reduce((a, d) => a + (consumo.get(d.id)?.kg ?? 0), 0)), [rows, consumo]);
 
   // Filas + subtotal cuando cambia la procedencia.
   const filas: Array<{ tipo: 'dato'; d: CasiteritaDetalle } | { tipo: 'sub'; proc: string }> = [];
@@ -228,7 +249,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
         </div>
       </div>
 
-      <AlertaDescuadreCasiterita detallado={casiteritaTotal} recepcionado={recepcionado} />
+      <AlertaDescuadreCasiterita detallado={casiteritaTotal} usado={usadoTotal} recepcionado={recepcionado} />
 
       {/* Buscador por todas las características: quien busca no se acuerda de
           en qué columna estaba el dato, se acuerda del dato. */}

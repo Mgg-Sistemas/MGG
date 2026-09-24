@@ -9,7 +9,7 @@ import type { ColadaDatos, ProduccionColada } from '@/shared/lib/types';
 import { finalizarProduccion } from './produccion.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { NOMBRE_ESCORIA, asegurarFichaEscoria, detalleEscoria, ingresaEscoria, kgDeEscoria } from './escoriaFundicion';
-import { fmtProcesoVE, tiemposACompletar } from './tiemposProceso';
+import { fmtPlantaVE, isoDePlanta, tiemposACompletar } from './tiemposProceso';
 
 const TABLE = 'produccion_colada';
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -295,24 +295,30 @@ export async function finalizarColadaConResultados(
 }
 
 /**
- * Copia al reporte los tiempos REALES de la orden (inicio, fin y duración).
+ * Completa en el reporte los tiempos del proceso a partir de la CARGA DEL HORNO.
  *
- * La tarjeta de la colada ya los mostraba, pero el bloque «Sangrado y tiempos
- * de colada» —el que sale en el PDF— quedaba vacío: había que reescribir a mano
- * lo que el sistema ya sabía. Lo que el usuario SÍ escribió no se toca.
+ * El bloque «Sangrado y tiempos de colada» —el que sale impreso en el
+ * MGG-FR-001— quedaba vacío y había que reescribirlo a mano. Se llenaba solo,
+ * pero con `inicio_at`/`fin_at` de la orden, y eso es la hora en que alguien
+ * abrió y cerró el formulario: una colada cargada de corrido daba
+ * «11:13 → 11:15 · 0,04 h», que es lo que tardó la pantalla, no el horno.
+ *
+ * Ahora sale de lo que el operador escribió como inicio y fin de carga, que son
+ * horas de planta. Si no las cargó, el bloque queda vacío: en un documento
+ * formal, en blanco es mejor que un número inventado.
  *
  * Best-effort: la colada ya cerró y el estaño ya entró; un problema acá no
  * puede tumbar el cierre.
  */
 export async function sellarTiemposDeProceso(produccionId: string): Promise<void> {
   try {
-    const [{ data: prod }, { data: rep }] = await Promise.all([
-      supabase.from('produccion').select('inicio_at, fin_at').eq('id', produccionId).maybeSingle(),
-      supabase.from(TABLE).select('id, datos').eq('produccion_id', produccionId).maybeSingle(),
-    ]);
-    if (!prod || !rep) return;
+    const { data: rep } = await supabase.from(TABLE)
+      .select('id, datos').eq('produccion_id', produccionId).maybeSingle();
+    if (!rep) return;
     const datos = (rep.datos ?? {}) as ColadaDatos;
-    const patch = tiemposACompletar(datos, prod.inicio_at, prod.fin_at, fmtProcesoVE);
+    const ini = isoDePlanta(datos.fecha_inicio_carga, datos.hora_inicio_carga);
+    const fin = isoDePlanta(datos.fecha_fin_carga, datos.hora_fin_carga);
+    const patch = tiemposACompletar(datos, ini, fin, fmtPlantaVE);
     if (!Object.keys(patch).length) return;
     await supabase.from(TABLE).update({ datos: { ...datos, ...patch } }).eq('id', rep.id);
   } catch { /* no bloquea el cierre */ }

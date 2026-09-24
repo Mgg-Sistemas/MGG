@@ -51,7 +51,14 @@ export function almacenDeFundicion(
  * el stock de hoy ya refleja lo que se quemó entonces. Exigir existencia ahí
  * sería pedir que el pasado quepa en el presente.
  */
-export function validaStock(descontarInventario: boolean, desdeFundicion?: boolean | null): boolean {
-  if (!descontarInventario) return false;
-  return desdeFundicion !== true;
+export function validaStock(
+  descontarInventario: boolean,
+  desdeFundicion?: boolean | null,
+  siempreDescuenta?: boolean | null,
+): boolean {
+  if (desdeFundicion === true) return false;
+  // Lo que se descuenta igual en una carga vieja sí tiene que tener stock: se va
+  // a mover de verdad, y mover stock que no hay deja el inventario en negativo.
+  if (!descontarInventario) return siempreDescuenta === true;
+  return true;
 }

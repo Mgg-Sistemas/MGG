@@ -21,7 +21,9 @@ import {
 } from './produccion.repository';
 import { ColadaCampos } from './ColadaCampos';
 import { getColada, actualizarColadaDatos, actualizarColadaCabecera, coladaDatosVacios, getConsumoBigBags } from './colada.repository';
-import { listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
+import { CASITERITA_ALMACEN, SKU_CASITERITA, listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
+import { findBySku } from '@/modules/inventario/inventario.repository';
+import { lineaCasiterita } from './consumoCasiterita';
 
 interface Row {
   key: string; producto_id: string | null; material_nombre: string; almacen: string; cantidad: number | null;
@@ -53,9 +55,10 @@ export function EditarMaterialesModal({
   const [cantidad, setCantidad] = useState<number | null>(null);
   const [manoObra, setManoObra] = useState<number | null>(null);
   const [sumarInventario, setSumarInventario] = useState(true);
-  // No descontar del inventario: el material ya salió por una Salida cuando se
-  // llevó al horno, o la colada es una carga vieja. Arranca marcado; en una orden
-  // ya guardada se respeta lo que tenía.
+  // No descontar del inventario: los fundentes ya salieron por una Salida cuando
+  // se llevaron al horno, o la colada es una carga vieja. Arranca marcado; en una
+  // orden ya guardada se respeta lo que tenía. La casiterita de los big bags se
+  // descuenta igual: no pasa por ninguna Salida.
   const [cargaHistorica, setCargaHistorica] = useState(true);
   const [productoNombre, setProductoNombre] = useState('');
   const [loading, setLoading] = useState(true);
@@ -70,6 +73,10 @@ export function EditarMaterialesModal({
   const [coladaFecha, setColadaFecha] = useState('');
   const [casiteritaDetalle, setCasiteritaDetalle] = useState<CasiteritaDetalle[]>([]);
   const [consumoBigBags, setConsumoBigBags] = useState<Map<string, number>>(new Map());
+  /** Ficha de casiterita: su línea de material se rearma desde los big bags al guardar. */
+  const [fichaCasiterita, setFichaCasiterita] = useState<string | null>(null);
+  /** Lo que ESTA orden ya tiene consumido, por producto+almacén. */
+  const [yaConsumido, setYaConsumido] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
     let cancel = false;
@@ -91,13 +98,30 @@ export function EditarMaterialesModal({
         costo: m.costo_unitario == null ? null : Number(m.costo_unitario),
       })));
       // Reporte de colada (fundición).
+      // El stock de hoy YA tiene descontado lo que esta orden consumió. Si no se
+      // devuelve para la revisión, editar una colada sin cambiarle nada se
+      // rechaza sola por «stock insuficiente» de su propio material.
+      const descontaba = p.descontar_inventario !== false;
+      const devuelto = new Map<string, number>();
+      for (const m of p.materiales ?? []) {
+        if (!m.producto_id || m.desde_fundicion === true) continue;
+        // En una carga vieja lo único que se descontó fue la casiterita, así que
+        // es lo único que hay para devolver.
+        const siempre = (m as { siempre_descuenta?: boolean | null }).siempre_descuenta === true;
+        if (!descontaba && !siempre) continue;
+        const k = `${m.producto_id}|${m.almacen}`;
+        devuelto.set(k, (devuelto.get(k) ?? 0) + (Number(m.cantidad) || 0));
+      }
+      setYaConsumido(devuelto);
       if (tipo === 'fundicion') {
-        const [col, det, cons] = await Promise.all([
+        const [col, det, cons, ficha] = await Promise.all([
           getColada(produccionId),
           listCasiteritaDetalle().catch(() => [] as CasiteritaDetalle[]),
           getConsumoBigBags(produccionId).catch(() => new Map<string, number>()),
+          findBySku(SKU_CASITERITA).catch(() => null),
         ]);
         if (cancel) return;
+        setFichaCasiterita(ficha?.id ?? null);
         if (col) {
           setEsColada(true);
           setColadaDatos({ ...coladaDatosVacios(), ...(col.datos ?? {}) });
@@ -112,8 +136,12 @@ export function EditarMaterialesModal({
     return () => { cancel = true; };
   }, [produccionId, tipo]);
 
-  const stockDe = (pid: string | null, alm: string): number =>
-    !pid ? Infinity : Number(existencias.find((e) => e.producto_id === pid && e.almacen === alm)?.stock) || 0;
+  const stockDe = (pid: string | null, alm: string): number => {
+    if (!pid) return Infinity;
+    const hay = Number(existencias.find((e) => e.producto_id === pid && e.almacen === alm)?.stock) || 0;
+    // Más lo que esta misma orden tiene tomado y se le devuelve al guardar.
+    return hay + (yaConsumido.get(`${pid}|${alm}`) ?? 0);
+  };
 
   const setRow = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const delRow = (key: string) => setRows((rs) => rs.filter((r) => r.key !== key));
@@ -146,10 +174,20 @@ export function EditarMaterialesModal({
     }
     setSaving(true);
     try {
-      const materiales: MaterialInput[] = validas.map((r) => ({
-        producto_id: r.producto_id, material_nombre: r.material_nombre, almacen: r.almacen, cantidad: Number(r.cantidad) || 0,
-        desde_fundicion: r.desde_fundicion, costo: r.costo,
-      }));
+      // La línea de casiterita no se edita a mano: se rearma desde los big bags
+      // del reporte, que son los que mandan. Si acá se dejara la vieja, cambiar
+      // una bolsa movería el reporte y no el inventario.
+      const materiales: MaterialInput[] = validas
+        .filter((r) => !(esColada && fichaCasiterita && r.producto_id === fichaCasiterita))
+        .map((r) => ({
+          producto_id: r.producto_id, material_nombre: r.material_nombre, almacen: r.almacen, cantidad: Number(r.cantidad) || 0,
+          desde_fundicion: r.desde_fundicion, costo: r.costo,
+        }));
+      if (esColada) {
+        const lineaCas = lineaCasiterita(coladaDatos.big_bags, fichaCasiterita, CASITERITA_ALMACEN);
+        if (lineaCas) materiales.unshift(lineaCas);
+      }
+      if (!materiales.length) { setError('Dejá al menos un material con cantidad.'); setSaving(false); return; }
       await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, descontarInventario: !cargaHistorica, materiales, actor, actorName });
       // Reporte de colada: guarda todo el detalle + cabecera (Colada N° / fecha).
       if (esColada) {
@@ -194,9 +232,9 @@ export function EditarMaterialesModal({
           </label>
 
           <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', margin: '0 0 .2rem', cursor: 'pointer', fontSize: '.86rem' }}
-            title="El material ya salió por Salidas: descontarlo otra vez sería contarlo dos veces">
+            title="Los fundentes ya salieron por Salidas: descontarlos otra vez sería contarlos dos veces">
             <input type="checkbox" checked={cargaHistorica} onChange={(e) => setCargaHistorica(e.target.checked)} />
-            <span>📦 <strong>No descontar el material del inventario</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· el material ya salió por una <strong>Salida</strong> cuando se llevó al horno, o es una carga vieja. Tampoco se exige stock.</span></span>
+            <span>📦 <strong>No descontar el material del inventario</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· los fundentes ya salieron por una <strong>Salida</strong> cuando se llevaron al horno, o es una carga vieja. Tampoco se exige stock. {esColada && <>La <strong>casiterita de los big bags</strong> se descuenta igual, marques o no.</>}</span></span>
           </label>
 
           <div className="card-title" style={{ marginTop: '.8rem' }}>Materiales (consumo de inventario)</div>

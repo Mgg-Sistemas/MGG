@@ -4,8 +4,9 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
-import { getUnidades, updateProducto } from '@/modules/inventario/inventario.repository';
-import { listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
+import { findBySku, getUnidades, updateProducto } from '@/modules/inventario/inventario.repository';
+import { CASITERITA_ALMACEN, SKU_CASITERITA, listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
+import { bagsSobregirados, lineaCasiterita, textoSobregiro } from './consumoCasiterita';
 import { AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
 import { listAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
 import { cargarPisoFundicion } from './pisoFundicion.repository';
@@ -230,11 +231,15 @@ export function MaterialAProducirModal({
   const [hornoSaving, setHornoSaving] = useState(false);
   const [manoObra, setManoObra] = useState('0');
   const [sumarInventario, setSumarInventario] = useState(true); // ¿el producto entra al inventario al finalizar?
-  // El material de una colada NO se descuenta acá, y por eso arranca marcado:
-  // ya salió del almacén por una Salida de material cuando se llevó al horno.
-  // Descontarlo otra vez es el doble descuento. Vale igual para una colada vieja
-  // (una de mayo): el stock de hoy ya refleja lo que se quemó entonces.
-  // Se destilda solo si esta colada en particular sí debe bajar el stock.
+  // Arranca marcado: los fundentes ya salieron del almacén por una Salida de
+  // material cuando se llevaron al horno, y descontarlos otra vez acá sería
+  // contarlos dos veces. Vale igual para una colada vieja (una de agosto): el
+  // stock de hoy ya refleja lo que se quemó entonces.
+  //
+  // OJO: esto NO alcanza a la casiterita de los big bags. Esa no tiene Salida
+  // —sale del Inventario Detallado derecho al crisol— así que su línea se
+  // descuenta igual, marques o no la casilla. Si no, la bolsa quedaba entera
+  // para siempre y se podía volver a fundir, que es lo que estaba pasando.
   const [cargaHistorica, setCargaHistorica] = useState(true);
   // Costos indirectos POR CONCEPTO (cada uno con su costo; ninguno obligatorio).
   const [indirectos, setIndirectos] = useState<Record<string, string>>({});
@@ -532,6 +537,31 @@ export function MaterialAProducirModal({
       // cargan para dejar el registro. Exigirlo bloqueaba casos reales.
     }
 
+    // Los big bags de la colada se revisan contra la BASE, no contra la pantalla:
+    // el saldo que se ve se leyó al abrir el modal, y en dos navegadores los dos
+    // ven la bolsa entera y los dos se la llevan.
+    let fichaCasiterita: string | null = null;
+    if (esColada) {
+      const [ficha, consumoAhora] = await Promise.all([
+        findBySku(SKU_CASITERITA).catch(() => null),
+        getConsumoBigBags().catch(() => consumoBigBags),
+      ]);
+      fichaCasiterita = ficha?.id ?? null;
+      const peso = new Map(casiteritaDetalle.map((d) => [d.id, Number(d.peso_casiterita_kgs) || 0]));
+      const etiqueta = new Map(casiteritaDetalle.map((d) => [
+        d.id, `${d.procedencia}${d.precinto ? ` · precinto ${d.precinto}` : ''}`,
+      ]));
+      const sobregiros = bagsSobregirados(coladaDatos.big_bags, peso, etiqueta, consumoAhora);
+      if (sobregiros.length) {
+        rechazar(`Esos big bags ya no alcanzan — ${textoSobregiro(sobregiros)}. Cerrá y volvé a abrir para ver los saldos al día.`);
+        return;
+      }
+      if (!fichaCasiterita && (coladaDatos.big_bags ?? []).some((b) => b.origen_detalle_id)) {
+        rechazar(`No encuentro la ficha de inventario «${SKU_CASITERITA}», así que la casiterita no podría descontarse. Avisá a sistemas.`);
+        return;
+      }
+    }
+
     // En una carga histórica no se revisa el stock: la colada ya ocurrió y el
     // material de entonces no tiene por qué estar hoy en el almacén.
     if (!cargaHistorica) for (const { m, row } of seleccion) {
@@ -579,7 +609,16 @@ export function MaterialAProducirModal({
           costo: Number(c.costo_unitario) || 0,
         }))
         : [];
-      const matInput: MaterialInput[] = [...crudoInput, ...reactivoInput];
+      // Fundición: la casiterita de los big bags es el material principal de la
+      // colada y hasta ahora no era material de nada. Vivía solo en el reporte,
+      // así que no descontaba stock —la misma bolsa se podía quemar de nuevo— y
+      // quedaba fuera del costo: 1.683 kg a $18,74 no aparecían por ningún lado
+      // y el kilo de estaño costaba $0,11.
+      const casiteritaInput: MaterialInput[] = [];
+      const lineaCas = esColada ? lineaCasiterita(coladaDatos.big_bags, fichaCasiterita, CASITERITA_ALMACEN) : null;
+      if (lineaCas) casiteritaInput.push(lineaCas);
+
+      const matInput: MaterialInput[] = [...casiteritaInput, ...crudoInput, ...reactivoInput];
 
       // Asegura la fila del almacén fijo (Matanzas) para que aparezca en el switch.
       await asegurarAlmacenFijo();
@@ -906,9 +945,9 @@ export function MaterialAProducirModal({
             <span><strong>Sumar al inventario</strong> al finalizar <span className="muted" style={{ fontSize: '.76rem' }}>· si lo destildás, esta {esRef ? 'refinación' : 'colada'} queda como registro/reporte y NO suma stock del producto</span></span>
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', marginTop: '.4rem', cursor: 'pointer', fontSize: '.86rem' }}
-            title="El material ya salió por Salidas: descontarlo otra vez sería contarlo dos veces">
+            title="Los fundentes ya salieron por Salidas: descontarlos otra vez sería contarlos dos veces">
             <input type="checkbox" checked={cargaHistorica} onChange={(e) => setCargaHistorica(e.target.checked)} />
-            <span>📦 <strong>No descontar el material del inventario</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· el material ya salió del almacén por una <strong>Salida</strong> cuando se llevó al horno, o esta {esRef ? 'refinación' : 'colada'} es una carga vieja. Tampoco se exige stock. Destildá solo si esta {esRef ? 'refinación' : 'colada'} SÍ debe bajar el inventario.</span></span>
+            <span>📦 <strong>No descontar el material del inventario</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· los fundentes ya salieron del almacén por una <strong>Salida</strong> cuando se llevaron al horno, o esta {esRef ? 'refinación' : 'colada'} es una carga vieja. Tampoco se exige stock. {esColada && <>La <strong>casiterita de los big bags</strong> se descuenta igual, marques o no: no sale por una Salida sino del <strong>Inventario Detallado</strong>, y si no baja acá la bolsa queda para volver a fundirla. </>}Destildá si esta {esRef ? 'refinación' : 'colada'} SÍ debe bajar el resto del inventario.</span></span>
           </label>
         </div>
 

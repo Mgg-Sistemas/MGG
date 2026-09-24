@@ -111,7 +111,8 @@ export async function listCasiteritaDetalle(): Promise<CasiteritaDetalle[]> {
 }
 
 /** El producto único donde vive la casiterita del inventario real. */
-const SKU_CASITERITA = 'MIN-CASITERITA';
+/** Ficha de inventario que respalda al detallado. Cableada a propósito: ver memoria de SKUs. */
+export const SKU_CASITERITA = 'MIN-CASITERITA';
 
 /**
  * Mueve el stock de casiterita y deja anotado en la fila cuánto lleva aportado.

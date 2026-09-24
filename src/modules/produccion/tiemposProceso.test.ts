@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fmtProcesoVE, horasEntre, tiemposACompletar, vacio } from './tiemposProceso';
+import { fmtPlantaVE, horasEntre, isoDePlanta, tiemposACompletar, vacio } from './tiemposProceso';
 
 const fmt = (iso: string) => `F(${iso})`;
 
@@ -63,18 +63,43 @@ describe('qué campos completa el sistema', () => {
   });
 });
 
-describe('cómo se escribe la marca de tiempo en el reporte', () => {
-  it('usa hora de Venezuela, no la del navegador', () => {
-    // 14:24 UTC = 10:24 en Caracas (UTC−4).
-    expect(fmtProcesoVE('2026-09-24T14:24:53Z')).toBe('24/09/26 10:24');
+describe('las horas de planta que carga el operador', () => {
+  it('une la fecha y la hora de la carga del horno', () => {
+    expect(isoDePlanta('2026-09-24', '06:00')).toBe('2026-09-24T06:00');
   });
 
-  it('cruza bien la medianoche hacia atrás', () => {
-    // 02:30 UTC del 24 son las 22:30 del 23 en Caracas.
-    expect(fmtProcesoVE('2026-09-24T02:30:00Z')).toBe('23/09/26 22:30');
+  it('acepta la hora escrita sin el cero de adelante', () => {
+    expect(isoDePlanta('2026-09-24', '6:05')).toBe('2026-09-24T06:05');
   });
 
-  it('una fecha ilegible no ensucia el reporte', () => {
-    expect(fmtProcesoVE('cualquier cosa')).toBe('');
+  it('sin fecha o sin hora no hay marca', () => {
+    expect(isoDePlanta('2026-09-24', '')).toBeNull();
+    expect(isoDePlanta('', '06:00')).toBeNull();
+    expect(isoDePlanta('24/09/2026', '06:00')).toBeNull();
+  });
+
+  it('se escribe como lo pide el formato, sin correr la zona horaria', () => {
+    // Es hora de planta: 06:00 tiene que salir 06:00, no 02:00 ni 10:00.
+    expect(fmtPlantaVE('2026-09-24T06:00')).toBe('24/09/26 06:00');
+  });
+
+  it('una marca ilegible no ensucia el reporte', () => {
+    expect(fmtPlantaVE('cualquier cosa')).toBe('');
+  });
+
+  it('de punta a punta: la carga del horno da el bloque del reporte', () => {
+    const ini = isoDePlanta('2026-09-24', '06:00');
+    const fin = isoDePlanta('2026-09-24', '17:30');
+    expect(tiemposACompletar({}, ini, fin, fmtPlantaVE)).toEqual({
+      hora_inicio_proceso: '24/09/26 06:00',
+      hora_fin_proceso: '24/09/26 17:30',
+      duracion_horas: 11.5,
+    });
+  });
+
+  it('sin carga cargada, el bloque queda vacío en vez de inventar', () => {
+    // Antes esto se llenaba con la hora en que se abrió y se cerró el
+    // formulario, y el PDF salía con una colada de 0,04 h.
+    expect(tiemposACompletar({}, isoDePlanta('', ''), isoDePlanta('', ''), fmtPlantaVE)).toEqual({});
   });
 });

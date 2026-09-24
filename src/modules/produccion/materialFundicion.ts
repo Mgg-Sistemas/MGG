@@ -37,6 +37,15 @@ export interface MaterialConsumible {
    * su salida marcada «va para fundición».
    */
   desde_fundicion?: boolean | null;
+  /**
+   * Se descuenta aunque la orden sea una CARGA VIEJA.
+   *
+   * Es para lo que nunca pasó por una Salida: la casiterita de los big bags
+   * sale derecho del Inventario Detallado (SnO₂) y no tiene otro documento que
+   * la baje. Si la colada no la descuenta, la bolsa queda disponible para
+   * siempre y se puede volver a quemar.
+   */
+  siempre_descuenta?: boolean | null;
 }
 
 /**
@@ -51,6 +60,34 @@ export interface MaterialConsumible {
  * `desde_fundicion`, así que al editar una colada el material del piso volvía
  * a descontarse.
  */
-export function materialesAConsumir<T extends MaterialConsumible>(materiales: T[]): T[] {
-  return (materiales ?? []).filter((m) => !!m.producto_id && m.desde_fundicion !== true);
+export function materialesAConsumir<T extends MaterialConsumible>(materiales: T[], descuentaLaOrden = true): T[] {
+  return (materiales ?? []).filter((m) => (
+    !!m.producto_id
+    && m.desde_fundicion !== true
+    && (descuentaLaOrden || m.siempre_descuenta === true)
+  ));
+}
+
+/**
+ * Los consumos agrupados por (producto, almacén).
+ *
+ * `crearProduccion` descontaba todos los materiales en paralelo, con el
+ * argumento de que «cada material es un producto distinto». Dejó de ser cierto:
+ * una refinación toma el estaño crudo de VARIAS coladas —mismo producto, mismo
+ * almacén, una línea por colada— y la casiterita de una fundición puede venir en
+ * varias bolsas. Dos escrituras simultáneas sobre la misma fila de existencia
+ * leen el mismo stock anterior y la segunda pisa a la primera: el inventario
+ * queda corto por la diferencia, sin ningún error a la vista.
+ *
+ * Con esto, lo que comparte fila se descuenta EN ORDEN y lo que no, sigue en
+ * paralelo.
+ */
+export function porParProductoAlmacen<T extends { producto_id?: string | null; almacen: string }>(items: T[]): T[][] {
+  const grupos = new Map<string, T[]>();
+  for (const it of items ?? []) {
+    const clave = `${it.producto_id ?? ''}|${it.almacen ?? ''}`;
+    const g = grupos.get(clave);
+    if (g) g.push(it); else grupos.set(clave, [it]);
+  }
+  return [...grupos.values()];
 }

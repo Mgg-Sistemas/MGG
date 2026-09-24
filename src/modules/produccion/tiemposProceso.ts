@@ -7,9 +7,14 @@
    el PDF MGG-FR-001— se quedaba vacío: había que volver a escribir a
    mano lo que el sistema ya sabía, y nadie lo hacía.
 
-   Acá se calcula la duración real. Lo que el usuario haya escrito a
-   mano NO se pisa: puede que la colada empezara antes de cargarla en
-   el sistema.
+   De dónde salen: de la CARGA DEL HORNO que carga el operador
+   («Fecha/Hora inicio de carga» y «Fecha/Hora fin de carga»), que son
+   horas de planta. NO de cuándo se creó y se finalizó la orden en el
+   sistema: una colada que se carga y se cierra en la misma pantalla dio
+   «11:13 → 11:15, 0,04 h», que es lo que tardó el formulario, no el
+   horno, y eso salía impreso en el MGG-FR-001 como si fuera real.
+
+   Lo que el usuario haya escrito a mano NO se pisa.
    ============================================================ */
 
 /** Horas entre dos marcas de tiempo, con dos decimales. `null` si no se puede. */
@@ -58,24 +63,34 @@ export function tiemposACompletar(
   return patch;
 }
 
+/* ───────────── Las horas de PLANTA ───────────── */
+
 /**
- * La marca de tiempo como se escribe en el reporte: `DD/MM/AA HH:MM`, en hora
- * de Venezuela.
+ * Une la fecha y la hora que cargó el operador en una marca comparable.
  *
- * Es el mismo formato que sugiere el propio campo («Ej.: 20/03/26 6am») y el
- * mismo que usa el relleno de las coladas viejas, para que una colada de ayer y
- * una de hoy se lean igual. Se fija la zona horaria a propósito: la planta está
- * en Venezuela y el reporte es un documento de planta, no del navegador que lo
- * abrió.
+ * Devuelve `YYYY-MM-DDTHH:MM` (hora LOCAL, sin zona) o `null` si falta alguna
+ * de las dos. Sin zona a propósito: la carga del horno se anota en hora de
+ * planta, y pasarla por UTC la correría cuatro horas.
  */
-export function fmtProcesoVE(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = new Intl.DateTimeFormat('es-VE', {
-    timeZone: 'America/Caracas',
-    day: '2-digit', month: '2-digit', year: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(d);
-  const v = (t: string) => p.find((x) => x.type === t)?.value ?? '';
-  return `${v('day')}/${v('month')}/${v('year')} ${v('hour')}:${v('minute')}`;
+export function isoDePlanta(fecha?: string | null, hora?: string | null): string | null {
+  const f = (fecha ?? '').trim();
+  const h = (hora ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return null;
+  if (!/^\d{1,2}:\d{2}/.test(h)) return null;
+  const [hh, mm] = h.split(':');
+  return `${f}T${hh.padStart(2, '0')}:${mm.slice(0, 2)}`;
+}
+
+/**
+ * La marca como se escribe en el reporte: `DD/MM/AA HH:MM`.
+ *
+ * Es el mismo formato que sugiere el propio campo («Ej.: 20/03/26 6am»). Se
+ * arma cortando el texto, sin pasar por `Date`: el valor ya es hora de planta
+ * y cualquier conversión de zona lo movería de lugar.
+ */
+export function fmtPlantaVE(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso ?? '');
+  if (!m) return '';
+  const [, aaaa, mes, dia, hh, mm] = m;
+  return `${dia}/${mes}/${aaaa.slice(2)} ${hh}:${mm}`;
 }
