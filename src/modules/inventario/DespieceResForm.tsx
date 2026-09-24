@@ -9,8 +9,10 @@
    pagaste $5,30 el kilo de res, pero como la merma no se cocina, el kilo de
    carne que queda cuesta más.
    ============================================================ */
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { money, num } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { listCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
 import {
   CORTES_SUGERIDOS, calcularDespiece, normalizarCorte,
   type CorteDespiece,
@@ -42,6 +44,18 @@ export function DespieceResForm({
 }) {
   const costoTotal = Math.round(kgRecibidos * precioUnitario * 100) / 100;
 
+  /* Los cortes que ya se usaron alguna vez. Se ofrecen como sugerencia al
+     escribir: lo que alguien cargue hoy queda para la próxima compra, sin que
+     nadie tenga que acordarse de cómo se escribió «CARNE PARA GUISO». */
+  const [conocidos, setConocidos] = useState<string[]>([]);
+  const cargarCortes = useCallback(() => {
+    listCatalogoPedido('corte_res', true)
+      .then((r) => setConocidos(r.map((x) => x.nombre)))
+      .catch(() => setConocidos([]));
+  }, []);
+  useEffect(() => { cargarCortes(); }, [cargarCortes]);
+  useRealtime(['catalogos_pedido'], cargarCortes);
+
   const calc = useMemo(() => calcularDespiece({
     kgRecibidos, costoTotal,
     cortes: estado.cortes.map((c) => ({ nombre: c.nombre, kg: n(c.kg) })) as CorteDespiece[],
@@ -69,6 +83,7 @@ export function DespieceResForm({
           <thead><tr>
             <th>Corte</th>
             <th style={{ width: 120, textAlign: 'right' }}>Kg</th>
+            <th style={{ width: 70, textAlign: 'right' }}>% de la res</th>
             <th style={{ textAlign: 'right' }}>Costo / kg</th>
             <th style={{ textAlign: 'right' }}>Valor</th>
             <th style={{ width: 40 }}></th>
@@ -80,12 +95,14 @@ export function DespieceResForm({
                 <tr key={i}>
                   <td>
                     <input className="input" value={c.nombre} placeholder="Nombre del corte (ej. LOMITO)"
+                      list="cortes-conocidos"
                       onChange={(e) => setCorte(i, { nombre: e.target.value })} style={{ textTransform: 'uppercase' }} />
                   </td>
                   <td>
                     <input className="input mono" type="number" min={0} step="any" value={c.kg}
                       onChange={(e) => setCorte(i, { kg: e.target.value })} style={{ textAlign: 'right' }} />
                   </td>
+                  <td className="mono muted" style={{ textAlign: 'right' }}>{calculado ? `${num(calculado.pct)} %` : '—'}</td>
                   <td className="mono muted" style={{ textAlign: 'right' }}>{calculado ? money(calculado.costoUnitario) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{calculado ? money(calculado.subtotal) : '—'}</td>
                   <td style={{ textAlign: 'right' }}>
@@ -105,6 +122,7 @@ export function DespieceResForm({
                 <input className="input mono" type="number" min={0} step="any" value={estado.merma}
                   onChange={(e) => onChange({ ...estado, merma: e.target.value })} style={{ textAlign: 'right' }} />
               </td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--warning)' }}>{num(calc.pctMerma)} %</td>
               <td className="muted" style={{ textAlign: 'right', fontSize: '.76rem' }}>encarece los cortes</td>
               <td className="mono muted" style={{ textAlign: 'right' }}>{calc.costoMerma > 0 ? money(calc.costoMerma) : '—'}</td>
               <td></td>
@@ -119,6 +137,9 @@ export function DespieceResForm({
                 </div>
               </td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{num(calc.kgRepartidos)}</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: calc.cuadra ? 'var(--success)' : 'var(--warning)' }}>
+                {num(calc.pctUtiles + calc.pctMerma)} %
+              </td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
                 {calc.costoPorKg > 0 ? money(calc.costoPorKg) : '—'}
                 <div className="muted" style={{ fontWeight: 400, fontSize: '.7rem' }}>se pagó {money(precioUnitario)}</div>
@@ -132,6 +153,19 @@ export function DespieceResForm({
       <button type="button" className="btn btn-sm btn-ghost" onClick={addCorte} style={{ marginTop: '.4rem' }}>
         ＋ Agregar otro corte
       </button>
+      {/* Sugerencias del catálogo: se escribe libre, pero lo ya usado se ofrece. */}
+      <datalist id="cortes-conocidos">
+        {conocidos.map((n) => <option key={n} value={n} />)}
+      </datalist>
+
+      {/* Lo que de verdad se quiere saber de una res: cuánto se cocina y cuánto se tira. */}
+      {kgRecibidos > 0 && (
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', marginTop: '.6rem' }}>
+          <Resumen etiqueta="Carne consumible" kg={calc.kgUtiles} pct={calc.pctUtiles} color="var(--success)" />
+          <Resumen etiqueta="Desperdicio / merma" kg={calc.mermaKg} pct={calc.pctMerma} color="var(--warning)" />
+          <Resumen etiqueta="Total recibido" kg={kgRecibidos} pct={calc.pctUtiles + calc.pctMerma} color="var(--primary-3)" />
+        </div>
+      )}
 
       {calc.problemas.map((p) => (
         <div key={p} className="card" style={{ borderColor: 'var(--warning)', background: 'rgba(245,177,51,0.08)', margin: '.5rem 0 0', padding: '.5rem .65rem', fontSize: '.82rem' }}>
@@ -146,6 +180,18 @@ export function DespieceResForm({
         </p>
       )}
 
+    </div>
+  );
+}
+
+/** Una cifra del resumen: kg y su % de la res. */
+function Resumen({ etiqueta, kg, pct, color }: { etiqueta: string; kg: number; pct: number; color: string }) {
+  return (
+    <div className="card" style={{ margin: 0, padding: '.5rem .7rem', flex: '1 1 150px', minWidth: 140 }}>
+      <div className="muted" style={{ fontSize: '.68rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>{etiqueta}</div>
+      <div className="mono" style={{ fontSize: '1.05rem', fontWeight: 800, color }}>
+        {num(kg)} kg <span style={{ fontSize: '.8rem', opacity: .85 }}>· {num(pct)} %</span>
+      </div>
     </div>
   );
 }

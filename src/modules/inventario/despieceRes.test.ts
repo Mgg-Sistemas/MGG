@@ -257,3 +257,45 @@ describe('reparto de los cortes entre cocinas', () => {
 });
 
 const round = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+describe('la res se reparte al 100 %', () => {
+  const base = { kgRecibidos: 200, costoTotal: 1000, mermaKg: 20 };
+
+  it('cada corte dice qué tajada de la res es', () => {
+    const r = calcularDespiece({
+      ...base,
+      cortes: [{ nombre: 'MECHADA', kg: 90 }, { nombre: 'MOLIDA', kg: 60 }, { nombre: 'BISTEC', kg: 30 }],
+    });
+    expect(r.cortes.map((c) => c.pct)).toEqual([45, 30, 15]);
+  });
+
+  it('consumible y merma suman 100 cuando el despiece cuadra', () => {
+    const r = calcularDespiece({
+      ...base,
+      cortes: [{ nombre: 'MECHADA', kg: 90 }, { nombre: 'MOLIDA', kg: 60 }, { nombre: 'BISTEC', kg: 30 }],
+    });
+    expect(r.cuadra).toBe(true);
+    expect(r.pctUtiles).toBe(90);
+    expect(r.pctMerma).toBe(10);
+    expect(r.pctUtiles + r.pctMerma).toBe(100);
+  });
+
+  it('el % se mide sobre lo que LLEGÓ, no sobre lo aprovechado', () => {
+    // Si se midiera sobre los útiles, la mechada daría 50 % y no 45 %.
+    const r = calcularDespiece({ ...base, cortes: [{ nombre: 'MECHADA', kg: 90 }, { nombre: 'MOLIDA', kg: 90 }] });
+    expect(r.cortes[0].pct).toBe(45);
+  });
+
+  it('sin kg recibidos no inventa porcentajes', () => {
+    const r = calcularDespiece({ kgRecibidos: 0, costoTotal: 0, mermaKg: 0, cortes: [{ nombre: 'MECHADA', kg: 10 }] });
+    expect(r.cortes[0].pct).toBe(0);
+    expect(r.pctUtiles).toBe(0);
+    expect(r.pctMerma).toBe(0);
+  });
+
+  it('una res sin merma se aprovecha entera', () => {
+    const r = calcularDespiece({ kgRecibidos: 100, costoTotal: 500, mermaKg: 0, cortes: [{ nombre: 'MECHADA', kg: 100 }] });
+    expect(r.pctUtiles).toBe(100);
+    expect(r.pctMerma).toBe(0);
+  });
+});

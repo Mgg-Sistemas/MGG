@@ -788,6 +788,8 @@ export interface Movimiento {
 
 /** Un corte en que se despiezó la res, con lo que le tocó del costo. */
 export interface CorteDespiezado {
+  /** Qué tajada de la res es este corte, en % de los kg recibidos. */
+  pct?: number;
   nombre: string;
   kg: number;
   /** $/kg con el que entró: ya lleva repartido el costo de la merma. */
@@ -805,6 +807,9 @@ export interface RepartoCorteCocina {
 }
 
 export interface DespieceItem {
+  /** % de la res que se puede cocinar y % que se fue en merma. Suman 100. */
+  pct_utiles?: number;
+  pct_merma?: number;
   /** Kg de res que llegaron y se despiezaron. */
   kg_recibidos: number;
   /** Lo que se pagó por esos kg. Los subtotales de los cortes suman esto exacto. */

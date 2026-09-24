@@ -1,6 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
-import { cachedQuery } from '@/shared/lib/queryCache';
+import { bustCache, cachedQuery } from '@/shared/lib/queryCache';
 import { nombreASellar, nombrePorEmail } from '@/shared/lib/personas';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
@@ -2138,29 +2138,48 @@ export async function recibirOrdenDespiezada(
   for (const [almacenCocina, lineas] of rep.porCocina) for (const l of lineas) sumar(almacenCocina, l.corte, l.kg);
   for (const q of rep.quedaEnOrigen) sumar(destino, q.corte, q.kg);
 
-  // Las fichas primero: un corte nuevo se crea una sola vez, aunque vaya a tres cocinas.
-  for (const c of calc.cortes) {
-    idsPorCorte.set(c.nombre, c.productoId || await fichaDeCorte(c.nombre, item.unidad ?? 'KILOGRAMO', destino));
-  }
+  /* Las fichas de TODOS los cortes en una sola tanda. Antes se resolvían de a
+     una, y cada corte NUEVO se bajaba la tabla de productos entera para
+     calcular su SKU: con ocho cortes eran ocho descargas de ~1.200 filas, más
+     cuatro viajes por cada par (corte, almacén). La recepción se quedaba
+     minutos en «Confirmando…». */
+  const fichas = await fichasDeCortes(calc.cortes, item.unidad ?? 'KILOGRAMO', destino);
+  for (const c of calc.cortes) idsPorCorte.set(c.nombre, c.productoId || (fichas.get(c.nombre) as string));
   const costoDe = new Map(calc.cortes.map((c) => [c.nombre, c.costoUnitario]));
 
+  // Las existencias de todos los pares (corte, almacén), en UNA consulta.
+  const idsUsados = [...new Set(Array.from(idsPorCorte.values()))];
+  const almacenesUsados = [...new Set(Array.from(porAlmacen.keys()))];
+  const { data: exRows } = await supabase.from('existencias')
+    .select('producto_id, almacen, stock, costo_promedio')
+    .in('producto_id', idsUsados).in('almacen', almacenesUsados);
+  const exPrevias = new Map<string, { stock: number; costo: number }>();
+  for (const r of (exRows ?? []) as Array<{ producto_id: string; almacen: string; stock: number; costo_promedio: number }>) {
+    exPrevias.set(clavePar(r.producto_id, r.almacen), { stock: Number(r.stock) || 0, costo: Number(r.costo_promedio) || 0 });
+  }
+
+  /* Se arma todo en memoria y se escribe de una: un insert de movimientos, un
+     upsert de existencias y los precios en paralelo. */
+  const movimientos: Record<string, unknown>[] = [];
+  const existencias: Record<string, unknown>[] = [];
+  const precios = new Map<string, { precio: number; pmp: number }>();
   const entradas: Array<{ almacen: string; kg: number }> = [];
+  const ahora = new Date().toISOString();
+
   for (const [almacen, cortes] of porAlmacen) {
     let kgAlmacen = 0;
     for (const [nombre, kg] of cortes) {
       const productoId = idsPorCorte.get(nombre) as string;
       const costoUnitario = costoDe.get(nombre) ?? calc.costoPorKg;
-
-      const { data: exRow } = await supabase.from('existencias')
-        .select('stock, costo_promedio').eq('producto_id', productoId).eq('almacen', almacen).maybeSingle();
-      const stockAntes = Number(exRow?.stock) || 0;
-      const costoAntes = Number(exRow?.costo_promedio) || 0;
+      const previa = exPrevias.get(clavePar(productoId, almacen));
+      const stockAntes = previa?.stock ?? 0;
+      const costoAntes = previa?.costo ?? 0;
       const stockDespues = Math.round((stockAntes + kg) * 10000) / 10000;
       const pmp = stockDespues > 0
         ? Number(((stockAntes * costoAntes + kg * costoUnitario) / stockDespues).toFixed(4))
         : costoUnitario;
 
-      const { error: mErr } = await supabase.from('movimientos').insert({
+      movimientos.push({
         producto_id: productoId, tipo: 'entrada', delta: kg,
         stock_antes: stockAntes, stock_despues: stockDespues,
         actor: actorEmail, actor_name: actorName,
@@ -2169,18 +2188,24 @@ export async function recibirOrdenDespiezada(
         precio_unitario: costoUnitario, costo_promedio: pmp,
         detalle: `Despiece de ${item.nombre} (${kgRec} kg): ${kg} kg de ${nombre} @ ${costoUnitario.toFixed(4)} → ${almacen}`,
       });
-      if (mErr) throw mErr;
-
-      const { error: exErr } = await supabase.from('existencias').upsert(
-        { producto_id: productoId, almacen, stock: stockDespues, costo_promedio: pmp, updated_at: new Date().toISOString() },
-        { onConflict: 'producto_id,almacen' },
-      );
-      if (exErr) throw exErr;
-      await supabase.from('productos').update({ precio: costoUnitario, precio_promedio: pmp }).eq('id', productoId);
+      existencias.push({ producto_id: productoId, almacen, stock: stockDespues, costo_promedio: pmp, updated_at: ahora });
+      precios.set(productoId, { precio: costoUnitario, pmp });
       kgAlmacen = Math.round((kgAlmacen + kg) * 10000) / 10000;
     }
     entradas.push({ almacen, kg: kgAlmacen });
   }
+
+  if (movimientos.length) {
+    const { error: mErr } = await supabase.from('movimientos').insert(movimientos);
+    if (mErr) throw mErr;
+    const { error: exErr } = await supabase.from('existencias')
+      .upsert(existencias, { onConflict: 'producto_id,almacen' });
+    if (exErr) throw exErr;
+    await Promise.all(Array.from(precios.entries()).map(([id, v]) =>
+      supabase.from('productos').update({ precio: v.precio, precio_promedio: v.pmp }).eq('id', id)));
+  }
+
+  await recordarCortes(calc.cortes.map((c) => c.nombre), actorEmail);
 
   // La orden guarda el despiece completo: es la trazabilidad de la compra.
   // La merma va acá y en ningún almacén — se pagó, pero no se puede cocinar.
@@ -2190,7 +2215,9 @@ export async function recibirOrdenDespiezada(
       despiece: {
         kg_recibidos: kgRec, costo_total: calc.totalCortes, costo_por_kg: calc.costoPorKg,
         merma_kg: calc.mermaKg, costo_merma: calc.costoMerma,
-        cortes: calc.cortes.map((c) => ({ nombre: c.nombre, kg: c.kg, costo_unitario: c.costoUnitario, subtotal: c.subtotal, producto_id: idsPorCorte.get(c.nombre) ?? null })),
+        // El rendimiento de la res, para que el PDF no tenga que recalcularlo.
+        pct_utiles: calc.pctUtiles, pct_merma: calc.pctMerma,
+        cortes: calc.cortes.map((c) => ({ nombre: c.nombre, kg: c.kg, pct: c.pct, costo_unitario: c.costoUnitario, subtotal: c.subtotal, producto_id: idsPorCorte.get(c.nombre) ?? null })),
         reparto: (d.reparto ?? []).filter((r) => Number(r.kg) > 0),
         almacen: destino,
         // Cuánto quedó en cada almacén: es lo que sale en el PDF de la compra.
@@ -2223,47 +2250,96 @@ export async function recibirOrdenDespiezada(
   return { orden: data as Orden, entradas };
 }
 
+/** Clave de un par (producto, almacén) para los mapas en memoria. */
+function clavePar(productoId: string, almacen: string): string {
+  return productoId + '|' + almacen;
+}
+
 /**
- * La ficha de un corte: la que ya existe con ese nombre, o una nueva.
+ * Las fichas de TODOS los cortes de una res, con UNA lectura del catálogo.
  *
- * Escribía `created_by`, que en `productos` NO EXISTE (sí existe en
- * `catalogos_pedido`, de donde se copió). PostgREST rechaza el insert entero con
- * «could not find the column in the schema cache», así que recibir una res
- * fallaba apenas uno de los cortes no tenía ficha todavía — es decir, la
- * primera vez. Los cortes ya creados pasaban, y por eso el error parecía
- * caprichoso.
- *
- * Ahora crea por `createProducto`, que ya sabe explicar un código repetido y
- * refresca la caché del inventario.
+ * Resolverlas de a una pedía la tabla de productos entera por cada corte nuevo
+ * (para numerar su SKU). Acá se lee una vez, los SKU se resuelven en memoria y
+ * los que faltan se crean en un solo insert.
  */
-async function fichaDeCorte(nombre: string, unidad: string, almacen: string): Promise<string> {
-  const { data: ya, error: eBusca } = await supabase.from('productos')
-    .select('id, estado').ilike('nombre', nombre).limit(1).maybeSingle();
-  if (eBusca) throw eBusca;
-  if (ya?.id) {
-    /* Si la ficha estaba dada de baja se reactiva. El corte entra igual —el
-       stock es real— y una ficha inactiva no se ve en Inventario: la carne
-       quedaría cargada en un producto que nadie encuentra. */
-    if ((ya as { estado?: string }).estado !== 'activo') {
-      await supabase.from('productos').update({ estado: 'activo' }).eq('id', ya.id);
-    }
-    return ya.id as string;
+async function fichasDeCortes(
+  cortes: Array<{ nombre: string; productoId?: string | null }>,
+  unidad: string,
+  almacen: string,
+): Promise<Map<string, string>> {
+  const salida = new Map<string, string>();
+  const porBuscar = cortes.filter((c) => !c.productoId).map((c) => c.nombre);
+  if (!porBuscar.length) return salida;
+
+  const catalogo = await todasLasFilas<{ id: string; sku: string; nombre: string; categoria: string; estado: string }>(
+    (d, h) => supabase.from('productos').select('id, sku, nombre, categoria, estado').order('id').range(d, h),
+    PAGINA_SUPABASE, 4,
+  );
+
+  const clave = (x: string) => x.trim().toUpperCase();
+  const porNombre = new Map(catalogo.map((pp) => [clave(pp.nombre), pp]));
+
+  const reactivar: string[] = [];
+  const faltantes: string[] = [];
+  for (const n of porBuscar) {
+    const ya = porNombre.get(clave(n));
+    if (!ya) { faltantes.push(n); continue; }
+    salida.set(n, ya.id);
+    // Una ficha dada de baja no se ve en Inventario: la carne entraría a un
+    // producto que nadie encuentra. Se reactiva.
+    if (ya.estado !== 'activo') reactivar.push(ya.id);
   }
-  const { createProducto, siguienteSkuGlobal } = await import('@/modules/inventario/inventario.repository');
-  const creado = await createProducto({
-    sku: await siguienteSkuGlobal('CARNES'),
-    nombre,
-    categoria: 'CARNES',
-    unidad: unidad || 'KILOGRAMO',
-    stock: 0,
-    stock_min: 0,
-    // El costo lo pone la entrada del despiece, que es la que sabe cuánto salió.
-    precio: 0,
-    // Nace en el almacén que recibió la res, no en el bucket «General».
-    almacen: almacen || 'General',
-    estado: 'activo',
-  });
-  return creado.id;
+  if (reactivar.length) {
+    await supabase.from('productos').update({ estado: 'activo' }).in('id', reactivar);
+  }
+
+  if (faltantes.length) {
+    // Los SKU se numeran sobre el catálogo ya leído: sin volver a la base.
+    const { prefijoCategoria } = await import('@/modules/inventario/inventario.repository');
+    const prefijo = prefijoCategoria('CARNES', catalogo as unknown as Producto[]);
+    const re = new RegExp(patronSku(prefijo), 'i');
+    let max = 0;
+    for (const pp of catalogo) {
+      const m = String(pp.sku ?? '').match(re);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    const nuevos = faltantes.map((nombre, i) => ({
+      sku: prefijo + '-' + String(max + 1 + i).padStart(3, '0'),
+      nombre, categoria: 'CARNES', unidad: unidad || 'KILOGRAMO',
+      stock: 0, stock_min: 0, precio: 0,
+      // Nace en el almacén que recibió la res, no en el bucket «General».
+      almacen: almacen || 'General', estado: 'activo', espacio: 'principal',
+    }));
+    const { data, error } = await supabase.from('productos').insert(nuevos).select('id, nombre');
+    if (error) throw error;
+    for (const r of (data ?? []) as Array<{ id: string; nombre: string }>) salida.set(r.nombre, r.id);
+    bustCache(['productos']);
+  }
+  return salida;
+}
+
+/** El patrón de un SKU de esa categoría: PREFIJO-001. */
+function patronSku(prefijo: string): string {
+  return '^' + prefijo + '[-_]?(\\d+)$';
+}
+
+/**
+ * Deja los cortes de esta res en el catálogo, para la PRÓXIMA compra.
+ *
+ * El índice único va sobre lower(nombre), una expresión: un upsert con
+ * onConflict no engancha ahí. Se lee lo que ya hay —es un catálogo chico— y se
+ * insertan solo los nombres nuevos. Best-effort: que falle el catálogo no puede
+ * tumbar una recepción que ya movió inventario.
+ */
+async function recordarCortes(nombres: string[], actorEmail: string): Promise<void> {
+  try {
+    const { data } = await supabase.from('catalogos_pedido').select('nombre').eq('scope', 'corte_res');
+    const tiene = new Set(((data ?? []) as Array<{ nombre: string }>).map((r) => r.nombre.trim().toUpperCase()));
+    const nuevos = [...new Set(nombres)].filter((n) => !tiene.has(n.trim().toUpperCase()));
+    if (!nuevos.length) return;
+    await supabase.from('catalogos_pedido')
+      .insert(nuevos.map((nombre) => ({ scope: 'corte_res', nombre, created_by: actorEmail })));
+  } catch { /* no bloquea la recepción */ }
 }
 
 /**
@@ -2633,7 +2709,8 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
    ───────────────────────────────────────────── */
 /** 'sede_destino' = sedes / centros de acopio a los que va una salida de material (catálogo de Salidas). */
 /** 'proveedor_coque' = de quién viene el coque que entra al horno (catálogo de Producción). */
-export type ScopeCatalogoPedido = 'clasificacion' | 'unidad_solicitante' | 'servicio_categoria' | 'servicio_tipo' | 'sede_destino' | 'proveedor_coque';
+/** 'corte_res' = en qué cortes se despieza una res en canal (catálogo de Recepción). */
+export type ScopeCatalogoPedido = 'clasificacion' | 'unidad_solicitante' | 'servicio_categoria' | 'servicio_tipo' | 'sede_destino' | 'proveedor_coque' | 'corte_res';
 export interface CatalogoPedido {
   id: string;
   scope: ScopeCatalogoPedido;

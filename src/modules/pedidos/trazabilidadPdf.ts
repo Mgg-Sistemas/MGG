@@ -309,21 +309,43 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     y += 16;
     doc.setTextColor(20);
 
+    /* Rendimiento de la res. Los % se recalculan si la recepción es vieja y no
+       los guardó: un PDF de hace un mes tiene que salir igual de completo. */
+    const kgRec = Number(d.kg_recibidos) || 0;
+    const pctDe = (kg: number) => (kgRec > 0 ? Math.round(((Number(kg) || 0) / kgRec) * 10000) / 100 : 0);
+    const kgUtiles = Math.round((d.cortes ?? []).reduce((a, c) => a + (Number(c.kg) || 0), 0) * 100) / 100;
+    const pctUtiles = d.pct_utiles ?? pctDe(kgUtiles);
+    const pctMerma = d.pct_merma ?? pctDe(d.merma_kg ?? 0);
+
     autoTable(doc, {
       startY: y,
-      head: [['Corte obtenido', 'Kg', '$/kg', 'Subtotal']],
-      body: (d.cortes ?? []).map((c) => [c.nombre, String(c.kg), money(c.costo_unitario), money(c.subtotal)]),
+      head: [['Corte obtenido', 'Kg', '% de la res', '$/kg', 'Subtotal']],
+      body: (d.cortes ?? []).map((c) => [
+        c.nombre, String(c.kg), `${c.pct ?? pctDe(c.kg)} %`, money(c.costo_unitario), money(c.subtotal),
+      ]),
       foot: [
-        ['Merma (no entra a ningún almacén)', String(d.merma_kg ?? 0), '', money(d.costo_merma ?? 0)],
-        ['TOTAL', String((d.cortes ?? []).reduce((a, c) => a + (Number(c.kg) || 0), 0)), '', money(d.costo_total)],
+        ['CARNE CONSUMIBLE (total de cortes)', String(kgUtiles), `${pctUtiles} %`, '', money(d.costo_total)],
+        ['DESPERDICIO / MERMA (no entra a ningún almacén)', String(d.merma_kg ?? 0), `${pctMerma} %`, '', money(d.costo_merma ?? 0)],
+        ['TOTAL RECIBIDO', String(kgRec), `${Math.round((pctUtiles + pctMerma) * 100) / 100} %`, '', money(d.costo_total)],
       ],
       theme: 'grid',
       styles: { fontSize: 9, cellPadding: 4 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
       margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
     });
+
+    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+    y = (doc.lastAutoTable?.finalY ?? y) + 12;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(90);
+    doc.text(
+      `Rendimiento de la res: de ${kgRec} kg comprados se pueden cocinar ${kgUtiles} kg (${pctUtiles} %) y se pierden ${d.merma_kg ?? 0} kg (${pctMerma} %) como merma. El costo de la merma ya está repartido en el $/kg de cada corte.`,
+      MARGIN, y, { maxWidth: doc.internal.pageSize.getWidth() - MARGIN * 2 },
+    );
+    doc.setTextColor(20);
 
     const reparto = d.por_almacen ?? [];
     if (reparto.length) {

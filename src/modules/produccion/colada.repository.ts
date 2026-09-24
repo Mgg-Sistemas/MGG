@@ -9,6 +9,7 @@ import type { ColadaDatos, ProduccionColada } from '@/shared/lib/types';
 import { finalizarProduccion } from './produccion.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { NOMBRE_ESCORIA, asegurarFichaEscoria, detalleEscoria, ingresaEscoria, kgDeEscoria } from './escoriaFundicion';
+import { fmtProcesoVE, tiemposACompletar } from './tiemposProceso';
 
 const TABLE = 'produccion_colada';
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -288,6 +289,33 @@ export async function finalizarColadaConResultados(
   // materia prima, en el almacén de su ficha (Matanza), y queda disponible como
   // insumo de receta.
   await ingresarEscoriaAlInventario(produccionId, resultados, actor, actorName ?? null);
+
+  // Los tiempos del reporte salen de la orden: ya no hay que copiarlos a mano.
+  await sellarTiemposDeProceso(produccionId);
+}
+
+/**
+ * Copia al reporte los tiempos REALES de la orden (inicio, fin y duración).
+ *
+ * La tarjeta de la colada ya los mostraba, pero el bloque «Sangrado y tiempos
+ * de colada» —el que sale en el PDF— quedaba vacío: había que reescribir a mano
+ * lo que el sistema ya sabía. Lo que el usuario SÍ escribió no se toca.
+ *
+ * Best-effort: la colada ya cerró y el estaño ya entró; un problema acá no
+ * puede tumbar el cierre.
+ */
+export async function sellarTiemposDeProceso(produccionId: string): Promise<void> {
+  try {
+    const [{ data: prod }, { data: rep }] = await Promise.all([
+      supabase.from('produccion').select('inicio_at, fin_at').eq('id', produccionId).maybeSingle(),
+      supabase.from(TABLE).select('id, datos').eq('produccion_id', produccionId).maybeSingle(),
+    ]);
+    if (!prod || !rep) return;
+    const datos = (rep.datos ?? {}) as ColadaDatos;
+    const patch = tiemposACompletar(datos, prod.inicio_at, prod.fin_at, fmtProcesoVE);
+    if (!Object.keys(patch).length) return;
+    await supabase.from(TABLE).update({ datos: { ...datos, ...patch } }).eq('id', rep.id);
+  } catch { /* no bloquea el cierre */ }
 }
 
 /**

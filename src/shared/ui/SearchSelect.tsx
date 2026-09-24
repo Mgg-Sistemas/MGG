@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { desplazamientoPara } from './desplazarLista';
 
 export interface SearchOption {
   value: string;
@@ -80,6 +81,11 @@ export function SearchSelect({
   const [hi, setHi] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  /* Cada fila del desplegable, para poder arrastrar la lista hasta la resaltada.
+     Sin esto, bajar con las flechas movía el resaltado a opciones que quedaban
+     fuera de la parte visible: la lista se veía quieta y parecía que la flecha
+     no hacía nada. */
+  const filasRef = useRef<Array<HTMLDivElement | null>>([]);
   const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
 
   const selected = options.find((o) => o.value === value) ?? null;
@@ -123,6 +129,18 @@ export function SearchSelect({
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
+
+  // Al cambiar el resaltado, la lista se mueve lo MENOS posible para mostrarlo.
+  useEffect(() => {
+    if (!open || hi < 0) return;
+    const menu = menuRef.current;
+    const fila = filasRef.current[hi];
+    if (!menu || !fila) return;
+    menu.scrollTop = desplazamientoPara({
+      top: fila.offsetTop, alto: fila.offsetHeight,
+      scroll: menu.scrollTop, visible: menu.clientHeight,
+    });
+  }, [hi, open]);
 
   function pick(v: string) {
     onChange(v);
@@ -195,6 +213,7 @@ export function SearchSelect({
           {coincidencias.map(({ opcion: o, por }, i) => (
             <div
               key={o.value}
+              ref={(el) => { filasRef.current[i] = el; }}
               role="option"
               aria-selected={o.value === value}
               onMouseDown={(e) => { e.preventDefault(); pick(o.value); }}

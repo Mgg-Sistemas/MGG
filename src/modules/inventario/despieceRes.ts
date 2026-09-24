@@ -55,6 +55,8 @@ export interface CorteCalculado extends CorteDespiece {
   costoUnitario: number;
   /** kg × costoUnitario. El último corte absorbe el redondeo. */
   subtotal: number;
+  /** Qué tajada de la res es este corte, en % de los kg que llegaron. */
+  pct: number;
 }
 
 export interface DespieceInput {
@@ -79,6 +81,10 @@ export interface DespieceCalculado {
   mermaKg: number;
   /** Lo que la merma le carga encima a los cortes. */
   costoMerma: number;
+  /** % de la res que SÍ se puede cocinar. */
+  pctUtiles: number;
+  /** % que se fue en merma. Con los cortes cuadrados, pctUtiles + pctMerma = 100. */
+  pctMerma: number;
   /** Σ subtotales. Siempre igual a costoTotal cuando hay cortes. */
   totalCortes: number;
   /** true si se puede confirmar la recepción. */
@@ -110,6 +116,9 @@ export function calcularDespiece(input: DespieceInput): DespieceCalculado {
   const diferenciaKg = round2(kgRecibidos - kgRepartidos);
   const costoPorKg = kgUtiles > 0 ? round4(costoTotal / kgUtiles) : 0;
 
+  /* El % se mide sobre los kg que LLEGARON, no sobre los útiles: así cortes y
+     merma suman 100 y se lee de un vistazo cuánto de la res se aprovechó. */
+  const pctDe = (kg: number) => (kgRecibidos > 0 ? round2((kg / kgRecibidos) * 100) : 0);
   // El último corte absorbe el redondeo: así los subtotales suman el costo
   // exacto de la factura y no aparece un centavo perdido.
   const cortes: CorteCalculado[] = limpios.map((c, i) => {
@@ -117,7 +126,7 @@ export function calcularDespiece(input: DespieceInput): DespieceCalculado {
     const subtotal = esUltimo
       ? round2(costoTotal - limpios.slice(0, i).reduce((a, x) => a + round2(x.kg * costoPorKg), 0))
       : round2(c.kg * costoPorKg);
-    return { ...c, costoUnitario: costoPorKg, subtotal };
+    return { ...c, costoUnitario: costoPorKg, subtotal, pct: pctDe(c.kg) };
   });
   const totalCortes = round2(cortes.reduce((a, c) => a + c.subtotal, 0));
 
@@ -135,6 +144,8 @@ export function calcularDespiece(input: DespieceInput): DespieceCalculado {
   return {
     kgUtiles, kgRepartidos, diferenciaKg, costoPorKg, cortes, mermaKg,
     costoMerma: round2(mermaKg * costoPorKg),
+    pctUtiles: pctDe(kgUtiles),
+    pctMerma: pctDe(mermaKg),
     totalCortes,
     cuadra: problemas.length === 0,
     problemas,
