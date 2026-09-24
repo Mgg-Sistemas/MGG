@@ -8,7 +8,7 @@ import { GlobalSearch } from '@/shared/ui/GlobalSearch';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
-import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, textoPaso, BACKUP_EMAIL, type AvanceRespaldo } from '@/shared/lib/backup';
+import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, textoPaso, BACKUP_EMAIL, BACKUP_EMAILS, correosValidos, type AvanceRespaldo } from '@/shared/lib/backup';
 import { Modal } from '@/shared/ui/Modal';
 import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
@@ -226,6 +226,26 @@ export function AppShell() {
   }, [descargandoBackup]);
 
   const actorRespaldo = user?.email ?? 'sistema';
+  /* A quién va ESTE envío. Arranca con los dos fijos y el correo de quien lo
+     pide: el respaldo se manda y no le llega a quien apretó el botón —pasó— y
+     desde afuera parece que el envío falló. */
+  const [correos, setCorreos] = useState<string[]>([]);
+  const [correoNuevo, setCorreoNuevo] = useState('');
+  useEffect(() => {
+    if (!respaldoOpen) return;
+    const mio = (user?.email ?? '').trim().toLowerCase();
+    const base = [...BACKUP_EMAILS];
+    if (mio && !base.some((c) => c.toLowerCase() === mio)) base.push(mio);
+    setCorreos(base);
+    setCorreoNuevo('');
+  }, [respaldoOpen, user?.email]);
+  function agregarCorreo() {
+    const e = correoNuevo.trim().toLowerCase();
+    if (!correosValidos([e]).length) { toast('Ese correo no parece válido', 'error'); return; }
+    if (correos.some((c) => c.toLowerCase() === e)) { toast('Ese correo ya está en la lista', 'warning'); return; }
+    setCorreos((v) => [...v, e]);
+    setCorreoNuevo('');
+  }
 
   async function handleRespaldoDescargar() {
     if (descargandoBackup) return;
@@ -242,9 +262,10 @@ export function AppShell() {
   }
   async function handleRespaldoCorreo() {
     if (descargandoBackup) return;
+    if (!correos.length) { toast('Dejá al menos un correo destinatario', 'error'); return; }
     setDescargandoBackup(true); setAvance(null);
     try {
-      const { destinatarios, bytesSql, bytesZip } = await enviarRespaldoPorCorreo(actorRespaldo, false, undefined, setAvance);
+      const { destinatarios, bytesSql, bytesZip } = await enviarRespaldoPorCorreo(actorRespaldo, false, correos, setAvance);
       const mb = (b: number) => `${(b / (1024 * 1024)).toFixed(1)} MB`;
       toast(`Respaldo enviado a ${destinatarios.join(', ')} · ${mb(bytesZip)} comprimido (${mb(bytesSql)} sin comprimir)`, 'success');
       setRespaldoOpen(false);
@@ -510,10 +531,33 @@ export function AppShell() {
           }
         >
           {!descargandoBackup ? (
-            <p className="muted" style={{ margin: 0, fontSize: '.9rem' }}>
-              ¿Cómo querés el respaldo de la base de datos (.sql)? El envío por correo va a <strong>{BACKUP_EMAIL}</strong>,
-              comprimido en <strong>.zip</strong> para que entre en el adjunto.
-            </p>
+            <div>
+              <p className="muted" style={{ margin: '0 0 .7rem', fontSize: '.9rem' }}>
+                ¿Cómo querés el respaldo de la base de datos (.sql)? El correo va <strong>comprimido en .zip</strong> para que entre en el adjunto.
+              </p>
+              <div className="form-row">
+                <label>Se envía a</label>
+                <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginBottom: '.4rem' }}>
+                  {!correos.length && <span className="muted" style={{ fontSize: '.8rem' }}>Sin destinatarios: agregá al menos uno.</span>}
+                  {correos.map((c) => (
+                    <span key={c} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
+                      {c}
+                      <button type="button" onClick={() => setCorreos((v) => v.filter((x) => x !== c))}
+                        title="Quitar de la lista"
+                        style={{ background: 'none', border: 0, color: 'var(--danger)', cursor: 'pointer', padding: 0, lineHeight: 1 }}>✕</button>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '.4rem' }}>
+                  <input className="input" type="email" value={correoNuevo} placeholder="Agregar otro correo…"
+                    onChange={(e) => setCorreoNuevo(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregarCorreo(); } }}
+                    style={{ flex: 1 }} />
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={agregarCorreo} disabled={!correoNuevo.trim()}>+ Añadir</button>
+                </div>
+                <small className="muted">Los fijos son <strong>{BACKUP_EMAIL}</strong>. Tu propio correo se suma solo; los que agregues valen <strong>solo para este envío</strong>.</small>
+              </div>
+            </div>
           ) : (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', marginBottom: '.4rem' }}>

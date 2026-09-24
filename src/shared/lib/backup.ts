@@ -135,6 +135,12 @@ export async function enviarRespaldoPorCorreo(
   const avisar = (paso: PasoRespaldo, detalle?: string) =>
     onAvance?.({ paso, numero: PASOS[paso].numero, total: 3, detalle });
 
+  /* Se limpia la lista ANTES de generar: Brevo rechaza el correo ENTERO si un
+     destinatario viene mal escrito, y enterarse de eso después de tres minutos
+     de armar el respaldo es la peor forma de enterarse. */
+  const destino = correosValidos(toEmails);
+  if (!destino.length) throw new Error('No hay ningún correo destinatario válido.');
+
   const cuando = ahoraVE();
   avisar('generando');
   const sql = encabezadoRespaldo(actorEmail, automatico) + await generarRespaldoSql();
@@ -166,13 +172,13 @@ export async function enviarRespaldoPorCorreo(
       asunto: `Respaldo de base de datos · MGG · ${fecha}`,
       mensaje: `${automatico ? 'Respaldo automático (cada 30 días)' : 'Respaldo manual'} · Generado por ${actorEmail || 'sistema'} · ${cuando} (America/Caracas).\n\n`
         + `Adjunto: ${base}.zip (${mb(zip.length)} comprimido · ${mb(bytesSql)} sin comprimir). Adentro viene ${base}.sql.`,
-      to_emails: toEmails,
+      to_emails: destino,
     },
   });
   if (error) throw new Error(error.message ?? 'No se pudo enviar el respaldo por correo.');
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida del envío.');
   await registrarUltimoRespaldo(actorEmail, automatico);
-  return { destinatarios: data.destinatarios ?? toEmails, bytesSql, bytesZip: zip.length };
+  return { destinatarios: data.destinatarios ?? destino, bytesSql, bytesZip: zip.length };
 }
 
 /** MB con un decimal, para los mensajes de esta pantalla. */
@@ -197,4 +203,25 @@ export async function chequearRespaldoAutomatico(role: string | null, actorEmail
   if (last && Date.now() - new Date(last).getTime() < MS_30D) return false;
   await enviarRespaldoPorCorreo(actorEmail, true);
   return true;
+}
+
+/**
+ * De una lista de correos, los que sirven para enviar.
+ *
+ * Filtra vacíos, repetidos y los que no tienen forma de correo. No pretende
+ * validar que la casilla exista —eso solo lo sabe el servidor de correo—, sino
+ * evitar que un dedazo tumbe el envío entero: Brevo rechaza TODO el correo si
+ * un destinatario viene mal escrito.
+ */
+export function correosValidos(lista: readonly string[]): string[] {
+  const forma = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  const vistos = new Set<string>();
+  const salida: string[] = [];
+  for (const raw of lista) {
+    const e = String(raw ?? '').trim().toLowerCase();
+    if (!e || !forma.test(e) || vistos.has(e)) continue;
+    vistos.add(e);
+    salida.push(e);
+  }
+  return salida;
 }
