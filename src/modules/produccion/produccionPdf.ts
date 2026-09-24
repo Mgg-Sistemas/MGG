@@ -17,6 +17,7 @@ import type { Produccion, ColadaDatos, RefinacionDatos, ColadaBigBag } from '@/s
 import { getProduccionConMateriales } from './produccion.repository';
 import { getColada } from './colada.repository';
 import { getRefinacion } from './refinacion.repository';
+import { tiemposDeLaOrden, type DatosConHoras } from './tiemposDeLaOrden';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { horaLegible } from '@/shared/lib/hora';
@@ -120,14 +121,20 @@ async function construir(prod: Produccion, det: Detalle) {
   }
 
   // ── FICHA DE LA ORDEN ──
+  const tOrden = tiemposDeLaOrden(
+    (det.colada ?? det.refinacion) as DatosConHoras | null, prod.inicio_at, prod.fin_at,
+  );
   barra(det.esRefinacion ? 'REFINACIÓN' : 'FUNDICIÓN');
   const etiquetaNum = det.esRefinacion ? 'Refinación N°' : 'Colada N°';
   ficha([
     [etiquetaNum, det.numero != null ? `#${det.numero}` : '—', 'Fecha del proceso', det.fecha ? date(det.fecha) : '—'],
     ['Receta N°', prod.receta_num != null ? `#${num(prod.receta_num)}` : '—', 'Estado', prod.estado === 'finalizado' ? 'Finalizado' : 'En proceso'],
     ['Almacén destino', V(prod.almacen_destino), 'Horno utilizado', V(prod.horno)],
-    ['Inicio', dateTime(prod.inicio_at), 'Fin', prod.fin_at ? dateTime(prod.fin_at) : '—'],
-    ['Duración', duracion(prod.inicio_at, prod.fin_at), '', ''],
+    // Las horas de PLANTA (carga del horno / jornada), no cuándo se cargó al
+    // sistema: un reporte firmado no puede decir que la colada duró 3 minutos.
+    ['Inicio', tOrden.inicio ? dateTime(tOrden.inicio) : '—', 'Fin', tOrden.fin ? dateTime(tOrden.fin) : '—'],
+    ['Duración', tOrden.inicio ? duracion(tOrden.inicio, tOrden.fin) : '—',
+      'Origen de las horas', tOrden.dePlanta ? 'Carga del horno (planta)' : 'Registro en el sistema'],
   ]);
 
   const d = det.colada;

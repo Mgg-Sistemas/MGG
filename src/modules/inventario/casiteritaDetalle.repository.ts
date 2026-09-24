@@ -147,6 +147,20 @@ async function sincronizarStock(
   });
 }
 
+/**
+ * Kg de este big bag que ya se quemaron en alguna colada.
+ *
+ * Se lee de los reportes de colada, que son los que mandan sobre el saldo. Si
+ * la consulta falla se devuelve 0: la revisión es una protección, no puede
+ * dejar el detallado sin poder editarse por un problema de red.
+ */
+async function kgFundidosDeBigBag(id: string): Promise<number> {
+  try {
+    const { getConsumoBigBags } = await import('@/modules/produccion/colada.repository');
+    return round2(Number((await getConsumoBigBags()).get(id)) || 0);
+  } catch { return 0; }
+}
+
 /** Nombre legible de la categoría, para el texto del kardex. */
 const CAT_NOMBRE: Record<CasiteritaCategoria, string> = {
   bigbag: 'BIG BAG', saco: 'SACO', tobo: 'TOBO', hielo: 'BOLSA DE HIELO',
@@ -194,6 +208,18 @@ export async function actualizarCasiteritaDetalle(id: string, input: CasiteritaD
 export async function eliminarCasiteritaDetalle(id: string, actor?: string, actorName?: string | null): Promise<void> {
   const { data: fila } = await supabase.from('casiterita_detalle')
     .select('id, procedencia, categoria, almacen, stock_kg').eq('id', id).maybeSingle();
+
+  // Una bolsa que ya se fundió no se borra. Al borrarla se devuelve al stock
+  // todo lo que había aportado, pero la parte que se quemó en una colada ya se
+  // descontó por su lado: el stock terminaría con kilos que no existen. Y la
+  // colada quedaría apuntando a una bolsa que no está.
+  const usado = await kgFundidosDeBigBag(id);
+  if (usado > 0) {
+    throw new Error(
+      `Este big bag ya se fundió (${usado} kg en coladas): no se puede borrar del detallado. `
+      + 'Corregí la colada que lo consumió y después borralo.',
+    );
+  }
 
   // Primero se devuelve el stock y después se borra la fila: al revés, un fallo
   // al borrar dejaría el kardex con una salida por una fila que sigue viva.

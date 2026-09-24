@@ -11,6 +11,9 @@ import { ajustarCantidadProducida, getProduccionConMateriales } from './producci
 import { enviarProduccionAMultiples } from './enviarProduccion';
 import { ColadaPanel } from './ColadaPanel';
 import { RefinacionPanel } from './RefinacionPanel';
+import { getColada } from './colada.repository';
+import { getRefinacion } from './refinacion.repository';
+import { rotuloOrigenTiempos, tiemposDeLaOrden, type DatosConHoras } from './tiemposDeLaOrden';
 
 /** Corrección de la cantidad producida: pide la nota (obligatoria) y sincroniza el inventario. */
 function AjustarCantidadModal({ prod, actor, actorName, onClose, onListo }: {
@@ -103,6 +106,8 @@ export function ProduccionDetalle({
   onClose: () => void;
 }) {
   const [prod, setProd] = useState<Produccion | null>(null);
+  /** Horas del reporte (carga del horno o jornada): son las de planta. */
+  const [horas, setHoras] = useState<DatosConHoras | null>(null);
   const [loading, setLoading] = useState(true);
   const [enviar, setEnviar] = useState(false);
   const [ajustando, setAjustando] = useState(false);
@@ -115,11 +120,23 @@ export function ProduccionDetalle({
     let cancelled = false;
     void recarga;
     getProduccionConMateriales(id)
-      .then((p) => { if (!cancelled) setProd(p); })
-      .catch(() => { if (!cancelled) setProd(null); })
+      .then(async (p) => {
+        if (cancelled) return;
+        setProd(p);
+        // Las horas reales viven en el reporte, no en la orden. Si el reporte
+        // falla, la tarjeta cae a las horas del sistema y lo aclara.
+        if (!p) { setHoras(null); return; }
+        const rep = (p.tipo ?? 'fundicion') === 'refinacion'
+          ? await getRefinacion(id).catch(() => null)
+          : await getColada(id).catch(() => null);
+        if (!cancelled) setHoras((rep?.datos ?? null) as DatosConHoras | null);
+      })
+      .catch(() => { if (!cancelled) { setProd(null); setHoras(null); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [id, recarga]);
+
+  const t = tiemposDeLaOrden(horas, prod?.inicio_at, prod?.fin_at);
 
   async function handlePdf() {
     try { const { descargarProduccionPdf } = await import('./produccionPdf'); await descargarProduccionPdf(id); }
@@ -175,10 +192,13 @@ export function ProduccionDetalle({
                 <span className={`badge ${prod.estado === 'finalizado' ? 'success' : 'warning'}`}>{prod.estado === 'finalizado' ? 'Finalizado' : 'En fundición'}</span>
               </div>
             </div>
-            <div className="muted mono" style={{ fontSize: '.78rem', textAlign: 'right' }}>
-              Inicio: {dateTime(prod.inicio_at)}<br />
-              Fin: {prod.fin_at ? dateTime(prod.fin_at) : '—'}<br />
-              Duración: <strong>{duracionProd(prod.inicio_at, prod.fin_at)}</strong>
+            <div className="muted mono" style={{ fontSize: '.78rem', textAlign: 'right' }} title={rotuloOrigenTiempos(t.dePlanta)}>
+              Inicio: {t.inicio ? dateTime(t.inicio) : '—'}<br />
+              Fin: {t.fin ? dateTime(t.fin) : '—'}<br />
+              Duración: <strong>{t.inicio ? duracionProd(t.inicio, t.fin) : '—'}</strong><br />
+              <span style={{ fontSize: '.66rem', opacity: .75 }}>
+                {t.dePlanta ? 'horas de planta' : 'sin horas de planta · registro del sistema'}
+              </span>
             </div>
           </div>
 

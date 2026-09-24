@@ -5,6 +5,9 @@
    ============================================================ */
 import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { getProduccionConMateriales } from './produccion.repository';
+import { getColada } from './colada.repository';
+import { getRefinacion } from './refinacion.repository';
+import { tiemposDeLaOrden, type DatosConHoras } from './tiemposDeLaOrden';
 
 const BORDER = {
   top:    { style: 'thin', color: { rgb: '000000' } },
@@ -32,6 +35,11 @@ const HEADER_STYLE = {
 export async function descargarProduccionExcel(id: string): Promise<void> {
   const prod = await getProduccionConMateriales(id);
   if (!prod) throw new Error('Fundición no encontrada');
+  // Las horas de PLANTA salen del reporte, no de cuándo se cargó la orden.
+  const reporte = (prod.tipo ?? 'fundicion') === 'refinacion'
+    ? await getRefinacion(id).catch(() => null)
+    : await getColada(id).catch(() => null);
+  const t = tiemposDeLaOrden((reporte?.datos ?? null) as DatosConHoras | null, prod.inicio_at, prod.fin_at);
   const [XLSXmod, { dateTime }] = await Promise.all([
     import('xlsx-js-style'),
     import('@/shared/lib/format'),
@@ -56,8 +64,9 @@ export async function descargarProduccionExcel(id: string): Promise<void> {
     ['Horno utilizado', prod.horno || '—'],
     ['Receta N°', prod.receta_num != null ? `#${prod.receta_num}` : '—'],
     ['Estado', prod.estado === 'finalizado' ? 'Finalizado' : 'En fundición'],
-    ['Inicio', dateTime(prod.inicio_at)],
-    ['Fin', prod.fin_at ? dateTime(prod.fin_at) : '—'],
+    ['Inicio', t.inicio ? dateTime(t.inicio) : '—'],
+    ['Fin', t.fin ? dateTime(t.fin) : '—'],
+    ['Origen de las horas', t.dePlanta ? 'Carga del horno (planta)' : 'Registro en el sistema'],
     [],
     ['MATERIALES UTILIZADOS'],
   ];

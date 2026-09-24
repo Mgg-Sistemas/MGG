@@ -22,6 +22,9 @@ import { GestionarInvolucradosModal } from './GestionarInvolucradosModal';
 import { MenuBoton, MenuItem } from '@/shared/ui/MenuBoton';
 import { recorteKanban, TOPE_FINALIZADOS } from './topeKanban';
 import { PisoFundicionModal } from './PisoFundicionModal';
+import { getColadasByProduccion } from './colada.repository';
+import { getRefinacionesByProduccion } from './refinacion.repository';
+import { rotuloOrigenTiempos, tiemposDeLaOrden, type DatosConHoras } from './tiemposDeLaOrden';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
 /** Config por tipo: Fundición (default) y Refinación de Material comparten TODO el flujo,
@@ -89,6 +92,8 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
   const actorName = appUser?.nombre ?? null;
 
   const [producciones, setProducciones] = useState<Produccion[]>([]);
+  /** Horas del reporte de cada orden (carga del horno / jornada), por produccion_id. */
+  const [horasPorOrden, setHorasPorOrden] = useState<Map<string, DatosConHoras>>(new Map());
   const [productos, setProductos] = useState<Producto[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -125,7 +130,18 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
       getNombresHornosActivos().catch(() => [] as string[]),
     ]);
     try {
-      setProducciones(await pProducciones);
+      const filas = await pProducciones;
+      setProducciones(filas);
+      // Las horas reales de cada orden viven en su reporte, no en la orden: una
+      // consulta para todas, así la tarjeta no dice «3 min» por una colada de
+      // nueve horas y media.
+      const ids = filas.map((f) => f.id);
+      const reportes = tipo === 'refinacion'
+        ? await getRefinacionesByProduccion(ids).catch(() => new Map())
+        : await getColadasByProduccion(ids).catch(() => new Map());
+      const mapa = new Map<string, DatosConHoras>();
+      reportes.forEach((r, k) => mapa.set(k, (r.datos ?? {}) as DatosConHoras));
+      setHorasPorOrden(mapa);
     } catch (e) {
       toast(e instanceof Error ? e.message : `No se pudo cargar ${cfg.verbo}`, 'error');
     } finally {
@@ -293,7 +309,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
                     </div>
                     <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.04em', marginTop: '.3rem' }}>Total de material a producir</div>
                     <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--primary-3)' }}>{num(p.cantidad)}</div>
-                    <div className="muted" style={{ fontSize: '.75rem' }}>Inicio: {dateTime(p.inicio_at)} · destino {p.almacen_destino}</div>
+                    <div className="muted" style={{ fontSize: '.75rem' }}>Inicio: {dateTime(tiemposDeLaOrden(horasPorOrden.get(p.id), p.inicio_at, p.fin_at).inicio ?? p.inicio_at)} · destino {p.almacen_destino}</div>
                     <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem', flexWrap: 'wrap' }}>
                       <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'ver', id: p.id })}>Ver</button>
                       {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'editar-materiales', id: p.id })} title="Cambiar/quitar materiales">✎ Editar</button>}
@@ -332,7 +348,16 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
                     </div>
                     <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.04em', marginTop: '.3rem' }}>Total de material producido</div>
                     <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--success)' }}>{num(p.cantidad)}</div>
-                    <div className="muted" style={{ fontSize: '.75rem' }}>Duración: {duracionProd(p.inicio_at, p.fin_at)}{p.ganancia != null ? ` · ganancia ${money(p.ganancia)}` : ''}</div>
+                    {(() => {
+                      const t = tiemposDeLaOrden(horasPorOrden.get(p.id), p.inicio_at, p.fin_at);
+                      return (
+                        <div className="muted" style={{ fontSize: '.75rem' }} title={rotuloOrigenTiempos(t.dePlanta)}>
+                          {t.dePlanta && <>{dateTime(t.inicio ?? p.inicio_at)} · </>}
+                          Duración: {duracionProd(t.inicio ?? p.inicio_at, t.fin)}
+                          {p.ganancia != null ? ` · ganancia ${money(p.ganancia)}` : ''}
+                        </div>
+                      );
+                    })()}
                     <div style={{ marginTop: '.6rem' }}>
                       <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'ver', id: p.id })}>Ver</button>
                     </div>
@@ -367,9 +392,17 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
                   <td>{p.receta_num != null ? <span className="badge">#{num(p.receta_num)}</span> : '—'}</td>
                   <td><span className={`badge ${p.estado === 'finalizado' ? 'success' : 'warning'}`}>{p.estado === 'finalizado' ? 'Finalizado' : cfg.estadoEnCurso}</span></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(p.cantidad)}</td>
-                  <td className="muted" style={{ fontSize: '.8rem' }}>{dateTime(p.inicio_at)}</td>
-                  <td className="muted" style={{ fontSize: '.8rem' }}>{p.fin_at ? dateTime(p.fin_at) : '—'}</td>
-                  <td className="mono">{duracionProd(p.inicio_at, p.fin_at)}</td>
+                  {(() => {
+                    const t = tiemposDeLaOrden(horasPorOrden.get(p.id), p.inicio_at, p.fin_at);
+                    const tit = rotuloOrigenTiempos(t.dePlanta);
+                    return (
+                      <>
+                        <td className="muted" style={{ fontSize: '.8rem' }} title={tit}>{t.inicio ? dateTime(t.inicio) : '—'}</td>
+                        <td className="muted" style={{ fontSize: '.8rem' }} title={tit}>{t.fin ? dateTime(t.fin) : '—'}</td>
+                        <td className="mono" title={tit}>{duracionProd(t.inicio ?? p.inicio_at, t.fin)}</td>
+                      </>
+                    );
+                  })()}
                   <td className="mono" style={{ textAlign: 'right' }}>{money(p.costo_unitario)}</td>
                   <td className="actions">
                     <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'ver', id: p.id })}>Ver</button>
