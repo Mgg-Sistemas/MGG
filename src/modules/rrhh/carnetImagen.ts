@@ -9,6 +9,7 @@
 import qrcode from 'qrcode-generator';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { Personal } from '@/shared/lib/types';
+import { nombreDeCarnet } from './fichaPersonal';
 
 // 54 × 86 mm a 300 DPI. 1 mm = 300 / 25.4 px.
 const DPI = 300;
@@ -369,8 +370,10 @@ export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'oscuro'
   await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH, c);
   const fotoBottom = fotoY + fotoH;
 
-  // Nombre completo (grande, hasta 2 líneas).
-  const nombreFull = `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim().toUpperCase() || '—';
+  // Primer nombre + primer apellido, grande. El nombre completo sigue en la ficha
+  // y en el QR: acá lo que importa es que se lea de lejos, y «ANGELICA DANIELA
+  // SOLIS HERNANDEZ» obligaba a bajar la letra hasta hacerlo ilegible.
+  const nombreFull = nombreDeCarnet(p.nombre, p.apellido).toUpperCase() || '—';
   let fontSize = 44;
   ctx.font = `800 ${fontSize}px ${FONT}`;
   let lines = wrapText(ctx, nombreFull, W - 90);

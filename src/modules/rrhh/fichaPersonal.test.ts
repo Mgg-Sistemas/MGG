@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   SIN_DATO, agruparPersonal, antiguedad, cantidadHijos, edadEn, filtrarPersonal, grupoDe,
   hijosMenores, labelEstadoCivil, labelGenero, labelParentesco, numeroFicha, porDepartamento,
+  errorNumeroFicha, normalizarNumeroFicha, nombreDeCarnet,
   resumenPersonal, textoEdad, tieneHijos,
 } from './fichaPersonal';
 
@@ -59,14 +60,41 @@ describe('la antigüedad no se redondea a años', () => {
 });
 
 describe('el número de ficha', () => {
-  it('va a cuatro dígitos', () => {
-    expect(numeroFicha(5)).toBe('Ficha 0005');
-    expect(numeroFicha(127)).toBe('Ficha 0127');
+  it('se muestra tal cual se cargó, con sus ceros de adelante', () => {
+    // Antes era un entero y se rellenaba a cuatro dígitos: «001» salía «Ficha 0001».
+    expect(numeroFicha('001')).toBe('Ficha 001');
+    expect(numeroFicha('A01')).toBe('Ficha A01');
+    expect(numeroFicha('MGG-015')).toBe('Ficha MGG-015');
   });
 
   it('sin número no inventa uno', () => {
     expect(numeroFicha(null)).toBe('Ficha —');
-    expect(numeroFicha(0)).toBe('Ficha —');
+    expect(numeroFicha('')).toBe('Ficha —');
+    expect(numeroFicha('   ')).toBe('Ficha —');
+  });
+});
+
+describe('qué número de ficha se acepta', () => {
+  it('desde 3 caracteres en adelante', () => {
+    expect(errorNumeroFicha('001')).toBeNull();
+    expect(errorNumeroFicha('MGG-015')).toBeNull();
+  });
+
+  it('menos de 3 no identifica a nadie', () => {
+    expect(errorNumeroFicha('1')).toContain('3 caracteres');
+    expect(errorNumeroFicha('12')).toContain('3 caracteres');
+    expect(errorNumeroFicha(' 12 ')).toContain('3 caracteres');
+  });
+
+  it('vacío se acepta: hay fichas viejas sin número y hay que poder editarlas', () => {
+    expect(errorNumeroFicha('')).toBeNull();
+    expect(errorNumeroFicha(null)).toBeNull();
+    expect(errorNumeroFicha('   ')).toBeNull();
+  });
+
+  it('se guarda en mayúsculas y sin espacios: «a01» y «A01» son la misma ficha', () => {
+    expect(normalizarNumeroFicha('  a01 ')).toBe('A01');
+    expect(normalizarNumeroFicha(null)).toBe('');
   });
 });
 
@@ -245,5 +273,28 @@ describe('las tarjetas de arriba', () => {
       { nombre: 'Electricidad', cantidad: 1 },
       { nombre: 'Sin departamento', cantidad: 1 },
     ]);
+  });
+});
+
+describe('el nombre que va impreso en el carnet', () => {
+  it('toma el primer nombre y el primer apellido', () => {
+    expect(nombreDeCarnet('ANGELICA DANIELA', 'SOLIS HERNANDEZ')).toBe('ANGELICA SOLIS');
+  });
+
+  it('con un solo nombre y un solo apellido no cambia nada', () => {
+    expect(nombreDeCarnet('JESUS', 'LOZADA')).toBe('JESUS LOZADA');
+  });
+
+  it('los espacios de más no inventan un segundo nombre', () => {
+    expect(nombreDeCarnet('  LEYDIS   MARIA ', '  RENGEL  PEREZ ')).toBe('LEYDIS RENGEL');
+  });
+
+  it('si falta el apellido devuelve solo el nombre, sin espacio colgando', () => {
+    expect(nombreDeCarnet('KELVIN', '')).toBe('KELVIN');
+    expect(nombreDeCarnet('', 'ISNER')).toBe('ISNER');
+  });
+
+  it('sin datos no se cae', () => {
+    expect(nombreDeCarnet(null, undefined)).toBe('');
   });
 });

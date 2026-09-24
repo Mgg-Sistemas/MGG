@@ -105,10 +105,38 @@ export function antiguedad(fechaIngreso: unknown, hoy: string = new Date().toISO
   return `${años} ${años === 1 ? 'año' : 'años'} y ${m} ${m === 1 ? 'mes' : 'meses'}`;
 }
 
-/** «Ficha 0005». */
+/** Mínimo de caracteres del N° de ficha. «1» y «2» no identifican a nadie. */
+export const MIN_FICHA = 3;
+
+/**
+ * «Ficha 001».
+ *
+ * El número es TEXTO: se muestra tal cual se cargó, con sus ceros de adelante y
+ * su prefijo si lo tiene. Antes era un entero y se rellenaba a cuatro dígitos,
+ * que inventaba un formato que nadie había pedido.
+ */
 export function numeroFicha(n: unknown): string {
-  const v = Number(n);
-  return Number.isFinite(v) && v > 0 ? `Ficha ${String(Math.trunc(v)).padStart(4, '0')}` : 'Ficha —';
+  const v = String(n ?? '').trim();
+  return v ? `Ficha ${v}` : 'Ficha —';
+}
+
+/**
+ * ¿Sirve este N° de ficha? Devuelve el motivo, o `null` si está bien.
+ *
+ * Vacío es válido a propósito: hay fichas viejas sin número y no se puede
+ * bloquear su edición por algo que nunca se cargó. Lo que no se acepta es un
+ * número demasiado corto.
+ */
+export function errorNumeroFicha(v: string | null | undefined): string | null {
+  const s = (v ?? '').trim();
+  if (!s) return null;
+  if (s.length < MIN_FICHA) return `El N° de ficha necesita al menos ${MIN_FICHA} caracteres (ej.: 001).`;
+  return null;
+}
+
+/** Cómo se guarda: sin espacios de sobra y en mayúsculas, para que «a01» y «A01» sean la misma. */
+export function normalizarNumeroFicha(v: string | null | undefined): string {
+  return (v ?? '').trim().toUpperCase();
 }
 
 /* ───────────────────── Carga familiar ───────────────────── */
@@ -311,4 +339,17 @@ export function porDepartamento<T extends PersonaFiltrable>(filas: T[]): { nombr
   return [...m.entries()]
     .map(([nombre, cantidad]) => ({ nombre, cantidad }))
     .sort((a, b) => (b.cantidad - a.cantidad) || a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+/**
+ * El nombre como va impreso en el CARNET: primer nombre + primer apellido.
+ *
+ * La ficha guarda el nombre completo, que es el legal y el que hace falta para
+ * la nómina y el QR. Pero en la credencial «ANGELICA DANIELA SOLIS HERNANDEZ»
+ * ocupa dos renglones y obliga a achicar la letra hasta que no se lee de lejos,
+ * que es justo para lo que sirve un carnet. Con «ANGELICA SOLIS» entra en uno.
+ */
+export function nombreDeCarnet(nombre?: string | null, apellido?: string | null): string {
+  const primera = (s?: string | null) => (s ?? '').trim().split(/\s+/)[0] ?? '';
+  return [primera(nombre), primera(apellido)].filter(Boolean).join(' ');
 }

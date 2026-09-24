@@ -20,10 +20,12 @@ import {
   validarArchivoDocumento, type TipoDocumentoPersonal,
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRUPOS_SANGUINEOS, PARENTESCOS, SIN_DATO,
   agruparPersonal, antiguedad, cantidadHijos, filtrarPersonal, labelEstadoCivil, labelGenero,
   labelParentesco, numeroFicha, porDepartamento, textoEdad, tieneHijos,
+  MIN_FICHA, errorNumeroFicha, normalizarNumeroFicha,
   type Agrupador, type EstadoFiltro, type FiltroPersonal, type Genero, type HijosFiltro,
   type Parentesco,
 } from './fichaPersonal';
@@ -44,7 +46,7 @@ import {
 } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
 /**
  * La ficha guardada → el formulario.
@@ -63,6 +65,7 @@ function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
     empresa,
     nombre: p.nombre,
     apellido: p.apellido ?? '',
+    numero_ficha: p.numero_ficha ?? '',
     cedula: p.cedula ?? '',
     rif: p.rif ?? '',
     cargo: p.cargo ?? '',
@@ -187,6 +190,7 @@ function FotoEncuadre({ url, posX, posY, zoom, onChange }: {
 export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
   canWrite: boolean; actor: string; actorName?: string | null; empresa?: Empresa;
 }) {
+  const { isAdmin } = usePermissions();
   const [lista, setLista] = useState<Personal[]>([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
@@ -194,6 +198,9 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   const [guardando, setGuardando] = useState(false);
   const [subiendoFoto, setSubiendoFoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /* La ficha se traba una vez asignada. Queda abierta al crear, cuando la ficha
+     vieja no tiene número, y siempre para un administrador. */
+  const fichaTrabada = !!editId && !!(form.numero_ficha ?? '').trim() && !isAdmin;
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
   const [sueldoPersona, setSueldoPersona] = useState<Personal | null>(null);
   const [docsPersona, setDocsPersona] = useState<Personal | null>(null);
@@ -487,6 +494,18 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!form.nombre.trim()) { setError('Indicá el nombre.'); return; }
+    const malaFicha = errorNumeroFicha(form.numero_ficha);
+    if (malaFicha) { setError(malaFicha); return; }
+    // Dos personas con la misma ficha es peor que ninguna: se revisa acá para dar
+    // el nombre de quién la tiene, y la base lo garantiza con un índice único.
+    const ficha = normalizarNumeroFicha(form.numero_ficha);
+    if (ficha) {
+      const otro = lista.find((p) => p.id !== editId && normalizarNumeroFicha(p.numero_ficha) === ficha);
+      if (otro) {
+        setError(`La ficha ${ficha} ya es de ${otro.nombre} ${otro.apellido ?? ''}. No puede haber dos personas con la misma ficha.`);
+        return;
+      }
+    }
     if (duenoCedula) {
       setError(`La cédula ${form.cedula} ya es de ${duenoCedula.nombre} ${duenoCedula.apellido ?? ''}. No puede haber dos fichas con la misma cédula.`);
       return;
@@ -744,7 +763,11 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   </div>
                 </td>
                 <td className="muted">{p.departamento || '—'}</td>
-                <td className="muted">{p.cargo || '—'}</td>
+                {/* Un cargo vacío se avisa en vez de pasar como un guion mudo: sin él
+                    el carnet sale con el departamento solo y nadie sabe por qué. */}
+                <td className={p.cargo ? 'muted' : ''}>
+                  {p.cargo || <span style={{ color: 'var(--warning)' }} title="Cargá el cargo: sale en el carnet y en la ficha técnica">Sin cargo</span>}
+                </td>
                 <td className="mono muted" style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>{textoEdad(p.fecha_nacimiento)}</td>
                 <td style={{ textAlign: 'center' }}>
                   {(() => {
@@ -834,6 +857,30 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
             )}
 
             <div className="form-grid">
+              {/* N° de ficha: se escribe una vez. Después queda trabado, porque es el
+                  número con el que la persona figura en nómina, en el carnet y en los
+                  recibos: cambiarlo parte el rastro. Un admin sí puede corregirlo,
+                  para no tener que ir a la base por un dedazo. */}
+              <div className="form-row">
+                <label>N° de ficha</label>
+                {fichaTrabada ? (
+                  <>
+                    <input className="input mono" value={form.numero_ficha ?? ''} readOnly disabled
+                      style={{ opacity: .75, cursor: 'not-allowed' }} />
+                    <small className="muted">🔒 Ya está asignado. Solo un administrador puede corregirlo.</small>
+                  </>
+                ) : (
+                  <>
+                    <input className="input mono" value={form.numero_ficha ?? ''} maxLength={20}
+                      onChange={(e) => setForm((f) => ({ ...f, numero_ficha: e.target.value.toUpperCase() }))}
+                      placeholder="001" />
+                    <small className="muted">
+                      Mínimo {MIN_FICHA} caracteres (ej.: <strong>001</strong>, <strong>A01</strong>, <strong>MGG-015</strong>).
+                      {editId ? ' Corregilo solo si se cargó mal: es el número con el que figura en nómina y en el carnet.' : ' Se escribe una vez y después queda trabado.'}
+                    </small>
+                  </>
+                )}
+              </div>
               <div className="form-row"><label>Nombre *</label><input className="input" autoFocus value={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} required /></div>
               <div className="form-row"><label>Apellido</label><input className="input" value={form.apellido ?? ''} onChange={(e) => setForm((f) => ({ ...f, apellido: e.target.value }))} /></div>
               <div className="form-row">

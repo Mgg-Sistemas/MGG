@@ -16,6 +16,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { hoyISO, money, num } from '@/shared/lib/format';
 import type { CocinaComida, TipoComida, Cocina, Almacen } from '@/shared/lib/types';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
+import { agruparPorCategoria, normCategoria } from './agruparPorCategoria';
 import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import {
@@ -437,11 +438,22 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
   });
   const setCant = (id: string, c: string) => setSel((s) => ({ ...s, [id]: c }));
 
+  // Filtro por categoría: en Los Pinos la lista son 168 artículos y las carnes
+  // quedaban enterradas entre los víveres y la limpieza.
+  const [cats, setCats] = useState<string[]>([]);
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    if (!q) return viveres;
-    return viveres.filter((v) => v.producto.nombre.toLowerCase().includes(q) || (v.producto.sku ?? '').toLowerCase().includes(q));
-  }, [viveres, busqueda]);
+    const elegidas = new Set(cats);
+    return viveres.filter((v) => {
+      if (elegidas.size && !elegidas.has(normCategoria(v.producto.categoria))) return false;
+      if (!q) return true;
+      return v.producto.nombre.toLowerCase().includes(q) || (v.producto.sku ?? '').toLowerCase().includes(q);
+    });
+  }, [viveres, busqueda, cats]);
+  /* Los chips salen de lo que REALMENTE hay en este centro, no de una lista fija:
+     una categoría sin artículos acá no tiene por qué ocupar lugar. */
+  const chips = useMemo(() => agruparPorCategoria(viveres, (v) => v.producto.categoria), [viveres]);
+  const grupos = useMemo(() => agruparPorCategoria(filtrados, (v) => v.producto.categoria), [filtrados]);
   const nSel = Object.keys(sel).length;
 
   const total = useMemo(() => r2(Object.entries(sel).reduce((a, [id, c]) => {
@@ -521,11 +533,38 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
         {/* Víveres: TODOS los del inventario (categoría VÍVERES), sin importar el almacén.
             Se eligen con checkboxes; al tildar aparece la cantidad. */}
         <div className="form-row">
-          <label>Víveres consumidos <span className="muted" style={{ fontWeight: 400 }}>(de este centro · Víveres, Carnes/Proteína, Alimentos, Hortalizas y Limpieza · {num(viveres.length)} productos{nSel > 0 ? ` · ${num(nSel)} elegido(s)` : ''})</span></label>
+          <label>Víveres consumidos <span className="muted" style={{ fontWeight: 400 }}>(de este centro · agrupados por categoría · {num(viveres.length)} productos{cats.length ? ` · ${num(filtrados.length)} en el filtro` : ''}{nSel > 0 ? ` · ${num(nSel)} elegido(s)` : ''})</span></label>
           <input className="search" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar víver por nombre o SKU…" style={{ marginBottom: '.5rem' }} />
+          {chips.length > 1 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginBottom: '.5rem' }}>
+              <button type="button" className={`btn btn-sm ${cats.length ? 'btn-ghost' : 'btn-primary'}`}
+                onClick={() => setCats([])}>Todo ({num(viveres.length)})</button>
+              {chips.map((g) => {
+                const activo = cats.includes(g.categoria);
+                return (
+                  <button key={g.categoria || 'sin'} type="button"
+                    className={`btn btn-sm ${activo ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => setCats((c) => (activo ? c.filter((x) => x !== g.categoria) : [...c, g.categoria]))}>
+                    {g.rotulo} ({num(g.items.length)})
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div style={{ display: 'grid', gap: '.4rem', maxHeight: 340, overflowY: 'auto', paddingRight: '.15rem' }}>
             {!filtrados.length && <div className="muted" style={{ padding: '1rem', textAlign: 'center' }}>{viveres.length ? 'Ningún víver coincide con la búsqueda.' : 'No hay productos de Víveres, Carnes/Proteína, Alimentos, Hortalizas o Limpieza en este centro.'}</div>}
-            {filtrados.map((v) => {
+            {grupos.map((g) => (
+            <div key={g.categoria || 'sin'} style={{ display: 'grid', gap: '.4rem' }}>
+              {/* El encabezado se queda pegado arriba al desplazar: con 168 artículos,
+                  si no, uno pierde de vista en qué categoría está mirando. */}
+              <div className="muted" style={{
+                position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-1, #111)',
+                padding: '.3rem .1rem', fontSize: '.72rem', textTransform: 'uppercase',
+                letterSpacing: '.06em', fontWeight: 700, borderBottom: '1px solid var(--border)',
+              }}>
+                {g.rotulo} <span style={{ fontWeight: 400 }}>· {num(g.items.length)}</span>
+              </div>
+              {g.items.map((v) => {
               const id = v.producto.id;
               const selected = id in sel;
               const cant = sel[id] ?? '';
@@ -547,7 +586,9 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
                   )}
                 </div>
               );
-            })}
+              })}
+            </div>
+            ))}
           </div>
           {nSel > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem', marginTop: '.55rem', padding: '.5rem .75rem', background: 'rgba(255,138,0,.08)', border: '1px solid var(--primary)', borderRadius: 8, fontSize: '.9rem' }}>

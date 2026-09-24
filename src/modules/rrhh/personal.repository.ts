@@ -49,6 +49,8 @@ export interface PersonalInput {
   rif?: string | null;
   cargo?: string | null;
   departamento?: string | null;
+  /** N° de ficha. Se manda SOLO cuando se asigna o cuando un admin lo corrige. */
+  numero_ficha?: string | null;
   /* ── Ficha técnica ── */
   genero?: string | null;
   estado_civil?: string | null;
@@ -123,6 +125,9 @@ function payload(input: PersonalInput) {
     rif: input.rif?.trim() || null,
     cargo: input.cargo?.trim() || null,
     departamento: input.departamento?.trim() || null,
+    // Solo viaja si vino. En una edición normal el campo ni se manda, así que no
+    // hay forma de pisar por accidente una ficha ya asignada.
+    numero_ficha: input.numero_ficha === undefined ? undefined : ((input.numero_ficha ?? '').trim().toUpperCase() || null),
     // Los campos de la ficha técnica van vacíos (null) y no en blanco: una
     // cadena vacía pasaría la restricción de la base y luego no se sabría
     // si el dato falta o alguien escribió nada.

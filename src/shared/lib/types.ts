@@ -1076,8 +1076,14 @@ export interface Personal {
   rif_nombre?: string | null;
   cargo?: string | null;
   departamento?: string | null;
-  /** Correlativo por empresa: «Ficha 0005». Lo pone la base. */
-  numero_ficha?: number | null;
+  /**
+   * N° de ficha del trabajador: «001», «A01», «MGG-015».
+   *
+   * Texto y no número: hacía falta poder escribir los ceros de adelante, y un
+   * entero se los come. Mínimo 3 caracteres. Se asigna una vez y después queda
+   * trabado; solo un administrador puede corregirlo.
+   */
+  numero_ficha?: string | null;
   genero?: string | null;
   estado_civil?: string | null;
   /** De acá sale la edad. La edad NO se guarda: quedaría vieja al día siguiente. */
