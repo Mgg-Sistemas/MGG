@@ -38,7 +38,10 @@ import {
 } from './cambioSueldo';
 import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
-import { generarFrenteBlob, generarReversoBlob, descargarCarnet } from './carnetImagen';
+import {
+  generarFrenteBlob, generarReversoBlob, descargarFrente, descargarReverso,
+  type TemaCarnet,
+} from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
@@ -1164,12 +1167,16 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
   const [frente, setFrente] = useState<string | null>(null);
   const [reverso, setReverso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [bajando, setBajando] = useState(false);
+  const [bajando, setBajando] = useState<false | 1 | 2>(false);
+  /* En qué fondo se ve y se baja. El oscuro es el de la marca; el blanco existe
+     porque un carnet negro a sangre se come el tóner de una impresora común. */
+  const [tema, setTema] = useState<TemaCarnet>('oscuro');
 
   useEffect(() => {
     let urls: string[] = [];
     let vivo = true;
-    Promise.all([generarFrenteBlob(persona), generarReversoBlob()])
+    setFrente(null); setReverso(null); setError(null);
+    Promise.all([generarFrenteBlob(persona, tema), generarReversoBlob(tema)])
       .then(([bf, br]) => {
         if (!vivo) return;
         const uf = URL.createObjectURL(bf);
@@ -1179,33 +1186,76 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
       })
       .catch((e) => { if (vivo) setError(e instanceof Error ? e.message : 'No se pudo generar el carnet'); });
     return () => { vivo = false; urls.forEach((u) => URL.revokeObjectURL(u)); };
-  }, [persona]);
+  }, [persona, tema]);
 
-  async function descargar() {
-    setBajando(true);
-    try { await descargarCarnet(persona); toast('Carnet descargado (frente + reverso)', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo descargar', 'error'); }
+  /** Una cara por vez: así cada archivo cae con su nombre y en el orden en que
+      se manda a imprimir. Bajar las dos juntas hacía que el navegador ignorara
+      la segunda descarga. */
+  async function bajar(cara: 1 | 2) {
+    setBajando(cara);
+    try {
+      if (cara === 1) await descargarFrente(persona, tema);
+      else await descargarReverso(persona, tema);
+      toast(cara === 1 ? 'Frente descargado' : 'Reverso descargado', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo descargar', 'error'); }
     finally { setBajando(false); }
   }
 
   const imgStyle: CSSProperties = { width: 230, maxWidth: '100%', height: 'auto', borderRadius: 10, boxShadow: 'var(--shadow-md)' };
+  const listo = !!frente && !!reverso;
   return (
     <Modal title={`Carnet · ${persona.nombre} ${persona.apellido}`} size="lg" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-        <button className="btn btn-primary" onClick={descargar} disabled={!frente || bajando}>{bajando ? 'Descargando…' : '⬇ Descargar PNG (frente + reverso)'}</button>
-      </>
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
     }>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.7rem' }}>
+        {/* Alternador de fondo. */}
+        <div className="view-toggle" role="tablist" aria-label="Fondo del carnet">
+          <button type="button" className={tema === 'oscuro' ? 'active' : ''}
+            onClick={() => setTema('oscuro')} title="El de la marca, para pantalla">◼ Oscuro</button>
+          <button type="button" className={tema === 'blanco' ? 'active' : ''}
+            onClick={() => setTema('blanco')} title="Fondo blanco: gasta mucha menos tinta al imprimir">◻ Blanco</button>
+        </div>
         {error && <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>}
         {!error && !frente && <div className="muted" style={{ padding: '2rem' }}>Generando carnet…</div>}
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-          {frente && <div style={{ textAlign: 'center' }}><img src={frente} alt="Frente del carnet" style={imgStyle} /><div className="muted" style={{ fontSize: '.75rem', marginTop: '.25rem' }}>Frente</div></div>}
-          {reverso && <div style={{ textAlign: 'center' }}><img src={reverso} alt="Reverso del carnet" style={imgStyle} /><div className="muted" style={{ fontSize: '.75rem', marginTop: '.25rem' }}>Reverso</div></div>}
+        {/* Cada cara con su rótulo arriba y su descarga justo debajo: el botón
+            está donde está la imagen que baja, no en un pie común donde hay que
+            acordarse de cuál era cuál. */}
+        <div style={{ display: 'flex', gap: '1.4rem', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start' }}>
+          {frente && (
+            <Cara rotulo="Frente" src={frente} alt="Frente del carnet" imgStyle={imgStyle}
+              onBajar={() => bajar(1)} bajando={bajando === 1} deshabilitado={!listo || bajando !== false} />
+          )}
+          {reverso && (
+            <Cara rotulo="Reverso" src={reverso} alt="Reverso del carnet" imgStyle={imgStyle}
+              onBajar={() => bajar(2)} bajando={bajando === 2} deshabilitado={!listo || bajando !== false} />
+          )}
         </div>
-        <small className="muted" style={{ textAlign: 'center' }}>2 imágenes PNG · 54×86&nbsp;mm a 300&nbsp;DPI (638×1016&nbsp;px). El QR del frente incluye cédula, teléfono y contacto de emergencia.</small>
+        <small className="muted" style={{ textAlign: 'center' }}>
+          PNG de 54×86&nbsp;mm a 300&nbsp;DPI (638×1016&nbsp;px), <strong>uno por cara</strong>. El QR del frente incluye cédula, teléfono y contacto de emergencia.
+          {tema === 'blanco'
+            ? ' El fondo blanco es para imprimir: mismos datos, muchísima menos tinta.'
+            : ' Para imprimir conviene el fondo blanco: el oscuro se come el tóner.'}
+        </small>
       </div>
     </Modal>
+  );
+}
+
+/** Una cara del carnet: rótulo, imagen y su propio botón de descarga. */
+function Cara({ rotulo, src, alt, imgStyle, onBajar, bajando, deshabilitado }: {
+  rotulo: string; src: string; alt: string; imgStyle: CSSProperties;
+  onBajar: () => void; bajando: boolean; deshabilitado: boolean;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.5rem' }}>
+      <div className="muted" style={{
+        fontSize: '.72rem', fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase',
+      }}>{rotulo}</div>
+      <img src={src} alt={alt} style={imgStyle} />
+      <button className="btn btn-sm btn-primary" onClick={onBajar} disabled={deshabilitado}>
+        {bajando ? 'Descargando…' : `⬇ ${rotulo} (PNG)`}
+      </button>
+    </div>
   );
 }
 

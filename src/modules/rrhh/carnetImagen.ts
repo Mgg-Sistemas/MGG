@@ -16,8 +16,34 @@ const MM = DPI / 25.4;
 const W = Math.round(54 * MM); // 638
 const H = Math.round(86 * MM); // 1016
 
-// Paleta (idéntica a theme.css).
-const C = {
+/**
+ * En qué fondo se imprime el carnet.
+ *
+ * El oscuro es el de pantalla, el de la marca. El BLANCO existe por una razón
+ * práctica: un carnet negro a sangre se come el tóner de una impresora común y
+ * sale manchado y con bandas. Mismo diseño, mismos datos, mismo QR — solo
+ * cambia en qué fondo se apoya.
+ */
+export type TemaCarnet = 'oscuro' | 'blanco';
+
+interface Paleta {
+  bgTop: string; bgBottom: string;
+  /** Marco de la foto y aro del logo. El naranja de la marca, en los dos temas. */
+  primary: string;
+  /** Dorado de los títulos. En blanco se oscurece: el dorado claro no se lee. */
+  gold: string;
+  /** Dorado suave: cédula e iniciales. También se oscurece en blanco. */
+  primary3: string;
+  text: string; muted: string; dim: string; border: string;
+  /** Extremos de la barra de acento (arriba y abajo). */
+  accentIni: string; accentFin: string;
+  /** Fijos en los dos temas: el panel del QR es blanco y sus módulos negros,
+   *  porque así es como un lector de QR espera encontrarlos. */
+  white: string; dark: string;
+}
+
+// Paleta oscura (idéntica a theme.css).
+const OSCURO: Paleta = {
   bgTop: '#0d1014',
   bgBottom: '#161c25',
   primary: '#ff8a00',
@@ -27,9 +53,31 @@ const C = {
   muted: '#9aa6b5',
   dim: '#6a7585',
   border: '#2f3a4a',
+  accentIni: '#ff8a00',
+  accentFin: '#ffd54a',
   white: '#ffffff',
   dark: '#0d1014',
 };
+
+/* Paleta clara. No es la oscura invertida: los dorados se BAJAN de tono porque
+   un #ffd54a sobre blanco no se lee, y los grises se suben de contraste. */
+const BLANCO: Paleta = {
+  bgTop: '#ffffff',
+  bgBottom: '#eef1f5',
+  primary: '#ff8a00',
+  gold: '#a85c00',
+  primary3: '#8a4b00',
+  text: '#12181f',
+  muted: '#55606d',
+  dim: '#6b7681',
+  border: '#c8d1dc',
+  accentIni: '#ff8a00',
+  accentFin: '#ffc02e',
+  white: '#ffffff',
+  dark: '#0d1014',
+};
+
+export function paletaDe(tema: TemaCarnet): Paleta { return tema === 'blanco' ? BLANCO : OSCURO; }
 
 const FONT = 'Arial, "Segoe UI", Helvetica, sans-serif';
 
@@ -62,7 +110,7 @@ function iniciales(p: Personal): string {
 }
 
 /** Dibuja la foto (cover, recortada al marco) o, si no hay, las iniciales. */
-async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number, y: number, w: number, h: number) {
+async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number, y: number, w: number, h: number, c: Paleta) {
   const r = 20;
   let img: HTMLImageElement | null = null;
   if (p.foto_url) {
@@ -84,18 +132,18 @@ async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number
     ctx.drawImage(img, x - (dw - w) * posX, y - (dh - h) * posY, dw, dh);
   } else {
     const g = ctx.createLinearGradient(x, y, x, y + h);
-    g.addColorStop(0, C.bgBottom);
-    g.addColorStop(1, C.bgTop);
+    g.addColorStop(0, c.bgBottom);
+    g.addColorStop(1, c.bgTop);
     ctx.fillStyle = g;
     ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = C.primary3;
+    ctx.fillStyle = c.primary3;
     ctx.font = `800 110px ${FONT}`;
     ctx.fillText(iniciales(p), x + w / 2, y + h / 2);
   }
   ctx.restore();
   // Marco dorado.
   ctx.lineWidth = 4;
-  ctx.strokeStyle = C.primary;
+  ctx.strokeStyle = c.primary;
   roundRect(ctx, x, y, w, h, r);
   ctx.stroke();
 }
@@ -144,7 +192,7 @@ function textoQR(p: Personal): string {
 }
 
 /** Dibuja el QR (módulos nítidos) centrado en un panel blanco. */
-function dibujarQR(ctx: CanvasRenderingContext2D, data: string, panelX: number, panelY: number, panel: number) {
+function dibujarQR(ctx: CanvasRenderingContext2D, data: string, panelX: number, panelY: number, panel: number, c: Paleta) {
   const qr = qrcode(0, 'M');
   // UTF-8: cada carácter multibyte se convierte en bytes 0-255 para que los
   // lectores modernos muestren bien acentos y ñ.
@@ -156,7 +204,7 @@ function dibujarQR(ctx: CanvasRenderingContext2D, data: string, panelX: number, 
   const qrSize = cell * (count + quiet * 2);
   const ox = panelX + Math.round((panel - qrSize) / 2);
   const oy = panelY + Math.round((panel - qrSize) / 2);
-  ctx.fillStyle = C.dark;
+  ctx.fillStyle = c.dark;
   for (let r = 0; r < count; r++) {
     for (let c = 0; c < count; c++) {
       if (qr.isDark(r, c)) {
@@ -219,7 +267,7 @@ const REV_EMAIL = 'mineralgroupguayanaca@gmail.com';
 const REV_WHATSAPP = 'WhatsApp +58 424-9349731';
 
 /** Lienzo base con fondo, marco y barra de acento. Devuelve ctx + degradado de acento. */
-function nuevoLienzo(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; accent: CanvasGradient } {
+function nuevoLienzo(c: Paleta): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; accent: CanvasGradient } {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -229,19 +277,19 @@ function nuevoLienzo(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext
   ctx.textAlign = 'center';
 
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, C.bgTop);
-  grad.addColorStop(1, C.bgBottom);
+  grad.addColorStop(0, c.bgTop);
+  grad.addColorStop(1, c.bgBottom);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
   ctx.lineWidth = 3;
-  ctx.strokeStyle = C.border;
+  ctx.strokeStyle = c.border;
   roundRect(ctx, 16, 16, W - 32, H - 32, 34);
   ctx.stroke();
 
   const accent = ctx.createLinearGradient(0, 0, W, 0);
-  accent.addColorStop(0, C.primary);
-  accent.addColorStop(1, C.gold);
+  accent.addColorStop(0, c.accentIni);
+  accent.addColorStop(1, c.accentFin);
   ctx.fillStyle = accent;
   roundRect(ctx, 16, 16, W - 32, 20, 10);
   ctx.fill();
@@ -249,11 +297,11 @@ function nuevoLienzo(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext
 }
 
 /** Dibuja el logo en un recuadro blanco (redondeado o, si `circular`, en círculo). */
-async function dibujarLogo(ctx: CanvasRenderingContext2D, x: number, y: number, box: number, circular = false) {
+async function dibujarLogo(ctx: CanvasRenderingContext2D, x: number, y: number, box: number, circular = false, c: Paleta = OSCURO) {
   const cx = x + box / 2;
   const cy = y + box / 2;
   ctx.save();
-  ctx.fillStyle = C.white;
+  ctx.fillStyle = c.white;
   if (circular) {
     ctx.beginPath();
     ctx.arc(cx, cy, box / 2, 0, Math.PI * 2);
@@ -277,7 +325,7 @@ async function dibujarLogo(ctx: CanvasRenderingContext2D, x: number, y: number, 
   if (circular) {
     // Aro dorado alrededor del círculo.
     ctx.lineWidth = 3;
-    ctx.strokeStyle = C.primary;
+    ctx.strokeStyle = c.primary;
     ctx.beginPath();
     ctx.arc(cx, cy, box / 2, 0, Math.PI * 2);
     ctx.stroke();
@@ -291,19 +339,20 @@ function lienzoAPng(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 /** Genera el FRENTE del carnet (638×1016 px · 54×86 mm @ 300 DPI). */
-export async function generarFrenteBlob(p: Personal): Promise<Blob> {
-  const { canvas, ctx, accent } = nuevoLienzo();
+export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'oscuro'): Promise<Blob> {
+  const c = paletaDe(tema);
+  const { canvas, ctx, accent } = nuevoLienzo(c);
   const cx = W / 2;
 
   // Encabezado: logo + marca (alineado a la izquierda).
   const logoBox = 92;
-  await dibujarLogo(ctx, 44, 46, logoBox);
+  await dibujarLogo(ctx, 44, 46, logoBox, false, c);
   ctx.textAlign = 'left';
-  ctx.fillStyle = C.gold;
+  ctx.fillStyle = c.gold;
   ctx.font = `800 25px ${FONT}`;
   ctx.fillText('MINERAL GROUP', 152, 78);
-  ctx.fillText('GUAYANA C.A.', 152, 108);
-  ctx.fillStyle = C.muted;
+  ctx.fillText('GUAYANA c.A.', 152, 108);
+  ctx.fillStyle = c.muted;
   ctx.font = `600 14px ${FONT}`;
   ctx.fillText('CARNET DE IDENTIFICACIÓN', 152, 132);
   ctx.textAlign = 'center';
@@ -317,7 +366,7 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
   const fotoW = 260;
   const fotoH = 300;
   const fotoY = 180;
-  await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH);
+  await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH, c);
   const fotoBottom = fotoY + fotoH;
 
   // Nombre completo (grande, hasta 2 líneas).
@@ -330,14 +379,14 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
     ctx.font = `800 ${fontSize}px ${FONT}`;
     lines = wrapText(ctx, nombreFull, W - 90);
   }
-  ctx.fillStyle = C.text;
+  ctx.fillStyle = c.text;
   let ny = fotoBottom + 52;
   for (const ln of lines.slice(0, 2)) { ctx.fillText(ln, cx, ny); ny += fontSize + 6; }
 
   // Chip de cédula.
   const chipY = ny + 6;
   ctx.font = `700 25px ${FONT}`;
-  const ced = p.cedula ? `C.I. ${p.cedula}` : 'C.I. —';
+  const ced = p.cedula ? `c.I. ${p.cedula}` : 'c.I. —';
   const chipW = Math.min(ctx.measureText(ced).width + 52, W - 90);
   ctx.fillStyle = 'rgba(255,138,0,0.16)';
   roundRect(ctx, cx - chipW / 2, chipY, chipW, 48, 24);
@@ -346,13 +395,13 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
   ctx.lineWidth = 2;
   roundRect(ctx, cx - chipW / 2, chipY, chipW, 48, 24);
   ctx.stroke();
-  ctx.fillStyle = C.primary3;
+  ctx.fillStyle = c.primary3;
   ctx.fillText(ced, cx, chipY + 25);
 
   // Cargo · Departamento (una línea).
   const sub = [p.cargo, p.departamento].filter(Boolean).join('  ·  ').toUpperCase();
   if (sub) {
-    ctx.fillStyle = C.muted;
+    ctx.fillStyle = c.muted;
     ctx.font = `600 17px ${FONT}`;
     ctx.fillText(wrapText(ctx, sub, W - 110)[0], cx, chipY + 76);
   }
@@ -361,12 +410,12 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
   const panel = 210;
   const panelX = cx - panel / 2;
   const panelY = H - panel - 84;
-  ctx.fillStyle = C.white;
+  ctx.fillStyle = c.white;
   roundRect(ctx, panelX, panelY, panel, panel, 20);
   ctx.fill();
-  dibujarQR(ctx, textoQR(p), panelX, panelY, panel);
+  dibujarQR(ctx, textoQR(p), panelX, panelY, panel, c);
 
-  ctx.fillStyle = C.dim;
+  ctx.fillStyle = c.dim;
   ctx.font = `600 14px ${FONT}`;
   tracked(ctx, 'ESCANEÁ EL QR PARA VER LOS DATOS', cx, panelY + panel + 24, 1.5);
   ctx.fillStyle = accent;
@@ -378,6 +427,77 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
 
 /** Carga el logo de la Corporación Venezolana de Minería (public/cvm.*).
  *  Prueba varias extensiones y mayúsc/minúsc (el servidor Linux distingue may/min). */
+/** Carga la primera imagen de /public que exista, probando varios nombres. */
+async function cargarDePublic(candidatos: string[]): Promise<HTMLImageElement | null> {
+  const base = import.meta.env.BASE_URL;
+  for (const nombre of candidatos) {
+    try {
+      const img = await loadImage(`${base}${encodeURIComponent(nombre)}`);
+      if (img.width > 1) return img; // en dev un 404 devuelve el index.html: no decodifica
+    } catch { /* probamos el siguiente */ }
+  }
+  return null;
+}
+
+function hexARgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+/* Dónde empieza y termina la rampa de transparencia, en luminancia (0 negro,
+   255 blanco). El papel escaneado nunca es 255 limpio —tiene grano y compresión
+   JPEG—, así que el corte va bastante por debajo del blanco puro. */
+const PAPEL = 235;
+const TINTA = 120;
+
+/**
+ * Recorta el fondo blanco de un sello o una firma escaneados.
+ *
+ * Vienen en JPEG, que no tiene transparencia: pegados tal cual sobre el carnet
+ * oscuro dejarían un recuadro blanco alrededor. Acá el PAPEL se vuelve
+ * transparente y la TINTA se queda, con una rampa suave en el medio para que el
+ * borde del trazo no quede dentado.
+ *
+ * Con `tinta` se repinta el trazo: en el carnet oscuro una firma negra no se ve,
+ * así que se pasa a un tono claro. En el blanco se deja su color original.
+ */
+function sinFondoBlanco(img: HTMLImageElement, tinta?: string): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.width = img.naturalWidth || img.width;
+  cv.height = img.naturalHeight || img.height;
+  const cx = cv.getContext('2d');
+  if (!cx) return cv;
+  cx.drawImage(img, 0, 0);
+  let datos: ImageData;
+  // Si el navegador marcó el lienzo como contaminado no se puede leer: se
+  // devuelve la imagen tal cual antes que quedarse sin sello.
+  try { datos = cx.getImageData(0, 0, cv.width, cv.height); } catch { return cv; }
+  const px = datos.data;
+  const rgb = tinta ? hexARgb(tinta) : null;
+  for (let i = 0; i < px.length; i += 4) {
+    const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    const alfa = lum >= PAPEL ? 0
+      : lum <= TINTA ? 255
+      : Math.round((255 * (PAPEL - lum)) / (PAPEL - TINTA));
+    px[i + 3] = alfa;
+    if (rgb && alfa > 0) { px[i] = rgb[0]; px[i + 1] = rgb[1]; px[i + 2] = rgb[2]; }
+  }
+  cx.putImageData(datos, 0, 0);
+  return cv;
+}
+
+/** Dibuja una imagen dentro de una caja, sin deformarla y centrada. */
+function dibujarContenido(
+  ctx: CanvasRenderingContext2D, src: CanvasImageSource, w0: number, h0: number,
+  x: number, y: number, maxW: number, maxH: number,
+): void {
+  if (!w0 || !h0) return;
+  const k = Math.min(maxW / w0, maxH / h0);
+  const w = w0 * k;
+  const h = h0 * k;
+  ctx.drawImage(src, x + (maxW - w) / 2, y + (maxH - h) / 2, w, h);
+}
+
 async function cargarLogoCVM(): Promise<HTMLImageElement | null> {
   const base = import.meta.env.BASE_URL;
   const candidatos = ['cvm.jpg', 'cvm.jpeg', 'cvm.png', 'cvm.webp', 'CVM.jpg', 'CVM.jpeg', 'CVM.png', 'CVM.webp'];
@@ -391,7 +511,7 @@ async function cargarLogoCVM(): Promise<HTMLImageElement | null> {
 }
 
 /** Dibuja una imagen recortada en círculo (cover), con aro dorado opcional. */
-function dibujarCirculo(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, box: number, aro = true) {
+function dibujarCirculo(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, box: number, aro = true, c: Paleta = OSCURO) {
   const cx = x + box / 2;
   const cy = y + box / 2;
   ctx.save();
@@ -405,7 +525,7 @@ function dibujarCirculo(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x:
   ctx.restore();
   if (aro) {
     ctx.lineWidth = 3;
-    ctx.strokeStyle = C.primary;
+    ctx.strokeStyle = c.primary;
     ctx.beginPath();
     ctx.arc(cx, cy, box / 2, 0, Math.PI * 2);
     ctx.stroke();
@@ -436,22 +556,23 @@ function parrafo(ctx: CanvasRenderingContext2D, text: string, x: number, y: numb
 }
 
 /** Genera el REVERSO del carnet (texto legal + imagen institucional + contacto). */
-export async function generarReversoBlob(): Promise<Blob> {
-  const { canvas, ctx, accent } = nuevoLienzo();
+export async function generarReversoBlob(tema: TemaCarnet = 'oscuro'): Promise<Blob> {
+  const c = paletaDe(tema);
+  const { canvas, ctx, accent } = nuevoLienzo(c);
   const cx = W / 2;
 
   // Encabezado: logo de la Corporación Venezolana de Minería (redondo, prominente).
   const cvm = await cargarLogoCVM();
   const logoBox = 190;
   const logoY = 58;
-  if (cvm) dibujarCirculo(ctx, cvm, cx - logoBox / 2, logoY, logoBox, true);
-  else await dibujarLogo(ctx, cx - logoBox / 2, logoY, logoBox, true); // respaldo: logo MGG
+  if (cvm) dibujarCirculo(ctx, cvm, cx - logoBox / 2, logoY, logoBox, true, c);
+  else await dibujarLogo(ctx, cx - logoBox / 2, logoY, logoBox, true, c); // respaldo: logo MGG
   const headBottom = logoY + logoBox;
 
   ctx.textAlign = 'center';
-  ctx.fillStyle = C.gold;
+  ctx.fillStyle = c.gold;
   ctx.font = `800 21px ${FONT}`;
-  tracked(ctx, 'MINERAL GROUP GUAYANA C.A.', cx, headBottom + 34, 0.5);
+  tracked(ctx, 'MINERAL GROUP GUAYANA c.A.', cx, headBottom + 34, 0.5);
   ctx.fillStyle = accent;
   roundRect(ctx, cx - 60, headBottom + 52, 120, 3, 2);
   ctx.fill();
@@ -460,21 +581,59 @@ export async function generarReversoBlob(): Promise<Blob> {
   const margin = 50;
   const maxW = W - margin * 2;
   ctx.textAlign = 'left';
-  ctx.fillStyle = C.text;
+  ctx.fillStyle = c.text;
   ctx.font = `500 21px ${FONT}`;
   let y = headBottom + 92;
   y = parrafo(ctx, REV_P1, margin, y, maxW, 30, true);   // justificado
   y += 20;
-  ctx.fillStyle = C.primary3;
+  ctx.fillStyle = c.primary3;
   ctx.font = `600 21px ${FONT}`;
-  parrafo(ctx, REV_P2, margin, y, maxW, 30, true);        // justificado
+  y = parrafo(ctx, REV_P2, margin, y, maxW, 30, true);    // justificado
+
+  /* Firma del autorizado y sello de la empresa, justo debajo del texto legal.
+     Los dos son escaneos con fondo blanco: se les recorta el papel para que no
+     queden dos recuadros blancos sobre el carnet oscuro, y en ese tema el trazo
+     se repinta claro (una firma negra sobre negro no existe). */
+  const [firmaImg, selloImg] = await Promise.all([
+    cargarDePublic(['firma-autorizado-carnet.jpeg', 'firma de autorizado carnet.jpeg', 'firma-autorizado-carnet.jpg', 'firma-autorizado-carnet.png']),
+    cargarDePublic(['sello-mgg.jpeg', 'sello mineral group.jpeg', 'sello-mgg.jpg', 'sello-mgg.png']),
+  ]);
+  if (firmaImg || selloImg) {
+    const claro = tema === 'oscuro' ? c.text : undefined;
+    const filaY = Math.max(y + 18, H - 300);
+    const filaH = 132;
+    const cajaW = (maxW - 30) / 2;
+    if (firmaImg) {
+      const cv = sinFondoBlanco(firmaImg, claro);
+      dibujarContenido(ctx, cv, cv.width, cv.height, margin, filaY, cajaW, filaH);
+    }
+    if (selloImg) {
+      const cv = sinFondoBlanco(selloImg, claro);
+      dibujarContenido(ctx, cv, cv.width, cv.height, margin + cajaW + 30, filaY, cajaW, filaH);
+    }
+    // Una línea bajo cada uno: es una firma, y una firma va sobre su raya.
+    ctx.strokeStyle = c.border;
+    ctx.lineWidth = 2;
+    const rayaY = filaY + filaH + 6;
+    for (const rx of [margin, margin + cajaW + 30]) {
+      ctx.beginPath();
+      ctx.moveTo(rx + 20, rayaY);
+      ctx.lineTo(rx + cajaW - 20, rayaY);
+      ctx.stroke();
+    }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = c.dim;
+    ctx.font = `600 13px ${FONT}`;
+    tracked(ctx, 'AUTORIZADO POR', margin + cajaW / 2, rayaY + 18, 1.2);
+    tracked(ctx, 'SELLO DE LA EMPRESA', margin + cajaW + 30 + cajaW / 2, rayaY + 18, 1.2);
+  }
 
   // Contacto (abajo).
   ctx.textAlign = 'center';
-  ctx.fillStyle = C.gold;
+  ctx.fillStyle = c.gold;
   ctx.font = `700 20px ${FONT}`;
   ctx.fillText(REV_EMAIL, cx, H - 84);
-  ctx.fillStyle = C.text;
+  ctx.fillStyle = c.text;
   ctx.font = `600 19px ${FONT}`;
   ctx.fillText(REV_WHATSAPP, cx, H - 58);
   ctx.fillStyle = accent;
@@ -487,10 +646,12 @@ export async function generarReversoBlob(): Promise<Blob> {
 /** Compat: el "carnet" por defecto es el frente. */
 export const generarCarnetBlob = generarFrenteBlob;
 
-/** Nombre de archivo sugerido. */
-function nombreArchivo(p: Personal, cara: string): string {
+/** Nombre de archivo sugerido. El tema va en el nombre para que la versión
+    blanca no pise a la oscura en la carpeta de descargas. */
+function nombreArchivo(p: Personal, cara: string, tema: TemaCarnet = 'oscuro'): string {
   const base = `${p.nombre ?? ''}-${p.apellido ?? ''}`.trim().replace(/\s+/g, '-').replace(/[^\w\-áéíóúñ]/gi, '');
-  return `carnet-${cara}-${base || 'personal'}.png`;
+  const suf = tema === 'blanco' ? '-blanco' : '';
+  return `carnet-${cara}${suf}-${base || 'personal'}.png`;
 }
 
 function descargarBlob(blob: Blob, filename: string) {
@@ -504,11 +665,26 @@ function descargarBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-/** Genera y descarga las DOS caras del carnet (frente + reverso). */
-export async function descargarCarnet(p: Personal): Promise<void> {
-  const [frente, reverso] = await Promise.all([generarFrenteBlob(p), generarReversoBlob()]);
-  descargarBlob(frente, nombreArchivo(p, 'frente'));
-  // Pequeña espera para que el navegador no ignore la 2.ª descarga.
+/** Descarga SOLO el frente. */
+export async function descargarFrente(p: Personal, tema: TemaCarnet = 'oscuro'): Promise<void> {
+  descargarBlob(await generarFrenteBlob(p, tema), nombreArchivo(p, 'frente', tema));
+}
+
+/** Descarga SOLO el reverso. */
+export async function descargarReverso(p: Personal, tema: TemaCarnet = 'oscuro'): Promise<void> {
+  descargarBlob(await generarReversoBlob(tema), nombreArchivo(p, 'reverso', tema));
+}
+
+/**
+ * Genera y descarga las DOS caras.
+ *
+ * Dos descargas seguidas: el navegador ignora la segunda si llegan juntas, de
+ * ahí la espera. Para imprimir conviene bajarlas de a una (hay un botón por
+ * cara), porque así cada archivo cae con su nombre y en el orden en que se
+ * mandan a la impresora.
+ */
+export async function descargarCarnet(p: Personal, tema: TemaCarnet = 'oscuro'): Promise<void> {
+  await descargarFrente(p, tema);
   await new Promise((r) => setTimeout(r, 350));
-  descargarBlob(reverso, nombreArchivo(p, 'reverso'));
+  await descargarReverso(p, tema);
 }
