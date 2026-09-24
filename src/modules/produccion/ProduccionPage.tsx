@@ -19,6 +19,8 @@ import { GestionarHornosModal } from './GestionarHornosModal';
 import { ReporteFundicionMatanzaModal } from './ReporteFundicionMatanzaModal';
 import { ReporteRefinacionMatanzaModal } from './ReporteRefinacionMatanzaModal';
 import { GestionarInvolucradosModal } from './GestionarInvolucradosModal';
+import { MenuBoton, MenuItem } from '@/shared/ui/MenuBoton';
+import { recorteKanban, TOPE_FINALIZADOS } from './topeKanban';
 import { PisoFundicionModal } from './PisoFundicionModal';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
@@ -169,8 +171,9 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
   // El Kanban siempre muestra todo (sin filtros).
   const enProduccion = useMemo(() => producciones.filter((p) => p.estado === 'produccion'), [producciones]);
   const finalizados = useMemo(() => producciones.filter((p) => p.estado === 'finalizado'), [producciones]);
-  // El Kanban solo muestra las 3 producciones finalizadas más recientes.
-  const finalizadosKanban = useMemo(() => finalizados.slice(0, 3), [finalizados]);
+  /* El tablero muestra las últimas finalizadas y el resto se ve en la Lista.
+     El encabezado sigue diciendo el TOTAL: si dice 48, hay 48. */
+  const cortadas = useMemo(() => recorteKanban(finalizados), [finalizados]);
   const almacenesList = useMemo(() => almacenes.map((a) => a.nombre), [almacenes]);
   // El horno está en Matanza: el material de una colada sale de sus almacenes, no
   // de los de otra sede. Sacarlo de Los Pinos sería mover stock ajeno sin traslado.
@@ -213,23 +216,33 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
 
           <div className="btn-grupo">
             <button className="btn btn-ghost" onClick={() => setModal({ kind: 'recetas' })}>📋 Recetas</button>
-            {canWrite && tipo === 'fundicion' && (
-              <button className="btn btn-ghost" onClick={() => setModal({ kind: 'hornos' })}>🔥 Hornos</button>
-            )}
             {canWrite && (
               <button className="btn btn-ghost" onClick={() => setModal({ kind: 'involucrados' })}
                 title="Catálogo de personas de planta: agregar, modificar y desactivar">👷 Involucrados</button>
             )}
+            {/* Lo propio del horno va en un menú. Fundición tiene tres botones que
+                Refinación no tiene (Hornos, Piso, Supervisorio) y con ellos sueltos
+                la barra cortaba en dos filas: INICIAR COLADA caía a la segunda y
+                cambiaba de lugar según el ancho de la ventana. Acá la barra queda
+                en UNA fila, igual que en Refinación, y el botón principal siempre
+                está en la misma esquina. */}
+            {tipo === 'fundicion' && (
+              <MenuBoton etiqueta="🏭 Planta" titulo="Hornos, piso de fundición y supervisorio">
+                {(cerrar) => (
+                  <>
+                    {canWrite && (
+                      <MenuItem onClick={() => { cerrar(); setModal({ kind: 'hornos' }); }}
+                        title="Catálogo de hornos de la planta">🔥 Hornos</MenuItem>
+                    )}
+                    <MenuItem onClick={() => { cerrar(); setModal({ kind: 'piso' }); }}
+                      title="Material que Salidas entregó a fundición y todavía no se fundió">🔥 Piso de fundición</MenuItem>
+                    <MenuItem href="http://192.168.0.50/monitor/IZIS_0" onClick={cerrar}
+                      title="Supervisorio de hornos · abre en una pestaña nueva">🖥️ Supervisorio ↗</MenuItem>
+                  </>
+                )}
+              </MenuBoton>
+            )}
           </div>
-
-          {tipo === 'fundicion' && (
-            <div className="btn-grupo">
-              <button className="btn btn-ghost" onClick={() => setModal({ kind: 'piso' })}
-                title="Material que Salidas entregó a fundición y todavía no se fundió">🔥 Piso de fundición</button>
-              <a className="btn btn-ghost" href="http://192.168.0.50/monitor/IZIS_0" target="_blank" rel="noopener noreferrer"
-                title="Supervisorio de hornos · abre en una pestaña nueva">🖥️ Supervisorio</a>
-            </div>
-          )}
           {canWrite && (
             <button className="btn btn-primary" onClick={() => setModal({ kind: 'crear' })}>{cfg.btnCrear}</button>
           )}
@@ -297,12 +310,19 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
               <div className="card"><EmptyState message="Sin producciones finalizadas." icon="✓" /></div>
             ) : (
               <div style={{ display: 'grid', gap: '.75rem' }}>
-                {finalizados.length > finalizadosKanban.length && (
-                  <div className="muted" style={{ fontSize: '.75rem' }}>
-                    Mostrando las 3 más recientes · usá la vista <strong>☰ Lista</strong> para verlas todas.
+                {cortadas.hayMas && (
+                  <div className="muted" style={{ fontSize: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                    <span>Las <strong>{TOPE_FINALIZADOS}</strong> más recientes.</span>
+                    {/* Lleva a la Lista ya filtrada por finalizadas: el tablero es para
+                        trabajar, el histórico completo se consulta con búsqueda. */}
+                    <button className="btn btn-sm btn-ghost"
+                      onClick={() => { setFiltroEstado('finalizado'); setBusqueda(''); setLayout('lista'); }}
+                      title="Abre la vista Lista filtrada por finalizadas, con búsqueda">
+                      📚 Ver las {num(cortadas.ocultas)} anteriores
+                    </button>
                   </div>
                 )}
-                {finalizadosKanban.map((p) => (
+                {cortadas.visibles.map((p) => (
                   <div key={p.id} className="card" style={{ margin: 0, padding: '1rem', borderTop: '3px solid var(--success)' }}>
                     <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase' }}>Producto finalizado</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
