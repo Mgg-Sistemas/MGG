@@ -211,6 +211,14 @@
    principal quedaba flotando por la mitad de la pantalla. Pegadas al borde
    derecho, las dos filas leen como un bloque. Abajo de 900px ya era así. */
 .page-head .actions { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+/* La barra DEBAJO del nombre del módulo, no a su lado. Una pantalla con
+   muchas herramientas (Producción tiene nueve) le come el aire al título y
+   deja la fila apretada contra el borde. Abajo, la barra tiene el ancho
+   entero para ella y el título respira. Los botones siguen alineados a la
+   derecha, así el principal no se muda de esquina. */
+.page-head.apilado { flex-direction: column; align-items: stretch; }
+.page-head.apilado .actions { width: 100%; margin-left: 0; }
+
 /* Grupo de botones afines (reportes, catálogos, planta): al achicarse la
    pantalla el corte cae ENTRE grupos y no en medio de uno, así la barra no
    queda con un botón suelto en su propia línea. */

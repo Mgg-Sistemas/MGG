@@ -186,7 +186,8 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
 
   return (
     <div>
-      <div className="page-head">
+      {/* apilado: la barra va debajo del título, que si no queda apretada. */}
+      <div className="page-head apilado">
         <div>
           <h1>{cfg.titulo}</h1>
           <p className="hint muted">{cfg.subtitulo}</p>

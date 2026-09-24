@@ -2140,7 +2140,7 @@ export async function recibirOrdenDespiezada(
 
   // Las fichas primero: un corte nuevo se crea una sola vez, aunque vaya a tres cocinas.
   for (const c of calc.cortes) {
-    idsPorCorte.set(c.nombre, c.productoId || await fichaDeCorte(c.nombre, item.unidad ?? 'KILOGRAMO', actorEmail));
+    idsPorCorte.set(c.nombre, c.productoId || await fichaDeCorte(c.nombre, item.unidad ?? 'KILOGRAMO', destino));
   }
   const costoDe = new Map(calc.cortes.map((c) => [c.nombre, c.costoUnitario]));
 
@@ -2223,19 +2223,47 @@ export async function recibirOrdenDespiezada(
   return { orden: data as Orden, entradas };
 }
 
-/** La ficha de un corte: la que ya existe con ese nombre, o una nueva. */
-async function fichaDeCorte(nombre: string, unidad: string, actor: string): Promise<string> {
-  const { data: ya } = await supabase.from('productos')
-    .select('id').ilike('nombre', nombre).limit(1).maybeSingle();
-  if (ya?.id) return ya.id as string;
-  const { siguienteSkuGlobal } = await import('@/modules/inventario/inventario.repository');
-  const sku = await siguienteSkuGlobal('CARNES');
-  const { data, error } = await supabase.from('productos').insert({
-    nombre, sku, categoria: 'CARNES', unidad, estado: 'activo',
-    stock: 0, precio: 0, created_by: actor,
-  }).select('id').single();
-  if (error) throw error;
-  return data.id as string;
+/**
+ * La ficha de un corte: la que ya existe con ese nombre, o una nueva.
+ *
+ * Escribía `created_by`, que en `productos` NO EXISTE (sí existe en
+ * `catalogos_pedido`, de donde se copió). PostgREST rechaza el insert entero con
+ * «could not find the column in the schema cache», así que recibir una res
+ * fallaba apenas uno de los cortes no tenía ficha todavía — es decir, la
+ * primera vez. Los cortes ya creados pasaban, y por eso el error parecía
+ * caprichoso.
+ *
+ * Ahora crea por `createProducto`, que ya sabe explicar un código repetido y
+ * refresca la caché del inventario.
+ */
+async function fichaDeCorte(nombre: string, unidad: string, almacen: string): Promise<string> {
+  const { data: ya, error: eBusca } = await supabase.from('productos')
+    .select('id, estado').ilike('nombre', nombre).limit(1).maybeSingle();
+  if (eBusca) throw eBusca;
+  if (ya?.id) {
+    /* Si la ficha estaba dada de baja se reactiva. El corte entra igual —el
+       stock es real— y una ficha inactiva no se ve en Inventario: la carne
+       quedaría cargada en un producto que nadie encuentra. */
+    if ((ya as { estado?: string }).estado !== 'activo') {
+      await supabase.from('productos').update({ estado: 'activo' }).eq('id', ya.id);
+    }
+    return ya.id as string;
+  }
+  const { createProducto, siguienteSkuGlobal } = await import('@/modules/inventario/inventario.repository');
+  const creado = await createProducto({
+    sku: await siguienteSkuGlobal('CARNES'),
+    nombre,
+    categoria: 'CARNES',
+    unidad: unidad || 'KILOGRAMO',
+    stock: 0,
+    stock_min: 0,
+    // El costo lo pone la entrada del despiece, que es la que sabe cuánto salió.
+    precio: 0,
+    // Nace en el almacén que recibió la res, no en el bucket «General».
+    almacen: almacen || 'General',
+    estado: 'activo',
+  });
+  return creado.id;
 }
 
 /**
