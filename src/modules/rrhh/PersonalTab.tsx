@@ -12,12 +12,14 @@ import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal,
   subirFotoCarnet, digitosCedula, listHistorialSueldo,
   listDocumentosPersonal, listDocumentosDeTodos, subirDocumentoPersonal,
-  urlDocumentoPersonal, borrarDocumentoPersonal,
+  urlDocumentoPersonal, borrarDocumentoPersonal, renombrarDocumentoPersonal,
   type PersonalInput, type CambioSueldoRegistro, type DocumentoPersonal,
 } from './personal.repository';
 import {
   TIPOS_DOCUMENTO_PERSONAL, documentacionCompleta, megas, resumenDocumentos,
   validarArchivoDocumento, type TipoDocumentoPersonal,
+  MAX_DOCUMENTOS_OTROS, MIN_ETIQUETA, TIPO_OTRO, errorEtiquetaDocumento,
+  iconoDocumento, tituloDocumento,
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -426,6 +428,19 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   // La ficha nueva nace en la empresa que se está mirando. No es un campo del
   // formulario a propósito: quién pertenece a cada nómina lo decide el
   // interruptor de arriba, y así no se puede elegir mal sin darse cuenta.
+  /** Abre la hoja de ingreso en blanco, en vista previa. */
+  const [hojaAbriendo, setHojaAbriendo] = useState(false);
+  async function hojaIngreso() {
+    if (hojaAbriendo) return;
+    setHojaAbriendo(true);
+    try {
+      const { verHojaIngresoPdf } = await import('./hojaIngresoPdf');
+      await verHojaIngresoPdf(empresa);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar la hoja de ingreso', 'error');
+    } finally { setHojaAbriendo(false); }
+  }
+
   function abrirNuevo() {
     setEditId(null); setForm({ ...VACIO, empresa }); limpiarCambioSueldo(0);
     setFamiliaForm([]); setFamiliaBorrada([]);
@@ -557,7 +572,13 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   return (
     <div>
       {canWrite && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '.75rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
+          {/* La hoja en blanco es para ANTES de que exista la ficha: se imprime,
+              la llena la persona que entra y con eso se carga el registro. */}
+          <button className="btn btn-ghost" onClick={() => void hojaIngreso()} disabled={hojaAbriendo}
+            title="Formulario en blanco para imprimir y que lo llene quien ingresa">
+            {hojaAbriendo ? 'Generando…' : '🖨 Hoja de ingreso (en blanco)'}
+          </button>
           <button className="btn btn-primary" onClick={abrirNuevo}>+ Ingresar Registro de Personal</button>
         </div>
       )}
@@ -1519,9 +1540,14 @@ function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCa
 }) {
   const [docs, setDocs] = useState<DocumentoPersonal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [subiendo, setSubiendo] = useState<TipoDocumentoPersonal | null>(null);
+  const [subiendo, setSubiendo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [porQuitar, setPorQuitar] = useState<DocumentoPersonal | null>(null);
+  /** Nombre del documento extra que se está por cargar. Se pide ANTES del
+   *  archivo: sin nombre no hay forma de distinguirlo de los otros. */
+  const [nombreNuevo, setNombreNuevo] = useState('');
+  /** Documento al que se le está cambiando el nombre: id → texto en edición. */
+  const [renombrando, setRenombrando] = useState<{ id: string; texto: string } | null>(null);
 
   const recargar = useCallback(async () => {
     try { setDocs(await listDocumentosPersonal(persona.id)); }
@@ -1531,26 +1557,53 @@ function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCa
   useEffect(() => { void recargar(); }, [recargar]);
 
   const porTipo = useMemo(() => {
-    const m = new Map<TipoDocumentoPersonal, DocumentoPersonal>();
-    for (const d of docs) m.set(d.tipo, d);
+    const m = new Map<string, DocumentoPersonal>();
+    for (const d of docs) if (d.tipo !== TIPO_OTRO) m.set(d.tipo, d);
     return m;
   }, [docs]);
+  /** Los papeles agregados a mano, del más viejo al más nuevo. */
+  const otros = useMemo(
+    () => docs.filter((d) => d.tipo === TIPO_OTRO).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')),
+    [docs],
+  );
+  const hayLugar = otros.length < MAX_DOCUMENTOS_OTROS;
 
-  async function subir(tipo: TipoDocumentoPersonal, file: File | null) {
+  async function subir(
+    tipo: TipoDocumentoPersonal | 'otro', file: File | null,
+    extra: { etiqueta?: string; reemplazaId?: string } = {},
+  ) {
     if (!file) return;
     setError(null);
     // Se avisa ANTES de subir: no tiene sentido esperar a que viaje un archivo
     // de 40 MB para decir que no se acepta.
     const falla = validarArchivoDocumento(file);
     if (falla) { setError(falla); return; }
-    setSubiendo(tipo);
+    if (tipo === TIPO_OTRO && !extra.reemplazaId) {
+      const mal = errorEtiquetaDocumento(extra.etiqueta, otros.map((d) => d.etiqueta ?? ''));
+      if (mal) { setError(mal); return; }
+    }
+    setSubiendo(extra.reemplazaId ?? tipo);
     try {
-      await subirDocumentoPersonal(persona.id, tipo, file, { actor, actorName });
+      await subirDocumentoPersonal(persona.id, tipo, file, { actor, actorName, ...extra });
       toast('Documento cargado', 'success');
+      setNombreNuevo('');
       await recargar();
       onCambio();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo subir el documento'); }
     finally { setSubiendo(null); }
+  }
+
+  async function guardarNombre() {
+    if (!renombrando) return;
+    const d = docs.find((x) => x.id === renombrando.id);
+    if (!d) { setRenombrando(null); return; }
+    setError(null);
+    try {
+      await renombrarDocumentoPersonal(d, renombrando.texto);
+      setRenombrando(null);
+      toast('Nombre actualizado', 'success');
+      await recargar();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cambiar el nombre'); }
   }
 
   async function ver(d: DocumentoPersonal) {
@@ -1621,19 +1674,100 @@ function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCa
             </div>
           );
         })}
+
+        {/* ── Otros documentos ── Los tres de arriba son los obligatorios; acá va
+            todo lo demás (título, certificado médico, contrato firmado…), que no
+            se puede listar de antemano porque cada puesto pide lo suyo. */}
+        <div className="card" style={{ margin: 0, background: 'var(--bg-2)' }}>
+          <div style={{ fontWeight: 700, marginBottom: otros.length ? '.5rem' : '.35rem' }}>
+            📎 Otros documentos <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>· {otros.length} de {MAX_DOCUMENTOS_OTROS}</span>
+          </div>
+
+          {otros.map((d) => {
+            const editando = renombrando?.id === d.id;
+            return (
+              <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '.7rem', flexWrap: 'wrap', alignItems: 'center', padding: '.45rem 0', borderTop: '1px solid var(--border)' }}>
+                <div style={{ minWidth: 220, flex: 1 }}>
+                  {editando ? (
+                    <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input className="input" autoFocus value={renombrando.texto} maxLength={60}
+                        onChange={(e) => setRenombrando({ id: d.id, texto: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); void guardarNombre(); }
+                          if (e.key === 'Escape') setRenombrando(null);
+                        }}
+                        style={{ maxWidth: 260 }} />
+                      <button className="btn btn-sm btn-primary" onClick={() => void guardarNombre()}>✓</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setRenombrando(null)}>✕</button>
+                    </div>
+                  ) : (
+                    <div style={{ fontWeight: 700 }}>{iconoDocumento(d.tipo)} {tituloDocumento(d)}</div>
+                  )}
+                  <div className="muted" style={{ fontSize: '.78rem', wordBreak: 'break-all' }}>
+                    {d.nombre}{d.tamano ? ` · ${megas(d.tamano)}` : ''}
+                    <div>Cargado {d.createdAt ? dateTime(d.createdAt) : ''}{d.subidoPorNombre ? ` por ${d.subidoPorNombre}` : ''}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button className="btn btn-sm btn-ghost" onClick={() => void ver(d)}>👁 Ver</button>
+                  {canWrite && !editando && (
+                    <button className="btn btn-sm btn-ghost" title="Cambiar el nombre"
+                      onClick={() => setRenombrando({ id: d.id, texto: d.etiqueta ?? '' })}>✎ Nombre</button>
+                  )}
+                  {canWrite && (
+                    <label className="btn btn-sm btn-ghost" style={{ cursor: subiendo === d.id ? 'wait' : 'pointer', margin: 0 }}>
+                      {subiendo === d.id ? 'Subiendo…' : '🔄 Reemplazar'}
+                      <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} disabled={subiendo === d.id}
+                        onChange={(e) => { void subir(TIPO_OTRO, e.target.files?.[0] ?? null, { reemplazaId: d.id }); e.target.value = ''; }} />
+                    </label>
+                  )}
+                  {canWrite && (
+                    <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
+                      onClick={() => setPorQuitar(d)} title="Quitar">🗑</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {canWrite && (hayLugar ? (
+            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', paddingTop: otros.length ? '.55rem' : 0, borderTop: otros.length ? '1px solid var(--border)' : undefined }}>
+              {/* El nombre va primero: el archivo se sube recién cuando ya se sabe
+                  cómo se va a llamar, así no queda un «documento sin nombre». */}
+              <input className="input" value={nombreNuevo} maxLength={60}
+                onChange={(e) => setNombreNuevo(e.target.value)}
+                placeholder="Nombre del documento (ej.: Título universitario)"
+                style={{ flex: 1, minWidth: 220 }} />
+              <label className={`btn btn-sm ${nombreNuevo.trim().length >= MIN_ETIQUETA ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ cursor: nombreNuevo.trim().length >= MIN_ETIQUETA ? 'pointer' : 'not-allowed', margin: 0, opacity: nombreNuevo.trim().length >= MIN_ETIQUETA ? 1 : .6 }}
+                title={nombreNuevo.trim().length >= MIN_ETIQUETA ? 'Elegí el archivo' : `Escribí primero el nombre (mínimo ${MIN_ETIQUETA} caracteres)`}>
+                {subiendo === TIPO_OTRO ? 'Subiendo…' : '📎 Añadir documento'}
+                <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }}
+                  disabled={subiendo === TIPO_OTRO || nombreNuevo.trim().length < MIN_ETIQUETA}
+                  onChange={(e) => { void subir(TIPO_OTRO, e.target.files?.[0] ?? null, { etiqueta: nombreNuevo }); e.target.value = ''; }} />
+              </label>
+            </div>
+          ) : (
+            <small className="muted">Llegaste al tope de {MAX_DOCUMENTOS_OTROS} documentos extra. Quitá alguno para sumar otro.</small>
+          ))}
+
+          {!otros.length && !canWrite && <small className="muted">Sin documentos adicionales.</small>}
+        </div>
       </div>
 
       <small className="hint muted" style={{ display: 'block', marginTop: '.6rem' }}>
         Son documentos de identidad: viven en un <strong>depósito privado</strong> y se abren con un enlace que
         <strong> caduca a los 10 minutos</strong>, no con una dirección pública como la foto del carnet.
-        Cargar de nuevo <strong>reemplaza</strong> el anterior: queda uno solo por tipo, para no tener diez
-        versiones de la misma cédula sin saber cuál es la buena.
+        En los <strong>tres obligatorios</strong>, cargar de nuevo <strong>reemplaza</strong> el anterior: queda uno
+        solo por tipo, para no tener diez versiones de la misma cédula sin saber cuál es la buena. En
+        <strong> «Otros documentos»</strong> se pueden sumar hasta {MAX_DOCUMENTOS_OTROS}, cada uno con su
+        nombre, y el nombre se cambia cuando haga falta con <strong>✎ Nombre</strong>.
       </small>
 
       {porQuitar && (
         <ConfirmDialog
           title="Quitar el documento"
-          message={`¿Quitar «${porQuitar.nombre}» de la documentación de ${persona.nombre}? El archivo se borra del depósito.`}
+          message={`¿Quitar «${tituloDocumento(porQuitar)}» (${porQuitar.nombre}) de la documentación de ${persona.nombre}? El archivo se borra del depósito.`}
           confirmText="Quitar" danger
           onConfirm={() => void quitar()}
           onCancel={() => setPorQuitar(null)} />

@@ -100,22 +100,78 @@ export function nombreSeguro(nombre: string): string {
 }
 
 export interface DocumentoCargado {
-  tipo: TipoDocumentoPersonal;
+  /** Puede ser uno de los tres fijos o `'otro'`, que en estas cuentas no suma. */
+  tipo: TipoDocumentoPersonal | string;
+}
+
+/** Los tres fijos que tiene cargados. Un papel extra no cuenta: el «2 de 3» mide
+ *  si están los obligatorios, no cuántos papeles hay en la carpeta. */
+function fijosCargados(cargados: DocumentoCargado[]): Set<string> {
+  const fijos = new Set<string>(TIPOS_DOCUMENTO_PERSONAL.map((d) => d.key));
+  return new Set((cargados ?? []).map((d) => d.tipo).filter((t) => fijos.has(t)));
 }
 
 /** Qué papeles le faltan a la persona, en el orden en que se piden. */
 export function documentosFaltantes(cargados: DocumentoCargado[]): DefinicionDocumento[] {
-  const tiene = new Set(cargados.map((d) => d.tipo));
+  const tiene = fijosCargados(cargados);
   return TIPOS_DOCUMENTO_PERSONAL.filter((d) => !tiene.has(d.key));
 }
 
 /** «2 de 3», para el listado. */
 export function resumenDocumentos(cargados: DocumentoCargado[]): string {
-  const tiene = new Set(cargados.map((d) => d.tipo));
-  return `${tiene.size} de ${TIPOS_DOCUMENTO_PERSONAL.length}`;
+  return `${fijosCargados(cargados).size} de ${TIPOS_DOCUMENTO_PERSONAL.length}`;
 }
 
 /** ¿Están los tres? */
 export function documentacionCompleta(cargados: DocumentoCargado[]): boolean {
   return documentosFaltantes(cargados).length === 0;
+}
+
+/* ───────────── Documentos ADICIONALES ───────────── */
+
+/**
+ * Tipo de los papeles que no son ninguno de los tres fijos.
+ *
+ * Título, certificado médico, contrato firmado, constancia de estudios… La
+ * lista no se puede cerrar de antemano porque cada puesto pide lo suyo, así que
+ * en vez de inventar un catálogo se deja que quien carga le ponga el nombre.
+ */
+export const TIPO_OTRO = 'otro';
+
+/** Tope de documentos extra por persona. No es una restricción técnica: es que
+ *  una carpeta con cuarenta papeles deja de servir para encontrar uno. */
+export const MAX_DOCUMENTOS_OTROS = 10;
+
+/** Mínimo del nombre de un documento extra. «a» no le dice nada a nadie. */
+export const MIN_ETIQUETA = 3;
+
+/** ¿Es uno de los tres fijos? */
+export function esTipoFijo(t: unknown): t is TipoDocumentoPersonal {
+  return esTipoDocumento(t);
+}
+
+/**
+ * Qué está mal con el nombre de un documento extra. `null` si sirve.
+ *
+ * `usadas` son los nombres que ya tiene esa persona: dos papeles llamados
+ * igual en la misma carpeta no se distinguen, y la base tampoco los acepta.
+ */
+export function errorEtiquetaDocumento(v: string | null | undefined, usadas: readonly string[] = []): string | null {
+  const s = (v ?? '').trim();
+  if (!s) return 'Poné un nombre para el documento (ej.: «Título universitario»).';
+  if (s.length < MIN_ETIQUETA) return `El nombre necesita al menos ${MIN_ETIQUETA} caracteres.`;
+  const norma = (x: string) => x.trim().toLowerCase();
+  if (usadas.some((u) => norma(u) === norma(s))) return `Ya hay un documento llamado «${s}» en esta carpeta.`;
+  return null;
+}
+
+/** Cómo se titula un documento en la pantalla. */
+export function tituloDocumento(d: { tipo: string; etiqueta?: string | null }): string {
+  if (esTipoFijo(d.tipo)) return labelDocumento(d.tipo);
+  return (d.etiqueta ?? '').trim() || 'Documento sin nombre';
+}
+
+/** El ícono que le toca. Los extra comparten uno: no hay catálogo que consultar. */
+export function iconoDocumento(tipo: string): string {
+  return definicionDocumento(tipo)?.icono ?? '📎';
 }

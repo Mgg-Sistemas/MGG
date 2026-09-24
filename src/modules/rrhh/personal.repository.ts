@@ -8,7 +8,8 @@ import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Personal } from '@/shared/lib/types';
 import { aCentavos, huboCambioSueldo, validarCambioSueldo, type TipoCambioSueldo } from './cambioSueldo';
 import {
-  nombreSeguro, validarArchivoDocumento, type TipoDocumentoPersonal,
+  TIPO_OTRO, errorEtiquetaDocumento, nombreSeguro, validarArchivoDocumento,
+  type TipoDocumentoPersonal,
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, normalizarEmpresa, type Empresa } from './empresa';
 import type { Genero, Parentesco } from './fichaPersonal';
@@ -157,9 +158,12 @@ const BUCKET_DOCS = 'personal-docs';
 export interface DocumentoPersonal {
   id: string;
   personalId: string;
-  tipo: TipoDocumentoPersonal;
+  /** Uno de los tres fijos, o `'otro'` para un papel agregado a mano. */
+  tipo: TipoDocumentoPersonal | 'otro';
   path: string;
   nombre: string;
+  /** Nombre con el que se muestra. En los `'otro'` es lo único que los distingue. */
+  etiqueta: string | null;
   mime: string | null;
   tamano: number | null;
   subidoPor: string | null;
@@ -171,9 +175,10 @@ function aDocumento(r: Record<string, unknown>): DocumentoPersonal {
   return {
     id: String(r.id),
     personalId: String(r.personal_id),
-    tipo: r.tipo as TipoDocumentoPersonal,
+    tipo: r.tipo as TipoDocumentoPersonal | 'otro',
     path: String(r.path),
     nombre: String(r.nombre ?? ''),
+    etiqueta: (r.etiqueta as string) ?? null,
     mime: (r.mime as string) ?? null,
     tamano: r.tamano == null ? null : Number(r.tamano),
     subidoPor: (r.subido_por as string) ?? null,
@@ -211,14 +216,18 @@ export async function listDocumentosDeTodos(): Promise<DocumentoPersonal[]> {
  */
 export async function subirDocumentoPersonal(
   personalId: string,
-  tipo: TipoDocumentoPersonal,
+  tipo: TipoDocumentoPersonal | 'otro',
   file: File,
-  quien: { actor?: string | null; actorName?: string | null } = {},
+  quien: { actor?: string | null; actorName?: string | null; etiqueta?: string | null; reemplazaId?: string | null } = {},
 ): Promise<DocumentoPersonal> {
   const falla = validarArchivoDocumento(file);
   if (falla) throw new Error(falla);
 
-  const previo = await documentoDe(personalId, tipo).catch(() => null);
+  // Un papel extra no reemplaza a otro por su tipo —puede haber varios— así que
+  // solo hay algo previo que borrar cuando se está reemplazando uno concreto.
+  const previo = tipo === TIPO_OTRO
+    ? (quien.reemplazaId ? await documentoPorId(quien.reemplazaId).catch(() => null) : null)
+    : await documentoDe(personalId, tipo).catch(() => null);
 
   const rand = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
   const path = `${tipo}/${personalId}/${rand}_${nombreSeguro(file.name)}`;
@@ -228,12 +237,19 @@ export async function subirDocumentoPersonal(
 
   const fila = {
     personal_id: personalId, tipo, path, nombre: file.name,
+    etiqueta: (quien.etiqueta ?? '').trim() || null,
     mime: file.type || null, tamano: file.size ?? null,
     subido_por: quien.actor ?? null, subido_por_nombre: quien.actorName ?? null,
     created_at: new Date().toISOString(),
   };
-  const { data, error } = await supabase.from(TABLA_DOCS)
-    .upsert(fila, { onConflict: 'personal_id,tipo' }).select('*').single();
+  /* Los tres fijos son uno por persona, así que se pisan por (persona, tipo).
+     Los extra no: se insertan, o se actualiza el que se está reemplazando. */
+  const q = tipo !== TIPO_OTRO
+    ? supabase.from(TABLA_DOCS).upsert(fila, { onConflict: 'personal_id,tipo' })
+    : (previo
+      ? supabase.from(TABLA_DOCS).update(fila).eq('id', previo.id)
+      : supabase.from(TABLA_DOCS).insert(fila));
+  const { data, error } = await q.select('*').single();
   if (error) {
     // La fila no quedó: el archivo recién subido sobra, se limpia.
     await supabase.storage.from(BUCKET_DOCS).remove([path]).catch(() => { /* el Storage no bloquea */ });
@@ -244,6 +260,32 @@ export async function subirDocumentoPersonal(
     await supabase.storage.from(BUCKET_DOCS).remove([previo.path]).catch(() => { /* quedó huérfano, no rompe */ });
   }
   return aDocumento(data as Record<string, unknown>);
+}
+
+/** Un documento por su id. Hace falta para reemplazar uno de los extra, que no
+ *  se pueden buscar por tipo porque puede haber varios. */
+export async function documentoPorId(id: string): Promise<DocumentoPersonal | null> {
+  const { data, error } = await supabase.from(TABLA_DOCS).select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data ? aDocumento(data as Record<string, unknown>) : null;
+}
+
+/**
+ * Le cambia el nombre a un documento. No toca el archivo.
+ *
+ * El nombre es lo único que distingue a dos papeles extra de la misma persona,
+ * así que se revisa contra los que ya tiene; la base lo garantiza además con un
+ * índice único, por si dos pantallas guardan a la vez.
+ */
+export async function renombrarDocumentoPersonal(doc: DocumentoPersonal, etiqueta: string): Promise<void> {
+  const hermanos = (await listDocumentosPersonal(doc.personalId))
+    .filter((d) => d.id !== doc.id && d.tipo === TIPO_OTRO)
+    .map((d) => d.etiqueta ?? '');
+  const falla = errorEtiquetaDocumento(etiqueta, doc.tipo === TIPO_OTRO ? hermanos : []);
+  if (falla) throw new Error(falla);
+  const { error } = await supabase.from(TABLA_DOCS)
+    .update({ etiqueta: etiqueta.trim() }).eq('id', doc.id);
+  if (error) throw error;
 }
 
 /** El documento de un tipo, si está cargado. */

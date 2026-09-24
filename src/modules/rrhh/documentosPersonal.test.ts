@@ -3,6 +3,7 @@ import {
   MAX_BYTES_DOCUMENTO, TIPOS_DOCUMENTO_PERSONAL, archivoDocumentoValido, documentacionCompleta,
   documentosFaltantes, esImagen, esPdf, esTipoDocumento, labelDocumento, megas, nombreSeguro,
   resumenDocumentos, validarArchivoDocumento,
+  TIPO_OTRO, errorEtiquetaDocumento, esTipoFijo, iconoDocumento, tituloDocumento,
 } from './documentosPersonal';
 
 const archivo = (name: string, type = '', size = 1024) => ({ name, type, size });
@@ -108,5 +109,70 @@ describe('detalles de presentación', () => {
     expect(nombreSeguro('Cédula José Pérez (frente).pdf')).toBe('C_dula_Jos_P_rez_frente_.pdf');
     expect(nombreSeguro('   ')).toBe('documento');
     expect(nombreSeguro('a/b\\c.pdf')).toBe('a_b_c.pdf');
+  });
+});
+
+describe('los documentos que no son de los tres fijos', () => {
+  it('distingue un tipo fijo de uno extra', () => {
+    expect(esTipoFijo('rif')).toBe(true);
+    expect(esTipoFijo(TIPO_OTRO)).toBe(false);
+  });
+
+  it('el título sale del tipo cuando es fijo, y del nombre cuando no', () => {
+    expect(tituloDocumento({ tipo: 'cedula' })).toBe('Cédula de identidad');
+    expect(tituloDocumento({ tipo: TIPO_OTRO, etiqueta: 'Título universitario' })).toBe('Título universitario');
+  });
+
+  it('un extra sin nombre no se queda sin título en pantalla', () => {
+    expect(tituloDocumento({ tipo: TIPO_OTRO, etiqueta: '   ' })).toBe('Documento sin nombre');
+  });
+
+  it('los fijos traen su ícono y los extra comparten el clip', () => {
+    expect(iconoDocumento('cv')).toBe('📄');
+    expect(iconoDocumento(TIPO_OTRO)).toBe('📎');
+  });
+});
+
+describe('qué nombre se acepta para un documento extra', () => {
+  it('desde 3 caracteres', () => {
+    expect(errorEtiquetaDocumento('Título universitario')).toBeNull();
+    expect(errorEtiquetaDocumento('CVM')).toBeNull();
+  });
+
+  it('vacío no sirve: es lo único que lo distingue', () => {
+    expect(errorEtiquetaDocumento('')).toContain('nombre');
+    expect(errorEtiquetaDocumento('   ')).toContain('nombre');
+    expect(errorEtiquetaDocumento(null)).toContain('nombre');
+  });
+
+  it('muy corto tampoco', () => {
+    expect(errorEtiquetaDocumento('ab')).toContain('3 caracteres');
+  });
+
+  it('no se puede repetir un nombre en la misma carpeta', () => {
+    const usadas = ['Título universitario', 'Certificado médico'];
+    expect(errorEtiquetaDocumento('Certificado médico', usadas)).toContain('Ya hay un documento');
+    // Sin importar mayúsculas ni espacios de más.
+    expect(errorEtiquetaDocumento('  certificado MÉDICO ', usadas)).toContain('Ya hay un documento');
+  });
+
+  it('un nombre nuevo pasa aunque haya otros cargados', () => {
+    expect(errorEtiquetaDocumento('Contrato firmado', ['Título universitario'])).toBeNull();
+  });
+});
+
+describe('el «2 de 3» cuenta solo los papeles obligatorios', () => {
+  it('un documento extra no completa la carpeta', () => {
+    // Si contara, cargar el título taparía que falta la cédula.
+    const cargados = [{ tipo: 'rif' }, { tipo: TIPO_OTRO }, { tipo: TIPO_OTRO }];
+    expect(resumenDocumentos(cargados)).toBe('1 de 3');
+    expect(documentacionCompleta(cargados)).toBe(false);
+    expect(documentosFaltantes(cargados).map((d) => d.key)).toEqual(['cedula', 'cv']);
+  });
+
+  it('con los tres fijos está completa, haya o no extras', () => {
+    const cargados = [{ tipo: 'rif' }, { tipo: 'cedula' }, { tipo: 'cv' }, { tipo: TIPO_OTRO }];
+    expect(resumenDocumentos(cargados)).toBe('3 de 3');
+    expect(documentacionCompleta(cargados)).toBe(true);
   });
 });
