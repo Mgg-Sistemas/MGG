@@ -6,6 +6,8 @@ import { money, num } from '@/shared/lib/format';
 import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Existencia, Producto, ItemSolicitudSalida, Chofer, Vehiculo } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { ADJUNTOS_VACIO, AdjuntosPicker, type EstadoAdjuntos } from './AdjuntosPicker';
+import { subirAdjuntosNuevos } from './adjuntosSalida.repository';
 import { textoDeError } from '@/shared/lib/errores';
 import { destinosDeTraslado } from '@/modules/inventario/stockPorAlmacen';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
@@ -87,6 +89,7 @@ export function TrasladoMaterialForm({
 
   const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', almacen: '', precio: '' }]);
   const [seq, setSeq] = useState(2);
+  const [adjuntos, setAdjuntos] = useState<EstadoAdjuntos>(ADJUNTOS_VACIO);
   const setLinea = (id: number, patch: Partial<LineaUI>) => setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const addLinea = () => { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', almacen: '', precio: '' }]); setSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
@@ -175,7 +178,7 @@ export function TrasladoMaterialForm({
     }
     setSaving(true);
     try {
-      await crearSolicitudSalida({
+      const creada = await crearSolicitudSalida({
         scope: 'traslado', tipo: 'material',
         almacenDestino: destino, items,
         motivo: motivo.trim() || null,
@@ -190,6 +193,10 @@ export function TrasladoMaterialForm({
         consumoInterno,
         solicitante: actorName || actor, actor, actorName,
       });
+      // Los adjuntos van después: su ruta lleva el id de la solicitud, que no
+      // existe hasta que la fila está insertada.
+      const falloAdjuntos = await subirAdjuntosNuevos('solicitudes_salida', creada.id, adjuntos.nuevos);
+      if (falloAdjuntos) notify(falloAdjuntos, 'error');
       const detalle = items.length === 1 ? `${num(items[0].cantidad)} ${items[0].unidad ?? ''} de ${items[0].producto_nombre}` : `${items.length} materiales`;
       notify(`Solicitud de traslado creada: ${detalle} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
@@ -341,6 +348,8 @@ export function TrasladoMaterialForm({
           </div>
         </div>
 
+        <AdjuntosPicker valor={adjuntos} onChange={setAdjuntos} disabled={saving}
+          ayuda="La foto del material, la nota firmada o el remito. Foto o PDF, hasta 15 MB." />
       </form>
     </Modal>
   );

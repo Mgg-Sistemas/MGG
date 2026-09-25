@@ -25,6 +25,9 @@ import {
   listSolicitudesSalida, aprobarSolicitudSalida, ejecutarSolicitudSalida, cerrarSolicitudSinDescontar, cancelarSolicitudSalida,
   editarSolicitudSalida, editarNotaSolicitudSalida,
 } from './salidas.repository';
+import { AdjuntosPicker, adjuntosDe, hayCambiosAdjuntos, type EstadoAdjuntos } from './AdjuntosPicker';
+import { adjuntosDeSolicitud, guardarAdjuntosSolicitud } from './adjuntosSalida.repository';
+import { VerAdjuntos } from './VerAdjuntos';
 // descargarSalidaDineroPdf, descargarTrasladoDineroPdf y descargarOrdenSalidaPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { SalidaMaterialForm } from './SalidaMaterialForm';
 import { listCatalogoPedido, crearCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
@@ -829,6 +832,9 @@ function SolicitudDetalleModal({
   const [edCxcMoneda, setEdCxcMoneda] = useState(sol.cxc_moneda ?? 'USD');
   // Nota adicional (se imprime en la orden).
   const [edNotaEntrega, setEdNotaEntrega] = useState(sol.nota_entrega ?? '');
+  // Los adjuntos se editan como todo lo demás: se agregan, se quitan y recién
+  // al guardar viajan al depósito. Ver `AdjuntosPicker`.
+  const [edAdjuntos, setEdAdjuntos] = useState<EstadoAdjuntos>(() => adjuntosDe(adjuntosDeSolicitud(sol)));
   // Solicitudes de DINERO: caja(s) y monto.
   const [edCajaId, setEdCajaId] = useState(sol.caja_id ?? '');
   const [edCajaDestino, setEdCajaDestino] = useState(sol.caja_destino_id ?? '');
@@ -919,6 +925,9 @@ function SolicitudDetalleModal({
     setEdCxcMonto(sol.cxc_monto != null ? String(sol.cxc_monto) : '');
     setEdCxcMoneda(sol.cxc_moneda ?? 'USD');
     setEdNotaEntrega(sol.nota_entrega ?? '');
+    // Se rearma de la solicitud: si alguien abrió, quitó uno y cerró sin
+    // guardar, al volver a entrar tiene que estar como estaba.
+    setEdAdjuntos(adjuntosDe(adjuntosDeSolicitud(sol)));
     setEdCajaId(sol.caja_id ?? '');
     setEdCajaDestino(sol.caja_destino_id ?? '');
     setEdMonto(sol.monto != null ? String(sol.monto) : '');
@@ -927,6 +936,25 @@ function SolicitudDetalleModal({
   const setLinea = (id: number, patch: Partial<LineaEd>) => setEdLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const addLinea = () => { setEdLineas((ls) => [...ls, { id: edSeq, productoId: '', almacen: '', cantidad: '1', precio: '', observacion: '', paraFundicion: false }]); setEdSeq((s) => s + 1); };
   const quitarLinea = (id: number) => setEdLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
+
+  /**
+   * Sube y borra los adjuntos que se tocaron en la edición.
+   *
+   * Va DESPUÉS de guardar el resto y no antes: si el guardado falla, no tiene
+   * sentido haber borrado ya el papel que la persona quitó. Y si falla esto,
+   * lo demás igual quedó guardado, así que se avisa sin deshacer nada: el
+   * usuario vuelve a entrar y reintenta solo los adjuntos.
+   */
+  async function guardarAdjuntosEditados() {
+    if (!hayCambiosAdjuntos(edAdjuntos)) return;
+    try {
+      await guardarAdjuntosSolicitud(
+        'solicitudes_salida', sol.id, edAdjuntos.nuevos, edAdjuntos.existentes, edAdjuntos.quitar,
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'La solicitud se guardó, pero los adjuntos no.', 'error');
+    }
+  }
 
   /** Guarda una solicitud de DINERO: cajas, monto, destino, motivo y nota. */
   async function guardarEdicionDinero() {
@@ -949,6 +977,7 @@ function SolicitudDetalleModal({
         destino: sol.scope === 'traslado' ? (cajaDest?.nombre ?? sol.destino ?? null) : edDestino,
         motivo: edMotivo, solicitante: edSolicitante, notaEntrega: edNotaEntrega,
       }, actor);
+      await guardarAdjuntosEditados();
       notify(`Solicitud ${sol.codigo} actualizada`, 'success');
       setEditando(false);
       onChanged();
@@ -997,6 +1026,7 @@ function SolicitudDetalleModal({
         cxcMoneda: edEsCliente ? edCxcMoneda : null,
         notaEntrega: edNotaEntrega,
       }, actor);
+      await guardarAdjuntosEditados();
       notify(`Solicitud ${sol.codigo} actualizada`, 'success');
       setEditando(false);
       onChanged();
@@ -1166,6 +1196,8 @@ function SolicitudDetalleModal({
           <label>Nota adicional (se imprime en el comprobante)</label>
           <textarea className="input" rows={2} value={edNotaEntrega} onChange={(e) => setEdNotaEntrega(e.target.value)} placeholder="Nota / observación adicional…" />
         </div>
+        <AdjuntosPicker valor={edAdjuntos} onChange={setEdAdjuntos} disabled={busy}
+          ayuda="El soporte del gasto: factura, recibo o comprobante. Foto o PDF, hasta 15 MB." />
       </ModalUI>
     );
   }
@@ -1396,6 +1428,8 @@ function SolicitudDetalleModal({
           <label>Nota adicional (se imprime en la orden)</label>
           <textarea className="input" rows={2} value={edNotaEntrega} onChange={(e) => setEdNotaEntrega(e.target.value)} placeholder="Nota / observación adicional…" />
         </div>
+        <AdjuntosPicker valor={edAdjuntos} onChange={setEdAdjuntos} disabled={busy}
+          ayuda="La foto del material, la nota firmada, el remito. Foto o PDF, hasta 15 MB." />
       </ModalUI>
     );
   }
@@ -1450,6 +1484,11 @@ function SolicitudDetalleModal({
           )}
           {sol.motivo && <tr><td className="muted">Motivo</td><td>{sol.motivo}</td></tr>}
           {sol.nota_entrega && <tr><td className="muted">Nota</td><td>{sol.nota_entrega}</td></tr>}
+          {/* Quien autoriza necesita ver la foto del material ANTES de firmar,
+              sin tener que entrar a editar la solicitud. */}
+          {adjuntosDeSolicitud(sol).length > 0 && (
+            <tr><td className="muted">📎 Adjuntos</td><td><VerAdjuntos adjuntos={adjuntosDeSolicitud(sol)} /></td></tr>
+          )}
           <tr><td className="muted">Creada</td><td>{dateTime(sol.created_at)}</td></tr>
           {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {autorizanteDe(sol.aprobada_por).nombre}</td></tr>}
           {sol.ejecutada_en && <tr><td className="muted">{sol.mov_ref === 'manual_externo' ? 'Cerrada' : 'Ejecutada'}</td><td>{dateTime(sol.ejecutada_en)} · {sol.ejecutada_por ?? ''}</td></tr>}

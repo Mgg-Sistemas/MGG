@@ -548,6 +548,16 @@ export interface Vehiculo {
   created_at: string;
 }
 
+/**
+ * Un papel adjunto a una solicitud de salida, traslado o salida temporal: la
+ * foto del material, la nota firmada, el presupuesto del taller. Hasta 4 por
+ * solicitud, en el bucket privado `salidas-adjuntos`. Ver `adjuntosSalida.ts`.
+ */
+export interface AdjuntoSalida {
+  path: string;
+  filename: string;
+}
+
 export interface SolicitudSalida {
   id: string;
   codigo: string;
@@ -598,6 +608,8 @@ export interface SolicitudSalida {
   cxc_id?: string | null;
   /** Marca que la salida/traslado es para consumo interno de la empresa. */
   consumo_interno?: boolean | null;
+  /** Hasta 4 papeles (imagen o PDF) en el bucket privado; ver `adjuntosSalida.ts`. */
+  adjuntos?: AdjuntoSalida[] | null;
   historial: EventoHistorial[];
   aprobada_por?: string | null;
   aprobada_en?: string | null;
@@ -660,6 +672,8 @@ export interface SalidaTemporal {
   /** Aprobador que firma (nombre visible) + su clave de firma. */
   aprobador?: string | null;          // 'Leidys Rengel' | 'Jesús Lozada'
   aprobador_firma?: AprobadorSalidaTemporal | null;
+  /** Hasta 4 papeles (imagen o PDF); ver `adjuntosSalida.ts`. */
+  adjuntos?: AdjuntoSalida[] | null;
   aprobada_por?: string | null; aprobada_en?: string | null;
   transito_por?: string | null; transito_en?: string | null;
   finalizada_por?: string | null; finalizada_en?: string | null;

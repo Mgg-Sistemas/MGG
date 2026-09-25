@@ -27,6 +27,9 @@ import {
   aprobarSalidaTemporal, ponerEnTransitoSalidaTemporal, finalizarSalidaTemporal,
   duracionesSalidaTemporal, fmtDuracion, APROBADORES_SALIDA_TEMPORAL,
 } from './salidasTemporales.repository';
+import { AdjuntosPicker, adjuntosDe, hayCambiosAdjuntos, type EstadoAdjuntos } from './AdjuntosPicker';
+import { adjuntosDeSolicitud, guardarAdjuntosSolicitud, subirAdjuntosNuevos } from './adjuntosSalida.repository';
+import { VerAdjuntos } from './VerAdjuntos';
 
 const COLS: { key: EstadoSalidaTemporal; label: string }[] = [
   { key: 'por_aprobar', label: 'Por aprobar' },
@@ -297,6 +300,9 @@ function FormModal({ sol, puedeAprobar, productos, origenDe, actor, actorName, o
   const [dirDestino, setDirDestino] = useState(sol?.direccion_destino ?? '');
   const [motivo, setMotivo] = useState(sol?.motivo ?? '');
   const [nota, setNota] = useState(sol?.nota ?? '');
+  // Mismo modal para crear y para editar, así que el estado arranca de la
+  // solicitud cuando hay una y vacío cuando es nueva.
+  const [adjuntos, setAdjuntos] = useState<EstadoAdjuntos>(() => adjuntosDe(adjuntosDeSolicitud(sol)));
   const [saving, setSaving] = useState(false);
   // Aprobador y fechas de cada paso (solo al editar, y solo los pasos que ya ocurrieron).
   const [aprobador, setAprobador] = useState<AprobadorSalidaTemporal | ''>(sol?.aprobador_firma ?? '');
@@ -377,12 +383,26 @@ function FormModal({ sol, puedeAprobar, productos, origenDe, actor, actorName, o
           creadaEn: fecha('creada'), aprobadaEn: fecha('aprobada'),
           transitoEn: fecha('transito'), finalizadaEn: fecha('finalizada'),
         }, actor, actorName);
+        // Los adjuntos van al final: si el guardado falla, no tiene sentido
+        // haber borrado ya el papel que la persona quitó.
+        if (hayCambiosAdjuntos(adjuntos)) {
+          try {
+            await guardarAdjuntosSolicitud(
+              'solicitudes_salida_temporal', sol.id, adjuntos.nuevos, adjuntos.existentes, adjuntos.quitar,
+            );
+          } catch (e) {
+            toast(e instanceof Error ? e.message : 'La solicitud se guardó, pero los adjuntos no.', 'error');
+          }
+        }
         toast('Salida temporal actualizada', 'success');
       } else {
-        await crearSalidaTemporal({
+        const creada = await crearSalidaTemporal({
           items, unidadSolicitante: unidad, solicitante, responsable, responsableCedula,
           direccionDespacho: dirDespacho, direccionDestino: dirDestino, motivo, nota, actor, actorName,
         });
+        // Su ruta lleva el id, que no existe hasta que la fila está insertada.
+        const fallo = await subirAdjuntosNuevos('solicitudes_salida_temporal', creada.id, adjuntos.nuevos);
+        if (fallo) toast(fallo, 'error');
         toast('Salida temporal creada', 'success');
       }
       onSaved();
@@ -446,6 +466,8 @@ function FormModal({ sol, puedeAprobar, productos, origenDe, actor, actorName, o
         <div className="form-row"><label>Dirección destino (mantenimiento)</label><input className="input" value={dirDestino} onChange={(e) => setDirDestino(e.target.value)} placeholder="A dónde va" /></div>
       </div>
       <div className="form-row"><label>Nota (opcional)</label><textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Notas adicionales" /></div>
+      <AdjuntosPicker valor={adjuntos} onChange={setAdjuntos} disabled={saving}
+        ayuda="La foto del equipo que sale, el presupuesto del taller o la nota firmada. Foto o PDF, hasta 15 MB." />
 
       {/* Materiales (de segundo: después de los datos de la solicitud) */}
       <div style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', margin: '.8rem 0 .4rem' }}>Materiales</div>
@@ -632,7 +654,17 @@ function DetalleModal({ sol, puedeAprobar, puedeEjecutar, canWrite, actor, actor
 
       {/* Ficha */}
       <table className="table" style={{ fontSize: '.85rem' }}>
-        <tbody>{ficha.map(([k, v]) => (<tr key={k}><th style={{ width: 190, textAlign: 'left' }}>{k}</th><td>{v}</td></tr>))}</tbody>
+        <tbody>
+          {ficha.map(([k, v]) => (<tr key={k}><th style={{ width: 190, textAlign: 'left' }}>{k}</th><td>{v}</td></tr>))}
+          {/* Quien aprueba necesita ver la foto del equipo ANTES de firmar,
+              sin tener que entrar a editar la solicitud. */}
+          {adjuntosDeSolicitud(sol).length > 0 && (
+            <tr>
+              <th style={{ width: 190, textAlign: 'left' }}>📎 Adjuntos</th>
+              <td><VerAdjuntos adjuntos={adjuntosDeSolicitud(sol)} /></td>
+            </tr>
+          )}
+        </tbody>
       </table>
 
       {/* Trazabilidad */}

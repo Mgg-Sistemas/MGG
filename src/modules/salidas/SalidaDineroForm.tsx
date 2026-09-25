@@ -5,6 +5,8 @@ import { money } from '@/shared/lib/format';
 import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Almacen, Caja } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { ADJUNTOS_VACIO, AdjuntosPicker, type EstadoAdjuntos } from './AdjuntosPicker';
+import { subirAdjuntosNuevos } from './adjuntosSalida.repository';
 import { textoDeError } from '@/shared/lib/errores';
 import { DestinoSelect } from './DestinoSelect';
 
@@ -23,6 +25,7 @@ export function SalidaDineroForm({
   const [cajaId, setCajaId] = useState(activas[0]?.id ?? '');
   const [destino, setDestino] = useState('');
   const [motivo, setMotivo] = useState('');
+  const [adjuntos, setAdjuntos] = useState<EstadoAdjuntos>(ADJUNTOS_VACIO);
   const [monto, setMonto] = useState('0');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,11 +46,15 @@ export function SalidaDineroForm({
     if (!destino.trim()) { setError('Indicá a quién va dirigido el dinero.'); return; }
     setSaving(true);
     try {
-      await crearSolicitudSalida({
+      const creada = await crearSolicitudSalida({
         scope: 'salida', tipo: 'dinero',
         cajaId, monto: montoNum, moneda: caja?.moneda ?? null, destino: destino.trim(),
         motivo: motivo.trim() || null, solicitante: actorName || actor, actor, actorName,
       });
+      // Los adjuntos van después: su ruta lleva el id de la solicitud, que no
+      // existe hasta que la fila está insertada.
+      const falloAdjuntos = await subirAdjuntosNuevos('solicitudes_salida', creada.id, adjuntos.nuevos);
+      if (falloAdjuntos) notify(falloAdjuntos, 'error');
       notify(`Solicitud de salida de dinero creada: ${money(montoNum)} ${caja?.moneda} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
@@ -104,6 +111,9 @@ export function SalidaDineroForm({
           <label>Motivo</label>
           <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo de la salida de dinero…" />
         </div>
+
+        <AdjuntosPicker valor={adjuntos} onChange={setAdjuntos} disabled={saving}
+          ayuda="El soporte del gasto: factura, recibo o presupuesto. Foto o PDF, hasta 15 MB." />
       </form>
     </Modal>
   );

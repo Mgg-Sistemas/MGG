@@ -5,6 +5,8 @@ import { money } from '@/shared/lib/format';
 import { enterAvanzaCampo } from '@/shared/lib/navegacionEnter';
 import type { Caja } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { ADJUNTOS_VACIO, AdjuntosPicker, type EstadoAdjuntos } from './AdjuntosPicker';
+import { subirAdjuntosNuevos } from './adjuntosSalida.repository';
 import { textoDeError } from '@/shared/lib/errores';
 
 export function TrasladoDineroForm({
@@ -27,6 +29,7 @@ export function TrasladoDineroForm({
   );
   const [destinoId, setDestinoId] = useState(destinos[0]?.id ?? '');
   const [monto, setMonto] = useState('0');
+  const [adjuntos, setAdjuntos] = useState<EstadoAdjuntos>(ADJUNTOS_VACIO);
   const [motivo, setMotivo] = useState('');
   const [notaOn, setNotaOn] = useState(false);
   const [notaTexto, setNotaTexto] = useState('');
@@ -50,13 +53,17 @@ export function TrasladoDineroForm({
     setSaving(true);
     try {
       const dest = activas.find((c) => c.id === destinoValido);
-      await crearSolicitudSalida({
+      const creada = await crearSolicitudSalida({
         scope: 'traslado', tipo: 'dinero',
         cajaId: origenId, cajaDestinoId: destinoValido, monto: montoNum, moneda: origen?.moneda ?? null,
         destino: dest?.nombre ?? null, motivo: motivo.trim() || null,
         notaEntrega: notaOn ? (notaTexto.trim() || null) : null,
         solicitante: actorName || actor, actor, actorName,
       });
+      // Los adjuntos van después: su ruta lleva el id de la solicitud, que no
+      // existe hasta que la fila está insertada.
+      const falloAdjuntos = await subirAdjuntosNuevos('solicitudes_salida', creada.id, adjuntos.nuevos);
+      if (falloAdjuntos) notify(falloAdjuntos, 'error');
       notify(`Solicitud de traslado de dinero creada: ${money(montoNum)} ${origen?.moneda} · ${origen?.nombre} → ${dest?.nombre} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
@@ -121,6 +128,9 @@ export function TrasladoDineroForm({
           )}
           {notaOn && <small className="muted">Este texto se imprime en el PDF del traslado como “Nota de entrega”.</small>}
         </div>
+
+        <AdjuntosPicker valor={adjuntos} onChange={setAdjuntos} disabled={saving}
+          ayuda="El soporte del traslado: recibo, comprobante o autorización. Foto o PDF, hasta 15 MB." />
       </form>
     </Modal>
   );

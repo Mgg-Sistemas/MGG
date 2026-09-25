@@ -13,6 +13,7 @@ import type {
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { siguienteCodigo } from './codigoSolicitud';
+import { borrarAdjuntosDeSolicitud } from './adjuntosSalida.repository';
 import { ajustesDeStock } from './salidasTemporalesAjuste';
 
 const T = 'solicitudes_salida_temporal';
@@ -373,6 +374,9 @@ export async function eliminarSalidaTemporal(s: SalidaTemporal): Promise<void> {
   if (s.estado !== 'por_aprobar') throw new Error('Solo se elimina una solicitud Por aprobar (antes de aprobarla).');
   const { error } = await supabase.from(T).delete().eq('id', s.id);
   if (error) throw error;
+  // Los adjuntos se van con ella: borrada la fila, nadie puede llegar a esos
+  // archivos y quedarían ocupando el depósito para siempre.
+  await borrarAdjuntosDeSolicitud(s);
 }
 
 /* ───────────── Tiempos (mantenimiento / tránsito / total) ───────────── */
