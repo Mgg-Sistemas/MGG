@@ -78,7 +78,6 @@ export const DOCUMENTOS_A_CONSIGNAR: GrupoDocumentos[] = [
     items: [
       'Constancia de trabajo del último empleo (si aplica)',
       'Constancia de liquidación o retiro del último empleo (si aplica)',
-      'Dos (2) cartas de recomendación laboral',
       'Dos (2) referencias personales con teléfono',
     ],
   },
