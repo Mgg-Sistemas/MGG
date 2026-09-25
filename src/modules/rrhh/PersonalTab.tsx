@@ -24,6 +24,9 @@ import {
 import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
+  MAX_DETALLE_SALUD, errorCondicionesSalud, renglonesSalud, type RespuestaSalud,
+} from './condicionesSalud';
+import {
   AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRADOS_INSTRUCCION, GRUPOS_SANGUINEOS, PARENTESCOS, SIN_DATO,
   agruparPersonal, antiguedad, cantidadHijos, filtrarPersonal, labelEstadoCivil, labelGenero,
   labelGradoInstruccion, labelParentesco, numeroFicha, porDepartamento, textoEdad, tieneHijos,
@@ -48,7 +51,7 @@ import {
 } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
 /**
  * La ficha guardada → el formulario.
@@ -77,6 +80,10 @@ function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
     fecha_nacimiento: p.fecha_nacimiento ?? '',
     grupo_sanguineo: p.grupo_sanguineo ?? '',
     grado_instruccion: p.grado_instruccion ?? '',
+    tiene_alergias: p.tiene_alergias ?? null,
+    alergias_detalle: p.alergias_detalle ?? '',
+    tiene_enfermedad: p.tiene_enfermedad ?? null,
+    enfermedad_detalle: p.enfermedad_detalle ?? '',
     nacionalidad: p.nacionalidad ?? '',
     direccion: p.direccion ?? '',
     contacto_emergencia_parentesco: p.contacto_emergencia_parentesco ?? '',
@@ -121,6 +128,58 @@ function sanitizarRif(v: string): string {
   const cuerpo = digitos.slice(0, 8);
   const verificador = digitos.slice(8, 9);
   return [letra || '', cuerpo, verificador].filter(Boolean).join('-');
+}
+
+/**
+ * Una pregunta de salud: Sí / No / Sin responder, y el detalle cuando la
+ * respuesta es «Sí».
+ *
+ * «Sin responder» es un botón y no la ausencia de los otros dos: hace falta
+ * poder VOLVER a dejarlo sin contestar si alguien marcó mal, y hace falta que
+ * en pantalla se distinga de un «No». En una emergencia no es lo mismo «no
+ * tiene alergias» que «nadie se lo preguntó nunca».
+ *
+ * El detalle solo aparece con «Sí». Al cambiar la respuesta se limpia solo,
+ * porque el detalle viejo seguiría saliendo en el QR del carnet.
+ */
+function PreguntaSalud({ pregunta, respuesta, onRespuesta, detalle, onDetalle, ayuda }: {
+  pregunta: string;
+  respuesta: RespuestaSalud;
+  onRespuesta: (v: RespuestaSalud) => void;
+  detalle: string;
+  onDetalle: (v: string) => void;
+  ayuda: string;
+}) {
+  const opciones: { v: RespuestaSalud; label: string }[] = [
+    { v: true, label: 'Sí' }, { v: false, label: 'No' }, { v: null, label: 'Sin responder' },
+  ];
+  return (
+    <div style={{ marginBottom: '.7rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem' }}>
+        <strong style={{ fontSize: '.88rem' }}>{pregunta}</strong>
+        <div style={{ display: 'flex', gap: '.3rem' }}>
+          {opciones.map((o) => (
+            <button
+              key={String(o.v)} type="button"
+              className={`btn btn-sm ${respuesta === o.v ? 'btn-primary' : 'btn-ghost'}`}
+              aria-pressed={respuesta === o.v}
+              onClick={() => onRespuesta(o.v)}
+            >{o.label}</button>
+          ))}
+        </div>
+      </div>
+      {respuesta === true && (
+        <div className="form-row" style={{ margin: '.35rem 0 0' }}>
+          <input
+            className="input" value={detalle} maxLength={MAX_DETALLE_SALUD}
+            onChange={(e) => onDetalle(e.target.value)}
+            placeholder={ayuda} autoComplete="off"
+          />
+          <small className="muted">{ayuda} · Un «Sí» sin decir a qué no le sirve a quien lo atienda.</small>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -537,6 +596,10 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
     // error de Postgres. A diferencia de la ficha, repetido SÍ se acepta.
     const malCorreo = errorCorreo(form.correo);
     if (malCorreo) { setError(malCorreo); return; }
+    // Decir «si tiene alergia» sin decir a cual no sirve: en una urgencia el
+    // que lee el carnet necesita el nombre del alergeno, no el aviso.
+    const malSalud = errorCondicionesSalud(form);
+    if (malSalud) { setError(malSalud); return; }
     // El sueldo no se pisa en silencio: si cambió, hay que decir por qué.
     if (editId) {
       const falla = validarCambioSueldo({ anterior: sueldoOriginal, nuevo: form.sueldo_base, motivo: motivoSueldo, vigenteDesde });
@@ -1018,6 +1081,35 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
               </div>
               <div className="form-row"><label>Tel. de emergencia</label><input className="input mono" value={form.contacto_emergencia_tlf ?? ''} onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia_tlf: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
             </div>
+
+            {/* ── Condiciones de salud ──
+                Va en su propio bloque y no mezclado con el resto de la ficha:
+                es lo que se lee al escanear el QR del carnet cuando la persona
+                no puede contestar por sí misma. */}
+            <div className="card" style={{ margin: '.6rem 0' }}>
+              <div style={{ fontWeight: 700, marginBottom: '.15rem' }}>🩺 Condiciones de salud</div>
+              <div className="muted" style={{ fontSize: '.82rem', marginBottom: '.6rem' }}>
+                Se imprime en el carnet y se muestra al <strong>escanear su QR</strong>, para que puedan atenderlo en una emergencia.
+                Lo que quede <strong>sin responder</strong> se muestra como «—»: no es lo mismo que decir que no tiene.
+              </div>
+              <PreguntaSalud
+                pregunta="¿Padece alguna alergia?"
+                respuesta={form.tiene_alergias ?? null}
+                onRespuesta={(v) => setForm((f) => ({ ...f, tiene_alergias: v, alergias_detalle: v === true ? (f.alergias_detalle ?? '') : '' }))}
+                detalle={form.alergias_detalle ?? ''}
+                onDetalle={(v) => setForm((f) => ({ ...f, alergias_detalle: v }))}
+                ayuda="¿A qué? Medicamentos, alimentos, picaduras, polvo…"
+              />
+              <PreguntaSalud
+                pregunta="¿Padece alguna enfermedad?"
+                respuesta={form.tiene_enfermedad ?? null}
+                onRespuesta={(v) => setForm((f) => ({ ...f, tiene_enfermedad: v, enfermedad_detalle: v === true ? (f.enfermedad_detalle ?? '') : '' }))}
+                detalle={form.enfermedad_detalle ?? ''}
+                onDetalle={(v) => setForm((f) => ({ ...f, enfermedad_detalle: v }))}
+                ayuda="¿Cuál? Indicá también el tratamiento que recibe"
+              />
+            </div>
+
             {/* Cambió el sueldo: acá se explica por qué. Es lo que queda en el historial. */}
             {editId && huboCambioSueldo(sueldoOriginal, form.sueldo_base) && (
               <div className="card" style={{ borderColor: 'var(--warning)', margin: '.6rem 0' }}>
@@ -1505,6 +1597,12 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar }: {
         ['En una emergencia, llamar a', [emergencia || null, persona.contacto_emergencia_tlf || null].filter(Boolean).join(' · ') || '—'],
         ['Dirección', persona.direccion || '—'],
       ]} />
+
+      {/* Antes de los datos laborales: es lo que hay que saber si a la persona
+          le pasa algo, no un dato administrativo más. */}
+      <BloqueFicha titulo="Condiciones de salud" pares={
+        renglonesSalud(persona).map((r) => [r.etiqueta, r.valor] as [string, string])
+      } />
 
       <BloqueFicha titulo="Datos laborales" pares={[
         ['Cargo', persona.cargo || '—'],

@@ -1096,6 +1096,11 @@ export interface Personal {
   grupo_sanguineo?: string | null;
   /** Grado de instrucción. Lista cerrada: ver `GRADOS_INSTRUCCION`. */
   grado_instruccion?: string | null;
+  /* ── Condiciones de salud. `null` = todavía no se preguntó; ver `condicionesSalud.ts`. ── */
+  tiene_alergias?: boolean | null;
+  alergias_detalle?: string | null;
+  tiene_enfermedad?: boolean | null;
+  enfermedad_detalle?: string | null;
   nacionalidad?: string | null;
   direccion?: string | null;
   contacto_emergencia_parentesco?: string | null;

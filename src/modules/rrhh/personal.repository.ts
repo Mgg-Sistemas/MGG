@@ -12,6 +12,7 @@ import {
   type TipoDocumentoPersonal,
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, normalizarEmpresa, type Empresa } from './empresa';
+import { normalizarSalud } from './condicionesSalud';
 import { normalizarCorreo, type Genero, type Parentesco } from './fichaPersonal';
 
 const TABLE = 'personal';
@@ -58,6 +59,11 @@ export interface PersonalInput {
   fecha_nacimiento?: string | null;
   grupo_sanguineo?: string | null;
   grado_instruccion?: string | null;
+  /* ── Condiciones de salud. Las cuatro viajan juntas o no viaja ninguna. ── */
+  tiene_alergias?: boolean | null;
+  alergias_detalle?: string | null;
+  tiene_enfermedad?: boolean | null;
+  enfermedad_detalle?: string | null;
   nacionalidad?: string | null;
   direccion?: string | null;
   contacto_emergencia_parentesco?: string | null;
@@ -139,6 +145,13 @@ function payload(input: PersonalInput) {
     fecha_nacimiento: input.fecha_nacimiento === undefined ? undefined : (input.fecha_nacimiento || null),
     grupo_sanguineo: input.grupo_sanguineo === undefined ? undefined : (input.grupo_sanguineo?.trim() || null),
     grado_instruccion: input.grado_instruccion === undefined ? undefined : (input.grado_instruccion?.trim() || null),
+    // Las cuatro columnas de salud van juntas y ya normalizadas: el detalle
+    // solo sobrevive si la respuesta es «sí». La base tiene el mismo `check`,
+    // así que mandarlas por separado la haría rechazar el update a mitad de
+    // camino —«no» con detalle viejo— sin que nadie hubiera pedido eso.
+    ...(input.tiene_alergias === undefined && input.tiene_enfermedad === undefined
+      ? {}
+      : normalizarSalud(input)),
     nacionalidad: input.nacionalidad === undefined ? undefined : (input.nacionalidad?.trim().toUpperCase() || null),
     direccion: input.direccion === undefined ? undefined : (input.direccion?.trim() || null),
     contacto_emergencia_parentesco: input.contacto_emergencia_parentesco === undefined ? undefined : (input.contacto_emergencia_parentesco?.trim() || null),

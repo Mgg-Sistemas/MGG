@@ -2,7 +2,8 @@
    MGG · RRHH · Carnet de identificación (imagen PNG)
    Genera un carnet vertical de 54×86 mm a 300 DPI (638×1016 px)
    con el logo de MGG, nombre/apellido, cédula y un QR con los
-   datos de la persona (cédula, teléfono y contacto de emergencia).
+   datos de la persona (cédula, teléfono, contacto de emergencia y las
+   condiciones de salud declaradas, que es lo que hace falta en una urgencia).
    Colores del sistema (dark + naranja/dorado). Todo se dibuja en
    un <canvas>, así que no depende de estilos ni fuentes web.
    ============================================================ */
@@ -10,6 +11,7 @@ import qrcode from 'qrcode-generator';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { Personal } from '@/shared/lib/types';
 import { nombreDeCarnet } from './fichaPersonal';
+import { lineasSaludQR } from './condicionesSalud';
 
 // 54 × 86 mm a 300 DPI. 1 mm = 300 / 25.4 px.
 const DPI = 300;
@@ -177,7 +179,14 @@ function tracked(ctx: CanvasRenderingContext2D, text: string, cx: number, y: num
   }
 }
 
-/** Contenido legible del QR (lo que se ve al escanear). */
+/**
+ * Contenido legible del QR (lo que se ve al escanear).
+ *
+ * Las condiciones de salud van al final y en mayúsculas: el QR de un carnet se
+ * escanea, sobre todo, cuando la persona no puede contestar por sí misma, y lo
+ * primero que necesita quien la atiende es saber a qué es alérgica. Solo
+ * aparecen si hay algo que declarar; dos «No» le quitarían lugar a lo demás.
+ */
 function textoQR(p: Personal): string {
   const nombre = `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim();
   const emerg = [p.contacto_emergencia, p.contacto_emergencia_tlf].filter(Boolean).join(' · ');
@@ -188,7 +197,9 @@ function textoQR(p: Personal): string {
     p.cargo ? `Cargo: ${p.cargo}` : '',
     p.departamento ? `Departamento: ${p.departamento}` : '',
     p.telefono ? `Teléfono: ${p.telefono}` : '',
+    p.grupo_sanguineo ? `Grupo sanguíneo: ${p.grupo_sanguineo}` : '',
     emerg ? `Emergencia: ${emerg}` : '',
+    ...lineasSaludQR(p),
   ].filter(Boolean).join('\n');
 }
 

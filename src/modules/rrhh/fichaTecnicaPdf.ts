@@ -19,6 +19,7 @@ import {
   antiguedad, cantidadHijos, labelEstadoCivil, labelGenero, labelGradoInstruccion, labelParentesco,
   numeroFicha, textoEdad,
 } from './fichaPersonal';
+import { renglonesSalud } from './condicionesSalud';
 import type { FamiliarPersonal } from './personal.repository';
 
 const raya = (v: string | null | undefined) => {
@@ -117,6 +118,10 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
     ['En una emergencia', [emergencia || null, p.contacto_emergencia_tlf || null].filter(Boolean).join(' · ') || '—'],
     ['Dirección', raya(p.direccion)],
   ]);
+
+  // Va antes de los datos laborales a propósito: es lo que hay que saber si a
+  // la persona le pasa algo, no un dato administrativo más.
+  bloque('Condiciones de salud', renglonesSalud(p).map((r) => [r.etiqueta, r.valor] as [string, string]));
 
   bloque('Datos laborales', [
     ['Cargo', raya(p.cargo)],
