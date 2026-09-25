@@ -206,8 +206,48 @@ export async function resetearClave(userId: string): Promise<string | null> {
   return data.clave_temporal ?? null;
 }
 
+/** ¿El error de PostgREST es «esta columna no existe todavía»? Pasa cuando el build
+ *  llegó a un entorno donde no se corrió la migración de archivo de usuarios. */
+function faltaColumnaArchivo(error: { code?: string; message?: string | null }): boolean {
+  return error.code === '42703' || error.code === 'PGRST204'
+    || /archivado_en|archivado_por/.test(error.message ?? '');
+}
+
 export async function setEstadoUsuario(id: string, estado: 'activo' | 'inactivo'): Promise<void> {
-  const { error } = await supabase.from(TABLE).update({ estado }).eq('id', id);
+  // Habilitar desarchiva: nunca queda un usuario activo escondido en el archivo.
+  const payload: Record<string, unknown> = estado === 'activo'
+    ? { estado, archivado_en: null, archivado_por: null }
+    : { estado };
+  const { error } = await supabase.from(TABLE).update(payload).eq('id', id);
+  if (!error) return;
+  // Sin la migración de archivo, habilitar/deshabilitar tiene que seguir funcionando.
+  if (!faltaColumnaArchivo(error)) throw error;
+  const { error: e2 } = await supabase.from(TABLE).update({ estado }).eq('id', id);
+  if (e2) throw e2;
+}
+
+/** Archiva un usuario deshabilitado: sale de la tabla principal y pasa al apartado
+ *  de archivados. Queda firmado: cuándo y quién lo archivó. */
+export async function archivarUsuario(id: string, actorEmail?: string | null): Promise<void> {
+  const { error } = await supabase.from(TABLE)
+    .update({ archivado_en: new Date().toISOString(), archivado_por: actorEmail ?? null })
+    .eq('id', id)
+    .eq('estado', 'inactivo'); // regla de negocio: solo se archivan deshabilitados
+  if (!error) return;
+  if (faltaColumnaArchivo(error)) {
+    throw new Error(
+      'No se pudo archivar: la base todavía no tiene las columnas de archivo. '
+      + 'Avisá a Sistemas para que corran la migración usuarios-archivo.sql.',
+    );
+  }
+  throw error;
+}
+
+/** Desarchiva: el usuario vuelve a la tabla principal, todavía deshabilitado. */
+export async function desarchivarUsuario(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE)
+    .update({ archivado_en: null, archivado_por: null })
+    .eq('id', id);
   if (error) throw error;
 }
 
