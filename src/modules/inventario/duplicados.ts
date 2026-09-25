@@ -182,7 +182,7 @@ const UMBRAL_AVISO = 0.5;
 export function productosSimilares<T extends ProductoComparable>(
   nombre: string,
   productos: T[],
-  opts: { excluirId?: string | null; limite?: number } = {},
+  opts: { excluirId?: string | null; limite?: number; incluirInactivos?: boolean } = {},
 ): Duplicado<T>[] {
   const objetivo = normalizarNombre(nombre);
   if (objetivo.length < 3) return [];
@@ -191,7 +191,12 @@ export function productosSimilares<T extends ProductoComparable>(
   const out: Duplicado<T>[] = [];
   for (const p of productos) {
     if (opts.excluirId && p.id === opts.excluirId) continue;
-    // Un producto dado de baja igual cuenta: reactivarlo es mejor que duplicarlo.
+    // Los dados de baja NO avisan. Antes sí —la idea era que reactivar es mejor
+    // que duplicar—, pero en la práctica el aviso salía lleno de fichas que
+    // alguien ya había decidido sacar del inventario, y para usarlas había que
+    // ir a reactivarlas primero. Un aviso que la mayoría de las veces no se
+    // puede atender deja de leerse, y entonces tampoco frena al duplicado real.
+    if (!opts.incluirInactivos && p.estado != null && p.estado !== 'activo') continue;
     const score = Math.max(
       parecidoNombre(nombre, p.nombre),
       parecidoNombre(nombre, p.nombre_busqueda),

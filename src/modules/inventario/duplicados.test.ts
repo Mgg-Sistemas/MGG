@@ -202,3 +202,37 @@ describe('productosSimilares', () => {
     expect(dups[0].nivel).toBe('exacto');
   });
 });
+
+describe('un producto dado de baja no avisa', () => {
+  const baja = (nombre: string) => p('z', 'HER-021', nombre, { estado: 'inactivo' });
+
+  it('no aparece entre los parecidos', () => {
+    // Antes salia y decia «reactivalo primero»: un aviso que casi nunca se
+    // puede atender deja de leerse, y entonces tampoco frena al duplicado real.
+    expect(productosSimilares('DADO DE ROSCADO 3 ULUSTOOL', [baja('DADO DE ROSCADO 1 ULUSTOOL')])).toEqual([]);
+  });
+
+  it('ni siquiera con el nombre identico', () => {
+    const dups = productosSimilares('PINTURA EPOXICA GRIS', [baja('PINTURA EPOXICA GRIS')]);
+    expect(dups).toEqual([]);
+    expect(hayExacto(dups)).toBe(false);
+  });
+
+  it('pero el activo de al lado sigue avisando', () => {
+    const dups = productosSimilares('PINTURA EPOXICA GRIS', [
+      baja('PINTURA EPOXICA GRIS'),
+      p('2', 'INS-088', 'PINTURA EPOXICA GRIS'),
+    ]);
+    expect(dups.map((d) => d.producto.sku)).toEqual(['INS-088']);
+  });
+
+  it('se puede pedir que los incluya, para una auditoria del catalogo', () => {
+    const dups = productosSimilares('PINTURA EPOXICA GRIS', [baja('PINTURA EPOXICA GRIS')], { incluirInactivos: true });
+    expect(dups).toHaveLength(1);
+  });
+
+  it('sin estado cargado se lo trata como activo: no se esconde por un dato que falta', () => {
+    const sinEstado = { id: 'q', sku: 'X-1', nombre: 'PINTURA EPOXICA GRIS' };
+    expect(productosSimilares('PINTURA EPOXICA GRIS', [sinEstado])).toHaveLength(1);
+  });
+});
