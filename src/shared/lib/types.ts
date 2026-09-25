@@ -37,6 +37,11 @@ export interface Usuario {
   sedes_asignadas?: string[] | null;
   /** Almacén destino por defecto al recepcionar compras (dentro de sus sedes). */
   almacen_recepcion?: string | null;
+  /** Archivado: fecha en que salió de la lista principal (null/ausente = visible).
+   *  Solo se archivan usuarios deshabilitados; habilitar desarchiva. */
+  archivado_en?: string | null;
+  /** Correo de quien lo archivó. */
+  archivado_por?: string | null;
   created_at: string;
   updated_at?: string | null;
 }

@@ -12,6 +12,7 @@ import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import {
   crearUsuario,
   actualizarUsuario,
+  archivarUsuario,
   labelRol,
   listUsuarios,
   loadRolesAndCache,
@@ -28,6 +29,8 @@ import { contarUsuariosPorRol, type CustomRole } from './roles.repository';
 import { RolesPermisosPanel } from './RolesPermisosPanel';
 import { NuevoRolModal, GestionarRolesModal } from './RolesModales';
 import { ResumenActividadModal } from './ResumenActividadModal';
+import { UsuariosArchivadosModal } from './UsuariosArchivadosModal';
+import { estaArchivado, puedeArchivarse } from './usuariosArchivados';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
@@ -42,6 +45,8 @@ type ModalKind =
   | { kind: 'reset-confirm'; usuario: Usuario }
   | { kind: 'email-change'; usuario: Usuario }
   | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' }
+  | { kind: 'archive-confirm'; usuario: Usuario }
+  | { kind: 'archivados' }
   | { kind: 'actividad' }
   | { kind: 'clave'; email: string; clave: string | null; motivo: 'creado' | 'reseteado' };
 
@@ -107,13 +112,16 @@ export function UsuariosPage() {
   useRealtime(['usuarios', 'roles_permisos', 'custom_roles', 'taxonomias'], () => { void refresh(); });
 
   const activos = useMemo(() => usuarios.filter((u) => u.estado === 'activo').length, [usuarios]);
-  const inactivos = useMemo(() => usuarios.filter((u) => u.estado === 'inactivo').length, [usuarios]);
+  // Los archivados no cuentan como «deshabilitados a la vista»: viven en su apartado.
+  const inactivos = useMemo(() => usuarios.filter((u) => u.estado === 'inactivo' && !estaArchivado(u)).length, [usuarios]);
+  const archivados = useMemo(() => usuarios.filter(estaArchivado).length, [usuarios]);
 
   const filtered = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     const nombreCompleto = (u: Usuario) => `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email || '';
     return usuarios
       .filter((u) => {
+        if (estaArchivado(u)) return false; // los archivados viven en su propio apartado
         if (filterRol && u.role !== filterRol) return false;
         if (filterEstado && u.estado !== filterEstado) return false;
         if (q) {
@@ -185,6 +193,12 @@ export function UsuariosPage() {
           <div className="delta down">No pueden ingresar</div>
           <div className="icon">⛔</div>
         </div>
+        <div className="kpi">
+          <div className="label">Usuarios archivados</div>
+          <div className="value">{archivados}</div>
+          <div className="delta">Fuera de la lista principal</div>
+          <div className="icon">🗂</div>
+        </div>
       </div>
 
       <div className="filterbar" style={{ marginTop: '1rem' }}>
@@ -217,8 +231,15 @@ export function UsuariosPage() {
         </select>
         <button
           className="btn btn-ghost"
-          onClick={() => setModal({ kind: 'actividad' })}
+          onClick={() => setModal({ kind: 'archivados' })}
           style={{ marginLeft: 'auto' }}
+          title="Usuarios que salieron de esta lista: buscalos, desarchivalos o habilitalos"
+        >
+          🗂 Archivados{archivados ? ` (${archivados})` : ''}
+        </button>
+        <button
+          className="btn btn-ghost"
+          onClick={() => setModal({ kind: 'actividad' })}
           title="Quién está conectado y cuánto tiempo dura en el sistema"
         >
           📊 Resumen de Actividad
@@ -401,7 +422,38 @@ export function UsuariosPage() {
               targetEstado: modal.usuario.estado === 'activo' ? 'inactivo' : 'activo',
             })
           }
+          onArchivar={canWrite && puedeArchivarse(modal.usuario)
+            ? () => setModal({ kind: 'archive-confirm', usuario: modal.usuario })
+            : null}
           onEdit={() => setModal({ kind: 'edit', usuario: modal.usuario })}
+        />
+      )}
+
+      {modal.kind === 'archive-confirm' && (
+        <ConfirmDialog
+          title="Archivar usuario"
+          message={`${modal.usuario.email} saldrá de la lista de usuarios y pasará al apartado de archivados (sigue deshabilitado). Podés desarchivarlo o habilitarlo desde ahí cuando quieras. ¿Continuar?`}
+          confirmText="Archivar"
+          onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
+          onConfirm={async () => {
+            try {
+              await archivarUsuario(modal.usuario.id, user?.email ?? null);
+              toast('Usuario archivado · lo encontrás en 🗂 Archivados', 'success');
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'Error al archivar', 'error');
+            }
+          }}
+        />
+      )}
+
+      {modal.kind === 'archivados' && (
+        <UsuariosArchivadosModal
+          usuarios={usuarios}
+          canWrite={canWrite}
+          onClose={() => setModal({ kind: 'none' })}
+          onCambio={refresh}
         />
       )}
 
@@ -1182,9 +1234,11 @@ interface UsuarioDetailModalProps {
   onResetClave: () => void;
   onCambiarCorreo: () => void;
   onToggleEstado: () => void;
+  /** Solo llega cuando el usuario se puede archivar (deshabilitado y con permiso). */
+  onArchivar: (() => void) | null;
   onEdit: () => void;
 }
-function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, onToggleEstado, onEdit }: UsuarioDetailModalProps) {
+function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, onToggleEstado, onArchivar, onEdit }: UsuarioDetailModalProps) {
   const isActive = usuario.estado === 'activo';
   return (
     <Modal
@@ -1201,6 +1255,15 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, o
           <button className="btn btn-ghost" onClick={onResetClave}>
             🔑 Resetear clave
           </button>
+          {onArchivar && (
+            <button
+              className="btn btn-ghost"
+              onClick={onArchivar}
+              title="Sacarlo de la lista de usuarios; queda en el apartado de archivados"
+            >
+              🗂 Archivar
+            </button>
+          )}
           <button
             className={isActive ? 'btn btn-danger' : 'btn btn-success'}
             onClick={onToggleEstado}
