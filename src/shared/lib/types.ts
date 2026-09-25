@@ -1144,11 +1144,38 @@ export interface AnticipoPrestamo {
   personal_id: string;
   tipo: 'anticipo' | 'prestamo';
   monto_total: number;
+  /** Lo que falta. NO se escribe a mano: sale de los abonos (`anticipos_pagos`). */
   saldo: number;
   cuota_sugerida?: number | null;
   estado: 'activo' | 'saldado';
   motivo?: string | null;
+  /**
+   * Cuándo se DIO el préstamo, que puede ser muy anterior a `created_at`
+   * —cuándo se cargó en el sistema—. Los dos hacen falta: los filtros por
+   * rango y el estado de cuenta van por esta, no por la de carga.
+   */
+  fecha?: string | null;
   creado_por?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
+/**
+ * Un abono a un préstamo o anticipo.
+ *
+ * Es la única fuente del saldo: un disparador lo recalcula como
+ * `monto_total − Σ abonos`. Lo que descuenta la nómina entra acá solo, por un
+ * puente en la base, así que el estado de cuenta muestra todo junto.
+ */
+export interface PagoAnticipo {
+  id: string;
+  anticipo_id: string;
+  fecha: string;
+  monto: number;
+  /** `nomina` lo generó el pago de un renglón; `historico`, la carga de un préstamo viejo. */
+  origen: 'nomina' | 'manual' | 'historico';
+  nota?: string | null;
+  actor?: string | null;
   actor_name?: string | null;
   created_at: string;
 }
