@@ -198,30 +198,41 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   doc.addPage();
   encabezado('DOCUMENTOS A CONSIGNAR POR OFICINA', 'Marque cada documento al momento de recibirlo. Los marcados «(si aplica)» no le tocan a todos.');
 
-  const ANCHO_ITEM = W - M * 2 - 20;
+  // Letra 12: esta hoja se llena parada en la oficina, con la carpeta en la
+  // mano, y se tilda de un vistazo. A 8,5 pt entraba todo en una página pero
+  // había que acercarse a leerla.
+  const CUERPO = 12;
+  const ANCHO_ITEM = W - M * 2 - 26;
   for (const grupo of DOCUMENTOS_A_CONSIGNAR) {
     // Ningún grupo arranca al filo de la página: si no entra el título más un
     // par de renglones, se pasa a la siguiente hoja entero.
-    if (y + 56 > H - 90) { doc.addPage(); y = M; }
-    doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    if (y + 70 > H - 100) { doc.addPage(); y = M; }
+    doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(CUERPO + 1);
     doc.text(textoPdf(grupo.titulo.toUpperCase()), M, y);
     doc.setDrawColor(...NARANJA); doc.setLineWidth(0.6);
-    doc.line(M, y + 3.5, W - M, y + 3.5);
-    y += 16;
+    doc.line(M, y + 4.5, W - M, y + 4.5);
+    y += 22;
 
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(CUERPO);
     for (const item of grupo.items) {
       const partes = doc.splitTextToSize(textoPdf(item), ANCHO_ITEM) as string[];
-      const alto = Math.max(15, partes.length * 10 + 5);
-      if (y + alto > H - 90) { doc.addPage(); y = M; }
-      casilla(M, y + 1);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...TINTA);
-      doc.text(partes, M + 18, y);
+      const alto = Math.max(21, partes.length * 14 + 7);
+      if (y + alto > H - 100) {
+        doc.addPage(); y = M;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(CUERPO);
+      }
+      casilla(M, y + 1, 11);
+      doc.setTextColor(...TINTA);
+      doc.text(partes, M + 24, y);
       y += alto;
     }
-    y += 6;
+    y += 10;
   }
 
   /* ── Pie de la segunda página: quién recibió ── */
+  // Si la lista terminó pegada al borde, el pie se va a la hoja siguiente
+  // entero: una firma cortada por la mitad no la firma nadie.
+  if (y + 46 > H - 40) { doc.addPage(); y = M; }
   const yPie = Math.max(y + 16, H - 78);
   doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
   const anchoPie = 150;
