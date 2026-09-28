@@ -26,10 +26,12 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   MAX_DETALLE_SALUD, errorCondicionesSalud, renglonesSalud, type RespuestaSalud,
 } from './condicionesSalud';
+import { DecimalInput } from '@/shared/ui/DecimalInput';
 import {
   AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRADOS_INSTRUCCION, GRUPOS_SANGUINEOS, PARENTESCOS, SIN_DATO,
   agruparPersonal, antiguedad, cantidadHijos, filtrarPersonal, labelEstadoCivil, labelGenero,
-  labelGradoInstruccion, labelParentesco, numeroFicha, porDepartamento, textoEdad, tieneHijos,
+  labelGradoInstruccion, labelParentesco, numeroFicha, porDepartamento, textoEdad, tieneHijos, gradoMasAlto,
+  gradosTexto, trabajoAnteriorTexto,
   MIN_FICHA, errorNumeroFicha, normalizarNumeroFicha, ordenarPorFicha, errorCorreo,
   type Agrupador, type EstadoFiltro, type FiltroPersonal, type Genero, type HijosFiltro,
   type Parentesco,
@@ -51,7 +53,7 @@ import {
 } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
 /**
  * La ficha guardada → el formulario.
@@ -80,6 +82,16 @@ function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
     fecha_nacimiento: p.fecha_nacimiento ?? '',
     grupo_sanguineo: p.grupo_sanguineo ?? '',
     grado_instruccion: p.grado_instruccion ?? '',
+    // La ficha de quien ya existía no tiene casillas: se marca la que dice su
+    // grado viejo, así no aparece en blanco al abrirla.
+    grados_instruccion: (p.grados_instruccion?.length ? p.grados_instruccion
+      : p.grado_instruccion && p.grado_instruccion !== 'ninguno' ? [p.grado_instruccion] : []),
+    titulo_obtenido: p.titulo_obtenido ?? '',
+    trabajo_anterior_empresa: p.trabajo_anterior_empresa ?? '',
+    trabajo_anterior_cargo: p.trabajo_anterior_cargo ?? '',
+    trabajo_anterior_duracion: p.trabajo_anterior_duracion ?? '',
+    trabajo_anterior_sueldo: Number(p.trabajo_anterior_sueldo) || 0,
+    trabajo_anterior_moneda: p.trabajo_anterior_moneda ?? 'USD',
     tiene_alergias: p.tiene_alergias ?? null,
     alergias_detalle: p.alergias_detalle ?? '',
     tiene_enfermedad: p.tiene_enfermedad ?? null,
@@ -1181,12 +1193,49 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                     {GRUPOS_SANGUINEOS.map((g) => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
-                <div className="form-row" style={{ flex: '0 1 200px', margin: 0 }}>
+                <div className="form-row" style={{ flex: '1 1 100%', margin: 0 }}>
                   <label>Grado de instrucción</label>
-                  <select className="select" value={form.grado_instruccion ?? ''} onChange={(e) => setForm((x) => ({ ...x, grado_instruccion: e.target.value }))}>
-                    <option value="">— sin cargar —</option>
-                    {GRADOS_INSTRUCCION.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
-                  </select>
+                  {/* Casillas y no un desplegable: se marca TODO lo que la persona
+                      cursó, que es como viene escrito en el papel del ingreso. La
+                      ficha técnica y la constancia siguen imprimiendo uno solo —el
+                      más alto—, que se calcula al guardar (ver `gradoMasAlto`). */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem .9rem' }}>
+                    {GRADOS_INSTRUCCION.filter((g) => g.key !== 'ninguno').map((g) => {
+                      const marcado = (form.grados_instruccion ?? []).includes(g.key);
+                      return (
+                        <label key={g.key} style={{ display: 'flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.86rem', textTransform: 'none', fontWeight: 400 }}>
+                          <input
+                            type="checkbox"
+                            checked={marcado}
+                            onChange={(e) => setForm((x) => {
+                              const previos = x.grados_instruccion ?? [];
+                              return {
+                                ...x,
+                                grados_instruccion: e.target.checked
+                                  ? [...previos, g.key]
+                                  : previos.filter((k) => k !== g.key),
+                              };
+                            })}
+                          />
+                          {g.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <span className="hint muted">
+                    Marcá todos los que cursó. {gradoMasAlto(form.grados_instruccion)
+                      ? <>En la ficha y la constancia va el más alto: <strong>{labelGradoInstruccion(gradoMasAlto(form.grados_instruccion))}</strong>.</>
+                      : 'Sin estudios formales si no marcás ninguno.'}
+                  </span>
+                </div>
+                <div className="form-row" style={{ flex: '2 1 260px', margin: 0 }}>
+                  <label>Título obtenido</label>
+                  <input
+                    className="input"
+                    value={form.titulo_obtenido ?? ''}
+                    onChange={(e) => setForm((x) => ({ ...x, titulo_obtenido: e.target.value.toUpperCase() }))}
+                    placeholder="Ej.: TSU EN MECÁNICA · BACHILLER EN CIENCIAS"
+                  />
                 </div>
                 <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
                   <label>Nacionalidad</label>
@@ -1207,6 +1256,55 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   onChange={(e) => setForm((x) => ({ ...x, direccion: e.target.value }))}
                   placeholder="Ciudad, sector, calle…" />
               </div>
+            </div>
+
+            {/* ── ÚLTIMO TRABAJO ──
+                Lo que se le pregunta a cualquiera que entra y hasta ahora se
+                quedaba en el papel: dónde estuvo, qué hacía, cuánto aguantó y
+                cuánto cobraba. Sirve para ubicar el cargo y para saber si el
+                sueldo que se le ofrece tiene sentido contra lo que venía ganando. */}
+            <div className="card" style={{ margin: '.7rem 0', padding: '.7rem .8rem' }}>
+              <div style={{ fontWeight: 700, marginBottom: '.5rem' }}>💼 Último trabajo</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
+                <div className="form-row" style={{ flex: '2 1 220px', margin: 0 }}>
+                  <label>Dónde estuvo</label>
+                  <input className="input" value={form.trabajo_anterior_empresa ?? ''}
+                    onChange={(e) => setForm((x) => ({ ...x, trabajo_anterior_empresa: e.target.value.toUpperCase() }))}
+                    placeholder="Empresa o taller" />
+                </div>
+                <div className="form-row" style={{ flex: '2 1 200px', margin: 0 }}>
+                  <label>Cargo</label>
+                  <input className="input" value={form.trabajo_anterior_cargo ?? ''}
+                    onChange={(e) => setForm((x) => ({ ...x, trabajo_anterior_cargo: e.target.value.toUpperCase() }))}
+                    placeholder="Qué hacía ahí" />
+                </div>
+                <div className="form-row" style={{ flex: '1 1 150px', margin: 0 }}>
+                  <label>Cuánto duró</label>
+                  {/* Texto libre y no un número de meses: la gente contesta «2 años
+                      y medio» o «como 8 meses», y obligar a un número exacto hace
+                      que se invente uno. */}
+                  <input className="input" value={form.trabajo_anterior_duracion ?? ''}
+                    onChange={(e) => setForm((x) => ({ ...x, trabajo_anterior_duracion: e.target.value }))}
+                    placeholder="Ej.: 2 años y 3 meses" />
+                </div>
+                <div className="form-row" style={{ flex: '1 1 130px', margin: 0 }}>
+                  <label>Último sueldo</label>
+                  <DecimalInput value={form.trabajo_anterior_sueldo ?? 0}
+                    onChange={(v) => setForm((x) => ({ ...x, trabajo_anterior_sueldo: v ?? 0 }))} />
+                </div>
+                <div className="form-row" style={{ flex: '0 1 100px', margin: 0 }}>
+                  <label>Moneda</label>
+                  <select className="select" value={form.trabajo_anterior_moneda ?? 'USD'}
+                    onChange={(e) => setForm((x) => ({ ...x, trabajo_anterior_moneda: e.target.value }))}>
+                    <option value="USD">$ USD</option>
+                    <option value="BS">Bs</option>
+                  </select>
+                </div>
+              </div>
+              <small className="hint muted">
+                Si es su primer trabajo, se deja vacío. Lo que se cargue acá sale en la ficha técnica
+                y en la hoja de ingreso.
+              </small>
             </div>
 
             {/* ── CARGA FAMILIAR ── */}
@@ -1585,7 +1683,13 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar }: {
         ['Fecha de nacimiento', persona.fecha_nacimiento ? date(persona.fecha_nacimiento) : '—'],
         ['Edad', textoEdad(persona.fecha_nacimiento)],
         ['Grupo sanguíneo', persona.grupo_sanguineo || '—'],
-        ['Grado de instrucción', persona.grado_instruccion ? labelGradoInstruccion(persona.grado_instruccion) : '—'],
+        // Los grados marcados van todos; una ficha vieja sin casillas cae en el
+        // grado único de siempre.
+        ['Grado de instrucción',
+          gradosTexto(persona.grados_instruccion)
+          || (persona.grado_instruccion ? labelGradoInstruccion(persona.grado_instruccion) : '—')],
+        ['Título obtenido', persona.titulo_obtenido || '—'],
+        ['Último trabajo', trabajoAnteriorTexto(persona) || '—'],
         ['Género', persona.genero ? labelGenero(persona.genero) : '—'],
         ['Nacionalidad', persona.nacionalidad || '—'],
         ['Estado civil', persona.estado_civil ? labelEstadoCivil(persona.estado_civil) : '—'],

@@ -74,6 +74,41 @@ export function modulePath(key: ModuleKey): string {
   return MODULES.find((m) => m.key === key)?.path ?? key;
 }
 
+/* ───────────────────── El surtidor, que solo usa el teléfono ─────────────────────
+   El rol `combustible` es el del muchacho que surte en la mina: carga lo que
+   despacha desde el teléfono, con botones grandes, y no tiene nada que hacer en
+   el módulo de escritorio —ni en el libro mayor del tanque, ni en los costos, ni
+   en los catálogos—. Por eso entra directo a la vista de teléfono y el menú le
+   muestra esa, no la otra.
+
+   La clave y la ruta viven acá, con el resto de los permisos, y no adentro de la
+   pantalla: el redirector de inicio necesita saberlo antes de cargar ningún
+   módulo de combustible, y hacerlo al revés obligaba a bajar el chunk entero del
+   escritorio nada más que para rebotar. */
+
+/** El rol que trabaja SOLO desde la vista de teléfono del surtidor. */
+export const ROL_SURTIDOR: RoleKey = 'combustible';
+
+/** A dónde entra ese rol, bajo `/app/`. */
+export const RUTA_SURTIDOR = 'combustible/surtidor';
+
+/** ¿Este rol vive en la vista de teléfono? */
+export function esRolSurtidor(role: RoleKey | null | undefined): boolean {
+  return (role ?? '').trim().toLowerCase() === ROL_SURTIDOR;
+}
+
+/**
+ * A dónde mandar a alguien que acaba de entrar.
+ *
+ * El surtidor va a su pantalla aunque «combustible» no sea su primer módulo:
+ * para él, el módulo ES la vista de teléfono.
+ */
+export function rutaDeInicio(role: RoleKey | null | undefined, permitidos: ModuleKey[]): string {
+  if (esRolSurtidor(role) && permitidos.includes('combustible')) return `/app/${RUTA_SURTIDOR}`;
+  const primero = permitidos[0];
+  return primero ? `/app/${modulePath(primero)}` : '/app/sin-acceso';
+}
+
 export const emptyPermission: ModulePermission = { lectura: false, escritura: false, full: false };
 
 /** Permisos por defecto de un rol cuando la matriz aún no tiene fila guardada en BD. */
@@ -95,6 +130,11 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     all.recepciones = { lectura: true, escritura: true, full: false };
     all.rrhh = { lectura: true, escritura: true, full: false };
     all.asignaciones = { lectura: true, escritura: true, full: false };
+  } else if (role === ROL_SURTIDOR) {
+    // Solo combustible, y en la práctica solo la vista de teléfono: el módulo de
+    // escritorio lo rebota a `/app/combustible/surtidor`. Escritura porque su
+    // trabajo ES cargar lo que surte; sin ella la pantalla no sirve de nada.
+    all.combustible = { lectura: true, escritura: true, full: false };
   } else if (role === 'obrero') {
     all.dashboard  = { lectura: true, escritura: false, full: false };
     all.pedidos    = { lectura: true, escritura: true, full: false };

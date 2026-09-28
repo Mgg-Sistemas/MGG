@@ -79,8 +79,8 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
     const cab = [
       '📊 *RESUMEN DE COMBUSTIBLE*',
       '',
-      `🛢️ Tanque: ${tanqueId ? nombreTanque(tanqueId) : 'Todos'}`,
-      `🗓️ Del ${date(desde)} al ${date(hasta)}`,
+      `📦 Tanque: ${tanqueId ? nombreTanque(tanqueId) : 'Todos'}`,
+      `📅 Del ${date(desde)} al ${date(hasta)}`,
       '',
     ];
     if (!grupos.length) return [...cab, 'Sin movimientos en ese rango.', '', '_MGG · Mineral Group Guayana_'].join('\n');

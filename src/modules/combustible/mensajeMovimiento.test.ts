@@ -20,11 +20,11 @@ function mov(over: Partial<MovimientoParaMensaje> = {}): MovimientoParaMensaje {
 
 describe('el emoji dice de un vistazo qué pasó', () => {
   it('lo que sale va con flecha hacia abajo', () => {
-    expect(EMOJI_MOVIMIENTO.consumo).toBe('⬇️');
+    expect(EMOJI_MOVIMIENTO.consumo).toBe('🔽');
   });
 
   it('lo que entra va con flecha hacia arriba', () => {
-    expect(EMOJI_MOVIMIENTO.ingreso).toBe('⬆️');
+    expect(EMOJI_MOVIMIENTO.ingreso).toBe('🔼');
   });
 
   it('cada tipo tiene su emoji y su título, sin quedar ninguno afuera', () => {
@@ -37,7 +37,7 @@ describe('el emoji dice de un vistazo qué pasó', () => {
 
 describe('el mensaje del movimiento', () => {
   it('abre con el emoji y el título en negrita', () => {
-    expect(mensajeMovimiento(mov())).toMatch(/^⬇️ \*SURTIDO\*/);
+    expect(mensajeMovimiento(mov())).toMatch(/^🔽 \*SURTIDO\*/);
   });
 
   it('trae litros, equipo, autorizado, destino y fecha con hora', () => {
@@ -76,7 +76,7 @@ describe('el mensaje del movimiento', () => {
     expect(t).toContain('Sale de: TANQUE 1');
     expect(t).toContain('Entra a: TANQUE 2');
     // En un traslado no hay un solo «Tanque»: hay dos, y se nombran distinto.
-    expect(t).not.toContain('🛢️ Tanque:');
+    expect(t).not.toContain('📦 Tanque:');
   });
 
   it('la merma se anuncia como merma y lleva su motivo', () => {
@@ -106,9 +106,9 @@ describe('el mensaje del movimiento', () => {
 
 describe('el enlace de WhatsApp', () => {
   it('lleva el mensaje codificado', () => {
-    const url = enlaceWhatsapp('⬇️ SURTIDO 120 L');
+    const url = enlaceWhatsapp('🔽 SURTIDO 120 L');
     expect(url.startsWith('https://wa.me/?text=')).toBe(true);
-    expect(decodeURIComponent(url.split('text=')[1])).toBe('⬇️ SURTIDO 120 L');
+    expect(decodeURIComponent(url.split('text=')[1])).toBe('🔽 SURTIDO 120 L');
   });
 
   it('va SIN número: el destinatario se elige al mandarlo', () => {
@@ -119,5 +119,45 @@ describe('el enlace de WhatsApp', () => {
   it('los saltos de línea sobreviven al enlace', () => {
     const texto = mensajeMovimiento(mov());
     expect(decodeURIComponent(enlaceWhatsapp(texto).split('text=')[1])).toBe(texto);
+  });
+});
+
+describe('los emojis llegan a color a WhatsApp', () => {
+  /*
+   * Hay caracteres que por norma Unicode son TEXTO y solo se vuelven emoji a
+   * color con un U+FE0F invisible detrás (⬇️ ⬆️ ↩️ 🛢️ ⏱️ 🛣️ 🗓️). En el
+   * navegador se veían bien, pero WhatsApp normaliza el texto del enlace y se
+   * lleva el selector: del otro lado llegaba un glifo monocromo o un cuadrito.
+   * Estas pruebas rompen si alguien vuelve a meter uno.
+   */
+  const SELECTOR = /️/;
+
+  it('ningún emoji de movimiento depende del selector', () => {
+    for (const [tipo, emoji] of Object.entries(EMOJI_MOVIMIENTO)) {
+      expect(emoji, `${tipo} → ${emoji}`).not.toMatch(SELECTOR);
+    }
+  });
+
+  it('el mensaje entero va sin selectores', () => {
+    for (const tipo of ['consumo', 'ingreso', 'retorno', 'merma', 'traslado'] as const) {
+      const texto = mensajeMovimiento(
+        { ...mov(), tipo, horometro_final: 1200, kilometraje_final: 48000, contador_global_ini: 10, contador_global_fin: 130 },
+        { tanque: 'BIDONES DE GASOLINA', tanqueDestino: 'TANQUE GENERAL', combustible: 'GASOLINA', registradoPor: 'ISNER' },
+      );
+      expect(texto, tipo).not.toMatch(SELECTOR);
+    }
+  });
+
+  it('y sobreviven al viaje por el enlace', () => {
+    const texto = mensajeMovimiento({ ...mov(), tipo: 'consumo' });
+    const ida = decodeURIComponent(enlaceWhatsapp(texto).split('text=')[1]);
+    expect(ida).toBe(texto);
+    expect(ida).toContain(EMOJI_MOVIMIENTO.consumo);
+  });
+
+  it('cada movimiento sigue teniendo su flecha: abajo sale, arriba entra', () => {
+    expect(mensajeMovimiento({ ...mov(), tipo: 'consumo' })).toContain('🔽');
+    expect(mensajeMovimiento({ ...mov(), tipo: 'ingreso' })).toContain('🔼');
+    expect(mensajeMovimiento({ ...mov(), tipo: 'traslado' })).toContain('🔁');
   });
 });

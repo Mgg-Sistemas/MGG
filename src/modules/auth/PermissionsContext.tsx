@@ -8,6 +8,7 @@ import {
   normalizeRolePermisos,
   MODULES,
   modulePath,
+  rutaDeInicio,
   type ModuleKey,
   type ModulePermission,
   type RolePermisos,
@@ -108,8 +109,9 @@ export function RequireModule({ module, children }: { module: ModuleKey; childre
 
 /** Redirige al primer módulo al que el usuario tiene acceso (usado como índice de /app). */
 export function HomeRedirect() {
-  const { loading, allowedModules } = usePermissions();
+  const { loading, role, allowedModules } = usePermissions();
   if (loading) return <div className="p-8 muted">Cargando…</div>;
-  const first = allowedModules[0];
-  return <Navigate to={first ? `/app/${modulePath(first)}` : '/app/sin-acceso'} replace />;
+  // `rutaDeInicio` conoce la excepción del surtidor: entra directo a la vista de
+  // teléfono, sin bajar antes el módulo de escritorio nada más que para rebotar.
+  return <Navigate to={rutaDeInicio(role, allowedModules)} replace />;
 }

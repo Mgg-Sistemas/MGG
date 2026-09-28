@@ -11,14 +11,28 @@
 
    Los emojis no son adorno: en una lista de chat, la flecha dice de un
    vistazo si entró o salió combustible sin leer una palabra.
+
+   ⚠ TODOS los emojis de acá tienen que ser de COLOR POR SÍ MISMOS, sin
+   el selector U+FE0F.
+
+   Hay caracteres —⬇️ ⬆️ ↩️ 🛢️ ⏱️ 🛣️ 🗓️— que por norma Unicode son
+   TEXTO y solo se vuelven emoji a color si detrás les va un U+FE0F
+   invisible. En el navegador se veían bien, pero WhatsApp normaliza el
+   texto del enlace `wa.me` y se lleva ese selector puesto: del otro
+   lado llegaba un glifo monocromo o un cuadrito. Justo las tres
+   flechas del movimiento, que son las que se leen de un vistazo.
+
+   Los de abajo son todos emoji por defecto: llegan a color a cualquier
+   teléfono. `mensajeMovimiento.test.ts` lo verifica y rompe si alguien
+   mete uno con selector.
    ============================================================ */
 import type { TipoMovimientoTanque } from '@/shared/lib/types';
 
 /** El emoji de cada movimiento. Abajo sale, arriba entra. */
 export const EMOJI_MOVIMIENTO: Record<TipoMovimientoTanque, string> = {
-  consumo: '⬇️',
-  ingreso: '⬆️',
-  retorno: '↩️',
+  consumo: '🔽',
+  ingreso: '🔼',
+  retorno: '🔄',
   merma: '🔻',
   traslado: '🔁',
 };
@@ -105,14 +119,14 @@ export function mensajeMovimiento(m: MovimientoParaMensaje, ctx: ContextoMensaje
     lineas.push(`${icono} ${rotulo}: ${v}`);
   };
 
-  poner('🛢️', 'Combustible', ctx.combustible);
+  poner('💧', 'Combustible', ctx.combustible);
   lineas.push(`⛽ Litros: *${litrosTexto(m.litros)}*`);
 
   if (m.tipo === 'traslado') {
     poner('📤', 'Sale de', ctx.tanque);
     poner('📥', 'Entra a', ctx.tanqueDestino);
   } else {
-    poner('🛢️', 'Tanque', ctx.tanque);
+    poner('📦', 'Tanque', ctx.tanque);
   }
 
   poner('🚜', 'Equipo', m.equipo);
@@ -125,10 +139,10 @@ export function mensajeMovimiento(m: MovimientoParaMensaje, ctx: ContextoMensaje
   if (m.contador_global_ini != null || m.contador_global_fin != null) {
     poner('🔢', 'Contador', `${m.contador_global_ini ?? '—'} → ${m.contador_global_fin ?? '—'}`);
   }
-  if (m.horometro_final != null) poner('⏱️', 'Horómetro', m.horometro_final);
-  if (m.kilometraje_final != null) poner('🛣️', 'Kilometraje', m.kilometraje_final);
+  if (m.horometro_final != null) poner('⏰', 'Horómetro', m.horometro_final);
+  if (m.kilometraje_final != null) poner('📏', 'Kilometraje', m.kilometraje_final);
 
-  lineas.push(`🗓️ Fecha: ${fechaHoraTexto(m.fecha)}`);
+  lineas.push(`📅 Fecha: ${fechaHoraTexto(m.fecha)}`);
   poner('📝', 'Observación', m.observacion);
   poner('🙍', 'Registró', ctx.registradoPor);
 

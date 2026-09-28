@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { esRolSurtidor, RUTA_SURTIDOR } from '@/modules/usuarios/permisos.repository';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
@@ -338,7 +339,11 @@ export function AppShell() {
           )}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />}
-          {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
+          {/* El surtidor trabaja desde el teléfono: el menú le ofrece SU pantalla,
+              no el módulo de escritorio —que igual lo rebotaría—. */}
+          {can('combustible') && (esRolSurtidor(role)
+            ? <NavItem to={`/app/${RUTA_SURTIDOR}`} icon="⛽" label="Surtidor" />
+            : <NavItem to="/app/combustible" icon="⛽" label="Combustible" />)}
           {can('maquinaria') && (
             <NavGroup icon="🚜" label="Control de Maquinaria y Vehículos" defaultOpen={location.pathname.startsWith('/app/maquinaria')}>
               <NavItem to="/app/maquinaria" icon="🚜" label="Equipos" />

@@ -34,8 +34,11 @@ import { FotosDelMovimiento, SelectorFotos } from './FotosMovimiento';
 import { SurtidorReporteMovil } from './SurtidorReporteMovil';
 import { EMOJI_MOVIMIENTO, TITULO_MOVIMIENTO, enlaceWhatsapp, mensajeMovimiento } from './mensajeMovimiento';
 
-/** Clave del rol que trabaja solo desde esta pantalla. */
-export const ROL_SURTIDOR = 'combustible';
+/* La clave del rol vive con el resto de los permisos: el redirector de inicio la
+   necesita antes de cargar ningún módulo de combustible. Se re-exporta acá para
+   no romper a quien ya la importaba de esta pantalla. */
+import { esRolSurtidor, ROL_SURTIDOR } from '@/modules/usuarios/permisos.repository';
+export { ROL_SURTIDOR };
 
 /** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
 export const ULTIMOS_EN_TELEFONO = 10;
@@ -69,7 +72,7 @@ export function SurtidorMovilView() {
   const { user } = useSession();
   const { can, appUser, role } = usePermissions();
   const canWrite = can('combustible', 'escritura');
-  const esSurtidor = role === ROL_SURTIDOR;
+  const esSurtidor = esRolSurtidor(role);
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
@@ -560,13 +563,53 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, actor
     }
   }
 
+  /*
+   * La confirmación de borrado ocupa TODO el cuerpo del modal, y sus botones van
+   * en el pie, que es donde está el dedo.
+   *
+   * Antes se dibujaba al final del cuerpo —después del detalle, de los botones de
+   * aviso y del mensaje de WhatsApp entero—: en el teléfono quedaba media pantalla
+   * más abajo y lo único que se veía al tocar 🗑 era desaparecer el botón. Parecía
+   * que el sistema no preguntaba nada.
+   */
+  if (confirmando) {
+    return (
+      <Modal title="🗑 Borrar movimiento" size="md"
+        onClose={() => { if (!borrando) setConfirmando(false); }}
+        footer={<>
+          <button type="button" className="btn btn-ghost btn-grande" onClick={() => setConfirmando(false)} disabled={borrando}>
+            ↩ NO, VOLVER
+          </button>
+          <button type="button" className="btn btn-peligro btn-grande" onClick={() => void borrar()} disabled={borrando}>
+            {borrando ? 'Borrando…' : '🗑 SÍ, BORRAR'}
+          </button>
+        </>}>
+        <div className="surt-confirmar">
+          <strong style={{ fontSize: '1.15rem', display: 'block' }}>
+            ¿Borrar este {TITULO_MOVIMIENTO[mov.tipo].toLowerCase()} de {num(mov.litros)} L?
+          </strong>
+          <div className="surt-detalle" style={{ marginTop: '.7rem' }}>
+            <Fila k="Tanque" v={tanque?.nombre ?? mov.tanque_nombre} />
+            <Fila k="Fecha" v={dateTime(mov.fecha)} />
+            <Fila k="Equipo" v={mov.equipo} />
+            <Fila k="Autorizado por" v={mov.autorizado_por} />
+          </div>
+          <div className="muted" style={{ marginTop: '.7rem', fontSize: '.95rem' }}>
+            Se borran también sus fotos{mov.mov_vinculado_id ? ' y el movimiento vinculado del otro tanque' : ''},
+            y el saldo del tanque se recalcula. <strong>No se puede deshacer.</strong> Se refleja al instante en la PC.
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal title={`${EMOJI_MOVIMIENTO[mov.tipo]} ${TITULO_MOVIMIENTO[mov.tipo]} · ${num(mov.litros)} L`} size="md"
       onClose={() => { if (!borrando) onClose(); }}
       footer={<>
-        {canWrite && !confirmando && <button className="btn btn-danger btn-grande" onClick={() => setConfirmando(true)} disabled={borrando}>🗑 Eliminar</button>}
+        {canWrite && <button className="btn btn-danger btn-grande" onClick={() => setConfirmando(true)}>🗑 Eliminar</button>}
         {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost btn-grande" onClick={onClose}>🖥 Corregir en la PC</Link>}
-        <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
+        <button className="btn btn-primary btn-grande" onClick={onClose}>Cerrar</button>
       </>}>
       <div className="surt-detalle">
         <Fila k="Tanque" v={tanque?.nombre ?? mov.tanque_nombre} />
@@ -591,21 +634,6 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, actor
         <a className="btn btn-primary btn-grande" href={enlaceWhatsapp(texto)} target="_blank" rel="noopener noreferrer">💬 Enviar por WhatsApp</a>
       </div>
       <pre className="surt-mensaje">{texto}</pre>
-
-      {confirmando && (
-        <div className="surt-confirmar" role="alertdialog" aria-label="Confirmar borrado">
-          <div style={{ fontSize: '1.05rem' }}>
-            <strong>¿Borrar este {TITULO_MOVIMIENTO[mov.tipo].toLowerCase()} de {num(mov.litros)} L?</strong>
-            <div className="muted" style={{ marginTop: '.3rem', fontSize: '.9rem' }}>
-              Se borran también sus fotos{mov.mov_vinculado_id ? ' y el movimiento vinculado del otro tanque' : ''}, y el saldo del tanque se recalcula. No se puede deshacer. Se refleja al instante en la PC.
-            </div>
-          </div>
-          <div className="botones">
-            <button type="button" className="btn btn-peligro" onClick={() => void borrar()} disabled={borrando}>{borrando ? 'Borrando…' : '🗑 SÍ, BORRAR'}</button>
-            <button type="button" className="btn btn-ghost" onClick={() => setConfirmando(false)} disabled={borrando}>↩ VOLVER</button>
-          </div>
-        </div>
-      )}
 
       <FotosDelMovimiento movId={mov.id} actor={actor} soloLectura={!canWrite} />
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>

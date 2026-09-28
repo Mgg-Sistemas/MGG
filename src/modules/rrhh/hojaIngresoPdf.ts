@@ -21,6 +21,7 @@ import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import { definicionEmpresa, normalizarEmpresa, type Empresa } from './empresa';
 import { DOCUMENTOS_A_CONSIGNAR } from './hojaIngresoDocumentos';
+import { GRADOS_INSTRUCCION } from './fichaPersonal';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
 const GRIS: [number, number, number] = [120, 120, 120];
@@ -36,9 +37,12 @@ const DATOS_PERSONALES: Array<[string, string]> = [
   ['Fecha de nacimiento', 'Lugar de nacimiento'],
   ['Nacionalidad', 'Estado civil'],
   ['Género', 'Grupo sanguíneo / RH'],
-  ['Grado de instrucción', 'Teléfono celular'],
-  ['Teléfono de habitación', 'Correo electrónico'],
-  ['Cargo al que ingresa', 'Fecha de ingreso'],
+  // El grado de instrucción salió de acá: pasó a casillas, más abajo. Una raya
+  // en blanco recogía «bachiller», «Bto.» y «bachillerato» para el mismo nivel,
+  // y después no se podía contar cuánta gente tiene cada grado.
+  ['Teléfono celular', 'Teléfono de habitación'],
+  ['Correo electrónico', 'Cargo al que ingresa'],
+  ['Fecha de ingreso', ''],
 ];
 
 /** Cuántas filas en blanco lleva la carga familiar. Cinco cubre a casi todos y
@@ -117,8 +121,40 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   doc.line(M, y + 32, W - M, y + 32);
   y += 46;
 
-  /* ── 2. Carga familiar ── */
-  seccion(2, 'Carga familiar y dependientes directos');
+  /* ── 2. Grado de instrucción ──
+     Casillas y no una raya: se marca TODO lo que la persona cursó, en los
+     mismos niveles que usa el sistema, así lo que se transcribe entra en la
+     lista cerrada y se puede contar. */
+  seccion(2, 'Grado de instrucción');
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
+  doc.text(textoPdf('Marque todos los niveles que cursó.'), M, y);
+  y += 14;
+  const NIVELES = GRADOS_INSTRUCCION.filter((g) => g.key !== 'ninguno').map((g) => g.label);
+  // Dos filas: los niveles no entran en una sola línea de carta sin apretarse.
+  const porFila = Math.ceil(NIVELES.length / 2);
+  doc.setFontSize(8.5); doc.setTextColor(...TINTA);
+  for (let fila = 0; fila * porFila < NIVELES.length; fila++) {
+    let x = M;
+    for (const nivel of NIVELES.slice(fila * porFila, (fila + 1) * porFila)) {
+      casilla(x, y);
+      doc.text(textoPdf(nivel), x + 13, y);
+      x += 13 + doc.getTextWidth(textoPdf(nivel)) + 18;
+    }
+    y += 16;
+  }
+  y += 2;
+  parDeCampos('Título obtenido', 'Institución donde lo cursó');
+
+  /* ── 3. Último trabajo ──
+     Dónde estuvo, qué hacía, cuánto aguantó y cuánto cobraba. Se pregunta
+     siempre en la entrevista y hasta ahora se anotaba al margen de la hoja. */
+  seccion(3, 'Último trabajo');
+  parDeCampos('Empresa donde trabajó', 'Cargo que ocupaba');
+  parDeCampos('Cuánto tiempo duró ahí', 'Último sueldo (indique Bs o $)');
+  parDeCampos('Motivo del retiro', 'Teléfono de referencia');
+
+  /* ── 4. Carga familiar ── */
+  seccion(4, 'Carga familiar y dependientes directos');
   autoTable(doc as any, {
     startY: y,
     head: [[textoPdf('Nombre y apellido'), textoPdf('Parentesco'), textoPdf('Fecha de nacimiento'), textoPdf('Cédula')]],
@@ -133,7 +169,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   y = ((doc as any).lastAutoTable?.finalY ?? y) + 18;
 
   /* ── 3. Condiciones de salud ── */
-  seccion(3, 'Condiciones de salud');
+  seccion(5, 'Condiciones de salud');
   /**
    * Una pregunta de sí/no con su raya de detalle al lado. El detalle NO se
    * deja para el final ni en otro renglón: pegado a la casilla, quien llena la
@@ -166,7 +202,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   y += 14;
 
   /* ── 4. Contacto de emergencia ── */
-  seccion(4, 'Contacto en caso de emergencia');
+  seccion(6, 'Contacto en caso de emergencia');
   parDeCampos('Nombre y apellido', 'Parentesco');
   parDeCampos('Teléfono celular', 'Teléfono fijo / trabajo');
   y += 2;

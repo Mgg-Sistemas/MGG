@@ -1133,8 +1133,27 @@ export interface Personal {
   /** De acá sale la edad. La edad NO se guarda: quedaría vieja al día siguiente. */
   fecha_nacimiento?: string | null;
   grupo_sanguineo?: string | null;
-  /** Grado de instrucción. Lista cerrada: ver `GRADOS_INSTRUCCION`. */
+  /**
+   * El grado de instrucción MÁS ALTO de los marcados. Lista cerrada: ver
+   * `GRADOS_INSTRUCCION`. Lo calcula `gradoMasAlto` al guardar: la ficha
+   * técnica y la constancia imprimen uno solo.
+   */
   grado_instruccion?: string | null;
+  /**
+   * Los niveles cursados, marcados con casillas en la hoja de ingreso. Puede
+   * haber varios: quien es universitario también hizo primaria y bachillerato.
+   */
+  grados_instruccion?: string[] | null;
+  /** Título obtenido: «TSU en Mecánica», «Bachiller en Ciencias». */
+  titulo_obtenido?: string | null;
+  /* ── El último trabajo antes de entrar a la empresa ── */
+  trabajo_anterior_empresa?: string | null;
+  trabajo_anterior_cargo?: string | null;
+  /** Cuánto duró ahí, en texto libre: «2 años y 3 meses». */
+  trabajo_anterior_duracion?: string | null;
+  trabajo_anterior_sueldo?: number | null;
+  /** Moneda de ese último sueldo: `USD` o `Bs`. */
+  trabajo_anterior_moneda?: string | null;
   /* ── Condiciones de salud. `null` = todavía no se preguntó; ver `condicionesSalud.ts`. ── */
   tiene_alergias?: boolean | null;
   alergias_detalle?: string | null;

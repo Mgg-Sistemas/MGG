@@ -69,6 +69,68 @@ export function labelGradoInstruccion(g: GradoInstruccion | string | null | unde
   return GRADOS_INSTRUCCION.find((x) => x.key === g)?.label ?? '—';
 }
 
+/**
+ * El grado MÁS ALTO de los marcados.
+ *
+ * En la hoja de ingreso los niveles se marcan con casillas y se puede marcar más
+ * de uno —quien es universitario también hizo primaria y bachillerato—, pero la
+ * ficha técnica, la constancia y los reportes imprimen UNO: el que vale. Esto lo
+ * resuelve en un solo lugar, y `grado_instruccion` se guarda con ese valor para
+ * que nada de lo que ya leía ese campo tenga que cambiar.
+ *
+ * Devuelve `null` si no hay nada marcado o si lo marcado no está en la lista:
+ * inventar «primaria» porque alguien tipeó algo raro sería peor que dejarlo vacío.
+ */
+export function gradoMasAlto(grados: readonly string[] | null | undefined): GradoInstruccion | null {
+  const orden = GRADOS_INSTRUCCION.map((g) => g.key);
+  let mejor: GradoInstruccion | null = null;
+  let mejorPos = -1;
+  for (const g of grados ?? []) {
+    const pos = orden.indexOf(g as GradoInstruccion);
+    if (pos > mejorPos) { mejorPos = pos; mejor = orden[pos]; }
+  }
+  return mejor;
+}
+
+/** Los grados marcados, escritos como se leen: «Primaria · Bachiller · TSU». */
+export function gradosTexto(grados: readonly string[] | null | undefined): string {
+  const orden = GRADOS_INSTRUCCION.map((g) => g.key);
+  const limpios = [...new Set(grados ?? [])]
+    .filter((g) => orden.includes(g as GradoInstruccion))
+    .sort((a, b) => orden.indexOf(a as GradoInstruccion) - orden.indexOf(b as GradoInstruccion));
+  return limpios.map((g) => labelGradoInstruccion(g)).join(' · ');
+}
+
+/**
+ * El último trabajo, en una línea: «TALLER LA UNIÓN · Mecánico · 2 años · $ 120».
+ *
+ * Se arma acá y no en cada pantalla porque lo imprimen la ficha, la hoja de
+ * ingreso y el PDF, y cada una lo escribía distinto.
+ */
+export function trabajoAnteriorTexto(p: {
+  trabajo_anterior_empresa?: string | null;
+  trabajo_anterior_cargo?: string | null;
+  trabajo_anterior_duracion?: string | null;
+  trabajo_anterior_sueldo?: number | string | null;
+  trabajo_anterior_moneda?: string | null;
+}): string {
+  const partes: string[] = [];
+  const emp = (p.trabajo_anterior_empresa ?? '').trim();
+  const cargo = (p.trabajo_anterior_cargo ?? '').trim();
+  const dur = (p.trabajo_anterior_duracion ?? '').trim();
+  if (emp) partes.push(emp);
+  if (cargo) partes.push(cargo);
+  if (dur) partes.push(dur);
+  const sueldo = Number(p.trabajo_anterior_sueldo);
+  if (Number.isFinite(sueldo) && sueldo > 0) {
+    const moneda = (p.trabajo_anterior_moneda ?? 'USD').trim().toUpperCase();
+    // Sin decimales cuando es redondo: «$ 120» se lee mejor que «$ 120,00».
+    const n = Number.isInteger(sueldo) ? String(sueldo) : sueldo.toFixed(2).replace('.', ',');
+    partes.push(moneda === 'BS' ? `Bs ${n}` : `$ ${n}`);
+  }
+  return partes.join(' · ');
+}
+
 export const GRUPOS_SANGUINEOS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'] as const;
 export type GrupoSanguineo = typeof GRUPOS_SANGUINEOS[number];
 

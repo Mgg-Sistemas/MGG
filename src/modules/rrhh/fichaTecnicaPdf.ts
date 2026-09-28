@@ -16,8 +16,8 @@ import { date as fmtDate } from '@/shared/lib/format';
 import type { Personal } from '@/shared/lib/types';
 import { definicionEmpresa, normalizarEmpresa } from './empresa';
 import {
-  antiguedad, cantidadHijos, labelEstadoCivil, labelGenero, labelGradoInstruccion, labelParentesco,
-  numeroFicha, textoEdad,
+  antiguedad, cantidadHijos, gradosTexto, labelEstadoCivil, labelGenero, labelGradoInstruccion, labelParentesco,
+  numeroFicha, textoEdad, trabajoAnteriorTexto,
 } from './fichaPersonal';
 import { renglonesSalud } from './condicionesSalud';
 import type { FamiliarPersonal } from './personal.repository';
@@ -106,7 +106,12 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
     ['Género', p.genero ? labelGenero(p.genero) : '—'],
     ['Nacionalidad', raya(p.nacionalidad)],
     ['Estado civil', p.estado_civil ? labelEstadoCivil(p.estado_civil) : '—'],
-    ['Grado de instrucción', p.grado_instruccion ? labelGradoInstruccion(p.grado_instruccion) : '—'],
+    // Los grados marcados van todos («Primaria · Bachiller · TSU»); si no hay
+    // casillas —una ficha vieja— se imprime el grado único de siempre.
+    ['Grado de instrucción',
+      gradosTexto(p.grados_instruccion) || (p.grado_instruccion ? labelGradoInstruccion(p.grado_instruccion) : '—')],
+    ['Título obtenido', raya(p.titulo_obtenido)],
+    ['Último trabajo', trabajoAnteriorTexto(p) || '—'],
     ['', ''],
   ]);
 

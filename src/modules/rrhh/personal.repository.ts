@@ -13,6 +13,15 @@ import {
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, normalizarEmpresa, type Empresa } from './empresa';
 import { normalizarSalud } from './condicionesSalud';
+import { gradoMasAlto, GRADOS_INSTRUCCION } from './fichaPersonal';
+
+/** Las casillas marcadas, sin repetidos, sin basura y en el orden del catálogo. */
+function normalizarGrados(grados: string[] | null | undefined): string[] {
+  const orden = GRADOS_INSTRUCCION.map((g) => g.key as string);
+  return [...new Set(grados ?? [])]
+    .filter((g) => orden.includes(g))
+    .sort((a, b) => orden.indexOf(a) - orden.indexOf(b));
+}
 import { normalizarCorreo, type Genero, type Parentesco } from './fichaPersonal';
 
 const TABLE = 'personal';
@@ -58,7 +67,16 @@ export interface PersonalInput {
   estado_civil?: string | null;
   fecha_nacimiento?: string | null;
   grupo_sanguineo?: string | null;
+  /** Lo marcan las casillas. `grado_instruccion` se deriva de acá al guardar. */
+  grados_instruccion?: string[] | null;
   grado_instruccion?: string | null;
+  titulo_obtenido?: string | null;
+  /* ── El último trabajo antes de entrar ── */
+  trabajo_anterior_empresa?: string | null;
+  trabajo_anterior_cargo?: string | null;
+  trabajo_anterior_duracion?: string | null;
+  trabajo_anterior_sueldo?: number | null;
+  trabajo_anterior_moneda?: string | null;
   /* ── Condiciones de salud. Las cuatro viajan juntas o no viaja ninguna. ── */
   tiene_alergias?: boolean | null;
   alergias_detalle?: string | null;
@@ -144,7 +162,23 @@ function payload(input: PersonalInput) {
     estado_civil: input.estado_civil === undefined ? undefined : (input.estado_civil?.trim() || null),
     fecha_nacimiento: input.fecha_nacimiento === undefined ? undefined : (input.fecha_nacimiento || null),
     grupo_sanguineo: input.grupo_sanguineo === undefined ? undefined : (input.grupo_sanguineo?.trim() || null),
-    grado_instruccion: input.grado_instruccion === undefined ? undefined : (input.grado_instruccion?.trim() || null),
+    // Las casillas mandan: `grado_instruccion` se deriva del más alto marcado y
+    // no se guarda aparte. Así la ficha técnica, la constancia y los reportes
+    // —que leen el campo viejo— nunca discrepan de lo que muestra la hoja.
+    ...(input.grados_instruccion === undefined ? {} : {
+      grados_instruccion: normalizarGrados(input.grados_instruccion),
+      grado_instruccion: gradoMasAlto(input.grados_instruccion),
+    }),
+    titulo_obtenido: input.titulo_obtenido === undefined ? undefined : (input.titulo_obtenido?.trim() || null),
+    trabajo_anterior_empresa: input.trabajo_anterior_empresa === undefined ? undefined : (input.trabajo_anterior_empresa?.trim() || null),
+    trabajo_anterior_cargo: input.trabajo_anterior_cargo === undefined ? undefined : (input.trabajo_anterior_cargo?.trim() || null),
+    trabajo_anterior_duracion: input.trabajo_anterior_duracion === undefined ? undefined : (input.trabajo_anterior_duracion?.trim() || null),
+    // Un sueldo en cero es «no cobraba» o «no lo dijo»: se guarda vacío, no 0,
+    // que en un reporte se lee como un sueldo de verdad.
+    trabajo_anterior_sueldo: input.trabajo_anterior_sueldo === undefined
+      ? undefined
+      : (Number(input.trabajo_anterior_sueldo) > 0 ? Number(input.trabajo_anterior_sueldo) : null),
+    trabajo_anterior_moneda: input.trabajo_anterior_moneda === undefined ? undefined : (input.trabajo_anterior_moneda?.trim().toUpperCase() || null),
     // Las cuatro columnas de salud van juntas y ya normalizadas: el detalle
     // solo sobrevive si la respuesta es «sí». La base tiene el mismo `check`,
     // así que mandarlas por separado la haría rechazar el update a mitad de

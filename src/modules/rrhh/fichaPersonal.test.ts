@@ -4,6 +4,7 @@ import {
   hijosMenores, labelEstadoCivil, labelGenero, labelParentesco, numeroFicha, porDepartamento,
   errorNumeroFicha, normalizarNumeroFicha, nombreDeCarnet,
   errorCorreo, normalizarCorreo, GRADOS_INSTRUCCION, labelGradoInstruccion, ordenarPorFicha,
+  gradoMasAlto, gradosTexto, trabajoAnteriorTexto,
   resumenPersonal, textoEdad, tieneHijos,
 } from './fichaPersonal';
 
@@ -385,5 +386,67 @@ describe('el listado va por numero de ficha', () => {
 
   it('una lista vacia no rompe', () => {
     expect(ordenarPorFicha([])).toEqual([]);
+  });
+});
+
+describe('grado de instrucción marcado con casillas', () => {
+  it('toma el más alto de los marcados', () => {
+    expect(gradoMasAlto(['primaria', 'bachiller', 'universitario'])).toBe('universitario');
+    expect(gradoMasAlto(['bachiller', 'primaria'])).toBe('bachiller');
+    expect(gradoMasAlto(['tsu'])).toBe('tsu');
+    expect(gradoMasAlto(['doctorado', 'primaria'])).toBe('doctorado');
+  });
+
+  it('el orden de la lista no importa', () => {
+    expect(gradoMasAlto(['postgrado', 'primaria'])).toBe(gradoMasAlto(['primaria', 'postgrado']));
+  });
+
+  it('sin nada marcado, null: no inventa un grado', () => {
+    expect(gradoMasAlto([])).toBeNull();
+    expect(gradoMasAlto(null)).toBeNull();
+    expect(gradoMasAlto(undefined)).toBeNull();
+  });
+
+  it('descarta lo que no está en la lista', () => {
+    expect(gradoMasAlto(['bachillerato', 'Bto.'])).toBeNull();
+    expect(gradoMasAlto(['inventado', 'bachiller'])).toBe('bachiller');
+  });
+
+  it('los escribe en orden y sin repetir', () => {
+    expect(gradosTexto(['universitario', 'primaria', 'primaria'])).toBe('Primaria · Universitario');
+    expect(gradosTexto([])).toBe('');
+    expect(gradosTexto(['no existe'])).toBe('');
+  });
+});
+
+describe('el último trabajo en una línea', () => {
+  it('arma empresa, cargo, duración y sueldo', () => {
+    expect(trabajoAnteriorTexto({
+      trabajo_anterior_empresa: 'TALLER LA UNIÓN', trabajo_anterior_cargo: 'Mecánico',
+      trabajo_anterior_duracion: '2 años', trabajo_anterior_sueldo: 120, trabajo_anterior_moneda: 'USD',
+    })).toBe('TALLER LA UNIÓN · Mecánico · 2 años · $ 120');
+  });
+
+  it('escribe los bolívares como bolívares', () => {
+    expect(trabajoAnteriorTexto({ trabajo_anterior_empresa: 'X', trabajo_anterior_sueldo: 500, trabajo_anterior_moneda: 'Bs' }))
+      .toBe('X · Bs 500');
+  });
+
+  it('sin moneda, dólares', () => {
+    expect(trabajoAnteriorTexto({ trabajo_anterior_sueldo: 80 })).toBe('$ 80');
+  });
+
+  it('los decimales van con coma, y los redondos sin decimales', () => {
+    expect(trabajoAnteriorTexto({ trabajo_anterior_sueldo: 95.5 })).toBe('$ 95,50');
+  });
+
+  it('salta lo que está vacío en vez de dejar separadores sueltos', () => {
+    expect(trabajoAnteriorTexto({ trabajo_anterior_empresa: '  ', trabajo_anterior_cargo: 'Obrero' })).toBe('Obrero');
+    expect(trabajoAnteriorTexto({})).toBe('');
+  });
+
+  it('un sueldo en cero o basura no se imprime', () => {
+    expect(trabajoAnteriorTexto({ trabajo_anterior_empresa: 'X', trabajo_anterior_sueldo: 0 })).toBe('X');
+    expect(trabajoAnteriorTexto({ trabajo_anterior_empresa: 'X', trabajo_anterior_sueldo: 'nada' })).toBe('X');
   });
 });

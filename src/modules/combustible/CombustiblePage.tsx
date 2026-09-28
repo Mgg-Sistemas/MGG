@@ -9,7 +9,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
-import { ROL_SURTIDOR } from './SurtidorMovilView';
+import { esRolSurtidor, RUTA_SURTIDOR } from '@/modules/usuarios/permisos.repository';
 import type { Combustible, SolicitudCombustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter, PlantaMovimiento, CatalogoCombustible, TanqueMovimiento, TipoMovimientoTanque } from '@/shared/lib/types';
 import {
   listCombustibles,
@@ -258,7 +258,7 @@ export function CombustiblePage() {
   // El rol COMBUSTIBLE (surtidor) trabaja desde el teléfono: no ve el módulo de
   // PC. Va acá abajo y no arriba del componente porque un `return` antes de los
   // hooks rompe el orden con el que React los identifica.
-  if (!cargandoPermisos && role === ROL_SURTIDOR) return <Navigate to="/app/combustible/surtidor" replace />;
+  if (!cargandoPermisos && esRolSurtidor(role)) return <Navigate to={`/app/${RUTA_SURTIDOR}`} replace />;
 
   return (
     <div>
