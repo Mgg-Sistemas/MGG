@@ -461,7 +461,14 @@ describe('apertura al instante — el ciclo cuenta desde que se abre', () => {
     expect(inicioExactoDe([ev({ desde: '2026-09-14T20:38:00.000Z' })])).toBe('2026-09-14T20:38:00.000Z');
   });
 
-  it('un mercado generado al cerrar el anterior no tiene inicio exacto: sigue desde las 00:00', () => {
+  it('el que nace de un cierre arranca en el instante EXACTO del cierre', () => {
+    // Sin esto empezaba a las 00:00 de su fecha de inicio, y entre el cierre y
+    // esa medianoche quedaba un hueco donde los movimientos no eran de nadie.
+    expect(inicioExactoDe([ev({ evento: 'generado_al_cerrar', al_cerrar: 1, desde: '2026-09-28T16:05:00.000Z' })]))
+      .toBe('2026-09-28T16:05:00.000Z');
+  });
+
+  it('los generados al cerrar ANTES del cambio no lo traen: siguen desde las 00:00', () => {
     expect(inicioExactoDe([ev({ evento: 'generado_al_cerrar', al_cerrar: 1 })])).toBeNull();
   });
 

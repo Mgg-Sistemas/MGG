@@ -208,7 +208,13 @@ export function productosAjustados(historial: EventoMercado[] | null | undefined
  * posterior al fin, sin hueco— y para los abiertos antes del cambio.
  */
 export function inicioExactoDe(historial: EventoMercado[] | null | undefined): string | null {
-  const ev = (historial ?? []).find((e) => e.evento === 'abierta' && typeof e.desde === 'string' && e.desde);
+  // También el ciclo que NACE de un cierre: arranca en el instante exacto en que
+  // se cerró el anterior. Sin esto empezaba a las 00:00 de su `fecha_inicio`, y
+  // entre el cierre y esa medianoche quedaba un hueco: lo que se movía ahí no
+  // entraba en el ciclo cerrado (ya congelado) ni en el nuevo. Se perdía.
+  const ev = (historial ?? []).find((e) =>
+    (e.evento === 'abierta' || e.evento === 'generado_al_cerrar')
+    && typeof e.desde === 'string' && e.desde);
   return ev?.desde ?? null;
 }
 

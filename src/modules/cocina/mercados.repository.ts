@@ -23,7 +23,6 @@ import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { trasladoDeMovimiento } from '@/modules/inventario/stockPorAlmacen';
 import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, diaDeComida } from './cocina.repository';
-import { totalesParaCierre } from './costoPorPlato';
 import { repartosPendientes, type RepartoPendiente } from './reparto.repository';
 import {
   cicloQueSePisa, deltaEfectivo, diferenciasPorViver, inicioExactoDe, mermasPorViver, stockAlCorte, totalesDeMercado,
@@ -126,6 +125,19 @@ export interface CierreSnapshot {
   mermas?: ItemAgg[];
   /** Si se cerró después del último día: la fecha a la que se tomó el inventario del contraste. */
   inventario_al?: string | null;
+  /* ── El histórico del ciclo, agregado el 28/09/2026 ──
+     Antes el cierre guardaba solo los TOTALES por víver, y el detalle —cada
+     entrada, cada comida, cada traslado, cada merma— se volvía a leer de
+     `movimientos` y `cocina_comidas` por rango de fechas cada vez que alguien
+     abría el histórico. Eso hacía que el pasado cambiara: una comida cargada
+     tarde con fecha vieja se metía en un ciclo ya cerrado y le movía los
+     números a un corte que alguien ya había firmado.
+
+     Ahora el cierre CONGELA la lista completa de movimientos. El histórico
+     muestra lo que se cerró, no lo que hoy dirían las fechas. */
+  movimientos?: KardexRow[];
+  /** Cuántos movimientos quedaron congelados. Para leerlo sin abrir la lista. */
+  movimientos_total?: number;
 }
 
 export interface MercadoCocina {
@@ -231,19 +243,29 @@ function hoyStr(): string { return hoyISO(); }
 type VentanaMercado = {
   fecha_inicio: string; fecha_fin: string;
   inicio_at?: string | null;
+  cerrado_en?: string | null;
   cierre?: CierreSnapshot | null;
 };
 
 /**
- * Ventana ISO de un mercado: [inicio, min(ahora, fin 23:59 local)].
+ * Ventana ISO de un mercado: [inicio, min(ahora, cierre, fin 23:59 local)].
  *
- * El inicio es el instante en que se abrió (`inicio_at`) o, si no lo tiene, las 00:00 de
- * `fecha_inicio`. Un DESCARTADO termina en el momento del descarte: lo que pasa después le
- * toca a otro ciclo, y su histórico muestra solo lo que ocurrió mientras estuvo activo.
+ * El inicio es el instante en que arrancó (`inicio_at`): el de la apertura a mano o,
+ * si nació de un cierre, el instante exacto de ese cierre. El fin es el instante en
+ * que se cerró. Así los ciclos quedan pegados uno al lado del otro, sin hueco entre
+ * medio ni solapamiento: cada movimiento cae en uno y solo uno.
  */
 function ventana(m: VentanaMercado): { desde: string; hasta: string } {
   const desde = m.inicio_at ? new Date(m.inicio_at) : new Date(`${m.fecha_inicio}T00:00:00`);
   let hasta = new Date(`${m.fecha_fin}T23:59:59`);
+  // Un ciclo CERRADO termina en el instante en que se cerró, no al final de su
+  // calendario. Cerrar el día 12 y dejar la ventana abierta hasta el 21 abría un
+  // hueco de nueve días: esos movimientos no entraban en el cierre (ya congelado)
+  // ni en el ciclo nuevo (que arrancaba después del 21). Se perdían.
+  if (m.cerrado_en) {
+    const cierre = new Date(m.cerrado_en);
+    if (cierre < hasta) hasta = cierre;
+  }
   if (m.cierre?.descartado && m.cierre.generado_en) {
     const descarte = new Date(m.cierre.generado_en);
     if (descarte < hasta) hasta = descarte;
@@ -691,32 +713,13 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
     ? diferenciasPorViver(disponible, stockPorProducto ?? new Map())
     : (mercado.cierre?.diferencias ?? []);
 
-  const kardex: KardexRow[] = [
-    ...ent.rows,
-    ...tras.rows,
-    ...mer.rows,
-    ...con.comidas.map((c): KardexConsumo => ({
-      kind: 'consumo', at: c.at, comida: c,
-      items: (c.items ?? []).length,
-      cantidad: r2((c.items ?? []).reduce((a, it) => a + (Number(it.cantidad) || 0), 0)),
-    })),
-  ].sort((a, b) => {
-    // Día más nuevo primero. Dentro de un día, las tres comidas comparten `at`
-    // (se guarda al mediodía), así que el desempate lo da el orden en que se
-    // sirven: desayuno → almuerzo → cena. Sin esto, un día cargado empezando
-    // por la cena se leía «cena, desayuno, almuerzo».
-    const dia = diaDeComida(b.at).localeCompare(diaDeComida(a.at));
-    if (dia !== 0) return dia;
-    // Dentro del día: primero llega, después se reparte, después se cocina, y al final lo que se perdió.
-    const orden = (k: KardexRow) => (k.kind === 'entrada' ? 0 : k.kind === 'traslado' ? 1 : k.kind === 'consumo' ? 2 : 3);
-    if (a.kind !== b.kind) return orden(a) - orden(b);
-    if (a.kind === 'consumo' && b.kind === 'consumo') {
-      const t = ordenTipoComida(a.comida.tipo_comida) - ordenTipoComida(b.comida.tipo_comida);
-      if (t !== 0) return t;
-    }
-    return (b.at ?? '').localeCompare(a.at ?? '');
-  });
-
+  // Un ciclo CERRADO muestra lo que se congeló al cerrarlo, no lo que hoy dirían
+  // las fechas: si alguien carga después una comida con fecha vieja, el corte
+  // que ya se firmó no puede cambiar. Los cierres anteriores al 28/09/2026 no
+  // tienen la lista congelada, así que esos se siguen leyendo por fecha.
+  const kardex = (!abierto && mercado.cierre?.movimientos?.length)
+    ? mercado.cierre.movimientos
+    : armarKardex(ent, tras, mer, con);
   return {
     mercado, dia: diaDe(mercado), dias: DURACION_MERCADO_DIAS,
     puedeCerrar: hoyStr() > mercado.fecha_fin,
@@ -866,6 +869,48 @@ export async function iniciarMercado(input: {
   );
 }
 
+/**
+ * El kardex del ciclo: cada entrada, traslado, merma y comida, en el orden en
+ * que se leen.
+ *
+ * Está en una función propia porque lo usan dos lugares y tienen que dar
+ * EXACTAMENTE lo mismo: la pantalla del mercado abierto y el cierre, que lo
+ * congela. Si el cierre armara su propia lista, el histórico podría mostrar
+ * algo distinto de lo que se vio al cerrar.
+ */
+function armarKardex(
+  ent: { rows: KardexEntrada[] },
+  tras: { rows: KardexTraslado[] },
+  mer: { rows: KardexMerma[] },
+  con: { comidas: CocinaComida[] },
+): KardexRow[] {
+  return [
+    ...ent.rows,
+    ...tras.rows,
+    ...mer.rows,
+    ...con.comidas.map((c): KardexConsumo => ({
+      kind: 'consumo', at: c.at, comida: c,
+      items: (c.items ?? []).length,
+      cantidad: r2((c.items ?? []).reduce((a, it) => a + (Number(it.cantidad) || 0), 0)),
+    })),
+  ].sort((a, b) => {
+    // Día más nuevo primero. Dentro de un día, las tres comidas comparten `at`
+    // (se guarda al mediodía), así que el desempate lo da el orden en que se
+    // sirven: desayuno → almuerzo → cena. Sin esto, un día cargado empezando
+    // por la cena se leía «cena, desayuno, almuerzo».
+    const dia = diaDeComida(b.at).localeCompare(diaDeComida(a.at));
+    if (dia !== 0) return dia;
+    // Dentro del día: primero llega, después se reparte, después se cocina, y al final lo que se perdió.
+    const orden = (k: KardexRow) => (k.kind === 'entrada' ? 0 : k.kind === 'traslado' ? 1 : k.kind === 'consumo' ? 2 : 3);
+    if (a.kind !== b.kind) return orden(a) - orden(b);
+    if (a.kind === 'consumo' && b.kind === 'consumo') {
+      const t = ordenTipoComida(a.comida.tipo_comida) - ordenTipoComida(b.comida.tipo_comida);
+      if (t !== 0) return t;
+    }
+    return (b.at ?? '').localeCompare(a.at ?? '');
+  });
+}
+
 export interface CerrarResult { cerrado: MercadoCocina; siguiente: MercadoCocina; snapshot: CierreSnapshot; }
 
 export interface CerrarOpciones {
@@ -909,6 +954,9 @@ export async function cerrarMercado(
   const totales = totalesDeMercado(disponible, stockPorProducto);
   const difs = diferenciasPorViver(disponible, stockPorProducto);
 
+  // Lo que pasa al histórico: la lista completa, la misma que se está viendo.
+  const kardexCongelado = armarKardex(ent, tras, mer, con);
+
   const ajustado = !!opciones?.ajustarAInventario && difs.length > 0;
   const motivo = (opciones?.motivo ?? '').trim();
   if (ajustado && motivo.length < 5) {
@@ -941,6 +989,11 @@ export async function cerrarMercado(
     diferencias: difs,
     ajustado,
     motivo_ajuste: ajustado ? motivo : null,
+    // TODOS los movimientos del ciclo, congelados. El histórico los lee de acá y
+    // no los vuelve a buscar por fecha: lo que se cerró queda como se cerró,
+    // aunque después alguien cargue una comida con fecha vieja.
+    movimientos: kardexCongelado,
+    movimientos_total: kardexCongelado.length,
   };
 
   // El ajuste cambia el saldo congelado de víveres concretos. Guardar CUÁLES es lo
@@ -952,17 +1005,25 @@ export async function cerrarMercado(
     ...(ajustado ? { ajustados: difs.map((d) => d.producto_id) } : {}),
   });
 
+  // El instante del cierre es la bisagra: ahí termina este ciclo y ahí mismo
+  // arranca el siguiente. Un solo valor para los dos, para que no quede ni un
+  // segundo de hueco entre medio.
+  const instanteCierre = new Date().toISOString();
+
   const upd = await actualizarMercado(
     mercado.id,
     {
       estado: 'cerrado', cierre: snapshot, cerrado_por: actor, cerrado_por_nombre: actorName ?? null,
-      cerrado_en: new Date().toISOString(),
+      cerrado_en: instanteCierre,
     },
     historialCierre,
     'abierto',
   );
 
-  const inicioSig = addDaysStr(mercado.fecha_fin, 1);
+  // El ciclo nuevo empieza HOY, el día en que se cerró, y no al día siguiente
+  // de un `fecha_fin` que quizá todavía no llegó. Cerrando el día 12, arrancar
+  // el siguiente el día 22 dejaba nueve días sin dueño.
+  const inicioSig = hoyStr();
   const finSig = addDaysStr(inicioSig, DURACION_MERCADO_DIAS - 1);
   // OJO: a este mercado NO lo abrió nadie. Lo genera el cierre del anterior, de
   // forma automática. Anotar como «abierto por» a quien cerró sería inventar un
@@ -974,78 +1035,15 @@ export async function cerrarMercado(
       cocina_id: mercado.cocina_id, numero: mercado.numero + 1, fecha_inicio: inicioSig, fecha_fin: finSig,
       estado: 'abierto', saldo_inicial: remanente,
     },
-    appendHistorial({ historial: [] }, 'generado_al_cerrar', actor, actorName ?? null, { al_cerrar: mercado.numero }),
+    // `desde` es lo que hace que el ciclo nuevo cuente desde el instante del
+    // cierre y no desde las 00:00 de su fecha de inicio: sin eso, lo que se
+    // moviera esta misma tarde no entraría en ninguno de los dos.
+    appendHistorial({ historial: [] }, 'generado_al_cerrar', actor, actorName ?? null, {
+      al_cerrar: mercado.numero, desde: instanteCierre,
+    }),
   );
 
   return { cerrado: normalizar(upd), siguiente, snapshot };
-}
-
-/**
- * Descarta un ciclo accidentado: queda cerrado pero NO aporta saldo al siguiente.
- *
- * Para qué existe: el mercado #1 arrancó antes de que el rediseño estuviera
- * completo, se sembró a mano, tuvo traslados que perdieron la pata de entrada y
- * el 85 % de lo que salió del almacén no pasó por el registro de consumo. Su
- * remanente no describe nada real, y cerrarlo normalmente arrastraría ese
- * descuadre a todos los cortes siguientes.
- *
- * NO SE BORRA, SE MARCA. Borrarlo se llevaría el historial de intervenciones y
- * las comidas quedarían huérfanas de contexto; después de lo que pasó en este
- * ciclo, el rastro es lo último que conviene perder. Queda `estado='cerrado'`
- * —para que se pueda abrir uno nuevo— con la marca `descartado` en el cierre,
- * que es lo que `iniciarMercado` mira para saltearlo.
- *
- * Tampoco abre el siguiente, a diferencia de `cerrarMercado`: la idea es que una
- * persona lo abra cuando el inventario esté como debe, y ahí el saldo inicial
- * sale del stock real.
- */
-export async function descartarMercado(
-  mercado: MercadoCocina,
-  actor: string,
-  actorName: string | null,
-  motivo: string,
-  /**
-   * Lo que el ciclo alcanzó a mover, para dejarlo escrito en el cierre.
-   *
-   * Descartar significa que el ciclo no le pasa saldo al siguiente, NO que no
-   * haya pasado nada: se sirvieron platos y salieron víveres. Guardando cero se
-   * perdía eso, y el histórico mostraba «0 platos» en una fila cuyo detalle
-   * decía 1.877. Quien lo tenga a mano lo pasa; si no, queda en cero como antes.
-   */
-  totales?: { platos: number; consumoValor: number; entradasValor: number } | null,
-): Promise<void> {
-  if (mercado.estado !== 'abierto') throw new Error('Solo se puede descartar un mercado abierto.');
-  const razon = (motivo ?? '').trim();
-  // El motivo es obligatorio: sin él, dentro de seis meses nadie va a saber por
-  // qué este ciclo no cuenta, y va a parecer un error en vez de una decisión.
-  if (razon.length < 5) {
-    throw new Error('Indicá por qué se descarta este mercado: queda escrito en el historial.');
-  }
-
-  const snapshot: CierreSnapshot = {
-    generado_en: new Date().toISOString(),
-    desde: mercado.fecha_inicio,
-    hasta: mercado.fecha_fin,
-    // Los totales son un HECHO del ciclo: se comió y salieron víveres. Lo que el
-    // descarte anula es el arrastre al ciclo siguiente, no lo que ocurrió.
-    totales: totalesParaCierre(totales),
-    consumos: [],
-    entradas: [],
-    // Sin remanente: es justamente lo que no se quiere arrastrar.
-    remanente: [],
-    descartado: true,
-    motivo_descarte: razon,
-  };
-
-  await actualizarMercado(
-    mercado.id,
-    {
-      estado: 'cerrado', cierre: snapshot, cerrado_por: actor,
-      cerrado_por_nombre: actorName ?? null, cerrado_en: new Date().toISOString(),
-    },
-    appendHistorial(mercado, 'descartado', actor, actorName, { motivo: razon }),
-    'abierto',
-  );
 }
 
 /**

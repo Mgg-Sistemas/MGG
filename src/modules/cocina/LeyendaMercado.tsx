@@ -140,14 +140,33 @@ const DUDAS: Entrada[] = [
     ),
   },
   {
-    pregunta: '¿Qué pasa si descarto un mercado?',
+    pregunta: '¿Al cerrar se pierde lo que quedó en la despensa?',
     respuesta: (
       <>
-        El ciclo deja de contar: no le pasa saldo al siguiente y sus cifras salen de la cadena.
-        <strong> No se borra nada</strong> — las comidas, los movimientos y el historial quedan
-        donde están, y el ciclo se puede seguir consultando en «Mercados cerrados», marcado como
-        descartado. Hay que escribir por qué, y eso queda firmado. Si se abrió por error, se
-        puede abrir otro enseguida: el descartado deja de contar en el momento del descarte.
+        <strong>No. El cierre nunca descarta lo que hay.</strong> Lo que quedó sin consumir se
+        congela y pasa tal cual como <strong>saldo inicial del mercado nuevo</strong>, porque los
+        víveres siguen en la despensa: el ciclo se termina, la comida no. A eso se le suman las
+        <strong> entradas nuevas</strong>, y esa es la disponibilidad con la que arranca el corte.
+        <br /><br />
+        Hasta el 28/09/2026 existía un botón «Descartar mercado» que cerraba el ciclo sin pasarle
+        el remanente. Se quitó: dejaba en cero una despensa que estaba llena, y cada cierre
+        terminaba discutiendo kilos que nadie se había comido. Los dos ciclos que ya se
+        descartaron se siguen leyendo como se cerraron.
+      </>
+    ),
+  },
+  {
+    pregunta: '¿Qué pasa con los movimientos del ciclo que cierro?',
+    respuesta: (
+      <>
+        Pasan <strong>todos al histórico</strong>: al cerrar, el sistema <strong>congela la lista
+        completa</strong> —cada entrada, cada comida, cada traslado y cada merma— dentro del
+        cierre. Desde ese momento el corte es una foto: si alguien carga después una comida con
+        fecha vieja, <strong>el ciclo cerrado ya no cambia</strong>.
+        <br /><br />
+        El mercado nuevo arranca <strong>en el instante exacto del cierre</strong>, no al día
+        siguiente del calendario. Así no queda un hueco entre los dos: todo movimiento cae en uno
+        y solo uno, y nada se pierde ni se cuenta dos veces.
       </>
     ),
   },
