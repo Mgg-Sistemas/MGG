@@ -21,7 +21,7 @@ import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { costoDeAlimentar } from './costoPorPlato';
 import { LeyendaMercado } from './LeyendaMercado';
-import type { CocinaComida } from '@/shared/lib/types';
+import type { CocinaComida, TipoComida } from '@/shared/lib/types';
 import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
   cerrarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
@@ -34,6 +34,11 @@ import {
   type DiferenciaViver, type SalidaFueraDelCiclo,
 } from './mercadoComparar';
 import { alternarVista, vistaEncendida, TARJETAS_VISTA, type LlaveVista, type Vista } from './vistaMercado';
+import { explicarCifra, type ClaveCifra, type DatosCifra } from './explicacionCifra';
+import {
+  filtrarKardex, hayFiltro, numerosDePagina, paginar, totalesDeKardex,
+  CLASES_KARDEX, FILTRO_KARDEX_VACIO, type FiltroKardex,
+} from './filtroKardex';
 
 const VISTA_KEY = 'mgg.cocina.mercado.vista';
 
@@ -66,7 +71,11 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   const [drill, setDrill] = useState<DisponibleItem | null>(null);
   const [cerrar, setCerrar] = useState(false);
   const [repartir, setRepartir] = useState(false);
-  const [busca, setBusca] = useState('');
+  /** La tarjeta del encabezado que se tocó, para explicar de dónde sale su número. */
+  const [verCifra, setVerCifra] = useState<ClaveCifra | null>(null);
+  /** Todo lo que recorta el kardex. El buscador viejo era solo `texto`. */
+  const [filtro, setFiltro] = useState<FiltroKardex>(FILTRO_KARDEX_VACIO);
+  const [pagina, setPagina] = useState(1);
   const [verQuietos, setVerQuietos] = useState(false);
   const [soloDif, setSoloDif] = useState(false);
   const [verHistorial, setVerHistorial] = useState(false);
@@ -113,16 +122,33 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
     if (soloDif) return base.filter((d) => difPorProducto.has(d.producto_id));
     return verQuietos ? [...base, ...quietosOk] : base;
   }, [movidos, quietosConDif, quietosOk, verQuietos, soloDif, difPorProducto]);
-  const kardexFiltrado = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    if (!q) return kardex;
-    return kardex.filter((k) => {
-      if (k.kind === 'entrada') return k.nombre.toLowerCase().includes(q);
-      if (k.kind === 'traslado') return `${k.nombre} ${k.codigo ?? ''} ${k.contraparte ?? ''}`.toLowerCase().includes(q);
-      if (k.kind === 'merma') return `${k.nombre} ${k.detalle ?? ''} ${k.actor_name ?? ''}`.toLowerCase().includes(q);
-      return `${k.comida.codigo} ${labelTipoComida(k.comida.tipo_comida)} ${(k.comida.items ?? []).map((i) => i.nombre).join(' ')}`.toLowerCase().includes(q);
-    });
-  }, [kardex, busca]);
+  // `labelTipoComida` pide un `TipoComida` y el kardex guarda el tipo como texto:
+  // un tipo viejo que ya no esté en la lista se muestra tal cual, no rompe.
+  const etiquetaComida = (t: string) => labelTipoComida(t as TipoComida);
+  const kardexFiltrado = useMemo(
+    () => filtrarKardex(kardex, filtro, etiquetaComida),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `etiquetaComida` es una constante disfrazada
+    [kardex, filtro],
+  );
+  /** Los números del bloque de movimientos: son de lo que está a la vista. */
+  const totalesKardex = useMemo(() => totalesDeKardex(kardexFiltrado), [kardexFiltrado]);
+  // De a 10. `paginar` corrige sola la página cuando el filtro deja menos: pedir
+  // la 8 de una lista que quedó en 3 mostraba el vacío, que se lee como «no hay nada».
+  const pag = useMemo(() => paginar(kardexFiltrado, pagina), [kardexFiltrado, pagina]);
+  const indices = useMemo(() => numerosDePagina(pag.pagina, pag.paginas), [pag.pagina, pag.paginas]);
+  const filtroPuesto = hayFiltro(filtro);
+  function cambiarFiltro(parche: Partial<FiltroKardex>) {
+    setFiltro((f) => ({ ...f, ...parche }));
+    setPagina(1); // otro filtro, otra lista: quedarse en la página 5 no significa nada.
+  }
+
+  /** Lo que necesita el modal de una tarjeta para explicar su número. */
+  const datosCifra: DatosCifra = {
+    totales, costo, mermasValor: resumen.kpis.mermasValor,
+    disponible, kardex, dia: Math.min(dia, dias),
+    inventarioAl: resumen.inventarioAl ? fmtDia(resumen.inventarioAl) : null,
+    num, money, etiquetaComida,
+  };
 
   return (
     <div>
@@ -184,42 +210,55 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
             )}
           </div>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '.5rem' }}>
-          <Cifra rotulo="Saldo inicial" valor={num(totales.saldoInicial)} />
-          <Cifra rotulo="+ Entradas" valor={num(totales.entradas)} color="var(--primary-3, #2ecc71)" />
+        {/* La ecuación, en tarjetas. Cada una se TOCA y explica de dónde sale su
+            número: las mismas tres preguntas volvían por mensaje cada ciclo. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.5rem' }}>
+          <Cifra clave="saldoInicial" rotulo="Saldo inicial" valor={num(totales.saldoInicial)}
+            nota="lo que quedó del ciclo anterior" onVer={setVerCifra} />
+          <Cifra clave="entradas" rotulo="+ Entradas" valor={num(totales.entradas)} nota="compras del ciclo"
+            color="var(--primary-3, #2ecc71)" onVer={setVerCifra} />
           {/* Los traslados en su propia cifra y con signo: «−120» es lo que este centro
               repartió, «+120» lo que le llegó. Mezclados con las entradas, la cocina que
               reparte parecía tener un faltante del tamaño del reparto. */}
-          <Cifra rotulo="± Traslados" valor={conSigno(totales.traslados)} color="var(--info)" />
-          <Cifra rotulo="= Disponible" valor={num(totales.disponible)} fuerte />
-          <Cifra rotulo="− Consumo" valor={num(totales.consumos)} color="var(--danger)" />
+          <Cifra clave="traslados" rotulo="± Traslados" valor={conSigno(totales.traslados)}
+            nota="− envía, + recibe" color="var(--info)" onVer={setVerCifra} />
+          <Cifra clave="disponible" rotulo="= Disponible" valor={num(totales.disponible)}
+            nota="saldo + entradas ± traslados" onVer={setVerCifra} />
+          <Cifra clave="consumos" rotulo="− Consumo" valor={num(totales.consumos)} nota="servido en comidas"
+            color="var(--danger)" onVer={setVerCifra} />
           {/* Pérdidas, salidas manuales y ajustes a la baja. Sin esta cifra el libro no las
               restaba y cada pérdida aparecía como un faltante contra el inventario. */}
-          <Cifra rotulo="− Mermas / salidas" valor={num(totales.mermas)} color="var(--warning)" />
-          <Cifra rotulo="= Queda" valor={num(totales.queda)} fuerte color="var(--primary-3, #2ecc71)" />
+          <Cifra clave="mermas" rotulo="− Mermas / salidas" valor={num(totales.mermas)}
+            nota="dañado, salidas y ajustes" color="var(--warning)" onVer={setVerCifra} />
+          <Cifra clave="queda" rotulo="= Queda" valor={num(totales.queda)} nota="pasa al próximo mercado"
+            fuerte color="var(--primary-3, #2ecc71)" onVer={setVerCifra} />
         </div>
         {/* Lo que costó dar de comer. La ecuación de arriba se lee en UNIDADES y sirve
             para cuadrar el almacén; esta línea responde la otra pregunta, la del
             presupuesto: cuánto salió el plato. Los tres números ya venían calculados
             en `kpis` y no los mostraba nadie.
-            Va como línea secundaria y no como más tarjetas: son otra unidad (dinero y
-            platos) y mezclarlas con los kilos haría leer mal las dos. */}
+            Van en su propia fila y no mezcladas con las de arriba: son otra unidad
+            (dinero y platos) y en una sola tira se leerían como si se sumaran. */}
         <div style={{
-          marginTop: '.6rem', paddingTop: '.55rem', borderTop: '1px solid var(--border)',
-          display: 'flex', gap: '1.4rem', flexWrap: 'wrap', alignItems: 'baseline',
+          marginTop: '.5rem',
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '.5rem',
         }}>
-          <Costo rotulo="Platos servidos" valor={num(costo.platos)} />
-          <Costo rotulo="Costo del consumo" valor={money(costo.consumo)} color="var(--danger)" />
-          <Costo
-            rotulo="Costo por plato"
+          <Cifra clave="platos" rotulo="Platos servidos" valor={num(costo.platos)} nota="en este ciclo" onVer={setVerCifra} />
+          <Cifra clave="costoConsumo" rotulo="Costo del consumo" valor={money(costo.consumo)}
+            nota="víveres servidos" color="var(--danger)" onVer={setVerCifra} />
+          <Cifra clave="costoPorPlato" rotulo="Costo por plato"
             valor={costo.porPlato != null ? money(costo.porPlato) : '—'}
-            color="var(--warning)"
-            fuerte
-            nota={costo.porPlato == null ? 'todavía no se sirvió ningún plato' : undefined}
-          />
-          {costo.entradas > 0 && <Costo rotulo="Entradas valoradas" valor={money(costo.entradas)} />}
+            nota={costo.porPlato == null ? 'todavía no se sirvió ningún plato' : 'consumo ÷ platos'}
+            color="var(--warning)" fuerte onVer={setVerCifra} />
+          {costo.entradas > 0 && (
+            <Cifra clave="entradasValoradas" rotulo="Entradas valoradas" valor={money(costo.entradas)}
+              nota="lo que costó lo que entró" onVer={setVerCifra} />
+          )}
           {/* Lo perdido en dinero, APARTE del costo por plato: una pérdida no es comida servida. */}
-          {resumen.kpis.mermasValor > 0 && <Costo rotulo="Mermas valoradas" valor={money(resumen.kpis.mermasValor)} color="var(--warning)" />}
+          {resumen.kpis.mermasValor > 0 && (
+            <Cifra clave="mermasValoradas" rotulo="Mermas valoradas" valor={money(resumen.kpis.mermasValor)}
+              nota="aparte del costo por plato" color="var(--warning)" onVer={setVerCifra} />
+          )}
         </div>
         {/* El contraste con el inventario aparece SOLO si no cuadra. Un «0» que
             tranquiliza ocupa lugar y enseña a no mirar. */}
@@ -483,28 +522,125 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
       </div>
       )}
 
-      {/* ── CAPA 3b · Kardex: entradas (verde) y consumos (rojo) ─────────── */}
+      {/* ── CAPA 3b · Kardex: entradas (verde) y consumos (rojo) ───────────
+          Sus PROPIAS tarjetas arriba: son los números de lo que está a la vista,
+          y cambian con el filtro. Los del encabezado son los del ciclo entero. */}
       {vista !== 'disponible' && vista !== 'distribucion' && (
+      <>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '.5rem', marginBottom: '.5rem' }}>
+        <CifraKardex rotulo="Platos" valor={num(totalesKardex.platos)}
+          nota={`${num(totalesKardex.movimientos)} movimiento${totalesKardex.movimientos === 1 ? '' : 's'} · ${filtroPuesto ? 'filtrado' : 'todo el ciclo'}`} />
+        <CifraKardex rotulo="Consumo" valor={money(totalesKardex.consumoValor)} color="var(--danger)"
+          nota={`costo de víveres · ${totalesKardex.comidas} comida${totalesKardex.comidas === 1 ? '' : 's'}`} />
+        <CifraKardex rotulo="Promedio por plato" fuerte color="var(--warning)"
+          valor={totalesKardex.porPlato != null ? money(totalesKardex.porPlato) : '—'}
+          nota={totalesKardex.porPlato != null ? 'consumo ÷ platos' : 'sin platos servidos acá'} />
+        <CifraKardex rotulo="Víveres tocados" valor={num(totalesKardex.viveres)} nota="productos distintos" />
+        {totalesKardex.entradasValor > 0 && (
+          <CifraKardex rotulo="Entradas" valor={money(totalesKardex.entradasValor)}
+            color="var(--primary-3, #2ecc71)" nota="lo que entró, valorado" />
+        )}
+        {totalesKardex.mermasValor > 0 && (
+          <CifraKardex rotulo="Mermas" valor={money(totalesKardex.mermasValor)}
+            color="var(--warning)" nota="lo que se perdió" />
+        )}
+      </div>
+
+      {/* La barra de filtros: fecha, clase, tipo de comida y una caja que busca
+          en TODO lo que la fila muestra —incluida la fecha tecleada—. */}
+      <div className="card" style={{ marginBottom: '.5rem', padding: '.6rem .8rem', background: 'var(--bg-2)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
+          <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
+            <label>Desde</label>
+            <input className="input" type="date" value={filtro.desde} max={filtro.hasta || undefined}
+              onChange={(e) => cambiarFiltro({ desde: e.target.value })} />
+          </div>
+          <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
+            <label>Hasta</label>
+            <input className="input" type="date" value={filtro.hasta} min={filtro.desde || undefined}
+              onChange={(e) => cambiarFiltro({ hasta: e.target.value })} />
+          </div>
+          <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
+            <label>Tipo de movimiento</label>
+            <select className="select" value={filtro.clase}
+              onChange={(e) => cambiarFiltro({ clase: e.target.value as FiltroKardex['clase'] })}>
+              {CLASES_KARDEX.map((c) => <option key={c.clave} value={c.clave}>{c.label}</option>)}
+            </select>
+          </div>
+          <div className="form-row" style={{ flex: '1 1 150px', margin: 0 }}>
+            <label>Tipo de comida</label>
+            <select className="select" value={filtro.tipoComida}
+              onChange={(e) => cambiarFiltro({ tipoComida: e.target.value })}>
+              <option value="">Todas</option>
+              {TIPOS_COMIDA.map((t) => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
+            </select>
+          </div>
+          <div className="form-row" style={{ flex: '2 1 240px', margin: 0 }}>
+            <label>Búsqueda general</label>
+            <input className="input" type="search" value={filtro.texto}
+              onChange={(e) => cambiarFiltro({ texto: e.target.value })}
+              placeholder="🔍 víver, código, almacén, quién, motivo, 26/09/2026…" />
+          </div>
+          {filtroPuesto && (
+            <button type="button" className="btn btn-ghost"
+              onClick={() => { setFiltro(FILTRO_KARDEX_VACIO); setPagina(1); }}>
+              ✕ Limpiar
+            </button>
+          )}
+        </div>
+        <div className="dim" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>
+          La búsqueda mira todo lo que la fila muestra y exige todas las palabras: «pollo 26/09/2026»
+          trae el pollo de ese día, no todo el pollo y todo el 26.
+        </div>
+      </div>
+
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
           <div className="card-title" style={{ margin: 0 }}>Movimientos del mercado <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· entradas, traslados, consumos y mermas</span></div>
-          <input className="input" style={{ maxWidth: 240 }} placeholder="Buscar en el kardex…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          {pag.total > 0 && (
+            <span className="muted mono" style={{ fontSize: '.78rem' }}>
+              {pag.primero}–{pag.ultimo} de {pag.total}
+            </span>
+          )}
         </div>
-        {!kardexFiltrado.length ? (
-          <p className="hint muted" style={{ margin: 0 }}>Sin movimientos en este mercado.</p>
+        {!pag.total ? (
+          <p className="hint muted" style={{ margin: 0 }}>
+            {filtroPuesto
+              ? 'Ningún movimiento coincide con el filtro. Probá con «✕ Limpiar».'
+              : 'Sin movimientos en este mercado.'}
+          </p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-            {kardexFiltrado.map((k, i) => k.kind === 'entrada'
-              ? <FilaEntrada key={`e${i}`} row={k} />
-              : k.kind === 'traslado'
-                ? <FilaTraslado key={`t${k.id}`} row={k} />
-                : k.kind === 'merma'
-                ? <FilaMerma key={`m${i}`} row={k} />
-                : <FilaConsumo key={`c${k.comida.id}`} row={k} canWrite={canWrite} onEdit={() => onEditComida(k.comida)} onDel={() => onDelComida(k.comida)} />)}
-          </div>
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+              {pag.items.map((k, i) => k.kind === 'entrada'
+                ? <FilaEntrada key={`e${pag.primero + i}`} row={k} />
+                : k.kind === 'traslado'
+                  ? <FilaTraslado key={`t${k.id}`} row={k} />
+                  : k.kind === 'merma'
+                  ? <FilaMerma key={`m${pag.primero + i}`} row={k} />
+                  : <FilaConsumo key={`c${k.comida.id}`} row={k} canWrite={canWrite} onEdit={() => onEditComida(k.comida)} onDel={() => onDelComida(k.comida)} />)}
+            </div>
+            {pag.paginas > 1 && (
+              <div style={{ display: 'flex', gap: '.25rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', marginTop: '.7rem' }}>
+                <button type="button" className="btn btn-sm btn-ghost" disabled={pag.pagina <= 1}
+                  onClick={() => setPagina(pag.pagina - 1)}>‹ Anterior</button>
+                {indices.map((n, i) => (n === '…'
+                  ? <span key={`h${i}`} className="dim" style={{ padding: '0 .2rem' }}>…</span>
+                  : <button key={n} type="button" className={`btn btn-sm ${n === pag.pagina ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{ minWidth: 34 }} aria-current={n === pag.pagina ? 'page' : undefined}
+                      onClick={() => setPagina(n)}>{n}</button>
+                ))}
+                <button type="button" className="btn btn-sm btn-ghost" disabled={pag.pagina >= pag.paginas}
+                  onClick={() => setPagina(pag.pagina + 1)}>Siguiente ›</button>
+              </div>
+            )}
+          </>
         )}
       </div>
+      </>
       )}
+
+      {verCifra && <CifraModal clave={verCifra} datos={datosCifra} onClose={() => setVerCifra(null)} />}
 
       {drill && (
         <DrillModal item={drill} kardex={kardex} fechaInicio={mercado.fecha_inicio} inicioAt={mercado.inicio_at}
@@ -532,28 +668,93 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
 }
 
 /** Un número de la ecuación del ciclo, con su rótulo debajo. */
-function Cifra({ rotulo, valor, color, fuerte }: { rotulo: string; valor: string; color?: string; fuerte?: boolean }) {
+function Cifra({ clave, rotulo, valor, nota, color, fuerte, onVer }: {
+  clave: ClaveCifra; rotulo: string; valor: string; nota?: string; color?: string; fuerte?: boolean;
+  onVer: (c: ClaveCifra) => void;
+}) {
   return (
-    <div>
-      {/* Cifras tabulares (.mono) para que los dígitos se alineen entre mercados
-          cuando se comparan dos cortes uno debajo del otro. */}
-      <div className="mono" style={{ fontSize: fuerte ? '1.35rem' : '1.15rem', fontWeight: fuerte ? 800 : 700, color }}>{valor}</div>
-      <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.02em' }}>{rotulo}</div>
+    <button type="button" className="card" onClick={() => onVer(clave)}
+      title={`Ver de dónde sale ${rotulo.replace(/^[+−±=]\s*/, '')}`}
+      style={{
+        margin: 0, padding: '.6rem .8rem', background: 'var(--bg-2)', cursor: 'pointer',
+        textAlign: 'left', font: 'inherit',
+        borderColor: fuerte ? 'var(--primary, #ff8a00)' : 'var(--border)',
+        display: 'flex', flexDirection: 'column', gap: '.12rem',
+      }}>
+      {/* El rótulo primero y en mayúsculas: es lo que dice de qué es el número,
+          y con siete tarjetas seguidas leer la cifra sin saber qué mide no sirve. */}
+      <div className="muted" style={{ fontSize: '.68rem', letterSpacing: '.06em', textTransform: 'uppercase' }}>{rotulo}</div>
+      {/* Cifras tabulares (.mono) para que los dígitos se alineen entre tarjetas
+          y entre mercados, cuando se comparan dos cortes uno debajo del otro. */}
+      <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.15, color }}>{valor}</div>
+      {/* Qué es, en palabras. Contestaba «¿y esto de dónde sale?» por mensaje una
+          vez por ciclo; ahora lo dice la tarjeta, y el detalle está a un toque. */}
+      {nota && <div className="dim" style={{ fontSize: '.7rem' }}>{nota}</div>}
+    </button>
+  );
+}
+
+/**
+ * Una tarjeta del bloque de movimientos. Igual que `Cifra` pero sin toque: su
+ * número ya ES el detalle —cambia con el filtro— así que no hay nada que abrir.
+ */
+function CifraKardex({ rotulo, valor, nota, color, fuerte }: {
+  rotulo: string; valor: string; nota?: string; color?: string; fuerte?: boolean;
+}) {
+  return (
+    <div className="card" style={{
+      margin: 0, padding: '.6rem .8rem', background: 'var(--bg-2)',
+      borderColor: fuerte ? 'var(--primary, #ff8a00)' : 'var(--border)',
+      display: 'flex', flexDirection: 'column', gap: '.12rem',
+    }}>
+      <div className="muted" style={{ fontSize: '.68rem', letterSpacing: '.06em', textTransform: 'uppercase' }}>{rotulo}</div>
+      <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.15, color }}>{valor}</div>
+      {nota && <div className="dim" style={{ fontSize: '.7rem' }}>{nota}</div>}
     </div>
   );
 }
 
-/** Un número en dinero o platos: rótulo primero, cifra debajo. Al revés que
- *  `Cifra`, porque acá el rótulo es lo que desambigua (no todos son dinero). */
-function Costo({ rotulo, valor, color, fuerte, nota }: {
-  rotulo: string; valor: string; color?: string; fuerte?: boolean; nota?: string;
+/** Lo que hay detrás de una tarjeta: la cuenta, el detalle y la aclaración. */
+function CifraModal({ clave, datos, onClose }: {
+  clave: ClaveCifra; datos: DatosCifra; onClose: () => void;
 }) {
+  const e = explicarCifra(clave, datos);
   return (
-    <div>
-      <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.02em' }}>{rotulo}</div>
-      <div className="mono" style={{ fontSize: fuerte ? '1.2rem' : '1.05rem', fontWeight: fuerte ? 800 : 700, color }}>{valor}</div>
-      {nota && <div className="muted" style={{ fontSize: '.68rem' }}>{nota}</div>}
-    </div>
+    <Modal title={e.titulo} size="md" onClose={onClose}
+      footer={<button className="btn btn-primary" onClick={onClose}>Entendido</button>}>
+      <p style={{ marginTop: 0, fontSize: '.9rem' }}>{e.queEs}</p>
+      {e.cuenta && (
+        <div className="card mono" style={{
+          margin: '0 0 .7rem', padding: '.6rem .8rem', background: 'var(--bg-2)',
+          fontSize: '.86rem', overflowX: 'auto', whiteSpace: 'nowrap',
+        }}>
+          {e.cuenta}
+        </div>
+      )}
+      {e.tituloLista && e.renglones.length > 0 && (
+        <>
+          <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: '.3rem' }}>
+            {e.tituloLista}
+          </div>
+          <table className="table" style={{ fontSize: '.83rem', marginBottom: '.5rem' }}>
+            <tbody>
+              {e.renglones.map((r, i) => (
+                <tr key={`${r.nombre}-${i}`}>
+                  <td>{r.nombre}{r.nota ? <span className="dim" style={{ fontSize: '.74rem' }}> · {r.nota}</span> : null}</td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{r.valor}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {e.restantes > 0 && (
+            <p className="dim" style={{ margin: '0 0 .5rem', fontSize: '.76rem' }}>
+              y {e.restantes} víver{e.restantes === 1 ? '' : 'es'} más · la tabla de abajo los tiene todos
+            </p>
+          )}
+        </>
+      )}
+      {e.ojo && <p className="hint muted" style={{ margin: 0 }}>{e.ojo}</p>}
+    </Modal>
   );
 }
 
