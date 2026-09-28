@@ -1,0 +1,123 @@
+import { describe, it, expect } from 'vitest';
+import {
+  EMOJI_MOVIMIENTO, TITULO_MOVIMIENTO, mensajeMovimiento, enlaceWhatsapp, fechaHoraTexto,
+  type MovimientoParaMensaje,
+} from './mensajeMovimiento';
+
+/** Un surtido completo al que cada prueba le cambia lo suyo. */
+function mov(over: Partial<MovimientoParaMensaje> = {}): MovimientoParaMensaje {
+  return {
+    tipo: 'consumo',
+    litros: 120,
+    // 14:30 UTC = 10:30 AM en Venezuela.
+    fecha: '2026-09-28T14:30:00Z',
+    equipo: 'CAMION 350',
+    autorizado_por: 'LEYDIS RENGEL',
+    destino: 'MINA LOS PINOS',
+    ...over,
+  };
+}
+
+describe('el emoji dice de un vistazo qué pasó', () => {
+  it('lo que sale va con flecha hacia abajo', () => {
+    expect(EMOJI_MOVIMIENTO.consumo).toBe('⬇️');
+  });
+
+  it('lo que entra va con flecha hacia arriba', () => {
+    expect(EMOJI_MOVIMIENTO.ingreso).toBe('⬆️');
+  });
+
+  it('cada tipo tiene su emoji y su título, sin quedar ninguno afuera', () => {
+    for (const t of ['consumo', 'ingreso', 'retorno', 'merma', 'traslado'] as const) {
+      expect(EMOJI_MOVIMIENTO[t]).toBeTruthy();
+      expect(TITULO_MOVIMIENTO[t]).toBeTruthy();
+    }
+  });
+});
+
+describe('el mensaje del movimiento', () => {
+  it('abre con el emoji y el título en negrita', () => {
+    expect(mensajeMovimiento(mov())).toMatch(/^⬇️ \*SURTIDO\*/);
+  });
+
+  it('trae litros, equipo, autorizado, destino y fecha con hora', () => {
+    const t = mensajeMovimiento(mov(), { tanque: 'TANQUE 1' });
+    expect(t).toContain('Litros: *120 L*');
+    expect(t).toContain('Equipo: CAMION 350');
+    expect(t).toContain('Autorizado por: LEYDIS RENGEL');
+    expect(t).toContain('Destino: MINA LOS PINOS');
+    expect(t).toContain('Tanque: TANQUE 1');
+    expect(t).toContain('28/09/2026');
+  });
+
+  it('la hora sale en la de Venezuela, no en la del teléfono', () => {
+    // 14:30 UTC son las 10:30 AM acá: si el mensaje mostrara la hora local de
+    // cada quien, dos personas leerían horas distintas del mismo surtido.
+    expect(mensajeMovimiento(mov())).toContain('10:30');
+  });
+
+  it('los miles se separan como se leen acá', () => {
+    expect(mensajeMovimiento(mov({ litros: 1250.5 }))).toContain('1.250,5 L');
+  });
+
+  it('no escribe los renglones que no tienen dato', () => {
+    const t = mensajeMovimiento(mov({ equipo: null, destino: '  ', autorizado_por: '' }));
+    expect(t).not.toContain('Equipo');
+    expect(t).not.toContain('Destino');
+    expect(t).not.toContain('Autorizado');
+    // Pero los litros y la fecha van siempre: son el movimiento.
+    expect(t).toContain('Litros');
+    expect(t).toContain('Fecha');
+  });
+
+  it('el traslado dice de qué tanque sale y a cuál entra', () => {
+    const t = mensajeMovimiento(mov({ tipo: 'traslado' }), { tanque: 'TANQUE 1', tanqueDestino: 'TANQUE 2' });
+    expect(t).toMatch(/^🔁 \*TRASLADO ENTRE TANQUES\*/);
+    expect(t).toContain('Sale de: TANQUE 1');
+    expect(t).toContain('Entra a: TANQUE 2');
+    // En un traslado no hay un solo «Tanque»: hay dos, y se nombran distinto.
+    expect(t).not.toContain('🛢️ Tanque:');
+  });
+
+  it('la merma se anuncia como merma y lleva su motivo', () => {
+    const t = mensajeMovimiento(mov({ tipo: 'merma', observacion: 'Derrame en la manguera' }));
+    expect(t).toContain('🔻 *MERMA*');
+    expect(t).toContain('Observación: Derrame en la manguera');
+  });
+
+  it('el contador va cuando hay alguna de las dos lecturas', () => {
+    expect(mensajeMovimiento(mov({ contador_global_ini: 1000, contador_global_fin: 1120 })))
+      .toContain('Contador: 1000 → 1120');
+    expect(mensajeMovimiento(mov({ contador_global_ini: null, contador_global_fin: 1120 })))
+      .toContain('Contador: — → 1120');
+    expect(mensajeMovimiento(mov())).not.toContain('Contador');
+  });
+
+  it('cierra firmando, para que se sepa de dónde salió', () => {
+    expect(mensajeMovimiento(mov())).toContain('MGG · Mineral Group Guayana');
+  });
+
+  it('una fecha ilegible no rompe el mensaje', () => {
+    expect(fechaHoraTexto(null)).toBe('—');
+    expect(fechaHoraTexto('cualquier cosa')).toBe('—');
+    expect(mensajeMovimiento(mov({ fecha: null }))).toContain('Fecha: —');
+  });
+});
+
+describe('el enlace de WhatsApp', () => {
+  it('lleva el mensaje codificado', () => {
+    const url = enlaceWhatsapp('⬇️ SURTIDO 120 L');
+    expect(url.startsWith('https://wa.me/?text=')).toBe(true);
+    expect(decodeURIComponent(url.split('text=')[1])).toBe('⬇️ SURTIDO 120 L');
+  });
+
+  it('va SIN número: el destinatario se elige al mandarlo', () => {
+    // El surtido de hoy va al encargado y el de mañana al grupo de la mina.
+    expect(enlaceWhatsapp('hola')).not.toMatch(/wa\.me\/\d/);
+  });
+
+  it('los saltos de línea sobreviven al enlace', () => {
+    const texto = mensajeMovimiento(mov());
+    expect(decodeURIComponent(enlaceWhatsapp(texto).split('text=')[1])).toBe(texto);
+  });
+});

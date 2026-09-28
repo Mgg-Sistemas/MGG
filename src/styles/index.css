@@ -3,6 +3,7 @@
 @import './app-shell.css';
 @import './login.css';
 @import './landing.css';
+@import './surtidor.css';
 
 @tailwind utilities;
 

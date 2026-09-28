@@ -992,8 +992,8 @@ export async function eliminarCatalogo(tabla: TablaCatalogo, id: string): Promis
    Si el tanque tiene combustible asignado, se reusa la lógica de inventario
    (registrarIngreso / salidaCombustibleDirecta) para mantener todo consistente. */
 
-const TIPO_TANQUE_SUMA: Record<TipoMovimientoTanque, boolean> = { ingreso: true, retorno: true, consumo: false, merma: false };
-export const TIPO_TANQUE_LABEL: Record<TipoMovimientoTanque, string> = { ingreso: 'Ingreso', consumo: 'Consumo', retorno: 'Retorno', merma: 'Merma' };
+const TIPO_TANQUE_SUMA: Record<TipoMovimientoTanque, boolean> = { ingreso: true, retorno: true, consumo: false, merma: false, traslado: false };
+export const TIPO_TANQUE_LABEL: Record<TipoMovimientoTanque, string> = { ingreso: 'Ingreso', consumo: 'Consumo', retorno: 'Retorno', merma: 'Merma', traslado: 'Traslado' };
 
 /** Almacén "casa" del combustible (donde vive su existencia en el inventario). */
 async function almacenCasaCombustible(combustibleId: string): Promise<string> {
@@ -1112,11 +1112,32 @@ export async function crearTanqueMovimiento(input: {
   despachadoPor?: string | null;
   destino?: string | null;
   observacion?: string | null;
+  /** Traslado: a qué tanque pasa el combustible. */
+  tanqueDestinoId?: string | null;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<string> {
   const litros = Number(input.litros) || 0;
   if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+
+  // El traslado es el combustible cambiando de tanque, no saliendo de la
+  // empresa: se mueve por su propio camino para no tocar el inventario.
+  if (input.tipo === 'traslado') {
+    return trasladarEntreTanques({
+      tanqueId: input.tanqueId,
+      tanqueDestinoId: input.tanqueDestinoId ?? '',
+      litros,
+      fecha: input.fecha ?? null,
+      equipo: input.equipo ?? null,
+      autorizadoPor: input.autorizadoPor ?? null,
+      contadorIni: input.contadorIni ?? null,
+      contadorFin: input.contadorFin ?? null,
+      destino: input.destino ?? null,
+      observacion: input.observacion ?? null,
+      actor: input.actor,
+      actorName: input.actorName ?? null,
+    });
+  }
   const { data: tq, error: tErr } = await supabase
     .from('combustible_tanques')
     .select('id, nombre, litros, capacidad_litros, combustible_id')
@@ -1163,7 +1184,7 @@ export async function crearTanqueMovimiento(input: {
     if (error) throw error;
   }
 
-  const { error: mErr } = await supabase.from('combustible_tanque_movimientos').insert({
+  const { data: creado, error: mErr } = await supabase.from('combustible_tanque_movimientos').insert({
     tanque_id: tq.id, tanque_nombre: tq.nombre, tipo: input.tipo,
     fecha: input.fecha ?? new Date().toISOString(),
     litros, litros_antes: litrosAntes, litros_despues: Math.max(0, litrosDespues),
@@ -1175,11 +1196,121 @@ export async function crearTanqueMovimiento(input: {
     destino: input.destino?.trim() || null, observacion: input.observacion?.trim() || null,
     combustible_id: combustibleId, costo_litro: costoLitro,
     actor: input.actor, actor_name: input.actorName ?? null,
-  });
+  }).select('id').single();
   if (mErr) throw mErr;
 
   // Re-encadena el contador del tanque y el horómetro del equipo (orden por fecha).
   await reencadenarTrasCambio(tq.id, null, input.equipo?.trim() || null, null);
+  return (creado as { id: string }).id;
+}
+
+/**
+ * Pasa combustible de un tanque a otro.
+ *
+ * NO toca el inventario ni los litros del `combustible`: el diésel no salió de
+ * la empresa, cambió de tanque. Registrarlo como una salida más una entrada
+ * dejaría dos movimientos que se anulan ensuciando el kardex, y cualquier
+ * reporte que sume salidas contaría un consumo que nunca ocurrió.
+ *
+ * Quedan DOS movimientos, uno en cada tanque, apuntándose entre sí: así el
+ * libro de cada tanque cuenta su parte y borrar uno borra el otro.
+ *
+ * Devuelve el id del movimiento de SALIDA, que es el que el surtidor acaba de
+ * registrar y al que se le cuelgan las fotos.
+ */
+async function trasladarEntreTanques(input: {
+  tanqueId: string;
+  tanqueDestinoId: string;
+  litros: number;
+  fecha: string | null;
+  equipo: string | null;
+  autorizadoPor: string | null;
+  contadorIni: number | null;
+  contadorFin: number | null;
+  destino: string | null;
+  observacion: string | null;
+  actor: string;
+  actorName: string | null;
+}): Promise<string> {
+  const { litros } = input;
+  if (!input.tanqueDestinoId) throw new Error('Elegí a qué tanque pasa el combustible.');
+  if (input.tanqueDestinoId === input.tanqueId) throw new Error('El tanque de destino tiene que ser otro.');
+
+  const { data: tanques, error: tErr } = await supabase
+    .from('combustible_tanques')
+    .select('id, nombre, litros, capacidad_litros, combustible_id')
+    .in('id', [input.tanqueId, input.tanqueDestinoId]);
+  if (tErr) throw tErr;
+  const origen = (tanques ?? []).find((t) => t.id === input.tanqueId);
+  const destino = (tanques ?? []).find((t) => t.id === input.tanqueDestinoId);
+  if (!origen || !destino) throw new Error('No se encontró alguno de los dos tanques.');
+
+  // Dos combustibles distintos en el mismo traslado mezclarían gasoil con
+  // gasolina y dejarían los dos saldos mal. Eso se resuelve con una salida y
+  // una entrada, no con un traslado.
+  if ((origen.combustible_id ?? null) !== (destino.combustible_id ?? null)) {
+    throw new Error(`"${origen.nombre}" y "${destino.nombre}" no guardan el mismo combustible: no se pueden trasladar entre sí.`);
+  }
+
+  const origenAntes = Number(origen.litros) || 0;
+  const destinoAntes = Number(destino.litros) || 0;
+  if (litros > origenAntes) throw new Error(`El tanque "${origen.nombre}" no tiene litros suficientes. Disponible: ${origenAntes} L.`);
+  const capDestino = Number(destino.capacidad_litros) || 0;
+  if (capDestino && destinoAntes + litros > capDestino + 0.0001) {
+    throw new Error(`No entra en "${destino.nombre}": tiene ${destinoAntes} L de ${capDestino} L.`);
+  }
+
+  const fecha = input.fecha ?? new Date().toISOString();
+  const nota = input.observacion?.trim() || null;
+
+  const { error: e1 } = await supabase.from('combustible_tanques')
+    .update({ litros: origenAntes - litros, updated_at: new Date().toISOString() }).eq('id', origen.id);
+  if (e1) throw e1;
+  const { error: e2 } = await supabase.from('combustible_tanques')
+    .update({ litros: destinoAntes + litros, updated_at: new Date().toISOString() }).eq('id', destino.id);
+  if (e2) throw e2;
+
+  const comun = {
+    tipo: 'traslado' as const,
+    fecha,
+    litros,
+    equipo: input.equipo?.trim() || null,
+    autorizado_por: input.autorizadoPor?.trim() || null,
+    destino: input.destino?.trim() || null,
+    combustible_id: origen.combustible_id ?? null,
+    actor: input.actor,
+    actor_name: input.actorName,
+  };
+
+  const { data: salida, error: e3 } = await supabase.from('combustible_tanque_movimientos').insert({
+    ...comun,
+    tanque_id: origen.id, tanque_nombre: origen.nombre,
+    tanque_destino_id: destino.id,
+    litros_antes: origenAntes, litros_despues: origenAntes - litros,
+    contador_global_ini: input.contadorIni, contador_global_fin: input.contadorFin,
+    observacion: nota ?? `Traslado a ${destino.nombre}`,
+  }).select('id').single();
+  if (e3) throw e3;
+
+  const { data: entrada, error: e4 } = await supabase.from('combustible_tanque_movimientos').insert({
+    ...comun,
+    tanque_id: destino.id, tanque_nombre: destino.nombre,
+    tanque_destino_id: origen.id,
+    litros_antes: destinoAntes, litros_despues: destinoAntes + litros,
+    observacion: nota ?? `Traslado desde ${origen.nombre}`,
+    mov_vinculado_id: (salida as { id: string }).id,
+  }).select('id').single();
+  if (e4) throw e4;
+
+  // Recién ahora se puede cerrar el vínculo en los dos sentidos: el primero no
+  // podía apuntar a un id que todavía no existía.
+  await supabase.from('combustible_tanque_movimientos')
+    .update({ mov_vinculado_id: (entrada as { id: string }).id })
+    .eq('id', (salida as { id: string }).id);
+
+  await reencadenarTrasCambio(origen.id, null, null, null);
+  await reencadenarTrasCambio(destino.id, null, null, null);
+  return (salida as { id: string }).id;
 }
 
 /**
@@ -1270,6 +1401,15 @@ export async function eliminarTanqueMovimiento(id: string, actor: string, actorN
   if (ligada) throw errorMovimientoDeSolicitud(ligada, 'borrar');
   const litros = Math.abs(Number(m.litros) || 0);
   const tipo = m.tipo as TipoMovimientoTanque;
+
+  // Un traslado son DOS movimientos: el que salió de un tanque y el que entró
+  // al otro. Borrar solo uno dejaría litros duplicados o perdidos, así que se
+  // deshacen los dos a la vez y no se toca el inventario, igual que al crearlo.
+  if (tipo === 'traslado') {
+    await borrarTrasladoCompleto(m);
+    return;
+  }
+
   const suma = TIPO_TANQUE_SUMA[tipo];
   // Reverso: el efecto original era +litros (suma) o -litros (resta); aplicamos el inverso.
   const delta = suma ? -litros : litros;
@@ -1285,6 +1425,49 @@ export async function eliminarTanqueMovimiento(id: string, actor: string, actorN
 
   // Al quitar un eslabón, re-encadenamos el resto (contador del tanque, horómetro del equipo).
   await reencadenarTrasCambio((m.tanque_id as string) ?? null, null, (m.equipo as string) ?? null, null);
+}
+
+/**
+ * Deshace un traslado entero: devuelve los litros a su tanque y borra los DOS
+ * movimientos.
+ *
+ * No pasa por `ajustarBalancesTanqueMov` a propósito: ese ajusta también el
+ * `combustible` y el inventario, y el traslado nunca los tocó. Usarlo acá
+ * inventaría litros que no se movieron.
+ */
+async function borrarTrasladoCompleto(m: Record<string, unknown>): Promise<void> {
+  const litros = Math.abs(Number(m.litros) || 0);
+  const salidaId = m.id as string;
+  const vinculadoId = (m.mov_vinculado_id as string | null) ?? null;
+
+  const { data: par } = vinculadoId
+    ? await supabase.from('combustible_tanque_movimientos').select('*').eq('id', vinculadoId).maybeSingle()
+    : { data: null };
+
+  /** ¿Este movimiento le SUMÓ litros a su tanque? Es la pata que recibió. */
+  const recibio = (x: Record<string, unknown> | null) =>
+    !!x && (Number(x.litros_despues) || 0) > (Number(x.litros_antes) || 0);
+
+  const patas = [m, par as Record<string, unknown> | null].filter(Boolean) as Record<string, unknown>[];
+  for (const p of patas) {
+    const tanqueId = (p.tanque_id as string | null) ?? null;
+    if (!tanqueId) continue;
+    const { data: tq } = await supabase.from('combustible_tanques').select('litros').eq('id', tanqueId).maybeSingle();
+    if (!tq) continue;
+    const actual = Number((tq as { litros?: number }).litros) || 0;
+    // Al que recibió se le quitan; al que entregó se le devuelven.
+    const nuevo = Math.max(0, recibio(p) ? actual - litros : actual + litros);
+    await supabase.from('combustible_tanques')
+      .update({ litros: nuevo, updated_at: new Date().toISOString() }).eq('id', tanqueId);
+  }
+
+  const ids = [salidaId, vinculadoId].filter(Boolean) as string[];
+  const { error } = await supabase.from('combustible_tanque_movimientos').delete().in('id', ids);
+  if (error) throw error;
+
+  for (const p of patas) {
+    await reencadenarTrasCambio((p.tanque_id as string | null) ?? null, null, null, null);
+  }
 }
 
 /**

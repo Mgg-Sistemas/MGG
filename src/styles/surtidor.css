@@ -1,0 +1,106 @@
+/* ============================================================
+   MGG · Combustible · Surtidor (vista de teléfono)
+   Botones y campos GRANDES: se usa con una mano, al lado del tanque, con
+   guantes o con el sol encima. Nada más chico que 56px de alto.
+   ============================================================ */
+.surtidor { max-width: 640px; margin: 0 auto; padding-bottom: 2rem; }
+.surt-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
+.surt-head h1 { margin: 0; font-size: 1.5rem; }
+
+.surt-rotulo { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 700; margin: .5rem 0 .35rem; }
+.surt-tanques { display: flex; gap: .5rem; overflow-x: auto; padding-bottom: .4rem; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.surt-tanque {
+  flex: 0 0 auto; min-width: 150px; min-height: 64px; padding: .65rem .9rem;
+  border: 2px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2);
+  text-align: left; color: var(--text); cursor: pointer; font: inherit;
+}
+.surt-tanque.sel { border-color: var(--primary); background: var(--grad-primary-soft); }
+.surt-tanque .nombre { font-weight: 700; font-size: .95rem; }
+.surt-tanque .saldo { font-family: var(--font-mono); font-size: 1.3rem; font-weight: 800; color: var(--primary-2); }
+.surt-tanque .saldo small { font-size: .8rem; font-weight: 600; }
+
+.surt-acciones { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin: 1rem 0; }
+.surt-acciones .surt-btn.primario,
+.surt-acciones .surt-btn.merma { grid-column: 1 / -1; }
+.surt-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem;
+  padding: 1rem .8rem; min-height: 118px;
+  border: 2px solid var(--border-strong); border-radius: var(--r-lg); background: var(--surface-3);
+  color: var(--text); font: inherit; font-size: 1.3rem; font-weight: 700; cursor: pointer; text-align: center;
+}
+.surt-btn .icono { font-size: 2.3rem; line-height: 1; }
+.surt-btn small { font-weight: 500; font-size: .85rem; color: var(--text-muted); }
+.surt-btn.primario { border-color: var(--primary); background: var(--grad-primary-soft); }
+.surt-btn.entrada { border-color: var(--success); }
+.surt-btn.merma { border-color: var(--danger); }
+.surt-btn:active { transform: scale(.98); }
+
+.surt-form { display: flex; flex-direction: column; gap: .9rem; margin: 1rem 0; }
+.surt-form-titulo { display: flex; align-items: center; gap: .75rem; }
+.surt-form-titulo .icono { font-size: 2rem; }
+.surt-form-titulo strong { font-size: 1.2rem; }
+.surt-campo label { display: block; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 700; margin-bottom: .3rem; }
+.surt-campo small { display: block; margin-top: .3rem; font-size: .82rem; }
+.surt-alerta { color: var(--warning); font-weight: 600; }
+.surtidor .input.surt-input, .surtidor .select.surt-input { width: 100%; min-height: 56px; font-size: 1.15rem; padding: .6rem .8rem; }
+.surtidor .input.surt-litros { font-size: 2.2rem; text-align: center; font-family: var(--font-mono); font-weight: 800; min-height: 78px; }
+/* Listas buscables (equipo, autorizado, tanque destino, mina): el buscador con el
+   mismo alto y letra que los demás campos; se escribe una parte y filtra. */
+.surt-buscable .input { width: 100%; min-height: 56px; font-size: 1.15rem; padding: .6rem .8rem; }
+.surt-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.surt-mas { background: none; border: none; color: var(--primary-2); font: inherit; font-weight: 600; padding: .4rem 0; cursor: pointer; text-align: left; }
+.surt-guardar { min-height: 66px; font-size: 1.25rem; font-weight: 800; width: 100%; }
+.btn-grande { min-height: 52px; font-size: 1.05rem; padding: .6rem 1rem; }
+
+.surt-lista h2 { font-size: .8rem; margin: 1.25rem 0 .5rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.surt-mov {
+  display: grid; grid-template-columns: auto 1fr auto; gap: .75rem; align-items: center;
+  width: 100%; min-height: 64px; padding: .75rem .9rem; margin-bottom: .5rem;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2);
+  text-align: left; color: var(--text); font: inherit; cursor: pointer;
+}
+.surt-mov .icono { font-size: 1.6rem; }
+.surt-mov .titulo { font-weight: 700; font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.surt-mov .sub { font-size: .78rem; color: var(--text-muted); }
+.surt-mov .litros { font-family: var(--font-mono); font-size: 1.2rem; font-weight: 800; text-align: right; white-space: nowrap; }
+.surt-mov .litros.entra { color: var(--success); }
+
+.surt-detalle { display: flex; flex-direction: column; margin-bottom: .75rem; }
+.surt-fila { display: flex; justify-content: space-between; gap: 1rem; padding: .45rem 0; border-bottom: 1px solid var(--border); font-size: 1rem; }
+.surt-fila span:last-child { text-align: right; font-weight: 600; }
+
+@media (max-width: 480px) {
+  .surt-grid2 { grid-template-columns: 1fr; }
+}
+
+/* ── Reporte con fotos (teléfono) ── */
+.rep-grupo { margin-bottom: 1.1rem; }
+.rep-grupo-titulo { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: .95rem; margin: 0 0 .5rem; padding-bottom: .3rem; border-bottom: 2px solid var(--primary); }
+.rep-mov { padding: .6rem .7rem; margin-bottom: .5rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.rep-mov-cab { display: flex; justify-content: space-between; align-items: center; gap: .6rem; }
+.rep-mov .titulo { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rep-mov .sub { font-size: .78rem; color: var(--text-muted); }
+.rep-mov .litros { font-weight: 800; white-space: nowrap; }
+.rep-fotos { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: .4rem; margin-top: .5rem; }
+.rep-foto { padding: 0; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--surface-3); aspect-ratio: 1; cursor: pointer; }
+.rep-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rep-foto-doc { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; height: 100%; font-size: 1.6rem; padding: .3rem; }
+.rep-foto-doc small { font-size: .6rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* ── Confirmación de borrado en el teléfono ── */
+.surt-confirmar { border: 2px solid var(--danger); border-radius: var(--r-lg); padding: .9rem; margin-top: .8rem; background: var(--surface-3); }
+.surt-confirmar strong { color: var(--danger); }
+.surt-confirmar .botones { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-top: .7rem; }
+.surt-confirmar .btn { min-height: 60px; font-size: 1.1rem; font-weight: 800; }
+.btn-peligro { background: var(--danger); color: #fff; border: 0; }
+
+/* ── El mensaje que se manda por WhatsApp ── */
+/* Se muestra tal cual se va a enviar: si alguien no puede usar el botón de
+   copiar (permiso del navegador), lo selecciona con el dedo y lo copia. */
+.surt-mensaje {
+  white-space: pre-wrap; word-break: break-word; user-select: text;
+  margin: .6rem 0 0; padding: .7rem .8rem;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface-3); color: var(--text);
+  font-family: inherit; font-size: .9rem; line-height: 1.45;
+}

@@ -37,6 +37,7 @@ const RetencionesPage = lazyReload(() => import('./modules/retenciones/Retencion
 const RecepcionesPage = lazyReload(() => import('./modules/recepciones/RecepcionesPage').then((m) => ({ default: m.RecepcionesPage })));
 const RrhhPage = lazyReload(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
 const AsignacionesPage = lazyReload(() => import('./modules/asignaciones/AsignacionesPage').then((m) => ({ default: m.AsignacionesPage })));
+const SurtidorMovilView = lazyReload(() => import('./modules/combustible/SurtidorMovilView').then((m) => ({ default: m.SurtidorMovilView })));
 const UsuariosPage = lazyReload(() => import('./modules/usuarios/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
 const AuditoriaPage = lazyReload(() => import('./modules/auditoria/AuditoriaPage').then((m) => ({ default: m.AuditoriaPage })));
 const AjustesPage = lazyReload(() => import('./modules/ajustes/AjustesPage').then((m) => ({ default: m.AjustesPage })));
@@ -140,6 +141,7 @@ export function App() {
           <Route path="salidas" element={<RequireModule module="salidas"><Suspense fallback={<PageLoader />}><SalidasPage /></Suspense></RequireModule>} />
           <Route path="cocina" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaPage /></Suspense></RequireModule>} />
           <Route path="combustible" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><CombustiblePage /></Suspense></RequireModule>} />
+          <Route path="combustible/surtidor" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><SurtidorMovilView /></Suspense></RequireModule>} />
           <Route path="acopio" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><AcopioPage /></Suspense></RequireModule>} />
           <Route path="acopio/reporte-preliminar" element={<RequireModule module="acopio_reporte"><Suspense fallback={<PageLoader />}><ReportePreliminarPage /></Suspense></RequireModule>} />
           <Route path="acopio/global-mineral-tin" element={<RequireModule module="acopio_gmt"><Suspense fallback={<PageLoader />}><GlobalMineralTinPage /></Suspense></RequireModule>} />

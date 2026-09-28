@@ -380,7 +380,7 @@ export interface CatalogoCombustible {
 }
 
 /** Tipo de movimiento de tanque: ingreso/retorno suman, consumo/merma restan. */
-export type TipoMovimientoTanque = 'ingreso' | 'consumo' | 'retorno' | 'merma';
+export type TipoMovimientoTanque = 'ingreso' | 'consumo' | 'retorno' | 'merma' | 'traslado';
 
 /** Movimiento de un tanque (botón "Registrar Movimiento" / vista "MOVIMIENTOS"). */
 export interface TanqueMovimiento {
@@ -403,8 +403,26 @@ export interface TanqueMovimiento {
   observacion?: string | null;
   combustible_id?: string | null;
   costo_litro?: number | null;
+  /** Traslado: a qué tanque fue el combustible. */
+  tanque_destino_id?: string | null;
+  /** La otra pata del traslado (el movimiento del otro tanque). */
+  mov_vinculado_id?: string | null;
+  kilometraje_final?: number | null;
   actor?: string | null;
   actor_name?: string | null;
+  created_at: string;
+}
+
+/** Foto o documento de un movimiento de tanque (lo que carga el surtidor). */
+export interface AdjuntoCombustible {
+  id: string;
+  modulo: string;
+  ref_id: string;
+  path: string;
+  nombre: string;
+  content_type?: string | null;
+  bytes?: number | null;
+  creado_por?: string | null;
   created_at: string;
 }
 

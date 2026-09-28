@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link, Navigate } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -8,6 +9,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
+import { ROL_SURTIDOR } from './SurtidorMovilView';
 import type { Combustible, SolicitudCombustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter, PlantaMovimiento, CatalogoCombustible, TanqueMovimiento, TipoMovimientoTanque } from '@/shared/lib/types';
 import {
   listCombustibles,
@@ -160,7 +162,7 @@ function ComboBuscador({ value, onChange, opciones, placeholder, icono }: {
 
 export function CombustiblePage() {
   const { user } = useSession();
-  const { can: canPerm, appUser } = usePermissions();
+  const { can: canPerm, appUser, role, loading: cargandoPermisos } = usePermissions();
   const canWrite = canPerm('combustible', 'escritura');
   const actor = user?.email ?? 'sistema';
   // Nombre de la persona logueada (no el correo) para precargar "quién solicita".
@@ -253,6 +255,11 @@ export function CombustiblePage() {
     return m;
   }, [solicitudesSede]);
 
+  // El rol COMBUSTIBLE (surtidor) trabaja desde el teléfono: no ve el módulo de
+  // PC. Va acá abajo y no arriba del componente porque un `return` antes de los
+  // hooks rompe el orden con el que React los identifica.
+  if (!cargandoPermisos && role === ROL_SURTIDOR) return <Navigate to="/app/combustible/surtidor" replace />;
+
   return (
     <div>
       <div className="page-head">
@@ -266,6 +273,7 @@ export function CombustiblePage() {
         </div>
         {sedeActiva && (
           <div className="actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <Link to="/app/combustible/surtidor" className="btn btn-ghost" title="La pantalla del surtidor, con botones grandes para el teléfono">📱 Vista teléfono</Link>
             <button className="btn btn-ghost" onClick={() => { setSedeActiva(null); setModal('none'); }} title="Volver a las sedes">← Volver</button>
             <button className="btn btn-primary" onClick={() => setModal('consumo')} title="Gráfica de consumo de combustible por tipo">📊 Consumo</button>
             <button className="btn btn-ghost" onClick={() => { setMovTanqueId(null); setModal('movimientos'); }} title="Histórico de movimientos de tanque (por mes)">🗒 Movimientos</button>
