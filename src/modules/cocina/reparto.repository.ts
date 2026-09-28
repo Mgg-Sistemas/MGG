@@ -4,13 +4,17 @@
    El mercado llega a Los Pinos y desde ahí se reparte a La Esperanza
    (Matanza guarda un resguardo del que se saca cuando hace falta).
 
-   «Repartir» NO mueve el inventario: arma una solicitud de traslado
-   (TRA) en Salidas. La autorizan Leydis Rengel o Jesús Lozada —la base
-   lo exige con `trg_salidas_solo_autorizados`— y recién al ejecutarla
-   se mueve el stock. Por eso usa Salidas y no `transferir()` de
-   Inventario, que movería el stock sin que nadie lo autorice.
+   «Repartir» arma igual una solicitud de traslado (TRA) en Salidas
+   —queda el registro, con su código, su papel y su kardex— pero desde
+   el 28-09-2026 NO lleva autorización: nace aprobada, sin autorizante,
+   y se ejecuta acá mismo. La comida sale de una cocina de la empresa y
+   entra a otra: no se va a ningún lado, y hacer esperar el almuerzo a
+   que Leydis o Jesús estén frente a la pantalla no cuidaba nada.
 
-   Ya ejecutado, el traslado entra al libro de las dos cocinas en la
+   El mismo traslado hecho desde el MÓDULO DE TRASLADOS sí se autoriza,
+   como siempre: esto vale solo para el reparto nacido acá.
+
+   Ejecutado, el traslado entra al libro de las dos cocinas en la
    columna «Traslados»: resta en la que envía y suma en la que recibe,
    sin generar diferencia en ninguna. Da igual si se hace antes o
    después de cerrar el ciclo: cae en el ciclo que esté corriendo ese
@@ -20,7 +24,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { hoyISO } from '@/shared/lib/format';
 import type { EstadoSolicitudSalida, ItemSolicitudSalida, SolicitudSalida } from '@/shared/lib/types';
 import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
-import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
+import { crearSolicitudSalida, ejecutarSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { listCocinas, listViveresGlobal } from './cocina.repository';
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -98,9 +102,25 @@ export function motivoReparto(numero: number, origen: string, destino: string, n
   return `Reparto del mercado #${numero} de ${origen} a ${destino}${extra ? ` · ${extra}` : ''}`;
 }
 
+/** Cómo terminó el reparto: la solicitud siempre queda; el stock casi siempre se movió. */
+export interface ResultadoReparto {
+  solicitud: SolicitudSalida;
+  /** ¿Se movió el stock? Si no, la solicitud quedó aprobada y se reintenta en Salidas. */
+  ejecutada: boolean;
+  /** Qué decirle a la cocina cuando el stock no se movió. */
+  aviso: string | null;
+}
+
 /**
- * Crea la solicitud de traslado del reparto, «por aprobar». No mueve stock.
+ * Crea el traslado del reparto y lo ejecuta. Sin autorización: el registro queda
+ * en Salidas con su código, pero nadie tiene que firmarlo.
+ *
  * Valida acá y no solo en el formulario, porque el formulario se puede saltear.
+ *
+ * Si la ejecución falla (otro sacó el víver en el medio, se cortó la red), NO se
+ * pierde el pedido: la solicitud queda aprobada y se reintenta desde Salidas. Por
+ * eso devuelve un aviso en vez de reventar: el error diría «no se pudo crear» de
+ * algo que sí se creó.
  */
 export async function crearReparto(input: {
   mercadoNumero: number;
@@ -111,7 +131,7 @@ export async function crearReparto(input: {
   solicitante: string;
   actor: string;
   actorName?: string | null;
-}): Promise<SolicitudSalida> {
+}): Promise<ResultadoReparto> {
   const lineas = input.lineas.filter((l) => (Number(l.cantidad) || 0) > 0);
   if (!lineas.length) throw new Error('Indicá cuánto va de al menos un víver.');
   const mismo = lineas.find((l) => l.almacen === input.destino.almacen);
@@ -142,7 +162,7 @@ export async function crearReparto(input: {
     almacen: l.almacen,
     observacion: null,
   }));
-  return crearSolicitudSalida({
+  const solicitud = await crearSolicitudSalida({
     scope: 'traslado',
     tipo: 'material',
     almacenDestino: input.destino.almacen,
@@ -152,7 +172,21 @@ export async function crearReparto(input: {
     solicitante: input.solicitante,
     actor: input.actor,
     actorName: input.actorName ?? null,
+    sinAutorizacion: true,
   });
+
+  try {
+    await ejecutarSolicitudSalida(solicitud, input.actor, input.actorName ?? null);
+    return { solicitud, ejecutada: true, aviso: null };
+  } catch (e) {
+    const detalle = e instanceof Error ? e.message : String(e);
+    return {
+      solicitud,
+      ejecutada: false,
+      aviso: `El traslado ${solicitud.codigo} se guardó pero el stock NO se movió: ${detalle}\n`
+        + 'Quedó aprobado en Salidas y se puede ejecutar desde ahí, sin autorización.',
+    };
+  }
 }
 
 /** Una solicitud de traslado de víveres que toca este centro y no se ejecutó todavía. */

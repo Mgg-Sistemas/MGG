@@ -176,7 +176,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // 105 de 179 documentos llevaban la firma de alguien que no intervino.
   // Solo Leydis Rengel o Jesús Lozada figuran como autorizantes. Una aprobación
   // vieja de otra persona figura a nombre de Leydis, con su firma.
-  const autoriza = autorizanteDe(sol.aprobada_por);
+  const autoriza = autorizanteDe(sol.aprobada_por, sol.sin_autorizacion);
   const creo = personaDe(sol.actor, personas, sol.actor_name || sol.solicitante);
 
   // Líneas de la "factura": el detalle multi-producto si existe, si no la cabecera.

@@ -4,9 +4,11 @@
    Se muestra POR CAPAS, de lo macro a lo micro:
      1. La ecuación del ciclo (saldo + entradas = disponible − consumo = queda),
         siempre visible, y el contraste contra el inventario SOLO si no cuadra.
-     2. Un selector de qué mirar: Disponible, Movimientos o ambos. Antes los dos
-        bloques venían encima sin alternativa y con 50 víveres el scroll era
-        abrumador; ahora lo elige el usuario y se recuerda.
+     2. Tres tarjetas con switch —Disponible, Movimientos, Distribución— para
+        encender lo que se quiere mirar. Antes los dos bloques venían encima sin
+        alternativa y con 50 víveres el scroll era abrumador; ahora lo elige el
+        usuario y se recuerda. Ver «Disponible» y «Movimientos» a la vez es tener
+        las dos encendidas (ver `vistaMercado.ts`).
      3. El detalle: drill por víver y kardex.
 
    Los víveres que NO se movieron en el ciclo quedan detrás de un «ver los N
@@ -31,9 +33,8 @@ import {
   describirEvento, explicarSobrante, productosAjustados, separarMovidos,
   type DiferenciaViver, type SalidaFueraDelCiclo,
 } from './mercadoComparar';
+import { alternarVista, vistaEncendida, TARJETAS_VISTA, type LlaveVista, type Vista } from './vistaMercado';
 
-/** Qué bloque se está mirando. Se recuerda por usuario. */
-type Vista = 'disponible' | 'movimientos' | 'ambos' | 'distribucion';
 const VISTA_KEY = 'mgg.cocina.mercado.vista';
 
 /** Un cero en una tabla de 50 filas es ruido: se muestra un punto tenue. */
@@ -82,6 +83,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
     setVista(v);
     try { localStorage.setItem(VISTA_KEY, v); } catch { /* modo privado: no se recuerda, no importa */ }
   }
+  function tocarVista(llave: LlaveVista) { elegirVista(alternarVista(vista, llave)); }
 
   // Los víveres que se movieron en el ciclo van primero; los que solo arrastran
   // saldo quedan detrás de un botón. Con 50 víveres, mostrarlos todos es lo que
@@ -270,14 +272,48 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
         )}
       </div>
 
-      {/* ── CAPA 2 · Qué se quiere mirar ───────────────────────────────────── */}
-      <div className="view-switch" style={{ display: 'flex', gap: '.35rem', marginBottom: '.7rem', flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: '.76rem', alignSelf: 'center', marginRight: '.2rem' }}>Ver:</span>
-        {([['disponible', 'Disponible'], ['movimientos', 'Movimientos'], ['ambos', 'Ambos'], ['distribucion', '📊 Distribución']] as [Vista, string][]).map(([v, label]) => (
-          <button key={v} type="button" className={`btn btn-sm ${vista === v ? 'btn-primary' : 'btn-ghost'}`} onClick={() => elegirVista(v)}>
-            {label}
-          </button>
-        ))}
+      {/* ── CAPA 2 · Qué se quiere mirar ─────────────────────────────────────
+          Tarjetas con switch: la tarjeta entera es el botón, y el switch de la
+          derecha dice de un vistazo qué está encendido. Disponible y Movimientos
+          se pueden tener juntos; Distribución va sola. */}
+      <div className="view-switch" role="group" aria-label="Qué mirar del mercado"
+        style={{ display: 'flex', gap: '.5rem', marginBottom: '.8rem', flexWrap: 'wrap' }}>
+        {TARJETAS_VISTA.map(({ llave, titulo, detalle }) => {
+          const on = vistaEncendida(vista, llave);
+          const unica = on && !TARJETAS_VISTA.some((t) => t.llave !== llave && vistaEncendida(vista, t.llave));
+          return (
+            <button key={llave} type="button" className="card" role="switch" aria-checked={on}
+              onClick={() => tocarVista(llave)}
+              title={unica ? 'Es lo único encendido: prendé otra tarjeta para poder apagar esta'
+                : on ? 'Tocá para apagarlo' : 'Tocá para verlo'}
+              style={{
+                flex: '1 1 200px', minWidth: 190, maxWidth: 320, padding: '.55rem .7rem',
+                background: 'var(--bg-2)', cursor: 'pointer', textAlign: 'left', font: 'inherit',
+                display: 'flex', alignItems: 'center', gap: '.6rem',
+                borderColor: on ? 'var(--primary, #ff8a00)' : 'var(--border)',
+                borderWidth: on ? 2 : 1,
+                boxShadow: on ? 'inset 3px 0 0 var(--primary, #ff8a00)' : undefined,
+                opacity: on ? 1 : .72,
+              }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: '.86rem', fontWeight: 600 }}>{titulo}</span>
+                <span className="muted" style={{ display: 'block', fontSize: '.7rem' }}>{detalle}</span>
+              </span>
+              {/* El switch: sin texto, porque el color y la posición del botón ya
+                  dicen encendido o apagado, y repetirlo ensucia la tarjeta. */}
+              <span aria-hidden="true" style={{
+                flex: '0 0 auto', width: 34, height: 19, borderRadius: 999,
+                background: on ? 'var(--primary, #ff8a00)' : 'var(--border)',
+                position: 'relative', transition: 'background .15s',
+              }}>
+                <span style={{
+                  position: 'absolute', top: 2, left: on ? 17 : 2, width: 15, height: 15,
+                  borderRadius: '50%', background: '#fff', transition: 'left .15s',
+                }} />
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Botón de cierre (resaltado desde el día 22). Un mercado ya cerrado se está

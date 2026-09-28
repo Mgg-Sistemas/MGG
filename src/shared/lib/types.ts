@@ -626,6 +626,13 @@ export interface SolicitudSalida {
   cxc_id?: string | null;
   /** Marca que la salida/traslado es para consumo interno de la empresa. */
   consumo_interno?: boolean | null;
+  /**
+   * Reparto de víveres entre cocinas hecho DESDE Distribución de Alimentación:
+   * no lleva autorización de Leydis/Jesús, se ejecuta al crearse y queda el
+   * registro. Un traslado creado desde el módulo de Traslados va siempre en
+   * false y sí lleva autorización.
+   */
+  sin_autorizacion?: boolean | null;
   /** Hasta 4 papeles (imagen o PDF) en el bucket privado; ver `adjuntosSalida.ts`. */
   adjuntos?: AdjuntoSalida[] | null;
   historial: EventoHistorial[];

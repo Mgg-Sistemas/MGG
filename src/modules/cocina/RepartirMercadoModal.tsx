@@ -1,10 +1,10 @@
 /* ============================================================
    MGG · Cocina · Repartir el mercado a otra cocina
 
-   Arma la solicitud de traslado (TRA) con lo que va a la otra
-   cocina. No mueve el inventario: se autoriza en Salidas y el stock
-   se mueve cuando la ejecutan. Desde ahí aparece en la columna
-   «Traslados» de las dos cocinas.
+   Arma el traslado (TRA) con lo que va a la otra cocina y lo mueve en
+   el momento: entre cocinas de la empresa NO lleva autorización. El
+   registro queda igual en Salidas, con su código y su papel, y aparece
+   en la columna «Traslados» de las dos cocinas.
 
    Se ofrece por víver lo que hay en el almacén del que sale, no lo
    que dice el libro: un traslado se ejecuta contra el stock real, y
@@ -92,7 +92,7 @@ export function RepartirMercadoModal({ resumen, cocinaNombre, almacen, actor, us
     setGuardando(true);
     setError(null);
     try {
-      const sol = await crearReparto({
+      const res = await crearReparto({
         mercadoNumero: mercado.numero,
         cocinaOrigen: cocinaNombre,
         destino,
@@ -105,11 +105,19 @@ export function RepartirMercadoModal({ resumen, cocinaNombre, almacen, actor, us
         actor,
         actorName: appUser?.nombre ?? userEmail,
       });
-      notify(`🚚 Reparto del mercado #${mercado.numero}: ${cocinaNombre} → ${destino.nombre} · ${sol.codigo} por aprobar`, 'info', { link: '#/app/salidas' });
-      toast(`Solicitud ${sol.codigo} creada · se autoriza y ejecuta en Salidas`, 'success');
+      // El traslado se movió o no, pero el registro existe: el aviso lo dice y
+      // deja el modal abierto para que nadie crea que se perdió el reparto.
+      if (!res.ejecutada) {
+        setError(res.aviso);
+        setGuardando(false);
+        await onDone();
+        return;
+      }
+      notify(`🚚 Reparto del mercado #${mercado.numero}: ${cocinaNombre} → ${destino.nombre} · ${res.solicitud.codigo}`, 'info', { link: '#/app/salidas' });
+      toast(`${res.solicitud.codigo} · víveres trasladados a ${destino.nombre}`, 'success');
       await onDone();
     } catch (e) {
-      setError(textoDeError(e, 'No se pudo crear la solicitud de traslado.'));
+      setError(textoDeError(e, 'No se pudo crear el traslado.'));
       setGuardando(false);
     }
   }
@@ -122,15 +130,16 @@ export function RepartirMercadoModal({ resumen, cocinaNombre, almacen, actor, us
           <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
           <button className="btn btn-primary" onClick={() => void confirmar()}
             disabled={!!bloqueo || guardando || cargando} title={bloqueo ?? undefined}>
-            {guardando ? 'Creando…' : '🚚 Crear solicitud de traslado'}
+            {guardando ? 'Repartiendo…' : '🚚 Repartir ahora'}
           </button>
         </>
       }>
       <p className="hint muted" style={{ marginTop: 0 }}>
-        Se arma una <strong>solicitud de traslado</strong> en Salidas. <strong>No mueve el inventario</strong>:
-        la autorizan Leydis Rengel o Jesús Lozada, y el stock se mueve cuando Salidas la ejecuta. Desde ese
-        momento aparece en la columna «Traslados» de las dos cocinas —resta acá, suma allá— y no genera
-        diferencia en ninguna. No hace falta esperar al cierre.
+        El reparto entre cocinas <strong>no lleva autorización</strong> y se hace en el momento: los víveres
+        salen de <strong>{cocinaNombre}</strong> y entran a la otra cocina apenas confirmás. Queda el{' '}
+        <strong>registro en Salidas</strong> con su código de traslado y su papel, y aparece en la columna
+        «Traslados» de las dos cocinas —resta acá, suma allá— sin generar diferencia en ninguna. No hace
+        falta esperar al cierre.
       </p>
       {error && (
         <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem', whiteSpace: 'pre-line' }}>

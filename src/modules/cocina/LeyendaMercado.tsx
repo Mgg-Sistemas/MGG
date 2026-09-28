@@ -89,10 +89,15 @@ const DUDAS: Entrada[] = [
         con un faltante y la que recibe no lo cuenta como compra. Un traslado entre dos almacenes
         del mismo centro se anula solo.
         <br />
-        Para repartir, <strong>«🚚 Repartir a otra cocina»</strong> arma la solicitud de traslado.
-        No mueve nada hasta que Salidas la autoriza y la ejecuta; mientras tanto figura arriba como
-        pendiente. Da igual si se hace antes o después de cerrar: cae en el ciclo que esté corriendo
-        ese día. Un traslado hecho desde Salidas o desde Inventario se cuenta igual.
+        Para repartir, <strong>«🚚 Repartir a otra cocina»</strong>. Desde acá el traslado{' '}
+        <strong>no lleva autorización</strong> y se hace en el momento: la comida pasa de una cocina de
+        la empresa a otra, no se va a ningún lado. Queda igual el registro en Salidas, con su código de
+        traslado y su papel, marcado «no requiere autorización». Da igual si se hace antes o después de
+        cerrar: cae en el ciclo que esté corriendo ese día.
+        <br />
+        El <strong>mismo traslado hecho desde el módulo de Traslados sí se autoriza</strong>, como
+        siempre: ahí no se sabe si lo que sale va a otra cocina o a la calle. Mientras esa solicitud no
+        se ejecuta, figura arriba como pendiente y el libro no la cuenta.
       </>
     ),
   },

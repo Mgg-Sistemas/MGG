@@ -351,6 +351,12 @@ export interface CrearSolicitudSalidaInput {
   cxcMoneda?: string | null;
   /** Marca que la salida/traslado es para consumo interno de la empresa. */
   consumoInterno?: boolean | null;
+  /**
+   * SOLO el reparto de víveres entre cocinas (Distribución de Alimentación).
+   * Nace ya «aprobada» y sin autorizante: el módulo de cocina la ejecuta acto
+   * seguido. Cualquier otro origen la deja en false y pasa por Leydis/Jesús.
+   */
+  sinAutorizacion?: boolean | null;
   // material
   productoId?: string | null;
   productoNombre?: string | null;
@@ -426,9 +432,20 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
     }
   }
 
+  // Saltarse la autorización es SOLO para el traslado de material entre cocinas.
+  // Se valida acá y no solo en quien llama: una salida de material sin firma
+  // sería exactamente el agujero que la regla de los autorizantes vino a tapar.
+  const sinAutorizacion = input.sinAutorizacion === true;
+  if (sinAutorizacion && !(input.scope === 'traslado' && input.tipo === 'material')) {
+    throw new Error('Solo un traslado de material puede ir sin autorización.');
+  }
+
   const codigo = await nextCodigoSolicitudSalida(input.scope);
   const numUsuario = await nextNumUsuarioSalida(input.scope, input.actor);
-  const historial = appendHistorial({ historial: [] }, 'creada', input.actor);
+  let historial = appendHistorial({ historial: [] }, 'creada', input.actor);
+  if (sinAutorizacion) {
+    historial = appendHistorial({ historial }, 'sin autorización (reparto entre cocinas)', input.actor);
+  }
   // Cabecera: si hay detalle multi-producto, la primera línea actúa como resumen.
   const cab = itemsLimpios[0] ?? null;
   const productoId = cab ? cab.producto_id : (input.productoId ?? null);
@@ -442,7 +459,11 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       num_usuario: numUsuario,
       scope: input.scope,
       tipo: input.tipo,
-      estado: 'por_aprobar',
+      // Nace «aprobada» y con `aprobada_por` en null: así el trigger
+      // `trg_salidas_solo_autorizados` no se dispara (solo mira quién firma) y
+      // nadie figura autorizando algo que no autorizó.
+      estado: sinAutorizacion ? 'aprobada' : 'por_aprobar',
+      sin_autorizacion: sinAutorizacion,
       producto_id: productoId,
       producto_nombre: productoNombre,
       almacen_origen: almacenOrigenCab,

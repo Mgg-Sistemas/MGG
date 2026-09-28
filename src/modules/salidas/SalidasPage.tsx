@@ -1490,7 +1490,13 @@ function SolicitudDetalleModal({
             <tr><td className="muted">📎 Adjuntos</td><td><VerAdjuntos adjuntos={adjuntosDeSolicitud(sol)} /></td></tr>
           )}
           <tr><td className="muted">Creada</td><td>{dateTime(sol.created_at)}</td></tr>
-          {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {autorizanteDe(sol.aprobada_por).nombre}</td></tr>}
+          {sol.sin_autorizacion && (
+            <tr><td className="muted">Autorización</td><td>
+              <span className="badge info">🍽️ No requiere</span>{' '}
+              <span className="muted">reparto de víveres entre cocinas, hecho desde Distribución de Alimentación</span>
+            </td></tr>
+          )}
+          {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {autorizanteDe(sol.aprobada_por, sol.sin_autorizacion).nombre}</td></tr>}
           {sol.ejecutada_en && <tr><td className="muted">{sol.mov_ref === 'manual_externo' ? 'Cerrada' : 'Ejecutada'}</td><td>{dateTime(sol.ejecutada_en)} · {sol.ejecutada_por ?? ''}</td></tr>}
           {sol.estado === 'ejecutada' && sol.mov_ref === 'manual_externo' && (
             <tr><td className="muted">Traza</td><td>⚠️ Cerrada <strong>sin {esTraslado ? 'mover stock' : 'descontar'}</strong> — {esTraslado ? 'el movimiento se hizo por fuera (ej.: traslado manual de inventario)' : 'el descuento se hizo por fuera (ej.: salida manual de inventario)'}.</td></tr>
@@ -1502,6 +1508,12 @@ function SolicitudDetalleModal({
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
           Solo <strong>Leydis Rengel</strong> o <strong>Jesús Lozada</strong> pueden <strong>autorizar</strong> esta solicitud.{puedeEjecutar ? ' Una vez aprobada, vos podés ejecutarla.' : ''}
           {editable ? ' Corregirla sí podés: usá ✎ Editar solicitud.' : ''}
+        </div>
+      )}
+      {puedeEjecutar && sol.sin_autorizacion && sol.estado === 'aprobada' && (
+        <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
+          Este reparto <strong>no espera firma de nadie</strong>: se ejecuta solo al crearse desde la cocina.
+          Que siga acá quiere decir que <strong>el stock no llegó a moverse</strong> — ejecutalo vos.
         </div>
       )}
       {!puedeEjecutar && sol.estado === 'aprobada' && (

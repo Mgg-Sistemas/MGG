@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { autorizanteDe, puedeAutorizarSalidas, NOMBRE_FIRMA } from './autorizanteSalida';
+import { autorizanteDe, puedeAutorizarSalidas, NOMBRE_FIRMA, SIN_AUTORIZACION_NOMBRE } from './autorizanteSalida';
 
 describe('quién autoriza salidas y traslados', () => {
   it('solo Leydis Rengel y Jesús Lozada pueden autorizar', () => {
@@ -33,5 +33,16 @@ describe('quién autoriza salidas y traslados', () => {
   it('sin aprobación, dice pendiente de aprobación', () => {
     expect(autorizanteDe(null)).toEqual({ nombre: '— (pendiente de aprobación) —', firma: false, pendiente: true });
     expect(autorizanteDe('  ').pendiente).toBe(true);
+  });
+
+  it('el reparto entre cocinas no queda pendiente: no requiere autorización', () => {
+    expect(autorizanteDe(null, true))
+      .toEqual({ nombre: SIN_AUTORIZACION_NOMBRE, firma: false, pendiente: false });
+    expect(autorizanteDe('  ', true).pendiente).toBe(false);
+  });
+
+  it('si igual la firmó alguien, manda la firma y no la marca', () => {
+    expect(autorizanteDe('mineralgroupguayanaca@gmail.com', true))
+      .toEqual({ nombre: 'JESUS LOZADA', firma: false, pendiente: false });
   });
 });

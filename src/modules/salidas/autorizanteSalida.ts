@@ -19,6 +19,17 @@ export const AUTORIZAN_SALIDAS: Record<string, string> = {
   'mineralgroupguayanaca@gmail.com': 'JESUS LOZADA',
 };
 
+/**
+ * Lo que se imprime cuando el traslado NO lleva autorización.
+ *
+ * Desde el 28-09-2026 el reparto de víveres entre cocinas hecho desde
+ * Distribución de Alimentación se ejecuta solo: la comida sale de una cocina de
+ * la empresa y entra a otra, no se va a ningún lado, y hacer esperar el almuerzo
+ * a que uno de los dos autorizantes esté frente a la pantalla no cuidaba nada.
+ * El mismo traslado hecho desde el módulo de Traslados sí se autoriza.
+ */
+export const SIN_AUTORIZACION_NOMBRE = 'NO REQUIERE AUTORIZACIÓN (reparto entre cocinas)';
+
 /** Dueña de la firma escaneada que lleva el formato. */
 export const CORREO_FIRMA = 'jhzgcontabilidad@gmail.com';
 export const NOMBRE_FIRMA = AUTORIZAN_SALIDAS[CORREO_FIRMA];
@@ -45,8 +56,15 @@ export interface Autorizante {
  * su firma: así lo dispuso Jesús Lozada el 14-09-2026. La base conserva en
  * `aprobada_por` quién apretó el botón; esto solo cambia lo que se muestra.
  */
-export function autorizanteDe(aprobadaPor: string | null | undefined): Autorizante {
+export function autorizanteDe(
+  aprobadaPor: string | null | undefined,
+  sinAutorizacion?: boolean | null,
+): Autorizante {
   const correo = (aprobadaPor ?? '').trim().toLowerCase();
+  // El reparto entre cocinas no espera firma de nadie: decir «pendiente de
+  // aprobación» en un papel que ya movió el stock haría buscar una firma que no
+  // existe.
+  if (!correo && sinAutorizacion) return { nombre: SIN_AUTORIZACION_NOMBRE, firma: false, pendiente: false };
   if (!correo) return { nombre: '— (pendiente de aprobación) —', firma: false, pendiente: true };
   const quien = puedeAutorizarSalidas(correo) ? correo : CORREO_FIRMA;
   return { nombre: AUTORIZAN_SALIDAS[quien], firma: quien === CORREO_FIRMA, pendiente: false };
