@@ -25,11 +25,11 @@ import type { Asignacion, Existencia, Personal, Producto } from '@/shared/lib/ty
 import {
   ESTADOS_ASIGNACION, FILTRO_ASIGNACIONES_VACIO, TIPOS_ASIGNACION,
   estaPendiente, filtrarAsignaciones, hayFiltro, iconoTipo, labelTipo,
-  pendientesPorPersona, rangosRapidos, resumenAsignaciones, textoEstado,
+  pendientesPorPersona, rangosRapidos, resumenAsignaciones, resumenLote, textoEstado,
   type EstadoAsignacion, type FiltroAsignaciones,
 } from './asignaciones';
 import {
-  actualizarAsignacion, crearAsignacion, devolverAsignacion, eliminarAsignacion,
+  actualizarAsignacion, crearAsignaciones, devolverAsignacion, eliminarAsignacion,
   listAsignaciones, reabrirAsignacion, type AsignacionInput,
 } from './asignaciones.repository';
 import { AsignacionFormModal } from './AsignacionFormModal';
@@ -99,18 +99,24 @@ export function AsignacionesPage() {
 
   const rangos = useMemo(() => rangosRapidos(), []);
 
-  async function guardar(input: AsignacionInput) {
+  async function guardar(inputs: AsignacionInput[]) {
+    if (!inputs.length) return;
     setGuardando(true);
     try {
-      const quien = nombreDe(input.personal_id);
+      const quien = nombreDe(inputs[0].personal_id);
       if (form?.editando) {
-        await actualizarAsignacion(form.editando.id, input, quien, { actor, actorName });
+        // Corregir es sobre UNA asignación: el formulario de edición trae un
+        // solo renglón, que es el que se está tocando.
+        await actualizarAsignacion(form.editando.id, inputs[0], quien, { actor, actorName });
         toast('Asignación corregida', 'success');
+        setForm(null);
       } else {
-        await crearAsignacion(input, quien, { actor, actorName });
-        toast('Asignación registrada', 'success');
+        const { creadas, fallidas } = await crearAsignaciones(inputs, quien, { actor, actorName });
+        // Una tanda puede salir a medias: lo que ya entró movió inventario y
+        // está bien. Se dice qué entró y qué no, en vez de un «error» pelado.
+        toast(resumenLote(creadas.length, fallidas), fallidas.length ? 'warning' : 'success');
+        if (!fallidas.length) setForm(null);
       }
-      setForm(null);
       await recargar();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error');

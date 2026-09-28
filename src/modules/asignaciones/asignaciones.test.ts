@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   TIPOS_ASIGNACION, definicionTipo, labelTipo, iconoTipo, retornablePorDefecto,
   labelEstado, textoEstado, estaPendiente, estaCerrada, descuentaInventario,
-  errorAsignacion, errorDevolucion, reingresaAlInventario,
+  errorAsignacion, errorDevolucion, errorRenglones, resumenLote, reingresaAlInventario,
   filtrarAsignaciones, enRango, hayFiltro, FILTRO_ASIGNACIONES_VACIO,
   resumenAsignaciones, pendientesPorPersona, conteoPorTipo, rangosRapidos,
   type AsignacionBase,
@@ -153,6 +153,46 @@ describe('validación de la asignación', () => {
   it('no se puede devolver algo antes de habérselo dado', () => {
     expect(errorAsignacion(asig({ fecha_retorno: '2026-03-09' }))).toMatch(/anterior/i);
     expect(errorAsignacion(asig({ fecha_retorno: '2026-03-10' }))).toBeNull();
+  });
+});
+
+describe('entregar varios ítems de una vez', () => {
+  it('una tanda con todo bien pasa', () => {
+    expect(errorRenglones([asig(), asig({ tipo: 'dotacion', descripcion: 'Botas de seguridad' })])).toBeNull();
+  });
+
+  it('una tanda vacía no se guarda', () => {
+    expect(errorRenglones([])).toMatch(/al menos un/i);
+  });
+
+  it('el mensaje dice EN QUÉ ítem está el problema', () => {
+    const r = errorRenglones([asig(), asig({ descripcion: 'ab' }), asig()]);
+    expect(r).toMatch(/^Ítem 2:/);
+    expect(r).toMatch(/describí/i);
+  });
+
+  it('avisa del primer problema, no de los seis juntos', () => {
+    const r = errorRenglones([asig({ cantidad: 0 }), asig({ descripcion: '' })]);
+    expect(r).toMatch(/^Ítem 1:/);
+  });
+});
+
+describe('cómo se le cuenta al usuario una tanda', () => {
+  it('todo bien, en singular y en plural', () => {
+    expect(resumenLote(1, [])).toBe('Asignación registrada');
+    expect(resumenLote(4, [])).toBe('4 asignaciones registradas');
+  });
+
+  it('si no entró ninguna, se dice el motivo', () => {
+    expect(resumenLote(0, [{ descripcion: 'Laptop', motivo: 'sin stock' }])).toMatch(/No se pudo registrar: sin stock/);
+  });
+
+  it('una tanda a medias dice qué entró y qué quedó fuera', () => {
+    // Lo ya entregado movió inventario y está bien: deshacerlo seria peor.
+    const m = resumenLote(2, [{ descripcion: 'Casco', motivo: 'sin stock en MATANZA' }]);
+    expect(m).toContain('2 de 3');
+    expect(m).toContain('Casco');
+    expect(m).toContain('sin stock en MATANZA');
   });
 });
 

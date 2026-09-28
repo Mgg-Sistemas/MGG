@@ -179,6 +179,42 @@ export function errorAsignacion(a: AsignacionBase): string | null {
   return null;
 }
 
+/**
+ * Qué está mal en una ENTREGA de varios ítems a la vez.
+ *
+ * Se entrega de a tandas —a un ingreso se le dan uniforme, botas, casco y
+ * laptop el mismo día—, y cargarlos de a uno es cuatro veces el mismo trámite.
+ * Cada ítem se guarda como su propia asignación, porque cada uno se devuelve
+ * por separado: la laptop vuelve y el uniforme no.
+ *
+ * El mensaje dice EN QUÉ RENGLÓN está el problema: «el tipo es obligatorio»
+ * sobre una lista de seis no le sirve a nadie.
+ */
+export function errorRenglones(renglones: readonly AsignacionBase[]): string | null {
+  if (!renglones.length) return 'Agregá al menos un ítem.';
+  for (let i = 0; i < renglones.length; i += 1) {
+    const mal = errorAsignacion(renglones[i]);
+    if (mal) return `Ítem ${i + 1}: ${mal}`;
+  }
+  return null;
+}
+
+/**
+ * Cómo le queda dicho al usuario lo que pasó con una tanda.
+ *
+ * Una tanda puede salir a medias: si el tercer ítem no tiene stock, los dos
+ * primeros YA se entregaron y ya movieron el inventario. Deshacerlos sería
+ * revertir movimientos que estaban bien. Entonces se dice exactamente qué
+ * entró y qué no, en vez de un «error» que deja al usuario sin saber en qué
+ * estado quedó la cosa.
+ */
+export function resumenLote(creadas: number, fallidas: readonly { descripcion: string; motivo: string }[]): string {
+  const total = creadas + fallidas.length;
+  if (!fallidas.length) return creadas === 1 ? 'Asignación registrada' : `${creadas} asignaciones registradas`;
+  if (!creadas) return `No se pudo registrar: ${fallidas[0].motivo}`;
+  return `Se registraron ${creadas} de ${total}. Quedó fuera «${fallidas[0].descripcion}»: ${fallidas[0].motivo}`;
+}
+
 /** Qué está mal en una devolución. Null si se puede cerrar. */
 export function errorDevolucion(a: AsignacionBase, fechaRetorno: string, estado: string): string | null {
   if (estaCerrada(a)) return 'Esta asignación ya está cerrada.';

@@ -170,6 +170,43 @@ export async function crearAsignacion(
   return (upd ?? { ...fila, descontado: true }) as Asignacion;
 }
 
+/** Cómo salió una tanda: lo que entró y lo que quedó fuera, con su motivo. */
+export interface ResultadoLote {
+  creadas: Asignacion[];
+  fallidas: { descripcion: string; motivo: string }[];
+}
+
+/**
+ * Registra VARIOS ítems de una entrega.
+ *
+ * A un ingreso se le dan uniforme, botas, casco y laptop el mismo día. Cada uno
+ * se guarda como su propia asignación porque cada uno se devuelve por separado:
+ * la laptop vuelve y el uniforme no.
+ *
+ * Van de a UNO y no en un insert masivo a propósito: cada ítem tiene su
+ * movimiento de inventario, y si el tercero se queda sin stock, los dos
+ * primeros YA se entregaron y su descuento estaba bien. Deshacerlos sería
+ * revertir movimientos correctos. Se sigue con el resto y se informa qué quedó
+ * fuera, que es lo que le permite a quien entrega arreglar solo lo que falló.
+ */
+export async function crearAsignaciones(
+  inputs: readonly AsignacionInput[], quien: string, a: Actor,
+): Promise<ResultadoLote> {
+  const creadas: Asignacion[] = [];
+  const fallidas: { descripcion: string; motivo: string }[] = [];
+  for (const input of inputs) {
+    try {
+      creadas.push(await crearAsignacion(input, quien, a));
+    } catch (e) {
+      fallidas.push({
+        descripcion: input.descripcion,
+        motivo: e instanceof Error ? e.message : 'no se pudo registrar',
+      });
+    }
+  }
+  return { creadas, fallidas };
+}
+
 /**
  * Corrige una asignación.
  *

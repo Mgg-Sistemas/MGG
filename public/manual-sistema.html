@@ -866,6 +866,13 @@
     <h2>🎒 Asignaciones al Personal <span class="badge">nuevo · 28-09</span></h2>
     <p>Lo que la empresa le entrega a cada trabajador: <strong>dotación de uniformes</strong>, <strong>líneas telefónicas</strong>, <strong>equipos electrónicos</strong> (laptops), <strong>material de oficina</strong>, <strong>herramientas</strong> e <strong>implementos de seguridad</strong>. Es un módulo aparte, con su propio permiso en la matriz de Usuarios.</p>
     <ul>
+      <li><strong>➕ Varios ítems de una vez:</strong> una entrega es de <strong>una persona</strong>, en <strong>una fecha</strong>, con <strong>los ítems que hagan falta</strong>. A un ingreso se le dan uniforme, botas, casco y laptop el mismo día, y cargarlos de a uno es cuatro veces el mismo trámite. Con <strong>+ Agregar ítem</strong> se suman renglones (cada uno con su tipo, su producto y su casilla de retorno) y con <strong>🗑</strong> se quitan. El ítem nuevo <strong>hereda el tipo del anterior</strong>, porque se entrega por tandas del mismo palo.
+        <ul>
+          <li>Cada ítem se guarda como <strong>su propia asignación</strong>: la laptop se devuelve y el uniforme no, así que cada uno lleva su propia vida.</li>
+          <li>Si un ítem <strong>no entra</strong> —por ejemplo, porque no hay stock—, los que sí entraron <strong>se quedan</strong>: ya movieron el inventario y estaban bien. El aviso dice <em>«Se registraron 2 de 3, quedó fuera X»</em> y el formulario permanece abierto para arreglar solo lo que falló.</li>
+          <li>Al <strong>corregir (✎)</strong> se edita <strong>un solo renglón</strong>, el que se tocó.</li>
+        </ul>
+      </li>
       <li><strong>Lo que sale del inventario, sale de verdad.</strong> Al registrar una asignación se marca <strong>📦 Sale del inventario</strong> y se elige el <strong>producto</strong>, el <strong>almacén</strong> y la <strong>cantidad</strong>: el sistema <strong>descuenta el stock con un movimiento normal</strong>, igual que una salida, y el <strong>kardex</strong> queda diciendo a quién se le entregó. Solo se ofrecen los almacenes <strong>donde ese producto tiene existencia</strong>, y no deja entregar más de lo que hay.
         <ul>
           <li>Si lo asignado <strong>no está fichado</strong> —una línea telefónica, por ejemplo— se destilda la casilla y se registra igual: queda en el historial sin tocar el inventario.</li>
