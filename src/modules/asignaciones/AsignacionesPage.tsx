@@ -207,71 +207,75 @@ export function AsignacionesPage() {
 
       {/* ── Filtros ── */}
       <div className="card" style={{ marginBottom: '1rem' }}>
-        <div className="form-row">
-          <div className="form-group" style={{ flex: 2 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
+          <div className="form-row" style={{ flex: '2 1 220px', margin: 0 }}>
             <label>Buscar</label>
-            <input
+            <input className="input"
               value={filtro.texto}
               onChange={(e) => setFiltro((f) => ({ ...f, texto: e.target.value }))}
               placeholder="Trabajador, descripción, serial o línea…" />
           </div>
-          <div className="form-group">
+          <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
             <label>Trabajador</label>
-            <select value={filtro.personalId} onChange={(e) => setFiltro((f) => ({ ...f, personalId: e.target.value }))}>
+            <select className="select" value={filtro.personalId} onChange={(e) => setFiltro((f) => ({ ...f, personalId: e.target.value }))}>
               <option value="">— todos —</option>
               {personal.map((p) => (
                 <option key={p.id} value={p.id}>{`${p.nombre} ${p.apellido ?? ''}`.trim()}</option>
               ))}
             </select>
           </div>
-          <div className="form-group">
+          <div className="form-row" style={{ flex: '0 1 170px', margin: 0 }}>
             <label>Tipo</label>
-            <select value={filtro.tipo} onChange={(e) => setFiltro((f) => ({ ...f, tipo: e.target.value }))}>
+            <select className="select" value={filtro.tipo} onChange={(e) => setFiltro((f) => ({ ...f, tipo: e.target.value }))}>
               <option value="">Todos</option>
               {TIPOS_ASIGNACION.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
           </div>
-          <div className="form-group">
+          <div className="form-row" style={{ flex: '0 1 170px', margin: 0 }}>
             <label>Estado</label>
-            <select value={filtro.estado} onChange={(e) => setFiltro((f) => ({ ...f, estado: e.target.value }))}>
+            <select className="select" value={filtro.estado} onChange={(e) => setFiltro((f) => ({ ...f, estado: e.target.value }))}>
               <option value="">Todos</option>
               {ESTADOS_ASIGNACION.map((e) => <option key={e.key} value={e.key}>{e.label}</option>)}
             </select>
           </div>
-          <div className="form-group">
+          <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
             <label>Desde</label>
-            <input type="date" value={filtro.desde} onChange={(e) => setFiltro((f) => ({ ...f, desde: e.target.value }))} />
+            <input className="input" type="date" value={filtro.desde} onChange={(e) => setFiltro((f) => ({ ...f, desde: e.target.value }))} />
           </div>
-          <div className="form-group">
+          <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
             <label>Hasta</label>
-            <input type="date" value={filtro.hasta} onChange={(e) => setFiltro((f) => ({ ...f, hasta: e.target.value }))} />
+            <input className="input" type="date" value={filtro.hasta} onChange={(e) => setFiltro((f) => ({ ...f, hasta: e.target.value }))} />
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* Los rangos que se piden siempre, ya calculados: escribir dos fechas
+            a mano para ver «este mes» es pedirle la cuenta del calendario. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', marginTop: '.5rem', alignItems: 'center' }}>
           {rangos.map((r) => (
-            <button key={r.label} className="btn btn-ghost btn-sm"
+            <button key={r.label} type="button"
+              className={`btn btn-sm ${filtro.desde === r.desde && filtro.hasta === r.hasta ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setFiltro((f) => ({ ...f, desde: r.desde, hasta: r.hasta }))}>{r.label}</button>
           ))}
-          <button className="btn btn-ghost btn-sm" onClick={() => setMasFiltros((v) => !v)}>
-            {masFiltros ? '▴' : '▾'} Más filtros
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMasFiltros((v) => !v)}>
+            {masFiltros ? '▴ Menos filtros' : '▾ Más filtros'}
           </button>
           {hayFiltro(filtro) && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setFiltro(FILTRO_ASIGNACIONES_VACIO)}>✕ Limpiar</button>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
+              onClick={() => setFiltro(FILTRO_ASIGNACIONES_VACIO)}>✕ Limpiar</button>
           )}
-          <span className="hint muted" style={{ marginLeft: 'auto', fontSize: '.8rem' }}>
-            {visibles.length} de {lista.length}
+          <span className="muted" style={{ marginLeft: 'auto', fontSize: '.82rem' }}>
+            {visibles.length} de {lista.length} · {resumenFiltrado.pendientes} por devolver
           </span>
         </div>
 
         {masFiltros && (
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '.5rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.85rem' }}>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '.5rem', alignItems: 'center' }}>
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.85rem' }}>
               <input type="checkbox" checked={filtro.soloPendientes}
                 onChange={(e) => setFiltro((f) => ({ ...f, soloPendientes: e.target.checked }))} />
               Solo pendientes por devolver
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.85rem' }}>
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.85rem' }}>
               <input type="checkbox" checked={filtro.soloHistoricas}
                 onChange={(e) => setFiltro((f) => ({ ...f, soloHistoricas: e.target.checked }))} />
               Solo cargas históricas
@@ -485,7 +489,7 @@ function ListaDeudores({ deudores, personaPorId, onElegir, onPdf, onClose }: {
 
   return (
     <Modal title="👥 Trabajadores con pendientes" size="lg" onClose={onClose}>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar persona…" style={{ marginBottom: '.6rem' }} />
+      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar persona…" style={{ marginBottom: '.6rem' }} />
       {!filtrados.length
         ? <EmptyState icon="✔" message={deudores.length ? 'Nadie con ese nombre' : 'Nadie tiene nada pendiente'} />
         : (
@@ -547,14 +551,14 @@ function DevolverModal({ asignacion, quien, onHecho, onClose }: {
         <span className="muted">Asignada a {quien} el {date(asignacion.fecha_asignacion)}</span>
       </p>
 
-      <div className="form-row">
-        <div className="form-group">
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
+        <div className="form-row" style={{ flex: '0 1 170px' }}>
           <label>Fecha</label>
-          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+          <input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
         </div>
-        <div className="form-group">
+        <div className="form-row" style={{ flex: '1 1 200px' }}>
           <label>Cómo se cierra</label>
-          <select value={estado} onChange={(e) => setEstado(e.target.value as EstadoAsignacion)}>
+          <select className="select" value={estado} onChange={(e) => setEstado(e.target.value as EstadoAsignacion)}>
             <option value="devuelto">Devuelto</option>
             <option value="perdido">Perdido</option>
             <option value="danado">Dañado</option>
@@ -562,9 +566,9 @@ function DevolverModal({ asignacion, quien, onHecho, onClose }: {
         </div>
       </div>
 
-      <div className="form-group">
-        <label>En qué condición volvió <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
-        <input value={condicion} onChange={(e) => setCondicion(e.target.value)}
+      <div className="form-row">
+        <label>En qué condición volvió <span className="muted" style={{ fontWeight: 400, textTransform: 'none' }}>(opcional)</span></label>
+        <input className="input" value={condicion} onChange={(e) => setCondicion(e.target.value)}
           placeholder="Ej.: funcionando, con cargador · pantalla rayada" />
       </div>
 

@@ -193,7 +193,7 @@ export function AsignacionFormModal({
 
   const titulo = editando
     ? '✎ Corregir asignación'
-    : renglones.length > 1 ? `+ Registrar entrega · ${renglones.length} ítems` : '+ Registrar asignación';
+    : renglones.length > 1 ? `🎒 Nueva entrega · ${renglones.length} ítems` : '🎒 Nueva asignación';
 
   return (
     <Modal
@@ -212,20 +212,18 @@ export function AsignacionFormModal({
       <form id="form-asignacion" onSubmit={submit}>
         {/* ── Lo que vale para toda la entrega ── */}
         <div className="form-row">
-          <div className="form-group" style={{ flex: 2 }}>
-            <label>Trabajador</label>
-            <SearchSelect
-              options={opcionesPersonal}
-              value={personalId}
-              onChange={setPersonalId}
-              placeholder="Buscar por nombre, ficha o cédula…"
-              sinPreseleccion
-            />
-          </div>
-          <div className="form-group">
-            <label>Fecha de la entrega</label>
-            <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
-          </div>
+          <label>Trabajador *</label>
+          <SearchSelect
+            options={opcionesPersonal}
+            value={personalId}
+            onChange={setPersonalId}
+            placeholder="🔍 Buscar por nombre, ficha o cédula…"
+            sinPreseleccion
+          />
+        </div>
+        <div className="form-row" style={{ maxWidth: 220 }}>
+          <label>Fecha de la entrega *</label>
+          <input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
         </div>
 
         {/* ── Los ítems ── */}
@@ -242,36 +240,36 @@ export function AsignacionFormModal({
                 )}
               </div>
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Tipo</label>
-                  <select value={r.tipo} onChange={(e) => cambiarTipo(r.key, e.target.value)}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
+                <div className="form-row" style={{ flex: '0 1 220px' }}>
+                  <label>Categoría *</label>
+                  <select className="select" value={r.tipo} onChange={(e) => cambiarTipo(r.key, e.target.value)}>
                     {TIPOS_ASIGNACION.map((t) => (
                       <option key={t.key} value={t.key}>{t.icon} {t.label}</option>
                     ))}
                   </select>
                 </div>
-                <div className="form-group" style={{ flex: 2 }}>
-                  <label>Qué se le asigna</label>
-                  <input
+                <div className="form-row" style={{ flex: '2 1 280px' }}>
+                  <label>¿Qué se asigna? *</label>
+                  <input className="input"
                     value={r.descripcion}
                     onChange={(e) => cambiar(r.key, { descripcion: e.target.value })}
-                    placeholder="Ej.: Laptop Lenovo T480 · Uniforme completo talla M" />
+                    placeholder="Laptop Lenovo T480, uniforme completo talla M…" />
                 </div>
               </div>
 
               {(def?.pideSerial || def?.pideLinea) && (
-                <div className="form-row">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
                   {def?.pideSerial && (
-                    <div className="form-group">
-                      <label>Serial <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
-                      <input value={r.serial} onChange={(e) => cambiar(r.key, { serial: e.target.value })} placeholder="S/N del equipo" />
+                    <div className="form-row" style={{ flex: '1 1 200px' }}>
+                      <label>Serial</label>
+                      <input className="input mono" value={r.serial} onChange={(e) => cambiar(r.key, { serial: e.target.value })} placeholder="S/N del equipo" />
                     </div>
                   )}
                   {def?.pideLinea && (
-                    <div className="form-group">
-                      <label>Número de la línea</label>
-                      <input value={r.numeroLinea} onChange={(e) => cambiar(r.key, { numeroLinea: e.target.value })} placeholder="0414-1234567" />
+                    <div className="form-row" style={{ flex: '1 1 200px' }}>
+                      <label>Número de la línea *</label>
+                      <input className="input mono" value={r.numeroLinea} onChange={(e) => cambiar(r.key, { numeroLinea: e.target.value })} placeholder="0414-1234567" />
                     </div>
                   )}
                 </div>
@@ -289,29 +287,29 @@ export function AsignacionFormModal({
 
               {r.delInventario && (
                 <>
-                  <div className="form-row" style={{ marginTop: '.4rem' }}>
-                    <div className="form-group" style={{ flex: 2 }}>
-                      <label>Producto</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', marginTop: '.4rem' }}>
+                    <div className="form-row" style={{ flex: '2 1 240px' }}>
+                      <label>Producto *</label>
                       <SearchSelect
                         options={opcionesProducto}
                         value={r.productoId}
                         onChange={(id) => elegirProducto(r.key, id)}
-                        placeholder="Buscar producto…"
+                        placeholder="🔍 Buscar producto…"
                         sinPreseleccion
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Almacén</label>
-                      <select value={r.almacen} onChange={(e) => cambiar(r.key, { almacen: e.target.value })} disabled={!r.productoId}>
+                    <div className="form-row" style={{ flex: '1 1 190px' }}>
+                      <label>Almacén *</label>
+                      <select className="select" value={r.almacen} onChange={(e) => cambiar(r.key, { almacen: e.target.value })} disabled={!r.productoId}>
                         <option value="">— elegí —</option>
                         {almacenes.map((e) => (
                           <option key={e.almacen} value={e.almacen}>{e.almacen} · {num(Number(e.stock))}</option>
                         ))}
                       </select>
                     </div>
-                    <div className="form-group" style={{ maxWidth: 120 }}>
-                      <label>Cantidad</label>
-                      <input type="number" min="0" step="any" value={r.cantidad}
+                    <div className="form-row" style={{ flex: '0 1 110px' }}>
+                      <label>Cantidad *</label>
+                      <input className="input mono" type="number" min="0" step="any" value={r.cantidad}
                         onChange={(e) => cambiar(r.key, { cantidad: e.target.value })} />
                     </div>
                   </div>
@@ -350,9 +348,9 @@ export function AsignacionFormModal({
           </label>
         </div>
 
-        <div className="form-group" style={{ marginTop: '.5rem' }}>
-          <label>Observaciones <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
-          <textarea rows={2} value={observaciones} onChange={(e) => setObservaciones(e.target.value)}
+        <div className="form-row" style={{ marginTop: '.6rem' }}>
+          <label>Observación</label>
+          <textarea className="textarea" rows={2} value={observaciones} onChange={(e) => setObservaciones(e.target.value)}
             placeholder="Estado de los equipos al entregarlos, accesorios incluidos…" />
         </div>
 
