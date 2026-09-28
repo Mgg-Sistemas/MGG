@@ -892,7 +892,7 @@ function UsuarioEditModal({
             disabled={submitting}
             placeholder="correo@dominio.com"
           />
-          <small className="muted">Cambiar el correo actualiza el inicio de sesión del usuario. La clave no se modifica.</small>
+          <small className="hint muted">Cambiar el correo actualiza el inicio de sesión del usuario. La clave no se modifica.</small>
         </div>
       </div>
 
@@ -1103,7 +1103,7 @@ function SectorAlmacenFields({ sedes, onSedes, almacenRecepcion, onAlmacenRecepc
               <option value={almacenRecepcion}>{almacenRecepcion} (ya no existe en esas sedes)</option>
             )}
           </select>
-          <small className="muted" style={{ fontSize: '.72rem' }}>
+          <small className="hint muted" style={{ fontSize: '.72rem' }}>
             Destino por defecto al recepcionar una compra. Las compras solo entran a Matanzas o Los Pinos:
             los centros de acopio reciben por Traslados.
           </small>
@@ -1222,7 +1222,7 @@ function CambiarCorreoModal({ usuario, onCancel, onSaved }: { usuario: Usuario; 
           onChange={(e) => setEmail(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void guardar(); } }}
           placeholder="nuevo@correo.com" />
-        <small className="muted">Cambia el correo de inicio de sesión y el del sistema. La clave no se modifica.</small>
+        <small className="hint muted">Cambia el correo de inicio de sesión y el del sistema. La clave no se modifica.</small>
       </div>
     </Modal>
   );

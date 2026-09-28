@@ -359,7 +359,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
       <div className="form-row">
         <label>Víveres, Art. de Limpieza y Hortalizas <span className="muted" style={{ fontWeight: 400 }}>· marcá los que se piden e indicá la cantidad</span></label>
         {ultima && (
-          <small className="muted" style={{ display: 'block', margin: '-.2rem 0 .5rem', fontSize: '.76rem' }}>
+          <small className="hint muted" style={{ display: 'block', margin: '-.2rem 0 .5rem', fontSize: '.76rem' }}>
             🧾 Cantidades sugeridas de la última compra <strong className="mono">{ultima.codigo}</strong>{ultima.fecha ? <> · {dateTime(ultima.fecha)}</> : null} (editables).
           </small>
         )}
@@ -396,7 +396,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
               </div>
             </div>
             {productoAAgregar && (
-              <small className="muted" style={{ fontSize: '.73rem', display: 'block', marginTop: '.25rem' }}>
+              <small className="hint muted" style={{ fontSize: '.73rem', display: 'block', marginTop: '.25rem' }}>
                 {productoAAgregar.nombre} · <span className="mono">{productoAAgregar.sku}</span> · en stock{' '}
                 <strong className="mono">{num(productoAAgregar.stock)} {productoAAgregar.unidad}</strong>
               </small>
@@ -465,7 +465,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
                       onChange={(v) => setNuevoCategoria(v.toUpperCase())}
                       placeholder="Categoría * (buscá por nombre, código o producto, o escribí una nueva)"
                       emptyText="Ninguna categoría coincide" />
-                    <small className="muted" style={{ fontSize: '.72rem' }}>Define el código del producto (VIVERES → VIV-…). El número lo asigna el sistema.</small>
+                    <small className="hint muted" style={{ fontSize: '.72rem' }}>Define el código del producto (VIVERES → VIV-…). El número lo asigna el sistema.</small>
                   </div>
                   <select className="select" value={nuevoUnidad} onChange={(e) => setNuevoUnidad(e.target.value)}>
                     {!medidas.includes(nuevoUnidad) && nuevoUnidad && <option value={nuevoUnidad}>{nuevoUnidad}</option>}
@@ -478,7 +478,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
                     style={{ textAlign: 'right', fontWeight: 700 }}
                     onChange={(e) => setNuevoCant(e.target.value)} />
                 </div>
-                <small className="muted" style={{ fontSize: '.72rem' }}>
+                <small className="hint muted" style={{ fontSize: '.72rem' }}>
                   El almacén no se elige acá: se define al <strong>recibir la mercancía</strong>, desde Inventario.
                 </small>
                 <div>

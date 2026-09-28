@@ -93,8 +93,8 @@ export function PresenciaAlmacenModal({ producto, almacenes, existencias, onClos
                       checked={o.yaEsta || elegidos.includes(o.nombre)}
                       onChange={() => alternar(o.nombre)} />
                     <span>{o.nombre}</span>
-                    {o.yaEsta && <small className="muted">· ya figura</small>}
-                    {!o.yaEsta && bloqueo && <small className="muted">· 🔒 otra sede</small>}
+                    {o.yaEsta && <small className="hint muted">· ya figura</small>}
+                    {!o.yaEsta && bloqueo && <small className="hint muted">· 🔒 otra sede</small>}
                   </label>
                 );
               })}

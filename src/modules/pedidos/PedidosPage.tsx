@@ -1325,12 +1325,12 @@ function FinalizarPedidoModal({
             <div className="form-row">
               <label>Fecha prometida (de la oferta)</label>
               <input className="input" type="date" value={fechaPrometida} onChange={(e) => setFechaPrometida(e.target.value)} />
-              <small className="muted">{fechaPrometida ? 'Tomada de la oferta del proveedor; podés ajustarla.' : 'La oferta no tiene fecha prometida: colocala acá.'}</small>
+              <small className="hint muted">{fechaPrometida ? 'Tomada de la oferta del proveedor; podés ajustarla.' : 'La oferta no tiene fecha prometida: colocala acá.'}</small>
             </div>
             <div className="form-row">
               <label>Fecha de recibido</label>
               <input className="input" type="date" value={fechaRecibido} onChange={(e) => setFechaRecibido(e.target.value)} />
-              <small className="muted">Por defecto, hoy.</small>
+              <small className="hint muted">Por defecto, hoy.</small>
             </div>
           </div>
           {diasPorFecha != null && (
@@ -1355,8 +1355,8 @@ function FinalizarPedidoModal({
             setError(null); setFactura(f);
           }} />
         {factura
-          ? <small className="muted">✓ {factura.name} ({(factura.size / 1024).toFixed(0)} KB)</small>
-          : <small className="muted">PDF o imagen · máx. 10 MB.</small>}
+          ? <small className="hint muted">✓ {factura.name} ({(factura.size / 1024).toFixed(0)} KB)</small>
+          : <small className="hint muted">PDF o imagen · máx. 10 MB.</small>}
       </div>
 
       <div className="form-row">
@@ -1364,7 +1364,7 @@ function FinalizarPedidoModal({
         <textarea className="input" rows={3} value={comentario} onChange={(e) => setComentario(e.target.value)}
           placeholder="Observaciones de la recepción…" />
       </div>
-      <small className="muted">Evaluador: {rolEvaluador === 'jefe' ? 'Jefe / analista' : 'Almacenista'}.</small>
+      <small className="hint muted">Evaluador: {rolEvaluador === 'jefe' ? 'Jefe / analista' : 'Almacenista'}.</small>
     </Modal>
   );
 }
@@ -1547,7 +1547,7 @@ function MetodoPagoModal({
           ))}
         </select>
         {proveedorCambiado && (
-          <small className="muted" style={{ display: 'block', marginTop: '.4rem', color: 'var(--brand, #ff8a00)' }}>
+          <small className="hint muted" style={{ display: 'block', marginTop: '.4rem', color: 'var(--brand, #ff8a00)' }}>
             ⚠️ Cambiarás el proveedor de la OC (de <strong>{proveedorActual?.razon_social ?? '—'}</strong>). Al cambiarlo, la OC <strong>vuelve a “Pendiente por aprobación (Gerente General)”</strong> para que el gerente la confirme de nuevo; el método de pago se indicará después. Los ítems y montos se conservan.
           </small>
         )}
@@ -1694,7 +1694,7 @@ function MetodoPagoModal({
           </span>
         </label>
       )}
-      <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
+      <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
         Si el método es <strong>en efectivo</strong> (divisas o Bs), en Tesorería <strong>no se exigirá comprobante</strong>.
       </small>
       </>
@@ -1864,7 +1864,7 @@ function RecepcionParcialModal({
 
       {esServicio ? (
         <div className="form-row" style={{ marginTop: '.5rem' }}>
-          <small className="muted">🔧 Es un <strong>servicio</strong>: <strong>no entra al inventario</strong> ni se le asigna almacén. Se registra como prestado y su rastro queda en el <strong>equipo asociado</strong>{equiposServicio.length ? <> (<strong>{equiposServicio.join(' · ')}</strong>)</> : null}.</small>
+          <small className="hint muted">🔧 Es un <strong>servicio</strong>: <strong>no entra al inventario</strong> ni se le asigna almacén. Se registra como prestado y su rastro queda en el <strong>equipo asociado</strong>{equiposServicio.length ? <> (<strong>{equiposServicio.join(' · ')}</strong>)</> : null}.</small>
         </div>
       ) : (
       <div className="form-row" style={{ marginTop: '.5rem' }}>
@@ -1875,7 +1875,7 @@ function RecepcionParcialModal({
             <option key={d.almacen} value={d.almacen}>{d.label}</option>
           ))}
         </select>
-        <small className="muted">
+        <small className="hint muted">
           Una compra entra por <strong>LOS PINOS</strong>, <strong>MATANZA</strong> o <strong>LA ESPERANZA</strong>;
           los demás centros de acopio reciben por traslado. Si el producto se creó desde una solicitud y todavía no tenía almacén,
           <strong> acá gana su ubicación</strong>.
@@ -1917,14 +1917,14 @@ function RecepcionParcialModal({
           <span>No sumar al inventario (productos ya ingresados manualmente)</span>
         </label>
         {sinInv && (
-          <small className="muted" style={{ display: 'block', color: 'var(--warning)' }}>
+          <small className="hint muted" style={{ display: 'block', color: 'var(--warning)' }}>
             ⚠ Esta orden se recibirá y cerrará, pero <strong>no</strong> generará entradas de stock (evita duplicar lo cargado a mano).
           </small>
         )}
       </div>
       )}
       {orden.condiciones_pago === 'contra_entrega' && (
-        <small className="muted" style={{ display: 'block' }}>
+        <small className="hint muted" style={{ display: 'block' }}>
           Contra entrega: luego se indicará el método para pagar <strong>{money(recibidoTotal)}</strong> (lo recibido) en Tesorería.
         </small>
       )}
@@ -3367,7 +3367,7 @@ function ComprobanteOcModal({ orden, onClose, onSaved }: {
         <label>Archivo <span className="muted" style={{ fontWeight: 400 }}>(PDF o imagen · máx. 10 MB)</span></label>
         <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => { setFile(e.target.files?.[0] ?? null); if (error) setError(null); }} />
       </div>
-      <small className="muted">Al subir el comprobante, la orden aparece en <strong>Retenciones</strong> para cargar los certificados (IVA / ISLR / Municipal).</small>
+      <small className="hint muted">Al subir el comprobante, la orden aparece en <strong>Retenciones</strong> para cargar los certificados (IVA / ISLR / Municipal).</small>
     </Modal>
   );
 }
@@ -3479,7 +3479,7 @@ function EnviarPorCorreoModal({
           placeholder="otro@correo.com"
           maxLength={120}
         />
-        <small className="muted">Podés mandarlo a un segundo destinatario al mismo tiempo.</small>
+        <small className="hint muted">Podés mandarlo a un segundo destinatario al mismo tiempo.</small>
       </div>
     </Modal>
   );
@@ -3631,7 +3631,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
             {proveedoresSel.map((p) => <option key={p.id} value={p.id}>{p.razon_social}{p.rif ? ` · ${p.rif}` : ''}</option>)}
           </select>
           {proveedorCambiado && (
-            <small className="muted" style={{ color: 'var(--brand, #ff8a00)' }}>
+            <small className="hint muted" style={{ color: 'var(--brand, #ff8a00)' }}>
               ⚠️ Cambiás el proveedor: la OC vuelve a aprobación del Gerente General.
             </small>
           )}
@@ -3672,7 +3672,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
         <label>Descuento obtenido (opcional)</label>
         <input className="input mono" type="number" min={0} step="any" value={descuentoStr}
           onChange={(e) => setDescuentoStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
-        <small className="muted">Descuento negociado que se le resta al total (la factura a pagar). Se sincroniza con Tesorería y se ve en el PDF y la trazabilidad.</small>
+        <small className="hint muted">Descuento negociado que se le resta al total (la factura a pagar). Se sincroniza con Tesorería y se ve en el PDF y la trazabilidad.</small>
       </div>
       {/* Agregar un producto nuevo a la OC (del catálogo de inventario). */}
       <div className="form-row" style={{ marginTop: '.5rem' }}>
@@ -3685,7 +3685,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
           </div>
           <button type="button" className="btn btn-ghost" disabled={!nuevoProd} onClick={agregarProducto}>＋ Agregar</button>
         </div>
-        <small className="muted">El precio viene del inventario; podés ajustarlo en la tabla. Agregar/quitar productos reabre la OC a aprobación del Gerente.</small>
+        <small className="hint muted">El precio viene del inventario; podés ajustarlo en la tabla. Agregar/quitar productos reabre la OC a aprobación del Gerente.</small>
       </div>
       <div className="form-row" style={{ marginTop: '.6rem' }}>
         <label>Condición de pago</label>
@@ -4054,7 +4054,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
         <input className="input" style={{ marginTop: '.4rem' }} value={nuevaUnidad}
           onChange={(e) => { setNuevaUnidad(e.target.value.toUpperCase()); if (e.target.value) setUnidadSol(''); }}
           placeholder="¿No está? Escribí una nueva…" />
-        <small className="muted" style={{ fontSize: '.72rem' }}>La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
       </div>
 
       <div className="form-row">
@@ -4062,7 +4062,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
         <input className="input" value={solicitantePersona}
           onChange={(e) => setSolicitantePersona(e.target.value.toUpperCase())}
           placeholder="Nombre de la persona que pide el servicio…" />
-        <small className="muted" style={{ fontSize: '.72rem' }}>La persona que solicita (queda registrada en la solicitud y se ve en Control de Mantenimiento).</small>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>La persona que solicita (queda registrada en la solicitud y se ve en Control de Mantenimiento).</small>
       </div>
 
       <div className="form-row">
@@ -4071,7 +4071,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           <button type="button" className={moneda === 'USD' ? 'active' : ''} onClick={() => setModeda('USD')}>$ Dólares</button>
           <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setModeda('Bs')}>Bs Bolívares</button>
         </div>
-        <small className="muted" style={{ fontSize: '.72rem' }}>Los precios estimados se cargan en esta moneda. Se puede cambiar al editar.</small>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>Los precios estimados se cargan en esta moneda. Se puede cambiar al editar.</small>
         {/* Convertir los precios a la otra moneda a la tasa (del día o la que ponga el usuario). */}
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.45rem' }}>
           <span className="muted" style={{ fontSize: '.78rem' }}>Tasa (Bs/$)</span>
@@ -4079,12 +4079,12 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
           {tasaBcv > 0 && Number(tasaConv) !== tasaBcv && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaConv(String(tasaBcv))}>↻ Hoy ({tasaBcv.toLocaleString('es-VE')})</button>}
           <button type="button" className="btn btn-sm btn-primary" onClick={convertirMoneda}>⇄ Convertir a {moneda === 'USD' ? 'Bs' : '$'}</button>
         </div>
-        <small className="muted" style={{ fontSize: '.72rem' }}>Convierte los precios cargados a {moneda === 'USD' ? 'Bs' : '$'} a esa tasa. El total va a Tesorería en esa moneda.</small>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>Convierte los precios cargados a {moneda === 'USD' ? 'Bs' : '$'} a esa tasa. El total va a Tesorería en esa moneda.</small>
       </div>
 
       <div className="form-row">
         <label>Servicios</label>
-        <small className="muted" style={{ display: 'block', margin: '-.3rem 0 .5rem' }}>Podés agregar <strong>varios servicios de distinto tipo</strong> en la misma solicitud (mantenimiento, recarga de gas/agua, electrodoméstico…).</small>
+        <small className="hint muted" style={{ display: 'block', margin: '-.3rem 0 .5rem' }}>Podés agregar <strong>varios servicios de distinto tipo</strong> en la misma solicitud (mantenimiento, recarga de gas/agua, electrodoméstico…).</small>
         <div style={{ display: 'grid', gap: '.5rem' }}>
           {lineas.map((l, idx) => {
             const mantTipo = tipoMantenimiento(l.categoria);
@@ -4141,7 +4141,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                         ...tipos.filter((t) => !TIPOS_SERVICIO_MANT.some((x) => x.value === t.nombre.trim().toUpperCase())).map((t) => ({ value: t.nombre, label: t.nombre })),
                       ]}
                       placeholder="🔎 Elegí el tipo (caucho, repuesto, aceite, pintura…)" emptyText="Escribí uno nuevo." allowCreate />
-                    <small className="muted" style={{ fontSize: '.72rem' }}>Lista base + catálogo. Si escribís uno nuevo, queda guardado.</small>
+                    <small className="hint muted" style={{ fontSize: '.72rem' }}>Lista base + catálogo. Si escribís uno nuevo, queda guardado.</small>
                   </div>
                 )}
                 {(mant || electro) && (() => {
@@ -4153,7 +4153,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                         <SearchSelect value={l.repuestoId} onChange={(v) => setLinea(l.id, { repuestoId: v })}
                           options={productosStock.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku} · stock ${num(p.stock)} ${p.unidad}${p.almacen ? ` · ${p.almacen}` : ''}` }))}
                           placeholder="🔎 Buscá el repuesto (caucho, filtro…) si sale del inventario" emptyText="Sin productos con stock." />
-                        <small className="muted" style={{ fontSize: '.72rem' }}>Si el repuesto está en el inventario, se descuenta del stock al crear el servicio. Dejalo en blanco si no aplica.</small>
+                        <small className="hint muted" style={{ fontSize: '.72rem' }}>Si el repuesto está en el inventario, se descuenta del stock al crear el servicio. Dejalo en blanco si no aplica.</small>
                       </div>
                       {prod && (() => {
                         const enTope = (Number(l.repuestoCant) || 0) >= prod.stock;
@@ -4166,7 +4166,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                               const v = e.target.value;
                               setLinea(l.id, { repuestoCant: (Number(v) || 0) > prod.stock ? String(prod.stock) : v });
                             }} />
-                          <small className="muted" style={{ fontSize: '.72rem', color: enTope ? 'var(--warning)' : undefined }}>
+                          <small className="hint muted" style={{ fontSize: '.72rem', color: enTope ? 'var(--warning)' : undefined }}>
                             Disponible: {num(prod.stock)} {prod.unidad}{prod.almacen ? ` · ${prod.almacen}` : ''}{enTope ? ' · tope alcanzado' : ''}.
                           </small>
                         </div>
@@ -4199,7 +4199,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                       <div className="form-row" style={{ margin: 0 }}>
                         <label style={{ fontSize: '.74rem' }}>Precio estimado ({monedaSym}, opcional)</label>
                         <input className="input mono" type="number" min={0} step="any" value={sumDet > 0 ? String(sumDet) : l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" disabled={sumDet > 0} title={sumDet > 0 ? 'Tomado de la suma del detalle' : undefined} />
-                        {sumDet > 0 && <small className="muted" style={{ fontSize: '.72rem' }}>Precio tomado del detalle: {fmtMonto(sumDet, moneda)}.</small>}
+                        {sumDet > 0 && <small className="hint muted" style={{ fontSize: '.72rem' }}>Precio tomado del detalle: {fmtMonto(sumDet, moneda)}.</small>}
                       </div>
                     </div>
                   </>
@@ -4212,7 +4212,7 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
                     <div className="form-row" style={{ margin: 0 }}>
                       <label style={{ fontSize: '.74rem' }}>Precio estimado ({monedaSym}, opcional)</label>
                       <input className="input mono" type="number" min={0} step="any" value={sumDet > 0 ? String(sumDet) : l.precio} onChange={(e) => setLinea(l.id, { precio: e.target.value })} placeholder="0,00" disabled={sumDet > 0} title={sumDet > 0 ? 'Tomado de la suma del detalle' : undefined} />
-                      {sumDet > 0 && <small className="muted" style={{ fontSize: '.72rem' }}>Precio tomado del detalle: {fmtMonto(sumDet, moneda)}.</small>}
+                      {sumDet > 0 && <small className="hint muted" style={{ fontSize: '.72rem' }}>Precio tomado del detalle: {fmtMonto(sumDet, moneda)}.</small>}
                     </div>
                   </div>
                 )}
@@ -4248,11 +4248,11 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
               <button type="button" className={anticipoMoneda === 'Bs' ? 'active' : ''} onClick={() => setAnticipoMoneda('Bs')}>Bs Bolívares</button>
             </div>
             <input className="input mono" type="number" min={0} step="any" value={anticipoMonto} onChange={(e) => setAnticipoMonto(e.target.value)} placeholder="Monto del anticipo" />
-            {anticipoMoneda !== moneda && <small className="muted" style={{ display: 'block' }}>Se convierte a {moneda === 'USD' ? '$' : 'Bs'} con la tasa BCV para calcular el pendiente.</small>}
+            {anticipoMoneda !== moneda && <small className="hint muted" style={{ display: 'block' }}>Se convierte a {moneda === 'USD' ? '$' : 'Bs'} con la tasa BCV para calcular el pendiente.</small>}
             {total > 0 && (Number(anticipoMonto) || 0) > 0 && anticipoMoneda === moneda && (
-              <small className="muted" style={{ display: 'block' }}>Pendiente: <strong className="mono">{fmtMonto(Math.max(0, total - (Number(anticipoMonto) || 0)), moneda)}</strong> — queda como crédito en Tesorería.</small>
+              <small className="hint muted" style={{ display: 'block' }}>Pendiente: <strong className="mono">{fmtMonto(Math.max(0, total - (Number(anticipoMonto) || 0)), moneda)}</strong> — queda como crédito en Tesorería.</small>
             )}
-            <small className="muted" style={{ display: 'block', fontSize: '.72rem' }}>Se puede editar o quitar mientras el servicio no esté pagado.</small>
+            <small className="hint muted" style={{ display: 'block', fontSize: '.72rem' }}>Se puede editar o quitar mientras el servicio no esté pagado.</small>
           </div>
         )}
       </div>
@@ -4609,7 +4609,7 @@ function CrearOrdenModal({
               {addingUnidad ? 'Añadiendo…' : '+ Añadir'}
             </button>
           </div>
-          <small className="muted" style={{ fontSize: '.72rem' }}>La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
+          <small className="hint muted" style={{ fontSize: '.72rem' }}>La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
         </div>
         <div className="form-row">
           <label>Código</label>
@@ -4633,7 +4633,7 @@ function CrearOrdenModal({
           onChange={(e) => setSolicitanteCi(e.target.value)}
           placeholder="Quién pide el material (no quien carga la solicitud)"
         />
-        <small className="muted" style={{ fontSize: '.72rem' }}>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>
           Quien pide el material. La solicitud queda registrada a nombre de <strong>{nombreCompletoUsuario || 'vos'}</strong> como quien la cargó.
         </small>
       </div>
@@ -4818,14 +4818,14 @@ function CrearOrdenModal({
                     onChange={(v) => setNuevoCategoria(v.toUpperCase())}
                     placeholder="Categoría * (buscá por nombre, código o producto, o escribí una nueva)"
                     emptyText="Ninguna categoría coincide" />
-                  <small className="muted" style={{ fontSize: '.72rem' }}>Define el código: PLOMERIA → PLO-044.</small>
+                  <small className="hint muted" style={{ fontSize: '.72rem' }}>Define el código: PLOMERIA → PLO-044.</small>
                 </div>
                 <select className="select" value={nuevoUnidad} onChange={(e) => setNuevoUnidad(e.target.value)}>
                   {!medidas.includes(nuevoUnidad) && nuevoUnidad && <option value={nuevoUnidad}>{nuevoUnidad}</option>}
                   {medidas.map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
-              <small className="muted" style={{ fontSize: '.72rem' }}>
+              <small className="hint muted" style={{ fontSize: '.72rem' }}>
                 El almacén no se elige acá: se define al <strong>recibir la mercancía</strong>, desde Inventario.
               </small>
               <div>
@@ -4879,7 +4879,7 @@ function CrearOrdenModal({
             <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', color: 'var(--danger)' }} onClick={() => setImagenes((prev) => prev.filter((_, k) => k !== i))} title="Quitar">✕</button>
           </div>
         ))}
-        <small className="muted">Fotos del repuesto/modelo a comprar (máx. {MAX_IMAGENES_OP}). Se adjuntan a la orden y quedan en su trazabilidad.</small>
+        <small className="hint muted">Fotos del repuesto/modelo a comprar (máx. {MAX_IMAGENES_OP}). Se adjuntan a la orden y quedan en su trazabilidad.</small>
       </div>
 
       <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>

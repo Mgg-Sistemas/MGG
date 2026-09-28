@@ -320,7 +320,7 @@ function AbonoModal({ aliado, actor, actorName, onClose, onSaved }: {
           <input type="checkbox" checked={sumar} onChange={(e) => setSumar(e.target.checked)} />
           Sumar estos Kg al <strong>stock real de CASITERITA</strong>
         </label>
-        <small className="muted">Marcá solo si estos Kg NO entraron ya por una recepción aparte (evita doble conteo).</small>
+        <small className="hint muted">Marcá solo si estos Kg NO entraron ya por una recepción aparte (evita doble conteo).</small>
       </form>
     </Modal>
   );

@@ -1383,7 +1383,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
             <div className="form-row">
               <label>Almacén {reporteFiltroSel && <span className="muted" style={{ fontWeight: 400 }}>· elegido: <strong>{reporteFiltroSel}</strong></span>}</label>
               <AlmacenArbol almacenes={almacenes} existencias={existencias} value={reporteFiltroSel} onChange={setReporteFiltroSel} />
-              <small className="muted" style={{ fontSize: '.72rem' }}>Tocá un almacén <strong>general</strong> (trae también sus subalmacenes) o desplegá con ▸ para elegir un <strong>subalmacén</strong>.</small>
+              <small className="hint muted" style={{ fontSize: '.72rem' }}>Tocá un almacén <strong>general</strong> (trae también sus subalmacenes) o desplegá con ▸ para elegir un <strong>subalmacén</strong>.</small>
             </div>
             {reporteFiltroSel ? (
               !rows.length ? (
@@ -1650,7 +1650,7 @@ function EliminarAlmacenDialog({ almacen, onCancel, onConfirm }: {
           onKeyDown={(e) => { if (e.key === 'Enter' && ok) onConfirm(); }}
         />
         {texto.trim() !== '' && !ok && (
-          <small className="muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
+          <small className="hint muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
         )}
       </div>
     </Modal>
@@ -1735,7 +1735,7 @@ function EliminarProductoDialog({ producto, onCancel, onConfirm }: {
           onChange={(e) => setMotivo(e.target.value)}
         />
         {motivo.trim() !== '' && !motivoOk && (
-          <small className="muted" style={{ color: 'var(--danger)' }}>Escribí un motivo un poco más claro.</small>
+          <small className="hint muted" style={{ color: 'var(--danger)' }}>Escribí un motivo un poco más claro.</small>
         )}
       </div>
       <div className="form-row">
@@ -1749,7 +1749,7 @@ function EliminarProductoDialog({ producto, onCancel, onConfirm }: {
           onKeyDown={(e) => { if (e.key === 'Enter' && ok) onConfirm(motivo.trim()); }}
         />
         {texto.trim() !== '' && !ok && (
-          <small className="muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
+          <small className="hint muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
         )}
       </div>
     </Modal>

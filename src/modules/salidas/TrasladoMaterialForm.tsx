@@ -247,7 +247,7 @@ export function TrasladoMaterialForm({
                 <label>Monto de la cuenta por cobrar (USD)</label>
                 <input className="input mono" type="number" min={0} step="any" value={cxcMonto}
                   onChange={(e) => setCxcMonto(e.target.value)} placeholder={String(Math.round(totalGeneral * 100) / 100)} />
-                <small className="muted">Sugerido: valor del material <strong>{money(totalGeneral)}</strong>. Podés editarlo. El cliente lo paga luego en dinero o en producto desde Tesorería.</small>
+                <small className="hint muted">Sugerido: valor del material <strong>{money(totalGeneral)}</strong>. Podés editarlo. El cliente lo paga luego en dinero o en producto desde Tesorería.</small>
               </div>
             </div>
           )}
@@ -264,7 +264,7 @@ export function TrasladoMaterialForm({
               </optgroup>
             ))}
           </select>
-          <small className="muted">El almacén principal de cada sede. Casiterita y estaño aparecen aparte porque tienen su propio almacén.</small>
+          <small className="hint muted">El almacén principal de cada sede. Casiterita y estaño aparecen aparte porque tienen su propio almacén.</small>
         </div>
 
         {/* Materiales (varias líneas) — producto buscable; el origen se asigna solo. */}
@@ -288,7 +288,7 @@ export function TrasladoMaterialForm({
                     emptyText={ocultos > 0
                       ? `Sin resultados. ${ocultos} material(es) no se listan porque no tienen stock en ningún almacén: no se pueden trasladar.`
                       : 'Sin productos.'} />
-                  <small className="muted">
+                  <small className="hint muted">
                     {l.productoId
                       ? (l.almacen
                         ? <>Sale de 📦 {l.almacen} · stock <strong className="mono">{num(stock)} {prod?.unidad ?? ''}</strong></>
@@ -306,7 +306,7 @@ export function TrasladoMaterialForm({
                   <input className="input mono" type="number" min={0} step="any" value={l.precio}
                     onChange={(e) => setLinea(l.id, { precio: e.target.value })}
                     placeholder={l.productoId ? String(costoOrigenDe(l.productoId, l.almacen)) : '0'} />
-                  <small className="muted">Costo/PMP del origen. Si lo editás, ese costo viaja al destino y actualiza el producto en Inventario · subtotal {money(precioDe(l) * (Number(l.cantidad) || 0))}</small>
+                  <small className="hint muted">Costo/PMP del origen. Si lo editás, ese costo viaja al destino y actualiza el producto en Inventario · subtotal {money(precioDe(l) * (Number(l.cantidad) || 0))}</small>
                 </div>
               </div>
             </div>
@@ -332,7 +332,7 @@ export function TrasladoMaterialForm({
             <input type="checkbox" checked={consumoInterno} onChange={(e) => setConsumoInterno(e.target.checked)} />
             Consumo interno
           </label>
-          <small className="muted">Marcalo si el material se queda dentro de la empresa. Se ve en la trazabilidad y en el detalle.</small>
+          <small className="hint muted">Marcalo si el material se queda dentro de la empresa. Se ve en la trazabilidad y en el detalle.</small>
         </div>
 
         {/* Motivo, fecha y nota */}
@@ -344,7 +344,7 @@ export function TrasladoMaterialForm({
           <div className="form-row">
             <label>Fecha de entrega</label>
             <input className="input" type="date" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)} />
-            <small className="muted">Fecha en que se entregó al almacén destino.</small>
+            <small className="hint muted">Fecha en que se entregó al almacén destino.</small>
           </div>
         </div>
 

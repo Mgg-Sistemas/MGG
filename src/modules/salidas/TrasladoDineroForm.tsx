@@ -95,7 +95,7 @@ export function TrasladoDineroForm({
               {!activas.length && <option value="">— sin cajas —</option>}
               {activas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {c.moneda} · {money(Number(c.saldo) || 0)}</option>)}
             </select>
-            {origen && <small className="muted">Saldo: <strong className="mono">{money(saldo)} {origen.moneda}</strong></small>}
+            {origen && <small className="hint muted">Saldo: <strong className="mono">{money(saldo)} {origen.moneda}</strong></small>}
           </div>
           <div className="form-row">
             <label>Caja destino (misma moneda)</label>
@@ -126,7 +126,7 @@ export function TrasladoDineroForm({
             <textarea className="input" rows={2} value={notaTexto} onChange={(e) => setNotaTexto(e.target.value)}
               placeholder="Escribí el motivo / detalle de la nota de entrega…" style={{ marginTop: '.4rem' }} />
           )}
-          {notaOn && <small className="muted">Este texto se imprime en el PDF del traslado como “Nota de entrega”.</small>}
+          {notaOn && <small className="hint muted">Este texto se imprime en el PDF del traslado como “Nota de entrega”.</small>}
         </div>
 
         <AdjuntosPicker valor={adjuntos} onChange={setAdjuntos} disabled={saving}

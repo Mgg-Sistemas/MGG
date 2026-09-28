@@ -81,7 +81,7 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
     if (refinadoNum <= 0) { setError('Indicá el estaño refinado obtenido (kg): es lo que entra a inventario.'); return; }
     setSaving(true);
     try {
-      await finalizarRefinacionConResultados(prod.id, {
+      const avisoDross = await finalizarRefinacionConResultados(prod.id, {
         estano_refinado_kg: refinadoNum,
         n_lingotes: lingotes.trim() === '' ? null : Number(lingotes),
         peso_prom_lingote: pesoProm || null,
@@ -100,6 +100,8 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
         involucrados: sinRepetidos(involucrados),
       }, actor, actorName ?? null);
       notify(`Refinación finalizada: ${num(refinadoNum)} kg de estaño refinado → ${prod.almacen_destino}`, 'success', { link: '#/app/inventario' });
+      // Mismo criterio que la colada: si el dross no entró, se avisa con los kg.
+      if (avisoDross) notify(avisoDross, 'warning', { link: '#/app/inventario' });
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo finalizar la refinación.');
@@ -133,14 +135,14 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
               {' · '}Fin <strong>{tiempos.fin || '—'}</strong>
               {' · '}Total <strong>{fmtJornada(tiempos.totalHoras)}</strong>
             </div>
-            <small className="muted" style={{ fontSize: '.7rem' }}>Si hay que corregirla, se edita en el reporte de refinación (✎), no acá.</small>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>Si hay que corregirla, se edita en el reporte de refinación (✎), no acá.</small>
           </div>
         ) : (
           <div className="form-grid">
             <div className="form-row">
               <label>Hora inicio de refinación</label>
               <input className="input" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} placeholder="Ej.: 4:29pm 28/03/26" />
-              <small className="muted" style={{ fontSize: '.7rem' }}>No se cargó la jornada al crear: completala acá.</small>
+              <small className="hint muted" style={{ fontSize: '.7rem' }}>No se cargó la jornada al crear: completala acá.</small>
             </div>
             <div className="form-row">
               <label>Hora fin de refinación</label>
@@ -176,7 +178,7 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
           <div className="form-row">
             <label>N° de lingotes producidos</label>
             <input className="input mono" type="number" min={0} step="any" value={lingotes} onChange={(e) => setLingotes(e.target.value)} style={{ textAlign: 'right' }} title="Admite medios lingotes: la última colada rara vez llena el molde" />
-            {pesoProm > 0 && <small className="muted" style={{ fontSize: '.7rem' }}>Peso prom./lingote: <strong>{num(pesoProm)} kg</strong></small>}
+            {pesoProm > 0 && <small className="hint muted" style={{ fontSize: '.7rem' }}>Peso prom./lingote: <strong>{num(pesoProm)} kg</strong></small>}
           </div>
         </div>
         <div className="form-grid">
@@ -187,7 +189,7 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
           <div className="form-row">
             <label>Rendimiento del proceso (%)</label>
             <input className="input mono" type="number" min={0} step="any" value={rendimiento} onChange={(e) => { setRendTocado(true); setRendimiento(e.target.value); }} style={{ textAlign: 'right' }} />
-            {rendSugerido > 0 && <small className="muted" style={{ fontSize: '.7rem' }}>Sugerido: {num(rendSugerido)} % (refinado ÷ crudo)</small>}
+            {rendSugerido > 0 && <small className="hint muted" style={{ fontSize: '.7rem' }}>Sugerido: {num(rendSugerido)} % (refinado ÷ crudo)</small>}
           </div>
         </div>
         <div className="form-grid">

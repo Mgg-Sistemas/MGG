@@ -15,7 +15,7 @@ export function HoraInput({ value, onChange, disabled, style }: {
     <>
       <input className="input" type="time" value={h24} disabled={disabled}
         onChange={(e) => onChange(e.target.value)} style={{ minWidth: 110, ...style }} />
-      {viejo && !h24 && <small className="muted" style={{ display: 'block', fontSize: '.7rem' }}>Antes: «{viejo}»</small>}
+      {viejo && !h24 && <small className="hint muted" style={{ display: 'block', fontSize: '.7rem' }}>Antes: «{viejo}»</small>}
     </>
   );
 }

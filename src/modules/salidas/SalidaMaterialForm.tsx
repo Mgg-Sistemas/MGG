@@ -344,7 +344,7 @@ export function SalidaMaterialForm({
                 <label>Monto de la cuenta por cobrar (USD)</label>
                 <input className="input mono" type="number" min={0} step="any" value={cxcMonto}
                   onChange={(e) => setCxcMonto(e.target.value)} placeholder={String(Math.round(totalGeneral * 100) / 100)} />
-                <small className="muted">Sugerido: valor del material <strong>{money(totalGeneral)}</strong>. Podés editarlo (precio de venta). El cliente lo paga luego en dinero o en producto desde Tesorería.</small>
+                <small className="hint muted">Sugerido: valor del material <strong>{money(totalGeneral)}</strong>. Podés editarlo (precio de venta). El cliente lo paga luego en dinero o en producto desde Tesorería.</small>
               </div>
             </div>
           )}
@@ -367,7 +367,7 @@ export function SalidaMaterialForm({
               {addingUnidad ? '…' : '+ Añadir'}
             </button>
           </div>
-          <small className="muted">Se comparte con el catálogo de OP: lo que agregues acá aparece allá y viceversa.</small>
+          <small className="hint muted">Se comparte con el catálogo de OP: lo que agregues acá aparece allá y viceversa.</small>
         </div>
 
         {/* 1b) Sede / centro de acopio destino: sale del catálogo 📍 Sedes destino. */}
@@ -380,7 +380,7 @@ export function SalidaMaterialForm({
             {sedeDestino && !sedesDestino.includes(sedeDestino) && <option value={sedeDestino}>{sedeDestino}</option>}
           </select>
           <div data-enter-omitir="" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.4rem', marginTop: '.3rem' }}>
-            <small className="muted">A dónde va el material (sede o centro de acopio).</small>
+            <small className="hint muted">A dónde va el material (sede o centro de acopio).</small>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setGestionarSedes(true)}>📍 Gestionar sedes</button>
           </div>
         </div>
@@ -408,7 +408,7 @@ export function SalidaMaterialForm({
                     emptyText={ocultos > 0
                       ? `Sin resultados. ${ocultos} material(es) no se listan porque no tienen stock en ningún almacén: no se pueden despachar.`
                       : 'Sin productos.'} />
-                  <small className="muted">
+                  <small className="hint muted">
                     {l.productoId
                       ? (stock > 0
                         ? <>📦 Sale de <strong>{tramos.map((t) => `${nombreAlmacenVisible(t.almacen)} (${num(t.cantidad)})`).join(' + ') || '—'}</strong> · disponible {l.almacen ? 'en este almacén' : 'total'} <strong className="mono">{num(stock)} {prod?.unidad ?? ''}</strong></>
@@ -441,7 +441,7 @@ export function SalidaMaterialForm({
                         />
                       </div>
                       {l.equipoId && (
-                        <small className="muted" style={{ fontSize: '.72rem' }}>
+                        <small className="hint muted" style={{ fontSize: '.72rem' }}>
                           Queda en el kardex y en la ficha de <strong>{equipoDe(l.equipoId)?.equipo}</strong>: así se sabe qué se le puso.
                         </small>
                       )}
@@ -470,7 +470,7 @@ export function SalidaMaterialForm({
                   <input className="input mono" type="number" min={0} step="any" value={l.precio}
                     onChange={(e) => setLinea(l.id, { precio: e.target.value })}
                     placeholder={l.productoId ? String(costoInvDe(l)) : '0'} />
-                  <small className="muted">Editable. Al ejecutar la salida actualiza el costo del producto en Inventario · subtotal {money(precioDe(l) * (Number(l.cantidad) || 0))}</small>
+                  <small className="hint muted">Editable. Al ejecutar la salida actualiza el costo del producto en Inventario · subtotal {money(precioDe(l) * (Number(l.cantidad) || 0))}</small>
                 </div>
               </div>
             </div>
@@ -486,7 +486,7 @@ export function SalidaMaterialForm({
             <input type="checkbox" checked={consumoInterno} onChange={(e) => setConsumoInterno(e.target.checked)} />
             Consumo interno
           </label>
-          <small className="muted">Marcalo si el material se queda dentro de la empresa (no es venta ni entrega a terceros). Se ve en la trazabilidad y en el detalle.</small>
+          <small className="hint muted">Marcalo si el material se queda dentro de la empresa (no es venta ni entrega a terceros). Se ve en la trazabilidad y en el detalle.</small>
         </div>
 
         {/* 4) Motivo y fecha */}
@@ -498,7 +498,7 @@ export function SalidaMaterialForm({
           <div className="form-row">
             <label>Fecha de entrega</label>
             <input className="input" type="date" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)} />
-            <small className="muted">Fecha en que se entregó al destino.</small>
+            <small className="hint muted">Fecha en que se entregó al destino.</small>
           </div>
         </div>
 

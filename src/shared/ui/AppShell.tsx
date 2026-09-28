@@ -450,7 +450,12 @@ export function AppShell() {
           <button
             type="button"
             className="btn btn-icon btn-ghost"
-            onClick={() => setAyudasOff((v) => !v)}
+            onClick={() => setAyudasOff((v) => {
+              // El botón avisa lo que hizo: sin esto parecía muerto cuando la
+              // pantalla de turno no tenía textos de ayuda que esconder.
+              toast(v ? 'Ayudas visibles' : 'Ayudas ocultas', 'info');
+              return !v;
+            })}
             title={ayudasOff ? 'Mostrar las ayudas (textos explicativos)' : 'Ocultar las ayudas (textos explicativos)'}
             aria-label={ayudasOff ? 'Mostrar ayudas' : 'Ocultar ayudas'}
             aria-pressed={!ayudasOff}
@@ -555,7 +560,7 @@ export function AppShell() {
                     style={{ flex: 1 }} />
                   <button type="button" className="btn btn-sm btn-ghost" onClick={agregarCorreo} disabled={!correoNuevo.trim()}>+ Añadir</button>
                 </div>
-                <small className="muted">Los fijos son <strong>{BACKUP_EMAIL}</strong>. Tu propio correo se suma solo; los que agregues valen <strong>solo para este envío</strong>.</small>
+                <small className="hint muted">Los fijos son <strong>{BACKUP_EMAIL}</strong>. Tu propio correo se suma solo; los que agregues valen <strong>solo para este envío</strong>.</small>
               </div>
             </div>
           ) : (

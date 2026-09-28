@@ -138,7 +138,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
         </p>
       )}
       {nDestildados > 0 && (
-        <p className="hint" style={{ marginTop: '-.4rem', fontSize: '.82rem', color: 'var(--warning)' }}>
+        <p style={{ marginTop: '-.4rem', fontSize: '.82rem', color: 'var(--warning)' }}>
           ⚠ <strong>{nDestildados}</strong> producto(s) destildado(s): <strong>no</strong> se le compran a este proveedor y quedan <strong>pendientes por asignar</strong> en la OP madre.
         </p>
       )}
@@ -230,7 +230,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
           <label>📝 Observación · ¿por qué elegís esta oferta? <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
           <textarea className="textarea" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)}
             placeholder="Ej.: mejor precio en efectivo, entrega inmediata, único con stock, calidad comprobada…" />
-          <small className="muted">Lo verán el <strong>Gerente General</strong> (al aprobar) y <strong>Tesorería</strong> (al pagar).</small>
+          <small className="hint muted">Lo verán el <strong>Gerente General</strong> (al aprobar) y <strong>Tesorería</strong> (al pagar).</small>
         </div>
         <div className="form-row" style={{ margin: '.5rem 0 0' }}>
           <label>📎 Adjuntar imágenes / PDF de respaldo <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
@@ -246,7 +246,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
               ))}
             </div>
           )}
-          <small className="muted" style={{ fontSize: '.72rem' }}>PDF o imágenes · máximo 10 MB c/u.</small>
+          <small className="hint muted" style={{ fontSize: '.72rem' }}>PDF o imágenes · máximo 10 MB c/u.</small>
         </div>
       </div>
 
@@ -286,7 +286,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
           })()}
         </div>
         {sinPrecio && (
-          <p className="hint" style={{ color: 'var(--danger)', fontSize: '.8rem', margin: '.4rem 0 0' }}>
+          <p style={{ color: 'var(--danger)', fontSize: '.8rem', margin: '.4rem 0 0' }}>
             Las marcas elegidas no tienen precio. Elegí una con precio o cargalo en la oferta.
           </p>
         )}

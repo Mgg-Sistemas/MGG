@@ -77,7 +77,7 @@ function AjustarCantidadModal({ prod, actor, actorName, onClose, onListo }: {
         <label>Motivo de la corrección <span style={{ color: 'var(--danger)' }}>*</span></label>
         <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
           placeholder="Ej.: se pesó de más al cerrar la colada; faltó un lingote en el conteo" />
-        <small className="muted">Obligatorio. Queda en el kardex del producto y en el historial de {esRef ? 'la refinación' : 'la colada'}.</small>
+        <small className="hint muted">Obligatorio. Queda en el kardex del producto y en el historial de {esRef ? 'la refinación' : 'la colada'}.</small>
       </div>
     </Modal>
   );
@@ -393,7 +393,7 @@ function EnviarProduccionModal({
           placeholder="otro@correo.com"
           maxLength={120}
         />
-        <small className="muted">Podés mandarlo a un segundo destinatario al mismo tiempo.</small>
+        <small className="hint muted">Podés mandarlo a un segundo destinatario al mismo tiempo.</small>
       </div>
     </Modal>
   );

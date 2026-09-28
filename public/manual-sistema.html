@@ -288,6 +288,13 @@
       <li><strong>Menú lateral (izquierda):</strong> índice del sistema, dividido en <strong>Operación</strong> (trabajo diario) y <strong>Sistema</strong> (configuración).</li>
       <li>Puedes <strong>ocultar/mostrar</strong> el menú con el botón <strong>☰</strong> de la barra superior.</li>
       <li><strong>Barra superior:</strong> buscador general + campana de notificaciones.</li>
+      <li><strong>(?) Mostrar u ocultar las ayudas (28-09):</strong> el botón <strong>(?)</strong> de la barra superior esconde los <strong>textos explicativos</strong> —esas líneas grises debajo de los campos que dicen para qué sirve cada cosa—, para quien ya se sabe el sistema y prefiere la pantalla limpia. Se vuelve a tocar y regresan. La preferencia <strong>queda guardada</strong> en el equipo.
+        <ul>
+          <li><strong>Antes el botón no hacía nada:</strong> escondía una marca que <strong>ningún texto tenía puesta</strong>. Se marcaron los <strong>374 textos de ayuda</strong> del sistema, así que ahora sí responde en todas las pantallas.</li>
+          <li><strong>Los avisos NO se esconden.</strong> Las advertencias y los mensajes que explican <strong>por qué no se puede continuar</strong> quedan siempre visibles, aunque las ayudas estén ocultas: tres de ellos estaban marcados como ayuda y se corrigieron. Tampoco se esconden datos, como el <strong>nombre del archivo</strong> que se acaba de adjuntar.</li>
+          <li>Al tocarlo aparece un aviso corto (<em>Ayudas ocultas</em> / <em>Ayudas visibles</em>), para que se note el efecto aun estando en una pantalla sin textos de ayuda.</li>
+        </ul>
+      </li>
       <li><strong>Buscador general:</strong> escribe cualquier <strong>producto, proveedor, orden o usuario</strong>; al hacer clic en un resultado te lleva directo a su detalle (al buscar un usuario abre Usuarios con ese nombre filtrado). Los usuarios solo los encuentra quien tenga permiso para verlos (admin).</li>
       <li><strong>Campana (◔):</strong> avisa, por ejemplo, cuando un producto está por agotarse. El número rojo indica avisos sin leer. <strong>Al hacer clic en una notificación</strong> te lleva al <strong>módulo y detalle</strong> correspondiente y la marca como leída.</li>
       <li><strong>Vista previa de PDF:</strong> ningún reporte se descarga solo; primero se abre en una <strong>vista previa</strong>. Abajo trae <strong>Cerrar</strong>, <strong>🖨 Imprimir</strong> (abre el cuadro de impresión para mandarlo directo a la impresora) y <strong>↓ Descargar</strong>. El botón <strong>🖨 Imprimir</strong> está en <strong>todas</strong> las vistas previas de PDF del sistema, y también al ver facturas o comprobantes subidos (PDF o imagen).</li>
@@ -487,6 +494,12 @@
           <li><strong>Editar una colada tampoco devuelve stock</strong>, porque nunca lo había sacado.</li>
           <li><strong>Los materiales se siguen guardando</strong> en la colada: hacen falta para el <strong>costo</strong> y para el <strong>reporte</strong>. Lo único que ya no hacen es tocar existencias.</li>
           <li><strong>Lo que sí sigue entrando al inventario</strong> es el <strong>producto terminado</strong> y la <strong>escoria</strong>, y solo si la orden está marcada para <strong>sumar al inventario</strong>. Eso es una casilla que se elige, no algo automático.</li>
+          <li><strong>♨️ La escoria y el dross entran junto con el resultado final (28-09):</strong> al cerrar una colada entra el <strong>estaño</strong> y, con él, la <strong>ESCOREA DE FUNDICION</strong>; al cerrar una refinación entra el <strong>estaño refinado</strong> y la <strong>ESCOREA DE REFINACION</strong>. Son <strong>dos fichas distintas</strong> a propósito: la escoria del horno y el dross de la olla tienen leyes de Sn muy distintas, y juntarlas daría un promedio que no es el de ninguna. Entran <strong>sin costo</strong> —lo que costó el proceso ya está cargado en el estaño— y quedan en la cola <strong>«⚠ Sin costo»</strong> para valorarlas con criterio. Quedan marcadas como <strong>insumo de receta</strong>, porque vuelven al horno.
+            <ul>
+              <li><strong>Si la escoria no puede entrar, ahora el sistema lo dice.</strong> El ingreso es «mejor esfuerzo»: la colada ya cerró y el estaño ya entró, así que un problema ahí <strong>no puede tumbar el cierre</strong>. Pero antes se rendía <strong>en silencio</strong>. Ahora sale un aviso con los <strong>kg exactos</strong> y queda en la <strong>campana</strong>, para cargarlos a mano con una entrada.</li>
+              <li><em>Se corrigió el dato: la <strong>colada N° 2</strong> tenía <strong>294,5 kg</strong> de escoria que nunca entraron, porque en ese momento la ficha no existía en el catálogo y el sistema se rendía sin avisar. Se cargaron. La ESCOREA DE FUNDICION quedó en <strong>1.518,50 kg</strong>.</em></li>
+            </ul>
+          </li>
           <li><em>Se corrigió el dato: la sincronización del 24/09 había descontado 10.316,50 kg de casiterita por las seis coladas. Se revirtió con seis asientos de reverso y Los Pinos volvió a <strong>29.053,50 kg</strong>.</em></li>
         </ul>
       </li>

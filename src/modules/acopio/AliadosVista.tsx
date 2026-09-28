@@ -680,7 +680,7 @@ function MovimientoAliadoModal({ aliado, sugCorte, actor, actorName, centro, onC
           <input type="checkbox" checked={sumar} onChange={(e) => setSumar(e.target.checked)} />
           Sumar los <strong>Kg Recibidos</strong> al stock real de CASITERITA
         </label>
-        <small className="muted">Marcá «sumar a casiterita» solo si esos Kg NO entraron ya por una recepción aparte (evita doble conteo).</small>
+        <small className="hint muted">Marcá «sumar a casiterita» solo si esos Kg NO entraron ya por una recepción aparte (evita doble conteo).</small>
       </form>
     </Modal>
   );

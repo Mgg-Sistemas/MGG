@@ -99,7 +99,7 @@ export function AlmacenForm({ almacen, almacenes = [], parentPreset, sedePreset,
               <option key={a.id} value={a.id}>{a.nombre}</option>
             ))}
           </select>
-          <small className="muted">Si elegís un padre, este será un <strong>subalmacén</strong> (un almacén dentro de otro).</small>
+          <small className="hint muted">Si elegís un padre, este será un <strong>subalmacén</strong> (un almacén dentro de otro).</small>
         </div>
         {parentId ? (
           <div className="form-row">
@@ -125,7 +125,7 @@ export function AlmacenForm({ almacen, almacenes = [], parentPreset, sedePreset,
                 <option value="__new__">+ Nueva sede…</option>
               </select>
             )}
-            <small className="muted">Agrupa el almacén bajo una sede en la vista (Matanzas, Los Pinos…).</small>
+            <small className="hint muted">Agrupa el almacén bajo una sede en la vista (Matanzas, Los Pinos…).</small>
           </div>
         )}
         <div className="form-row">

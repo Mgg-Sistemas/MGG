@@ -47,7 +47,7 @@ export function ClientePicker({ value, onChange, actor, actorName }: {
       <SearchSelect value={value?.id ?? ''} onChange={(id) => onChange(clientes.find((c) => c.id === id) ?? null)}
         options={opciones} placeholder="🔎 Buscá el cliente…" emptyText="Sin clientes guardados." sinPreseleccion />
       {value && (value.rif || value.telefono) && (
-        <small className="muted">{value.rif ? <>RIF: <strong>{value.rif}</strong></> : null}{value.rif && value.telefono ? ' · ' : ''}{value.telefono ? <>Tel: <strong>{value.telefono}</strong></> : null}</small>
+        <small className="hint muted">{value.rif ? <>RIF: <strong>{value.rif}</strong></> : null}{value.rif && value.telefono ? ' · ' : ''}{value.telefono ? <>Tel: <strong>{value.telefono}</strong></> : null}</small>
       )}
       {/* Alta inline: acá Enter significa "añadir", no "siguiente campo" → fuera del recorrido. */}
       <div data-enter-omitir="" style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
@@ -61,7 +61,7 @@ export function ClientePicker({ value, onChange, actor, actorName }: {
           {adding ? '…' : '+ Añadir'}
         </button>
       </div>
-      <small className="muted">Se guarda en el catálogo de clientes (compartido con Ventas). Al ejecutar la salida se le crea una cuenta por cobrar.</small>
+      <small className="hint muted">Se guarda en el catálogo de clientes (compartido con Ventas). Al ejecutar la salida se le crea una cuenta por cobrar.</small>
     </div>
   );
 }

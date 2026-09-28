@@ -499,7 +499,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
             </label>
           ))}
         </div>
-        <small className="muted">{significadoRetencion(tipo, direccion)}</small>
+        <small className="hint muted">{significadoRetencion(tipo, direccion)}</small>
       </div>
 
       {direccion === 'practicada' && !config.esContribuyenteEspecial && tipo === 'iva' && (
@@ -551,7 +551,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
             <select className="select" value={sujeto} onChange={(e) => setSujeto(e.target.value as SujetoRetenido)}>
               {SUJETOS.filter((s) => s.key !== 'todos').map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
-            <small className="muted">El porcentaje del ISLR cambia según el sujeto: no es lo mismo una persona natural que una empresa.</small>
+            <small className="hint muted">El porcentaje del ISLR cambia según el sujeto: no es lo mismo una persona natural que una empresa.</small>
           </div>
           <div className="form-row">
             <label>Concepto</label>
@@ -561,7 +561,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
                 <option key={c.id} value={c.id}>{c.codigo ? `${c.codigo} · ` : ''}{c.nombre} — {c.porcentaje}%</option>
               ))}
             </select>
-            {concepto?.fundamento && <small className="muted">{concepto.fundamento}</small>}
+            {concepto?.fundamento && <small className="hint muted">{concepto.fundamento}</small>}
           </div>
         </>
       )}
@@ -581,7 +581,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
               {label}
             </label>
           ))}
-          <small className="muted">Sin ninguna marcada se retiene el {config.pctIvaGeneral}%.</small>
+          <small className="hint muted">Sin ninguna marcada se retiene el {config.pctIvaGeneral}%.</small>
         </div>
       )}
 
@@ -590,7 +590,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           <div className="form-row" style={{ flex: '1 1 170px' }}>
             <label>N° del comprobante</label>
             <input className="input mono" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="El que trae el comprobante" />
-            <small className="muted">Lo puso quien retuvo: se copia tal cual.</small>
+            <small className="hint muted">Lo puso quien retuvo: se copia tal cual.</small>
           </div>
         )}
         <div className="form-row" style={{ flex: '1 1 150px' }}>
@@ -613,7 +613,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
               <label>Monto retenido</label>
               <input className="input mono" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} inputMode="decimal"
                 placeholder={String(Math.round(nDec(baseStr) * nDec(pctStr)) / 100)} />
-              <small className="muted">Si lo dejás vacío se toma base × %.</small>
+              <small className="hint muted">Si lo dejás vacío se toma base × %.</small>
             </div>
           </>
         )}
@@ -631,7 +631,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Fecha de la factura</label>
           <input className="input" type="date" value={facturaFecha} onChange={(e) => setFacturaFecha(e.target.value)} />
-          <small className="muted">Define el período{tipo === 'iva' ? ' y la quincena' : ''}.</small>
+          <small className="hint muted">Define el período{tipo === 'iva' ? ' y la quincena' : ''}.</small>
         </div>
       </div>
 
@@ -739,12 +739,12 @@ export function ConfiguracionFiscalModal({ actor, onClose }: { actor: string; on
             <div className="form-row" style={{ flex: '1 1 180px' }}>
               <label>Municipio</label>
               <input className="input" value={cfg.municipio ?? ''} onChange={(e) => set('municipio', e.target.value)} />
-              <small className="muted">Define qué ordenanza de ISAE aplica.</small>
+              <small className="hint muted">Define qué ordenanza de ISAE aplica.</small>
             </div>
             <div className="form-row" style={{ flex: '1 1 180px' }}>
               <label>Estado</label>
               <input className="input" value={cfg.estado ?? ''} onChange={(e) => set('estado', e.target.value)} />
-              <small className="muted">Define la ley de timbre fiscal.</small>
+              <small className="hint muted">Define la ley de timbre fiscal.</small>
             </div>
           </div>
 
@@ -773,12 +773,12 @@ export function ConfiguracionFiscalModal({ actor, onClose }: { actor: string; on
             <div className="form-row" style={{ flex: '1 1 180px' }}>
               <label>Valor de la Unidad Tributaria (Bs)</label>
               <input className="input mono" value={String(cfg.valorUt)} onChange={(e) => set('valorUt', nDec(e.target.value))} inputMode="decimal" />
-              <small className="muted">Define el <strong>sustraendo</strong> y el mínimo del ISLR de personas naturales. Sin esto, el sustraendo queda en cero.</small>
+              <small className="hint muted">Define el <strong>sustraendo</strong> y el mínimo del ISLR de personas naturales. Sin esto, el sustraendo queda en cero.</small>
             </div>
             <div className="form-row" style={{ flex: '1 1 140px' }}>
               <label>% de IGTF</label>
               <input className="input mono" value={String(cfg.pctIgtf)} onChange={(e) => set('pctIgtf', nDec(e.target.value))} inputMode="decimal" />
-              <small className="muted">3% vigente; la ley admite entre 2% y 8%.</small>
+              <small className="hint muted">3% vigente; la ley admite entre 2% y 8%.</small>
             </div>
           </div>
         </>

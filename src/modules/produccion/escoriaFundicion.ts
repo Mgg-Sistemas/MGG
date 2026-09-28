@@ -61,6 +61,26 @@ export function ingresaEscoria(escoriaKg: number | null | undefined, sumarInvent
   return kgDeEscoria(escoriaKg) > 0;
 }
 
+/**
+ * Aviso para quien cerró el proceso cuando la escoria NO pudo entrar.
+ *
+ * El ingreso es «mejor esfuerzo»: la colada ya cerró y el estaño ya entró, así
+ * que un problema acá no puede tumbar el cierre. Pero rendirse EN SILENCIO fue
+ * justamente lo que hizo perder la escoria de la colada N° 2 —294,5 kg que
+ * nadie supo que faltaban hasta que se contaron a mano meses después—. Si no se
+ * puede ingresar, por lo menos se dice: el aviso va al toast y a la campana,
+ * con los kg exactos, para que se cargue a mano y no se pierda otra vez.
+ *
+ * Devuelve null cuando no hay nada que avisar: sin kilos no falta nada.
+ */
+export function avisoEscoriaPendiente(
+  escoriaKg: number | null | undefined, nombreFicha: string,
+): string | null {
+  const kg = kgDeEscoria(escoriaKg);
+  if (kg <= 0) return null;
+  return `⚠ El cierre se guardó, pero los ${kg} kg de ${nombreFicha} NO entraron al inventario. Cargalos a mano con una entrada.`;
+}
+
 /** Texto del movimiento, para que el kardex se explique solo. */
 export function detalleEscoria(coladaNum: number | string | null | undefined): string {
   const n = String(coladaNum ?? '').trim();

@@ -231,7 +231,7 @@ export function GestionarHornosModal({
               placeholder="Ej. En mantenimiento / fuera de servicio…"
               autoFocus
             />
-            <small className="muted">Quedará registrado junto al horno.</small>
+            <small className="hint muted">Quedará registrado junto al horno.</small>
           </div>
         </Modal>
       )}

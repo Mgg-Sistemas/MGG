@@ -1158,7 +1158,7 @@ function SolicitudDetalleModal({
               <option key={c.id} value={c.id}>{c.nombre} · {c.moneda} · saldo {money(Number(c.saldo) || 0)}</option>
             ))}
           </select>
-          {cajaOrigenSel && <small className="muted">Saldo disponible: <strong className="mono">{money(saldoCaja)} {cajaOrigenSel.moneda}</strong></small>}
+          {cajaOrigenSel && <small className="hint muted">Saldo disponible: <strong className="mono">{money(saldoCaja)} {cajaOrigenSel.moneda}</strong></small>}
         </div>
         {sol.scope === 'traslado' ? (
           <div className="form-row">
@@ -1169,7 +1169,7 @@ function SolicitudDetalleModal({
                 <option key={c.id} value={c.id}>{c.nombre} · {money(Number(c.saldo) || 0)}</option>
               ))}
             </select>
-            {!cajasDestinoDinero.length && <small className="muted">No hay otra caja en {cajaOrigenSel?.moneda ?? sol.moneda}. El dinero no cambia de moneda al trasladarse.</small>}
+            {!cajasDestinoDinero.length && <small className="hint muted">No hay otra caja en {cajaOrigenSel?.moneda ?? sol.moneda}. El dinero no cambia de moneda al trasladarse.</small>}
           </div>
         ) : (
           <DestinoSelect value={edDestino} onChange={setEdDestino} almacenes={almacenes}
@@ -1231,7 +1231,7 @@ function SolicitudDetalleModal({
                 {addingUnidad ? '…' : '+ Añadir'}
               </button>
             </div>
-            <small className="muted">Mismo catálogo que el alta y las órdenes de pedido: lo que agregues acá aparece allá.</small>
+            <small className="hint muted">Mismo catálogo que el alta y las órdenes de pedido: lo que agregues acá aparece allá.</small>
           </div>
         ) : (
           <div className="form-row">
@@ -1249,7 +1249,7 @@ function SolicitudDetalleModal({
                 <optgroup label="Destino actual"><option value={edAlmacenDestino}>{edAlmacenDestino}</option></optgroup>
               )}
             </select>
-            <small className="muted">El almacén principal de cada sede (y casiterita/estaño). Es lo que se imprime en la orden.</small>
+            <small className="hint muted">El almacén principal de cada sede (y casiterita/estaño). Es lo que se imprime en la orden.</small>
           </div>
         )}
 
@@ -1329,7 +1329,7 @@ function SolicitudDetalleModal({
                   <div className="form-row">
                     <label>Se descuenta de (automático)</label>
                     <input className="input" value={l.almacen || '—'} disabled style={{ opacity: .8 }} />
-                    <small className="muted">{l.productoId && l.almacen ? <>El sistema descuenta del almacén con stock: <strong>{l.almacen}</strong> · <strong className="mono">{num(stock)} {p?.unidad ?? ''}</strong></> : 'Elegí el material; el almacén de origen se asigna solo.'}</small>
+                    <small className="hint muted">{l.productoId && l.almacen ? <>El sistema descuenta del almacén con stock: <strong>{l.almacen}</strong> · <strong className="mono">{num(stock)} {p?.unidad ?? ''}</strong></> : 'Elegí el material; el almacén de origen se asigna solo.'}</small>
                   </div>
                 ) : (
                 <div className="form-row">
@@ -1343,7 +1343,7 @@ function SolicitudDetalleModal({
                         <option key={a} value={a}>{a}{l.productoId ? ` — ${num(st)} ${p?.unidad ?? 'und'}` : ''}</option>
                       ))}
                   </select>
-                  <small className="muted">{l.productoId && l.almacen ? <>stock en {l.almacen}: <strong className="mono">{num(stock)} {p?.unidad ?? ''}</strong></> : 'Elegí el material primero'}</small>
+                  <small className="hint muted">{l.productoId && l.almacen ? <>stock en {l.almacen}: <strong className="mono">{num(stock)} {p?.unidad ?? ''}</strong></> : 'Elegí el material primero'}</small>
                 </div>
                 )}
                 <div className="form-row">
@@ -1366,7 +1366,7 @@ function SolicitudDetalleModal({
                       options={opcionesEquipo}
                       placeholder="🔧 ¿Para qué equipo? (opcional)"
                       emptyText="Ningún equipo coincide" />
-                    {l.equipoId && <small className="muted">El consumo llega a la ficha de <strong>{l.equipoNombre}</strong>.</small>}
+                    {l.equipoId && <small className="hint muted">El consumo llega a la ficha de <strong>{l.equipoNombre}</strong>.</small>}
                   </div>
                 )}
                 <div className="form-row">
@@ -1736,7 +1736,7 @@ function EnviarResumenSalidasModal({ actor, onClose, onSend }: {
       <div className="form-row">
         <label>Correo destino</label>
         <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@empresa.com" />
-        <small className="muted">Si lo dejás vacío, va a la administración / jefatura por defecto. Se adjunta el PDF del resumen.</small>
+        <small className="hint muted">Si lo dejás vacío, va a la administración / jefatura por defecto. Se adjunta el PDF del resumen.</small>
       </div>
     </ModalUI>
   );

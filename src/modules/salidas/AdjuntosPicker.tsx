@@ -160,7 +160,7 @@ export function AdjuntosPicker({ valor, onChange, disabled, ayuda }: {
 
       {error
         ? <small style={{ color: 'var(--danger)' }}>{error}</small>
-        : <small className="muted">{ayuda ?? 'Foto o PDF, hasta 15 MB cada uno.'} Se puede cambiar mientras la solicitud no esté ejecutada.</small>}
+        : <small className="hint muted">{ayuda ?? 'Foto o PDF, hasta 15 MB cada uno.'} Se puede cambiar mientras la solicitud no esté ejecutada.</small>}
     </div>
   );
 }

@@ -91,7 +91,7 @@ export function SalidaDineroForm({
             {!activas.length && <option value="">— sin cajas activas —</option>}
             {activas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {c.moneda} · saldo {money(Number(c.saldo) || 0)}</option>)}
           </select>
-          {caja && <small className="muted">Saldo disponible: <strong className="mono">{money(saldo)} {caja.moneda}</strong></small>}
+          {caja && <small className="hint muted">Saldo disponible: <strong className="mono">{money(saldo)} {caja.moneda}</strong></small>}
         </div>
 
         <DestinoSelect value={destino} onChange={setDestino} almacenes={almacenesObj} label="A quién va dirigido el dinero" permitirAlmacen={false} />

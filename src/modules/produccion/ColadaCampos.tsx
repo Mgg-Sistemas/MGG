@@ -297,7 +297,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
           <div className="form-row">
             <label>Colada N°</label>
             <input className="input mono" value={coladaNum} onChange={(e) => setColadaNum(e.target.value)} placeholder="Ej.: 02" style={numInput} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>La 1ª vez la ingresás; luego se sugiere incremental.</small>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>La 1ª vez la ingresás; luego se sugiere incremental.</small>
           </div>
           {/* La fecha de la colada NO se pregunta acá: es la misma que la
               «Fecha inicio de carga» de más abajo, y preguntarla dos veces solo
@@ -306,7 +306,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
             <label>Fecha de la colada</label>
             <input className="input" readOnly value={fecha ? fecha.split('-').reverse().join('/') : '—'}
               style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>Sale de la <strong>fecha de inicio de carga</strong>, más abajo.</small>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>Sale de la <strong>fecha de inicio de carga</strong>, más abajo.</small>
           </div>
         </div>
         <div className="form-grid">
@@ -316,7 +316,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
             <div className="form-row">
               <label>Turno / Jornada</label>
               <input className="input" value={datos.turno ?? ''} onChange={(e) => set('turno', e.target.value)} placeholder="Ej.: 21,5 horas" />
-              <small className="muted" style={{ fontSize: '.7rem' }}>Sale de las <strong>horas de carga</strong>. Si lo escribís a mano, se respeta y deja de actualizarse.</small>
+              <small className="hint muted" style={{ fontSize: '.7rem' }}>Sale de las <strong>horas de carga</strong>. Si lo escribís a mano, se respeta y deja de actualizarse.</small>
             </div>
           )}
           <div className="form-row">
@@ -353,7 +353,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
                       placeholder="🔎 Elegí un big bag del inventario…"
                       emptyText="Sin big bags con saldo disponible."
                     />
-                    <small className="muted" style={{ fontSize: '.7rem' }}>
+                    <small className="hint muted" style={{ fontSize: '.7rem' }}>
                       {b.origen_detalle_id ? 'Traído del inventario — podés usar solo una parte; el saldo queda para otra colada.' : 'O cargá los datos a mano abajo. Un big bag no se puede usar dos veces, pero sí por partes.'}
                     </small>
                   </div>
@@ -371,7 +371,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
                       const usa = Number(b.kg) || 0;
                       const pct = total > 0 ? round2((usa / total) * 100) : 0;
                       const queda = round2(Math.max(0, disp - usa));
-                      return <small className="muted" style={{ fontSize: '.7rem' }}>Usás <strong>{usa} kg</strong> ({pct}% del big bag) · disponible hasta <strong>{round2(disp)} kg</strong> · quedará <strong>{queda} kg</strong> para otra colada.</small>;
+                      return <small className="hint muted" style={{ fontSize: '.7rem' }}>Usás <strong>{usa} kg</strong> ({pct}% del big bag) · disponible hasta <strong>{round2(disp)} kg</strong> · quedará <strong>{queda} kg</strong> para otra colada.</small>;
                     })()}
                   </div>
                   <div className="form-row"><label>Aliado / centro de acopio</label><input className="input" value={b.aliado ?? ''} onChange={(e) => setBag(i, { aliado: e.target.value })} placeholder="Ej.: JUAN BODEGA" /></div>
@@ -418,15 +418,15 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
           <div className="form-row">
             <label>Total Casiterita (kg)</label>
             <input className="input mono" type="number" step="any" value={numVal(datos.total_casiterita)} onChange={(e) => set('total_casiterita', toNum(e.target.value))} style={numInput} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>Σ big bags = {totalBigBags} kg</small>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>Σ big bags = {totalBigBags} kg</small>
           </div>
           <div className="form-row">
             <label>Ley global (%) — automática</label>
             <input className="input mono" readOnly value={leyGlobal ? leyGlobal.toFixed(2) : ''} style={{ ...numInput, background: 'var(--bg-2)', fontWeight: 700 }} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>Sn ≈ <strong>{snTotal} kg</strong> · Costo casiterita <strong>$ {costoCasiterita.toFixed(2)}</strong></small>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>Sn ≈ <strong>{snTotal} kg</strong> · Costo casiterita <strong>$ {costoCasiterita.toFixed(2)}</strong></small>
           </div>
         </div>
-        <small className="muted" style={{ fontSize: '.72rem' }}>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>
           Los <strong>fundentes</strong> (coque, otro fundente, CaCO₃…) se cargan abajo, en el mismo bloque, y se consumen del inventario.
         </small>
 
@@ -496,7 +496,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
             <div className="form-row">
               <label>Jornada laboral (automática)</label>
               <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
-              <small className="muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de carga.</small>
+              <small className="hint muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de carga.</small>
             </div>
             <div className="form-grid">
               <div className="form-row">
@@ -627,7 +627,7 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
           <div className="form-row">
             <label>Estaño obtenido (kg)</label>
             <DecimalInput className="input mono" value={datos.estano_kg} onChange={(n) => set('estano_kg', n)} style={numInput} placeholder="0,00" />
-            <small className="muted" style={{ fontSize: '.7rem' }}>Es la <strong>cantidad producida</strong>: se carga acá y en ningún otro lado. Si todavía no lo tenés, dejalo vacío y se completa al finalizar la colada.</small>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>Es la <strong>cantidad producida</strong>: se carga acá y en ningún otro lado. Si todavía no lo tenés, dejalo vacío y se completa al finalizar la colada.</small>
           </div>
           <div className="form-row">
             <label>N° de lingotes</label>

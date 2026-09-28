@@ -281,7 +281,7 @@ function CorreoModal({ rows, ensureCodigo, onClose }: {
       <div className="form-row">
         <label>Correo(s) destinatario(s)</label>
         <input className="input" value={emails} onChange={(e) => setEmails(e.target.value)} placeholder="correo@ejemplo.com, otro@ejemplo.com" autoFocus />
-        <small className="muted">Separá varios con coma o espacio. Se adjunta la relación en PDF.</small>
+        <small className="hint muted">Separá varios con coma o espacio. Se adjunta la relación en PDF.</small>
       </div>
     </Modal>
   );

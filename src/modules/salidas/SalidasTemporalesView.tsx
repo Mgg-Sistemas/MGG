@@ -449,7 +449,7 @@ function FormModal({ sol, puedeAprobar, productos, origenDe, actor, actorName, o
             onChange={(id) => { const c = choferes.find((x) => x.id === id); setResponsable(c?.nombre ?? ''); setResponsableCedula(c?.cedula ?? ''); }}
             options={choferes.map((c) => ({ value: c.id, label: `${c.nombre}${c.cedula ? ` · C.I. ${c.cedula}` : ''}` }))}
             placeholder="🔎 Buscá el responsable…" emptyText="Sin responsables guardados." />
-          {responsable && <small className="muted">Elegido: <strong>{responsable}</strong>{responsableCedula ? ` · C.I. ${responsableCedula}` : ''}</small>}
+          {responsable && <small className="hint muted">Elegido: <strong>{responsable}</strong>{responsableCedula ? ` · C.I. ${responsableCedula}` : ''}</small>}
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
             <input className="input" value={nResp} onChange={(e) => setNResp(e.target.value)} placeholder="¿No está? Nombre y apellido"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addResponsable(); } }} style={{ flex: '2 1 140px', fontSize: '.82rem' }} />
@@ -494,8 +494,8 @@ function FormModal({ sol, puedeAprobar, productos, origenDe, actor, actorName, o
                 ) : (
                   <div className="form-row"><label>Material del inventario</label>
                     <SearchSelect value={l.productoId} onChange={(id) => setLinea(l.id, { productoId: id })} options={opProductos} placeholder="🔎 Buscá el material…" emptyText="Sin productos." />
-                    {almacenFijo ? <small className="muted">Sale de <strong>{almacenFijo}</strong></small>
-                      : orig ? <small className="muted">Sale de <strong>{orig.almacen}</strong> · stock {num(orig.stock)}</small>
+                    {almacenFijo ? <small className="hint muted">Sale de <strong>{almacenFijo}</strong></small>
+                      : orig ? <small className="hint muted">Sale de <strong>{orig.almacen}</strong> · stock {num(orig.stock)}</small>
                       : l.productoId ? <small style={{ color: 'var(--danger)' }}>Sin stock en ningún almacén.</small> : null}
                   </div>
                 )}
@@ -541,7 +541,7 @@ function FormModal({ sol, puedeAprobar, productos, origenDe, actor, actorName, o
                 <input className="input" type="datetime-local" value={fechas.finalizada} onChange={(e) => setFechas((f) => ({ ...f, finalizada: e.target.value }))} /></div>
             )}
           </div>
-          {sol!.aprobada_en && <small className="muted">Las fechas definen los tiempos en mantenimiento y en tránsito del detalle y del PDF.</small>}
+          {sol!.aprobada_en && <small className="hint muted">Las fechas definen los tiempos en mantenimiento y en tránsito del detalle y del PDF.</small>}
         </>
       )}
 
@@ -620,7 +620,7 @@ function DetalleModal({ sol, puedeAprobar, puedeEjecutar, canWrite, actor, actor
             <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => aprobar('jesus')}>Jesús Lozada</button>
             <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setAprobando(false)}>Cancelar</button>
           </div>
-          <small className="muted">Al aprobar se descuenta el material del inventario y se estampa su firma en el PDF.</small>
+          <small className="hint muted">Al aprobar se descuenta el material del inventario y se estampa su firma en el PDF.</small>
         </div>
       )}
 

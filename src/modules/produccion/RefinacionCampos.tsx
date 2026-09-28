@@ -185,7 +185,7 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
           <div className="form-row">
             <label>Lote de Refinación N°</label>
             <input className="input mono" value={refinacionNum} onChange={(e) => setRefinacionNum(e.target.value)} placeholder="Ej.: 01" style={numInput} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>La 1ª vez la ingresás; luego se sugiere incremental.</small>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>La 1ª vez la ingresás; luego se sugiere incremental.</small>
           </div>
           {/* Igual que en la colada: la fecha del proceso es la del inicio de
               jornada, que se carga más abajo. Se muestra, no se vuelve a pedir. */}
@@ -193,7 +193,7 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
             <label>Fecha de proceso</label>
             <input className="input" readOnly value={fecha ? fecha.split('-').reverse().join('/') : '—'}
               style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>Sale de la <strong>fecha de inicio de jornada</strong>, más abajo.</small>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>Sale de la <strong>fecha de inicio de jornada</strong>, más abajo.</small>
           </div>
         </div>
         <div className="form-grid">
@@ -311,7 +311,7 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
           <div className="form-row">
             <label>Estaño crudo cargado (kg)</label>
             <input className="input mono" type="number" step="any" value={numVal(datos.estano_crudo_kg)} onChange={(e) => set('estano_crudo_kg', toNum(e.target.value))} style={numInput} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>Σ seleccionadas + manuales = <strong>{crudoTotal} kg</strong></small>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>Σ seleccionadas + manuales = <strong>{crudoTotal} kg</strong></small>
           </div>
           <div className="form-row">
             <label>Pureza inicial estimada (% Sn)</label>
@@ -369,7 +369,7 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
         <div className="form-row">
           <label>Total de jornada (automático)</label>
           <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
-          <small className="muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de jornada.</small>
+          <small className="hint muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de jornada.</small>
         </div>
       </div>
 

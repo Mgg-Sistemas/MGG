@@ -608,7 +608,7 @@ function SedeRenombrarModal({ sede, onClose, onSaved }: {
         <label>Título de la vista <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
         <input className="input" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder={`COMBUSTIBLE ${nombre || '…'}`} />
       </div>
-      <small className="muted">Solo cambia el nombre visible; los combustibles y tanques de esta sede no se tocan. Los litros y el total siguen saliendo de los tanques.</small>
+      <small className="hint muted">Solo cambia el nombre visible; los combustibles y tanques de esta sede no se tocan. Los litros y el total siguen saliendo de los tanques.</small>
     </Modal>
   );
 }
@@ -648,7 +648,7 @@ function SedeNuevaModal({ onClose, onSaved }: {
         <label>Título de la vista <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
         <input className="input" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder={`COMBUSTIBLE ${nombre || '…'}`} />
       </div>
-      <small className="muted">La sede arranca vacía. Al entrar tendrás exactamente las mismas opciones que las demás: agregar tanques, combustibles, registrar movimientos y solicitudes de salida.</small>
+      <small className="hint muted">La sede arranca vacía. Al entrar tendrás exactamente las mismas opciones que las demás: agregar tanques, combustibles, registrar movimientos y solicitudes de salida.</small>
     </Modal>
   );
 }
@@ -723,7 +723,7 @@ function SolicitudModal({ combustibles, tanques, vehiculos, actor, defaultSolici
               {!combustibles.length && <option value="">— sin combustibles —</option>}
               {combustibles.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {num(litrosReal(c.id))} L disp.</option>)}
             </select>
-            {comb && <small className="muted">Disponible: <strong className="mono">{num(litrosReal(comb.id))} L</strong></small>}
+            {comb && <small className="hint muted">Disponible: <strong className="mono">{num(litrosReal(comb.id))} L</strong></small>}
           </div>
           <div className="form-row">
             <label>Total de litros solicitados</label>
@@ -742,14 +742,14 @@ function SolicitudModal({ combustibles, tanques, vehiculos, actor, defaultSolici
               {!tanquesDisp.length && <option value="">— sin tanques para este combustible —</option>}
               {tanquesDisp.map((t) => <option key={t.id} value={t.id}>🛢 {t.nombre} · {num(t.litros)}/{num(t.capacidad_litros)} L{t.ubicacion ? ` · ${t.ubicacion}` : ''}</option>)}
             </select>
-            <small className="muted">Solo tanques registrados. Al finalizar, los litros salen de ese tanque y se reflejan en el inventario.</small>
+            <small className="hint muted">Solo tanques registrados. Al finalizar, los litros salen de ese tanque y se reflejan en el inventario.</small>
           </div>
           <div className="form-row">
             <label>A dónde va ese combustible</label>
             <ComboBuscador value={destino} onChange={setDestino}
               opciones={vehiculosAct.map((v) => ({ value: v.nombre, label: v.nombre }))}
               placeholder="🔎 Buscá el vehículo / máquina…" icono="🚜" />
-            <small className="muted">Elegí el vehículo o máquina que recibe el combustible. ¿Falta uno? Agregalo en 📒 Catálogo.</small>
+            <small className="hint muted">Elegí el vehículo o máquina que recibe el combustible. ¿Falta uno? Agregalo en 📒 Catálogo.</small>
           </div>
         </div>
         <div className="form-row">
@@ -891,7 +891,7 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
             <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoMovimientoTanque)}>
               {TIPOS_MOVIMIENTO.map((t) => <option key={t.value} value={t.value}>{t.signo === '+' ? '⬆' : '⬇'} {t.label}</option>)}
             </select>
-            <small className="muted">{tipoInfo.signo === '+' ? 'Suma' : 'Resta'} litros al tanque seleccionado.</small>
+            <small className="hint muted">{tipoInfo.signo === '+' ? 'Suma' : 'Resta'} litros al tanque seleccionado.</small>
           </div>
         </div>
         <div className="form-grid">
@@ -916,9 +916,9 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
                 placeholder={combTanque ? num(Number(combTanque.costo_litro) || 0) : 'Costo de esta carga'} />
               {combTanque ? (
                 pmpPrevisto != null
-                  ? <small className="muted">Costo actual <strong className="mono">{num(Number(combTanque.costo_litro) || 0)}</strong> → PMP previsto <strong className="mono">{num(pmpPrevisto)}</strong></small>
-                  : <small className="muted">Si la dejás vacía, se mantiene el costo actual ({num(Number(combTanque.costo_litro) || 0)}). El PMP la pondera con el stock existente.</small>
-              ) : <small className="muted">El tanque no tiene combustible asignado: la tasa no aplica.</small>}
+                  ? <small className="hint muted">Costo actual <strong className="mono">{num(Number(combTanque.costo_litro) || 0)}</strong> → PMP previsto <strong className="mono">{num(pmpPrevisto)}</strong></small>
+                  : <small className="hint muted">Si la dejás vacía, se mantiene el costo actual ({num(Number(combTanque.costo_litro) || 0)}). El PMP la pondera con el stock existente.</small>
+              ) : <small className="hint muted">El tanque no tiene combustible asignado: la tasa no aplica.</small>}
             </div>
           </div>
         ) : (
@@ -959,13 +959,13 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
                   style={hiBloqueado ? { background: 'rgba(255,255,255,.05)', cursor: 'not-allowed', opacity: .85 } : undefined}
                   placeholder={equipo ? 'Primer HI del equipo' : 'Elegí un equipo'} />
                 {equipo && (hiBloqueado
-                  ? <small className="muted">🔒 Encadenado: es el último HF de {equipo} (no se modifica).</small>
-                  : <small className="muted">Primera carga de {equipo}: ingresá el HI inicial; de ahí en más se encadena solo.</small>)}
+                  ? <small className="hint muted">🔒 Encadenado: es el último HF de {equipo} (no se modifica).</small>
+                  : <small className="hint muted">Primera carga de {equipo}: ingresá el HI inicial; de ahí en más se encadena solo.</small>)}
               </div>
               <div className="form-row">
                 <label>Horómetro final (HF)</label>
                 <input className="input mono" type="number" min={0} step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
-                {horasEquipo != null && <small className="muted">HRS = HF − HI = <strong className="mono">{num(horasEquipo)} h</strong></small>}
+                {horasEquipo != null && <small className="hint muted">HRS = HF − HI = <strong className="mono">{num(horasEquipo)} h</strong></small>}
               </div>
             </div>
             {/* Kilometraje (odómetro) del equipo: alimenta la ALERTA POR KILOMETRAJE de Control de Maquinaria. */}
@@ -973,7 +973,7 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
               <div className="form-row">
                 <label>Kilometraje (odómetro)</label>
                 <input className="input mono" type="number" min={0} step="any" value={km} onChange={(e) => setKm(e.target.value)} placeholder="Km actual del vehículo" />
-                <small className="muted">Para vehículos: se usa en la alerta de mantenimiento por kilometraje (Equipos).</small>
+                <small className="hint muted">Para vehículos: se usa en la alerta de mantenimiento por kilometraje (Equipos).</small>
               </div>
             </div>
           </>
@@ -987,13 +987,13 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
               style={ciBloqueado ? { background: 'rgba(255,255,255,.05)', cursor: 'not-allowed', opacity: .85 } : undefined}
               placeholder={tanqueId ? 'Primer contador del tanque' : 'Elegí un tanque'} />
             {ciBloqueado
-              ? <small className="muted">🔒 Encadenado: es el último contador final de este tanque (no se modifica).</small>
-              : <small className="muted">Primer movimiento de este tanque: ingresá el contador inicial; de ahí se encadena solo.</small>}
+              ? <small className="hint muted">🔒 Encadenado: es el último contador final de este tanque (no se modifica).</small>
+              : <small className="hint muted">Primer movimiento de este tanque: ingresá el contador inicial; de ahí se encadena solo.</small>}
           </div>
           <div className="form-row">
             <label>Contador final (surtidor)</label>
             <input className="input mono" type="number" min={0} step="any" value={cf} onChange={(e) => setCf(e.target.value)} />
-            {contadorDif != null && <small className="muted">Diferencia = <strong className="mono">{num(contadorDif)}</strong></small>}
+            {contadorDif != null && <small className="hint muted">Diferencia = <strong className="mono">{num(contadorDif)}</strong></small>}
           </div>
         </div>
         <div className="form-row">
@@ -1001,14 +1001,14 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
           <ComboBuscador value={despachado} onChange={setDespachado}
             opciones={despachadores.map((d) => ({ value: d.nombre, label: d.nombre }))}
             placeholder="🔎 Buscá quién despachó…" icono="⛽" />
-          <small className="muted">Quién entregó físicamente el combustible. ¿Falta uno? Agregalo en 📒 Catálogo → Despachadores.</small>
+          <small className="hint muted">Quién entregó físicamente el combustible. ¿Falta uno? Agregalo en 📒 Catálogo → Despachadores.</small>
         </div>
         <div className="form-row">
           <label>Destino</label>
           <ComboBuscador value={destino} onChange={setDestino}
             opciones={ubicaciones.map((u) => ({ value: u.nombre, label: u.nombre }))}
             placeholder="🔎 Buscá el destino…" icono="📍" />
-          <small className="muted">¿Falta un destino? Agregalo en 📒 Catálogo → Ubicaciones.</small>
+          <small className="hint muted">¿Falta un destino? Agregalo en 📒 Catálogo → Ubicaciones.</small>
         </div>
         <div className="form-row">
           <label>Observación</label>
@@ -1059,7 +1059,7 @@ function EditarCombustibleModal({ combustible, onClose, onSaved }: {
           <label>Costo por litro (USD)</label>
           <input className="input mono" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
         </div>
-        <small className="muted">Los litros disponibles se calculan solos a partir de los tanques (sus movimientos). No se editan acá.</small>
+        <small className="hint muted">Los litros disponibles se calculan solos a partir de los tanques (sus movimientos). No se editan acá.</small>
       </form>
     </Modal>
   );
@@ -1313,7 +1313,7 @@ function EditarTanqueMovModal({ mov, tanques, vehiculos, actor, actorName, onClo
         </div>
         <div className="form-row"><label>Contador final</label><input className="input mono" type="number" step="any" value={contFin} onChange={(e) => setContFin(e.target.value)} /></div>
       </div>
-      <small className="muted" style={{ display: 'block', marginTop: '-.3rem' }}>
+      <small className="hint muted" style={{ display: 'block', marginTop: '-.3rem' }}>
         🔒 El <strong>HI</strong> y el <strong>contador inicial</strong> se <strong>encadenan automáticamente</strong> (son el final del movimiento anterior). Editá el <strong>HF</strong> / <strong>contador final</strong>; al guardar, el sistema re-sincroniza la cadena por fecha.
       </small>
       <div className="form-grid">
@@ -1418,7 +1418,7 @@ function GestionarModal({ combustibles, sede, actor, onClose, onChanged }: {
           <div className="form-row"><label>Costo por litro (opcional)</label><input className="input mono" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} /></div>
         </div>
         <AlmacenPicker value={almacen} onChange={setAlmacen} extraOpciones={['General']} />
-        <small className="muted" style={{ display: 'block', margin: '0 0 .6rem' }}>Se registra primero en el inventario y se vincula al módulo de Combustible. Las nuevas ubicaciones no crean un almacén nuevo: van al <strong>General</strong>.</small>
+        <small className="hint muted" style={{ display: 'block', margin: '0 0 .6rem' }}>Se registra primero en el inventario y se vincula al módulo de Combustible. Las nuevas ubicaciones no crean un almacén nuevo: van al <strong>General</strong>.</small>
         <button className="btn btn-primary btn-sm" onClick={crear} disabled={busy}>+ Crear combustible</button>
       </div>
       <div className="table-wrap">
@@ -1618,7 +1618,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
                     movimiento en el kardex, sin tocar el inventario, y pisaba lo que otro hubiera
                     despachado con el modal abierto. El nivel se corrige con un movimiento. */}
                 <input className="input mono" value={`${num(litNum)} L`} readOnly tabIndex={-1} style={{ opacity: .75 }} />
-                <small className="muted">
+                <small className="hint muted">
                   El nivel se mueve con <strong>movimientos</strong> (ingreso, consumo o merma), que quedan en el
                   histórico y ajustan también el combustible y el inventario. Para corregirlo, registrá uno.
                 </small>
@@ -1626,7 +1626,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
             ) : (
               <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} />
             )}
-            {capNum > 0 && <small className="muted">Nivel: <strong>{Math.min(100, Math.round((litNum / capNum) * 100))}%</strong></small>}
+            {capNum > 0 && <small className="hint muted">Nivel: <strong>{Math.min(100, Math.round((litNum / capNum) * 100))}%</strong></small>}
           </div>
         </div>
         <div className="form-row">
@@ -1654,7 +1654,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
             <button type="button" className={forma === 'cilindro' ? 'active' : ''} onClick={() => setForma('cilindro')}>⬭ Cilindro horizontal</button>
             <button type="button" className={forma === 'rectangular' ? 'active' : ''} onClick={() => setForma('rectangular')}>▭ Rectangular</button>
           </div>
-          <small className="muted" style={{ display: 'block', margin: '0 0 .6rem' }}>
+          <small className="hint muted" style={{ display: 'block', margin: '0 0 .6rem' }}>
             {forma === 'cilindro'
               ? 'Cargá el diámetro y el largo. Con el nivel medido con varilla calculamos los litros aproximados.'
               : 'Cargá largo, ancho y altura. Litros = largo × ancho × nivel medido.'}
@@ -1669,7 +1669,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
                 <label>Largo del cilindro (cm)</label>
                 <input className="input mono" type="number" step="any" value={longitud} onChange={(e) => setLongitud(e.target.value)}
                   placeholder={diaNum > 0 && capNum > 0 ? `auto: ${num(largoNum)}` : 'cm'} />
-                {!longitud.trim() && largoNum > 0 && <small className="muted">Derivado de la capacidad: <strong className="mono">{num(largoNum)} cm</strong></small>}
+                {!longitud.trim() && largoNum > 0 && <small className="hint muted">Derivado de la capacidad: <strong className="mono">{num(largoNum)} cm</strong></small>}
               </div>
             </div>
           ) : (
@@ -1704,7 +1704,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
                   </div>
                 </div>
               </div>
-              <small className="muted">Capacidad teórica ({forma === 'cilindro' ? 'cilindro' : 'rectangular'}): <strong className="mono">{num(capCalc)} L</strong>.</small>
+              <small className="hint muted">Capacidad teórica ({forma === 'cilindro' ? 'cilindro' : 'rectangular'}): <strong className="mono">{num(capCalc)} L</strong>.</small>
               {/* Tabla de referencia */}
               {tabla.length > 0 && (
                 <div className="table-wrap" style={{ marginTop: '.5rem', maxHeight: 180, overflowY: 'auto' }}>
@@ -1720,7 +1720,7 @@ function TanqueModal({ tanque, combustibles, sede, actor, onClose, onSaved }: {
               )}
             </>
           ) : (
-            <small className="muted">{forma === 'cilindro' ? 'Cargá el diámetro (el largo se deriva de la capacidad) para ver la calculadora.' : 'Cargá largo, ancho y altura para ver la calculadora.'}</small>
+            <small className="hint muted">{forma === 'cilindro' ? 'Cargá el diámetro (el largo se deriva de la capacidad) para ver la calculadora.' : 'Cargá largo, ancho y altura para ver la calculadora.'}</small>
           )}
 
           <div className="form-row" style={{ marginTop: '.5rem' }}>
@@ -2053,12 +2053,12 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
           <label>Horómetro inicial (HI){hiLock ? ' 🔒' : ''}</label>
           <input className="input mono" type="number" step="any" value={hiVal} readOnly={hiLock}
             onChange={(e) => setHiVal(e.target.value)} />
-          {hiLock && <small className="muted" style={{ fontSize: '.7rem' }}>Encadenado: último HF del equipo.</small>}
+          {hiLock && <small className="hint muted" style={{ fontSize: '.7rem' }}>Encadenado: último HF del equipo.</small>}
         </div>
         <div className="form-row">
           <label>Horómetro final (HF)</label>
           <input className="input mono" type="number" step="any" value={hfVal} onChange={(e) => setHfVal(e.target.value)} />
-          {hrsTele != null && <small className="muted" style={{ fontSize: '.7rem' }}>HRS = HF − HI = {num(hrsTele)} h</small>}
+          {hrsTele != null && <small className="hint muted" style={{ fontSize: '.7rem' }}>HRS = HF − HI = {num(hrsTele)} h</small>}
         </div>
       </div>
       <div className="form-grid">
@@ -2066,15 +2066,15 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
           <label>Contador inicial (surtidor){ciLock ? ' 🔒' : ''}</label>
           <input className="input mono" type="number" step="any" value={ciVal} readOnly={ciLock}
             onChange={(e) => setCiVal(e.target.value)} />
-          {ciLock && <small className="muted" style={{ fontSize: '.7rem' }}>Encadenado: último contador del tanque.</small>}
+          {ciLock && <small className="hint muted" style={{ fontSize: '.7rem' }}>Encadenado: último contador del tanque.</small>}
         </div>
         <div className="form-row">
           <label>Contador final (surtidor)</label>
           <input className="input mono" type="number" step="any" value={cfVal} onChange={(e) => setCfVal(e.target.value)} />
-          {difTele != null && <small className="muted" style={{ fontSize: '.7rem' }}>Diferencia = {num(difTele)}</small>}
+          {difTele != null && <small className="hint muted" style={{ fontSize: '.7rem' }}>Diferencia = {num(difTele)}</small>}
         </div>
       </div>
-      <small className="muted" style={{ fontSize: '.7rem' }}>Opcional. Si los cargás, la solicitud queda en la cadena de telemetría (consumo por equipo).</small>
+      <small className="hint muted" style={{ fontSize: '.7rem' }}>Opcional. Si los cargás, la solicitud queda en la cadena de telemetría (consumo por equipo).</small>
     </div>
   );
 
@@ -2113,7 +2113,7 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
             <label>Litros realmente surtidos</label>
             <input className="input mono" type="number" min={0} step="any" autoFocus
               value={litrosSurtidos} onChange={(e) => setLitrosSurtidos(e.target.value)} />
-            <small className="muted">Indicá cuánto echaste realmente (puede ser más o menos). Se descuentan estos litros del tanque y del inventario.</small>
+            <small className="hint muted">Indicá cuánto echaste realmente (puede ser más o menos). Se descuentan estos litros del tanque y del inventario.</small>
           </div>
           {reales > 0 && dif !== 0 && (
             <p className="mono" style={{ color: dif > 0 ? 'var(--warning)' : 'var(--primary-3)', fontSize: '.85rem' }}>
@@ -2147,7 +2147,7 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
           <div className="form-row">
             <label>Correo(s) destinatario(s)</label>
             <input className="input" value={emails} onChange={(e) => setEmails(e.target.value)} placeholder="correo@ejemplo.com, otro@ejemplo.com" autoFocus />
-            <small className="muted">Separá varios con coma o espacio. Se adjunta el reporte PDF.</small>
+            <small className="hint muted">Separá varios con coma o espacio. Se adjunta el reporte PDF.</small>
           </div>
         </Modal>
       )}
@@ -2363,7 +2363,7 @@ function PlantaModal({ tanques, vehiculos, actor, actorName, onClose, onChanged 
           </tbody>
         </table>
       </div>
-      <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>Alerta cuando el consumo acumulado de un tanque supera los {PLANTA_ALERTA_LITROS} L.</small>
+      <small className="hint muted" style={{ display: 'block', marginTop: '.5rem' }}>Alerta cuando el consumo acumulado de un tanque supera los {PLANTA_ALERTA_LITROS} L.</small>
 
       {agregar && (
         <AgregarMovimientoModal tanques={tanques} vehiculos={vehiculos} actor={actor} actorName={actorName}
@@ -2444,7 +2444,7 @@ function AgregarMovimientoModal({ tanques, vehiculos, actor, actorName, onClose,
               {!tanquesActivos.length && <option value="">— sin tanques —</option>}
               {tanquesActivos.map((t) => <option key={t.id} value={t.id}>🛢 {t.nombre} · {num(t.litros)}/{num(t.capacidad_litros)} L</option>)}
             </select>
-            {tanque && <small className="muted">Disponible: <strong className="mono">{num(tanque.litros)} L</strong>{tanque.tasa != null ? ` · tasa ${num(tanque.tasa)}` : ''}</small>}
+            {tanque && <small className="hint muted">Disponible: <strong className="mono">{num(tanque.litros)} L</strong>{tanque.tasa != null ? ` · tasa ${num(tanque.tasa)}` : ''}</small>}
           </div>
         </div>
         <div className="form-grid">
@@ -2461,7 +2461,7 @@ function AgregarMovimientoModal({ tanques, vehiculos, actor, actorName, onClose,
           <div className="form-row">
             <label>Litros por hora</label>
             <input className="input mono" type="number" step="any" value={litrosHora} onChange={(e) => setLitrosHora(e.target.value)} />
-            <small className="muted">Consumo de la planta (12 L/h por defecto).</small>
+            <small className="hint muted">Consumo de la planta (12 L/h por defecto).</small>
           </div>
           <div className="form-row">
             <label>HRS (HF − HI)</label>

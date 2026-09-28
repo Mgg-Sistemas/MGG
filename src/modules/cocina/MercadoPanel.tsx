@@ -911,7 +911,7 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
               <label>Motivo del ajuste <span style={{ color: 'var(--danger)' }}>*</span></label>
               <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)}
                 placeholder="Ej.: conteo del 11/09 con la cocina · salida no imputada al ciclo" />
-              <small className="muted" style={{ fontSize: '.72rem' }}>
+              <small className="hint muted" style={{ fontSize: '.72rem' }}>
                 Queda guardado en el cierre. Sin esto, dentro de cuatro meses el número no se puede auditar.
               </small>
             </div>
@@ -993,7 +993,7 @@ function DescartarMercadoModal({ mercado, cocinaNombre, actor, userEmail, kpis, 
         <textarea className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)}
           placeholder="Qué pasó con este ciclo y por qué sus cifras no sirven de punto de partida." />
         {!motivoOk && (
-          <small className="muted" style={{ color: motivo.trim() ? 'var(--danger)' : undefined }}>
+          <small className="hint muted" style={{ color: motivo.trim() ? 'var(--danger)' : undefined }}>
             {motivo.trim() ? 'Explicá un poco más: esto queda en el historial.' : 'Obligatorio.'}
           </small>
         )}
@@ -1004,7 +1004,7 @@ function DescartarMercadoModal({ mercado, cocinaNombre, actor, userEmail, kpis, 
         <input className="input mono" value={texto} onChange={(e) => setTexto(e.target.value)}
           placeholder={clave} onKeyDown={(e) => { if (e.key === 'Enter' && listo) void confirmar(); }} />
         {texto.trim() !== '' && !confirmado && (
-          <small className="muted" style={{ color: 'var(--danger)' }}>No coincide.</small>
+          <small className="hint muted" style={{ color: 'var(--danger)' }}>No coincide.</small>
         )}
       </div>
     </Modal>

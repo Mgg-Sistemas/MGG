@@ -263,7 +263,7 @@ function SlotDocumento({ slot, doc, equipoId, canWrite, actor, opciones, onRecor
             placeholder="Nombre: CONTRATO, FICHA TÉCNICA…" emptyText="Escribí un nombre nuevo" />
           <input ref={fileRef} className="input" type="file" accept={ACEPTA_DOC}
             onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} />
-          <small className="muted">PDF o imagen (JPG, PNG…), máx. 15 MB. Desde el teléfono podés tomar la foto.</small>
+          <small className="hint muted">PDF o imagen (JPG, PNG…), máx. 15 MB. Desde el teléfono podés tomar la foto.</small>
           <button className="btn btn-sm btn-primary" disabled={busy || !nombre.trim() || !archivo} onClick={subir}>
             {busy ? 'Subiendo…' : '⬆ Subir documento'}
           </button>
@@ -354,7 +354,7 @@ function CatalogoNombresDoc({ nombres, onCambio }: { nombres: CatalogoMaquinaria
           </tbody>
         </table>
       </div>
-      <small className="muted">Editar o borrar un nombre acá no cambia los documentos ya cargados; para renombrar uno, usá ✎ Nombre en su tarjeta.</small>
+      <small className="hint muted">Editar o borrar un nombre acá no cambia los documentos ya cargados; para renombrar uno, usá ✎ Nombre en su tarjeta.</small>
     </div>
   );
 }

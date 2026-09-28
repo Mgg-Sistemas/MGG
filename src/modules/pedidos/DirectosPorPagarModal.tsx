@@ -416,7 +416,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
                     style={{ width: 130, textAlign: 'right', borderColor: retTasa > 0 ? undefined : 'var(--danger)' }} />
                 </div>
               </div>
-              <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>
+              <small className="hint muted" style={{ display: 'block', marginTop: '.25rem' }}>
                 Escribí el monto en Bs o en $: el otro se calcula con la tasa{retTasaStr === '' ? ' BCV del día' : ' indicada'}, que podés cambiar.
               </small>
               <div style={{ fontSize: '.85rem', marginTop: '.35rem' }}>
@@ -452,7 +452,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
             {!cajas.length && <option value="">— sin cajas —</option>}
             {cajas.map((c) => { const sr = saldoReal.get(c.id); return <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(sr?.saldo ?? c.saldo, sr?.moneda ?? c.moneda)}</option>; })}
           </select>
-          <small className="muted">El monto se descuenta de la cuenta/billetera que elijas abajo (egreso en Tesorería).</small>
+          <small className="hint muted">El monto se descuenta de la cuenta/billetera que elijas abajo (egreso en Tesorería).</small>
         </div>
 
         {saldosCaja.length > 0 && (
@@ -502,7 +502,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 200 }}
             value={tasaManualStr} placeholder={tasa > 0 ? String(tasa) : '0,00'}
             onChange={(e) => setTasaManualStr(dosDecimales(e.target.value))} />
-          <small className="muted">
+          <small className="hint muted">
             {(cruzaBsUsd || esSplit) && (
               <>
                 {monedaBase === 'USD'
@@ -514,7 +514,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
             {explicacionTasaPago(efectoTasa)}
           </small>
           {efectoTasa === 'valora' || efectoTasa === 'ambas' ? (
-            <small className="muted" style={{ marginTop: '.25rem' }}>
+            <small className="hint muted" style={{ marginTop: '.25rem' }}>
               📦 Con {tasaValoracion > 0 ? montoCaja(tasaValoracion, 'Bs') : '—'} por dólar, el material entra al inventario por{' '}
               <strong className="mono">{tasaValoracion > 0 ? montoCaja(round2(total / tasaValoracion), 'USD') : '—'}</strong>
               {tasaCompraOriginal > 0 && tasaPagoElegida != null && Math.abs(tasaCompraOriginal - tasaPagoElegida) > 0.005 ? (
@@ -561,7 +561,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
                 ⚠ Pagás <strong className="mono">{montoCaja(reembolsoBase, monedaBase)}</strong> de más. Al pagar se pide confirmación: lo que corresponde ({montoCaja(aPagar, monedaBase)}) queda como pago y el excedente sale aparte como <strong>{conceptoRee}</strong>.
               </small>
             )}
-            {tasaEff > 0 && <small className="muted">Bs↔$ usa la tasa {montoCaja(tasaEff, 'Bs')}{(Number(tasaManualStr) || 0) > 0 ? ' (manual)' : ' (BCV)'}.</small>}
+            {tasaEff > 0 && <small className="hint muted">Bs↔$ usa la tasa {montoCaja(tasaEff, 'Bs')}{(Number(tasaManualStr) || 0) > 0 ? ' (manual)' : ' (BCV)'}.</small>}
           </div>
         )}
 
@@ -578,13 +578,13 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
               )}
             </div>
             {(Number(comisionMonto) || 0) > 0 && (
-              <small className="muted">Se registra como un egreso aparte (Comisión bancaria) en Tesorería. El pago de la factura sigue siendo {montoCaja(aPagar, monedaBase)}.</small>
+              <small className="hint muted">Se registra como un egreso aparte (Comisión bancaria) en Tesorería. El pago de la factura sigue siendo {montoCaja(aPagar, monedaBase)}.</small>
             )}
           </div>
         )}
         </>)}
         {fila.kind === 'compra' && fila.compra && (
-          <small className="muted" style={{ display: 'block' }}>Al pagar, los materiales quedan <strong>POR RECIBIR en Inventario</strong>: el almacenista les da entrada y elige el almacén / subalmacén.</small>
+          <small className="hint muted" style={{ display: 'block' }}>Al pagar, los materiales quedan <strong>POR RECIBIR en Inventario</strong>: el almacenista les da entrada y elige el almacén / subalmacén.</small>
         )}
         {fila.servicio?.items?.length ? (
           <ul className="muted" style={{ fontSize: '.76rem', margin: '.4rem 0 0', paddingLeft: '1rem' }}>

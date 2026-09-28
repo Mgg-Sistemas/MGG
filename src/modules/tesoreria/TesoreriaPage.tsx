@@ -735,7 +735,7 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
                 {!cajas.length && <option value={mov.caja_id}>{mov.caja?.nombre ?? 'Caja actual'}</option>}
                 {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
-              <small className="muted">Si la cambiás, el monto sale de la nueva caja y se reajustan los saldos de ambas.</small>
+              <small className="hint muted">Si la cambiás, el monto sale de la nueva caja y se reajustan los saldos de ambas.</small>
             </div>
             <div className="form-row">
               <label>Billetera / moneda</label>
@@ -743,12 +743,12 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
                 {billeteras.length === 0 && <option value={`|${cajas.find((c) => c.id === eCajaId)?.moneda ?? mov.moneda}`}>{cajas.find((c) => c.id === eCajaId)?.moneda ?? mov.moneda} (caja simple)</option>}
                 {billeteras.map((b) => <option key={b.id} value={`${b.cuenta}|${b.moneda}`}>{b.cuenta} · {b.moneda} (disp. {monto(Number(b.saldo), b.moneda)})</option>)}
               </select>
-              <small className="muted">Define la cuenta y la moneda del movimiento.</small>
+              <small className="hint muted">Define la cuenta y la moneda del movimiento.</small>
             </div>
             <div className="form-row">
               <label>Fecha y hora</label>
               <input className="input" type="datetime-local" value={eFecha} onChange={(e) => setEFecha(e.target.value)} />
-              <small className="muted">Cambiarla reordena el movimiento en el Libro Mayor y recalcula los saldos.</small>
+              <small className="hint muted">Cambiarla reordena el movimiento en el Libro Mayor y recalcula los saldos.</small>
             </div>
             <div className="form-row">
               <label>Monto</label>
@@ -1035,7 +1035,7 @@ function DetalleCorreoModal({ mov, orden, defaultEmail, onClose }: {
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
         <input className="input" type="email" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
-        <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
+        <small className="hint muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
       </div>
     </Modal>
   );
@@ -1328,7 +1328,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                   {Array.from(new Set(saldos.filter((s) => s.moneda === moneda && s.cuenta !== 'general').map((s) => s.cuenta))).map((c) => <option key={c} value={c} />)}
                 </datalist>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', marginTop: '.3rem', flexWrap: 'wrap' }}>
-                  <small className="muted" style={{ flex: 1 }}>Vacío = "general". Nombrá billeteras separadas (usdt1, usdt2…) y se muestran por separado.</small>
+                  <small className="hint muted" style={{ flex: 1 }}>Vacío = "general". Nombrá billeteras separadas (usdt1, usdt2…) y se muestran por separado.</small>
                   <button type="button" className="btn btn-sm btn-ghost" disabled={saving} onClick={() => void crearBilleteraEn0()} title="Crea la billetera/cuenta con saldo 0">
                     ＋ Crear en 0
                   </button>
@@ -1344,7 +1344,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                 <label>Tasa de compra (Bs por 1 {moneda})</label>
                 <input className="input mono" type="number" min={0} step="any" value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} required />
                 {tasaSugerida != null && tasaSugerida > 0 && (
-                  <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginTop: '.2rem' }}>
+                  <small className="hint muted" style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginTop: '.2rem' }}>
                     Tasa del día: <strong className="mono">{tasaSugerida.toLocaleString('es-VE', { maximumFractionDigits: 4 })}</strong>
                     <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .4rem' }}
                       onClick={() => setTasaStr(String(tasaSugerida))}>Usar</button>
@@ -1375,7 +1375,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                 })}
               </div>
               {!origenTipo && (
-                <small className="muted">Sin cliente/proveedor: el dinero solo <strong>suma a la caja</strong> (no genera cuenta por pagar).</small>
+                <small className="hint muted">Sin cliente/proveedor: el dinero solo <strong>suma a la caja</strong> (no genera cuenta por pagar).</small>
               )}
               {origenTipo && (() => {
                 const guardados = contrapartes.filter((c) => c.tipo === origenTipo);
@@ -1393,7 +1393,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                   <datalist id="origen-contrapartes">
                     {guardados.map((c) => <option key={c.id} value={c.nombre} />)}
                   </datalist>
-                  <small className="muted">
+                  <small className="hint muted">
                     Buscá en los {guardados.length} {origenTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardados o escribí uno nuevo.{' '}
                     {origen.trim() && !existe
                       ? <strong style={{ color: 'var(--primary-3, #ff8a00)' }}>Nuevo → se guardará para próximos pagos.</strong>
@@ -1431,7 +1431,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
           <div style={{ textAlign: 'right', marginTop: '.5rem' }}>
             <button type="submit" className="btn btn-success" disabled={saving}>{saving ? 'Ingresando…' : '+ Ingresar'}</button>
           </div>
-          <small className="muted">El Bs se maneja en dos cuentas: <strong>jurídica</strong> y <strong>personal</strong>. Las divisas guardan su tasa de compra; cada ingreso es un <strong>lote</strong> con su tasa, y el saldo muestra el <strong>promedio ponderado</strong> (ver Trazabilidad).</small>
+          <small className="hint muted">El Bs se maneja en dos cuentas: <strong>jurídica</strong> y <strong>personal</strong>. Las divisas guardan su tasa de compra; cada ingreso es un <strong>lote</strong> con su tasa, y el saldo muestra el <strong>promedio ponderado</strong> (ver Trazabilidad).</small>
         </form>
       )}
 
@@ -1728,7 +1728,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
           <div className="form-row">
             <label>Monto ({monedaPago})</label>
             <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required />
-            <small className="muted">Disponible: <strong className="mono">{monto(disponible, monedaPago)}</strong></small>
+            <small className="hint muted">Disponible: <strong className="mono">{monto(disponible, monedaPago)}</strong></small>
           </div>
         </div>
         <div className="form-grid">
@@ -1767,7 +1767,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
               placeholder={correlativoAuto ? '' : 'Ingresá el número inicial'}
               required
             />
-            <small className="muted">
+            <small className="hint muted">
               {correlativoAuto
                 ? <>Correlativo automático (siguiente disponible). Podés ajustarlo si hace falta.</>
                 : <>Primera vez para <strong>{catNombre}</strong>: ingresá el número inicial; de ahí en más se autoincrementa.</>}
@@ -1777,7 +1777,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
         <div className="form-row">
           <label>Concepto</label>
           <input className="input" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
-          <small className="muted">El gasto queda etiquetado por la <strong>categoría → subcategoría</strong> y la moneda elegida; aparece en el registro y en GASTOS / MOVIMIENTOS.</small>
+          <small className="hint muted">El gasto queda etiquetado por la <strong>categoría → subcategoría</strong> y la moneda elegida; aparece en el registro y en GASTOS / MOVIMIENTOS.</small>
         </div>
       </form>
     </Modal>
@@ -2096,7 +2096,7 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
         </button>
         {pegarOpen && (
           <div className="card" style={{ padding: '.6rem', marginTop: '.4rem', display: 'grid', gap: '.4rem' }}>
-            <small className="muted">1ª línea = <strong>categoría</strong>; cada línea siguiente = <strong>subcategoría</strong>. Pegá tal cual la columna del sheet.</small>
+            <small className="hint muted">1ª línea = <strong>categoría</strong>; cada línea siguiente = <strong>subcategoría</strong>. Pegá tal cual la columna del sheet.</small>
             <textarea className="textarea" rows={6} value={pegado} onChange={(e) => setPegado(e.target.value)}
               placeholder={'VEHICULOS\nVEHICULO (1) CAMION...\nVEHICULO (4) MACHITO...'} />
             <div><button className="btn btn-sm btn-primary" onClick={importarPegado} disabled={busy}>{busy ? 'Cargando…' : 'Importar'}</button></div>
@@ -2540,14 +2540,14 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
                 <select className="select" value={intDestCuenta} onChange={(e) => setIntDestCuenta(e.target.value as CuentaCaja)}>
                   {cuentasDestino.map((c) => <option key={c} value={c}>{labelCuentaCaja(c)}</option>)}
                 </select>
-                <small className="muted">Entra a <strong>{destino?.nombre ?? 'la caja'}</strong> · billetera/cuenta <strong>{labelCuentaCaja(intDestCuenta)}</strong>.</small>
+                <small className="hint muted">Entra a <strong>{destino?.nombre ?? 'la caja'}</strong> · billetera/cuenta <strong>{labelCuentaCaja(intDestCuenta)}</strong>.</small>
               </div>
             )}
             {tipoDestino === 'centro' && destino?.externo && (
-              <small className="muted">🔗 Centro de acopio en otro sistema: el traslado se replica automáticamente y queda “por confirmar” del otro lado.</small>
+              <small className="hint muted">🔗 Centro de acopio en otro sistema: el traslado se replica automáticamente y queda “por confirmar” del otro lado.</small>
             )}
             {tipoDestino === 'caja' && (
-              <small className="muted">↔ Solo mueve dinero entre tus cajas (ej. Bs jurídica → Bs personal). No genera cuenta por cobrar.</small>
+              <small className="hint muted">↔ Solo mueve dinero entre tus cajas (ej. Bs jurídica → Bs personal). No genera cuenta por cobrar.</small>
             )}
           </div>
         </div>
@@ -2993,7 +2993,7 @@ function EnviarReporteModal({ movs, meta, defaultEmail, onClose }: {
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
         <input className="input" type="email" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
-        <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
+        <small className="hint muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
       </div>
     </Modal>
   );
@@ -3197,10 +3197,10 @@ function PagarRenglonModal({ renglon, cajas, actor, actorName, onClose, onPaid }
           <div className="form-row">
             <label>Monto a pagar ({moneda})</label>
             <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required />
-            <small className="muted">Disponible: <strong className="mono">{monto(disponible, moneda)}</strong></small>
-            {moneda === 'Bs' && <small className="muted">Se autocompletó con la tasa BCV; podés ajustarlo.</small>}
+            <small className="hint muted">Disponible: <strong className="mono">{monto(disponible, moneda)}</strong></small>
+            {moneda === 'Bs' && <small className="hint muted">Se autocompletó con la tasa BCV; podés ajustarlo.</small>}
             {pagaUsdEfectivo && redondearArriba5(Number(montoStr) || 0) > (Number(montoStr) || 0) && (
-              <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+              <small className="hint muted" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
                 💵 El monto tiene decimales. En efectivo se sugiere <strong className="mono">{monto(redondearArriba5(Number(montoStr) || 0), 'USD')}</strong> (redondeado al múltiplo de $5).
                 <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMontoStr(String(redondearArriba5(Number(montoStr) || 0)))}>Redondear a {monto(redondearArriba5(Number(montoStr) || 0), 'USD')}</button>
               </small>
@@ -3500,7 +3500,7 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
             {cuentasDestino.map((c) => <option key={c} value={c}>{labelCuentaCaja(c)}</option>)}
           </select>
           {destinoCajaId && (
-            <small className="muted">
+            <small className="hint muted">
               {cuentasDestino.length > 1
                 ? <>Entra a <strong>{nombreCaja(destinoCajaId)}</strong> · billetera <strong>{labelCuentaCaja(destinoCuenta)}</strong>.</>
                 : <>Esta caja no tiene billeteras: entra directo a <strong>General</strong>.</>}
@@ -3539,7 +3539,7 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
               <datalist id="conv-contrapartes">
                 {guardados.map((c) => <option key={c.id} value={c.nombre} />)}
               </datalist>
-              <small className="muted">
+              <small className="hint muted">
                 Buscá en los {guardados.length} {cpTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardados o escribí uno nuevo.{' '}
                 {cpNombre.trim() && !existe
                   ? <strong style={{ color: 'var(--primary-3, #ff8a00)' }}>Nuevo → se guardará para próximas operaciones.</strong>
@@ -3578,7 +3578,7 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
               title="Escribí a mano el monto redondeado que debe recibir el destino (ej. 60)">⊕ Redondear</button>
             {(comisionStr || netoManual != null) && <button type="button" className="btn btn-sm btn-ghost" onClick={limpiarComision}>✕ Sin comisión</button>}
           </div>
-          <small className="muted">
+          <small className="hint muted">
             {netoManual != null
               ? <>El destino recibe el monto redondeado <strong>{monto(netoManual, a)}</strong> (comisión {monto(comisionMonto, a)}).</>
               : <>Opcional. Se le descuenta al convertido; el destino recibe el neto. «Redondear» te deja escribir el monto redondeado a recibir.</>}
@@ -3589,7 +3589,7 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
           <label>Fecha de la conversión</label>
           <input className="input" type="date" value={fechaStr} max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setFechaStr(e.target.value)} />
-          <small className="muted">
+          <small className="hint muted">
             {fechaStr === new Date().toISOString().slice(0, 10)
               ? <>Hoy. Queda con la hora real en que se registra.</>
               : <>Se asienta con fecha <strong>{fechaStr}</strong>, no con la de hoy.</>}
@@ -3760,11 +3760,11 @@ function RedondearNetoModal({ moneda, bruto, sugerido, onAceptar, onClose }: {
           onChange={(e) => setValStr(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && puede) onAceptar(val); }}
           placeholder={sugerido > 0 ? String(sugerido) : '0'} />
-        <small className="muted">
+        <small className="hint muted">
           Convertido (bruto): <strong>{monto(bruto, moneda)}</strong>.
           {val > 0 && !excede && <> La comisión será <strong>{monto(round2(bruto - val), moneda)}</strong>.</>}
         </small>
-        {excede && <small className="muted" style={{ color: 'var(--danger)' }}>No puede superar el convertido ({monto(bruto, moneda)}).</small>}
+        {excede && <small className="hint muted" style={{ color: 'var(--danger)' }}>No puede superar el convertido ({monto(bruto, moneda)}).</small>}
       </div>
     </Modal>
   );
@@ -4554,7 +4554,7 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
               <tfoot><tr><td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total</td><td className="mono" style={{ textAlign: 'right', fontWeight: 800 }}>{monto(totalUsd, 'USD')}</td></tr></tfoot>
             </table>
           </div>
-          <small className="muted">Tocá una OC para ver su detalle. Se genera <strong>un egreso por cada OC</strong> (cada una queda casada con su pago en el Libro Mayor).</small>
+          <small className="hint muted">Tocá una OC para ver su detalle. Se genera <strong>un egreso por cada OC</strong> (cada una queda casada con su pago en el Libro Mayor).</small>
         </div>
 
         <div className="form-row">
@@ -4571,7 +4571,7 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
             {saldos.map((s) => <option key={s.id} value={s.id}>{cuentaLabel(s.cuenta)} · {monto(Number(s.saldo), s.moneda)}</option>)}
           </select>
           {wallet && (
-            <small className="muted">
+            <small className="hint muted">
               Total a pagar: <strong className="mono">{monto(totalWallet, monedaW)}</strong>
               {monedaW !== 'USD' && monedaW !== 'USDT' && <> (= {monto(totalUsd, 'USD')}{tasa > 0 && monedaW === 'Bs' ? ` · BCV ${tasa}` : ''})</>}
               {' · '}saldo {monto(saldoW, monedaW)}
@@ -4911,7 +4911,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                     <label>Comisión bancaria (opcional)</label>
                     <input className="input mono" type="number" min={0} step="any" value={comisionMonto}
                       onChange={(e) => setComisionMonto(dosDecimales(e.target.value))} placeholder="0,00" />
-                    <small className="muted">Se descuenta de la caja como gasto extra; NO abona la deuda.</small>
+                    <small className="hint muted">Se descuenta de la caja como gasto extra; NO abona la deuda.</small>
                   </div>
                   {(Number(comisionMonto) || 0) > 0 && (
                     <div className="form-row">
@@ -4983,7 +4983,7 @@ function ComisionBancariaFields({ saldos, montoAbono, monedaAbono, comisionStr, 
         )}
       </div>
       {com > 0 && sc && (
-        <small className="muted">Sale aparte como <strong>COMISIÓN BANCARIA</strong> de {etqCuenta(sc.cuenta)} ({sc.moneda}). De la billetera salen <strong>{monto(montoAbono, monedaAbono)}</strong> (abono) + <strong>{monto(com, sc.moneda)}</strong> (comisión).</small>
+        <small className="hint muted">Sale aparte como <strong>COMISIÓN BANCARIA</strong> de {etqCuenta(sc.cuenta)} ({sc.moneda}). De la billetera salen <strong>{monto(montoAbono, monedaAbono)}</strong> (abono) + <strong>{monto(com, sc.moneda)}</strong> (comisión).</small>
       )}
     </div>
   );
@@ -5282,7 +5282,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
               {sugerencias.map((n) => <option key={n} value={n} />)}
             </datalist>
             {sugerencias.length > 0 && (
-              <small className="muted">{sugerencias.length} {nvTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardado(s) · escribí para buscar o cargá uno nuevo</small>
+              <small className="hint muted">{sugerencias.length} {nvTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardado(s) · escribí para buscar o cargá uno nuevo</small>
             )}
           </div>
           <div className="form-row">
@@ -5351,7 +5351,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                     ))}
                   </select>
                 ) : saldoCuentaSel ? (
-                  <small className="muted">Sale en <strong>{sel.moneda}</strong> de la cuenta <strong>{cuentaCaja === 'general' ? 'general' : cuentaCaja === 'juridica' ? 'Jurídica' : cuentaCaja === 'personal' ? 'Personal' : cuentaCaja}</strong> · disponible <strong className="mono">{monto(Number(saldoCuentaSel.saldo), sel.moneda)}</strong></small>
+                  <small className="hint muted">Sale en <strong>{sel.moneda}</strong> de la cuenta <strong>{cuentaCaja === 'general' ? 'general' : cuentaCaja === 'juridica' ? 'Jurídica' : cuentaCaja === 'personal' ? 'Personal' : cuentaCaja}</strong> · disponible <strong className="mono">{monto(Number(saldoCuentaSel.saldo), sel.moneda)}</strong></small>
                 ) : (
                   <small style={{ color: 'var(--danger)' }}>⚠ Esta caja no tiene saldo en {sel.moneda}. Elegí otra caja.</small>
                 )}
@@ -5359,7 +5359,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
               <div className="form-row">
                 <label>Monto a abonar ({sel.moneda})</label>
                 <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} />
-                <small className="muted">Saldo pendiente: <strong className="mono">{monto(saldo, sel.moneda)}</strong></small>
+                <small className="hint muted">Saldo pendiente: <strong className="mono">{monto(saldo, sel.moneda)}</strong></small>
               </div>
             </div>
 
@@ -5367,7 +5367,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
             <div className="card" style={{ margin: '.25rem 0 .1rem', padding: '.5rem .7rem', background: 'rgba(255,255,255,.02)' }}>
               <div className="muted" style={{ fontSize: '.7rem', marginBottom: '.3rem' }}>DINERO DISPONIBLE EN ESTA CAJA</div>
               {!dispCaja.length ? (
-                <small className="muted">Sin saldo en ninguna moneda.</small>
+                <small className="hint muted">Sin saldo en ninguna moneda.</small>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
                   {dispCaja.map((r) => {
@@ -5518,7 +5518,7 @@ function EnviarCuentaPorPagarModal({ cuenta, abonos, ingresos, defaultEmail, onC
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
         <input className="input" type="email" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
-        <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
+        <small className="hint muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
       </div>
     </Modal>
   );
@@ -5554,7 +5554,7 @@ function SelectorBuscable<T extends { id: string }>({ label, items, value, onCha
       <select className="select" style={{ marginTop: '.35rem' }} value={value} onChange={(e) => onChange(e.target.value)}>
         {opciones.map((it) => <option key={it.id} value={it.id}>{optionLabel(it)}</option>)}
       </select>
-      {q.trim() && <small className="muted">{filtrados.length} de {items.length} coinciden</small>}
+      {q.trim() && <small className="hint muted">{filtrados.length} de {items.length} coinciden</small>}
     </div>
   );
 }
@@ -5763,7 +5763,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                 <datalist id="cxc-contrapartes">
                   {contrapartes.filter((c) => c.tipo === nuevoTipo).map((c) => <option key={c.id} value={c.nombre} />)}
                 </datalist>
-                <small className="muted">Si no está en la lista, se da de alta automáticamente.</small>
+                <small className="hint muted">Si no está en la lista, se da de alta automáticamente.</small>
               </div>
             </div>
             <div className="form-grid">
@@ -5842,12 +5842,12 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                           ))}
                         </select>
                       )}
-                      <small className="muted">Entra en <strong>{sel.moneda}</strong> a la caja elegida.</small>
+                      <small className="hint muted">Entra en <strong>{sel.moneda}</strong> a la caja elegida.</small>
                     </div>
                     <div className="form-row">
                       <label>Monto cobrado ({sel.moneda})</label>
                       <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} />
-                      <small className="muted">Saldo por cobrar: <strong className="mono">{monto(saldo, sel.moneda)}</strong></small>
+                      <small className="hint muted">Saldo por cobrar: <strong className="mono">{monto(saldo, sel.moneda)}</strong></small>
                     </div>
                   </div>
                   <div className="form-row">
@@ -5912,7 +5912,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                   <div className="form-row">
                     <label>Valor del producto al cambio ({sel.moneda})</label>
                     <input className="input mono" type="number" min={0} step="any" value={prodValor} onChange={(e) => setProdValor(e.target.value)} placeholder={`Ej.: ${round2(saldo)}`} />
-                    <small className="muted">
+                    <small className="hint muted">
                       Saldo por cobrar: <strong className="mono">{monto(saldo, sel.moneda)}</strong>
                       {Number(prodCantidad) > 0 && Number(prodValor) > 0 && <> · costo unit.: <strong className="mono">{monto(round2(Number(prodValor) / Number(prodCantidad)), sel.moneda)}</strong></>}
                     </small>
@@ -6524,7 +6524,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                     style={{ width: 130, textAlign: 'right', borderColor: retTasa > 0 ? undefined : 'var(--danger)' }} />
                 </div>
               </div>
-              <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>
+              <small className="hint muted" style={{ display: 'block', marginTop: '.25rem' }}>
                 Escribí el monto en Bs o en $: el otro se calcula con la tasa{retTasaStr === '' ? ' BCV del día' : ' indicada'}, que podés cambiar.
               </small>
               <div style={{ fontSize: '.85rem', marginTop: '.35rem' }}>
@@ -6586,7 +6586,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
               {!cajas.length && <option value="">— sin cajas —</option>}
               {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
-            <small className="muted">Se descuenta de esta caja y queda registrado en el registro de movimientos (pago de compra).{esMultimoneda ? ' Abajo elegís de qué cuentas (con saldo) sale el dinero.' : ''}</small>
+            <small className="hint muted">Se descuenta de esta caja y queda registrado en el registro de movimientos (pago de compra).{esMultimoneda ? ' Abajo elegís de qué cuentas (con saldo) sale el dinero.' : ''}</small>
           </div>
           {!esMultimoneda && (
             <div className="form-row">
@@ -6597,14 +6597,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                 <small style={{ color: 'var(--warning)' }}>⚠ Supera el total de la OC ({monto(totalEnCaja, moneda)}) por <strong className="mono">{monto(excesoSimple, moneda)}</strong>. Al pagar se pide confirmación: ese excedente sale aparte como <strong>{conceptoReembolsoOc(codigoOc, null, o.clase)}</strong>.</small>
               )}
               {tasa > 0 && montoNum > 0 && (
-                <small className="muted">
+                <small className="hint muted">
                   Equivale a <strong className="mono">{monto(equivOtra, moneda === 'Bs' ? 'USD' : 'Bs')}</strong>
                   {moneda === 'Bs'
                     ? ` · ${monto(montoNum, 'Bs')} ÷ ${tasa.toLocaleString('es-VE')}`
                     : ` · ${monto(montoNum, 'USD')} × ${tasa.toLocaleString('es-VE')}`}
                 </small>
               )}
-              {moneda === 'Bs' && <small className="muted">Se autocompletó con la tasa BCV; podés ajustarlo.</small>}
+              {moneda === 'Bs' && <small className="hint muted">Se autocompletó con la tasa BCV; podés ajustarlo.</small>}
             </div>
           )}
         </div>
@@ -6646,7 +6646,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                 </tfoot>
               </table>
             </div>
-            <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
+            <small className="hint muted" style={{ display: 'block', marginTop: '.3rem' }}>
               {excedeTotalMulti
                 ? <span style={{ color: 'var(--warning)' }}>⚠ Pagás <strong>{monto(reembolsoOrden, monedaOrden)}</strong> de más. Al pagar se pide confirmación: el total de la OC ({monto(enMonedaOrden(totalUsd), monedaOrden)}) queda como pago y el excedente sale aparte como <strong>{conceptoReembolsoOc(codigoOc, null, o.clase)}</strong>.</span>
                 : cubreTotalMulti
@@ -6731,7 +6731,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                 <span className="muted" style={{ alignSelf: 'center', fontSize: '.8rem' }}>{seriales.length} billete(s)</span>
               </div>
             ) : (
-              <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
+              <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
                 Agregá un serial por billete. Quedan registrados con el pago.
               </small>
             )}
@@ -6743,12 +6743,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             <label>Comprobante (PDF o imagen) {comprobanteOpcional ? '(opcional)' : '*'}</label>
             <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFactura(e.target.files?.[0] ?? null)} required={!comprobanteOpcional} />
             {factura && <small className="muted">{factura.name}</small>}
-            {comprobanteOpcional && <small className="muted">Pago en efectivo: el comprobante no es obligatorio.</small>}
+            {comprobanteOpcional && <small className="hint muted">Pago en efectivo: el comprobante no es obligatorio.</small>}
           </div>
           <div className="form-row">
             <label>Motivo del pago</label>
             <input className="input" value={motivoPago} onChange={(e) => setMotivoPago(e.target.value)} placeholder="Nota del pago (opcional)" />
-            <small className="muted">Se suma al motivo de la OP en el registro de movimientos.</small>
+            <small className="hint muted">Se suma al motivo de la OP en el registro de movimientos.</small>
           </div>
         </div>
 
@@ -6766,7 +6766,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
               )}
             </div>
             {(Number(comisionMonto) || 0) > 0 && (
-              <small className="muted">Se registra como un egreso aparte (Comisión bancaria) en el Libro Mayor. El pago de la factura no cambia.</small>
+              <small className="hint muted">Se registra como un egreso aparte (Comisión bancaria) en el Libro Mayor. El pago de la factura no cambia.</small>
             )}
           </div>
         )}
@@ -6796,7 +6796,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
               />
             </div>
           </div>
-          <small className="muted">Clasifica el egreso como gasto (categoría/subcategoría); queda visible y filtrable en el registro de movimientos.</small>
+          <small className="hint muted">Clasifica el egreso como gasto (categoría/subcategoría); queda visible y filtrable en el registro de movimientos.</small>
         </div>
         </>)}
       </form>

@@ -96,7 +96,7 @@ export function BiometriaModal({ onClose }: { onClose: () => void }) {
       >
         {activando ? 'Esperando la huella…' : '➕ Activar huella en este dispositivo'}
       </button>
-      <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
+      <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
         Dominio actual: <strong className="mono">{dominio}</strong> · la huella sirve solo en este dominio.
       </small>
 

@@ -141,7 +141,7 @@ function NuevaCuentaModal({ actor, actorName, centro, onClose, onSaved }: { acto
           <div className="form-row"><label>Monto de la factura ($)</label><input className="input mono" type="number" min={0} step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0.00" required /></div>
           <div className="form-row"><label>Precio referencia $/Kg</label><input className="input mono" type="number" min={0} step="0.0001" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="0" /></div>
         </div>
-        <small className="muted">La deuda se paga con abonos en Kg de mineral (Kg × $/Kg baja la deuda).</small>
+        <small className="hint muted">La deuda se paga con abonos en Kg de mineral (Kg × $/Kg baja la deuda).</small>
       </form>
     </Modal>
   );
@@ -253,7 +253,7 @@ function AgregarAbonoModal({ cuenta, actor, actorName, onClose, onSaved }: {
           <input type="checkbox" checked={sumar} onChange={(e) => setSumar(e.target.checked)} />
           Sumar estos Kg al <strong>stock real de CASITERITA</strong>
         </label>
-        <small className="muted">Marcá solo si estos Kg NO entraron ya por una recepción aparte (evita doble conteo).</small>
+        <small className="hint muted">Marcá solo si estos Kg NO entraron ya por una recepción aparte (evita doble conteo).</small>
       </form>
     </Modal>
   );

@@ -448,7 +448,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
         {/* El modo se elige POR RENGLÓN: podés mezclar inventario + materiales nuevos. */}
         <div className="form-row" style={{ marginBottom: '.3rem' }}>
           <label>Materiales</label>
-          <small className="muted">Cada renglón puede ser del 📦 Inventario o ＋ Nuevo (se da de alta con stock 0, sin precio; SKU automático).</small>
+          <small className="hint muted">Cada renglón puede ser del 📦 Inventario o ＋ Nuevo (se da de alta con stock 0, sin precio; SKU automático).</small>
         </div>
 
         {lineas.map((l, idx) => (
@@ -475,7 +475,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
                     <SearchSelect allowCreate value={l.unidad} onChange={(v) => set(l.id, { unidad: v })}
                       options={unidades.map((u) => ({ value: u, label: u }))}
                       placeholder="🔎 Buscá o escribí una medida…" emptyText="Sin medidas." />
-                    <small className="muted" style={{ fontSize: '.72rem' }}>Si la cambiás, se actualiza la medida del producto en el inventario.</small></div>
+                    <small className="hint muted" style={{ fontSize: '.72rem' }}>Si la cambiás, se actualiza la medida del producto en el inventario.</small></div>
                   <div className="form-row"><label>Cantidad</label>
                     <input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
@@ -485,7 +485,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
                 <div className="form-row">
                   <label>Descripción del material nuevo</label>
                   <input className="input" value={l.nombre} onChange={(e) => set(l.id, { nombre: e.target.value.toUpperCase() })} placeholder="Nombre / descripción" />
-                  <small className="muted">Se da de alta en el inventario (stock 0, sin precio). SKU automático.</small>
+                  <small className="hint muted">Se da de alta en el inventario (stock 0, sin precio). SKU automático.</small>
                 </div>
                 <div className="form-grid">
                   <div className="form-row"><label>Categoría</label>
@@ -533,7 +533,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
                 <label>RIF</label>
                 <input className="input" value={provRif} onChange={(e) => setProvRif(e.target.value.toUpperCase())} placeholder="J-12345678-9" />
               </div>
-              <small className="muted" style={{ gridColumn: '1 / -1' }}>Se da de alta en el módulo Proveedores (razón social + RIF). Lo demás se completa luego.</small>
+              <small className="hint muted" style={{ gridColumn: '1 / -1' }}>Se da de alta en el módulo Proveedores (razón social + RIF). Lo demás se completa luego.</small>
             </div>
           )}
         </div>
@@ -760,7 +760,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
             <button type="button" className={moneda === 'USD' ? 'active' : ''} onClick={() => setMoneda('USD')}>$ Dólares</button>
             <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setMoneda('Bs')}>Bs Bolívares</button>
           </div>
-          {moneda === 'Bs' && <small className="muted">En Bs se suma el IVA (16%) al total y podés registrar la retención de IVA.</small>}
+          {moneda === 'Bs' && <small className="hint muted">En Bs se suma el IVA (16%) al total y podés registrar la retención de IVA.</small>}
           {/* Convertir los costos a la otra moneda a la tasa (del día o la que ponga el usuario). */}
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.45rem' }}>
             {/* En Bs la tasa es la del campo «Tasa BCV» de abajo: un solo campo, una sola tasa. */}
@@ -773,7 +773,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
             )}
             <button type="button" className="btn btn-sm btn-primary" onClick={convertirMoneda}>⇄ Convertir a {moneda === 'USD' ? 'Bs' : '$'}</button>
           </div>
-          <small className="muted">Convierte los costos cargados a {moneda === 'USD' ? 'Bs' : '$'} a {moneda === 'USD' ? 'esa tasa' : 'la tasa BCV de abajo'}. El total convertido es el que va a Tesorería.</small>
+          <small className="hint muted">Convierte los costos cargados a {moneda === 'USD' ? 'Bs' : '$'} a {moneda === 'USD' ? 'esa tasa' : 'la tasa BCV de abajo'}. El total convertido es el que va a Tesorería.</small>
         </div>
 
         {moneda === 'Bs' && (
@@ -786,7 +786,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
                 <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaStr(String(tasaBcv))}>↻ Usar BCV ({montoCaja(tasaBcv, 'Bs')})</button>
               )}
             </div>
-            <small className="muted">Cargá la tasa BCV de la <strong>fecha de la factura</strong> (se precarga la de hoy: cambiala si la factura es de otro día). Con esta tasa los materiales se valoran <strong>en dólares</strong> al entrar al inventario.</small>
+            <small className="hint muted">Cargá la tasa BCV de la <strong>fecha de la factura</strong> (se precarga la de hoy: cambiala si la factura es de otro día). Con esta tasa los materiales se valoran <strong>en dólares</strong> al entrar al inventario.</small>
           </div>
         )}
 
@@ -828,13 +828,13 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
               <label>IVA (%) <span className="muted" style={{ fontWeight: 400 }}>· sugerido {IVA_PCT}%</span></label>
               <input className="input mono" type="number" min={0} step="any" value={ivaPctStr}
                 onChange={(e) => onIvaPct(e.target.value)} placeholder={String(IVA_PCT)} />
-              <small className="muted">Escribí el % o el monto: se sincronizan.</small>
+              <small className="hint muted">Escribí el % o el monto: se sincronizan.</small>
             </div>
             <div className="form-row" style={{ margin: 0 }}>
               <label>IVA ({monedaLbl}) <span className="muted" style={{ fontWeight: 400 }}>· monto</span></label>
               <input className="input mono" type="number" min={0} step="any" value={ivaStr}
                 onChange={(e) => onIvaMonto(e.target.value)} placeholder="0,00" />
-              <small className="muted">
+              <small className="hint muted">
                 {ivaManual
                   ? <button type="button" className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => setIvaManual(false)}>↻ Volver a {IVA_PCT}% ({montoCaja(ivaSugerido, monedaLbl)})</button>
                   : `${IVA_PCT}% de la base (${montoCaja(base, monedaLbl)})`}
@@ -843,7 +843,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
             <div className="form-row" style={{ margin: 0 }}>
               <label>Retención de IVA (% sobre el IVA)</label>
               <input className="input mono" type="number" min={0} max={100} step="any" value={retPctStr} onChange={(e) => setRetPctStr(e.target.value)} placeholder="0" disabled={iva <= 0} />
-              <small className="muted">{retPct > 0 ? `Se retiene ${montoCaja(retMonto, monedaLbl)} · va a Retenciones` : 'Vincula la compra al módulo de Retenciones'}</small>
+              <small className="hint muted">{retPct > 0 ? `Se retiene ${montoCaja(retMonto, monedaLbl)} · va a Retenciones` : 'Vincula la compra al módulo de Retenciones'}</small>
             </div>
           </div>
         )}
@@ -855,7 +855,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
             <label>IGTF (%) <span className="muted" style={{ fontWeight: 400 }}>· sugerido {IGTF_PCT}%</span></label>
             <input className="input mono" type="number" min={0} step="any" value={igtfPctStr}
               onChange={(e) => onIgtfPct(e.target.value)} placeholder="0" />
-            <small className="muted">
+            <small className="hint muted">
               {igtf > 0
                 ? <button type="button" className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => onIgtfPct('')}>✕ Quitar IGTF</button>
                 : <button type="button" className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => onIgtfPct(String(IGTF_PCT))}>+ Aplicar {IGTF_PCT}% de la base ({montoCaja(igtfSugerido, monedaLbl)})</button>}
@@ -865,7 +865,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
             <label>IGTF ({monedaLbl}) <span className="muted" style={{ fontWeight: 400 }}>· monto</span></label>
             <input className="input mono" type="number" min={0} step="any" value={igtfStr}
               onChange={(e) => onIgtfMonto(e.target.value)} placeholder="0,00" />
-            <small className="muted">Impuesto a grandes transacciones financieras. Se suma al total{moneda === 'USD' ? ' (pago en divisas)' : ''}.</small>
+            <small className="hint muted">Impuesto a grandes transacciones financieras. Se suma al total{moneda === 'USD' ? ' (pago en divisas)' : ''}.</small>
           </div>
         </div>
 
@@ -884,7 +884,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
               onBlur={() => { editandoTotal.current = false; setTotalStr(total > 0 ? String(total) : ''); }}
               onChange={(e) => onTotalEdit(e.target.value)} placeholder="0,00" />
           </div>
-          <small className="muted">Podés escribir el total directo y el descuento se ajusta solo para cuajar.</small>
+          <small className="hint muted">Podés escribir el total directo y el descuento se ajusta solo para cuajar.</small>
           {moneda === 'Bs' && tasaUsd > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.82rem' }}>
               <span className="muted">Equivalente en $ · tasa {montoCaja(tasaUsd, 'Bs')}</span>
@@ -897,13 +897,13 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
         <div className="form-row">
           <label>Adjuntar FACTURA de la compra · PDF o imagen</label>
           <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          {file ? <small className="muted">{file.name}</small> : (compra.facturas?.length ? <small className="muted">Ya hay {compra.facturas.length} factura(s) cargada(s).</small> : null)}
+          {file ? <small className="muted">{file.name}</small> : (compra.facturas?.length ? <small className="hint muted">Ya hay {compra.facturas.length} factura(s) cargada(s).</small> : null)}
         </div>
 
         <div className="form-row">
           <label>Nota para Tesorería <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
           <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej.: Pago realizado por Equis persona, se le debe reembolsar." />
-          <small className="muted">Tesorería la lee al momento de pagar (y elige ahí la categoría de gasto).</small>
+          <small className="hint muted">Tesorería la lee al momento de pagar (y elige ahí la categoría de gasto).</small>
         </div>
 
         {/* Pago a externo: una persona externa YA pagó; MGG debe reintegrarle. Lo ve Tesorería al pagar. */}
@@ -917,7 +917,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
               <label>Datos de la persona externa que pagó <span style={{ color: 'var(--danger)' }}>*</span></label>
               <textarea className="input" rows={2} value={pagoExternoDatos} onChange={(e) => setPagoExternoDatos(e.target.value)}
                 placeholder="Nombre, C.I. / RIF, teléfono, y cómo reintegrarle (cuenta / pago móvil)…" />
-              <small className="muted">Aparece en el detalle y en Tesorería: al pagar, el egreso reintegra el dinero a esta persona.</small>
+              <small className="hint muted">Aparece en el detalle y en Tesorería: al pagar, el egreso reintegra el dinero a esta persona.</small>
             </div>
           )}
         </div>

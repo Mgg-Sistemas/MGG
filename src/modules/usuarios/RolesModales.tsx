@@ -278,7 +278,7 @@ export function GestionarRolesModal({
                           placeholder="Descripción"
                         />
                         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-                          <small className="muted">Color:</small>
+                          <small className="hint muted">Color:</small>
                           <input
                             type="color"
                             value={colorEdit}

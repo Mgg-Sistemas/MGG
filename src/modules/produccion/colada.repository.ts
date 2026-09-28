@@ -8,7 +8,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { ColadaDatos, ProduccionColada } from '@/shared/lib/types';
 import { finalizarProduccion } from './produccion.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import { NOMBRE_ESCORIA, asegurarFichaEscoria, detalleEscoria, ingresaEscoria, kgDeEscoria } from './escoriaFundicion';
+import { NOMBRE_ESCORIA, asegurarFichaEscoria, avisoEscoriaPendiente, detalleEscoria, ingresaEscoria, kgDeEscoria } from './escoriaFundicion';
 import { fmtPlantaVE, isoDePlanta, tiemposACompletar } from './tiemposProceso';
 
 const TABLE = 'produccion_colada';
@@ -261,10 +261,12 @@ export interface ColadaResultados {
  * fundición. El estaño obtenido define la cantidad que ENTRA a inventario (con su
  * costo unitario = CP total ÷ estaño obtenido). Si no se indicó estaño, se finaliza
  * con la cantidad estimada original.
+ *
+ * Devuelve el aviso de la escoria cuando NO pudo entrar, o null si todo entró.
  */
 export async function finalizarColadaConResultados(
   produccionId: string, resultados: ColadaResultados, actor: string, actorName?: string | null,
-): Promise<void> {
+): Promise<string | null> {
   await actualizarColadaDatos(produccionId, resultados);
 
   const estano = Number(resultados.estano_kg) || 0;
@@ -288,10 +290,11 @@ export async function finalizarColadaConResultados(
   // La escoria no es descarte: se vuelve a fundir. Entra al inventario como
   // materia prima, en el almacén de su ficha (Matanza), y queda disponible como
   // insumo de receta.
-  await ingresarEscoriaAlInventario(produccionId, resultados, actor, actorName ?? null);
+  const aviso = await ingresarEscoriaAlInventario(produccionId, resultados, actor, actorName ?? null);
 
   // Los tiempos del reporte salen de la orden: ya no hay que copiarlos a mano.
   await sellarTiemposDeProceso(produccionId);
+  return aviso;
 }
 
 /**
@@ -333,18 +336,19 @@ export async function sellarTiemposDeProceso(produccionId: string): Promise<void
  *
  * Lo que YA NO se acepta en silencio es que falte la ficha: antes, si el catálogo
  * no tenía «ESCOREA DE FUNDICION», esto se rendía y la escoria se perdía sin
- * dejar rastro. Ahora la ficha se crea.
+ * dejar rastro. Ahora la ficha se crea, y si aun así no se pudo ingresar
+ * devuelve el aviso para que el cierre lo muestre en vez de tragárselo.
  */
 async function ingresarEscoriaAlInventario(
   produccionId: string, resultados: ColadaResultados, actor: string, actorName: string | null,
-): Promise<void> {
+): Promise<string | null> {
   try {
     const { data: prod } = await supabase.from('produccion')
       .select('sumar_inventario').eq('id', produccionId).maybeSingle();
-    if (!ingresaEscoria(resultados.escoria_kg, (prod as { sumar_inventario?: boolean } | null)?.sumar_inventario)) return;
+    if (!ingresaEscoria(resultados.escoria_kg, (prod as { sumar_inventario?: boolean } | null)?.sumar_inventario)) return null;
 
     const ficha = await asegurarFichaEscoria(NOMBRE_ESCORIA);
-    if (!ficha) return;
+    if (!ficha) return avisoEscoriaPendiente(resultados.escoria_kg, NOMBRE_ESCORIA);
 
     const colada = await getColada(produccionId);
     await registrarMovimiento({
@@ -361,7 +365,9 @@ async function ingresarEscoriaAlInventario(
       precio_unitario: 0,
       detalle: detalleEscoria(colada?.colada_num ?? null),
     });
+    return null;
   } catch {
-    // Silencio deliberado: ver el comentario de arriba.
+    // No tumba el cierre, pero tampoco se calla: el aviso sube al modal.
+    return avisoEscoriaPendiente(resultados.escoria_kg, NOMBRE_ESCORIA);
   }
 }

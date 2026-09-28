@@ -103,7 +103,7 @@ export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExter
           <label>IVA ({monedaMostrada}) <span className="muted" style={{ fontWeight: 400 }}>· ajustable</span></label>
           <input className="input mono" type="number" min={0} step="any" value={ivaStr}
             onChange={(e) => setIvaStr(dosDecimales(e.target.value))} placeholder="0,00" />
-          <small className="muted">Se suma al total y <strong>reajusta el egreso en Tesorería</strong>. Si la compra tiene retención de IVA, el monto retenido se recalcula solo.</small>
+          <small className="hint muted">Se suma al total y <strong>reajusta el egreso en Tesorería</strong>. Si la compra tiene retención de IVA, el monto retenido se recalcula solo.</small>
         </div>
       )}
       {/* IGTF ajustable. Entra al total y reajusta el egreso en Tesorería. */}
@@ -112,7 +112,7 @@ export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExter
           <label>IGTF ({monedaMostrada}) <span className="muted" style={{ fontWeight: 400 }}>· ajustable</span></label>
           <input className="input mono" type="number" min={0} step="any" value={igtfStr}
             onChange={(e) => setIgtfStr(dosDecimales(e.target.value))} placeholder="0,00" />
-          <small className="muted">Impuesto a grandes transacciones financieras. Se suma al total y <strong>reajusta el egreso en Tesorería</strong>.</small>
+          <small className="hint muted">Impuesto a grandes transacciones financieras. Se suma al total y <strong>reajusta el egreso en Tesorería</strong>.</small>
         </div>
       )}
 
@@ -145,7 +145,7 @@ export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExter
           <label>Nota / motivo <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
           <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
             placeholder="Motivo o detalle del servicio…" />
-          <small className="muted">Aparece en el detalle, en Tesorería y en el PDF.</small>
+          <small className="hint muted">Aparece en el detalle, en Tesorería y en el PDF.</small>
         </div>
       )}
 
@@ -160,7 +160,7 @@ export function EditarMontosModal({ title, moneda, editarMoneda, rows, pagoExter
             <label>Datos de la persona externa que pagó <span style={{ color: 'var(--danger)' }}>*</span></label>
             <textarea className="input" rows={2} value={pagoExternoDatos} onChange={(e) => setPagoExternoDatos(e.target.value)}
               placeholder="Nombre, C.I. / RIF, teléfono, y cómo reintegrarle (cuenta / pago móvil)…" />
-            <small className="muted">Aparece en el detalle, en el PDF y en Tesorería.</small>
+            <small className="hint muted">Aparece en el detalle, en el PDF y en Tesorería.</small>
           </div>
         )}
       </div>

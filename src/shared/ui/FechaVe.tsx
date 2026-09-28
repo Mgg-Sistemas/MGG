@@ -107,7 +107,7 @@ export function FechaVe({
       {error
         ? <small style={{ color: 'var(--danger)' }}>{error}</small>
         : ayuda
-          ? <small className="muted">{ayuda}</small>
+          ? <small className="hint muted">{ayuda}</small>
           : null}
     </>
   );

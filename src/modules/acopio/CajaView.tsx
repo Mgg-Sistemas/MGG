@@ -292,7 +292,7 @@ function MovimientoModal({ mov, cajaId, clasificaciones, costoClases, actor, act
     </>
   );
   const fld = (label: string, val: string, set: (v: string) => void, hint?: string) => (
-    <div className="form-row"><label>{label}</label><input className="input mono" type="number" min={0} step="any" value={val} onChange={(e) => set(e.target.value)} />{hint && <small className="muted">{hint}</small>}</div>
+    <div className="form-row"><label>{label}</label><input className="input mono" type="number" min={0} step="any" value={val} onChange={(e) => set(e.target.value)} />{hint && <small className="hint muted">{hint}</small>}</div>
   );
 
   return (

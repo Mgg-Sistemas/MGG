@@ -412,7 +412,7 @@ export function RecepcionesPage() {
             <input className="input" autoFocus value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void crear(); }} placeholder="RECEPCIÓN LA ESPERANZA" />
           </div>
-          <small className="muted">Sus datos van manuales (sin vínculo a un cierre de caja).</small>
+          <small className="hint muted">Sus datos van manuales (sin vínculo a un cierre de caja).</small>
         </Modal>
       )}
       {renombrar && (
@@ -427,7 +427,7 @@ export function RecepcionesPage() {
             <input className="input" autoFocus value={nombreEdit} onChange={(e) => setNombreEdit(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void guardarNombre(); }} />
           </div>
-          <small className="muted">Se actualiza en la tarjeta y en el <strong>Resumen General</strong> (en vivo).</small>
+          <small className="hint muted">Se actualiza en la tarjeta y en el <strong>Resumen General</strong> (en vivo).</small>
         </Modal>
       )}
       {confirmar && (
@@ -959,7 +959,7 @@ function PesajeModal({ grupoId, pesaje, actor, miNombre, procedenciasSugeridas =
         <label>Fecha del pesaje <span className="muted" style={{ fontWeight: 400 }}>(día de la recepción)</span></label>
         <input className="input" type="date" value={fecha} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setFecha(e.target.value)} />
         {fecha && fecha !== new Date().toISOString().slice(0, 10) && (
-          <small className="muted" style={{ marginTop: '.25rem' }}>📅 Se guardará con fecha <strong>{diaVE(`${fecha}T12:00:00`)}</strong> (día desfasado).</small>
+          <small className="hint muted" style={{ marginTop: '.25rem' }}>📅 Se guardará con fecha <strong>{diaVE(`${fecha}T12:00:00`)}</strong> (día desfasado).</small>
         )}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', marginBottom: '.6rem' }}>
@@ -1684,7 +1684,7 @@ function TotalesEditorModal({ grupoId, grupoNombre, totales, recepciones, defaul
         <DesgloseKgTotal kg={totalSnO2Final} tasa={tasaFinal} valor={totalMonedaFinal} />
       )}
 
-      <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
+      <small className="hint muted" style={{ display: 'block', marginTop: '.6rem' }}>
         Total Moneda = Total SnO2 × Precio/Tasa (+ Gastos). Tasa recepcionada (promedio de precio de compra) = Total Moneda ÷ Pesos Kg (neto húmedo).
         Costo final: SnO2 = Pesos Kg (peso húmedo) − Humedad Prov. − Humedad Adicional − Fe estéril (las 3 se restan); Total Moneda = el mismo de la recepcionada; Tasa final = Total Moneda ÷ SnO2 final
         (si es 0, se toma el Total Moneda recepcionado); Tasa = Total Moneda ÷ SnO2.
@@ -1808,7 +1808,7 @@ function CerrarRecepcionModal({ grupo, actor, miNombre, datos, confirmar, onCerr
             <div style={{ marginTop: '.6rem' }}>
               <label style={{ display: 'block', fontWeight: 600, fontSize: '.82rem', marginBottom: '.3rem' }}>Almacén / subalmacén destino <span style={{ color: 'var(--danger)' }}>*</span></label>
               <AlmacenPicker value={almacenNeto} onChange={setAlmacenNeto} label="Subalmacén" sedeLabel="Almacén" />
-              <small className="muted" style={{ fontSize: '.74rem' }}>El neto seco entra como CASITERITA a la tasa final, en el almacén → subalmacén elegido.</small>
+              <small className="hint muted" style={{ fontSize: '.74rem' }}>El neto seco entra como CASITERITA a la tasa final, en el almacén → subalmacén elegido.</small>
             </div>
           ) : (
             <div className="muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
@@ -1994,7 +1994,7 @@ function RecepcionFormModal({ grupoId, recepcion, actor, miNombre, onClose, onSa
           <div className="form-row"><label>Procedencia</label><input className="input" value={procedencia} onChange={(e) => setProcedencia(e.target.value)} placeholder="LA ESPERANZA" style={{ textTransform: 'uppercase' }} /></div>
         </div>
         <div className="form-row"><label>Centro de Acopio <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label><input className="input" value={centro} onChange={(e) => setCentro(e.target.value)} placeholder="LA ESPERANZA" /></div>
-        <small className="muted">La procedencia se guarda en MAYÚSCULAS. Para las recepciones creadas desde el cierre de caja, la procedencia (centro o aliado) y el Centro de Acopio se completan solos.</small>
+        <small className="hint muted">La procedencia se guarda en MAYÚSCULAS. Para las recepciones creadas desde el cierre de caja, la procedencia (centro o aliado) y el Centro de Acopio se completan solos.</small>
       </form>
     </Modal>
   );
@@ -2069,7 +2069,7 @@ function ConfigProcedenciasModal({ onClose, onChanged }: { onClose: () => void; 
           </tbody>
         </table>
       </div>
-      <small className="muted">El desplegable de la tabla de pesos usa estas procedencias. Borrar una NO afecta los pesos ya guardados.</small>
+      <small className="hint muted">El desplegable de la tabla de pesos usa estas procedencias. Borrar una NO afecta los pesos ya guardados.</small>
 
       {editando && (
         <Modal title="✎ Editar procedencia" size="sm" onClose={() => setEditando(null)} footer={
@@ -2160,7 +2160,7 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
           </tbody>
         </table>
       </div>
-      <small className="muted">Ocultar un mineral lo saca de la grilla sin borrar el histórico de análisis.</small>
+      <small className="hint muted">Ocultar un mineral lo saca de la grilla sin borrar el histórico de análisis.</small>
 
       {renombrando && (
         <Modal title="✎ Renombrar mineral" size="sm" onClose={() => setRenombrando(null)} footer={

@@ -547,7 +547,7 @@ function TraerRecepcionModal({ actor, actorName, onClose, onSaved }: {
           <option value="">— elegí una recepción cerrada —</option>
           {cierresDisponibles.map((c) => <option key={c.id} value={`cierre:${c.id}`}>{c.grupo_nombre} · Cierre #{c.numero}</option>)}
         </select>
-        <small className="muted" style={{ marginTop: '.25rem' }}>Se trae Peso Neto (seco), Prom SN y la tasa por procedencia; completá categoría y precinto. Incluye recepciones ya <strong>cerradas</strong>.</small>
+        <small className="hint muted" style={{ marginTop: '.25rem' }}>Se trae Peso Neto (seco), Prom SN y la tasa por procedencia; completá categoría y precinto. Incluye recepciones ya <strong>cerradas</strong>.</small>
       </div>
       {cargando ? <p className="muted">Leyendo recepción…</p> : filas.length > 0 && (
         <div className="table-wrap">

@@ -113,7 +113,7 @@ export function SalidaMaterialDetalle({
               placeholder="correo@ejemplo.com, otro@ejemplo.com"
               autoFocus
             />
-            <small className="muted">Separá varios correos con coma o espacio. Se adjunta el comprobante en PDF con la fecha de entrega.</small>
+            <small className="hint muted">Separá varios correos con coma o espacio. Se adjunta el comprobante en PDF con la fecha de entrega.</small>
           </div>
         </Modal>
       )}

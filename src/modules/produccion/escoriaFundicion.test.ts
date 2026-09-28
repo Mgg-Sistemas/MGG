@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  kgDeEscoria, ingresaEscoria, detalleEscoria, detalleEscoriaRefinacion,
+  kgDeEscoria, ingresaEscoria, avisoEscoriaPendiente, detalleEscoria, detalleEscoriaRefinacion,
   NOMBRE_ESCORIA, NOMBRE_ESCORIA_REFINACION, CATEGORIA_ESCORIA,
 } from './escoriaFundicion';
 
@@ -55,5 +55,29 @@ describe('la escoria de una colada vuelve al inventario', () => {
     // Leyes de Sn muy distintas: mezclarlas rompe el reporte de recuperación.
     expect(NOMBRE_ESCORIA_REFINACION).toBe('ESCOREA DE REFINACION');
     expect(NOMBRE_ESCORIA_REFINACION).not.toBe(NOMBRE_ESCORIA);
+  });
+});
+
+describe('si la escoria no pudo entrar, el cierre lo dice', () => {
+  it('el aviso lleva los kg exactos y la ficha, para cargarla a mano', () => {
+    const a = avisoEscoriaPendiente(294.5, NOMBRE_ESCORIA);
+    expect(a).toContain('294.5');
+    expect(a).toContain(NOMBRE_ESCORIA);
+    expect(a).toContain('NO entraron al inventario');
+  });
+
+  it('el dross de la refinación avisa con su propia ficha', () => {
+    expect(avisoEscoriaPendiente(12, NOMBRE_ESCORIA_REFINACION)).toContain(NOMBRE_ESCORIA_REFINACION);
+  });
+
+  it('sin kilos no hay nada que avisar: no falta nada', () => {
+    expect(avisoEscoriaPendiente(0, NOMBRE_ESCORIA)).toBeNull();
+    expect(avisoEscoriaPendiente(null, NOMBRE_ESCORIA)).toBeNull();
+    expect(avisoEscoriaPendiente(undefined, NOMBRE_ESCORIA)).toBeNull();
+    expect(avisoEscoriaPendiente(-3, NOMBRE_ESCORIA)).toBeNull();
+  });
+
+  it('redondea al gramo igual que el ingreso, para que los números coincidan', () => {
+    expect(avisoEscoriaPendiente(147.2549, NOMBRE_ESCORIA)).toContain('147.255');
   });
 });

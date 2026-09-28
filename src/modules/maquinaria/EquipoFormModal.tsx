@@ -136,7 +136,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
               onChange={(e) => set('ubicacion', upper(e.target.value) || null)}
               placeholder="Buscá una ubicación de Combustible o escribí una nueva…" />
             <datalist id="maq-ubicaciones">{ubicaciones.map((u) => <option key={u} value={u} />)}</datalist>
-            <small className="muted">Se traen del catálogo de Combustible → Ubicaciones.</small>
+            <small className="hint muted">Se traen del catálogo de Combustible → Ubicaciones.</small>
           </div>
           <div className="form-row">
             <label>Año</label>
@@ -174,13 +174,13 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
           <div className="form-row">
             <label>Mantenimiento cada (hrs)</label>
             <input name="f-mantenimiento_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.mantenimiento_cada_hrs ?? ''} onChange={(e) => set('mantenimiento_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
-            <small className="muted">Frecuencia para la alerta de mantenimiento preventivo.</small>
+            <small className="hint muted">Frecuencia para la alerta de mantenimiento preventivo.</small>
           </div>
         </div>
 
         {/* Alerta por KILOMETRAJE: el usuario fija el objetivo; la lectura vigente sale de Combustible. */}
         <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)', margin: '.25rem 0 .75rem' }}>
-          <small className="muted" style={{ display: 'block', marginBottom: '.4rem' }}>🛣️ <strong>Alerta por kilometraje / horómetro objetivo</strong>. Al acercarse, salta una tarjeta en Equipos. La lectura vigente se toma de <strong>Combustible</strong> (el km y el horómetro se cargan ahí).</small>
+          <small className="hint muted" style={{ display: 'block', marginBottom: '.4rem' }}>🛣️ <strong>Alerta por kilometraje / horómetro objetivo</strong>. Al acercarse, salta una tarjeta en Equipos. La lectura vigente se toma de <strong>Combustible</strong> (el km y el horómetro se cargan ahí).</small>
           <div className="form-grid">
             <div className="form-row">
               <label>Alerta a los (km)</label>
@@ -195,7 +195,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
 
         {/* Intervalos por ítem para el ESTADO CRÍTICO: vencido cuando (horómetro − último servicio) ≥ intervalo. */}
         <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)', margin: '.25rem 0 .75rem' }}>
-          <small className="muted" style={{ display: 'block', marginBottom: '.4rem' }}>🛢 <strong>Intervalos de servicio</strong> (horas de horómetro). Se marca <strong>crítico</strong> cuando el equipo pasa el intervalo desde su último cambio (registrado en la bitácora).</small>
+          <small className="hint muted" style={{ display: 'block', marginBottom: '.4rem' }}>🛢 <strong>Intervalos de servicio</strong> (horas de horómetro). Se marca <strong>crítico</strong> cuando el equipo pasa el intervalo desde su último cambio (registrado en la bitácora).</small>
           <div className="form-grid">
             <div className="form-row">
               <label>Aceite cada (hrs)</label>
@@ -219,7 +219,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
               <option value="">— sin grupo —</option>
               {GRUPOS_MANTENIMIENTO.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
-            <small className="muted">Define bajo qué switch aparece el equipo en el submódulo <strong>Servicio de Mantenimiento</strong>.</small>
+            <small className="hint muted">Define bajo qué switch aparece el equipo en el submódulo <strong>Servicio de Mantenimiento</strong>.</small>
           </div>
         </div>
 
@@ -228,7 +228,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
           <div className="form-row" style={{ margin: 0 }}>
             <label>⛽ Equipo de Combustible vinculado</label>
             <SearchSelect value={f.combustible_equipo ?? ''} onChange={(v) => set('combustible_equipo', v || null)} options={combOpts} placeholder="— sin vincular —" />
-            <small className="muted">Al vincularlo, el <strong>horómetro</strong> y el <strong>gasoil consumido</strong> se traen del módulo de Combustible.</small>
+            <small className="hint muted">Al vincularlo, el <strong>horómetro</strong> y el <strong>gasoil consumido</strong> se traen del módulo de Combustible.</small>
           </div>
         </div>
 

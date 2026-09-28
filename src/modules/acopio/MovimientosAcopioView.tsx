@@ -458,7 +458,7 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
           {campo('Tasa del material ($/Kg)', compraMaterialTasa, setCompraMaterialTasa)}
         </div>
         {(Number(compraMaterialKg) || 0) > 0 && (
-          <small className="muted" style={{ display: 'block', marginTop: '-.3rem', marginBottom: '.4rem', color: 'var(--success, #45c08a)' }}>
+          <small className="hint muted" style={{ display: 'block', marginTop: '-.3rem', marginBottom: '.4rem', color: 'var(--success, #45c08a)' }}>
             +{num(Number(compraMaterialKg) || 0)} Kg se suman al Saldo en Kg (acumulado).
           </small>
         )}

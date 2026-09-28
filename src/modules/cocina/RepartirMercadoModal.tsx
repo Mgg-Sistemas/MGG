@@ -224,7 +224,7 @@ export function RepartirMercadoModal({ resumen, cocinaNombre, almacen, actor, us
               placeholder="Ej.: primera entrega de la semana" />
           </div>
           {bloqueo && elegidas.length > 0 && (
-            <p className="hint" style={{ color: 'var(--warning)', margin: 0 }}>{bloqueo}</p>
+            <p style={{ color: 'var(--warning)', margin: 0 }}>{bloqueo}</p>
           )}
         </>
       )}

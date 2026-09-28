@@ -478,7 +478,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
           <SearchSelect value={gastoVehiculo} onChange={setGastoVehiculo}
             options={vehiculos} placeholder="🔎 Buscá el equipo del catálogo de Combustible…"
             emptyText="Sin equipos. Agregalos en Combustible → Catálogo → Equipos." />
-          <small className="muted">El gasto queda imputado a este equipo y se ve en el consumo $ por vehículo del resumen.</small>
+          <small className="hint muted">El gasto queda imputado a este equipo y se ve en el consumo $ por vehículo del resumen.</small>
         </div>
       )}
       {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto')}
@@ -490,7 +490,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
           <label>Kg comprados</label>
           <input className="input mono" type="number" min={0} step="any" value={compraMaterialKg}
             onChange={(e) => setCompraMaterialKg(e.target.value)} placeholder="0" />
-          <small className="muted">Se suman al Saldo en Kg (acumulado).</small>
+          <small className="hint muted">Se suman al Saldo en Kg (acumulado).</small>
         </div>
       </div>
       <div className="form-grid">
@@ -500,11 +500,11 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
             onChange={(e) => setCompraMaterialTasa(e.target.value)}
             placeholder={(() => { const cm = r2(compraMaterial), kg = Number(compraMaterialKg) || 0; return kg > 0 && cm > 0 ? (cm / kg).toFixed(2) : '0.00'; })()} />
           {(() => { const cm = r2(compraMaterial), kg = Number(compraMaterialKg) || 0; return kg > 0 && cm > 0 && !(Number(compraMaterialTasa) > 0)
-            ? <small className="muted">Sugerida: {(cm / kg).toFixed(2)} $/Kg ($ ÷ Kg). Informativa.</small>
-            : <small className="muted">Informativa (no cambia la tasa del centro).</small>; })()}
+            ? <small className="hint muted">Sugerida: {(cm / kg).toFixed(2)} $/Kg ($ ÷ Kg). Informativa.</small>
+            : <small className="hint muted">Informativa (no cambia la tasa del centro).</small>; })()}
         </div>
         <div className="form-row" style={{ display: 'flex', alignItems: 'flex-end' }}>
-          <small className="muted">El $ baja el Saldo $ de la caja; los Kg suman al Saldo en Kg.</small>
+          <small className="hint muted">El $ baja el Saldo $ de la caja; los Kg suman al Saldo en Kg.</small>
         </div>
       </div>
       {campoDesc(descCompra, setDescCompra, 'Descripción de la compra de material')}
@@ -533,7 +533,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
         const d = destinosActivos.find((x) => x.id === destinoId);
         if (!d) return null;
         return (
-          <small className="muted" style={{ display: 'block', marginTop: '-.3rem', marginBottom: '.2rem' }}>
+          <small className="hint muted" style={{ display: 'block', marginTop: '-.3rem', marginBottom: '.2rem' }}>
             {d.tipo === 'externo'
               ? `Sale por el puente inter-sistema a «${d.nombre}»; el otro sistema lo confirma. El traslado baja el saldo de esta caja.`
               : `Entra como $Usd ENTREGADO en el aliado «${d.nombre}» (directo, sin confirmación). El traslado baja el saldo de esta caja.`}
@@ -547,7 +547,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, centro, onClose,
         <div className="form-row">
           <label>Kg Recibidos por MGG</label>
           <input className="input mono" type="number" min={0} step="any" value={kgRecibidos} onChange={(e) => setKgRecibidos(e.target.value)} placeholder="0" />
-          <small className="muted">Expresado en Kg.</small>
+          <small className="hint muted">Expresado en Kg.</small>
         </div>
         {campoDesc(descKg, setDescKg, 'Kg recibidos por MGG')}
       </div>
@@ -679,7 +679,7 @@ function DestinoTrasladoForm({ destino, aliados, cajasExt, actor, centro, onClos
             <option value="">— elegí el aliado —</option>
             {aliados.filter((a) => a.activo).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
           </select>
-          <small className="muted">El monto entra como $Usd entregado en su libro de movimientos.</small>
+          <small className="hint muted">El monto entra como $Usd entregado en su libro de movimientos.</small>
         </div>
       ) : (
         <div className="form-row">
@@ -688,7 +688,7 @@ function DestinoTrasladoForm({ destino, aliados, cajasExt, actor, centro, onClos
             <option value="">— elegí la caja externa —</option>
             {cajasExt.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.empresa_codigo ? ` · ${c.empresa_codigo}` : ''}</option>)}
           </select>
-          <small className="muted">Se envía por el puente inter-sistema; el otro sistema lo confirma.</small>
+          <small className="hint muted">Se envía por el puente inter-sistema; el otro sistema lo confirma.</small>
         </div>
       )}
     </Modal>
@@ -770,7 +770,7 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
             <label>Número de la caja nueva</label>
             <input className="input" value={numeroNueva} onChange={(e) => setNumeroNueva(e.target.value)} placeholder="Caja #1" disabled={saving} />
-            <small className="muted" style={{ fontSize: '.74rem' }}>Podés ajustarlo la primera vez; luego se autoincrementa solo.</small>
+            <small className="hint muted" style={{ fontSize: '.74rem' }}>Podés ajustarlo la primera vez; luego se autoincrementa solo.</small>
           </div>
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.84rem' }}>
@@ -1998,7 +1998,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, cent
             <label>Almacén destino del stock</label>
             <input className="input" value={`LA ESPERANZA › ${almacen}`} readOnly disabled
               title="El stock recibido entra directo al sub-almacén CASITERITA de LA ESPERANZA." />
-            <small className="muted">Fijo: el mineral entra directo al sub-almacén <strong>{almacen}</strong> (sede LA ESPERANZA).</small>
+            <small className="hint muted">Fijo: el mineral entra directo al sub-almacén <strong>{almacen}</strong> (sede LA ESPERANZA).</small>
           </div>
         </div>
 

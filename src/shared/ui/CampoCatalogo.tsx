@@ -110,7 +110,7 @@ export function CampoCatalogo({
         </div>
       )}
 
-      {ayuda && <small className="muted" style={{ fontSize: '.72rem' }}>{ayuda}</small>}
+      {ayuda && <small className="hint muted" style={{ fontSize: '.72rem' }}>{ayuda}</small>}
     </div>
   );
 }

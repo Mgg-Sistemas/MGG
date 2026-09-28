@@ -958,7 +958,7 @@ export function MaterialAProducirModal({
         <div className="form-row">
           <label>{esRef ? 'Cantidad refinada (kg)' : 'Cantidad producida (kg)'}</label>
           <input className="input mono" type="number" step="any" value={cantidad} disabled readOnly style={{ maxWidth: 220 }} />
-          <small className="muted" style={{ fontSize: '.7rem' }}>
+          <small className="hint muted" style={{ fontSize: '.7rem' }}>
             {esRef
               ? 'Σ material seleccionado. Al finalizar se ajusta al estaño refinado obtenido.'
               : estanoColada > 0

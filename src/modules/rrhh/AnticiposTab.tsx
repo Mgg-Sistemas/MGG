@@ -340,7 +340,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                 <label>Fecha en que se dio</label>
                 <input className="input" type="date" max={hoyIso()} value={form.fecha ?? hoyIso()}
                   onChange={(e) => setForm((f) => ({ ...f, fecha: e.target.value }))} />
-                <small className="muted">
+                <small className="hint muted">
                   {esHistoricoForm
                     ? 'Queda marcado como carga histórica. Los filtros por fecha lo ubican en el mes en que se dio, no en hoy.'
                     : 'Poné una fecha anterior para cargar un préstamo viejo.'}
@@ -355,7 +355,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                 <label>Ya pagado a la fecha (opcional)</label>
                 <input className="input mono" type="number" min={0} step="any" value={form.ya_pagado ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, ya_pagado: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
-                <small className="muted">
+                <small className="hint muted">
                   Para el histórico: entra como un abono, no como un monto más chico. Así queda en el estado de cuenta.
                 </small>
               </div>
@@ -378,7 +378,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                 </span>
               </div>
             )}
-            <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
+            <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
               El saldo se descuenta solo al pagar la nómina, hasta saldar. Los abonos por fuera se cargan desde 💵 Abonos.
             </small>
           </form>
@@ -649,7 +649,7 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
               <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>Guardar</button>
               <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { setEditando(false); setErr(null); }}>Cancelar</button>
             </div>
-            <small className="muted">El monto no puede quedar por debajo de lo ya abonado ({money(pagado)}).</small>
+            <small className="hint muted">El monto no puede quedar por debajo de lo ya abonado ({money(pagado)}).</small>
           </form>
         )}
       </div>
@@ -675,7 +675,7 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
             </div>
             <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? '…' : '+ Abonar'}</button>
           </div>
-          <small className="muted">Con una fecha anterior queda marcado como carga histórica. Máximo {money(debe)}.</small>
+          <small className="hint muted">Con una fecha anterior queda marcado como carga histórica. Máximo {money(debe)}.</small>
         </form>
       )}
 

@@ -175,7 +175,7 @@ function PreguntaSalud({ pregunta, respuesta, onRespuesta, detalle, onDetalle, a
             onChange={(e) => onDetalle(e.target.value)}
             placeholder={ayuda} autoComplete="off"
           />
-          <small className="muted">{ayuda} · Un «Sí» sin decir a qué no le sirve a quien lo atienda.</small>
+          <small className="hint muted">{ayuda} · Un «Sí» sin decir a qué no le sirve a quien lo atienda.</small>
         </div>
       )}
     </div>
@@ -238,7 +238,7 @@ function FotoEncuadre({ url, posX, posY, zoom, onChange }: {
           : <div className="muted" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.8rem' }}>Cargando…</div>}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 180, flex: '1 1 180px' }}>
-        <small className="muted">Arrastrá la foto para <strong>centrar la cara</strong> en el marco (proporción real del carnet). Así queda en el carnet.</small>
+        <small className="hint muted">Arrastrá la foto para <strong>centrar la cara</strong> en el marco (proporción real del carnet). Así queda en el carnet.</small>
         <label style={{ fontSize: '.82rem' }}>Zoom <span className="mono muted">{z.toFixed(2)}×</span>
           <input type="range" min={1} max={4} step={0.01} value={z}
             onChange={(e) => onChange({ foto_pos_x: posX, foto_pos_y: posY, foto_zoom: Number(e.target.value) })}
@@ -934,7 +934,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   </label>
                   {form.foto_url && <button type="button" className="btn btn-sm btn-danger" onClick={quitarFoto} disabled={subiendoFoto}>🗑 Quitar</button>}
                 </div>
-                <small className="muted" style={{ flex: '1 1 160px', minWidth: 0 }}>Imagen (JPG/PNG) ≤ 5&nbsp;MB. Se recorta al marco del carnet.</small>
+                <small className="hint muted" style={{ flex: '1 1 160px', minWidth: 0 }}>Imagen (JPG/PNG) ≤ 5&nbsp;MB. Se recorta al marco del carnet.</small>
               </div>
             </div>
 
@@ -963,14 +963,14 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   <>
                     <input className="input mono" value={form.numero_ficha ?? ''} readOnly disabled
                       style={{ opacity: .75, cursor: 'not-allowed' }} />
-                    <small className="muted">🔒 Ya está asignado. Solo un administrador puede corregirlo.</small>
+                    <small className="hint muted">🔒 Ya está asignado. Solo un administrador puede corregirlo.</small>
                   </>
                 ) : (
                   <>
                     <input className="input mono" value={form.numero_ficha ?? ''} maxLength={20}
                       onChange={(e) => setForm((f) => ({ ...f, numero_ficha: e.target.value.toUpperCase() }))}
                       placeholder="001" />
-                    <small className="muted">
+                    <small className="hint muted">
                       Mínimo {MIN_FICHA} caracteres (ej.: <strong>001</strong>, <strong>A01</strong>, <strong>MGG-015</strong>).
                       {editId ? ' Corregilo solo si se cargó mal: es el número con el que figura en nómina y en el carnet.' : ' Se escribe una vez y después queda trabado.'}
                     </small>
@@ -996,7 +996,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 <label>RIF</label>
                 <input className="input mono" value={form.rif ?? ''} onChange={(e) => setForm((f) => ({ ...f, rif: sanitizarRif(e.target.value) }))}
                   placeholder="V-12345678-9" maxLength={13} />
-                <small className="muted">Para la constancia de trabajo y las retenciones. Se puede corregir al editar.</small>
+                <small className="hint muted">Para la constancia de trabajo y las retenciones. Se puede corregir al editar.</small>
               </div>
               {/* Los papeles ya no se cargan acá: tienen su propia ventana, que
                   necesita la ficha creada para saber de quién son. */}
@@ -1011,12 +1011,12 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                     </button>
                   </div>
                 ) : (
-                  <small className="muted">
+                  <small className="hint muted">
                     Primero guardá la ficha. Después, con el botón <strong>📁</strong> del listado se cargan
                     la <strong>cédula</strong>, el <strong>RIF</strong> y el <strong>currículum</strong>.
                   </small>
                 )}
-                {editId && <small className="muted">Quedan en un depósito privado: se abren con un enlace temporal, no con una dirección pública.</small>}
+                {editId && <small className="hint muted">Quedan en un depósito privado: se abren con un enlace temporal, no con una dirección pública.</small>}
               </div>
               <ComboConAgregar
                 label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
@@ -1057,7 +1057,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   placeholder="nombre@gmail.com" inputMode="email" autoComplete="off" />
                 {errorCorreo(form.correo)
                   ? <small style={{ color: 'var(--danger)' }}>{errorCorreo(form.correo)}</small>
-                  : <small className="muted">Opcional. Puede repetirse: hay familias con una sola cuenta.</small>}
+                  : <small className="hint muted">Opcional. Puede repetirse: hay familias con una sola cuenta.</small>}
               </div>
               {/* El nombre y el parentesco, separados: juntos en un solo campo
                   no se puede buscar «todos los que dejaron a un hijo de contacto». */}
@@ -1077,7 +1077,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   allowCreate
                   sinPreseleccion
                 />
-                <small className="muted">Se busca escribiendo. Si no está en la lista, se escribe y queda para la próxima.</small>
+                <small className="hint muted">Se busca escribiendo. Si no está en la lista, se escribe y queda para la próxima.</small>
               </div>
               <div className="form-row"><label>Tel. de emergencia</label><input className="input mono" value={form.contacto_emergencia_tlf ?? ''} onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia_tlf: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
             </div>
@@ -1123,19 +1123,19 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                     <select className="select" value={tipoSueldo} onChange={(e) => setTipoSueldo(e.target.value as TipoCambioSueldo)}>
                       {TIPOS_CAMBIO_SUELDO.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
                     </select>
-                    <small className="muted">{TIPOS_CAMBIO_SUELDO.find((t) => t.key === tipoSueldo)?.ayuda ?? ''}</small>
+                    <small className="hint muted">{TIPOS_CAMBIO_SUELDO.find((t) => t.key === tipoSueldo)?.ayuda ?? ''}</small>
                   </div>
                   <div className="form-row" style={{ flex: '0 1 165px', margin: 0 }}>
                     <label>Rige desde</label>
                     <input className="input" type="date" value={vigenteDesde} onChange={(e) => setVigenteDesde(e.target.value)} />
-                    <small className="muted">No siempre es hoy.</small>
+                    <small className="hint muted">No siempre es hoy.</small>
                   </div>
                 </div>
                 <div className="form-row" style={{ marginBottom: 0 }}>
                   <label>¿Por qué cambia el sueldo? <span style={{ color: 'var(--danger)' }}>*</span></label>
                   <input className="input" value={motivoSueldo} onChange={(e) => setMotivoSueldo(e.target.value)} autoFocus
                     placeholder="Ej.: aumento acordado en la reunión del 15/09" />
-                  <small className="muted">
+                  <small className="hint muted">
                     Queda en el historial de la persona, con la fecha y con tu nombre. Un aumento y una corrección
                     de un error se ven igual en la ficha: el motivo es lo que los distingue.
                   </small>
@@ -1198,7 +1198,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                     allowCreate
                     sinPreseleccion
                   />
-                  <small className="muted">Si no está, se escribe y queda para la próxima.</small>
+                  <small className="hint muted">Si no está, se escribe y queda para la próxima.</small>
                 </div>
               </div>
               <div className="form-row" style={{ marginBottom: 0, marginTop: '.5rem' }}>
@@ -1214,7 +1214,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>👨‍👩‍👧 CARGA FAMILIAR</div>
-                  <small className="muted">
+                  <small className="hint muted">
                     De acá sale quién tiene hijos: no se pregunta aparte, para que no pueda decir
                     una cosa la casilla y otra la lista.
                   </small>
@@ -1223,7 +1223,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
               </div>
 
               {!familiaForm.length && (
-                <small className="muted">Sin carga familiar cargada. Con <strong>+ Agregar familiar</strong> se suman hijos, cónyuge y quien corresponda.</small>
+                <small className="hint muted">Sin carga familiar cargada. Con <strong>+ Agregar familiar</strong> se suman hijos, cónyuge y quien corresponda.</small>
               )}
 
               {familiaForm.map((fam, i) => (
@@ -1264,14 +1264,14 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
               ))}
 
               {familiaForm.length > 0 && (
-                <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
+                <small className="hint muted" style={{ display: 'block', marginTop: '.5rem' }}>
                   {familiaForm.length} familiar(es) · {familiaForm.filter((x) => x.parentesco === 'hijo').length} hijo(s).
                   Se guardan junto con la ficha.
                 </small>
               )}
             </div>
 
-            <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina. El <strong>teléfono</strong> y el <strong>contacto de emergencia</strong> se incluyen en el <strong>QR del carnet</strong> (🪪).</small>
+            <small className="hint muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina. El <strong>teléfono</strong> y el <strong>contacto de emergencia</strong> se incluyen en el <strong>QR del carnet</strong> (🪪).</small>
           </form>
         </Modal>
       )}
@@ -1345,7 +1345,7 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
         <input type="checkbox" checked={incluirSalario} onChange={(e) => setIncluirSalario(e.target.checked)} />
         Incluir el <strong>sueldo mensual</strong> {Number(persona.sueldo_base) > 0 ? <span className="mono muted">({money(persona.sueldo_base)})</span> : <span className="muted">(sin sueldo cargado)</span>}
       </label>
-      <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
+      <small className="hint muted" style={{ display: 'block', marginTop: '.5rem' }}>
         La fecha de emisión es la de hoy. El documento se abre en <strong>vista previa</strong> para revisar/imprimir.
       </small>
     </Modal>
@@ -1420,7 +1420,7 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
               onBajar={() => bajar(2)} bajando={bajando === 2} deshabilitado={!listo || bajando !== false} />
           )}
         </div>
-        <small className="muted" style={{ textAlign: 'center' }}>
+        <small className="hint muted" style={{ textAlign: 'center' }}>
           PNG de 54×86&nbsp;mm a 300&nbsp;DPI (638×1016&nbsp;px), <strong>uno por cara</strong>. El QR del frente incluye cédula, teléfono y contacto de emergencia.
           {tema === 'blanco'
             ? ' El fondo blanco es para imprimir: mismos datos, muchísima menos tinta.'
@@ -1481,7 +1481,7 @@ function ComboConAgregar({ label, valor, opciones, onChange, hint }: {
           <option value="__nuevo__">+ Agregar nuevo…</option>
         </select>
       )}
-      {hint && <small className="muted">{hint}</small>}
+      {hint && <small className="hint muted">{hint}</small>}
     </div>
   );
 }
@@ -1878,10 +1878,10 @@ function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCa
               </label>
             </div>
           ) : (
-            <small className="muted">Llegaste al tope de {MAX_DOCUMENTOS_OTROS} documentos extra. Quitá alguno para sumar otro.</small>
+            <small className="hint muted">Llegaste al tope de {MAX_DOCUMENTOS_OTROS} documentos extra. Quitá alguno para sumar otro.</small>
           ))}
 
-          {!otros.length && !canWrite && <small className="muted">Sin documentos adicionales.</small>}
+          {!otros.length && !canWrite && <small className="hint muted">Sin documentos adicionales.</small>}
         </div>
       </div>
 

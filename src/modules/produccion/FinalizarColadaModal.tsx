@@ -106,7 +106,7 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
     if (estanoNum <= 0) { setError('Indicá el estaño obtenido (kg): es lo que entra a inventario.'); return; }
     setSaving(true);
     try {
-      await finalizarColadaConResultados(prod.id, {
+      const avisoEscoria = await finalizarColadaConResultados(prod.id, {
         fecha_fin_carga: fechaFin || undefined,
         hora_fin_carga: horaFin || undefined,
         jornada_horas: jornadaH,
@@ -124,6 +124,9 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
         involucrados: sinRepetidos(involucrados),
       }, actor, actorName ?? null);
       notify(`Colada finalizada: ${num(estanoNum)} kg de estaño → ${prod.almacen_destino}`, 'success', { link: '#/app/inventario' });
+      // La escoria es «mejor esfuerzo»: si no entró, se dice con los kg exactos
+      // y queda en la campana, en vez de perderse como pasó con la colada N° 2.
+      if (avisoEscoria) notify(avisoEscoria, 'warning', { link: '#/app/inventario' });
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo finalizar la colada.');
@@ -162,7 +165,7 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
           <div className="form-row">
             <label>Jornada laboral (automática)</label>
             <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
-            <small className="muted" style={{ fontSize: '.7rem' }}>
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>
               Fin − inicio de carga. El inicio ({inicioTxt}) se cargó al abrir la colada. Es lo que sale en el reporte como «Turno / Jornada».
             </small>
           </div>
@@ -197,15 +200,15 @@ export function FinalizarColadaModal({ prod, actor, actorName, onClose, onDone }
           <div className="form-row">
             <label>Rendimiento (%)</label>
             <input className="input mono" type="number" min={0} step="any" value={rendimiento} onChange={(e) => { setRendTocado(true); setRendimiento(e.target.value); }} style={{ textAlign: 'right' }} />
-            {rendSugerido > 0 && <small className="muted" style={{ fontSize: '.7rem' }}>Sugerido: {num(rendSugerido)} % (estaño ÷ Sn)</small>}
+            {rendSugerido > 0 && <small className="hint muted" style={{ fontSize: '.7rem' }}>Sugerido: {num(rendSugerido)} % (estaño ÷ Sn)</small>}
           </div>
         </div>
 
         <div className="form-row" style={{ maxWidth: 320 }}>
           <label>Merma (kg)</label>
           <input className="input mono" type="number" step="any" value={merma} onChange={(e) => setMerma(e.target.value)} placeholder={mermaSugerida ? String(mermaSugerida) : ''} style={{ textAlign: 'right' }} />
-          {totalMezcla > 0 && <small className="muted" style={{ fontSize: '.7rem' }}>Total de mezcla = <strong>{num(totalMezcla)} kg</strong></small>}
-          {mermaSugerida > 0 && <small className="muted" style={{ fontSize: '.7rem' }}>Referencial: {num(mermaSugerida)} kg (mezcla − estaño − escoria)</small>}
+          {totalMezcla > 0 && <small className="hint muted" style={{ fontSize: '.7rem' }}>Total de mezcla = <strong>{num(totalMezcla)} kg</strong></small>}
+          {mermaSugerida > 0 && <small className="hint muted" style={{ fontSize: '.7rem' }}>Referencial: {num(mermaSugerida)} kg (mezcla − estaño − escoria)</small>}
         </div>
 
         <div className="form-row">

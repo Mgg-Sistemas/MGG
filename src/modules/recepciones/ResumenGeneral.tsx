@@ -423,7 +423,7 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
               onChange={(e) => setRenExt((s) => (s ? { ...s, valor: e.target.value } : s))}
               onKeyDown={(e) => { if (e.key === 'Enter') void guardarAliasExt(); }} />
           </div>
-          <small className="muted">Solo cambia cómo se <strong>muestra</strong> acá y en el reporte; no toca el sistema de origen. Dejalo vacío para volver al nombre original.</small>
+          <small className="hint muted">Solo cambia cómo se <strong>muestra</strong> acá y en el reporte; no toca el sistema de origen. Dejalo vacío para volver al nombre original.</small>
         </Modal>
       )}
     </div>

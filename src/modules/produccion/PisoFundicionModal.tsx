@@ -179,7 +179,7 @@ function DevolverModal({ fila, almacenes, actor, actorName, onClose, onHecho }: 
           <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Por qué se devuelve…" />
         </label>
         {error && <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>}
-        <small className="muted">Queda como una <strong>entrada</strong> en el kardex del material.</small>
+        <small className="hint muted">Queda como una <strong>entrada</strong> en el kardex del material.</small>
       </div>
     </Modal>
   );

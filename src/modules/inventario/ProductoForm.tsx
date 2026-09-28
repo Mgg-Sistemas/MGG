@@ -435,7 +435,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               title={!isEdit ? 'Se genera automáticamente según la categoría' : undefined}
             />
             {!isEdit && (
-              <small className="muted" style={{ fontSize: '.72rem' }}>
+              <small className="hint muted" style={{ fontSize: '.72rem' }}>
                 Generado automático e incremental según la categoría seleccionada.
               </small>
             )}
@@ -616,7 +616,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               disabled
               title="El producto se crea en este almacén. No se puede cambiar para evitar errores."
             />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
               Se crea directo en <strong>{fixedAlmacen}</strong>. La ubicación no se puede modificar para evitar errores.
             </small>
           </div>
@@ -637,7 +637,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               disabled
               title="Para mover el material usá «⇄ Mover producto» o un traslado."
             />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
               El stock vive por almacén. Para moverlo, usá <strong>⇄ Mover producto</strong> o un <strong>traslado</strong>.
             </small>
           </div>
@@ -703,7 +703,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               onChange={(e) => update('stock', e.target.value)}
               required={!isEdit}
             />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
               {stockModo === 'bulto'
                 ? (undPorBulto > 0
                   ? <><strong>{Number(form.stock) || 0}</strong> caja(s)/bulto(s) × {undPorBulto} {form.unidad || 'und'} = <strong className="mono">{stockUnidades} {form.unidad || 'und'}</strong> {isEdit ? 'de stock total.' : 'en stock.'}</>
@@ -724,7 +724,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               onChange={(e) => update('stock_min', e.target.value)}
               required
             />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
               Línea roja. Por debajo de este nivel el producto entra en estado crítico.
             </small>
           </div>
@@ -742,7 +742,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               onChange={(e) => update('precio', e.target.value)}
               required
             />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
               Costo. Al comprar/recibir se mantiene como precio promedio ponderado (PMP).
             </small>
           </div>
@@ -756,7 +756,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               onChange={(e) => update('precio_venta', e.target.value)}
               placeholder="para calcular ganancia en fundición"
             />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
               Se usa para estimar la posible ganancia cuando el producto se produce.
             </small>
           </div>
@@ -772,7 +772,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               onChange={(e) => update('restock_pct', e.target.value)}
               placeholder="vacío = usar política global"
             />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
               % sobre el stock mínimo. 150% alerta cuando aún tienes 1.5× el mínimo.
             </small>
           </div>
@@ -790,7 +790,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               onChange={(e) => update('unidades_empaque', e.target.value)}
               placeholder="Ej: 24"
             />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
               Cuántas {form.unidad || 'unidades'} trae cada caja/bulto. Se usa para convertir el stock al ingresarlo por bulto (el stock siempre se guarda en {form.unidad || 'unidades'}).
             </small>
           </div>
@@ -799,7 +799,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
         {/* ── Detalle del producto (identificación física, todo opcional) ── */}
         <details style={{ marginTop: '.6rem', border: '1px solid var(--border)', borderRadius: 8, padding: '.6rem .8rem' }}>
           <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '.9rem' }}>🔎 Detalle del producto (marca, serial, código…)</summary>
-          <small className="muted" style={{ display: 'block', margin: '.35rem 0 .6rem', fontSize: '.74rem' }}>
+          <small className="hint muted" style={{ display: 'block', margin: '.35rem 0 .6rem', fontSize: '.74rem' }}>
             Datos opcionales para identificar mejor el artículo. Se ven al abrir el detalle del producto.
           </small>
           <div className="form-row">

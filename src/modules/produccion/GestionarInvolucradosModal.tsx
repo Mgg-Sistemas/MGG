@@ -210,7 +210,7 @@ export function GestionarInvolucradosModal({ actor, onClose, onCambio }: {
             <textarea className="input" rows={3} value={motivo} autoFocus
               onChange={(e) => setMotivo(e.target.value)}
               placeholder="Ej. ya no trabaja en planta / cambió de área…" />
-            <small className="muted">Queda registrado junto a la persona. Las coladas ya cargadas no cambian.</small>
+            <small className="hint muted">Queda registrado junto a la persona. Las coladas ya cargadas no cambian.</small>
           </div>
         </Modal>
       )}

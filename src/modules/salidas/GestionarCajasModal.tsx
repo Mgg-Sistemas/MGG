@@ -162,7 +162,7 @@ export function GestionarCajasModal({
           <div className="form-row">
             <label>Tasa Binance (Bs por USDT)</label>
             <input className="input mono" type="number" min={0} step="0.0001" value={tasaUsdt} onChange={(e) => setTasaUsdt(e.target.value)} placeholder={tasaBinance != null ? String(tasaBinance) : 'Bs por 1 USDT'} />
-            <small className="muted">{tasaBinance != null ? `Sugerida (Binance hoy): ${tasaBinance.toLocaleString('es-VE', { maximumFractionDigits: 4 })} Bs` : 'Sin tasa Binance cargada'}</small>
+            <small className="hint muted">{tasaBinance != null ? `Sugerida (Binance hoy): ${tasaBinance.toLocaleString('es-VE', { maximumFractionDigits: 4 })} Bs` : 'Sin tasa Binance cargada'}</small>
           </div>
         ) : <div className="form-row" />}
         <div className="form-row" style={{ alignSelf: 'end' }}>

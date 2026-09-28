@@ -77,7 +77,7 @@ export function ChoferVehiculoPicker({ chofer, vehiculo, onChofer, onVehiculo, a
         <label>Chofer / responsable</label>
         <SearchSelect value={chofer?.id ?? ''} onChange={(id) => onChofer(choferes.find((c) => c.id === id) ?? null)}
           options={opChoferes} placeholder="🔎 Buscá el chofer…" emptyText="Sin choferes guardados." sinPreseleccion />
-        {chofer?.cedula && <small className="muted">C.I.: <strong>{chofer.cedula}</strong></small>}
+        {chofer?.cedula && <small className="hint muted">C.I.: <strong>{chofer.cedula}</strong></small>}
         {/* Alta inline: acá Enter significa "añadir", no "siguiente campo" → fuera del recorrido. */}
         <div data-enter-omitir="" style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
           <input className="input" value={nChofer} onChange={(e) => setNChofer(e.target.value)} placeholder="¿No está? Nombre del chofer"
@@ -95,7 +95,7 @@ export function ChoferVehiculoPicker({ chofer, vehiculo, onChofer, onVehiculo, a
         <label>Vehículo</label>
         <SearchSelect value={vehiculo?.id ?? ''} onChange={(id) => onVehiculo(vehiculos.find((v) => v.id === id) ?? null)}
           options={opVehiculos} placeholder="🔎 Buscá el vehículo…" emptyText="Sin vehículos guardados." sinPreseleccion />
-        {vehiculo?.placa && <small className="muted">Placa: <strong>{vehiculo.placa}</strong></small>}
+        {vehiculo?.placa && <small className="hint muted">Placa: <strong>{vehiculo.placa}</strong></small>}
         {/* Alta inline: acá Enter significa "añadir", no "siguiente campo" → fuera del recorrido. */}
         <div data-enter-omitir="" style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
           <input className="input" value={nVehiculo} onChange={(e) => setNVehiculo(e.target.value)} placeholder="¿No está? Vehículo (marca/modelo)"

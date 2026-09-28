@@ -317,17 +317,17 @@ function ParametrosModal({ params, cocinaNombre, onClose, onGuardar }: {
       <div className="form-row">
         <label>Costo de emitir una orden ($)</label>
         <input className="input mono" value={orden} onChange={(e) => setOrden(e.target.value)} inputMode="decimal" />
-        <small className="muted">Lo que cuesta hacer una compra: viaje, tiempo, gestión.</small>
+        <small className="hint muted">Lo que cuesta hacer una compra: viaje, tiempo, gestión.</small>
       </div>
       <div className="form-row">
         <label>Costo de almacenar una unidad al año ($)</label>
         <input className="input mono" value={almacenar} onChange={(e) => setAlmacenar(e.target.value)} inputMode="decimal" />
-        <small className="muted">Refrigeración, espacio y lo que se pierde por guardar de más.</small>
+        <small className="hint muted">Refrigeración, espacio y lo que se pierde por guardar de más.</small>
       </div>
       <div className="form-row">
         <label>Tiempo de entrega (días)</label>
         <input className="input mono" value={lead} onChange={(e) => setLead(e.target.value)} inputMode="numeric" />
-        <small className="muted">Cuánto tarda en llegar el pedido. Define el punto de reorden.</small>
+        <small className="hint muted">Cuánto tarda en llegar el pedido. Define el punto de reorden.</small>
       </div>
       <div className="hint muted" style={{ fontSize: '.76rem' }}>
         Con estos tres números se calcula el <strong>lote óptimo</strong> de cada víver:

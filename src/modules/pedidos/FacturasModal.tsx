@@ -101,7 +101,7 @@ export function FacturasModal({ title, facturas, urlFor, onSave, onClose }: {
             ))}
           </div>
         )}
-        <small className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>PDF o imágenes · máximo 10 MB c/u.</small>
+        <small className="hint muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>PDF o imágenes · máximo 10 MB c/u.</small>
       </div>
     </Modal>
   );

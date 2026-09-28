@@ -13,7 +13,7 @@ import { finalizarProduccion } from './produccion.repository';
 import { conDisponibleReal, type StockAlmacen } from './disponibleRefinar';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import {
-  NOMBRE_ESCORIA_REFINACION, asegurarFichaEscoria, detalleEscoriaRefinacion,
+  NOMBRE_ESCORIA_REFINACION, asegurarFichaEscoria, avisoEscoriaPendiente, detalleEscoriaRefinacion,
   ingresaEscoria, kgDeEscoria,
 } from './escoriaFundicion';
 
@@ -337,10 +337,12 @@ export interface RefinacionResultados {
  * El estaño REFINADO obtenido define la cantidad que ENTRA a inventario (con su
  * costo unitario = CP total ÷ estaño refinado). Si no se indicó, finaliza con la
  * cantidad original (estaño crudo cargado).
+ *
+ * Devuelve el aviso del dross cuando NO pudo entrar, o null si todo entró.
  */
 export async function finalizarRefinacionConResultados(
   produccionId: string, resultados: RefinacionResultados, actor: string, actorName?: string | null,
-): Promise<void> {
+): Promise<string | null> {
   await actualizarRefinacionDatos(produccionId, resultados);
 
   const refinado = Number(resultados.estano_refinado_kg) || 0;
@@ -363,7 +365,7 @@ export async function finalizarRefinacionConResultados(
 
   // El dross tampoco es descarte: vuelve al horno. Entra al inventario como
   // materia prima, igual que la escoria de la colada pero en su propia ficha.
-  await ingresarDrossAlInventario(produccionId, resultados, actor, actorName ?? null);
+  return ingresarDrossAlInventario(produccionId, resultados, actor, actorName ?? null);
 }
 
 /**
@@ -372,17 +374,20 @@ export async function finalizarRefinacionConResultados(
  * Mismo criterio que la escoria de la colada: «mejor esfuerzo» (la refinación ya
  * cerró y el estaño ya entró, un problema acá no puede tumbar el cierre) y SIN
  * COSTO, porque lo que costó el proceso ya está cargado en el estaño refinado.
+ *
+ * Si no se pudo ingresar devuelve el aviso, para que el cierre lo muestre en
+ * vez de tragárselo: el dross perdido no se nota hasta que se cuenta a mano.
  */
 async function ingresarDrossAlInventario(
   produccionId: string, resultados: RefinacionResultados, actor: string, actorName: string | null,
-): Promise<void> {
+): Promise<string | null> {
   try {
     const { data: prod } = await supabase.from('produccion')
       .select('sumar_inventario').eq('id', produccionId).maybeSingle();
-    if (!ingresaEscoria(resultados.dross_kg, (prod as { sumar_inventario?: boolean } | null)?.sumar_inventario)) return;
+    if (!ingresaEscoria(resultados.dross_kg, (prod as { sumar_inventario?: boolean } | null)?.sumar_inventario)) return null;
 
     const ficha = await asegurarFichaEscoria(NOMBRE_ESCORIA_REFINACION);
-    if (!ficha) return;
+    if (!ficha) return avisoEscoriaPendiente(resultados.dross_kg, NOMBRE_ESCORIA_REFINACION);
 
     const refi = await getRefinacion(produccionId);
     await registrarMovimiento({
@@ -397,7 +402,9 @@ async function ingresarDrossAlInventario(
       precio_unitario: 0,
       detalle: detalleEscoriaRefinacion(refi?.refinacion_num ?? null),
     });
+    return null;
   } catch {
-    // Silencio deliberado: ver el comentario de arriba.
+    // No tumba el cierre, pero tampoco se calla: el aviso sube al modal.
+    return avisoEscoriaPendiente(resultados.dross_kg, NOMBRE_ESCORIA_REFINACION);
   }
 }

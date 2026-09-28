@@ -471,7 +471,7 @@ export function AgregarOfertaModal({
             placeholder="Buscar proveedor por nombre o RIF…"
             emptyText="Ningún proveedor coincide"
           />
-          <small className="muted">Podés corregir el proveedor de la oferta. El resto de datos se edita abajo.</small>
+          <small className="hint muted">Podés corregir el proveedor de la oferta. El resto de datos se edita abajo.</small>
         </div>
       ) : (
       <div className="form-row">
@@ -734,7 +734,7 @@ export function AgregarOfertaModal({
           <label>Descuento obtenido (opcional)</label>
           <input className="input mono" type="number" min={0} step="any" value={descuentoStr}
             onChange={(e) => setDescuentoStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
-          <small className="muted">
+          <small className="hint muted">
             Descuento negociado que se le resta al monto. Factura a pagar:{' '}
             <strong className="mono" style={{ color: 'var(--primary-3)' }}>{money(facturaNeta)}</strong>
             {descuentoObt > 0 && <> · descuento <strong className="mono">{money(descuentoObt)}</strong></>}

@@ -122,7 +122,7 @@ export function ConciliarMineralModal({
           <div className="form-row">
             <label>Costo por {unidad} (USD)</label>
             <input className="input mono" type="number" min={0} step="0.0001" value={costoUnit} onChange={(e) => setCostoUnit(e.target.value)} />
-            <small className="muted">Valor del mineral: <strong className="mono">{money(totalMineral)}</strong></small>
+            <small className="hint muted">Valor del mineral: <strong className="mono">{money(totalMineral)}</strong></small>
           </div>
         </div>
 

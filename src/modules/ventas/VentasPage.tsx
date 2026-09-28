@@ -606,7 +606,7 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
           <button type="button" className={tipo === 'factura' ? 'active' : ''} disabled={emitida || enAutorizacion} onClick={() => setTipo('factura')}>🧾 Factura</button>
           <button type="button" className={tipo === 'nota_entrega' ? 'active' : ''} disabled={emitida || enAutorizacion} onClick={() => setTipo('nota_entrega')}>📄 Nota de entrega</button>
         </div>
-        <small className="muted">{tipo === 'nota_entrega' ? 'Sin impuestos. Correlativo NE-AAAA-NNNN.' : 'IVA e IGTF opcionales con su casilla. Correlativo FAC-AAAA-NNNN.'}</small>
+        <small className="hint muted">{tipo === 'nota_entrega' ? 'Sin impuestos. Correlativo NE-AAAA-NNNN.' : 'IVA e IGTF opcionales con su casilla. Correlativo FAC-AAAA-NNNN.'}</small>
       </div>
 
       <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
@@ -628,7 +628,7 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
               </optgroup>
             ))}
           </select>
-          <small className="muted">Solo se listan los productos con stock acá.</small>
+          <small className="hint muted">Solo se listan los productos con stock acá.</small>
         </div>
         <div className="form-row"><label>Moneda</label>
           <select className="select" value={moneda} onChange={(e) => setMoneda(e.target.value)}>
@@ -642,7 +642,7 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
             <option value="credito">Crédito — queda como cuenta por cobrar</option>
             <option value="intercambio">Intercambio — paga con material</option>
           </select>
-          <small className="muted">
+          <small className="hint muted">
             {condicion === 'credito' ? 'Al emitir se crea la cuenta por cobrar. Se cobra en Tesorería, en dinero o en material.'
               : condicion === 'intercambio' ? 'Al emitir sale lo vendido y ENTRA el material que entrega el cliente. Si no cubre el total, la diferencia se cobra en caja.'
               : 'Al cobrarla elegís la caja donde entra el dinero.'}
@@ -677,7 +677,7 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
                       options={vendibles.map((p) => ({ value: p.id, label: `${p.nombre}${p.sku ? ` (${p.sku})` : ''}` }))}
                       placeholder="🔎 Producto…" emptyText={`Sin productos con stock en ${almacen || 'este almacén'}.`} />
                     {f.producto_id && (
-                      <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>
+                      <small className="hint muted" style={{ display: 'block', marginTop: '.2rem' }}>
                         {stockAqui > 0 ? <>📦 {almacen} · stock {num(stockAqui)}</> : <span style={{ color: 'var(--danger)' }}>Sin stock en {almacen || 'el almacén elegido'}</span>}
                       </small>
                     )}
@@ -796,7 +796,7 @@ function VentaModal({ venta, clientes, productos, existencias, almacenes, vended
         <div className="form-row">
           <label>Motivo del cambio <span style={{ color: 'var(--danger)' }}>*</span></label>
           <textarea className="input" rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: el cliente pidió 2 lingotes más; se corrigió el precio acordado" />
-          <small className="muted">Obligatorio. Queda en la trazabilidad de la venta y en el kardex de cada producto que se mueva.</small>
+          <small className="hint muted">Obligatorio. Queda en la trazabilidad de la venta y en el kardex de cada producto que se mueva.</small>
         </div>
       )}
 
@@ -987,7 +987,7 @@ function DevolverModal({ venta, actor, actorName, onClose, onDone }: {
       <div className="form-row">
         <label>Qué hay que corregir <span style={{ color: 'var(--danger)' }}>*</span></label>
         <textarea className="input" rows={2} value={motivo} autoFocus onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: revisar el precio del estaño; falta el RIF del cliente" />
-        <small className="muted">Queda en la trazabilidad de la venta.</small>
+        <small className="hint muted">Queda en la trazabilidad de la venta.</small>
       </div>
     </Modal>
   );
@@ -1028,7 +1028,7 @@ function AnularModal({ venta, actor, actorName, onClose, onDone }: {
       <div className="form-row">
         <label>Motivo de la anulación <span style={{ color: 'var(--danger)' }}>*</span></label>
         <textarea className="input" rows={2} value={motivo} autoFocus onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: el cliente devolvió el material; se facturó al cliente equivocado" />
-        <small className="muted">Obligatorio. Queda en la trazabilidad, en el kardex y en la caja si se devuelve dinero.</small>
+        <small className="hint muted">Obligatorio. Queda en la trazabilidad, en el kardex y en la caja si se devuelve dinero.</small>
       </div>
     </Modal>
   );
@@ -1106,7 +1106,7 @@ function CobrarModal({ venta, cajas, saldos, actor, actorName, onClose, onSaved 
                   ))}
                 </select>
               )}
-              <small className="muted">Queda como ingreso en el Libro Mayor de esa caja, en <strong>{venta.moneda}</strong>.</small>
+              <small className="hint muted">Queda como ingreso en el Libro Mayor de esa caja, en <strong>{venta.moneda}</strong>.</small>
             </>
           ) : <small style={{ color: 'var(--danger)' }}>No hay cajas activas: creá una en Tesorería para poder cobrar.</small>}
         </div>

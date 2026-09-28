@@ -556,12 +556,12 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                 {addingUnidad ? 'Añadiendo…' : '+ Añadir'}
               </button>
             </div>
-            <small className="muted" style={{ fontSize: '.72rem' }}>La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
           </div>
           <div className="form-row"><label>Quién lo solicita (opcional)</label><input className="input" value={solicitantePersona} onChange={(e) => setSolicitantePersona(e.target.value)} placeholder="Nombre de la persona" /></div>
         </div>
 
-        <div className="form-row"><label>Servicios</label><small className="muted">Podés agregar <strong>varios servicios de distinto tipo</strong> (mantenimiento, recarga de gas/agua, electrodoméstico…). Categoría + tipo + equipo. Los montos se cargan al finalizar (con la factura).</small></div>
+        <div className="form-row"><label>Servicios</label><small className="hint muted">Podés agregar <strong>varios servicios de distinto tipo</strong> (mantenimiento, recarga de gas/agua, electrodoméstico…). Categoría + tipo + equipo. Los montos se cargan al finalizar (con la factura).</small></div>
 
         {lineas.map((l, idx) => (
           <div key={l.id} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>
@@ -613,7 +613,7 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                     <SearchSelect allowCreate value={l.electro} onChange={(v) => set(l.id, { electro: v.toUpperCase() })}
                       options={ELECTRODOMESTICOS}
                       placeholder="🔎 Elegí (cocina, nevera, lavadora, microondas…)" emptyText="Escribí uno nuevo." />
-                    <small className="muted" style={{ fontSize: '.72rem' }}>Artículo electrodoméstico al que se le hace el mantenimiento.</small>
+                    <small className="hint muted" style={{ fontSize: '.72rem' }}>Artículo electrodoméstico al que se le hace el mantenimiento.</small>
                   </div>
                 ) : (
                   (() => {
@@ -628,7 +628,7 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                     <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })}
                       options={equiposLista.map((e) => ({ value: e.id, label: `${e.equipo}${e.placa ? ` · ${e.placa}` : ''}` }))}
                       placeholder={ph} emptyText={empty} />
-                    <small className="muted" style={{ fontSize: '.72rem' }}>Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
+                    <small className="hint muted" style={{ fontSize: '.72rem' }}>Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
                   </div>
                     );
                   })()
@@ -647,7 +647,7 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                     <SearchSelect value={l.productoId} onChange={(v) => set(l.id, { productoId: v })}
                       options={productos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku} · stock ${num(p.stock)} ${p.unidad}${p.almacen ? ` · ${p.almacen}` : ''}` }))}
                       placeholder="🔎 Buscá el repuesto (caucho, filtro…) si sale del inventario" emptyText="Sin productos con stock." />
-                    <small className="muted" style={{ fontSize: '.72rem' }}>Si el repuesto está en el inventario, se descuenta del stock al crear el servicio. Dejalo en blanco si no aplica.</small>
+                    <small className="hint muted" style={{ fontSize: '.72rem' }}>Si el repuesto está en el inventario, se descuenta del stock al crear el servicio. Dejalo en blanco si no aplica.</small>
                   </div>
                   {prod && (() => {
                     const enTope = (Number(l.productoCant) || 0) >= prod.stock;
@@ -660,7 +660,7 @@ function CrearServicioModal({ categorias, tipos, equipos, proveedores, actor, ac
                           const v = e.target.value;
                           set(l.id, { productoCant: (Number(v) || 0) > prod.stock ? String(prod.stock) : v });
                         }} />
-                      <small className="muted" style={{ fontSize: '.72rem', color: enTope ? 'var(--warning)' : undefined }}>
+                      <small className="hint muted" style={{ fontSize: '.72rem', color: enTope ? 'var(--warning)' : undefined }}>
                         Disponible: {num(prod.stock)} {prod.unidad}{prod.almacen ? ` · ${prod.almacen}` : ''}{enTope ? ' · tope alcanzado' : ''}.
                       </small>
                     </div>
@@ -762,7 +762,7 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
             <button type="button" className={moneda === 'USD' ? 'active' : ''} onClick={() => setModeda('USD')}>$ Dólares</button>
             <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setModeda('Bs')}>Bs Bolívares</button>
           </div>
-          <small className="muted">Los montos se cargan en esta moneda. Tesorería la ve al pagar.</small>
+          <small className="hint muted">Los montos se cargan en esta moneda. Tesorería la ve al pagar.</small>
           {/* Convertir los montos a la otra moneda a la tasa (del día o la que ponga el usuario). */}
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.45rem' }}>
             <span className="muted" style={{ fontSize: '.78rem' }}>Tasa (Bs/$)</span>
@@ -770,7 +770,7 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
             {tasaBcv > 0 && Number(tasaConv) !== tasaBcv && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaConv(String(tasaBcv))}>↻ Hoy ({tasaBcv.toLocaleString('es-VE')})</button>}
             <button type="button" className="btn btn-sm btn-primary" onClick={convertirMoneda}>⇄ Convertir a {moneda === 'USD' ? 'Bs' : '$'}</button>
           </div>
-          <small className="muted">Convierte los montos cargados a {moneda === 'USD' ? 'Bs' : '$'} a esa tasa. El total convertido es el que va a Tesorería.</small>
+          <small className="hint muted">Convierte los montos cargados a {moneda === 'USD' ? 'Bs' : '$'} a esa tasa. El total convertido es el que va a Tesorería.</small>
         </div>
 
         <div className="table-wrap">
@@ -797,13 +797,13 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
         <div className="form-row">
           <label>Adjuntar FACTURA del servicio · PDF o imagen</label>
           <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          {file ? <small className="muted">{file.name}</small> : (servicio.facturas?.length ? <small className="muted">Ya hay {servicio.facturas.length} factura(s) cargada(s).</small> : null)}
+          {file ? <small className="muted">{file.name}</small> : (servicio.facturas?.length ? <small className="hint muted">Ya hay {servicio.facturas.length} factura(s) cargada(s).</small> : null)}
         </div>
 
         <div className="form-row">
           <label>Nota / motivo <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
           <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Motivo o detalle del servicio (aparece en el detalle, en Tesorería y en el PDF)." />
-          <small className="muted">Tesorería la lee al momento de pagar.</small>
+          <small className="hint muted">Tesorería la lee al momento de pagar.</small>
         </div>
 
         {/* Pago a externo: una persona externa YA pagó; MGG debe reintegrarle. Lo ve Tesorería al pagar. */}
@@ -817,7 +817,7 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
               <label>Datos de la persona externa que pagó <span style={{ color: 'var(--danger)' }}>*</span></label>
               <textarea className="input" rows={2} value={pagoExternoDatos} onChange={(e) => setPagoExternoDatos(e.target.value)}
                 placeholder="Nombre, C.I. / RIF, teléfono, y cómo reintegrarle (cuenta / pago móvil)…" />
-              <small className="muted">Aparece en el detalle y en Tesorería: al pagar, el egreso reintegra el dinero a esta persona.</small>
+              <small className="hint muted">Aparece en el detalle y en Tesorería: al pagar, el egreso reintegra el dinero a esta persona.</small>
             </div>
           )}
         </div>
@@ -829,7 +829,7 @@ function MontarServicioModal({ servicio, actor, actorName, onClose, onSaved }: {
             <span>🧾 Pagar con abonos (a crédito) <span className="muted" style={{ fontWeight: 400 }}>(genera una Cuenta por Pagar que Tesorería salda por partes)</span></span>
           </label>
           {conAbonos && (
-            <small className="muted" style={{ marginTop: '.3rem' }}>Al recibirlo, Tesorería no lo paga completo: crea una <strong>Cuenta por Pagar</strong> por el total y la va <strong>abonando</strong>. Tesorería también puede marcarlo/desmarcarlo al momento.</small>
+            <small className="hint muted" style={{ marginTop: '.3rem' }}>Al recibirlo, Tesorería no lo paga completo: crea una <strong>Cuenta por Pagar</strong> por el total y la va <strong>abonando</strong>. Tesorería también puede marcarlo/desmarcarlo al momento.</small>
           )}
         </div>
       </form>
@@ -898,7 +898,7 @@ function AnticipoModal({ servicio, actor, actorName, onClose, onSaved }: {
             <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setMoneda('Bs')}>Bs Bolívares</button>
           </div>
           {moneda !== monedaServicio && (
-            <small className="muted">Se convierte a {monedaServicio} con la tasa BCV{tasa > 0 ? ` (${tasa.toLocaleString('es-VE')})` : ' (no disponible)'} para calcular el pendiente.</small>
+            <small className="hint muted">Se convierte a {monedaServicio} con la tasa BCV{tasa > 0 ? ` (${tasa.toLocaleString('es-VE')})` : ' (no disponible)'} para calcular el pendiente.</small>
           )}
         </div>
 

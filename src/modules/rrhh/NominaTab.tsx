@@ -252,7 +252,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           <label>Nombre de la nómina</label>
           <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)}
             placeholder="Ej: Primera quincena de septiembre 2026" />
-          <small className="muted">Así la vas a reconocer en la lista. Si lo dejás vacío queda solo el código.</small>
+          <small className="hint muted">Así la vas a reconocer en la lista. Si lo dejás vacío queda solo el código.</small>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.2rem', alignItems: 'flex-end' }}>
           <div>
@@ -267,7 +267,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <label style={{ fontSize: '.72rem' }}>Días base (quincena)</label>
             <input className="input mono" type="number" min={1} max={31} value={diasBase} onChange={(e) => aplicarDiasBase(Number(e.target.value) || 0)}
               title="11 trabajados fijos + el descanso que traiga el mes" />
-            <small className="muted" style={{ fontSize: '.68rem' }}>{diasDeHoy.trabajados} trab. + {diasDeHoy.descanso} desc.</small>
+            <small className="hint muted" style={{ fontSize: '.68rem' }}>{diasDeHoy.trabajados} trab. + {diasDeHoy.descanso} desc.</small>
           </div>
           <div className="form-row" style={{ minWidth: 170 }}>
             <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$){tasaFecha ? ` · ${date(tasaFecha)}` : ''}</label>
@@ -278,7 +278,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <input className="input" value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Comentario de la nómina" />
           </div>
         </div>
-        <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
+        <small className="hint muted" style={{ display: 'block', marginTop: '.5rem' }}>
           Marcá los trabajadores a pagar. Todo sale del <strong>ingreso mensual</strong>: sueldo diario = mensual ÷ 30, bruto = diario × (trabajados + descanso), neto = bruto − (anticipos + préstamos).
           La quincena arranca en <strong>11 días trabajados</strong> fijos más los de descanso del mes (16 días en los meses de 31, 13 en febrero); se puede ajustar por persona.
           En el <strong>recibo</strong> ese bruto se parte <strong>20 % sueldo</strong> y <strong>80 % bono</strong>, y se ve en Bs a la tasa de la quincena.

@@ -216,7 +216,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
               </div>
             ))}
           </div>
-          <small className="muted" style={{ display: 'block', marginTop: '.4rem', fontSize: '.72rem' }}>
+          <small className="hint muted" style={{ display: 'block', marginTop: '.4rem', fontSize: '.72rem' }}>
             Vienen de <strong>Pedidos → Nuevo servicio</strong> (mantenimiento casado a este equipo). Acá registrás el seguimiento real (litros, filtros, trabajo…) en la bitácora.
           </small>
         </div>
@@ -238,7 +238,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
             <div className="form-row">
               <label>Kilometraje (lectura)</label>
               <input className="input mono" name="bit-km" type="number" step="any" min={0} value={kilometraje} onChange={(e) => setKilometraje(e.target.value)} placeholder="Odómetro en km" />
-              <small className="muted" style={{ fontSize: '.72rem' }}>El nivel de alerta se fija en la ficha del equipo (Alerta a los X km).</small>
+              <small className="hint muted" style={{ fontSize: '.72rem' }}>El nivel de alerta se fija en la ficha del equipo (Alerta a los X km).</small>
             </div>
           </div>
           {/* Vínculo con la Solicitud de Servicio + cuánto se colocó del servicio solicitado. */}
@@ -252,13 +252,13 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
                     <option key={s.id} value={s.id}>{s.codigo} · {s.descripcion}{s.abierta ? '' : ' (cerrado)'}</option>
                   ))}
                 </select>
-                <small className="muted" style={{ fontSize: '.72rem' }}>Vinculá el registro a la solicitud que se está atendiendo.</small>
+                <small className="hint muted" style={{ fontSize: '.72rem' }}>Vinculá el registro a la solicitud que se está atendiendo.</small>
               </div>
               <div className="form-row">
                 <label>Cantidad colocada</label>
                 <input className="input mono" type="number" step="any" min={0} value={cantidadColocada}
                   onChange={(e) => setCantidadColocada(e.target.value)} placeholder="¿Cuánto se colocó del servicio?" disabled={!solicitudId} />
-                <small className="muted" style={{ fontSize: '.72rem' }}>Cuánto se aplicó del servicio solicitado.</small>
+                <small className="hint muted" style={{ fontSize: '.72rem' }}>Cuánto se aplicó del servicio solicitado.</small>
               </div>
             </div>
           )}
@@ -304,7 +304,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
             <datalist id="bit-insumo-unidades">
               {['UND', 'JGO', 'PAR', 'GAL', 'LTS', 'KG', 'MTS'].map((u) => <option key={u} value={u} />)}
             </datalist>
-            {insumos.length === 0 && <small className="muted" style={{ fontSize: '.72rem' }}>Agregá lo que se le cambió al equipo (cauchos, pintura, repuestos…) con su cantidad, para llevar el seguimiento.</small>}
+            {insumos.length === 0 && <small className="hint muted" style={{ fontSize: '.72rem' }}>Agregá lo que se le cambió al equipo (cauchos, pintura, repuestos…) con su cantidad, para llevar el seguimiento.</small>}
             <div style={{ display: 'grid', gap: '.4rem' }}>
               {insumos.map((x) => (
                 <div key={x.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 80px 80px auto', gap: '.4rem', alignItems: 'center' }}>

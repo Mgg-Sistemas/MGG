@@ -84,7 +84,7 @@ export function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => vo
           </tbody>
         </table>
       </div>
-      <small className="muted">Ocultar un mineral lo saca de la grilla sin borrar el histórico de análisis. El catálogo es compartido con Recepciones.</small>
+      <small className="hint muted">Ocultar un mineral lo saca de la grilla sin borrar el histórico de análisis. El catálogo es compartido con Recepciones.</small>
 
       {renombrando && (
         <Modal title="✎ Renombrar mineral" size="sm" onClose={() => setRenombrando(null)} footer={

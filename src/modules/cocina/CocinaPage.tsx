@@ -213,7 +213,7 @@ function CocinaFormModal({ cocina, almacenes, actor, onClose, onSaved }: {
           <label>Almacén / subalmacén vinculado</label>
           <SearchSelect value={almacenId} onChange={setAlmacenId} options={opciones}
             placeholder="🔎 Buscá el almacén…" emptyText="No hay almacenes." />
-          <small className="muted">De este almacén salen los víveres y se descuenta el stock de esta cocina.</small>
+          <small className="hint muted">De este almacén salen los víveres y se descuenta el stock de esta cocina.</small>
         </div>
       </form>
     </Modal>
@@ -514,7 +514,7 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
           <input className="input" type="date" value={fecha} max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setFecha(e.target.value)} />
           {fecha && fecha !== new Date().toISOString().slice(0, 10) && (
-            <small className="muted" style={{ marginTop: '.25rem' }}>📅 Se registrará con fecha <strong>{fecha}</strong> (día desfasado).</small>
+            <small className="hint muted" style={{ marginTop: '.25rem' }}>📅 Se registrará con fecha <strong>{fecha}</strong> (día desfasado).</small>
           )}
         </div>
 
@@ -574,7 +574,7 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
                   <input type="checkbox" checked={selected} onChange={() => toggle(id)} style={{ width: 18, height: 18, flexShrink: 0, accentColor: 'var(--primary)' }} />
                   <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => toggle(id)}>
                     <div style={{ fontWeight: 600, fontSize: '.88rem' }}>{v.producto.nombre}</div>
-                    <small className="muted" style={{ fontSize: '.72rem' }}>{money(v.precio)} · stock {num(v.stock)} {v.producto.unidad}{v.almacenMasStock ? ` · 📦 ${v.almacenMasStock}` : ''}{excede ? <span style={{ color: 'var(--warning)' }}> · supera el stock</span> : null}</small>
+                    <small className="hint muted" style={{ fontSize: '.72rem' }}>{money(v.precio)} · stock {num(v.stock)} {v.producto.unidad}{v.almacenMasStock ? ` · 📦 ${v.almacenMasStock}` : ''}{excede ? <span style={{ color: 'var(--warning)' }}> · supera el stock</span> : null}</small>
                   </div>
                   {selected && (
                     <>
@@ -602,14 +602,14 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
           <div className="form-row">
             <label>Platos realizados</label>
             <input className="input mono" type="number" min={1} step="1" value={platos} onChange={(e) => setPlatos(e.target.value)} placeholder="Ej.: 24" required />
-            {nPlatos > 0 && total > 0 && <small className="muted">Costo por plato: <strong className="mono">{money(total / nPlatos)}</strong></small>}
+            {nPlatos > 0 && total > 0 && <small className="hint muted">Costo por plato: <strong className="mono">{money(total / nPlatos)}</strong></small>}
           </div>
           <div className="form-row">
             <label>Nota (opcional)</label>
             <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Detalle del servicio…" />
           </div>
         </div>
-        <small className="muted">Se genera un correlativo con fecha y hora, y se descuenta el stock de los víveres del inventario.</small>
+        <small className="hint muted">Se genera un correlativo con fecha y hora, y se descuenta el stock de los víveres del inventario.</small>
       </form>
     </Modal>
   );

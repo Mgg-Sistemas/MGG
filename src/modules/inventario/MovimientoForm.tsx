@@ -301,13 +301,13 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
                 <label>Unidades por bulto</label>
                 <input className="input mono" type="number" min={0} step="any" value={uPorBulto} onChange={(e) => setUPorBulto(e.target.value)}
                   placeholder={producto.unidades_empaque != null ? String(producto.unidades_empaque) : 'Ej: 24'} required />
-                <small className="muted" style={{ fontSize: '.72rem' }}>Ajustalo en cada ingreso; el tamaño puede variar.</small>
+                <small className="hint muted" style={{ fontSize: '.72rem' }}>Ajustalo en cada ingreso; el tamaño puede variar.</small>
               </div>
             </div>
             <div className="form-row">
               <label>Costo por bulto (USD)</label>
               <input className="input mono" type="text" inputMode="decimal" value={costoBulto} onChange={(e) => setCostoBulto(e.target.value)} placeholder="Precio pagado por cada bulto" />
-              <small className="muted" style={{ fontSize: '.72rem' }}>
+              <small className="hint muted" style={{ fontSize: '.72rem' }}>
                 {bultosNum > 0 && uPorBultoNum > 0
                   ? <>= <strong>{num(cantidadNum)} {producto.unidad}</strong>{costoBultoNum > 0 ? <> · costo unitario <strong>{money(costoUnitNum)}</strong> ({money(costoBultoNum)} ÷ {num(uPorBultoNum)})</> : ''}</>
                   : 'Indicá bultos y unidades por bulto para calcular el total.'}
@@ -341,7 +341,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
                 value={costoUnit}
                 onChange={(e) => setCostoUnit(e.target.value)}
               />
-              <small className="muted" style={{ fontSize: '.72rem' }}>
+              <small className="hint muted" style={{ fontSize: '.72rem' }}>
                 Precio pagado en esta compra. Se promedia con el costo del almacén (PMP).
               </small>
             </div>
@@ -365,7 +365,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
         {esTransferencia && (
           <div>
             <AlmacenPicker value={almacenDestino} onChange={setAlmacenDestino} sedeLabel="Sede destino" label="Almacén destino" soloSedes={sector.soloSedes} />
-            <small className="muted" style={{ fontSize: '.72rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
               Se descuenta de {almacen} y se suma al destino llevando su costo (PMP).
             </small>
           </div>
@@ -394,7 +394,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
             </div>
           )}
           {motivoObligatorio && (
-            <small className="muted" style={{ fontSize: '.72rem', display: 'block', marginTop: '.3rem' }}>
+            <small className="hint muted" style={{ fontSize: '.72rem', display: 'block', marginTop: '.3rem' }}>
               Obligatorio: este movimiento cambia el stock sin un documento detrás. Queda en el kardex con tu nombre.
             </small>
           )}
