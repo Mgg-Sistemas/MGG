@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { rotuloOrigenTiempos, tiemposDeLaOrden } from './tiemposDeLaOrden';
+import {
+  rotuloOrigenTiempos, tiemposDeLaOrden, timestampDePlanta, timestampsDeLaOrden, OFFSET_PLANTA,
+} from './tiemposDeLaOrden';
 
 const SISTEMA_INI = '2026-09-24T15:40:00Z';
 const SISTEMA_FIN = '2026-09-24T15:43:00Z';
@@ -66,5 +68,65 @@ describe('el rótulo dice de dónde salieron las horas', () => {
   it('lo aclara en los dos casos', () => {
     expect(rotuloOrigenTiempos(true)).toContain('planta');
     expect(rotuloOrigenTiempos(false)).toContain('sistema');
+  });
+});
+
+describe('con qué fechas se sella la ORDEN', () => {
+  it('la hora de planta lleva el huso de Venezuela, para que no se corra de día', () => {
+    // Sin el −04:00, las 21:20 se guardarían como UTC y el tablero dibujaría la
+    // colada a la 01:20 del día siguiente.
+    expect(timestampDePlanta('2026-08-10', '21:20')).toBe(`2026-08-10T21:20:00${OFFSET_PLANTA}`);
+    expect(OFFSET_PLANTA).toBe('-04:00');
+  });
+
+  it('sin fecha o sin hora no hay instante que guardar', () => {
+    expect(timestampDePlanta('2026-08-10', '')).toBeNull();
+    expect(timestampDePlanta('', '21:20')).toBeNull();
+    expect(timestampDePlanta(null, null)).toBeNull();
+  });
+
+  it('una colada de agosto cargada en septiembre se sella en agosto', () => {
+    expect(timestampsDeLaOrden({
+      fecha_inicio_carga: '2026-08-08', hora_inicio_carga: '09:01',
+      fecha_fin_carga: '2026-08-08', hora_fin_carga: '21:00',
+    })).toEqual({
+      inicio_at: '2026-08-08T09:01:00-04:00',
+      fin_at: '2026-08-08T21:00:00-04:00',
+    });
+  });
+
+  it('una colada que cruza la medianoche conserva los dos días', () => {
+    expect(timestampsDeLaOrden({
+      fecha_inicio_carga: '2026-08-08', hora_inicio_carga: '23:04',
+      fecha_fin_carga: '2026-08-09', hora_fin_carga: '06:06',
+    })).toEqual({
+      inicio_at: '2026-08-08T23:04:00-04:00',
+      fin_at: '2026-08-09T06:06:00-04:00',
+    });
+  });
+
+  it('la refinación se sella con su jornada', () => {
+    expect(timestampsDeLaOrden({
+      fecha_inicio_jornada: '2026-08-14', hora_inicio_jornada: '06:00',
+      fecha_fin_jornada: '2026-08-14', hora_fin_jornada: '16:29',
+    })).toEqual({
+      inicio_at: '2026-08-14T06:00:00-04:00',
+      fin_at: '2026-08-14T16:29:00-04:00',
+    });
+  });
+
+  it('con una sola de las dos NO se sella: la orden se queda con lo que tenía', () => {
+    // Mezclar el arranque del horno con el clic de hoy daría una duración inventada.
+    expect(timestampsDeLaOrden({ fecha_inicio_carga: '2026-08-10', hora_inicio_carga: '11:50' })).toBeNull();
+    expect(timestampsDeLaOrden({ fecha_fin_carga: '2026-08-10', hora_fin_carga: '21:20' })).toBeNull();
+    expect(timestampsDeLaOrden({})).toBeNull();
+    expect(timestampsDeLaOrden(null)).toBeNull();
+  });
+
+  it('un fin anterior al inicio está mal cargado: no se sella', () => {
+    expect(timestampsDeLaOrden({
+      fecha_inicio_carga: '2026-08-10', hora_inicio_carga: '21:20',
+      fecha_fin_carga: '2026-08-10', hora_fin_carga: '11:50',
+    })).toBeNull();
   });
 });

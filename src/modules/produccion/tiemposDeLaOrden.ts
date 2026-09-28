@@ -66,3 +66,47 @@ export function rotuloOrigenTiempos(dePlanta: boolean): string {
     ? 'Horas de planta, cargadas en el reporte'
     : 'Sin horas de planta cargadas: se muestra cuándo se registró en el sistema';
 }
+
+/**
+ * Zona horaria de la planta: Venezuela, UTC−4 todo el año.
+ *
+ * Va explícito porque `isoDePlanta` devuelve la hora SIN zona, y guardar eso en
+ * un `timestamptz` lo haría interpretar como UTC: una colada que terminó a las
+ * 21:20 aparecería a la 01:20 del día siguiente. Venezuela no tiene horario de
+ * verano, así que el offset es fijo.
+ */
+export const OFFSET_PLANTA = '-04:00';
+
+/** Un instante de planta listo para guardar en la base, o null si falta el dato. */
+export function timestampDePlanta(fecha?: string | null, hora?: string | null): string | null {
+  const iso = isoDePlanta(fecha, hora);
+  return iso ? `${iso}:00${OFFSET_PLANTA}` : null;
+}
+
+/**
+ * Los timestamps con los que hay que SELLAR la orden cuando se cierra.
+ *
+ * `inicio_at` y `fin_at` de la orden nacían con la hora del reloj: cuándo
+ * alguien abrió y cerró el formulario. Para una carga retroactiva eso es
+ * directamente falso — las siete coladas de agosto figuraban como hechas el 23
+ * y 24 de septiembre, y el gráfico del tablero las dibujaba en septiembre.
+ *
+ * Cuando el reporte trae la fecha y hora de planta completas, esas mandan: son
+ * cuándo se trabajó el horno. Se usan **solo si están las dos y en orden**,
+ * igual que en `tiemposDeLaOrden`: mezclar un arranque de planta con un cierre
+ * del sistema daría una duración inventada.
+ *
+ * Devuelve null cuando no hay con qué sellar, y ahí la orden se queda con lo
+ * que tenía: es preferible una hora aproximada a una fecha en blanco.
+ */
+export function timestampsDeLaOrden(
+  datos: DatosConHoras | null | undefined,
+): { inicio_at: string; fin_at: string } | null {
+  const inicio = timestampDePlanta(datos?.fecha_inicio_carga, datos?.hora_inicio_carga)
+    ?? timestampDePlanta(datos?.fecha_inicio_jornada, datos?.hora_inicio_jornada);
+  const fin = timestampDePlanta(datos?.fecha_fin_carga, datos?.hora_fin_carga)
+    ?? timestampDePlanta(datos?.fecha_fin_jornada, datos?.hora_fin_jornada);
+  if (!inicio || !fin) return null;
+  if (Date.parse(fin) < Date.parse(inicio)) return null;
+  return { inicio_at: inicio, fin_at: fin };
+}

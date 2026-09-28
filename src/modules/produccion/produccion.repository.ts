@@ -10,6 +10,7 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { calcularAjusteProduccion, detalleAjuste } from './ajusteProduccion';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
+import { timestampsDeLaOrden, type DatosConHoras } from './tiemposDeLaOrden';
 
 /** Tipo de orden en la tabla `produccion`: fundición o refinación de material. */
 export type ProduccionTipo = 'fundicion' | 'refinacion';
@@ -534,6 +535,32 @@ export async function finalizarProduccion(id: string, actor: string, actorName?:
     .single();
   if (uErr) throw uErr;
   return upd as Produccion;
+}
+
+/**
+ * Pone en la ORDEN la fecha y hora en que REALMENTE se trabajó, según el reporte.
+ *
+ * `inicio_at` y `fin_at` nacen con la hora del reloj: cuándo alguien abrió y
+ * cerró el formulario. Para una carga retroactiva eso es directamente falso.
+ * Las siete coladas de agosto figuraban como hechas el 23 y 24 de septiembre
+ * —los días en que se tecleraron— y el gráfico «Fundición finalizada» del
+ * tablero las dibujaba en septiembre, porque agrupa por `fin_at`.
+ *
+ * Con el sello, las fechas de la orden pasan a ser las de planta y todo lo que
+ * las lee —tablero, filtros, orden de la lista, Excel— queda bien de una sola
+ * vez, en vez de que cada pantalla tenga que acordarse de mirar el reporte.
+ *
+ * Best-effort: la orden ya cerró y el producto ya entró; un problema acá no
+ * puede tumbar el cierre.
+ */
+export async function sellarFechasDeLaOrden(
+  produccionId: string, datos: DatosConHoras | null | undefined,
+): Promise<void> {
+  try {
+    const ts = timestampsDeLaOrden(datos);
+    if (!ts) return;   // sin horas de planta la orden se queda con las suyas
+    await supabase.from('produccion').update(ts).eq('id', produccionId);
+  } catch { /* no bloquea el cierre */ }
 }
 
 /**

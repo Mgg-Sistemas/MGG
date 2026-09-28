@@ -470,3 +470,11 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
 
 /* ── Ayudas (textos explicativos) ── El botón "?" del topbar oculta los .hint. */
 .ayudas-ocultas .hint { display: none !important; }
+
+/* El subtítulo del encabezado de un módulo ES una ayuda: explica de qué va la
+   pantalla. Va por estructura y no por clase para que valga en TODOS los
+   módulos —incluidos los que se agreguen después— sin que nadie tenga que
+   acordarse de ponerle la clase. En `.page-head` el título es el <h1> y los
+   botones viven en `.actions`, así que el <p> suelto solo puede ser la
+   descripción. */
+.ayudas-ocultas .page-head p { display: none !important; }

@@ -792,7 +792,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       <div className="page-head">
         <div>
           <h1>{centroMode ? '▣' : meta.icono} {centroMode ? centroSede : meta.titulo}{esDeposito && <span className="badge" style={{ marginLeft: '.5rem', verticalAlign: 'middle' }}>separado del inventario</span>}</h1>
-          <p>
+          <p className="hint muted">
             {centroMode
               ? <>Almacenes y subalmacenes de <strong>{centroSede}</strong>. <span className="muted">Salidas y traslados se hacen desde el módulo Salidas.</span></>
               : esDeposito

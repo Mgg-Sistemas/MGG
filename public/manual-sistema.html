@@ -247,6 +247,7 @@
       <li><a href="#steso">Tesorería</a></li>
       <li><a href="#sret">Retenciones</a></li>
       <li><a href="#srrhh">RRHH / Nómina</a></li>
+      <li><a href="#sasig">Asignaciones al Personal</a></li>
       <li><a href="#scomb">Combustible</a></li>
       <li><a href="#smaquinaria">Control de Maquinaria y Vehículos</a></li>
       <li><a href="#sventas">Ventas</a></li>
@@ -290,7 +291,7 @@
       <li><strong>Barra superior:</strong> buscador general + campana de notificaciones.</li>
       <li><strong>(?) Mostrar u ocultar las ayudas (28-09):</strong> el botón <strong>(?)</strong> de la barra superior esconde los <strong>textos explicativos</strong> —esas líneas grises debajo de los campos que dicen para qué sirve cada cosa—, para quien ya se sabe el sistema y prefiere la pantalla limpia. Se vuelve a tocar y regresan. La preferencia <strong>queda guardada</strong> en el equipo.
         <ul>
-          <li><strong>Antes el botón no hacía nada:</strong> escondía una marca que <strong>ningún texto tenía puesta</strong>. Se marcaron los <strong>374 textos de ayuda</strong> del sistema, así que ahora sí responde en todas las pantallas.</li>
+          <li><strong>Ahora responde en TODOS los módulos.</strong> Ya escondía las descripciones de casi todas las pantallas, pero se le escapaban dos cosas: los <strong>374 textos de ayuda que van debajo de los campos</strong> (los que explican para qué sirve cada casilla) y el <strong>subtítulo del encabezado</strong> de algunos módulos, como el de <strong>Depósito</strong>. Las dos quedaron cubiertas, y el encabezado se cubrió <strong>por estructura</strong>, de modo que un módulo nuevo lo hereda sin que nadie tenga que acordarse.</li>
           <li><strong>Los avisos NO se esconden.</strong> Las advertencias y los mensajes que explican <strong>por qué no se puede continuar</strong> quedan siempre visibles, aunque las ayudas estén ocultas: tres de ellos estaban marcados como ayuda y se corrigieron. Tampoco se esconden datos, como el <strong>nombre del archivo</strong> que se acaba de adjuntar.</li>
           <li>Al tocarlo aparece un aviso corto (<em>Ayudas ocultas</em> / <em>Ayudas visibles</em>), para que se note el efecto aun estando en una pantalla sin textos de ayuda.</li>
         </ul>
@@ -503,6 +504,7 @@
           <li><em>Se corrigió el dato: la sincronización del 24/09 había descontado 10.316,50 kg de casiterita por las seis coladas. Se revirtió con seis asientos de reverso y Los Pinos volvió a <strong>29.053,50 kg</strong>.</em></li>
         </ul>
       </li>
+      <li><strong>📅 La colada se fecha cuando se hizo, no cuando se cargó (28-09):</strong> la orden guardaba como fecha de inicio y fin <strong>el momento en que alguien abrió y cerró el formulario</strong>. Para una carga retroactiva eso es falso: las <strong>siete coladas de agosto</strong> figuraban como hechas el <strong>23 y 24 de septiembre</strong> —los días en que se teclearon— y el gráfico <strong>«Fundición finalizada»</strong> del tablero las dibujaba en septiembre. Ahora, al finalizar, la orden se <strong>sella con la fecha y hora de planta</strong> que cargó el operador en el reporte (la <strong>carga del horno</strong> en fundición, la <strong>jornada</strong> en refinación), con el huso de Venezuela, así que una colada que terminó a las 21:20 no se corre al día siguiente. Si el operador <strong>no cargó</strong> esas horas, la orden se queda con las suyas: es preferible una fecha aproximada a una en blanco. <em>Las siete coladas ya quedaron con sus fechas reales: del <strong>8 al 14 de agosto</strong>.</em></li>
       <li><strong>🥩 El despiece de la res ya actualiza la ficha del producto:</strong> al recibir una <strong>RES EN CANAL</strong> el sistema reparte los cortes en el almacén, pero el <strong>stock de la ficha</strong> de cada corte quedaba en <strong>0</strong>. Esa diferencia aparecía en el tablero como valor <strong>«Sin sede»</strong>. Pasaba porque el despiece escribe todos los cortes de un saque —por velocidad— y se salteaba el recálculo que hacen los movimientos normales. <em>Los seis cortes que estaban descuadrados se conciliaron en <strong>Los Pinos</strong>.</em></li>
       <li><strong>🔥 Piso de fundición — para que el material no se descuente dos veces:</strong> antes, si se sacaba el material por <strong>Salidas</strong> y después se cargaba en la colada, el inventario lo descontaba <strong>dos veces</strong>: una en la salida y otra en la fundición. Ahora:
         <ul>
@@ -857,6 +859,31 @@
       <li><strong>Control en ambos lados:</strong> mientras falte gente, RRHH muestra <strong>“Faltan N por pagar”</strong> y Tesorería <strong>“Pagar Nómina (N)”</strong>. Cuando se pagan todos, la nómina pasa a <strong>“Nómina Pagada”</strong>.</li>
       <li><strong>Administrativo:</strong> se registran <strong>vacaciones, permisos, utilidades/aguinaldos</strong> y <strong>notas</strong> del historial laboral por trabajador (sin prestaciones sociales por ahora). Al elegir un <strong>rango de fechas</strong> se muestra la <strong>cantidad de días</strong> seleccionados (y se autocompleta en vacaciones/permiso). El listado se puede <strong>filtrar por fecha</strong> (rango, atajos <em>Hoy</em> y <em>Este mes</em>, o por día) además de por <strong>tipo</strong>.</li>
       <li><strong>Permisos:</strong> el módulo se habilita por rol desde la matriz de Usuarios. RRHH <strong>carga</strong> la nómina; <strong>pagar</strong> es de Tesorería (normalmente el administrador).</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="sasig">
+    <h2>🎒 Asignaciones al Personal <span class="badge">nuevo · 28-09</span></h2>
+    <p>Lo que la empresa le entrega a cada trabajador: <strong>dotación de uniformes</strong>, <strong>líneas telefónicas</strong>, <strong>equipos electrónicos</strong> (laptops), <strong>material de oficina</strong>, <strong>herramientas</strong> e <strong>implementos de seguridad</strong>. Es un módulo aparte, con su propio permiso en la matriz de Usuarios.</p>
+    <ul>
+      <li><strong>Lo que sale del inventario, sale de verdad.</strong> Al registrar una asignación se marca <strong>📦 Sale del inventario</strong> y se elige el <strong>producto</strong>, el <strong>almacén</strong> y la <strong>cantidad</strong>: el sistema <strong>descuenta el stock con un movimiento normal</strong>, igual que una salida, y el <strong>kardex</strong> queda diciendo a quién se le entregó. Solo se ofrecen los almacenes <strong>donde ese producto tiene existencia</strong>, y no deja entregar más de lo que hay.
+        <ul>
+          <li>Si lo asignado <strong>no está fichado</strong> —una línea telefónica, por ejemplo— se destilda la casilla y se registra igual: queda en el historial sin tocar el inventario.</li>
+        </ul>
+      </li>
+      <li><strong>Lo que vuelve y lo que no.</strong> Cada asignación dice si <strong>tiene que devolverla</strong>. La <strong>laptop</strong>, el <strong>teléfono</strong> y las <strong>herramientas</strong> sí; la <strong>dotación</strong>, el <strong>material de oficina</strong> y los <strong>implementos de seguridad</strong> no. El tipo elegido <em>propone</em> el valor, pero la casilla se puede cambiar: hay laptops que se regalan y uniformes que se devuelven. Un uniforme entregado <strong>no queda como pendiente eterno</strong>: aparece como <em>Entregado · no retorna</em>.</li>
+      <li><strong>La devolución (↩).</strong> Se cierra con <strong>fecha</strong> y con <strong>cómo volvió</strong>: <strong>Devuelto</strong>, <strong>Perdido</strong> o <strong>Dañado</strong>, más la condición en que llegó. <strong>Solo lo devuelto reingresa al inventario</strong>; lo perdido y lo dañado no, porque no están —meterlos al stock haría que el almacén diga que hay una laptop que nadie puede encontrar—. Si se cerró por error, el botón <strong>⟲</strong> la <strong>reabre</strong> y vuelve a sacar el material del almacén.</li>
+      <li><strong>📜 Modo histórico (ya existía antes del sistema):</strong> para cargar lo que ya se había entregado antes de que existiera el módulo. Se registra para el historial y <strong>NO toca el inventario</strong> —ese material salió del almacén hace rato y descontarlo hoy lo contaría dos veces— y <strong>tampoco se exige stock</strong>. Las cargas históricas quedan marcadas con la etiqueta <span class="badge">histórico</span> y se pueden aislar con el filtro <em>Solo cargas históricas</em>.</li>
+      <li><strong>Dos tarjetas que se abren:</strong> <strong>PENDIENTES POR DEVOLVER</strong> (cuántas cosas están en la calle; al tocarla se ve el detalle y, haciendo clic en una fila, se filtra por esa persona) y <strong>TRABAJADORES CON PENDIENTES</strong> (la lista <strong>buscable</strong> de quién debe qué, ordenada de mayor a menor). Es lo que se mira cuando alguien renuncia: qué hay que pedirle antes de firmarle la liquidación. Una tercera tarjeta resume <strong>lo filtrado</strong>.</li>
+      <li><strong>Filtros:</strong> por <strong>texto</strong> (nombre, descripción, serial o número de línea, sin importar acentos), <strong>trabajador</strong>, <strong>tipo</strong>, <strong>estado</strong> y <strong>rango de fechas</strong>, con atajos <em>Este mes</em>, <em>Mes pasado</em>, <em>Últimos 90 días</em> y <em>Este año</em>. En <em>Más filtros</em>: <em>Solo pendientes por devolver</em> y <em>Solo cargas históricas</em>.</li>
+      <li><strong>📄 Dos reportes, siempre en vista previa:</strong>
+        <ul>
+          <li><strong>Histórico por trabajador</strong> (botón 📄 en cada fila o en la lista de pendientes): todo lo que se le asignó, con <strong>lo pendiente arriba y en rojo</strong>, lo cerrado debajo con su fecha de devolución, y <strong>dos firmas</strong> —trabajador y empresa—. Es el papel que se firma al entrar y al liquidar. Respeta el rango de fechas que esté puesto.</li>
+          <li><strong>Consolidado</strong>: la lista completa <strong>con los mismos filtros</strong> que la pantalla, con el conteo por tipo y lo pendiente en rojo.</li>
+        </ul>
+      </li>
+      <li><strong>Agregar, corregir (✎) y eliminar (🗑),</strong> con su mensaje de confirmación. Al <strong>corregir</strong> algo que había salido del inventario, el sistema <strong>revierte el movimiento viejo y aplica el nuevo</strong>: el kardex muestra la corrección en vez de esconderla. Al <strong>eliminar</strong> algo que está en poder del trabajador, el material <strong>vuelve al almacén</strong> —borrar el registro sin reponer el stock dejaría un faltante que nadie puede explicar—, y el mensaje lo avisa antes de confirmar.</li>
+      <li><strong>En vivo:</strong> lo que registra un usuario aparece en la pantalla de los demás sin recargar.</li>
     </ul>
   </section>
 

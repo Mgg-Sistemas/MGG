@@ -6,7 +6,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { ColadaDatos, ProduccionColada } from '@/shared/lib/types';
-import { finalizarProduccion } from './produccion.repository';
+import { finalizarProduccion, sellarFechasDeLaOrden } from './produccion.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { NOMBRE_ESCORIA, asegurarFichaEscoria, avisoEscoriaPendiente, detalleEscoria, ingresaEscoria, kgDeEscoria } from './escoriaFundicion';
 import { fmtPlantaVE, isoDePlanta, tiemposACompletar } from './tiemposProceso';
@@ -321,6 +321,10 @@ export async function sellarTiemposDeProceso(produccionId: string): Promise<void
     const datos = (rep.datos ?? {}) as ColadaDatos;
     const ini = isoDePlanta(datos.fecha_inicio_carga, datos.hora_inicio_carga);
     const fin = isoDePlanta(datos.fecha_fin_carga, datos.hora_fin_carga);
+    // Y al revés: la ORDEN se sella con las fechas de planta del reporte, para
+    // que el tablero no dibuje una colada de agosto en el día en que se tecleó.
+    await sellarFechasDeLaOrden(produccionId, datos);
+
     const patch = tiemposACompletar(datos, ini, fin, fmtPlantaVE);
     if (!Object.keys(patch).length) return;
     await supabase.from(TABLE).update({ datos: { ...datos, ...patch } }).eq('id', rep.id);

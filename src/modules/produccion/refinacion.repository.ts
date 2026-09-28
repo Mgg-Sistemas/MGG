@@ -9,7 +9,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { ColadaDatos, RefinacionDatos, ProduccionRefinacion } from '@/shared/lib/types';
 import { precintosDeColada, precintosDeRefinacion } from './precintosOrigen';
-import { finalizarProduccion } from './produccion.repository';
+import { finalizarProduccion, sellarFechasDeLaOrden } from './produccion.repository';
 import { conDisponibleReal, type StockAlmacen } from './disponibleRefinar';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import {
@@ -365,7 +365,16 @@ export async function finalizarRefinacionConResultados(
 
   // El dross tampoco es descarte: vuelve al horno. Entra al inventario como
   // materia prima, igual que la escoria de la colada pero en su propia ficha.
-  return ingresarDrossAlInventario(produccionId, resultados, actor, actorName ?? null);
+  const aviso = await ingresarDrossAlInventario(produccionId, resultados, actor, actorName ?? null);
+
+  // La orden se sella con la JORNADA que cargó el operador: si la refinación se
+  // carga después, sus fechas tienen que ser las del día que se trabajó, no las
+  // del día que se tecleó. Es lo mismo que se hace con la colada.
+  const { data: rep } = await supabase.from(TABLE)
+    .select('datos').eq('produccion_id', produccionId).maybeSingle();
+  await sellarFechasDeLaOrden(produccionId, (rep?.datos ?? null) as RefinacionDatos | null);
+
+  return aviso;
 }
 
 /**

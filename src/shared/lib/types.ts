@@ -2092,3 +2092,36 @@ export interface Cocina {
   created_at: string;
   created_by?: string | null;
 }
+
+/**
+ * Lo que la empresa le entrega a un trabajador: dotación, línea telefónica,
+ * laptop, material de oficina. Lo retornable vuelve cuando la persona se va;
+ * la dotación y el material de oficina no.
+ */
+export interface Asignacion {
+  id: string;
+  personal_id: string;
+  tipo: string;
+  descripcion: string;
+  /** Ficha del inventario de donde salió. Null cuando no es algo fichado. */
+  producto_id?: string | null;
+  almacen?: string | null;
+  cantidad: number;
+  unidad?: string | null;
+  serial?: string | null;
+  numero_linea?: string | null;
+  fecha_asignacion: string;
+  retornable: boolean;
+  estado: 'asignado' | 'devuelto' | 'perdido' | 'danado';
+  fecha_retorno?: string | null;
+  condicion_retorno?: string | null;
+  /** Hay una salida de inventario VIVA por esta asignación. */
+  descontado: boolean;
+  /** Ya existía antes del sistema: no toca el inventario. */
+  historico: boolean;
+  observaciones?: string | null;
+  creado_por?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}

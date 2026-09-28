@@ -24,6 +24,7 @@ export type ModuleKey =
   | 'retenciones'
   | 'recepciones'
   | 'rrhh'
+  | 'asignaciones'
   | 'usuarios'
   | 'auditoria'
   | 'ajustes';
@@ -62,6 +63,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'retenciones', label: 'Retenciones' },
   { key: 'recepciones', label: 'Recepciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
+  { key: 'asignaciones',label: 'Asignaciones al Personal' },
   { key: 'usuarios',    label: 'Usuarios' },
   { key: 'auditoria',   label: 'Auditoría de Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },
@@ -92,6 +94,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     all.retenciones = { lectura: true, escritura: true, full: false };
     all.recepciones = { lectura: true, escritura: true, full: false };
     all.rrhh = { lectura: true, escritura: true, full: false };
+    all.asignaciones = { lectura: true, escritura: true, full: false };
   } else if (role === 'obrero') {
     all.dashboard  = { lectura: true, escritura: false, full: false };
     all.pedidos    = { lectura: true, escritura: true, full: false };
