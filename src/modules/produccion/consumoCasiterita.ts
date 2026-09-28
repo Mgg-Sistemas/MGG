@@ -35,16 +35,6 @@ export interface LineaCasiterita {
   almacen: string;
   cantidad: number;
   costo: number;
-  /**
-   * Siempre baja el stock, incluso si la colada se carga como vieja.
-   *
-   * El coque y el caco₃ ya salieron del almacén por una Salida de material
-   * cuando se llevaron al horno, y por eso la colada no los vuelve a descontar.
-   * La casiterita no tiene ese documento: sale del Inventario Detallado directo
-   * al crisol. Si esta línea respetara la casilla de «carga vieja», el big bag
-   * seguiría figurando entero y se podría fundir de nuevo.
-   */
-  siempre_descuenta: true;
 }
 
 /** Solo las bolsas TRAÍDAS DEL INVENTARIO con kilos: las manuales no existen en stock. */
@@ -99,7 +89,6 @@ export function lineaCasiterita(
     almacen,
     cantidad: kg,
     costo: round2(valor / kg),
-    siempre_descuenta: true,
   };
 }
 

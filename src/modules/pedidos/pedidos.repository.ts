@@ -13,6 +13,7 @@ import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository
 import { ubicacionAlRecibir } from '@/modules/inventario/ubicacionProducto';
 import { identidadAlRecibir } from '@/modules/inventario/identidadProducto';
 import { calcularDespiece, calcularReparto, esDespiezable, type CorteDespiece } from '@/modules/inventario/despieceRes';
+import { recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
 import type {
   AbonoCredito,
   CuentaCaja,
@@ -2203,6 +2204,13 @@ export async function recibirOrdenDespiezada(
     if (exErr) throw exErr;
     await Promise.all(Array.from(precios.entries()).map(([id, v]) =>
       supabase.from('productos').update({ precio: v.precio, precio_promedio: v.pmp }).eq('id', id)));
+    // El stock de la FICHA tiene que seguir a las existencias que acabamos de
+    // escribir. Este camino escribe `movimientos` y `existencias` de una sola
+    // vez —por velocidad, son muchos cortes— y se salteaba el recálculo que
+    // hace `registrarMovimiento`. Resultado: los seis cortes de la res
+    // figuraban con stock en Los Pinos y con la ficha en 0, y esa diferencia
+    // aparecía en el tablero como valor «Sin sede».
+    await Promise.all(Array.from(precios.keys()).map((id) => recomputeProductoAgg(id)));
   }
 
   await recordarCortes(calc.cortes.map((c) => c.nombre), actorEmail);

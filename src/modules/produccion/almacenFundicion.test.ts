@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { almacenDeFundicion, validaStock, ALMACEN_PRINCIPAL_FUNDICION } from './almacenFundicion';
+import { almacenDeFundicion, ALMACEN_PRINCIPAL_FUNDICION } from './almacenFundicion';
 
 const MATANZA = ['General', 'Materias Primas', 'ESTAÑO REFINADO', 'ESTAÑO EN BRUTO'];
 
@@ -33,37 +33,3 @@ describe('de qué almacén de Matanza sale el material de una colada', () => {
   });
 });
 
-describe('cuándo hay que exigir stock', () => {
-  it('una colada normal exige stock', () => {
-    expect(validaStock(true, false)).toBe(true);
-  });
-
-  it('una carga histórica no exige stock: la colada ya ocurrió', () => {
-    expect(validaStock(false, false)).toBe(false);
-    expect(validaStock(false, true)).toBe(false);
-  });
-
-  it('el material del piso de fundición nunca se valida contra existencia', () => {
-    expect(validaStock(true, true)).toBe(false);
-  });
-});
-
-describe('validaStock · a qué material se le exige existencia', () => {
-  it('una colada normal exige stock de lo que va a consumir', () => {
-    expect(validaStock(true, false)).toBe(true);
-  });
-
-  it('al material del piso nunca: su tope es lo que se le entregó', () => {
-    expect(validaStock(true, true)).toBe(false);
-    expect(validaStock(false, true, true)).toBe(false);
-  });
-
-  it('en una carga vieja no se exige stock de los fundentes', () => {
-    expect(validaStock(false, false)).toBe(false);
-  });
-
-  it('pero sí de la casiterita, porque se va a mover de verdad', () => {
-    // Mover kilos que no hay dejaría el inventario en negativo sin avisar.
-    expect(validaStock(false, false, true)).toBe(true);
-  });
-});

@@ -44,21 +44,6 @@ export function almacenDeFundicion(
   return permitidos[0] ?? ALMACEN_PRINCIPAL_FUNDICION;
 }
 
-/**
- * ¿Hay que revisar el stock de este material?
- *
- * En una CARGA HISTÓRICA no: la colada ya ocurrió (por ejemplo, uno de mayo) y
- * el stock de hoy ya refleja lo que se quemó entonces. Exigir existencia ahí
- * sería pedir que el pasado quepa en el presente.
- */
-export function validaStock(
-  descontarInventario: boolean,
-  desdeFundicion?: boolean | null,
-  siempreDescuenta?: boolean | null,
-): boolean {
-  if (desdeFundicion === true) return false;
-  // Lo que se descuenta igual en una carga vieja sí tiene que tener stock: se va
-  // a mover de verdad, y mover stock que no hay deja el inventario en negativo.
-  if (!descontarInventario) return siempreDescuenta === true;
-  return true;
-}
+/* `validaStock` se eliminó: la fundición no descuenta inventario, así que no
+   hay nada que reservar y exigir existencia solo trababa el registro de una
+   colada que ya había ocurrido. Ver `produccion.repository.ts`. */

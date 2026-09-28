@@ -5,11 +5,9 @@
    entra al inventario con su costo de fundición (PMP).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { materialesAConsumir, porParProductoAlmacen } from './materialFundicion';
 import type { Producto, Produccion, ProduccionMaterial } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { calcularAjusteProduccion, detalleAjuste } from './ajusteProduccion';
-import { validaStock } from './almacenFundicion';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
 
@@ -318,13 +316,9 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
     const ex = existencias[i];
     // Un material del piso no tiene existencia que validar: el tope lo puso la
     // salida que lo entregó, y lo revisa el formulario contra el disponible.
-    const esManual = !m.producto_id || m.desde_fundicion === true;
-    if (!esManual && validaStock(descuenta, m.desde_fundicion, m.siempre_descuenta)) {
-      const stock = Number(ex?.stock) || 0;
-      if (stock < cant) {
-        throw new Error(`Stock insuficiente de "${m.material_nombre}" en ${m.almacen}. Disponible: ${stock}.`);
-      }
-    }
+    // No se exige stock: la colada no descuenta, así que no hay nada que
+    // reservar. Y el material ya salió por su Salida, así que pedirle al
+    // almacén que todavía lo tenga sería trabar el registro de algo que pasó.
     // Tasa a usar: override explícito (≥0) si vino desde el formulario (ej. la tasa
     // editable de la casiterita, o el costo de la colada/línea manual en refinación);
     // si no, el costo_promedio del inventario.
@@ -397,29 +391,14 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
     if (mErr) throw mErr;
   }
 
-  // 4) Consumir el stock de cada insumo de inventario (salida por almacén). En paralelo:
-  //    cada material es un producto distinto, no compiten por la misma fila.
-  // Los del PISO no se consumen: su salida ya los descontó del inventario.
-  // Descontarlos otra vez acá era el doble descuento que había que sacar.
-  // Y en una CARGA HISTÓRICA no se consume nada: la colada ya pasó.
-  // Lo que comparte producto+almacén va EN ORDEN (si no, la segunda escritura
-  // pisa a la primera y el inventario queda corto); lo demás, en paralelo.
-  // En una carga vieja solo pasan los `siempre_descuenta` (la casiterita).
-  await Promise.all(porParProductoAlmacen(materialesAConsumir(detallesInv, descuenta)).map(async (grupo) => {
-    for (const d of grupo) {
-      await registrarMovimiento({
-        producto_id: d.producto_id as string,
-        tipo: 'consumo',
-        delta: -d.cantidad,
-        almacen: d.almacen,
-        actor: input.actor,
-        actor_name: input.actor_name ?? null,
-        ref_tipo: 'produccion',
-        ref_id: produccion.id,
-        detalle: `Consumo para ${tipo === 'refinacion' ? 'refinación' : 'fundición'} de ${input.producto_nombre}`,
-      });
-    }
-  }));
+  // 4) No se descuenta nada del inventario.
+  //
+  // La fundición y la refinación REGISTRAN lo que se usó; no lo sacan del
+  // almacén. El material sale por su Salida, que es el documento que lo
+  // entrega y el que lo descuenta. Cuando esto también descontaba, el mismo
+  // kilo se iba dos veces y el inventario quedaba corto sin que nadie lo
+  // notara. Los materiales quedan en `produccion_materiales` para el costo y
+  // para el reporte, y ahí termina.
 
   return produccion;
 }
@@ -451,30 +430,10 @@ export async function editarMaterialesProduccion(input: {
   if (!prodData) throw new Error('Orden no encontrada.');
   const prodActual = prodData as Produccion;
   if (prodActual.estado === 'finalizado') throw new Error('No se puede editar una orden ya finalizada.');
-  const tipo: ProduccionTipo = (prodActual.tipo as ProduccionTipo) ?? 'fundicion';
 
-  // 1) Revertir el consumo anterior (restaura stock a su costo vigente; precio_unitario null → no toca PMP).
-  const { data: matViejos, error: mErr0 } = await supabase
-    .from('produccion_materiales').select('producto_id, material_nombre, almacen, cantidad, desde_fundicion, siempre_descuenta').eq('produccion_id', input.produccionId);
-  if (mErr0) throw mErr0;
-  // Lo que nunca se descontó no se devuelve: una orden que se cargó como
-  // histórica no movió stock, así que "revertirla" lo inventaría.
+  // 1) No hay consumo que revertir: editar una colada no devuelve stock,
+  //    porque tampoco lo había sacado. Ver `crearProduccion`.
   const descontabaAntes = (prodActual as { descontar_inventario?: boolean }).descontar_inventario !== false;
-  for (const m of (matViejos ?? []) as Array<{ producto_id: string | null; material_nombre: string; almacen: string; cantidad: number; desde_fundicion?: boolean | null; siempre_descuenta?: boolean | null }>) {
-    // La casiterita sí se descontó incluso en una carga vieja, así que también
-    // hay que devolverla; si no, editar la colada la haría desaparecer del stock.
-    if (!descontabaAntes && m.siempre_descuenta !== true) continue;
-    if (!m.producto_id || !((Number(m.cantidad) || 0) > 0)) continue;
-    // Los del piso nunca descontaron inventario, así que no hay nada que
-    // devolver: al borrarse la fila vuelven solos al disponible de fundición.
-    if (m.desde_fundicion) continue;
-    await registrarMovimiento({
-      producto_id: m.producto_id, tipo: 'ajuste', delta: Number(m.cantidad) || 0, almacen: m.almacen,
-      actor: input.actor, actor_name: input.actorName ?? null,
-      ref_tipo: 'produccion_edicion', ref_id: input.produccionId,
-      detalle: `Reversa de consumo por edición de ${tipo === 'refinacion' ? 'refinación' : 'colada'} (${m.material_nombre})`,
-    });
-  }
 
   // 2) Borrar los materiales viejos.
   const { error: delErr } = await supabase.from('produccion_materiales').delete().eq('produccion_id', input.produccionId);
@@ -494,12 +453,7 @@ export async function editarMaterialesProduccion(input: {
   validos.forEach((m, i) => {
     const cant = Number(m.cantidad) || 0;
     const ex = existencias[i];
-    // El del piso no tiene existencia contra la cual validar: su tope es lo que
-    // se le entregó, y eso lo revisa el formulario contra el disponible.
-    if (m.producto_id && validaStock(descuentaAhora, m.desde_fundicion, m.siempre_descuenta)) {
-      const stock = Number(ex?.stock) || 0;
-      if (stock < cant) throw new Error(`Stock insuficiente de "${m.material_nombre}" en ${m.almacen}. Disponible: ${stock}.`);
-    }
+    // Tampoco acá se exige stock: editar una colada no mueve inventario.
     const override = m.costo != null && Number.isFinite(Number(m.costo)) && Number(m.costo) >= 0 ? Number(m.costo) : null;
     const costo = override ?? (Number(ex?.costo_promedio) || 0);
     const subtotal = round2(cant * costo);
@@ -528,20 +482,7 @@ export async function editarMaterialesProduccion(input: {
     if (insErr) throw insErr;
   }
 
-  // 5) Consumir los nuevos.
-  // Los del piso, otra vez, no se consumen del inventario. Y una carga histórica
-  // no consume nada.
-  // En orden lo que comparte producto+almacén, por lo mismo que al crear.
-  await Promise.all(porParProductoAlmacen(materialesAConsumir(detallesInv, descuentaAhora)).map(async (grupo) => {
-    for (const d of grupo) {
-      await registrarMovimiento({
-        producto_id: d.producto_id as string, tipo: 'consumo', delta: -d.cantidad, almacen: d.almacen,
-        actor: input.actor, actor_name: input.actorName ?? null,
-        ref_tipo: 'produccion', ref_id: input.produccionId,
-        detalle: `Consumo (edición) para ${tipo === 'refinacion' ? 'refinación' : 'fundición'} de ${prodActual.producto_nombre}`,
-      });
-    }
-  }));
+  // 5) Tampoco acá se consume nada: ver el porqué en `crearProduccion`.
 
   // 6) Actualizar la orden con los nuevos costos.
   const updPatch: Record<string, unknown> = {
