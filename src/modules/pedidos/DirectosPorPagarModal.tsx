@@ -9,7 +9,7 @@ import type { Caja, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
-import { efectoTasaPago, explicacionTasaPago } from './tasaPagoDirecto';
+import { efectoTasaPago, explicacionTasaPago, montoQueCorresponde } from './tasaPagoDirecto';
 import { aPagarConRetencion, conceptoReembolsoDirecto, convertirRetencion, separarReembolso } from '@/modules/tesoreria/reembolsoPago';
 import {
   listComprasPorPagar, pagarCompraDirecta, urlAdjuntoCompra, type CompraDirecta, type PagoLeg,
@@ -200,7 +200,12 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
   // otra). El reparto pivota en USD para poder mezclar monedas.
   const esSplit = cuentaSel === '__multicaja__';
   const saldoSel = saldosCaja.find((s) => s.id === cuentaSel) ?? null;
-  const montoCuenta = saldoSel ? montoEnMoneda(saldoSel.moneda, totalUsd) : totalUsd;
+  // Pagando en la MISMA moneda del documento corresponde el total tal cual: la
+  // ida y vuelta por el dólar redondea a 2 decimales en el medio e inventaba
+  // centavos que después pedían un reembolso inexistente (ver `tasaPagoDirecto`).
+  const montoCuenta = montoQueCorresponde({
+    monedaBase, aPagar, monedaCuenta: saldoSel?.moneda ?? null, totalUsd, convertir: montoEnMoneda,
+  });
   const sumUsdMulti = round2(todosSaldos.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
   const cubreTotalMulti = sumUsdMulti >= totalUsd - 0.01;
   const excedeTotalMulti = esSplit && sumUsdMulti > totalUsd + 0.01;
@@ -287,7 +292,9 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
       }
     } else if (saldoSel) {
       // Pago desde la cuenta/billetera elegida (convierte lo que corresponde a su moneda si hace falta).
-      const m = montoEnMoneda(saldoSel.moneda, totalUsd);
+      // Es el MISMO número que muestra «Corresponde»: calcularlo de nuevo acá fue lo
+      // que hizo que la pantalla dijera un monto y la caja se debitara otro.
+      const m = montoCuenta;
       if (m <= 0) { setError(`No hay tasa para convertir el total a ${saldoSel.moneda}.`); return; }
       const pagado = montoPagadoCuenta;
       if (pagado < m - 0.01) { setError(`Lo cargado (${montoCaja(pagado, saldoSel.moneda)}) no cubre lo que corresponde (${montoCaja(m, saldoSel.moneda)}).`); return; }
