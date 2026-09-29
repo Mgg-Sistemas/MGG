@@ -253,9 +253,12 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     const p = Number(it.precio_unit) || 0;
     const u = it.unidad ? ` ${it.unidad}` : '';
     const obs = (it as { observacion?: string | null }).observacion;
+    // El renglón de comida a la cocina no bajó del almacén: lo dice el papel.
+    const vale = (it as { descuenta_cocina?: boolean | null }).descuenta_cocina === true;
+    const nombre = `${it.producto_nombre || '—'}${vale ? '\nVale de entrega a cocina: no descuenta stock (lo baja Distribución de comidas)' : ''}`;
     return [
       String(i + 1),
-      obs ? `${it.producto_nombre || '—'}\nObs: ${obs}` : (it.producto_nombre || '—'),
+      obs ? `${nombre}\nObs: ${obs}` : nombre,
       it.almacen || sol.almacen_origen || '—',
       `${fmt.num(c)}${u}`,
       p ? fmt.money(p) : '—',

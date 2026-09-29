@@ -544,6 +544,12 @@ export interface ItemSolicitudSalida {
    * descontarlo. Lo que no se funde se devuelve al inventario.
    */
   para_fundicion?: boolean | null;
+  /**
+   * Vale de entrega a COCINA (29-09-2026): el renglón es comida y va a la
+   * cocina, así que la salida NO lo descontó; lo baja Distribución de
+   * comidas al servirlo. Se marca al ejecutar la salida.
+   */
+  descuenta_cocina?: boolean | null;
 }
 
 /** Chofer responsable del despacho (catálogo modificable). */

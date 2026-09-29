@@ -17,29 +17,10 @@ import { precioDelCentro } from './precioViver';
 const TABLE = 'cocina_comidas';
 /** Categoría del inventario que surte la cocina. */
 export const CATEGORIA_VIVERES = 'VIVERES';
-/** Categorías del inventario que surten la distribución de comida:
- *  Víveres, Carnes/Proteína, Alimentos (arroz, pasta, azúcar…), Hortalizas y
- *  legumbres, y Limpieza (incluye las variantes de limpieza del catálogo). */
-export const CATEGORIAS_COCINA = [
-  'VIVERES',
-  'ALIMENTOS',
-  'CARNES',
-  'PROTEINA',
-  'HORTALIZAS Y LEGUMBRES',
-  'LIMPIEZA',
-  'MATERIAL DE LIMPIEZA',
-];
-/**
- * ¿La categoría de un producto surte la distribución de comida?
- *
- * Se compara sin tildes y sin la S final: el 16/09/2026 el POLLO BENEFICIADO llegó con
- * categoría «PROTEINAS» y Cocina no lo veía en ninguna lista (ni en «Repartir»).
- */
-export function esCategoriaCocina(cat?: string | null): boolean {
-  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase().replace(/\s+/g, ' ').replace(/S$/, '');
-  const c = norm(cat ?? '');
-  return !!c && CATEGORIAS_COCINA.some((x) => norm(x) === c);
-}
+// La lista de categorías vive en `categoriasCocina.ts` (la comparte Salidas);
+// acá se re-exporta para no mover a quien ya la importaba de este archivo.
+import { esCategoriaCocina } from './categoriasCocina';
+export { CATEGORIAS_COCINA, esCategoriaCocina } from './categoriasCocina';
 
 /* ───────── Cocinas (cada una vinculada a un almacén/subalmacén) ───────── */
 

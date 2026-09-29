@@ -10,6 +10,7 @@ import type {
   Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, ItemSolicitudSalida,
 } from '@/shared/lib/types';
 import { registrarMovimiento, recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
+import { esDestinoCocina, separarValeCocina } from './entregaACocina';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { rangoSede, type CandidatoAlmacen } from './asignacionPrioridad';
 import { prefijoCodigo, siguienteCodigo } from './codigoSolicitud';
@@ -734,8 +735,21 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   // Plan de la SALIDA material: reparte cada línea entre almacenes (origen primero, cascada
   // por prioridad). Valida atómico: si el stock TOTAL del producto no cubre, no ejecuta nada.
   let tramosSalida: ItemSolicitudSalida[] | null = null;
+  // Renglones que quedan como VALE DE ENTREGA A COCINA: comida que va a la
+  // cocina no se descuenta acá (la baja Distribución de comidas al servirla).
+  let valeCocina: ItemSolicitudSalida[] = [];
   if (s.scope === 'salida' && s.tipo === 'material') {
-    const plan = await planearSalidaTramos(lineas, s.almacen_origen ?? null);
+    let aDescontar = lineas;
+    if (esDestinoCocina(s.destino)) {
+      const ids = [...new Set(lineas.map((l) => l.producto_id).filter(Boolean))];
+      const { data: prods, error: eProd } = await supabase.from('productos').select('id, categoria').in('id', ids);
+      if (eProd) throw eProd;
+      const categoria = new Map((prods ?? []).map((p) => [p.id as string, p.categoria as string | null]));
+      const sep = separarValeCocina(lineas, s.destino, (id) => categoria.get(id));
+      aDescontar = sep.descuentan;
+      valeCocina = sep.valeCocina;
+    }
+    const plan = await planearSalidaTramos(aDescontar, s.almacen_origen ?? null);
     if (plan.faltantes.length) {
       throw new Error(`No se ejecutó nada (no se descontó stock): faltan existencias en ${plan.faltantes.length} material(es).\n• ${plan.faltantes.join('\n• ')}`);
     }
@@ -801,6 +815,14 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     }
   }
 
+  // Los renglones que fueron vale de cocina quedan marcados en la solicitud:
+  // así el detalle y el PDF dicen que ese kilo no bajó por acá.
+  const patchVale: Record<string, unknown> = {};
+  if (valeCocina.length) {
+    const esVale = new Set(valeCocina);
+    patchVale.items = lineas.map((it) => (esVale.has(it) ? { ...it, descuenta_cocina: true } : it));
+  }
+
   const { error } = await supabase
     .from(SOL)
     .update({
@@ -810,7 +832,11 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       mov_id: movId,
       mov_ref: movRef,
       cxc_id: cxcId,
-      historial: appendHistorial(s, 'ejecutada', actor, cxcId ? { cxc: `Salida de material · ${s.codigo}`, monto: cxcMonto, moneda: s.cxc_moneda || 'USD' } : {}),
+      ...patchVale,
+      historial: appendHistorial(s, 'ejecutada', actor, {
+        ...(cxcId ? { cxc: `Salida de material · ${s.codigo}`, monto: cxcMonto, moneda: s.cxc_moneda || 'USD' } : {}),
+        ...(valeCocina.length ? { vale_cocina: `${valeCocina.length} renglón(es) de comida a cocina sin descontar: los baja Distribución de comidas` } : {}),
+      }),
     })
     .eq('id', s.id);
   if (error) throw error;
