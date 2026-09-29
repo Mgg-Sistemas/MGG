@@ -52,14 +52,17 @@ export function precioDelCentro(
     kilos += stock;
     valor += stock * costo;
   }
-  if (kilos > 0) return Math.round((valor / kilos) * 100) / 100;
+  // Sin redondear el unitario: se redondea el VALOR, no el precio. Redondear acá
+  // hacía que la cocina y la tarjeta del almacén en Inventario (que multiplica
+  // el costo crudo) difirieran por centavos sobre el mismo estante.
+  if (kilos > 0) return valor / kilos;
 
   // Sin stock costeado, pero puede haber una existencia con costo y sin stock
   // (el víver se acabó y su ficha conserva a cuánto salió): ese costo sigue
   // siendo el del centro y vale más que el promedio global.
   const conCosto = (existencias ?? []).map((e) => n(e.costo_promedio)).filter((c) => c > 0);
   if (conCosto.length) {
-    return Math.round((conCosto.reduce((a, c) => a + c, 0) / conCosto.length) * 100) / 100;
+    return conCosto.reduce((a, c) => a + c, 0) / conCosto.length;
   }
   return n(precioProducto);
 }

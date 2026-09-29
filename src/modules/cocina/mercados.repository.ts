@@ -559,10 +559,19 @@ async function trasladosDe(
 
 /* ───────── Disponible por víver (saldo + entradas ± traslados − consumos − mermas) ───────── */
 
+/**
+ * `precioDelCentro` es el costo con el que ESTE centro valoriza cada víver
+ * (ver `precioViver.ts`). Antes se usaba `productos.precio`, el promedio global,
+ * y el panel del mercado daba un «valor del disponible» distinto del «valor del
+ * stock» de la tarjeta de la cocina para el mismo estante — dos verdades sobre
+ * la misma plata. El global queda solo de respaldo para un víver del que el
+ * centro no tiene existencia costeada.
+ */
 function armarDisponible(
   saldo: SaldoItem[], entradas: Map<string, ItemAgg>, traslados: Map<string, ItemAgg>, consumos: Map<string, ItemAgg>,
   mermas: Map<string, ItemAgg>,
   prodById: Map<string, Producto>,
+  precioDelCentro: Map<string, number>,
 ): DisponibleItem[] {
   const saldoMap = new Map(saldo.map((s) => [s.producto_id, s] as const));
   const ids = new Set<string>([...saldoMap.keys(), ...entradas.keys(), ...traslados.keys(), ...consumos.keys(), ...mermas.keys()]);
@@ -585,7 +594,8 @@ function armarDisponible(
     const disponible = r2(saldoInicial + entradasN + trasladosN);
     const queda = r2(disponible - consumosN - mermasN);
     out.push({
-      producto_id: id, sku, nombre, unidad, precio: Number(p?.precio) || 0,
+      producto_id: id, sku, nombre, unidad,
+      precio: precioDelCentro.get(id) ?? (Number(p?.precio) || 0),
       saldoInicial, entradas: entradasN, traslados: trasladosN, consumos: consumosN, mermas: mermasN, disponible, queda,
     });
   }
@@ -695,7 +705,7 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
       ? repartosPendientes(almacen, (id) => esCategoriaCocina(prodById.get(id)?.categoria))
       : Promise.resolve([] as RepartoPendiente[]),
   ]);
-  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, mer.agg, prodById);
+  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, mer.agg, prodById, preciosDeViveres(viveres));
   // El stock REAL del almacén, para contrastarlo con el libro del mercado. Es lo único
   // que puede contradecir al libro, y por eso es lo que hace visible el descuadre.
   //
@@ -740,6 +750,11 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
 }
 
 /** Stock real por producto, a partir de los víveres del centro. */
+/** El precio con el que el centro valoriza cada víver, ya calculado por `listViveresGlobal`. */
+function preciosDeViveres(viveres: Awaited<ReturnType<typeof listViveresGlobal>>): Map<string, number> {
+  return new Map(viveres.map((v) => [v.producto.id, v.precio] as const));
+}
+
 function stockDeViveres(viveres: Awaited<ReturnType<typeof listViveresGlobal>>): Map<string, number> {
   const m = new Map<string, number>();
   for (const v of viveres) m.set(v.producto.id, r2(Number(v.stock) || 0));
@@ -946,7 +961,7 @@ export async function cerrarMercado(
     listViveresGlobal(almacen),
     mermasDe(mercado, almacen, prodById),
   ]);
-  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, mer.agg, prodById);
+  const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, mer.agg, prodById, preciosDeViveres(viveres));
   // Cerrando después del último día, el contraste y el ajuste se hacen contra el
   // stock de ESE día: el de hoy ya trae restado lo que es del ciclo siguiente.
   const vencido = cicloVencido(mercado);
