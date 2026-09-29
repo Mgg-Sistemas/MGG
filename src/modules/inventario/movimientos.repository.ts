@@ -57,6 +57,17 @@ export interface MovimientoInput {
   /** Equipo de maquinaria al que va el material (opcional, salidas de mantenimiento). */
   equipo_id?: string | null;
   equipo_nombre?: string | null;
+  /**
+   * Cuándo OCURRIÓ el movimiento (ISO). Por defecto, ahora.
+   *
+   * Solo se pasa cuando el hecho tiene una fecha propia distinta del momento en
+   * que se teclea: una comida de cocina cargada con fecha de ayer, por ejemplo.
+   * Sin esto, el kardex fecha el movimiento el día que alguien se acordó de
+   * cargarlo, y el documento que lo origina dice otra cosa — que es justo lo que
+   * descuadró el libro del mercado de cocina contra el inventario (ver
+   * `crearComida`). El stock no cambia: lo único que se corrige es la fecha.
+   */
+  at?: string | null;
 }
 
 /**
@@ -117,6 +128,28 @@ export async function recomputeProductoAgg(productoId: string): Promise<void> {
   if (stockCostado > 0) patch.precio = Math.round((valor / stockCostado) * 100) / 100;
   const { error: pErr } = await supabase.from('productos').update(patch).eq('id', productoId);
   if (pErr) throw pErr;
+}
+
+/**
+ * Con qué fecha se archiva el movimiento.
+ *
+ * Por defecto, ahora: el 99 % de los movimientos se cargan cuando ocurren. El
+ * `at` explícito es para el hecho que trae fecha propia —una comida de cocina
+ * cargada con la fecha de anteayer— y sirve para que el kardex y el documento
+ * que lo origina digan el mismo día.
+ *
+ * NUNCA hacia el futuro. Todo el sistema lee el kardex hasta «ahora» (la ventana
+ * del mercado de cocina, sin ir más lejos, recorta `hasta` en `new Date()`), así
+ * que un movimiento fechado mañana bajaría el stock hoy y no aparecería en
+ * ningún corte: invisible y descuadrando. Se topa en ahora.
+ */
+export function fechaDelMovimiento(at?: string | null): string {
+  const ahora = new Date();
+  const crudo = (at ?? '').trim();
+  if (!crudo) return ahora.toISOString();
+  const d = new Date(crudo);
+  if (Number.isNaN(d.getTime())) return ahora.toISOString();
+  return (d > ahora ? ahora : d).toISOString();
 }
 
 /**
@@ -185,7 +218,7 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
     solicitante: input.solicitante ?? null,
     equipo_id: input.equipo_id ?? null,
     equipo_nombre: (input.equipo_nombre ?? '').trim() || null,
-    at: new Date().toISOString(),
+    at: fechaDelMovimiento(input.at),
   };
 
   const { data, error } = await supabase

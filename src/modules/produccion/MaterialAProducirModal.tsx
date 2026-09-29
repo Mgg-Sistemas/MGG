@@ -10,7 +10,7 @@ import { bagsSobregirados, lineaCasiterita, textoSobregiro } from './consumoCasi
 import { AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
 import { listAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
 import { cargarPisoFundicion } from './pisoFundicion.repository';
-import { motivoNoAlcanza, type DisponibleFundicion } from './pisoFundicion';
+import { type DisponibleFundicion } from './pisoFundicion';
 import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput, type ProduccionTipo } from './produccion.repository';
 import { crearHorno } from './hornos.repository';
 import { ColadaCampos } from './ColadaCampos';
@@ -231,16 +231,6 @@ export function MaterialAProducirModal({
   const [hornoSaving, setHornoSaving] = useState(false);
   const [manoObra, setManoObra] = useState('0');
   const [sumarInventario, setSumarInventario] = useState(true); // ¿el producto entra al inventario al finalizar?
-  // Arranca marcado: los fundentes ya salieron del almacén por una Salida de
-  // material cuando se llevaron al horno, y descontarlos otra vez acá sería
-  // contarlos dos veces. Vale igual para una colada vieja (una de agosto): el
-  // stock de hoy ya refleja lo que se quemó entonces.
-  //
-  // OJO: esto NO alcanza a la casiterita de los big bags. Esa no tiene Salida
-  // —sale del Inventario Detallado derecho al crisol— así que su línea se
-  // descuenta igual, marques o no la casilla. Si no, la bolsa quedaba entera
-  // para siempre y se podía volver a fundir, que es lo que estaba pasando.
-  const [cargaHistorica, setCargaHistorica] = useState(true);
   // Costos indirectos POR CONCEPTO (cada uno con su costo; ninguno obligatorio).
   const [indirectos, setIndirectos] = useState<Record<string, string>>({});
   const indirectosTotal = CONCEPTOS_INDIRECTOS.reduce((a, c) => a + (Number(indirectos[c]) || 0), 0);
@@ -506,15 +496,17 @@ export function MaterialAProducirModal({
     e.preventDefault();
     setError(null);
 
-    // Tope del piso de fundición. `crearProduccion` ya no valida existencias de
-    // estos materiales —su stock no está en el inventario, se lo llevó la
-    // salida—, así que el único control de que no se queme más de lo entregado
-    // está acá. Sin esto, el módulo volvería a descuadrar por el otro lado.
-    for (const { m, row } of seleccion) {
-      if (origenDe(m.id, row) !== 'piso') continue;
-      const motivo = motivoNoAlcanza(piso, m.id, Number(row.cantidad) || 0, m.unidad);
-      if (motivo) { rechazar(`${m.nombre}: ${motivo}`); return; }
-    }
+    /* Las cantidades de materia prima NO se topan contra el inventario (29-09-2026).
+       La fundición y la refinación REGISTRAN lo que se usó: `crearProduccion` no
+       descuenta nada del almacén y `editarMaterialesProduccion` tampoco. El front,
+       en cambio, seguía exigiendo existencia y devolvía «Solo hay 0,16 KILOGRAMO
+       entregados a fundición», trabando la carga de un dato que no mueve stock.
+       Un tope sobre algo que no se consume no cuida nada: solo impide escribir lo
+       que de verdad pasó en el horno.
+       Lo que excede lo disponible se sigue viendo —la fila se pinta en rojo y el
+       «Disp.» también—, que es la forma correcta de avisarlo: a la vista, sin
+       trabar. Lo único que sí bloquea son los BIG BAGS de casiterita, más abajo:
+       ese ledger sí se consume de verdad. */
 
     if (esRef) {
       // Lo mismo para la refinación: el crudo puede venir de afuera (carga
@@ -558,17 +550,6 @@ export function MaterialAProducirModal({
       }
       if (!fichaCasiterita && (coladaDatos.big_bags ?? []).some((b) => b.origen_detalle_id)) {
         rechazar(`No encuentro la ficha de inventario «${SKU_CASITERITA}», así que la casiterita no podría descontarse. Avisá a sistemas.`);
-        return;
-      }
-    }
-
-    // En una carga histórica no se revisa el stock: la colada ya ocurrió y el
-    // material de entonces no tiene por qué estar hoy en el almacén.
-    if (!cargaHistorica) for (const { m, row } of seleccion) {
-      const cant = Number(row.cantidad) || 0;
-      const stock = exStock(m.id, row.almacen);
-      if (cant > stock) {
-        rechazar(`"${m.nombre}" en ${row.almacen}: pedís ${num(cant)} pero hay ${num(stock)}.`);
         return;
       }
     }
@@ -635,7 +616,10 @@ export function MaterialAProducirModal({
         materiales: matInput,
         tipo,
         sumarInventario,
-        descontarInventario: !cargaHistorica,
+        // Nunca descuenta: la colada y la refinación registran lo que se usó. El
+        // material ya salió por su Salida, y la casiterita de los big bags baja
+        // por su propio camino (Inventario Detallado), no por acá.
+        descontarInventario: false,
         actor,
         actor_name: actorName,
       });
@@ -944,11 +928,16 @@ export function MaterialAProducirModal({
             <input type="checkbox" checked={sumarInventario} onChange={(e) => setSumarInventario(e.target.checked)} />
             <span><strong>Sumar al inventario</strong> al finalizar <span className="muted" style={{ fontSize: '.76rem' }}>· si lo destildás, esta {esRef ? 'refinación' : 'colada'} queda como registro/reporte y NO suma stock del producto</span></span>
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', marginTop: '.4rem', cursor: 'pointer', fontSize: '.86rem' }}
-            title="Los fundentes ya salieron por Salidas: descontarlos otra vez sería contarlos dos veces">
-            <input type="checkbox" checked={cargaHistorica} onChange={(e) => setCargaHistorica(e.target.checked)} />
-            <span>📦 <strong>No descontar el material del inventario</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· los fundentes ya salieron del almacén por una <strong>Salida</strong> cuando se llevaron al horno, o esta {esRef ? 'refinación' : 'colada'} es una carga vieja. Tampoco se exige stock. {esColada && <>La <strong>casiterita de los big bags</strong> se descuenta igual, marques o no: no sale por una Salida sino del <strong>Inventario Detallado</strong>, y si no baja acá la bolsa queda para volver a fundirla. </>}Destildá si esta {esRef ? 'refinación' : 'colada'} SÍ debe bajar el resto del inventario.</span></span>
-          </label>
+          {/* Antes acá había una casilla «No descontar el material del inventario».
+              Se quitó el 29-09-2026 porque prometía una alternativa que no existe:
+              ni marcada ni destildada se descontaba nada, y de paso encendía un tope
+              de stock que trababa la carga. Ahora se dice lo que de verdad pasa. */}
+          <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem', lineHeight: 1.6 }}>
+            📦 <strong>La materia prima de arriba es un registro, no una salida.</strong> Esta {esRef ? 'refinación' : 'colada'} <strong>no descuenta</strong> nada
+            del almacén —el material ya salió por su <strong>Salida</strong> cuando se llevó al horno—, así que podés
+            cargar más de lo que hoy figure disponible: es un dato de lo que se usó, no una orden de despacho.
+            {esColada && <> La <strong>casiterita de los big bags</strong> es la excepción: no sale por una Salida sino del <strong>Inventario Detallado</strong>, y sí baja acá.</>}
+          </div>
         </div>
 
         {/* Acá ya no se escribe nada: es el mismo dato que se carga arriba. En

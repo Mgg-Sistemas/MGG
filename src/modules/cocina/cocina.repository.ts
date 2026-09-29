@@ -415,8 +415,19 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
   if (error) throw error;
   const comida = data as CocinaComida;
 
-  // Descuenta el stock consumido (salida en el kardex). El movimiento de inventario
-  // tope a 0 si no alcanza; no bloquea el registro de la comida.
+  /* Descuenta el stock consumido (salida en el kardex). El movimiento de inventario
+     tope a 0 si no alcanza; no bloquea el registro de la comida.
+
+     El movimiento se fecha CON LA COMIDA (`comida.at`), no con el reloj (29-09-2026).
+     Antes la comida podía decir «almuerzo del 12» y su salida de inventario quedaba
+     fechada el 17, que es cuando alguien la cargó. El libro del mercado cuenta los
+     consumos por la fecha de la COMIDA y el inventario por la del MOVIMIENTO: cuando
+     las dos fechas caen en ciclos distintos, el ciclo viejo carga un consumo que su
+     almacén nunca perdió y el nuevo pierde stock que su libro no explica. Así se
+     abrió el descuadre de Los Pinos: 67 salidas del 17/09 pertenecían a comidas de
+     antes de que el ciclo empezara. Con la misma fecha en los dos lados, el libro y
+     el almacén no pueden separarse. */
+  const at = comida.at ?? undefined;
   for (const it of items) {
     try {
       await registrarMovimiento({
@@ -424,7 +435,7 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
         almacen: it.almacen ?? undefined, actor: input.actor, actor_name: input.actorName ?? null,
         ref_tipo: 'cocina', ref_id: comida.id, ref_codigo: codigo,
         detalle: `Cocina · ${labelTipoComida(input.tipoComida)} · ${codigo}`,
-        precio_unitario: it.precio,
+        precio_unitario: it.precio, at,
       });
     } catch { /* no bloquea: la comida queda registrada igual */ }
   }
@@ -446,7 +457,11 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
   if (!lineas.length) throw new Error('Agregá al menos un víver con cantidad.');
   if ((Number(input.platos) || 0) <= 0) throw new Error('Indicá cuántos platos se realizaron.');
 
-  // 1) Reversa el consumo anterior: devuelve al inventario el stock de cada víver previo.
+  /* 1) Reversa el consumo anterior: devuelve al inventario el stock de cada víver
+     previo. Se fecha con el `at` de la comida ANTERIOR: el reverso tiene que caer
+     en el mismo ciclo donde cayó el consumo que anula, o uno queda cargado en un
+     corte y su devolución en otro. */
+  const atPrev = comidaPrev.at ?? undefined;
   for (const it of comidaPrev.items ?? []) {
     try {
       await registrarMovimiento({
@@ -454,6 +469,7 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
         almacen: it.almacen ?? undefined, actor: input.actor, actor_name: input.actorName ?? null,
         ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comidaPrev.codigo,
         detalle: `Reverso por edición · ${comidaPrev.codigo}`, precio_unitario: it.precio,
+        at: atPrev,
       });
     } catch { /* no bloquea la edición */ }
   }
@@ -487,7 +503,9 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
   if (error) throw error;
   const comida = data as CocinaComida;
 
-  // 4) Aplicar el nuevo consumo (salidas en el kardex).
+  // 4) Aplicar el nuevo consumo (salidas en el kardex), con la fecha que quedó
+  //    en la comida: si la edición le cambió el día, el stock se mueve con ella.
+  const atNuevo = comida.at ?? undefined;
   for (const it of items) {
     try {
       await registrarMovimiento({
@@ -495,7 +513,7 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
         almacen: it.almacen ?? undefined, actor: input.actor, actor_name: input.actorName ?? null,
         ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comida.codigo,
         detalle: `Cocina (editado) · ${labelTipoComida(input.tipoComida)} · ${comida.codigo}`,
-        precio_unitario: it.precio,
+        precio_unitario: it.precio, at: atNuevo,
       });
     } catch { /* no bloquea */ }
   }
@@ -507,6 +525,9 @@ export async function eliminarComida(comidaId: string, actor: string, actorName?
   const { data: prev, error: e0 } = await supabase.from(TABLE).select('*').eq('id', comidaId).single();
   if (e0) throw e0;
   const comida = prev as CocinaComida;
+  // El reverso vuelve al día de la comida, no al de hoy: así el ciclo que cargó
+  // el consumo es el mismo que recibe la devolución.
+  const at = comida.at ?? undefined;
   for (const it of comida.items ?? []) {
     try {
       await registrarMovimiento({
@@ -514,6 +535,7 @@ export async function eliminarComida(comidaId: string, actor: string, actorName?
         almacen: it.almacen ?? undefined, actor, actor_name: actorName ?? null,
         ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comida.codigo,
         detalle: `Reverso por eliminación · ${comida.codigo}`, precio_unitario: it.precio,
+        at,
       });
     } catch { /* no bloquea */ }
   }

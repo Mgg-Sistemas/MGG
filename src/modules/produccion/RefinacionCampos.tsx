@@ -128,13 +128,12 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
   const manuales = coladas.filter((c) => c.origen === 'manual');
   const costoInicialTotal = round2(coladas.reduce((a, c) => a + (Number(c.estano_kg) || 0) * (Number(c.costo_unitario) || 0), 0));
 
-  // Jornada de refinación = (fecha+hora fin) − (fecha+hora inicio). Se calcula sola
-  // y se copia al campo "Turno" (queda editable), igual que en la colada.
-  const jornadaH = calcJornadaHoras(datos.fecha_inicio_jornada, datos.hora_inicio_jornada, datos.fecha_fin_jornada, datos.hora_fin_jornada);
-  useEffect(() => {
-    set('jornada_horas', jornadaH);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jornadaH]);
+  /* El total de la jornada NO se calcula acá (29-09-2026).
+     Al crear la refinación solo se conoce el arranque: el fin de jornada, como el
+     estaño obtenido o el dross, es un RESULTADO y se carga al finalizar. Antes el
+     formulario los pedía igual y quedaban en blanco, o peor, se inventaban.
+     `FinalizarRefinacionModal` toma el fin, calcula el total contra este inicio y
+     lo guarda en `jornada_horas`. */
 
   /* Cargas a la olla: las vueltas EXTRA de material, cada una con su horario y
      cuánto entró de cada insumo de la receta. La primera está arriba, en el
@@ -343,9 +342,9 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
           ayuda="Sale en el PDF de la refinación. Es el mismo catálogo que usa Fundición." />
       </div>
 
-      {/* Jornada de refinación (inicio/fin + total automático) */}
+      {/* Inicio de jornada. El FIN se carga al finalizar: ver la nota de abajo. */}
       <div style={secStyle}>
-        <div style={tituloSec}>Jornada de refinación</div>
+        <div style={tituloSec}>Inicio de jornada</div>
         <div className="form-grid">
           <div className="form-row">
             <label>Fecha inicio de jornada</label>
@@ -356,21 +355,10 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
             <input className="input" type="time" value={datos.hora_inicio_jornada ?? ''} onChange={(e) => set('hora_inicio_jornada', e.target.value)} />
           </div>
         </div>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Fecha fin de jornada</label>
-            <input className="input" type="date" value={datos.fecha_fin_jornada ?? ''} onChange={(e) => set('fecha_fin_jornada', e.target.value)} />
-          </div>
-          <div className="form-row">
-            <label>Hora fin de jornada</label>
-            <input className="input" type="time" value={datos.hora_fin_jornada ?? ''} onChange={(e) => set('hora_fin_jornada', e.target.value)} />
-          </div>
-        </div>
-        <div className="form-row">
-          <label>Total de jornada (automático)</label>
-          <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
-          <small className="hint muted" style={{ fontSize: '.7rem' }}>Fin − Inicio de jornada.</small>
-        </div>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>
+          ⏱ La <strong>fecha y hora de fin</strong> —y con ellas el total de la jornada— se cargan al
+          marcar la refinación como <strong>finalizada</strong>. Acá todavía no se saben.
+        </small>
       </div>
 
       {/* Cargas a la olla: las vueltas extra de material */}

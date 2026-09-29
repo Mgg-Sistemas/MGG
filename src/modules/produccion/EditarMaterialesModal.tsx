@@ -55,11 +55,6 @@ export function EditarMaterialesModal({
   const [cantidad, setCantidad] = useState<number | null>(null);
   const [manoObra, setManoObra] = useState<number | null>(null);
   const [sumarInventario, setSumarInventario] = useState(true);
-  // No descontar del inventario: los fundentes ya salieron por una Salida cuando
-  // se llevaron al horno, o la colada es una carga vieja. Arranca marcado; en una
-  // orden ya guardada se respeta lo que tenía. La casiterita de los big bags se
-  // descuenta igual: no pasa por ninguna Salida.
-  const [cargaHistorica, setCargaHistorica] = useState(true);
   const [productoNombre, setProductoNombre] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -88,7 +83,6 @@ export function EditarMaterialesModal({
       setCantidad(Number(p.cantidad) || null);
       setManoObra(Number(p.mano_obra) || null);
       setSumarInventario(p.sumar_inventario !== false);
-      setCargaHistorica(p.descontar_inventario === false);
       setRows((p.materiales ?? []).map((m, i) => ({
         key: `m${i}`, producto_id: m.producto_id ?? null, material_nombre: m.material_nombre,
         almacen: m.almacen, cantidad: Number(m.cantidad) || null,
@@ -168,10 +162,10 @@ export function EditarMaterialesModal({
     if (cant <= 0) { setError('La cantidad producida debe ser mayor que 0.'); return; }
     const validas = rows.filter((r) => (Number(r.cantidad) || 0) > 0);
     if (!validas.length) { setError('Dejá al menos un material con cantidad.'); return; }
-    for (const r of validas) {
-      const st = stockDe(r.producto_id, r.almacen);
-      if (!cargaHistorica && (Number(r.cantidad) || 0) > st) { setError(`"${r.material_nombre}" en ${r.almacen}: pedís ${num(Number(r.cantidad) || 0)} pero hay ${num(st)}.`); return; }
-    }
+    // No se topa contra el stock (29-09-2026): editar una colada tampoco mueve
+    // inventario —`editarMaterialesProduccion` lo dice y lo cumple—, así que
+    // exigir existencia solo impedía corregir el dato. El exceso se sigue
+    // marcando en rojo en la columna «Stock».
     setSaving(true);
     try {
       // La línea de casiterita no se edita a mano: se rearma desde los big bags
@@ -188,7 +182,7 @@ export function EditarMaterialesModal({
         if (lineaCas) materiales.unshift(lineaCas);
       }
       if (!materiales.length) { setError('Dejá al menos un material con cantidad.'); setSaving(false); return; }
-      await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, descontarInventario: !cargaHistorica, materiales, actor, actorName });
+      await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, descontarInventario: false, materiales, actor, actorName });
       // Reporte de colada: guarda todo el detalle + cabecera (Colada N° / fecha).
       if (esColada) {
         await actualizarColadaDatos(produccionId, coladaDatos);
@@ -231,11 +225,11 @@ export function EditarMaterialesModal({
             <span><strong>Sumar al inventario</strong> al finalizar <span className="muted" style={{ fontSize: '.76rem' }}>· si lo destildás, queda como registro/reporte y NO suma stock del producto</span></span>
           </label>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', margin: '0 0 .2rem', cursor: 'pointer', fontSize: '.86rem' }}
-            title="Los fundentes ya salieron por Salidas: descontarlos otra vez sería contarlos dos veces">
-            <input type="checkbox" checked={cargaHistorica} onChange={(e) => setCargaHistorica(e.target.checked)} />
-            <span>📦 <strong>No descontar el material del inventario</strong> <span className="muted" style={{ fontSize: '.76rem' }}>· los fundentes ya salieron por una <strong>Salida</strong> cuando se llevaron al horno, o es una carga vieja. Tampoco se exige stock. {esColada && <>La <strong>casiterita de los big bags</strong> se descuenta igual, marques o no.</>}</span></span>
-          </label>
+          <div className="muted" style={{ fontSize: '.78rem', margin: '0 0 .2rem', lineHeight: 1.6 }}>
+            📦 <strong>Los materiales son el registro de lo que se usó, no una salida.</strong> Editarlos recalcula el costo
+            pero <strong>no mueve inventario</strong>, así que podés cargar más de lo que figura en «Stock».
+            {esColada && <> La <strong>casiterita de los big bags</strong> es la excepción: se descuenta del Inventario Detallado.</>}
+          </div>
 
           <div className="card-title" style={{ marginTop: '.8rem' }}>Materiales (consumo de inventario)</div>
           <div className="table-wrap">
@@ -245,7 +239,7 @@ export function EditarMaterialesModal({
                 {!rows.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin materiales. Agregá abajo.</td></tr>}
                 {rows.map((r) => {
                   const st = stockDe(r.producto_id, r.almacen);
-                  const falta = !cargaHistorica && r.producto_id && (Number(r.cantidad) || 0) > st;
+                  const falta = r.producto_id && (Number(r.cantidad) || 0) > st;
                   return (
                     <tr key={r.key}>
                       <td><strong>{r.material_nombre}</strong>{!r.producto_id && <span className="muted"> · manual</span>}</td>

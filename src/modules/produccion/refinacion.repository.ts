@@ -314,6 +314,13 @@ export async function actualizarRefinacionCabecera(produccionId: string, patch: 
 }
 
 export interface RefinacionResultados {
+  /* El CIERRE de la jornada (29-09-2026). Al crear la refinación solo se carga el
+     arranque: cuándo terminó es un resultado, igual que los kilos obtenidos, y se
+     escribe acá. `sellarFechasDeLaOrden` lee estas mismas fechas para sellar la
+     orden con el día que se trabajó. */
+  fecha_fin_jornada?: string;
+  hora_fin_jornada?: string;
+  jornada_horas?: number | null;
   hora_inicio_refinacion?: string;
   hora_fin_refinacion?: string;
   hora_inicio_vaciado?: string;

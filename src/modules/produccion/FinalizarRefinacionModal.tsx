@@ -11,7 +11,7 @@ import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { Produccion, ProduccionRefinacion } from '@/shared/lib/types';
 import { getRefinacion, finalizarRefinacionConResultados } from './refinacion.repository';
-import { fmtJornada } from './colada.repository';
+import { calcJornadaHoras, fmtJornada } from './colada.repository';
 import { tiemposRefinacion, type TiemposRefinacion } from './tiemposRefinacion';
 import { HoraInput } from '@/shared/ui/HoraInput';
 
@@ -37,8 +37,13 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rendTocado, setRendTocado] = useState(false);
-  // Inicio/fin/total vienen de la jornada cargada al crear: acá solo se muestran.
+  // El INICIO viene de la jornada cargada al crear (solo se muestra); el FIN se
+  // carga acá, que es cuando se sabe.
   const [tiempos, setTiempos] = useState<TiemposRefinacion>({ inicio: '', fin: '', totalHoras: null, delReporte: false });
+  const [fechaIniJornada, setFechaIniJornada] = useState('');
+  const [horaIniJornada, setHoraIniJornada] = useState('');
+  const [fechaFinJornada, setFechaFinJornada] = useState('');
+  const [horaFinJornada, setHoraFinJornada] = useState('');
 
   useEffect(() => {
     let cancel = false;
@@ -51,9 +56,29 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
       setHoraIni(t.inicio);
       setHoraFin(t.fin);
       setTiempoTotal(t.totalHoras == null ? '' : String(t.totalHoras));
+      setFechaIniJornada(d.fecha_inicio_jornada ?? '');
+      setHoraIniJornada(d.hora_inicio_jornada ?? '');
+      // El fin arranca el MISMO día del inicio: la refinación casi siempre cierra
+      // en la jornada en que empezó. Si cruzó la medianoche, se corrige acá.
+      setFechaFinJornada(d.fecha_fin_jornada || d.fecha_inicio_jornada || '');
+      setHoraFinJornada(d.hora_fin_jornada ?? '');
       setHoraVaciado(d.hora_inicio_vaciado ?? '');
       setTempColada(d.temp_colada == null ? '' : String(d.temp_colada));
       setInvolucrados(sinRepetidos(d.involucrados ?? []));
+
+      /* Lo que ya se hubiera escrito en el reporte se trae acá, igual que en la
+         colada: si alguien anotó los kilos o el precinto mientras el lote estaba
+         en curso, volver a pedirlos es pedir el dato dos veces —y la segunda vez
+         se teclea distinto—. Se pueden corregir; acá es donde quedan firmes. */
+      const txt = (v: number | null | undefined) => (v == null ? '' : String(v));
+      if (d.estano_refinado_kg != null) setRefinado(txt(d.estano_refinado_kg));
+      if (d.n_lingotes != null) setLingotes(txt(d.n_lingotes));
+      if (d.dross_kg != null) setDross(txt(d.dross_kg));
+      if (d.pureza_final != null) setPurezaFinal(txt(d.pureza_final));
+      if (d.n_precinto) setPrecinto(d.n_precinto);
+      if (d.observaciones) setObservaciones(d.observaciones);
+      // Si ya venía un rendimiento cargado, manda ese y no el sugerido.
+      if (d.rendimiento != null) { setRendTocado(true); setRendimiento(txt(d.rendimiento)); }
     }).catch(() => { /* opcional */ });
     return () => { cancel = true; };
   }, [prod.id]);
@@ -76,12 +101,35 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
   // Merma = crudo − refinado − dross.
   const merma = useMemo(() => round2(crudoKg - refinadoNum - (Number(dross) || 0)), [crudoKg, refinadoNum, dross]);
 
+  // Total de la jornada = (fecha+hora fin) − (fecha+hora inicio). El inicio lo
+  // dejó cargado quien abrió la refinación; el fin se escribe acá arriba.
+  const jornadaH = useMemo(
+    () => calcJornadaHoras(fechaIniJornada, horaIniJornada, fechaFinJornada, horaFinJornada),
+    [fechaIniJornada, horaIniJornada, fechaFinJornada, horaFinJornada],
+  );
+  // El total de proceso sigue al de la jornada mientras nadie lo escriba a mano.
+  useEffect(() => {
+    if (jornadaH != null) setTiempoTotal(String(jornadaH));
+  }, [jornadaH]);
+
+  // Cómo se muestra el inicio de la jornada en la ayuda del total.
+  const inicioTxt = (() => {
+    if (!fechaIniJornada && !horaIniJornada) return 'sin cargar';
+    return [fechaIniJornada ? fechaIniJornada.split('-').reverse().join('/') : '', horaIniJornada].filter(Boolean).join(' ');
+  })();
+
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (refinadoNum <= 0) { setError('Indicá el estaño refinado obtenido (kg): es lo que entra a inventario.'); return; }
     setSaving(true);
     try {
       const avisoDross = await finalizarRefinacionConResultados(prod.id, {
+        // El cierre de la jornada se escribe recién acá: al crear solo se sabía
+        // el arranque. Con esto `sellarFechasDeLaOrden` puede sellar la orden con
+        // el día que de verdad se trabajó.
+        fecha_fin_jornada: fechaFinJornada || undefined,
+        hora_fin_jornada: horaFinJornada || undefined,
+        jornada_horas: jornadaH,
         estano_refinado_kg: refinadoNum,
         n_lingotes: lingotes.trim() === '' ? null : Number(lingotes),
         peso_prom_lingote: pesoProm || null,
@@ -126,48 +174,49 @@ export function FinalizarRefinacionModal({ prod, actor, actorName, onClose, onDo
           El <strong>estaño refinado</strong> entra a inventario como <strong>{prod.producto_nombre}</strong> en <strong>{prod.almacen_destino}</strong> · estaño crudo cargado: <strong>{num(crudoKg)} kg</strong>.
         </p>
 
-        {/* Tiempos: ya se cargaron al crear (jornada). Solo se piden si faltan. */}
-        {tiempos.delReporte ? (
-          <div className="card" style={{ padding: '.55rem .8rem', borderLeft: '3px solid var(--border)', margin: '0 0 .6rem' }}>
-            <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>Jornada de refinación · cargada al crear</div>
-            <div className="mono" style={{ fontSize: '.85rem', lineHeight: 1.7 }}>
-              Inicio <strong>{tiempos.inicio}</strong>
-              {' · '}Fin <strong>{tiempos.fin || '—'}</strong>
-              {' · '}Total <strong>{fmtJornada(tiempos.totalHoras)}</strong>
-            </div>
-            <small className="hint muted" style={{ fontSize: '.7rem' }}>Si hay que corregirla, se edita en el reporte de refinación (✎), no acá.</small>
-          </div>
-        ) : (
+        {/* CIERRE DE LA JORNADA. El inicio se cargó al crear y acá solo se lee; el
+            fin se escribe acá, que es cuando se sabe. Antes este bloque mostraba
+            un «Fin —» en solo lectura y remitía al reporte: el dato quedaba sin
+            cargar y el total de la jornada, vacío. */}
+        <div style={{ padding: '.65rem .8rem', margin: '0 0 .8rem', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-1)' }}>
+          <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: '.45rem' }}>Cierre de la jornada</div>
           <div className="form-grid">
             <div className="form-row">
-              <label>Hora inicio de refinación</label>
-              <input className="input" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} placeholder="Ej.: 4:29pm 28/03/26" />
-              <small className="hint muted" style={{ fontSize: '.7rem' }}>No se cargó la jornada al crear: completala acá.</small>
+              <label>Fecha fin de jornada</label>
+              <input className="input" type="date" value={fechaFinJornada} onChange={(e) => setFechaFinJornada(e.target.value)} />
             </div>
             <div className="form-row">
-              <label>Hora fin de refinación</label>
-              <input className="input" value={horaFin} onChange={(e) => setHoraFin(e.target.value)} placeholder="Ej.: 7:20pm 28/03/26" />
+              <label>Hora fin de jornada</label>
+              <input className="input" type="time" value={horaFinJornada} onChange={(e) => setHoraFinJornada(e.target.value)} />
             </div>
           </div>
-        )}
-        <div className="form-grid">
           <div className="form-row">
-            <label>Hora inicio de vaciado</label>
-            <HoraInput value={horaVaciado} onChange={setHoraVaciado} />
+            <label>Total de jornada (automático)</label>
+            <input className="input mono" readOnly value={fmtJornada(jornadaH)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>
+              Fin − inicio de jornada. El inicio ({inicioTxt}) se cargó al abrir la refinación. Es lo que sale en el reporte como «Jornada».
+            </small>
           </div>
-          <div className="form-row">
-            <label>Temp. de colada (°C)</label>
-            <input className="input mono" type="number" step="any" value={tempColada} onChange={(e) => setTempColada(e.target.value)} style={{ textAlign: 'right' }} />
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Hora inicio de vaciado</label>
+              <HoraInput value={horaVaciado} onChange={setHoraVaciado} />
+            </div>
+            <div className="form-row">
+              <label>Temp. de colada (°C)</label>
+              <input className="input mono" type="number" step="any" value={tempColada} onChange={(e) => setTempColada(e.target.value)} style={{ textAlign: 'right' }} />
+            </div>
           </div>
+          {/* Sin jornada cargada al crear (registros viejos) no hay resta posible:
+              se pide el total a mano en vez de dejarlo vacío para siempre. */}
+          {!tiempos.delReporte && (
+            <div className="form-row" style={{ maxWidth: 260, marginBottom: 0 }}>
+              <label>Tiempo total de proceso (h)</label>
+              <input className="input mono" type="number" step="any" value={tiempoTotal} onChange={(e) => setTiempoTotal(e.target.value)} placeholder="Ej.: 2,88" style={{ textAlign: 'right' }} />
+              <small className="hint muted" style={{ fontSize: '.7rem' }}>No se cargó el inicio de jornada al crear: escribilo acá.</small>
+            </div>
+          )}
         </div>
-        {!tiempos.delReporte && (
-          <div className="form-row" style={{ maxWidth: 260 }}>
-            <label>Tiempo total de proceso (h)</label>
-            <input className="input mono" type="number" step="any" value={tiempoTotal} onChange={(e) => setTiempoTotal(e.target.value)} placeholder="Ej.: 2,88" style={{ textAlign: 'right' }} />
-          </div>
-        )}
-
-        <div style={{ height: 1, background: 'var(--border)', margin: '.85rem 0' }} />
 
         {/* Resultados de producción */}
         <div className="form-grid">
