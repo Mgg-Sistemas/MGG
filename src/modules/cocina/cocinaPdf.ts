@@ -5,6 +5,7 @@
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, resumirComidas } from './cocina.repository';
+import { totalesDeViveres, kardexDetallado, ETIQUETA_CLASE, type FilaViver } from './movimientoViveres';
 
 function money(n: number | null | undefined): string {
   return `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -13,7 +14,12 @@ function num(n: number | null | undefined): string {
   return Number(n || 0).toLocaleString('es-VE', { maximumFractionDigits: 2 });
 }
 
-export async function descargarReporteCocinaPdf(comidas: CocinaComida[], rangoLabel: string): Promise<void> {
+export async function descargarReporteCocinaPdf(
+  comidas: CocinaComida[],
+  rangoLabel: string,
+  /** Movimiento de víveres del período. Sin esto el PDF sale como antes. */
+  movViveres: FilaViver[] = [],
+): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -56,6 +62,81 @@ export async function descargarReporteCocinaPdf(comidas: CocinaComida[], rangoLa
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
     y = doc.lastAutoTable.finalY + 14;
+  }
+
+  /* Movimiento de víveres: lo que había, lo que se comió, lo que salió por
+     Inventario y lo que queda. Es la tabla que se firma: el resto del reporte
+     dice cuánto se gastó, esta dice de dónde salió y qué sobró. */
+  if (movViveres.length) {
+    const t = totalesDeViveres(movViveres);
+    autoTable(doc, {
+      startY: y,
+      head: [['VÍVER', 'UNIDAD', 'HABÍA', 'ENTRÓ', 'TRASLADOS', 'COMIDO', 'SALIDAS / AJUSTES', 'QUEDA']],
+      body: movViveres.map((f) => [
+        `${f.nombre} (${f.sku})`, f.unidad || '—',
+        num(f.habia), f.entradas ? num(f.entradas) : '—', f.traslados ? num(f.traslados) : '—',
+        f.consumido ? num(f.consumido) : '—', f.salidas ? num(f.salidas) : '—', num(f.queda),
+      ]),
+      foot: [['TOTAL', '', num(t.habia), num(t.entradas), num(t.traslados), num(t.consumido), num(t.salidas), num(t.queda)]],
+      styles: { fontSize: 7.5, cellPadding: 3, overflow: 'linebreak' },
+      headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
+      footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 200 }, 1: { cellWidth: 62 },
+        2: { halign: 'right', cellWidth: 62 }, 3: { halign: 'right', cellWidth: 62 },
+        4: { halign: 'right', cellWidth: 66 }, 5: { halign: 'right', cellWidth: 66 },
+        6: { halign: 'right', cellWidth: 92 }, 7: { halign: 'right', cellWidth: 62 },
+      },
+      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      didDrawPage: () => { /* la tabla puede pasar de página: autoTable repite el encabezado */ },
+    });
+    // @ts-expect-error lastAutoTable lo agrega el plugin
+    y = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
+    doc.text(
+      'Había + Entró ± Traslados − Comido − Salidas/ajustes = Queda. «Había» se reconstruye desde el stock actual hacia atrás. Los totales mezclan unidades: sirven para cuadrar, no como cantidad.',
+      MARGIN, y,
+    );
+    doc.setTextColor(0, 0, 0);
+    y += 16;
+
+    /* EL DETALLE: cada movimiento de cada víver, agrupado por víver y en orden
+       cronológico dentro de cada uno, que es como se lee un kardex —se sigue el
+       saldo hacia adelante—. La tabla de arriba dice CUÁNTO; esta dice cuándo,
+       de qué tipo, por qué y quién. Incluye las salidas y ajustes de Inventario,
+       que son los que hay que poder explicar. */
+    const detalle = kardexDetallado(movViveres);
+    if (detalle.length) {
+      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 138, 0);
+      doc.text('DETALLE · MOVIMIENTO POR MOVIMIENTO', MARGIN, y + 10);
+      doc.setTextColor(0, 0, 0); doc.setFont('helvetica', 'normal');
+      y += 16;
+      autoTable(doc, {
+        startY: y,
+        head: [['VÍVER', 'FECHA', 'QUÉ FUE', 'TIPO', 'CANTIDAD', 'MOTIVO', 'QUIÉN']],
+        body: detalle.map((r) => [
+          `${r.nombre} (${r.sku})`, fmt.dateTime(r.at), ETIQUETA_CLASE[r.clase], r.tipo,
+          `${r.delta > 0 ? '+' : ''}${num(r.delta)} ${r.unidad}`.trim(),
+          r.motivo ?? '—', r.actor ?? '—',
+        ]),
+        styles: { fontSize: 7, cellPadding: 2.5, overflow: 'linebreak' },
+        headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
+        // La fila se pinta según lo que sea: la comida es lo normal, la
+        // salida/ajuste es lo que hay que mirar.
+        didParseCell: (d) => {
+          if (d.section !== 'body') return;
+          const r = detalle[d.row.index];
+          if (r?.clase === 'salida') d.cell.styles.fillColor = [255, 244, 230];
+        },
+        columnStyles: {
+          0: { cellWidth: 150 }, 1: { cellWidth: 86 }, 2: { cellWidth: 68 }, 3: { cellWidth: 56 },
+          4: { halign: 'right', cellWidth: 82 }, 5: { cellWidth: 160 }, 6: { cellWidth: 72 },
+        },
+        margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      });
+      // @ts-expect-error lastAutoTable lo agrega el plugin
+      y = doc.lastAutoTable.finalY + 14;
+    }
   }
 
   // Detalle de comidas

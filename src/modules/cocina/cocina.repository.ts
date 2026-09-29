@@ -10,6 +10,8 @@ import type { CocinaComida, ItemCocina, TipoComida, Producto, Existencia, Cocina
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listExistencias, listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { movimientoDeViveres, type FichaViver, type FilaViver, type MovimientoViver } from './movimientoViveres';
 
 const TABLE = 'cocina_comidas';
 /** Categoría del inventario que surte la cocina. */
@@ -586,4 +588,47 @@ export function resumirComidas(comidas: CocinaComida[]): ResumenCocina {
     porTipo: Array.from(tipos.values()).map((t) => ({ ...t, valor: r2(t.valor) })),
     topViveres: Array.from(viv.values()).map((v) => ({ ...v, cantidad: r2(v.cantidad), valor: r2(v.valor) })).sort((a, b) => b.valor - a.valor),
   };
+}
+
+/* ───────── Qué pasó con cada víver en un período ───────── */
+
+/**
+ * Los datos del reporte «lo que había → lo que se comió → lo que queda».
+ *
+ * Se lee TODO el kardex desde `desde` en adelante —incluido lo posterior a
+ * `hasta`—: los movimientos de después son los que permiten retroceder el stock
+ * de hoy hasta el cierre del período. Sin ellos, un reporte de un mes viejo
+ * mostraría el stock de hoy como remanente de entonces.
+ *
+ * Alcance por CENTRO, igual que la lista de víveres: si la cocina está vinculada
+ * a un almacén, se consideran todos los de su sede. Así lo que se lee acá es lo
+ * mismo que la cocina ve en pantalla.
+ */
+export async function movimientoViveresDelPeriodo(
+  almacen: string | null, desde: string, hasta: string,
+): Promise<FilaViver[]> {
+  const [viveres, almacenes] = await Promise.all([listViveresGlobal(almacen), listAlmacenes()]);
+  const fichas: FichaViver[] = viveres.map((v) => ({
+    id: v.producto.id, sku: v.producto.sku, nombre: v.producto.nombre,
+    unidad: v.producto.unidad, precio: v.precio,
+  }));
+  const stockHoy = new Map(viveres.map((v) => [v.producto.id, v.stock] as const));
+
+  const sede = almacen ? almacenes.find((a) => a.nombre === almacen)?.sede ?? null : null;
+  const scope: string[] | null = almacen
+    ? (sede ? almacenes.filter((a) => (a.sede ?? null) === sede).map((a) => a.nombre) : [almacen])
+    : null;
+
+  // Por páginas: Supabase corta en 1.000 filas sin avisar y un mes de un centro
+  // las pasa de largo. Sin esto el reporte mostraría un consumo incompleto — y
+  // peor, un «había» reconstruido sobre movimientos que faltan.
+  const movs = await todasLasFilas<MovimientoViver>((d, h) => {
+    let q = supabase.from('movimientos')
+      .select('producto_id, at, delta, stock_antes, stock_despues, tipo, ref_tipo, detalle, actor_name, almacen, precio_unitario, costo_promedio')
+      .gte('at', desde);
+    if (scope) q = q.in('almacen', scope);
+    return q.order('at', { ascending: true }).order('producto_id').range(d, h);
+  });
+
+  return movimientoDeViveres(fichas, stockHoy, movs, desde, hasta);
 }

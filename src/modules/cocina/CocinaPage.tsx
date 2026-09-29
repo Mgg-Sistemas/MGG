@@ -4,7 +4,7 @@
    - Resumen / consumo: barras por día/víver, platos, promedio por plato, stock.
    - Tabla filtrable + reporte PDF con vista previa.
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -13,7 +13,7 @@ import { notify } from '@/shared/lib/notify';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { hoyISO, money, num } from '@/shared/lib/format';
+import { hoyISO, money, num, dateTime } from '@/shared/lib/format';
 import type { CocinaComida, TipoComida, Cocina, Almacen } from '@/shared/lib/types';
 import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { agruparPorCategoria, normCategoria } from './agruparPorCategoria';
@@ -22,8 +22,10 @@ import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import {
   listComidas, crearComida, editarComida, eliminarComida, listViveresGlobal, resumirComidas,
   listCocinas, crearCocina, actualizarCocina, eliminarCocina, listAlmacenesParaCocina,
+  movimientoViveresDelPeriodo,
   TIPOS_COMIDA, labelTipoComida, type ViverDisponible, type ResumenCocina, type CocinaConInfo,
 } from './cocina.repository';
+import { totalesDeViveres, salidasDeInventario, ETIQUETA_CLASE, type FilaViver } from './movimientoViveres';
 // descargarReporteCocinaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { crearAlertaMercado, listAlertasMercadoPendientes } from './alertasMercado.repository';
 import {
@@ -324,7 +326,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
 
       <div className="filterbar" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen / Consumo</button>
+          <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen detallado</button>
           <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(comidas, 'Todas las comidas registradas')).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!comidas.length}>↓ Reporte PDF</button>
           <button className="btn btn-ghost" onClick={() => setHistOpen(true)} title="Mercados cerrados: ver, reportes, reabrir">🔒 Mercados cerrados</button>
           {canWrite && (
@@ -622,8 +624,17 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [comidas, setComidas] = useState<CocinaComida[]>([]);
-  const [viveres, setViveres] = useState<ViverDisponible[]>([]);
+  const [movViveres, setMovViveres] = useState<FilaViver[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Buscador de la tabla de movimiento: la lista de víveres es larga. */
+  const [qMov, setQMov] = useState('');
+  /** Víveres con el detalle abierto: cada renglón del kardex, uno por uno. */
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+  const alternarDetalle = (id: string) => setAbiertos((prev) => {
+    const s = new Set(prev);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    return s;
+  });
 
   // Rango efectivo (ISO) según el preset.
   const rango = useMemo(() => {
@@ -643,12 +654,24 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
     setLoading(true);
     Promise.all([
       listComidas({ cocinaId, desde: rango.desde.toISOString(), hasta: rango.hasta.toISOString() }),
-      // Todos los víveres del inventario general (sin importar el almacén), igual que en "Añadir movimiento".
-      listViveresGlobal(almacen),
-    ]).then(([cs, vs]) => { setComidas(cs); setViveres(vs); }).catch(() => { /* */ }).finally(() => setLoading(false));
+      // Lo que había → lo que se comió → lo que salió por inventario → lo que queda.
+      // Ya trae los víveres del centro con su stock: no hace falta pedirlos aparte.
+      movimientoViveresDelPeriodo(almacen, rango.desde.toISOString(), rango.hasta.toISOString()).catch(() => [] as FilaViver[]),
+    ]).then(([cs, mv]) => { setComidas(cs); setMovViveres(mv); })
+      .catch(() => { /* */ }).finally(() => setLoading(false));
   }, [rango, cocinaId, almacen]);
 
   const resumen: ResumenCocina = useMemo(() => resumirComidas(comidas), [comidas]);
+
+  // Movimiento de víveres: totales del pie y la lista de salidas por inventario.
+  const totalesMov = useMemo(() => totalesDeViveres(movViveres), [movViveres]);
+  const salidasInv = useMemo(() => salidasDeInventario(movViveres), [movViveres]);
+  const movFiltrado = useMemo(() => {
+    const q = qMov.trim().toLowerCase();
+    if (!q) return movViveres;
+    return movViveres.filter((f) => `${f.nombre} ${f.sku} ${f.unidad}`.toLowerCase().includes(q));
+  }, [movViveres, qMov]);
+
   const maxViver = Math.max(1, ...resumen.topViveres.map((v) => v.valor));
   const maxDia = Math.max(1, ...resumen.porDia.map((d) => d.valor));
   const fmtDia = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
@@ -659,10 +682,13 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
   ];
 
   return (
-    <Modal title="📊 Resumen / Consumo de cocina" size="xl" onClose={onClose}
+    <Modal title="📊 Resumen detallado de alimentación" size="xl" onClose={onClose}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(comidas, `Resumen · ${fmtDia(rango.desde.toISOString().slice(0, 10))} a ${fmtDia(rango.hasta.toISOString().slice(0, 10))}`)).catch(() => toast('No se pudo generar el PDF', 'error'))} disabled={!comidas.length}>↓ PDF</button>
+          {/* El PDF lleva el movimiento de víveres que se está viendo: es el
+              cuadro que se firma, y si el papel no lo trae hay que volver a
+              abrir el sistema para contestar «¿y cuánto quedó?». */}
+          <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(comidas, `Resumen · ${fmtDia(rango.desde.toISOString().slice(0, 10))} a ${fmtDia(rango.hasta.toISOString().slice(0, 10))}`, movViveres)).catch(() => toast('No se pudo generar el PDF', 'error'))} disabled={!comidas.length && !movViveres.length}>↓ PDF</button>
           <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
         </>
       }>
@@ -675,6 +701,12 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
           <label className="muted" style={{ fontSize: '.8rem' }}>Hasta <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
         </div>
       )}
+      {/* Qué período se está mirando, siempre a la vista: todo lo de abajo
+          —había, comido, salidas, queda— depende de estas dos fechas, y el PDF
+          sale con ellas. Sin el rótulo, un reporte impreso no dice de cuándo es. */}
+      <div className="mono muted" style={{ fontSize: '.78rem', margin: '.1rem 0 .3rem' }}>
+        📅 Del <strong>{fmtDia(rango.desde.toISOString().slice(0, 10))}</strong> al <strong>{fmtDia(rango.hasta.toISOString().slice(0, 10))}</strong>
+      </div>
 
       {loading ? <EmptyState message="Cargando…" icon="◔" /> : (
         <>
@@ -730,25 +762,160 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
             )}
           </div>
 
-          {/* Stock disponible de víveres */}
+          {/* Lo que había → lo que se comió → lo que queda.
+              Reemplaza al viejo «Stock disponible», que mostraba el stock de HOY
+              suelto, sin decir de dónde venía ni a dónde se fue: había que sacar
+              la cuenta a mano contra el consumo y nunca daba, porque entre medio
+              pasan compras, traslados, salidas manuales y ajustes. */}
           <div className="card">
-            <div className="card-title" style={{ marginBottom: '.5rem' }}>Stock disponible de víveres <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· de este centro</span></div>
-            <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
-              <table className="table" style={{ fontSize: '.82rem' }}>
-                <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Stock</th><th style={{ textAlign: 'right' }}>Precio</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>
-                <tbody>
-                  {viveres.map((v) => (
-                    <tr key={v.producto.id}>
-                      <td>{v.producto.nombre} <span className="muted mono" style={{ fontSize: '.72rem' }}>{v.producto.sku}</span></td>
-                      <td className="mono" style={{ textAlign: 'right', color: v.stock <= 0 ? 'var(--danger)' : undefined }}>{num(v.stock)} {v.producto.unidad}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{money(v.precio)}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{money(v.stock * v.precio)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
+              <div className="card-title" style={{ margin: 0 }}>
+                Movimiento de víveres <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· de este centro, en el período</span>
+              </div>
+              <span className="muted" style={{ fontSize: '.76rem' }}>
+                {totalesMov.conSalidas > 0 && <><strong style={{ color: 'var(--warning)' }}>{totalesMov.conSalidas}</strong> con salidas/ajustes · </>}
+                <strong style={{ color: totalesMov.enCero > 0 ? 'var(--danger)' : undefined }}>{totalesMov.enCero}</strong> en cero
+              </span>
             </div>
+            <p className="hint muted" style={{ margin: '0 0 .5rem', fontSize: '.76rem' }}>
+              <strong>Había + Entró ± Traslados − Comido − Salidas/ajustes = Queda.</strong> «Había» no está guardado en ningún
+              lado: se reconstruye caminando el kardex hacia atrás desde el stock de hoy, así que no puede contradecirlo.
+              Es la <strong>misma cuenta del ciclo de mercado</strong> —ahí «Había» es el <strong>saldo inicial</strong>, que al cerrar
+              se congela en el histórico y arranca el ciclo siguiente—, pero acá por el <strong>rango de fechas que elijas</strong>.
+              <strong> Tocá un víver</strong> para ver sus movimientos uno por uno.
+            </p>
+            {movViveres.length > 3 && (
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginBottom: '.45rem' }}>
+                <input className="input" value={qMov} onChange={(e) => setQMov(e.target.value)}
+                  placeholder="🔎 Buscar víver por nombre, SKU o unidad…" style={{ flex: '1 1 240px' }} />
+                {qMov.trim() && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setQMov('')}>✕</button>}
+              </div>
+            )}
+            {!movFiltrado.length ? (
+              <p className="hint muted" style={{ margin: 0 }}>
+                {qMov.trim() ? `Ningún víver coincide con «${qMov.trim()}».` : 'Sin movimiento de víveres en el período.'}
+              </p>
+            ) : (
+              <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
+                <table className="table" style={{ fontSize: '.8rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Víver</th>
+                      <th style={{ textAlign: 'right' }}>Había</th>
+                      <th style={{ textAlign: 'right' }}>Entró</th>
+                      <th style={{ textAlign: 'right' }}>Traslados</th>
+                      <th style={{ textAlign: 'right' }}>Comido</th>
+                      <th style={{ textAlign: 'right' }}>Salidas / ajustes</th>
+                      <th style={{ textAlign: 'right' }}>Queda</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movFiltrado.map((f) => {
+                      const abierto = abiertos.has(f.producto_id);
+                      return (
+                        <Fragment key={f.producto_id}>
+                          <tr style={abierto ? { background: 'var(--bg-2)' } : undefined}>
+                            <td>
+                              {/* Tocar el víver abre su kardex del período. El total de
+                                  la columna dice cuánto; el detalle, cuándo y por qué. */}
+                              <button type="button" className="btn btn-sm btn-ghost"
+                                onClick={() => alternarDetalle(f.producto_id)}
+                                style={{ padding: '0 .3rem', marginRight: '.3rem' }}
+                                title={abierto ? 'Ocultar el detalle' : `Ver los ${f.movimientos.length} movimiento(s)`}
+                                disabled={!f.movimientos.length}>
+                                {f.movimientos.length ? (abierto ? '▾' : '▸') : '·'}
+                              </button>
+                              {f.nombre} <span className="muted mono" style={{ fontSize: '.7rem' }}>{f.sku}</span>
+                              {f.unidad && <span className="muted" style={{ fontSize: '.7rem' }}> · {f.unidad}</span>}
+                            </td>
+                            <td className="mono" style={{ textAlign: 'right' }}>{num(f.habia)}</td>
+                            <td className="mono" style={{ textAlign: 'right', color: f.entradas > 0 ? 'var(--success)' : undefined }}>{f.entradas ? num(f.entradas) : '—'}</td>
+                            <td className="mono" style={{ textAlign: 'right' }}>{f.traslados ? num(f.traslados) : '—'}</td>
+                            <td className="mono" style={{ textAlign: 'right', fontWeight: f.consumido > 0 ? 700 : 400 }}>{f.consumido ? num(f.consumido) : '—'}</td>
+                            <td className="mono" style={{ textAlign: 'right', color: f.salidas > 0 ? 'var(--warning)' : undefined }}>
+                              {f.salidas ? num(f.salidas) : '—'}
+                            </td>
+                            <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: f.queda <= 0 ? 'var(--danger)' : undefined }}>{num(f.queda)}</td>
+                          </tr>
+                          {abierto && (
+                            <tr>
+                              <td colSpan={7} style={{ padding: '.35rem .6rem .7rem 2rem', background: 'var(--bg-2)' }}>
+                                <table className="table" style={{ fontSize: '.76rem', margin: 0 }}>
+                                  <thead><tr><th>Fecha</th><th>Qué fue</th><th>Tipo</th><th style={{ textAlign: 'right' }}>Cantidad</th><th>Motivo</th><th>Quién</th></tr></thead>
+                                  <tbody>
+                                    {f.movimientos.map((m, i) => (
+                                      <tr key={`${m.at}-${i}`}>
+                                        <td className="mono" style={{ whiteSpace: 'nowrap' }}>{dateTime(m.at)}</td>
+                                        <td>
+                                          <span className="badge" style={{
+                                            fontSize: '.66rem',
+                                            background: m.clase === 'comida' ? 'var(--primary)' : m.clase === 'salida' ? 'var(--warning)' : m.clase === 'entrada' ? 'var(--success)' : 'var(--bg-1)',
+                                            color: m.clase === 'traslado' ? 'inherit' : '#1a1205', fontWeight: 700,
+                                          }}>{ETIQUETA_CLASE[m.clase]}</span>
+                                        </td>
+                                        <td className="muted">{m.tipo}</td>
+                                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: m.delta < 0 ? 'var(--danger)' : 'var(--success)' }}>
+                                          {m.delta > 0 ? '+' : ''}{num(m.delta)}
+                                        </td>
+                                        <td>{m.motivo ?? <span className="muted">—</span>}</td>
+                                        <td className="muted">{m.actor ?? '—'}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ fontWeight: 700 }}>TOTAL <span className="muted" style={{ fontWeight: 400, fontSize: '.7rem' }}>· unidades mezcladas: sirve para cuadrar, no como cantidad</span></td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totalesMov.habia)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totalesMov.entradas)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totalesMov.traslados)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totalesMov.consumido)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totalesMov.salidas)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totalesMov.queda)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </div>
+
+          {/* Las salidas y ajustes, una por una: el «Salidas / ajustes» de arriba
+              es un total, y lo que se pregunta después es SIEMPRE quién y por qué. */}
+          {salidasInv.length > 0 && (
+            <div className="card" style={{ marginTop: '.9rem' }}>
+              <div className="card-title" style={{ marginBottom: '.5rem' }}>
+                Salidas y ajustes hechos por Inventario <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· {salidasInv.length} en el período</span>
+              </div>
+              <p className="hint muted" style={{ margin: '0 0 .5rem', fontSize: '.76rem' }}>
+                Lo que salió del almacén <strong>sin ser una comida ni un traslado</strong>: una pérdida, una salida manual,
+                un conteo físico, un ajuste a la baja. No suben el costo por plato, pero sí explican por qué queda menos.
+              </p>
+              <div className="table-wrap" style={{ maxHeight: 240, overflowY: 'auto' }}>
+                <table className="table" style={{ fontSize: '.8rem' }}>
+                  <thead><tr><th>Fecha</th><th>Víver</th><th>Tipo</th><th style={{ textAlign: 'right' }}>Cantidad</th><th>Motivo</th><th>Quién</th></tr></thead>
+                  <tbody>
+                    {salidasInv.map((s, i) => (
+                      <tr key={`${s.producto_id}-${s.at}-${i}`}>
+                        <td className="mono" style={{ whiteSpace: 'nowrap' }}>{dateTime(s.at)}</td>
+                        <td>{s.nombre} <span className="muted mono" style={{ fontSize: '.7rem' }}>{s.sku}</span></td>
+                        <td><span className="badge" style={{ fontSize: '.68rem' }}>{s.tipo}</span></td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--warning)', fontWeight: 700 }}>−{num(s.cantidad)} {s.unidad}</td>
+                        <td>{s.motivo ?? <span className="muted">—</span>}</td>
+                        <td className="muted">{s.actor ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
     </Modal>
