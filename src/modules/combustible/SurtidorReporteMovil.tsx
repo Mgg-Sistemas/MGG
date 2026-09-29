@@ -18,7 +18,9 @@ import { num, date } from '@/shared/lib/format';
 import type { AdjuntoCombustible, TanqueMovimiento, Tanque, TipoMovimientoTanque } from '@/shared/lib/types';
 import { listTanqueMovimientos } from './combustible.repository';
 import { esImagen, listarFotosDe, urlsFotos } from './adjuntosCombustible.repository';
-import { EMOJI_MOVIMIENTO, TITULO_MOVIMIENTO, enlaceWhatsapp } from './mensajeMovimiento';
+import {
+  EMOJI_MOVIMIENTO, TITULO_MOVIMIENTO, compartirMovimiento, enlaceWhatsapp, puedeCompartir,
+} from './mensajeMovimiento';
 
 /** En qué orden se leen los grupos: primero lo que más se consulta. */
 const ORDEN_TIPOS: TipoMovimientoTanque[] = ['consumo', 'traslado', 'ingreso', 'merma', 'retorno'];
@@ -100,7 +102,17 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
       footer={(
         <>
           <button className="btn btn-ghost btn-grande" onClick={() => void copiar()} disabled={cargando}>📋 Copiar</button>
-          <a className="btn btn-ghost btn-grande" href={enlaceWhatsapp(resumenTexto)} target="_blank" rel="noopener noreferrer">💬 WhatsApp</a>
+          {/* Igual que el aviso del movimiento: hoja de compartir en el teléfono
+              —el texto no pasa por ninguna URL— y el `href` para la PC. */}
+          <a className="btn btn-ghost btn-grande" href={enlaceWhatsapp(resumenTexto)}
+            target="_blank" rel="noopener noreferrer"
+            onClick={(e) => {
+              if (!puedeCompartir()) return;
+              e.preventDefault();
+              void compartirMovimiento(resumenTexto);
+            }}>
+            💬 WhatsApp
+          </a>
           <button className="btn btn-primary btn-grande" onClick={onClose}>Cerrar</button>
         </>
       )}>

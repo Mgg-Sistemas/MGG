@@ -32,7 +32,9 @@ import {
 import { contarFotos, eliminarFotosDe, subirFotos } from './adjuntosCombustible.repository';
 import { FotosDelMovimiento, SelectorFotos } from './FotosMovimiento';
 import { SurtidorReporteMovil } from './SurtidorReporteMovil';
-import { EMOJI_MOVIMIENTO, TITULO_MOVIMIENTO, enlaceWhatsapp, mensajeMovimiento } from './mensajeMovimiento';
+import {
+  EMOJI_MOVIMIENTO, TITULO_MOVIMIENTO, compartirMovimiento, enlaceWhatsapp, mensajeMovimiento, puedeCompartir,
+} from './mensajeMovimiento';
 
 /* La clave del rol vive con el resto de los permisos: el redirector de inicio la
    necesita antes de cargar ningún módulo de combustible. Se re-exporta acá para
@@ -631,7 +633,21 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, actor
       <div className="surt-rotulo">Avisar</div>
       <div className="surt-grid2">
         <button type="button" className="btn btn-ghost btn-grande" onClick={() => void copiar()}>📋 Copiar mensaje</button>
-        <a className="btn btn-primary btn-grande" href={enlaceWhatsapp(texto)} target="_blank" rel="noopener noreferrer">💬 Enviar por WhatsApp</a>
+        {/* En el teléfono va por la hoja de compartir del sistema: el texto viaja
+            como string, sin pasar por ninguna URL, así que llega exacto. El
+            `href` queda igual para la PC y para quien no tenga esa hoja. */}
+        <a className="btn btn-primary btn-grande" href={enlaceWhatsapp(texto)}
+          target="_blank" rel="noopener noreferrer"
+          onClick={(e) => {
+            // Sin hoja de compartir no se toca nada: navega el `href` solo. Abrirlo
+            // a mano desde una promesa lo frenaría el bloqueador de ventanas, que
+            // solo deja abrir dentro del toque.
+            if (!puedeCompartir()) return;
+            e.preventDefault();
+            void compartirMovimiento(texto);
+          }}>
+          💬 Enviar por WhatsApp
+        </a>
       </div>
       <pre className="surt-mensaje">{texto}</pre>
 

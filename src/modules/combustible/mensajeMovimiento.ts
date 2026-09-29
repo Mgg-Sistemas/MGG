@@ -153,11 +153,49 @@ export function mensajeMovimiento(m: MovimientoParaMensaje, ctx: ContextoMensaje
 /**
  * El enlace que abre WhatsApp con el mensaje escrito.
  *
- * Sin número a propósito: `wa.me` sin destinatario deja elegir el contacto o el
- * grupo en el momento, que es lo que hace falta —el surtido de hoy va al
+ * Sin número a propósito: sin destinatario, WhatsApp deja elegir el contacto o
+ * el grupo en el momento, que es lo que hace falta —el surtido de hoy va al
  * encargado y el de mañana al grupo de la mina—. Fijar un número obligaría a
  * mantener una agenda que nadie va a actualizar.
+ *
+ * ⚠ NO usar `wa.me`. Ese acortador REESCRIBE el texto al redirigir y se come
+ * todo carácter UTF-8 de 3 bytes o más —o sea, TODOS los emojis— cambiándolo
+ * por «�». Comprobado contra el servidor el 29-09-2026:
+ *
+ *   GET https://wa.me/?text=%F0%9F%94%BD%E2%9B%BD%C3%B3%C2%B7      (🔽⛽ó·)
+ *   → Location: …/send/?text=%EF%BF%BD%EF%BF%BD%C3%B3%C2%B7        (��ó·)
+ *
+ * Fijate que «ó» y «·» (2 bytes) sobreviven y los emojis no: no es cosa de la
+ * codificación nuestra —que va bien— sino del redirect. Yendo derecho a
+ * `api.whatsapp.com/send` no hay redirect y el texto llega entero.
  */
 export function enlaceWhatsapp(texto: string): string {
-  return `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  return `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
+}
+
+/**
+ * Manda el mensaje por el camino que mejor lo conserve.
+ *
+ * En el teléfono usa la hoja de compartir del sistema: el texto viaja como
+ * string, sin pasar por ninguna URL ni por servidor de nadie, así que llega
+ * exacto —emojis, acentos y saltos de línea— y de paso deja mandarlo a
+ * WhatsApp o a donde haga falta. Donde no existe (PC), abre el enlace.
+ *
+ * Devuelve `false` si no compartió por la hoja del sistema, para que quien
+ * llama abra el enlace.
+ */
+export function puedeCompartir(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+}
+
+export async function compartirMovimiento(texto: string): Promise<boolean> {
+  if (!puedeCompartir()) return false;
+  try {
+    await navigator.share({ text: texto });
+    return true;
+  } catch {
+    // Cancelar la hoja de compartir lanza: no es un error y no hay que
+    // abrir el enlace detrás, que sería mandar lo que la persona canceló.
+    return true;
+  }
 }

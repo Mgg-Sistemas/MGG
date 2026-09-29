@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   EMOJI_MOVIMIENTO, TITULO_MOVIMIENTO, mensajeMovimiento, enlaceWhatsapp, fechaHoraTexto,
+  compartirMovimiento, puedeCompartir,
   type MovimientoParaMensaje,
 } from './mensajeMovimiento';
 
@@ -107,13 +108,21 @@ describe('el mensaje del movimiento', () => {
 describe('el enlace de WhatsApp', () => {
   it('lleva el mensaje codificado', () => {
     const url = enlaceWhatsapp('🔽 SURTIDO 120 L');
-    expect(url.startsWith('https://wa.me/?text=')).toBe(true);
+    expect(url.startsWith('https://api.whatsapp.com/send?text=')).toBe(true);
     expect(decodeURIComponent(url.split('text=')[1])).toBe('🔽 SURTIDO 120 L');
   });
 
   it('va SIN número: el destinatario se elige al mandarlo', () => {
     // El surtido de hoy va al encargado y el de mañana al grupo de la mina.
-    expect(enlaceWhatsapp('hola')).not.toMatch(/wa\.me\/\d/);
+    expect(enlaceWhatsapp('hola')).not.toMatch(/phone=/);
+  });
+
+  it('NUNCA por wa.me: ese acortador se come los emojis al redirigir', () => {
+    // Comprobado contra el servidor (29-09-2026): wa.me devuelve un 302 cuyo
+    // Location cambia cada carácter UTF-8 de 3 bytes o más por «%EF%BF%BD» (�).
+    // Los de 2 bytes —«ó», «·»— pasan, los emojis no. Por eso se va derecho a
+    // api.whatsapp.com, que no redirige.
+    expect(enlaceWhatsapp(mensajeMovimiento(mov()))).not.toContain('wa.me');
   });
 
   it('los saltos de línea sobreviven al enlace', () => {
@@ -159,5 +168,32 @@ describe('los emojis llegan a color a WhatsApp', () => {
     expect(mensajeMovimiento({ ...mov(), tipo: 'consumo' })).toContain('🔽');
     expect(mensajeMovimiento({ ...mov(), tipo: 'ingreso' })).toContain('🔼');
     expect(mensajeMovimiento({ ...mov(), tipo: 'traslado' })).toContain('🔁');
+  });
+});
+
+describe('compartir por la hoja del sistema', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const conNavigator = (v: unknown) => { vi.stubGlobal('navigator', v); };
+
+  it('sin hoja de compartir avisa que no, para que el enlace navegue solo', async () => {
+    conNavigator({});
+    expect(puedeCompartir()).toBe(false);
+    expect(await compartirMovimiento('hola')).toBe(false);
+  });
+
+  it('con hoja, manda el texto tal cual: no pasa por ninguna URL', async () => {
+    let recibido: unknown = null;
+    conNavigator({ share: async (d: unknown) => { recibido = d; } });
+    const texto = mensajeMovimiento({ ...mov(), tipo: 'consumo' });
+    expect(puedeCompartir()).toBe(true);
+    expect(await compartirMovimiento(texto)).toBe(true);
+    expect(recibido).toEqual({ text: texto });
+    expect((recibido as { text: string }).text).toContain(EMOJI_MOVIMIENTO.consumo);
+  });
+
+  it('cancelar la hoja no es un error, y no abre el enlace detrás', async () => {
+    // Abrirlo sería mandar justo lo que la persona acaba de cancelar.
+    conNavigator({ share: async () => { throw new Error('AbortError'); } });
+    expect(await compartirMovimiento('hola')).toBe(true);
   });
 });
