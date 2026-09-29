@@ -252,10 +252,16 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
                     <td>{c.producto_nombre}<div className="muted" style={{ fontSize: '.7rem' }}>{c.almacen}</div></td>
                     <td className="mono" style={{ textAlign: 'right' }}>
                       {num(c.estano_kg)} kg
-                      {/* El inventario manda: si se corrigió, se avisa cuánto dio el proceso. */}
-                      {c.producido_kg != null && c.producido_kg > c.estano_kg && (
+                      {/* Lo que ya se llevaron otras refinaciones de esta colada. */}
+                      {(c.refinado_kg ?? 0) > 0 && (
                         <div className="muted" style={{ fontSize: '.68rem', fontWeight: 400 }}>
-                          el proceso dio {num(c.producido_kg)} · inventario corregido
+                          el proceso dio {num(c.producido_kg ?? 0)} · ya refinados {num(c.refinado_kg ?? 0)}
+                        </div>
+                      )}
+                      {/* El inventario manda: si se corrigió, se avisa cuánto dio el proceso. */}
+                      {c.producido_kg != null && c.producido_kg - (c.refinado_kg ?? 0) > c.estano_kg && (
+                        <div className="muted" style={{ fontSize: '.68rem', fontWeight: 400 }}>
+                          {(c.refinado_kg ?? 0) > 0 ? '' : `el proceso dio ${num(c.producido_kg)} · `}inventario corregido
                         </div>
                       )}
                       {c.estano_kg <= 0 && <div style={{ fontSize: '.68rem', color: 'var(--danger)', fontWeight: 400 }}>sin stock</div>}

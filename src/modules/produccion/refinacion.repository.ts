@@ -1,8 +1,9 @@
 /* ============================================================
    MGG · Reporte de Refinación de Lingotes de Estaño (MGG-FR-002).
    Metadata rica 1:1 con una orden de refinación (`produccion` tipo='refinacion').
-   El estaño CRUDO se toma de varias coladas finalizadas (se suman sus kg como
-   base y se consumen del inventario). Al finalizar, el estaño REFINADO entra a
+   El estaño CRUDO se toma de varias coladas finalizadas: se suman sus kg como
+   base y SÍ se descuentan del inventario al iniciar (líneas `siempre_descuenta`
+   de la orden, ver `crearProduccion`). Al finalizar, el estaño REFINADO entra a
    inventario con su costo (CP ÷ kg refinado). Todo el detalle del formato vive
    en `datos` (jsonb) para iterar sin ALTERs.
    ============================================================ */
@@ -10,7 +11,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { ColadaDatos, RefinacionDatos, ProduccionRefinacion } from '@/shared/lib/types';
 import { precintosDeColada, precintosDeRefinacion } from './precintosOrigen';
 import { finalizarProduccion, sellarFechasDeLaOrden } from './produccion.repository';
-import { conDisponibleReal, type StockAlmacen } from './disponibleRefinar';
+import { conDisponibleReal, kgTomadosPorRefinaciones, menosLoRefinado, type StockAlmacen } from './disponibleRefinar';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import {
   NOMBRE_ESCORIA_REFINACION, asegurarFichaEscoria, avisoEscoriaPendiente, detalleEscoriaRefinacion,
@@ -26,6 +27,24 @@ async function stockDe(productoIds: string[]): Promise<StockAlmacen[]> {
   if (!ids.length) return [];
   const { data } = await supabase.from('existencias').select('producto_id, almacen, stock').in('producto_id', ids);
   return (data ?? []) as StockAlmacen[];
+}
+
+/**
+ * Kg que cada origen ya entregó a otras refinaciones (por produccion_id del
+ * origen). Se lee de los reportes: `datos.coladas` guarda de qué colada o
+ * refinación se tomó y cuánto. Al editar una refinación se pasa su id para
+ * no descontarse a sí misma.
+ */
+async function tomadosPorRefinaciones(excluirProduccionId?: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase.from(TABLE).select('produccion_id, datos');
+  if (error) throw error;
+  return kgTomadosPorRefinaciones(
+    (data ?? []).map((r) => ({
+      produccion_id: r.produccion_id as string,
+      coladas: (r as { datos?: RefinacionDatos | null }).datos?.coladas ?? [],
+    })),
+    excluirProduccionId,
+  );
 }
 
 /** Etapas estándar del proceso de refinación (formato MGG-FR-002). */
@@ -87,8 +106,9 @@ export interface ColadaFinalizada {
   producto_id: string | null;
   producto_nombre: string;
   almacen: string;
-  estano_kg: number;       // estaño DISPONIBLE hoy en inventario (topado contra el stock)
+  estano_kg: number;       // estaño DISPONIBLE hoy: lo que dio − lo ya refinado, topado contra el stock
   producido_kg?: number;   // lo que dio el proceso (puede ser mayor si se corrigió el inventario)
+  refinado_kg?: number;    // lo que ya se llevaron otras refinaciones de este origen
   costo_unitario: number;  // costo/kg
   origen?: 'colada' | 'refinacion';
   etiqueta?: string;       // "Colada #5" / "Refinación #2"
@@ -143,9 +163,11 @@ export async function listColadasFinalizadas(): Promise<ColadaFinalizada[]> {
       precintos: c?.precintos ?? [],
     };
   });
-  // Lo que se ofrece para refinar es lo que HAY, no lo que dio la colada: si se
-  // corrigió el inventario (ajuste, merma, salida), la lista lo refleja.
-  return conDisponibleReal(base, await stockDe(base.map((b) => b.producto_id ?? '')));
+  // Lo que se ofrece para refinar es lo que HAY, no lo que dio la colada: se le
+  // resta lo que ya se llevaron otras refinaciones y, encima, se topa contra el
+  // stock real (si se corrigió el inventario, la lista lo refleja).
+  const [tomados, stock] = await Promise.all([tomadosPorRefinaciones(), stockDe(base.map((b) => b.producto_id ?? ''))]);
+  return conDisponibleReal(menosLoRefinado(base, tomados), stock);
 }
 
 /**
@@ -195,7 +217,10 @@ export async function listRefinacionesFinalizadas(excluirProduccionId?: string):
       precintos: rr?.precintos ?? [],
     };
   });
-  return conDisponibleReal(base, await stockDe(base.map((b) => b.producto_id ?? '')));
+  const [tomados, stock] = await Promise.all([
+    tomadosPorRefinaciones(excluirProduccionId), stockDe(base.map((b) => b.producto_id ?? '')),
+  ]);
+  return conDisponibleReal(menosLoRefinado(base, tomados), stock);
 }
 
 /** Una fila del RESUMEN GENERAL de refinación (una refinación finalizada). */

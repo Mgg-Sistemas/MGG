@@ -126,6 +126,80 @@ export interface CrearProduccionInput {
   sumarInventario?: boolean;
   /** false = carga histórica: no se descuenta nada del inventario ni se exige stock. */
   descontarInventario?: boolean;
+  /**
+   * Cómo se llama la orden en el kardex de lo que SÍ descuenta (las líneas
+   * `siempre_descuenta`): «Refinación #3». Sin esto dice «Producción».
+   */
+  etiquetaKardex?: string | null;
+}
+
+/**
+ * Baja del inventario SOLO las líneas marcadas `siempre_descuenta`: hoy, el
+ * estaño crudo que una refinación toma de las coladas. Es la excepción a «la
+ * fundición registra, no descuenta»: ese estaño no sale por ninguna Salida —va
+ * del almacén de estaño en bruto derecho a la olla—, así que si la refinación
+ * no lo baja, la misma colada se puede refinar dos veces.
+ *
+ * En serie a propósito: varias líneas pueden pegarle al mismo producto/almacén
+ * y el kardex encadena stock_antes → stock_despues.
+ */
+async function descontarLineasMarcadas(
+  produccionId: string,
+  lineas: ReadonlyArray<MaterialInput & { costo_unitario: number }>,
+  etiqueta: string | null | undefined,
+  actor: string,
+  actorName: string | null,
+): Promise<void> {
+  for (const d of lineas) {
+    if (d.siempre_descuenta !== true || !d.producto_id) continue;
+    const cant = Number(d.cantidad) || 0;
+    if (cant <= 0) continue;
+    await registrarMovimiento({
+      producto_id: d.producto_id,
+      tipo: 'salida',
+      delta: -cant,
+      almacen: d.almacen,
+      actor,
+      actor_name: actorName,
+      ref_tipo: 'produccion',
+      ref_id: produccionId,
+      precio_unitario: d.costo_unitario,
+      detalle: `${etiqueta?.trim() || 'Producción'}: ${d.material_nombre} (${cant} kg)`,
+    });
+  }
+}
+
+/**
+ * Lo contrario: devuelve al inventario lo que una orden había bajado con sus
+ * líneas `siempre_descuenta`, antes de reemplazarlas en una edición. Va como
+ * 'ajuste' sin precio para restaurar el stock sin tocar el PMP del almacén.
+ */
+async function devolverLineasMarcadas(
+  produccionId: string,
+  etiqueta: string | null | undefined,
+  actor: string,
+  actorName: string | null,
+): Promise<void> {
+  const { data, error } = await supabase.from('produccion_materiales')
+    .select('producto_id, material_nombre, almacen, cantidad, siempre_descuenta')
+    .eq('produccion_id', produccionId).eq('siempre_descuenta', true);
+  if (error) throw error;
+  for (const m of data ?? []) {
+    const cant = Number(m.cantidad) || 0;
+    if (!m.producto_id || cant <= 0) continue;
+    await registrarMovimiento({
+      producto_id: m.producto_id as string,
+      tipo: 'ajuste',
+      delta: cant,
+      almacen: m.almacen as string,
+      actor,
+      actor_name: actorName,
+      ref_tipo: 'produccion',
+      ref_id: produccionId,
+      precio_unitario: null,
+      detalle: `${etiqueta?.trim() || 'Producción'} · edición: devuelve ${m.material_nombre} (${cant} kg)`,
+    });
+  }
 }
 
 function round2(n: number): number {
@@ -392,14 +466,19 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
     if (mErr) throw mErr;
   }
 
-  // 4) No se descuenta nada del inventario.
+  // 4) Del inventario NO baja nada… salvo las líneas `siempre_descuenta`.
   //
   // La fundición y la refinación REGISTRAN lo que se usó; no lo sacan del
   // almacén. El material sale por su Salida, que es el documento que lo
   // entrega y el que lo descuenta. Cuando esto también descontaba, el mismo
   // kilo se iba dos veces y el inventario quedaba corto sin que nadie lo
   // notara. Los materiales quedan en `produccion_materiales` para el costo y
-  // para el reporte, y ahí termina.
+  // para el reporte.
+  //
+  // La excepción es el estaño crudo que la refinación toma de las coladas
+  // (29-09-2026): no pasa por ninguna Salida, así que acá sí se descuenta, y
+  // la colada queda con menos disponible para la próxima refinación.
+  await descontarLineasMarcadas(produccion.id, detallesInv, input.etiquetaKardex, input.actor, input.actor_name ?? null);
 
   return produccion;
 }
@@ -425,6 +504,8 @@ export async function editarMaterialesProduccion(input: {
   materiales: MaterialInput[];
   actor: string;
   actorName?: string | null;
+  /** Nombre de la orden en el kardex de las líneas `siempre_descuenta` («Refinación #3»). */
+  etiquetaKardex?: string | null;
 }): Promise<Produccion> {
   const { data: prodData, error: pErr0 } = await supabase.from('produccion').select('*').eq('id', input.produccionId).maybeSingle();
   if (pErr0) throw pErr0;
@@ -432,9 +513,12 @@ export async function editarMaterialesProduccion(input: {
   const prodActual = prodData as Produccion;
   if (prodActual.estado === 'finalizado') throw new Error('No se puede editar una orden ya finalizada.');
 
-  // 1) No hay consumo que revertir: editar una colada no devuelve stock,
-  //    porque tampoco lo había sacado. Ver `crearProduccion`.
+  // 1) Editar una colada no devuelve stock, porque tampoco lo había sacado
+  //    (ver `crearProduccion`). Lo único que se devuelve es lo que SÍ bajó: las
+  //    líneas `siempre_descuenta` (el estaño crudo de una refinación), que se
+  //    vuelven a descontar más abajo con las cantidades nuevas.
   const descontabaAntes = (prodActual as { descontar_inventario?: boolean }).descontar_inventario !== false;
+  await devolverLineasMarcadas(input.produccionId, input.etiquetaKardex, input.actor, input.actorName ?? null);
 
   // 2) Borrar los materiales viejos.
   const { error: delErr } = await supabase.from('produccion_materiales').delete().eq('produccion_id', input.produccionId);
@@ -483,7 +567,10 @@ export async function editarMaterialesProduccion(input: {
     if (insErr) throw insErr;
   }
 
-  // 5) Tampoco acá se consume nada: ver el porqué en `crearProduccion`.
+  // 5) Tampoco acá se consume nada —ver el porqué en `crearProduccion`—, salvo
+  //    las líneas `siempre_descuenta`, que se devolvieron en (1) y bajan de nuevo
+  //    con su cantidad nueva.
+  await descontarLineasMarcadas(input.produccionId, detallesInv, input.etiquetaKardex, input.actor, input.actorName ?? null);
 
   // 6) Actualizar la orden con los nuevos costos.
   const updPatch: Record<string, unknown> = {

@@ -579,6 +579,9 @@ export function MaterialAProducirModal({
       }));
       // Refinación: el estaño crudo de cada colada entra como material consumido, a su
       // COSTO FINAL de fundición (= costo inicial de la refinación), no al PMP mezclado.
+      // Y SÍ se descuenta del almacén (29-09-2026): ese estaño no sale por ninguna
+      // Salida, va de la colada a la olla; si no baja, la colada queda disponible
+      // para siempre y se puede refinar dos veces.
       const crudoInput: MaterialInput[] = esRef
         ? crudoLines.map((c) => ({
           producto_id: c.producto_id as string,
@@ -588,8 +591,12 @@ export function MaterialAProducirModal({
           almacen: c.almacen,
           cantidad: Number(c.estano_kg) || 0,
           costo: Number(c.costo_unitario) || 0,
+          siempre_descuenta: true,
         }))
         : [];
+      // El N° de refinación se resuelve ANTES de crear la orden: es el nombre con
+      // el que el kardex registra la salida del crudo de cada colada.
+      const nRef = esRef ? (Number(refinacionNum) || (await proximaRefinacionNum())) : 0;
       // Fundición: la casiterita de los big bags es el material principal de la
       // colada y hasta ahora no era material de nada. Vivía solo en el reporte,
       // así que no descontaba stock —la misma bolsa se podía quemar de nuevo— y
@@ -616,10 +623,12 @@ export function MaterialAProducirModal({
         materiales: matInput,
         tipo,
         sumarInventario,
-        // Nunca descuenta: la colada y la refinación registran lo que se usó. El
-        // material ya salió por su Salida, y la casiterita de los big bags baja
-        // por su propio camino (Inventario Detallado), no por acá.
+        // No descuenta la receta: la colada y la refinación registran lo que se
+        // usó. El material ya salió por su Salida, y la casiterita de los big
+        // bags baja por su propio camino (Inventario Detallado), no por acá. La
+        // única línea que sí baja es el estaño crudo de las coladas (arriba).
         descontarInventario: false,
+        etiquetaKardex: esRef ? `Refinación #${nRef}` : null,
         actor,
         actor_name: actorName,
       });
@@ -643,7 +652,6 @@ export function MaterialAProducirModal({
       // Refinación ⇒ guarda el reporte MGG-FR-002 vinculado a la orden.
       if (esRef) {
         try {
-          const nRef = Number(refinacionNum) || (await proximaRefinacionNum());
           await crearRefinacion({
             produccionId: prod.id,
             refinacionNum: nRef,

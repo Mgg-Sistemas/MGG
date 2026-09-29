@@ -20,11 +20,60 @@ export interface OrigenRefinable {
   colada_num: number;
   /** Kg que dio el proceso (lo que decía la colada / refinación). */
   estano_kg: number;
+  /** Si ya viene calculado (p. ej. por `menosLoRefinado`), se conserva. */
+  producido_kg?: number;
 }
 
 export interface StockAlmacen { producto_id: string; almacen: string; stock: number }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Lo mínimo de una refinación para saber de qué orígenes tomó y cuánto. */
+export interface RefinacionConOrigenes {
+  produccion_id: string;
+  coladas?: ReadonlyArray<{ produccion_id: string; estano_kg?: number | null; origen?: string | null }> | null;
+}
+
+/**
+ * Cuántos kg ya se llevó cada origen (colada o refinación finalizada) a otras
+ * refinaciones. Una refinación que se está editando se excluye: su propio
+ * consumo no puede descontarse de lo que ella misma puede tomar.
+ *
+ * Las líneas MANUALES no cuentan: no salieron de ningún origen del sistema.
+ */
+export function kgTomadosPorRefinaciones(
+  refinaciones: ReadonlyArray<RefinacionConOrigenes>,
+  excluirProduccionId?: string | null,
+): Map<string, number> {
+  const tomados = new Map<string, number>();
+  for (const r of refinaciones) {
+    if (excluirProduccionId && r.produccion_id === excluirProduccionId) continue;
+    for (const c of r.coladas ?? []) {
+      if (!c?.produccion_id || c.origen === 'manual') continue;
+      const kg = Math.max(0, Number(c.estano_kg) || 0);
+      if (kg <= 0) continue;
+      tomados.set(c.produccion_id, round2((tomados.get(c.produccion_id) ?? 0) + kg));
+    }
+  }
+  return tomados;
+}
+
+/**
+ * Resta a cada origen lo que ya se llevaron las refinaciones anteriores:
+ * `estano_kg` queda en lo que todavía se puede tomar, `producido_kg` en lo que
+ * dio el proceso y `refinado_kg` en lo ya tomado. Es la misma idea que los big
+ * bags de casiterita en la colada: disponible = lo que dio − lo consumido.
+ */
+export function menosLoRefinado<T extends OrigenRefinable>(
+  origenes: T[],
+  tomados: ReadonlyMap<string, number>,
+): Array<T & { producido_kg: number; refinado_kg: number }> {
+  return origenes.map((o) => {
+    const producido = round2(Math.max(0, Number(o.producido_kg ?? o.estano_kg) || 0));
+    const refinado = round2(Math.min(producido, Math.max(0, tomados.get(o.produccion_id) ?? 0)));
+    return { ...o, producido_kg: producido, refinado_kg: refinado, estano_kg: round2(producido - refinado) };
+  });
+}
 
 /**
  * Devuelve cada origen con `estano_kg` = lo que realmente hay en inventario y
@@ -58,7 +107,7 @@ export function conDisponibleReal<T extends OrigenRefinable>(
 
   return origenes.map((o) => ({
     ...o,
-    producido_kg: round2(Math.max(0, Number(o.estano_kg) || 0)),
+    producido_kg: o.producido_kg ?? round2(Math.max(0, Number(o.estano_kg) || 0)),
     estano_kg: disponible.get(o.produccion_id) ?? round2(Number(o.estano_kg) || 0),
   }));
 }

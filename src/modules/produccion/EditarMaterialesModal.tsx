@@ -33,6 +33,12 @@ interface Row {
    * al guardar se vuelve a descontar y el inventario queda corto.
    */
   desde_fundicion: boolean;
+  /**
+   * La línea SÍ baja del inventario (el estaño crudo que la refinación toma de
+   * las coladas). También viaja: si se pierde, al guardar la devolución queda
+   * hecha y el nuevo descuento no, y el estaño reaparece en el almacén.
+   */
+  siempre_descuenta: boolean;
   /** Override del costo unitario. Sin esto, la orden se re-costea sola al PMP. */
   costo: number | null;
 }
@@ -89,6 +95,7 @@ export function EditarMaterialesModal({
         // Estos dos viajan aunque el formulario no los muestre: son del material,
         // no de la pantalla, y perderlos descuenta inventario de más.
         desde_fundicion: m.desde_fundicion === true,
+        siempre_descuenta: (m as { siempre_descuenta?: boolean | null }).siempre_descuenta === true,
         costo: m.costo_unitario == null ? null : Number(m.costo_unitario),
       })));
       // Reporte de colada (fundición).
@@ -152,7 +159,7 @@ export function EditarMaterialesModal({
     const alm = almacenDeFundicion(p.id, existencias, almacenesMatanza);
     // Un material agregado a mano sale del inventario: no viene del piso de
     // fundición y no trae un costo propio que respetar.
-    setRows((rs) => [...rs, { key: `n${rs.length}-${pid}`, producto_id: p.id, material_nombre: p.nombre, almacen: alm, cantidad: null, desde_fundicion: false, costo: null }]);
+    setRows((rs) => [...rs, { key: `n${rs.length}-${pid}`, producto_id: p.id, material_nombre: p.nombre, almacen: alm, cantidad: null, desde_fundicion: false, siempre_descuenta: false, costo: null }]);
     setAddSel('');
   }
 
@@ -175,14 +182,17 @@ export function EditarMaterialesModal({
         .filter((r) => !(esColada && fichaCasiterita && r.producto_id === fichaCasiterita))
         .map((r) => ({
           producto_id: r.producto_id, material_nombre: r.material_nombre, almacen: r.almacen, cantidad: Number(r.cantidad) || 0,
-          desde_fundicion: r.desde_fundicion, costo: r.costo,
+          desde_fundicion: r.desde_fundicion, siempre_descuenta: r.siempre_descuenta, costo: r.costo,
         }));
       if (esColada) {
         const lineaCas = lineaCasiterita(coladaDatos.big_bags, fichaCasiterita, CASITERITA_ALMACEN);
         if (lineaCas) materiales.unshift(lineaCas);
       }
       if (!materiales.length) { setError('Dejá al menos un material con cantidad.'); setSaving(false); return; }
-      await editarMaterialesProduccion({ produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, descontarInventario: false, materiales, actor, actorName });
+      await editarMaterialesProduccion({
+        produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, descontarInventario: false, materiales, actor, actorName,
+        etiquetaKardex: tipo === 'refinacion' ? 'Refinación' : null,
+      });
       // Reporte de colada: guarda todo el detalle + cabecera (Colada N° / fecha).
       if (esColada) {
         await actualizarColadaDatos(produccionId, coladaDatos);
