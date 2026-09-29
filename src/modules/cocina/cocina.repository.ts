@@ -12,6 +12,7 @@ import { listExistencias, listAlmacenes } from '@/modules/inventario/almacenes.r
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { movimientoDeViveres, type FichaViver, type FilaViver, type MovimientoViver } from './movimientoViveres';
+import { precioDelCentro } from './precioViver';
 
 const TABLE = 'cocina_comidas';
 /** Categoría del inventario que surte la cocina. */
@@ -222,13 +223,13 @@ export async function listViveres(almacen?: string | null): Promise<ViverDisponi
       // (cualquier producto que exista ahí, sin importar la categoría).
       const row = exs.find((e) => e.almacen === almacen);
       if (!row) continue;
-      out.push({ producto: p, stock: Math.round((Number(row.stock) || 0) * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: almacen });
+      out.push({ producto: p, stock: Math.round((Number(row.stock) || 0) * 100) / 100, precio: precioDelCentro([row], p.precio), almacenMasStock: almacen });
     } else {
       // Legado (sin almacén vinculado): solo Víveres y Proteína, agregando todos los almacenes.
       if (!esCategoriaCocina(p.categoria)) continue;
       const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
       const mejor = exs.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock))[0];
-      out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
+      out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: precioDelCentro(exs, p.precio), almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
     }
   }
   return out.sort((a, b) => a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
@@ -285,7 +286,7 @@ export async function listViveresGlobal(preferAlmacen?: string | null): Promise<
     const preferido = (principalSede ? conStock.find((e) => e.almacen === principalSede) : undefined)
       ?? (preferAlmacen ? conStock.find((e) => e.almacen === preferAlmacen) : undefined);
     const mejor = preferido ?? conStock[0];
-    out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: Number(p.precio) || 0, almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
+    out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: precioDelCentro(exs, p.precio), almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
   }
   return out.sort((a, b) => a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
 }
@@ -312,7 +313,15 @@ async function listViveresConStock(): Promise<ViverEnAlmacen[]> {
   }
   return existencias
     .filter((e) => precioProd.has(e.producto_id) && Number(e.stock) > 0)
-    .map((e) => ({ producto_id: e.producto_id, almacen: e.almacen, stock: Number(e.stock) || 0, precio: precioProd.get(e.producto_id) ?? 0 }));
+    // El costo de ESTE almacén, no el promedio global del producto (29-09-2026).
+    // La tarjeta dice «Valor del stock» de una cocina: tiene que valer lo que esa
+    // cocina pagó. Con el global, la salsa de tomate de Los Pinos —costeada en
+    // 13,29— se mostraba a 16,83, que es el promedio con los galones de los otros
+    // centros: dólares que nadie puso ahí.
+    .map((e) => ({
+      producto_id: e.producto_id, almacen: e.almacen, stock: Number(e.stock) || 0,
+      precio: precioDelCentro([e], precioProd.get(e.producto_id) ?? 0),
+    }));
 }
 
 /* ───────── Listado / filtros ───────── */
