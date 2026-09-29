@@ -7,7 +7,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Almacen, Existencia, Producto, Produccion } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
-import { listProducciones, type ProduccionTipo } from './produccion.repository';
+import { listProducciones, eliminarProduccionEnCurso, type ProduccionTipo } from './produccion.repository';
 import { getNombresHornosActivos } from './hornos.repository';
 import { MaterialAProducirModal } from './MaterialAProducirModal';
 import { EditarMaterialesModal } from './EditarMaterialesModal';
@@ -36,6 +36,7 @@ interface ProduccionCfg {
   verbo: string;            // sustantivo en minúscula ('fundición' | 'refinación')
   btnCrear: string;         // botón primario
   finalizarBtn: string;     // botón finalizar (kanban)
+  eliminarConfirm: string;  // pregunta antes de eliminar una orden en curso
   estadoEnCurso: string;    // badge/label del estado 'produccion'
   emptyEnCurso: string;     // vacío de "en curso"
   emptyIcon: string;
@@ -48,6 +49,7 @@ const CFG: Record<ProduccionTipo, ProduccionCfg> = {
     verbo: 'fundición',
     btnCrear: '🔥 INICIAR COLADA',
     finalizarBtn: '✓ Finalizar colada',
+    eliminarConfirm: '¿Eliminar esta colada en curso? Se borran su reporte y sus materiales; los big bags de casiterita quedan disponibles otra vez. El material que salió del piso de fundición no vuelve al almacén (sigue en el piso). Esta acción no se puede deshacer.',
     estadoEnCurso: 'En colada',
     emptyEnCurso: 'Ninguna colada en curso.',
     emptyIcon: '🔥',
@@ -59,6 +61,7 @@ const CFG: Record<ProduccionTipo, ProduccionCfg> = {
     verbo: 'refinación',
     btnCrear: '⚗️ Material a refinar',
     finalizarBtn: '✓ Finalizar refinación',
+    eliminarConfirm: '¿Eliminar esta refinación en curso? El estaño crudo vuelve al almacén y las coladas quedan disponibles otra vez; se borran su reporte y sus materiales. Esta acción no se puede deshacer.',
     estadoEnCurso: 'En refinación',
     emptyEnCurso: 'Nada en refinación.',
     emptyIcon: '⚗️',
@@ -155,6 +158,18 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
   }, [tipo, cfg.verbo]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  // Eliminar una orden EN CURSO cargada mal. Confirma primero: no se deshace.
+  async function handleEliminar(p: Produccion) {
+    if (!window.confirm(cfg.eliminarConfirm)) return;
+    try {
+      const etiqueta = await eliminarProduccionEnCurso({ id: p.id, actor, actorName });
+      toast(`${etiqueta} eliminada`, 'success');
+      void reload({ silencioso: true });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : `No se pudo eliminar la ${cfg.verbo}`, 'error');
+    }
+  }
 
   // Reporte GENERAL (una fila por ítem finalizado + totales), en vista previa.
   async function handleResumenGeneral() {
@@ -312,8 +327,9 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
                     <div className="muted" style={{ fontSize: '.75rem' }}>Inicio: {dateTime(tiemposDeLaOrden(horasPorOrden.get(p.id), p.inicio_at, p.fin_at).inicio ?? p.inicio_at)} · destino {p.almacen_destino}</div>
                     <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem', flexWrap: 'wrap' }}>
                       <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'ver', id: p.id })}>Ver</button>
-                      {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'editar-materiales', id: p.id })} title="Cambiar/quitar materiales">✎ Editar</button>}
+                      {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'editar-materiales', id: p.id })} title="Editar todos los datos de la orden">✎ Editar</button>}
                       {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setModal({ kind: 'finalizar', prod: p })}>{cfg.finalizarBtn}</button>}
+                      {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => void handleEliminar(p)} title={`Eliminar esta ${cfg.verbo} en curso`} style={{ color: 'var(--danger)', marginLeft: 'auto' }}>🗑 Eliminar</button>}
                     </div>
                   </div>
                 ))}
@@ -412,6 +428,9 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
                     {canWrite && p.estado === 'produccion' && (
                       <button className="btn btn-sm btn-primary" onClick={() => setModal({ kind: 'finalizar', prod: p })}>Finalizar</button>
                     )}
+                    {canWrite && p.estado === 'produccion' && (
+                      <button className="btn btn-sm btn-ghost" onClick={() => void handleEliminar(p)} title={`Eliminar esta ${cfg.verbo} en curso`} style={{ color: 'var(--danger)' }}>🗑</button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -470,6 +489,8 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           productos={productos}
           existencias={existencias}
           almacenesMatanza={almacenesMatanza}
+          almacenesList={almacenesList}
+          hornosList={hornos}
           actor={actor}
           actorName={actorName}
           onClose={() => setModal({ kind: 'none' })}

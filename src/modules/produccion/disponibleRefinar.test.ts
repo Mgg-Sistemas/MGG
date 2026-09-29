@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conDisponibleReal, kgTomadosPorRefinaciones, menosLoRefinado, type OrigenRefinable } from './disponibleRefinar';
+import { conDisponibleReal, kgTomadosPorRefinaciones, menosLoRefinado, stockMasLoDevuelto, type OrigenRefinable } from './disponibleRefinar';
 
 const colada = (id: string, kg: number, fecha: string, num: number): OrigenRefinable => ({
   produccion_id: id, producto_id: 'estano', almacen: 'ESTAÑO EN BRUTO', fecha, colada_num: num, estano_kg: kg,
@@ -65,6 +65,28 @@ describe('kgTomadosPorRefinaciones', () => {
       { produccion_id: 'r3', coladas: null },
     ], 'r2');
     expect(t.size).toBe(0);
+  });
+});
+
+describe('stockMasLoDevuelto', () => {
+  it('al editar, el crudo que la orden ya bajó vuelve a contar como disponible', () => {
+    // Almacén en 4.828,5 tras la refinación #1; editarla devuelve 1.162 + 234.
+    const r = stockMasLoDevuelto(
+      [{ producto_id: 'estano', almacen: 'ESTAÑO EN BRUTO', stock: 4828.5 }],
+      [{ producto_id: 'estano', almacen: 'ESTAÑO EN BRUTO', cantidad: 1162 }, { producto_id: 'estano', almacen: 'ESTAÑO EN BRUTO', cantidad: 234 }],
+    );
+    expect(r[0].stock).toBe(6224.5);
+  });
+
+  it('no toca el original, ignora líneas sin producto o en 0, y crea la fila si no existía', () => {
+    const base = [{ producto_id: 'a', almacen: 'X', stock: 10 }];
+    const r = stockMasLoDevuelto(base, [
+      { producto_id: null, almacen: 'X', cantidad: 5 },
+      { producto_id: 'a', almacen: 'X', cantidad: 0 },
+      { producto_id: 'b', almacen: 'Y', cantidad: 3 },
+    ]);
+    expect(base[0].stock).toBe(10);
+    expect(r).toEqual([{ producto_id: 'a', almacen: 'X', stock: 10 }, { producto_id: 'b', almacen: 'Y', stock: 3 }]);
   });
 });
 

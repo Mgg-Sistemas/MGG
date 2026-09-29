@@ -197,7 +197,7 @@ async function devolverLineasMarcadas(
       ref_tipo: 'produccion',
       ref_id: produccionId,
       precio_unitario: null,
-      detalle: `${etiqueta?.trim() || 'Producción'} · edición: devuelve ${m.material_nombre} (${cant} kg)`,
+      detalle: `${etiqueta?.trim() || 'Producción'} · devuelve ${m.material_nombre} (${cant} kg)`,
     });
   }
 }
@@ -506,6 +506,10 @@ export async function editarMaterialesProduccion(input: {
   actorName?: string | null;
   /** Nombre de la orden en el kardex de las líneas `siempre_descuenta` («Refinación #3»). */
   etiquetaKardex?: string | null;
+  /** Horno / olla (undefined = no tocar; '' o null = sin horno). */
+  horno?: string | null;
+  /** Almacén destino del producto terminado (undefined o '' = no tocar). */
+  almacenDestino?: string | null;
 }): Promise<Produccion> {
   const { data: prodData, error: pErr0 } = await supabase.from('produccion').select('*').eq('id', input.produccionId).maybeSingle();
   if (pErr0) throw pErr0;
@@ -578,10 +582,45 @@ export async function editarMaterialesProduccion(input: {
     costo_unitario: costoUnitario, ganancia,
   };
   if (input.sumarInventario !== undefined) updPatch.sumar_inventario = input.sumarInventario;
+  if (input.horno !== undefined) updPatch.horno = input.horno?.trim() || null;
+  if (input.almacenDestino?.trim()) updPatch.almacen_destino = input.almacenDestino.trim();
   updPatch.descontar_inventario = descuentaAhora;
   const { data: upd, error: uErr } = await supabase.from('produccion').update(updPatch).eq('id', input.produccionId).select('*').single();
   if (uErr) throw uErr;
   return upd as Produccion;
+}
+
+/**
+ * Elimina una orden EN CURSO (colada o refinación) que se cargó mal y no vale
+ * la pena corregir. Antes de borrarla devuelve al inventario lo único que la
+ * orden había bajado —sus líneas `siempre_descuenta`, el estaño crudo de una
+ * refinación—, para que las coladas vuelvan a quedar disponibles. La casiterita
+ * de los big bags de una colada se libera sola: su consumo se lee del reporte,
+ * que se borra con la orden (cascade), igual que los materiales y los análisis.
+ *
+ * Una orden finalizada no se elimina por acá: ya metió producto al inventario.
+ */
+export async function eliminarProduccionEnCurso(input: { id: string; actor: string; actorName?: string | null }): Promise<string> {
+  const { data: prod, error } = await supabase.from('produccion').select('id, tipo, estado, producto_nombre').eq('id', input.id).maybeSingle();
+  if (error) throw error;
+  if (!prod) throw new Error('Orden no encontrada.');
+  if (prod.estado !== 'produccion') throw new Error('Solo se puede eliminar una orden que todavía está en curso.');
+
+  // Cómo se llama en el kardex: «Refinación #3» / «Colada #12».
+  let etiqueta = prod.tipo === 'refinacion' ? 'Refinación' : 'Colada';
+  if (prod.tipo === 'refinacion') {
+    const { data: r } = await supabase.from('produccion_refinacion').select('refinacion_num').eq('produccion_id', input.id).maybeSingle();
+    if (r?.refinacion_num != null) etiqueta = `Refinación #${r.refinacion_num}`;
+  } else {
+    const { data: c } = await supabase.from('produccion_colada').select('colada_num').eq('produccion_id', input.id).maybeSingle();
+    if (c?.colada_num != null) etiqueta = `Colada #${c.colada_num}`;
+  }
+
+  await devolverLineasMarcadas(input.id, `${etiqueta} eliminada`, input.actor, input.actorName ?? null);
+
+  const { error: dErr } = await supabase.from('produccion').delete().eq('id', input.id);
+  if (dErr) throw dErr;
+  return etiqueta;
 }
 
 /**

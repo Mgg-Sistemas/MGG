@@ -6,6 +6,11 @@
      anterior (sin tocar el PMP) y consume los nuevos, recalculando costos.
    - Reporte de colada (MGG-FR-001): identificación, big bags/ley, proceso,
      temperaturas, observaciones, lingotes y escoria (para fundición).
+   - Reporte de refinación (MGG-FR-002): identificación, orígenes del estaño
+     crudo (coladas / 2ª refinación / manual), parámetros, etapas y jornada
+     (para refinación). Las líneas de crudo de la orden se rearman desde los
+     orígenes elegidos, y el inventario se devuelve y se vuelve a bajar.
+   - Horno / olla, almacén destino y costos indirectos (ambos tipos).
    ============================================================ */
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
@@ -14,12 +19,18 @@ import { almacenDeFundicion } from './almacenFundicion';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
-import type { Existencia, Producto, ColadaDatos } from '@/shared/lib/types';
+import type { Existencia, Producto, ColadaDatos, RefinacionDatos } from '@/shared/lib/types';
 import {
   getProduccionConMateriales, editarMaterialesProduccion,
   type ProduccionTipo, type MaterialInput,
 } from './produccion.repository';
 import { ColadaCampos } from './ColadaCampos';
+import { RefinacionCampos } from './RefinacionCampos';
+import { AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
+import {
+  getRefinacion, actualizarRefinacionDatos, actualizarRefinacionCabecera, refinacionDatosVacios,
+  listColadasFinalizadas, listRefinacionesFinalizadas, type ColadaFinalizada,
+} from './refinacion.repository';
 import { getColada, actualizarColadaDatos, actualizarColadaCabecera, coladaDatosVacios, getConsumoBigBags } from './colada.repository';
 import { CASITERITA_ALMACEN, SKU_CASITERITA, listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 import { findBySku } from '@/modules/inventario/inventario.repository';
@@ -44,7 +55,7 @@ interface Row {
 }
 
 export function EditarMaterialesModal({
-  produccionId, tipo = 'fundicion', productos, existencias, almacenesMatanza = [], actor, actorName, onClose, onSaved,
+  produccionId, tipo = 'fundicion', productos, existencias, almacenesMatanza = [], almacenesList = [], hornosList = [], actor, actorName, onClose, onSaved,
 }: {
   produccionId: string;
   tipo?: ProduccionTipo;
@@ -52,16 +63,30 @@ export function EditarMaterialesModal({
   existencias: Existencia[];
   /** Almacenes de MATANZA: de ahí sale el material de la colada, siempre. */
   almacenesMatanza?: string[];
+  /** Todos los almacenes, para elegir el destino del producto terminado. */
+  almacenesList?: string[];
+  /** Hornos activos, para el desplegable de horno / olla. */
+  hornosList?: string[];
   actor: string;
   actorName?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const esRef = tipo === 'refinacion';
   const [rows, setRows] = useState<Row[]>([]);
   const [cantidad, setCantidad] = useState<number | null>(null);
   const [manoObra, setManoObra] = useState<number | null>(null);
+  const [costosIndirectos, setCostosIndirectos] = useState<number | null>(null);
+  const [horno, setHorno] = useState('');
+  const [almacenDestino, setAlmacenDestino] = useState('');
   const [sumarInventario, setSumarInventario] = useState(true);
   const [productoNombre, setProductoNombre] = useState('');
+
+  // Reporte de refinación (MGG-FR-002): se edita entero, orígenes incluidos.
+  const [refDatos, setRefDatos] = useState<RefinacionDatos>(refinacionDatosVacios());
+  const [refNum, setRefNum] = useState('');
+  const [refFecha, setRefFecha] = useState('');
+  const [origenesRef, setOrigenesRef] = useState<ColadaFinalizada[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,16 +113,24 @@ export function EditarMaterialesModal({
       setProductoNombre(p.producto_nombre ?? '');
       setCantidad(Number(p.cantidad) || null);
       setManoObra(Number(p.mano_obra) || null);
+      setCostosIndirectos(Number(p.costos_indirectos) || null);
+      setHorno(p.horno ?? '');
+      setAlmacenDestino(p.almacen_destino ?? '');
       setSumarInventario(p.sumar_inventario !== false);
-      setRows((p.materiales ?? []).map((m, i) => ({
-        key: `m${i}`, producto_id: m.producto_id ?? null, material_nombre: m.material_nombre,
-        almacen: m.almacen, cantidad: Number(m.cantidad) || null,
-        // Estos dos viajan aunque el formulario no los muestre: son del material,
-        // no de la pantalla, y perderlos descuenta inventario de más.
-        desde_fundicion: m.desde_fundicion === true,
-        siempre_descuenta: (m as { siempre_descuenta?: boolean | null }).siempre_descuenta === true,
-        costo: m.costo_unitario == null ? null : Number(m.costo_unitario),
-      })));
+      setRows((p.materiales ?? [])
+        // En refinación, el estaño crudo no se edita en esta tabla: se rearma
+        // desde los ORÍGENES del reporte (abajo), igual que la casiterita de la
+        // colada se rearma desde sus big bags.
+        .filter((m) => !(esRef && (m as { siempre_descuenta?: boolean | null }).siempre_descuenta === true))
+        .map((m, i) => ({
+          key: `m${i}`, producto_id: m.producto_id ?? null, material_nombre: m.material_nombre,
+          almacen: m.almacen, cantidad: Number(m.cantidad) || null,
+          // Estos dos viajan aunque el formulario no los muestre: son del material,
+          // no de la pantalla, y perderlos descuenta inventario de más.
+          desde_fundicion: m.desde_fundicion === true,
+          siempre_descuenta: (m as { siempre_descuenta?: boolean | null }).siempre_descuenta === true,
+          costo: m.costo_unitario == null ? null : Number(m.costo_unitario),
+        })));
       // Reporte de colada (fundición).
       // El stock de hoy YA tiene descontado lo que esta orden consumió. Si no se
       // devuelve para la revisión, editar una colada sin cambiarle nada se
@@ -131,11 +164,38 @@ export function EditarMaterialesModal({
           setCasiteritaDetalle(det);
           setConsumoBigBags(cons);
         }
+      } else {
+        // Refinación: el reporte entero + los orígenes que puede elegir. Las
+        // listas excluyen ESTA orden: lo que ella ya tomó vuelve a contar como
+        // disponible (se devuelve y se vuelve a bajar al guardar).
+        const [ref, coladas, refinados] = await Promise.all([
+          getRefinacion(produccionId),
+          listColadasFinalizadas(produccionId).catch(() => [] as ColadaFinalizada[]),
+          listRefinacionesFinalizadas(produccionId).catch(() => [] as ColadaFinalizada[]),
+        ]);
+        if (cancel) return;
+        setOrigenesRef([...coladas, ...refinados]);
+        if (ref) {
+          setRefDatos({ ...refinacionDatosVacios(), ...(ref.datos ?? {}) });
+          setRefNum(ref.refinacion_num != null ? String(ref.refinacion_num) : '');
+          setRefFecha(ref.fecha ?? '');
+        }
       }
     })().catch((e) => { if (!cancel) setError(e instanceof Error ? e.message : 'Error al cargar'); })
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
-  }, [produccionId, tipo]);
+  }, [produccionId, tipo, esRef]);
+
+  // Refinación: líneas de crudo según los orígenes elegidos (coladas, 2ª
+  // refinación o manual). Es lo mismo que hace el modal de inicio.
+  const crudoLines = useMemo(
+    () => (esRef ? (refDatos.coladas ?? []).filter((c) => (c.producto_id || c.origen === 'manual') && (Number(c.estano_kg) || 0) > 0) : []),
+    [esRef, refDatos.coladas],
+  );
+  const crudoKg = useMemo(() => Math.round(crudoLines.reduce((a, c) => a + (Number(c.estano_kg) || 0), 0) * 100) / 100, [crudoLines]);
+  // En refinación la cantidad de la orden ES el crudo cargado (al finalizar se
+  // reemplaza por el estaño refinado obtenido).
+  useEffect(() => { if (esRef && !loading) setCantidad(crudoKg > 0 ? crudoKg : null); }, [esRef, loading, crudoKg]);
 
   const stockDe = (pid: string | null, alm: string): number => {
     if (!pid) return Infinity;
@@ -168,7 +228,8 @@ export function EditarMaterialesModal({
     const cant = Number(cantidad) || 0;
     if (cant <= 0) { setError('La cantidad producida debe ser mayor que 0.'); return; }
     const validas = rows.filter((r) => (Number(r.cantidad) || 0) > 0);
-    if (!validas.length) { setError('Dejá al menos un material con cantidad.'); return; }
+    if (!validas.length && !(esRef && crudoLines.length)) { setError('Dejá al menos un material con cantidad.'); return; }
+    if (esRef && !crudoLines.length) { setError('Elegí al menos un origen del estaño a refinar (o cargá material manual).'); return; }
     // No se topa contra el stock (29-09-2026): editar una colada tampoco mueve
     // inventario —`editarMaterialesProduccion` lo dice y lo cumple—, así que
     // exigir existencia solo impedía corregir el dato. El exceso se sigue
@@ -188,10 +249,30 @@ export function EditarMaterialesModal({
         const lineaCas = lineaCasiterita(coladaDatos.big_bags, fichaCasiterita, CASITERITA_ALMACEN);
         if (lineaCas) materiales.unshift(lineaCas);
       }
+      // Refinación: el crudo se rearma desde los orígenes elegidos, a su costo
+      // de colada, y marcado para descontar (el repositorio devuelve lo viejo
+      // y baja lo nuevo). Los manuales entran solo al costo.
+      if (esRef) {
+        materiales.unshift(...crudoLines.map((c) => ({
+          producto_id: c.producto_id ?? null,
+          material_nombre: c.origen === 'refinacion'
+            ? `Estaño a refinar · ${c.etiqueta ?? `Refinación #${c.colada_num || 's/n'}`}`
+            : c.origen === 'manual'
+              ? (c.etiqueta?.trim() || 'Material manual')
+              : `Estaño crudo · ${c.etiqueta ?? `Colada #${c.colada_num || 's/n'}`}`,
+          almacen: c.almacen,
+          cantidad: Number(c.estano_kg) || 0,
+          costo: Number(c.costo_unitario) || 0,
+          siempre_descuenta: !!c.producto_id,
+        })));
+      }
       if (!materiales.length) { setError('Dejá al menos un material con cantidad.'); setSaving(false); return; }
+      const nRef = Number(refNum);
       await editarMaterialesProduccion({
-        produccionId, cantidad: cant, manoObra: manoObra ?? undefined, sumarInventario, descontarInventario: false, materiales, actor, actorName,
-        etiquetaKardex: tipo === 'refinacion' ? 'Refinación' : null,
+        produccionId, cantidad: cant, manoObra: manoObra ?? undefined, costosIndirectos: costosIndirectos ?? undefined,
+        sumarInventario, descontarInventario: false, materiales, actor, actorName,
+        horno, almacenDestino,
+        etiquetaKardex: esRef ? `Refinación${Number.isFinite(nRef) && nRef > 0 ? ` #${nRef}` : ''}` : null,
       });
       // Reporte de colada: guarda todo el detalle + cabecera (Colada N° / fecha).
       if (esColada) {
@@ -199,7 +280,15 @@ export function EditarMaterialesModal({
         const nCol = Number(coladaNum);
         await actualizarColadaCabecera(produccionId, { colada_num: Number.isFinite(nCol) && nCol > 0 ? nCol : undefined, fecha: coladaFecha || undefined });
       }
-      toast('Colada actualizada: materiales, inventario y reporte ajustados', 'success');
+      // Reporte de refinación: todo el detalle + cabecera (N° / fecha).
+      if (esRef) {
+        await actualizarRefinacionDatos(produccionId, {
+          ...refDatos, estano_crudo_kg: crudoKg || null,
+          destino_almacen: almacenDestino || refDatos.destino_almacen,
+        });
+        await actualizarRefinacionCabecera(produccionId, { refinacion_num: Number.isFinite(nRef) && nRef > 0 ? nRef : undefined, fecha: refFecha || undefined });
+      }
+      toast(`${esRef ? 'Refinación' : 'Colada'} actualizada: materiales, inventario y reporte ajustados`, 'success');
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); }
     finally { setSaving(false); }
@@ -221,12 +310,30 @@ export function EditarMaterialesModal({
 
           <div className="form-grid">
             <div className="form-row" style={{ maxWidth: 220 }}>
-              <label>Cantidad producida</label>
-              <DecimalInput className="input mono" value={cantidad} onChange={setCantidad} style={{ textAlign: 'right' }} />
+              <label>{esRef ? 'Estaño crudo cargado (kg)' : 'Cantidad producida'}</label>
+              <DecimalInput className="input mono" value={cantidad} onChange={setCantidad} style={{ textAlign: 'right' }} disabled={esRef} />
+              {esRef && <small className="hint muted" style={{ fontSize: '.7rem' }}>Σ de los orígenes elegidos abajo</small>}
             </div>
             <div className="form-row" style={{ maxWidth: 220 }}>
               <label>Mano de obra ($)</label>
               <DecimalInput className="input mono" value={manoObra} onChange={setManoObra} style={{ textAlign: 'right' }} />
+            </div>
+            <div className="form-row" style={{ maxWidth: 220 }}>
+              <label>Costos indirectos ($)</label>
+              <DecimalInput className="input mono" value={costosIndirectos} onChange={setCostosIndirectos} style={{ textAlign: 'right' }} />
+            </div>
+            <div className="form-row" style={{ maxWidth: 260 }}>
+              <label>{esRef ? 'Olla / horno de refinación' : 'Horno'}</label>
+              <select className="select" value={horno} onChange={(e) => setHorno(e.target.value)}>
+                <option value="">— Sin horno —</option>
+                {/* El horno actual se conserva aunque ya no esté activo en el catálogo. */}
+                {horno && !hornosList.includes(horno) && <option value={horno}>{horno}</option>}
+                {hornosList.map((h) => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+            <div className="form-row" style={{ maxWidth: 320 }}>
+              <label>Almacén destino</label>
+              <AlmacenSelectAgrupado value={almacenDestino} onChange={setAlmacenDestino} extraNombres={almacenesList} />
             </div>
           </div>
 
@@ -239,9 +346,10 @@ export function EditarMaterialesModal({
             📦 <strong>Los materiales son el registro de lo que se usó, no una salida.</strong> Editarlos recalcula el costo
             pero <strong>no mueve inventario</strong>, así que podés cargar más de lo que figura en «Stock».
             {esColada && <> La <strong>casiterita de los big bags</strong> es la excepción: se descuenta del Inventario Detallado.</>}
+            {esRef && <> El <strong>estaño crudo de las coladas</strong> es la excepción: se descuenta del almacén; se edita en <strong>«Material a procesar»</strong>, más abajo.</>}
           </div>
 
-          <div className="card-title" style={{ marginTop: '.8rem' }}>Materiales (consumo de inventario)</div>
+          <div className="card-title" style={{ marginTop: '.8rem' }}>{esRef ? 'Reactivos / insumos' : 'Materiales (consumo de inventario)'}</div>
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.85rem' }}>
               <thead><tr><th>Material</th><th>Sale de</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Stock</th><th></th></tr></thead>
@@ -282,6 +390,19 @@ export function EditarMaterialesModal({
                 fecha={coladaFecha} setFecha={setColadaFecha}
                 datos={coladaDatos} setDatos={setColadaDatos}
                 casiteritaDetalle={casiteritaDetalle} consumoBigBags={consumoBigBags}
+              />
+            </div>
+          )}
+
+          {esRef && (
+            <div style={{ marginTop: '1rem', borderTop: '2px dashed var(--border)', paddingTop: '.8rem' }}>
+              <div className="card-title" style={{ marginBottom: '.4rem' }}>⚗️ Reporte de refinación (MGG-FR-002)</div>
+              <RefinacionCampos
+                refinacionNum={refNum} setRefinacionNum={setRefNum}
+                fecha={refFecha} setFecha={setRefFecha}
+                datos={refDatos} setDatos={setRefDatos}
+                coladasFin={origenesRef}
+                materialesReceta={rows.filter((r) => (Number(r.cantidad) || 0) > 0).map((r) => ({ nombre: r.material_nombre }))}
               />
             </div>
           )}

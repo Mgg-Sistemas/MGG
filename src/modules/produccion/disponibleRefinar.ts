@@ -59,6 +59,27 @@ export function kgTomadosPorRefinaciones(
 }
 
 /**
+ * Suma al stock lo que una orden ya se había llevado (sus líneas que sí
+ * descuentan). Sirve al EDITAR esa orden: el almacén de hoy ya tiene restado
+ * su crudo, y sin devolverlo a la cuenta la refinación no podría volver a
+ * elegir las mismas coladas que ya tenía.
+ */
+export function stockMasLoDevuelto(
+  existencias: StockAlmacen[],
+  devueltos: ReadonlyArray<{ producto_id: string | null; almacen: string; cantidad: number | null }>,
+): StockAlmacen[] {
+  const out = existencias.map((e) => ({ ...e }));
+  for (const d of devueltos) {
+    const kg = Number(d.cantidad) || 0;
+    if (!d.producto_id || !d.almacen || kg <= 0) continue;
+    const fila = out.find((e) => e.producto_id === d.producto_id && e.almacen === d.almacen);
+    if (fila) fila.stock = round2((Number(fila.stock) || 0) + kg);
+    else out.push({ producto_id: d.producto_id, almacen: d.almacen, stock: round2(kg) });
+  }
+  return out;
+}
+
+/**
  * Resta a cada origen lo que ya se llevaron las refinaciones anteriores:
  * `estano_kg` queda en lo que todavía se puede tomar, `producido_kg` en lo que
  * dio el proceso y `refinado_kg` en lo ya tomado. Es la misma idea que los big

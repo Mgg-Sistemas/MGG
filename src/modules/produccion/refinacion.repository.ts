@@ -11,7 +11,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { ColadaDatos, RefinacionDatos, ProduccionRefinacion } from '@/shared/lib/types';
 import { precintosDeColada, precintosDeRefinacion } from './precintosOrigen';
 import { finalizarProduccion, sellarFechasDeLaOrden } from './produccion.repository';
-import { conDisponibleReal, kgTomadosPorRefinaciones, menosLoRefinado, type StockAlmacen } from './disponibleRefinar';
+import { conDisponibleReal, kgTomadosPorRefinaciones, menosLoRefinado, stockMasLoDevuelto, type StockAlmacen } from './disponibleRefinar';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import {
   NOMBRE_ESCORIA_REFINACION, asegurarFichaEscoria, avisoEscoriaPendiente, detalleEscoriaRefinacion,
@@ -21,12 +21,24 @@ import {
 const TABLE = 'produccion_refinacion';
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Stock actual de esos productos, para topar lo que ofrece la lista de orígenes. */
-async function stockDe(productoIds: string[]): Promise<StockAlmacen[]> {
+/**
+ * Stock actual de esos productos, para topar lo que ofrece la lista de orígenes.
+ * Si se está EDITANDO una orden, se le suma lo que esa orden ya descontó (su
+ * crudo): al guardar se devuelve y se vuelve a bajar, así que para elegir
+ * cuenta como disponible.
+ */
+async function stockDe(productoIds: string[], excluirProduccionId?: string): Promise<StockAlmacen[]> {
   const ids = [...new Set(productoIds.filter(Boolean))];
   if (!ids.length) return [];
-  const { data } = await supabase.from('existencias').select('producto_id, almacen, stock').in('producto_id', ids);
-  return (data ?? []) as StockAlmacen[];
+  const [{ data }, devueltos] = await Promise.all([
+    supabase.from('existencias').select('producto_id, almacen, stock').in('producto_id', ids),
+    excluirProduccionId
+      ? supabase.from('produccion_materiales').select('producto_id, almacen, cantidad')
+        .eq('produccion_id', excluirProduccionId).eq('siempre_descuenta', true)
+        .then((r) => (r.data ?? []) as Array<{ producto_id: string | null; almacen: string; cantidad: number | null }>)
+      : Promise.resolve([]),
+  ]);
+  return stockMasLoDevuelto((data ?? []) as StockAlmacen[], devueltos);
 }
 
 /**
@@ -121,7 +133,7 @@ export interface ColadaFinalizada {
  * estaño crudo a refinar. Cruza `produccion` (tipo='fundicion', finalizada) con
  * su reporte de colada para traer el N° de colada.
  */
-export async function listColadasFinalizadas(): Promise<ColadaFinalizada[]> {
+export async function listColadasFinalizadas(excluirProduccionId?: string): Promise<ColadaFinalizada[]> {
   const { data: prods, error } = await supabase
     .from('produccion')
     .select('id, producto_id, producto_nombre, cantidad, almacen_destino, costo_unitario')
@@ -166,7 +178,9 @@ export async function listColadasFinalizadas(): Promise<ColadaFinalizada[]> {
   // Lo que se ofrece para refinar es lo que HAY, no lo que dio la colada: se le
   // resta lo que ya se llevaron otras refinaciones y, encima, se topa contra el
   // stock real (si se corrigió el inventario, la lista lo refleja).
-  const [tomados, stock] = await Promise.all([tomadosPorRefinaciones(), stockDe(base.map((b) => b.producto_id ?? ''))]);
+  const [tomados, stock] = await Promise.all([
+    tomadosPorRefinaciones(excluirProduccionId), stockDe(base.map((b) => b.producto_id ?? ''), excluirProduccionId),
+  ]);
   return conDisponibleReal(menosLoRefinado(base, tomados), stock);
 }
 
@@ -218,7 +232,7 @@ export async function listRefinacionesFinalizadas(excluirProduccionId?: string):
     };
   });
   const [tomados, stock] = await Promise.all([
-    tomadosPorRefinaciones(excluirProduccionId), stockDe(base.map((b) => b.producto_id ?? '')),
+    tomadosPorRefinaciones(excluirProduccionId), stockDe(base.map((b) => b.producto_id ?? ''), excluirProduccionId),
   ]);
   return conDisponibleReal(menosLoRefinado(base, tomados), stock);
 }
