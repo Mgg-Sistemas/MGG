@@ -197,3 +197,18 @@ describe('compartir por la hoja del sistema', () => {
     expect(await compartirMovimiento('hola')).toBe(true);
   });
 });
+
+describe('ajustes del 29-09', () => {
+  it('el combustible lleva el surtidor y los litros el número; ya no hay gota', () => {
+    const t = mensajeMovimiento(mov(), { combustible: 'GASOLINA' });
+    expect(t).toContain('⛽ Combustible: GASOLINA');
+    expect(t).toMatch(/🔢 Litros: \*/);
+    expect(t).not.toContain('💧');
+  });
+
+  it('el mensaje ya no dice quién lo registró', () => {
+    const t = mensajeMovimiento(mov(), { registradoPor: 'ISNER' });
+    expect(t).not.toContain('Registró');
+    expect(t).not.toContain('ISNER');
+  });
+});

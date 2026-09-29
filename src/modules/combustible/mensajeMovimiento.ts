@@ -119,8 +119,10 @@ export function mensajeMovimiento(m: MovimientoParaMensaje, ctx: ContextoMensaje
     lineas.push(`${icono} ${rotulo}: ${v}`);
   };
 
-  poner('💧', 'Combustible', ctx.combustible);
-  lineas.push(`⛽ Litros: *${litrosTexto(m.litros)}*`);
+  // El surtidor ⛽ va en la línea del combustible, que es lo que se está
+  // moviendo; los litros llevan el emoji de números, que es la cantidad.
+  poner('⛽', 'Combustible', ctx.combustible);
+  lineas.push(`🔢 Litros: *${litrosTexto(m.litros)}*`);
 
   if (m.tipo === 'traslado') {
     poner('📤', 'Sale de', ctx.tanque);
@@ -137,14 +139,15 @@ export function mensajeMovimiento(m: MovimientoParaMensaje, ctx: ContextoMensaje
   // El contador es lo que se discute cuando los litros no cuadran: va en el
   // mensaje para que la discusión ocurra con el dato a la vista.
   if (m.contador_global_ini != null || m.contador_global_fin != null) {
-    poner('🔢', 'Contador', `${m.contador_global_ini ?? '—'} → ${m.contador_global_fin ?? '—'}`);
+    poner('📟', 'Contador', `${m.contador_global_ini ?? '—'} → ${m.contador_global_fin ?? '—'}`);
   }
   if (m.horometro_final != null) poner('⏰', 'Horómetro', m.horometro_final);
   if (m.kilometraje_final != null) poner('📏', 'Kilometraje', m.kilometraje_final);
 
   lineas.push(`📅 Fecha: ${fechaHoraTexto(m.fecha)}`);
   poner('📝', 'Observación', m.observacion);
-  poner('🙍', 'Registró', ctx.registradoPor);
+  // «Registró» se quitó del mensaje (29-09): quien lo manda por WhatsApp es
+  // quien lo cargó, y el renglón sobraba. El dato sigue en el movimiento.
 
   lineas.push('', '_MGG · Mineral Group Guayana_');
   return lineas.join('\n');

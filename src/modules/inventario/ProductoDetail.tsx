@@ -9,6 +9,7 @@ import { listAlmacenes, listExistenciasDeProducto } from './almacenes.repository
 import {
   ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sinAlmacen, stockEn, trasladoDeMovimiento,
+  almacenesDeOtrasSedes,
 } from './stockPorAlmacen';
 // descargarProductoPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
@@ -92,14 +93,45 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
 
   const cargandoStock = existencias === null;
   const desglose = useMemo(() => desglosePorSede(existencias ?? [], almacenes, origen?.sede ?? null), [existencias, almacenes, origen?.sede]);
-  const almacenesKardex = useMemo(() => almacenesDelKardex(movs, almacenes, origen?.sede ?? null), [movs, almacenes, origen?.sede]);
+  /*
+   * Abierto desde una sede, el kardex arranca mostrando SOLO esa sede: quien
+   * mira la trazabilidad de un víver de su cocina no tiene por qué leer
+   * movimientos de otro centro como si fueran suyos.
+   *
+   * No se esconde y punto: si el producto pasó por otras sedes, un botón lo
+   * dice y las trae. Recortar sin avisar es peor que no recortar, porque ese
+   * stock existe y alguien lo va a ir a buscar.
+   */
+  const [verOtrasSedes, setVerOtrasSedes] = useState(false);
+  const recorta = !!origen?.sede && !verOtrasSedes;
+  const nOtrasSedes = useMemo(
+    () => almacenesDeOtrasSedes(movs, almacenes, origen?.sede ?? null),
+    [movs, almacenes, origen?.sede],
+  );
+  const almacenesKardex = useMemo(
+    () => almacenesDelKardex(movs, almacenes, origen?.sede ?? null, recorta),
+    [movs, almacenes, origen?.sede, recorta],
+  );
   const nSinAlmacen = useMemo(() => contarSinAlmacen(movs), [movs]);
   // Si el almacén elegido no tiene movimientos (o ya no existe), se muestra todo.
   const filtroEfectivo =
     filtroAlm === FILTRO_SIN_ALMACEN ? (nSinAlmacen > 0 ? FILTRO_SIN_ALMACEN : null)
     : filtroAlm && almacenesKardex.includes(filtroAlm) ? filtroAlm
     : null;
-  const movsVisibles = useMemo(() => filtrarKardex(movs, filtroEfectivo), [movs, filtroEfectivo]);
+  /**
+   * Los movimientos del kardex ya recortados a la sede.
+   *
+   * Sin un almacén elegido, «todos» quiere decir todos los de ESTA sede. Las
+   * líneas sin almacén se quedan siempre: una recepción de compra sí entró a
+   * algún lado, solo que el dato no lo dice, y esconderla haría creer que el
+   * stock apareció de la nada.
+   */
+  const movsDeSede = useMemo(() => {
+    if (!recorta) return movs;
+    const propios = new Set(almacenesKardex);
+    return movs.filter((m) => sinAlmacen(m) || propios.has((m.almacen ?? '').trim()));
+  }, [movs, recorta, almacenesKardex]);
+  const movsVisibles = useMemo(() => filtrarKardex(movsDeSede, filtroEfectivo), [movsDeSede, filtroEfectivo]);
   /** Día y hora ya formateados + si la fila abre un día nuevo (cabecera del kardex). */
   const lineas = useMemo(() => {
     let diaPrevio = '';
@@ -111,10 +143,10 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
       return { m, dia, nuevoDia, hora: Number.isNaN(d.getTime()) ? '' : FMT_HORA.format(d) };
     });
   }, [movsVisibles]);
-  const { entradas: totalIn, salidas: totalOut } = useMemo(() => entradasSalidas(movs, filtroEfectivo), [movs, filtroEfectivo]);
-  const ambito = !filtroEfectivo ? 'todas las sedes' : filtroEfectivo === FILTRO_SIN_ALMACEN ? 'recepciones de compra' : `▣ ${filtroEfectivo}`;
+  const { entradas: totalIn, salidas: totalOut } = useMemo(() => entradasSalidas(movsDeSede, filtroEfectivo), [movsDeSede, filtroEfectivo]);
+  const ambito = !filtroEfectivo ? (recorta ? nombreSedeCorto(origen?.sede ?? null) : 'todas las sedes') : filtroEfectivo === FILTRO_SIN_ALMACEN ? 'recepciones de compra' : `▣ ${filtroEfectivo}`;
   const unidad = esBruto || esRefinado ? 'kg' : producto.unidad;
-  const hayChips = almacenesKardex.length + (nSinAlmacen > 0 ? 1 : 0) > 1;
+  const hayChips = almacenesKardex.length + (nSinAlmacen > 0 ? 1 : 0) + (nOtrasSedes > 0 ? 1 : 0) > 1;
   // La suma por almacén y el agregado del producto DEBERÍAN coincidir; si no, hay que decirlo.
   const descuadre = !cargandoStock && !errorStock && Math.abs(desglose.total - (Number(producto.stock) || 0)) > 0.0005;
   const valorStock = (n: number) => (cargandoStock ? '…' : errorStock ? '?' : `${num(n)} ${unidad}`);
@@ -266,7 +298,8 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', alignItems: 'center' }}>
             <span className="muted" style={{ fontSize: '.78rem' }}>Kardex de:</span>
             <button type="button" className={`chip ${!filtroEfectivo ? 'chip-active' : ''}`} onClick={() => setFiltroAlm(null)}>
-              Todos los almacenes <span className="dim">· {movs.length}</span>
+              {recorta ? `Todo ${nombreSedeCorto(origen?.sede ?? null)}` : 'Todos los almacenes'}
+              <span className="dim"> · {movsDeSede.length}</span>
             </button>
             {almacenesKardex.map((a) => (
               <button key={a} type="button" className={`chip ${filtroEfectivo === a ? 'chip-active' : ''}`} onClick={() => setFiltroAlm(a)}>
@@ -278,7 +311,23 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
                 📦 Recepciones de compra (sin almacén) <span className="dim">· {nSinAlmacen}</span>
               </button>
             )}
+            {/* El recorte por sede nunca es silencioso: si el producto pasó por
+                otro centro, el botón lo dice y lo trae. */}
+            {origen?.sede && nOtrasSedes > 0 && (
+              <button type="button" className="chip" onClick={() => { setVerOtrasSedes((v) => !v); setFiltroAlm(null); }}
+                title={verOtrasSedes ? `Volver a ver solo ${nombreSedeCorto(origen.sede)}` : 'Este producto también se movió en otros centros'}>
+                {verOtrasSedes
+                  ? `↩ Solo ${nombreSedeCorto(origen.sede)}`
+                  : `🌐 Ver otras sedes · ${nOtrasSedes}`}
+              </button>
+            )}
           </div>
+          {recorta && nOtrasSedes > 0 && (
+            <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>
+              Se está viendo solo <strong>{nombreSedeCorto(origen?.sede ?? null)}</strong>. Este producto también se movió
+              en {nOtrasSedes === 1 ? 'otro almacén' : `${nOtrasSedes} almacenes`} de otras sedes.
+            </div>
+          )}
           {filtroEfectivo && filtroEfectivo !== FILTRO_SIN_ALMACEN && nSinAlmacen > 0 && (
             <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>
               Las recepciones de compra no registran a qué almacén entraron: se muestran igual, pero no se cuentan en «Entradas (▣ {filtroEfectivo})».

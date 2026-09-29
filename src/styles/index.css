@@ -4,6 +4,7 @@
 @import './login.css';
 @import './landing.css';
 @import './surtidor.css';
+@import './descansos.css';
 
 @tailwind utilities;
 

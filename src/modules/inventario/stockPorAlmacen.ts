@@ -262,16 +262,23 @@ export function stockEn(existencias: Pick<Existencia, 'almacen' | 'stock'>[], al
  * Almacenes que aparecen en el kardex, para los chips de filtro: primero los de la sede
  * desde la que se abrió el modal, luego por cantidad de movimientos, luego por nombre.
  * Las líneas sin almacén no entran acá (ver `contarSinAlmacen`).
+ *
+ * Con `soloSede`, devuelve ÚNICAMENTE los de esa sede. Parado en Los Pinos, el
+ * modal listaba igual «Acopio Los Pijiguaos › ALMACEN CASITERITA» —la sede solo
+ * ordenaba, no recortaba—, y quien abría la trazabilidad de un víver de su
+ * cocina terminaba leyendo movimientos de otro centro como si fueran suyos.
  */
 export function almacenesDelKardex(
   movs: Pick<Movimiento, 'almacen'>[],
   almacenes: Pick<Almacen, 'nombre' | 'sede'>[],
   origenSede?: string | null,
+  soloSede = false,
 ): string[] {
   const conteo = new Map<string, number>();
   for (const m of movs) {
     if (sinAlmacen(m)) continue;
     const a = (m.almacen ?? '').trim();
+    if (soloSede && origenSede && !mismaSede(sedeDeAlmacen(a, almacenes), origenSede)) continue;
     conteo.set(a, (conteo.get(a) ?? 0) + 1);
   }
   return [...conteo.entries()]
@@ -281,6 +288,23 @@ export function almacenesDelKardex(
       return ox - oy || y[1] - x[1] || x[0].localeCompare(y[0]);
     })
     .map(([a]) => a);
+}
+
+/**
+ * Cuántos almacenes del kardex quedan escondidos al recortar por sede.
+ *
+ * El número se muestra en un botón: recortar sin decir qué se recortó es peor
+ * que no recortar, porque el stock de la otra sede existe y alguien lo va a
+ * buscar.
+ */
+export function almacenesDeOtrasSedes(
+  movs: Pick<Movimiento, 'almacen'>[],
+  almacenes: Pick<Almacen, 'nombre' | 'sede'>[],
+  origenSede?: string | null,
+): number {
+  if (!origenSede) return 0;
+  const todos = almacenesDelKardex(movs, almacenes, origenSede, false);
+  return todos.filter((a) => !mismaSede(sedeDeAlmacen(a, almacenes), origenSede)).length;
 }
 
 /** Cuántas líneas del kardex no registraron almacén (recepciones de compra). */

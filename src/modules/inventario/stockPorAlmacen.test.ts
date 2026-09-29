@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ajustesPmpPorAlmacen, almacenesDelKardex, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
+  ajustesPmpPorAlmacen, almacenesDelKardex, almacenesDeOtrasSedes, contarSinAlmacen, desglosePorSede, entradasSalidas, etiquetaAlmacen,
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sedeDeAlmacen, stockEn,
   trasladoDeMovimiento, almacenPrincipalDeSede, agregarExistencias, rotuloAlmacen,
   esAlmacenMineral, destinosDeTraslado, esSalidaDeConsolidacion,
@@ -503,5 +503,57 @@ describe('salida de consolidación', () => {
   it('no infla el total de salidas del período', () => {
     // Sin el filtro, las salidas darían 458,6 por una fusión que no despachó nada.
     expect(entradasSalidas(movs, null)).toEqual({ entradas: 443.6, salidas: 15 });
+  });
+});
+
+describe('el kardex recortado a la sede en la que estoy', () => {
+  const almacenes = [
+    { nombre: 'Los Pinos', sede: 'LOS PINOS' },
+    { nombre: 'INSUMOS Y CONSUMIBLES', sede: 'LOS PINOS' },
+    { nombre: 'General', sede: 'CENTRO DE FUNDICION - MATANZAS' },
+    { nombre: 'ALMACEN CASITERITA', sede: 'CENTRO DE ACOPIO - LOS PIJIGUAOS' },
+  ];
+  const movs = [
+    { almacen: 'Los Pinos' },
+    { almacen: 'Los Pinos' },
+    { almacen: 'INSUMOS Y CONSUMIBLES' },
+    { almacen: 'General' },
+    { almacen: 'ALMACEN CASITERITA' },
+    { almacen: null },
+  ];
+
+  it('parado en Los Pinos ya NO aparece el almacén de otra sede', () => {
+    // Era el síntoma: «Acopio Los Pijiguaos › ALMACEN CASITERITA» en la
+    // trazabilidad de un víver abierta desde Los Pinos.
+    const soloPinos = almacenesDelKardex(movs, almacenes, 'LOS PINOS', true);
+    expect(soloPinos).toEqual(['Los Pinos', 'INSUMOS Y CONSUMIBLES']);
+    expect(soloPinos).not.toContain('ALMACEN CASITERITA');
+    expect(soloPinos).not.toContain('General');
+  });
+
+  it('sin recortar, siguen estando todos (los de la sede primero)', () => {
+    expect(almacenesDelKardex(movs, almacenes, 'LOS PINOS', false)).toHaveLength(4);
+  });
+
+  it('dice cuántos almacenes de otras sedes quedaron escondidos', () => {
+    expect(almacenesDeOtrasSedes(movs, almacenes, 'LOS PINOS')).toBe(2);
+    expect(almacenesDeOtrasSedes(movs, almacenes, 'CENTRO DE FUNDICION - MATANZAS')).toBe(3);
+  });
+
+  it('sin sede de origen no recorta nada y no reporta escondidos', () => {
+    expect(almacenesDelKardex(movs, almacenes, null, true)).toHaveLength(4);
+    expect(almacenesDeOtrasSedes(movs, almacenes, null)).toBe(0);
+  });
+
+  it('un almacén que ya no existe no se cuela en la sede', () => {
+    const conFantasma = [...movs, { almacen: 'ALMACEN BORRADO' }];
+    expect(almacenesDelKardex(conFantasma, almacenes, 'LOS PINOS', true)).not.toContain('ALMACEN BORRADO');
+    // Pero sin recortar sigue visible: mejor un dato viejo a la vista que una fila perdida.
+    expect(almacenesDelKardex(conFantasma, almacenes, 'LOS PINOS', false)).toContain('ALMACEN BORRADO');
+  });
+
+  it('las líneas sin almacén nunca cuentan como de otra sede', () => {
+    expect(almacenesDelKardex([{ almacen: null }, { almacen: '' }], almacenes, 'LOS PINOS', true)).toEqual([]);
+    expect(almacenesDeOtrasSedes([{ almacen: null }], almacenes, 'LOS PINOS')).toBe(0);
   });
 });

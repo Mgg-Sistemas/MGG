@@ -443,6 +443,19 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     const nombres = (c: 'cas' | 'refinado' | 'bruto' | 'resto') => alms.filter((a) => clase(a.nombre) === c).map((a) => a.nombre);
     return { cas: nombres('cas'), bruto: nombres('bruto'), refinado: nombres('refinado'), resto: nombres('resto') };
   }, [sedeScope, almacenes, segmentaSubalmacenes]);
+  /**
+   * Los almacenes que se pueden OFRECER estando parado en esta sede.
+   *
+   * Los formularios que salen de acá —cargar un movimiento, mover un producto,
+   * el árbol del reporte— se poblaban con la tabla entera: en Los Pinos te
+   * ofrecían «ALMACEN CASITERITA» de Los Pijiguaos, y de ahí a mandar stock a
+   * otro centro por error hay un clic. Sin sede (Depósito) queda todo, que es
+   * lo correcto ahí.
+   */
+  const almacenesOfrecibles = useMemo(
+    () => (sedeScope ? almacenes.filter((a) => (a.sede?.trim() || '') === sedeScope) : almacenes),
+    [almacenes, sedeScope],
+  );
   // Lista de almacenes que corresponde a la sub-vista actual.
   const almsDeSubvista = (sv: typeof subVista, s: NonNullable<typeof almacenesDeScope>) =>
     sv === 'casiterita' ? s.cas : sv === 'bruto' ? s.bruto : sv === 'refinado' ? s.refinado : s.resto;
@@ -1266,7 +1279,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         <MovimientoForm
           producto={modal.producto}
           existencias={existMap.get(modal.producto.id) ?? []}
-          almacenesList={almacenes.map((a) => a.nombre)}
+          almacenesList={almacenesOfrecibles.map((a) => a.nombre)}
           fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
           preferAlmacen={preferAlmacenMovimiento(modal.producto.id)}
           actorEmail={productoActor}
@@ -1306,7 +1319,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           producto={{ id: moverProd.id, nombre: moverProd.nombre }}
           almacenOrigen={almacenSel}
           stockDisponible={Number(moverProd.stock) || 0}
-          almacenes={almacenes.map((a) => a.nombre)}
+          almacenes={almacenesOfrecibles.map((a) => a.nombre)}
           actor={productoActor}
           actorName={actorName}
           onClose={() => setMoverProd(null)}
@@ -1316,7 +1329,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       {presenciaProd && (
         <PresenciaAlmacenModal
           producto={{ id: presenciaProd.id, nombre: presenciaProd.nombre, sku: presenciaProd.sku, precio: Number(presenciaProd.precio) || 0 }}
-          almacenes={almacenes}
+          almacenes={almacenesOfrecibles}
           existencias={existencias.filter((e) => e.producto_id === presenciaProd.id)}
           onClose={() => setPresenciaProd(null)}
           onDone={() => { void reload(); }}
@@ -1382,7 +1395,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           >
             <div className="form-row">
               <label>Almacén {reporteFiltroSel && <span className="muted" style={{ fontWeight: 400 }}>· elegido: <strong>{reporteFiltroSel}</strong></span>}</label>
-              <AlmacenArbol almacenes={almacenes} existencias={existencias} value={reporteFiltroSel} onChange={setReporteFiltroSel} />
+              <AlmacenArbol almacenes={almacenesOfrecibles} existencias={existencias} value={reporteFiltroSel} onChange={setReporteFiltroSel} />
               <small className="hint muted" style={{ fontSize: '.72rem' }}>Tocá un almacén <strong>general</strong> (trae también sus subalmacenes) o desplegá con ▸ para elegir un <strong>subalmacén</strong>.</small>
             </div>
             {reporteFiltroSel ? (

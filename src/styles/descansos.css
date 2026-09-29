@@ -1,0 +1,77 @@
+/* RRHH · Descansos (rotación 21×7): calendario por trabajador */
+.descansos .desc-kpi { text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.descansos .desc-kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.descansos .desc-kpi.alerta { border-color: var(--danger); }
+.descansos .desc-kpi.alerta .value { color: var(--danger); }
+.descansos .kpi .value small { font-size: .9rem; color: var(--text-muted); font-weight: 600; }
+
+.desc-barra { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin-bottom: .75rem; }
+.desc-mes { display: flex; align-items: center; gap: .4rem; }
+.desc-mes strong { min-width: 140px; text-align: center; }
+.desc-buscar { flex: 1 1 220px; min-width: 0; }
+.desc-acciones { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+
+.desc-scroll { overflow-x: auto; padding: 0; }
+.desc-grid { display: grid; grid-auto-rows: 38px; font-size: .8rem; }
+.desc-nombre {
+  grid-column: 1; position: sticky; left: 0; z-index: 2;
+  display: flex; align-items: center; gap: .35rem; min-width: 0; padding: 0 .5rem;
+  background: var(--surface-2); border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+}
+.desc-nombre-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.desc-nombre small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .66rem; }
+.desc-cab { grid-row: 1; font-weight: 700; font-size: .74rem; }
+.desc-dia {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05;
+  border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); color: var(--text-muted);
+}
+.desc-dia small { font-size: .58rem; font-weight: 600; opacity: .8; }
+.desc-dia.domingo { background: rgba(255,255,255,.025); }
+.desc-dia.hoy { background: var(--primary); color: #111; }
+.desc-dia.choque { box-shadow: inset 0 -3px 0 var(--danger); }
+
+.desc-celda {
+  padding: 0; border: 0; background: transparent; font: inherit;
+  border-bottom: 1px solid var(--border); border-right: 1px solid rgba(127,127,127,.12);
+}
+button.desc-celda { cursor: pointer; }
+button.desc-celda:hover { background: rgba(255,138,0,.10); }
+button.desc-celda:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.desc-celda.hoy { background: rgba(255,138,0,.08); }
+
+.desc-bar {
+  align-self: center; z-index: 1; height: 26px; margin: 0 2px; padding: 0 .4rem;
+  border: 0; border-radius: 6px; cursor: pointer; font: inherit; font-size: .7rem; font-weight: 700;
+  color: #fff; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.desc-bar.plan { background: var(--primary); color: #1a1205; }
+.desc-bar.manual { background: var(--info); }
+.desc-bar:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+
+.desc-estado { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.desc-estado.fuera { background: var(--primary); }
+
+.desc-pie { position: sticky; bottom: 0; background: var(--surface-3); font-weight: 700; border-top: 2px solid var(--border-strong); }
+.desc-total { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); border-right: 1px solid var(--border); }
+.desc-total.lleno { color: var(--warning); }
+.desc-total.choque { background: var(--danger); color: #fff; }
+
+.desc-leyenda { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin-top: .6rem; font-size: .78rem; align-items: center; }
+.desc-leyenda span { display: inline-flex; align-items: center; gap: .35rem; }
+.desc-muestra { display: inline-block; width: 14px; height: 10px; border-radius: 3px; }
+.desc-muestra.plan { background: var(--primary); }
+.desc-muestra.manual { background: var(--info); }
+.desc-muestra.choque { background: var(--danger); }
+
+.desc-item {
+  display: flex; flex-wrap: wrap; gap: .2rem .6rem; align-items: baseline; width: 100%;
+  padding: .6rem .7rem; margin-bottom: .4rem; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.desc-item:hover { border-color: var(--primary); }
+.desc-item .mono { width: 100%; font-size: .8rem; }
+
+.desc-plan-lista { max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--r-md); }
+.desc-plan-fila { display: flex; gap: .5rem; align-items: center; padding: .4rem .6rem; border-bottom: 1px solid var(--border); cursor: pointer; }
+.desc-plan-fila:last-child { border-bottom: 0; }
+.desc-plan-fila small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
