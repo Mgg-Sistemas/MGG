@@ -22,8 +22,8 @@ import { GestionarInvolucradosModal } from './GestionarInvolucradosModal';
 import { MenuBoton, MenuItem } from '@/shared/ui/MenuBoton';
 import { recorteKanban, TOPE_FINALIZADOS } from './topeKanban';
 import { PisoFundicionModal } from './PisoFundicionModal';
-import { getColadasByProduccion } from './colada.repository';
-import { getRefinacionesByProduccion } from './refinacion.repository';
+import { listColadasDatos } from './colada.repository';
+import { listRefinacionesDatos } from './refinacion.repository';
 import { rotuloOrigenTiempos, tiemposDeLaOrden, type DatosConHoras } from './tiemposDeLaOrden';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
@@ -125,32 +125,35 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
    */
   const reload = useCallback(async (opts?: { silencioso?: boolean }) => {
     if (!opts?.silencioso) setLoading(true);
-    const pProducciones = listProducciones(tipo);
-    const pResto = Promise.all([
-      listProductos().catch(() => [] as Producto[]),
-      listExistencias().catch(() => [] as Existencia[]),
-      listAlmacenes().catch(() => [] as Almacen[]),
-      getNombresHornosActivos().catch(() => [] as string[]),
-    ]);
     try {
-      const filas = await pProducciones;
+      // El tablero en UN solo viaje: las órdenes y los reportes (de donde salen
+      // las horas de cada tarjeta) van en paralelo. Antes los reportes se
+      // pedían DESPUÉS de las órdenes, en serie, y encima compitiendo por la
+      // red con productos+existencias (≈3.000 filas) que arrancaban a la vez:
+      // al cerrar una refinación el spinner «Cargando refinación…» tapaba el
+      // tablero varios segundos por una lista de diez órdenes.
+      const [filas, reportes] = await Promise.all([
+        listProducciones(tipo),
+        (tipo === 'refinacion' ? listRefinacionesDatos() : listColadasDatos()).catch(() => new Map<string, DatosConHoras>()),
+      ]);
       setProducciones(filas);
-      // Las horas reales de cada orden viven en su reporte, no en la orden: una
-      // consulta para todas, así la tarjeta no dice «3 min» por una colada de
-      // nueve horas y media.
-      const ids = filas.map((f) => f.id);
-      const reportes = tipo === 'refinacion'
-        ? await getRefinacionesByProduccion(ids).catch(() => new Map())
-        : await getColadasByProduccion(ids).catch(() => new Map());
       const mapa = new Map<string, DatosConHoras>();
-      reportes.forEach((r, k) => mapa.set(k, (r.datos ?? {}) as DatosConHoras));
+      reportes.forEach((r, k) => mapa.set(k, (r ?? {}) as DatosConHoras));
       setHorasPorOrden(mapa);
     } catch (e) {
       toast(e instanceof Error ? e.message : `No se pudo cargar ${cfg.verbo}`, 'error');
     } finally {
       setLoading(false);
     }
-    const [pds, exs, alms, hrns] = await pResto;
+    // Lo pesado —productos, existencias, almacenes, hornos— es para los modales,
+    // no para el tablero. Se trae DESPUÉS de pintarlo (cacheado; realtime lo
+    // invalida cuando cambia), así nunca le quita la red a la lista de órdenes.
+    const [pds, exs, alms, hrns] = await Promise.all([
+      listProductos().catch(() => [] as Producto[]),
+      listExistencias().catch(() => [] as Existencia[]),
+      listAlmacenes().catch(() => [] as Almacen[]),
+      getNombresHornosActivos().catch(() => [] as string[]),
+    ]);
     setProductos(pds);
     setExistencias(exs);
     setAlmacenes(alms);
@@ -451,7 +454,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           actorName={actorName}
           initialProductoId={modal.initialProductoId}
           onClose={() => setModal({ kind: 'none' })}
-          onCreated={() => { void reload(); }}
+          onCreated={() => { void reload({ silencioso: true }); }}
           onProductosChanged={reload}
           onHornosChanged={reload}
         />
@@ -469,7 +472,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
         <GestionarHornosModal
           actor={actor}
           onClose={() => setModal({ kind: 'none' })}
-          onCambioAplicado={() => { void reload(); }}
+          onCambioAplicado={() => { void reload({ silencioso: true }); }}
         />
       )}
       {modal.kind === 'piso' && (
@@ -478,7 +481,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           actorName={actorName}
           canWrite={canWrite}
           onClose={() => setModal({ kind: 'none' })}
-          onCambio={() => { void reload(); }}
+          onCambio={() => { void reload({ silencioso: true }); }}
         />
       )}
       {modal.kind === 'ver' && <ProduccionDetalle id={modal.id} defaultEmail={actor} onClose={() => setModal({ kind: 'none' })} />}
@@ -494,7 +497,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           actor={actor}
           actorName={actorName}
           onClose={() => setModal({ kind: 'none' })}
-          onSaved={() => { setModal({ kind: 'none' }); void reload(); }}
+          onSaved={() => { setModal({ kind: 'none' }); void reload({ silencioso: true }); }}
         />
       )}
       {modal.kind === 'recetas' && (
@@ -521,7 +524,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           actor={actor}
           actorName={actorName}
           onClose={() => setModal({ kind: 'none' })}
-          onDone={() => { setModal({ kind: 'none' }); void reload(); }}
+          onDone={() => { setModal({ kind: 'none' }); void reload({ silencioso: true }); }}
         />
       )}
       {modal.kind === 'finalizar' && tipo === 'refinacion' && (
@@ -530,7 +533,7 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
           actor={actor}
           actorName={actorName}
           onClose={() => setModal({ kind: 'none' })}
-          onDone={() => { setModal({ kind: 'none' }); void reload(); }}
+          onDone={() => { setModal({ kind: 'none' }); void reload({ silencioso: true }); }}
         />
       )}
     </div>

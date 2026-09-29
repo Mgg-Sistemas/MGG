@@ -335,12 +335,26 @@ export async function crearRefinacion(input: {
 }
 
 /** Actualiza campos sueltos del reporte (fusiona el patch sobre `datos`). */
-export async function actualizarRefinacionDatos(produccionId: string, patch: Partial<RefinacionDatos>): Promise<void> {
+export async function actualizarRefinacionDatos(produccionId: string, patch: Partial<RefinacionDatos>): Promise<RefinacionDatos> {
   const actual = await getRefinacion(produccionId);
-  const datos = { ...(actual?.datos ?? {}), ...patch };
+  const datos = { ...(actual?.datos ?? {}), ...patch } as RefinacionDatos;
   const { error } = await supabase.from(TABLE)
     .update({ datos, updated_at: new Date().toISOString() }).eq('produccion_id', produccionId);
   if (error) throw error;
+  return datos;
+}
+
+/**
+ * Los `datos` del reporte de TODAS las refinaciones, por produccion_id. Es lo
+ * que el tablero necesita para las horas de cada tarjeta, en UNA consulta que
+ * corre en paralelo con la lista de órdenes (antes iba después, en serie).
+ */
+export async function listRefinacionesDatos(): Promise<Map<string, RefinacionDatos>> {
+  const { data, error } = await supabase.from(TABLE).select('produccion_id, datos');
+  if (error) throw error;
+  const out = new Map<string, RefinacionDatos>();
+  (data ?? []).forEach((r) => out.set(r.produccion_id as string, ((r as { datos?: RefinacionDatos | null }).datos ?? {}) as RefinacionDatos));
+  return out;
 }
 
 /** Actualiza la cabecera (N° de refinación y/o fecha). */
@@ -389,7 +403,9 @@ export interface RefinacionResultados {
 export async function finalizarRefinacionConResultados(
   produccionId: string, resultados: RefinacionResultados, actor: string, actorName?: string | null,
 ): Promise<string | null> {
-  await actualizarRefinacionDatos(produccionId, resultados);
+  // Se conserva lo guardado: es lo que sella las fechas de la orden al final,
+  // sin volver a leer el reporte (un viaje menos en un cierre que ya tiene muchos).
+  const datosFinales = await actualizarRefinacionDatos(produccionId, resultados);
 
   const refinado = Number(resultados.estano_refinado_kg) || 0;
   if (refinado > 0) {
@@ -416,9 +432,7 @@ export async function finalizarRefinacionConResultados(
   // La orden se sella con la JORNADA que cargó el operador: si la refinación se
   // carga después, sus fechas tienen que ser las del día que se trabajó, no las
   // del día que se tecleó. Es lo mismo que se hace con la colada.
-  const { data: rep } = await supabase.from(TABLE)
-    .select('datos').eq('produccion_id', produccionId).maybeSingle();
-  await sellarFechasDeLaOrden(produccionId, (rep?.datos ?? null) as RefinacionDatos | null);
+  await sellarFechasDeLaOrden(produccionId, datosFinales);
 
   return aviso;
 }

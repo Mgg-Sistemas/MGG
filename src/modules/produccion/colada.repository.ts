@@ -125,6 +125,19 @@ export async function getColadasByProduccion(ids: string[]): Promise<Map<string,
   return out;
 }
 
+/**
+ * Los `datos` del reporte de TODAS las coladas, por produccion_id: lo que el
+ * tablero necesita para las horas de cada tarjeta, en UNA consulta que corre en
+ * paralelo con la lista de órdenes (antes iba después, en serie).
+ */
+export async function listColadasDatos(): Promise<Map<string, ColadaDatos>> {
+  const { data, error } = await supabase.from(TABLE).select('produccion_id, datos');
+  if (error) throw error;
+  const out = new Map<string, ColadaDatos>();
+  (data ?? []).forEach((r) => out.set(r.produccion_id as string, ((r as { datos?: ColadaDatos | null }).datos ?? {}) as ColadaDatos));
+  return out;
+}
+
 /** Una fila del RESUMEN GENERAL de fundición (una colada finalizada). */
 export interface FundicionResumenRow {
   colada_num: number;
