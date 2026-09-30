@@ -81,7 +81,7 @@ export function RepartirMercadoModal({ resumen, cocinaNombre, almacen, actor, us
 
   // Una sola razón a la vista, la primera que falta: una lista de cuatro errores
   // juntos no dice por dónde empezar.
-  const bloqueo = !destino ? 'Elegí a qué cocina va el reparto.'
+  const bloqueo = !destino ? 'Elegí a qué cocina o resguardo va la distribución.'
     : !elegidas.length ? 'Indicá cuánto va de al menos un víver.'
     : excedidas.length ? `${excedidas.length} víver${excedidas.length === 1 ? '' : 'es'} piden más de lo que hay en el almacén.`
     : enDestino.length ? `${enDestino[0].v.nombre} ya está en ${destino.almacen}: ese traslado no movería nada.`
@@ -123,22 +123,22 @@ export function RepartirMercadoModal({ resumen, cocinaNombre, almacen, actor, us
   }
 
   return (
-    <Modal title={`Repartir el mercado #${mercado.numero} · ${cocinaNombre}`} size="lg"
+    <Modal title={`Distribución a otra cocina / resguardo · ${cocinaNombre}`} size="lg"
       onClose={() => { if (!guardando) onClose(); }}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
           <button className="btn btn-primary" onClick={() => void confirmar()}
             disabled={!!bloqueo || guardando || cargando} title={bloqueo ?? undefined}>
-            {guardando ? 'Repartiendo…' : '🚚 Repartir ahora'}
+            {guardando ? 'Distribuyendo…' : '🚚 Distribuir ahora'}
           </button>
         </>
       }>
       <p className="hint muted" style={{ marginTop: 0 }}>
-        El reparto entre cocinas <strong>no lleva autorización</strong> y se hace en el momento: los víveres
-        salen de <strong>{cocinaNombre}</strong> y entran a la otra cocina apenas confirmás. Queda el{' '}
+        La distribución entre cocinas y resguardos <strong>no lleva autorización</strong> y se hace en el momento:
+        los víveres salen de <strong>{cocinaNombre}</strong> y entran al destino apenas confirmás. Queda el{' '}
         <strong>registro en Salidas</strong> con su código de traslado y su papel, y aparece en la columna
-        «Traslados» de las dos cocinas —resta acá, suma allá— sin generar diferencia en ninguna. No hace
+        «Traslados» de los dos lados —resta acá, suma allá— sin generar diferencia en ninguno. No hace
         falta esperar al cierre.
       </p>
       {error && (
@@ -153,14 +153,14 @@ export function RepartirMercadoModal({ resumen, cocinaNombre, almacen, actor, us
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.6rem' }}>
             <div className="form-row" style={{ margin: 0 }}>
-              <label>Cocina destino</label>
+              <label>Cocina / resguardo destino</label>
               {destinos.length ? (
                 <select className="select" value={destinoId} onChange={(e) => setDestinoId(e.target.value)}>
                   {destinos.length > 1 && <option value="">Elegí…</option>}
-                  {destinos.map((d) => <option key={d.id} value={d.id}>{d.nombre} · 📦 {d.almacen}</option>)}
+                  {destinos.map((d) => <option key={d.id} value={d.id}>{d.resguardo ? '🏬 Resguardo · ' : '🍳 '}{d.nombre} · 📦 {d.almacen}</option>)}
                 </select>
               ) : (
-                <p className="hint muted" style={{ margin: 0 }}>No hay otra cocina con almacén vinculado.</p>
+                <p className="hint muted" style={{ margin: 0 }}>No hay otra cocina ni resguardo con almacén vinculado.</p>
               )}
             </div>
             <div className="form-row" style={{ margin: 0 }}>

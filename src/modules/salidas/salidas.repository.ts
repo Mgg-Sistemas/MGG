@@ -221,7 +221,11 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     );
   }
   // El precio editado se vincula con el inventario: fija el costo/PMP del producto en el origen.
-  if (precio != null && precio >= 0) await vincularPrecioInventario(input.productoId, input.almacenOrigen, precio);
+  // Si es el mismo PMP que ya tenía (el reparto de cocina manda siempre el costo del
+  // origen), no hay nada que fijar: se ahorran dos viajes a la base por víver.
+  if (precio != null && precio >= 0 && Math.abs(precio - costoOrigen) >= 0.005) {
+    await vincularPrecioInventario(input.productoId, input.almacenOrigen, precio);
+  }
   return movSalida;
 }
 
@@ -725,7 +729,19 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     }
     lineasTraslado = plan.pendientes;
     movPrevio = patas.find((p) => Number(p.delta) < 0)?.id ?? null;
+    // UNA consulta para todo el stock que hace falta mirar. Antes era una por
+    // renglón y en serie: un reparto de 20 víveres esperaba 20 viajes a la base
+    // antes de mover el primero (30-09-2026, «repartiendo se tarda mucho»).
     const disp = new Map<string, number>();
+    const idsTraslado = [...new Set(lineasTraslado.map((it) => it.producto_id).filter(Boolean))];
+    if (idsTraslado.length) {
+      const { data: exs, error: eEx } = await supabase
+        .from('existencias').select('producto_id, almacen, stock').in('producto_id', idsTraslado);
+      if (eEx) throw eEx;
+      for (const e of (exs ?? []) as { producto_id: string; almacen: string; stock: number | null }[]) {
+        disp.set(`${e.producto_id}|${e.almacen}`, Number(e.stock) || 0);
+      }
+    }
     const faltan: string[] = [];
     for (const it of lineasTraslado) {
       const cant = Number(it.cantidad) || 0;
@@ -733,11 +749,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       const alm = it.almacen ?? s.almacen_origen ?? '';
       if (destinoReal && alm === destinoReal) continue; // traslado a sí mismo: no mueve stock
       const key = `${it.producto_id}|${alm}`;
-      if (!disp.has(key)) {
-        const ex = await getExistencia(it.producto_id, alm);
-        disp.set(key, Number(ex?.stock) || 0);
-      }
-      const restante = disp.get(key)!;
+      const restante = disp.get(key) ?? 0;
       if (restante < cant) {
         faltan.push(`${it.producto_nombre ?? 'Producto'}: pide ${cant}, hay ${restante} en ${alm || '—'}`);
       } else {
@@ -767,8 +779,13 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       const { data: prods, error: eProd } = await supabase.from('productos').select('id, categoria').in('id', ids);
       if (eProd) throw eProd;
       const categoria = new Map((prods ?? []).map((p) => [p.id as string, p.categoria as string | null]));
-      const sep = repartirEntregaCocina(lineas,
-        { destino: s.destino, sedeDestino: s.sede_destino, almacenOrigen: s.almacen_origen }, cocinas, (id) => categoria.get(id));
+      const { data: almOrigen } = s.almacen_origen
+        ? await supabase.from('almacenes').select('sede').eq('nombre', s.almacen_origen).maybeSingle()
+        : { data: null };
+      const sep = repartirEntregaCocina(lineas, {
+        destino: s.destino, sedeDestino: s.sede_destino, almacenOrigen: s.almacen_origen,
+        sedeOrigen: (almOrigen as { sede?: string | null } | null)?.sede ?? null,
+      }, cocinas, (id) => categoria.get(id));
       aDescontar = sep.descuentan;
       valeCocina = sep.valeCocina;
       trasladanCocina = sep.trasladan;
@@ -812,7 +829,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
       notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante,
       refId: s.id, refCodigo: s.codigo, actor, actorName,
-    }));
+    }), 20);
     // Si un intento anterior ya había movido algo, la traza apunta a lo primero que se movió.
     movId = movPrevio ?? movNuevo;
     movRef = 'traslado_modulo';

@@ -6,7 +6,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { PARAMETROS_EOQ_DEFECTO, type ParametrosEoq } from './distribucionEoq';
-import type { CocinaComida, ItemCocina, TipoComida, Producto, Existencia, Cocina, Almacen } from '@/shared/lib/types';
+import type { CocinaComida, ItemCocina, TipoComida, Producto, Existencia, Cocina, Almacen, TipoCocina } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listExistencias, listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -28,7 +28,8 @@ export { CATEGORIAS_COCINA, esCategoriaCocina } from './categoriasCocina';
 export interface CocinaConInfo {
   cocina: Cocina;
   almacenNombre: string | null;   // nombre actual del almacén vinculado
-  viveres: number;                // nº de víveres con stock en ese almacén
+  sede: string | null;            // sede (centro) de ese almacén
+  viveres: number;                // nº de víveres con stock en el centro
   valorStock: number;             // Σ stock × precio de esos víveres
   /**
    * El ciclo abierto, si hay uno. Es lo primero que se quiere saber de una
@@ -63,31 +64,38 @@ export async function listCocinas(): Promise<CocinaConInfo[]> {
     const c = row as Cocina;
     const alm = c.almacen_id ? almById.get(c.almacen_id) ?? null : null;
     const nombre = alm?.nombre ?? null;
-    const delAlmacen = nombre ? viveres.filter((v) => v.almacen === nombre) : [];
+    // Lo que tiene el CENTRO (todos los almacenes de su sede), igual que el mercado.
+    // Con solo el almacén vinculado, el resguardo de Matanzas decía 0 víveres
+    // teniendo 56 en «General» (30-09-2026).
+    const sede = alm?.sede ?? null;
+    const delCentro = new Set(sede ? almacenes.filter((a) => (a.sede ?? null) === sede).map((a) => a.nombre) : nombre ? [nombre] : []);
+    const delAlmacen = viveres.filter((v) => delCentro.has(v.almacen));
     return {
       cocina: c,
       almacenNombre: nombre,
-      viveres: delAlmacen.length,
+      sede,
+      viveres: new Set(delAlmacen.map((v) => v.producto_id)).size,
       valorStock: Math.round(delAlmacen.reduce((a, v) => a + v.stock * v.precio, 0) * 100) / 100,
       mercado: mercadoPorCocina.get(c.id) ?? null,
     };
   });
 }
 
-export async function crearCocina(input: { nombre: string; almacenId: string | null; actor?: string | null }): Promise<Cocina> {
+export async function crearCocina(input: { nombre: string; almacenId: string | null; tipo?: TipoCocina; actor?: string | null }): Promise<Cocina> {
   const nombre = input.nombre.trim();
-  if (!nombre) throw new Error('Indicá el nombre de la cocina.');
+  if (!nombre) throw new Error(input.tipo === 'resguardo' ? 'Indicá el nombre del resguardo.' : 'Indicá el nombre de la cocina.');
   const { data, error } = await supabase.from('cocinas')
-    .insert({ nombre, almacen_id: input.almacenId, created_by: input.actor ?? null })
+    .insert({ nombre, almacen_id: input.almacenId, tipo: input.tipo ?? 'cocina', created_by: input.actor ?? null })
     .select('*').single();
   if (error) throw error;
   return data as Cocina;
 }
 
-export async function actualizarCocina(id: string, patch: { nombre?: string; almacenId?: string | null }): Promise<void> {
+export async function actualizarCocina(id: string, patch: { nombre?: string; almacenId?: string | null; tipo?: TipoCocina }): Promise<void> {
   const payload: Record<string, unknown> = {};
   if (patch.nombre !== undefined) { const n = patch.nombre.trim(); if (!n) throw new Error('El nombre no puede quedar vacío.'); payload.nombre = n; }
   if (patch.almacenId !== undefined) payload.almacen_id = patch.almacenId;
+  if (patch.tipo !== undefined) payload.tipo = patch.tipo;
   const { error } = await supabase.from('cocinas').update(payload).eq('id', id);
   if (error) throw error;
 }
@@ -127,6 +135,16 @@ export async function eliminarCocina(id: string): Promise<void> {
 /** Almacenes elegibles para vincular a una cocina (todos, principal y subalmacenes). */
 export async function listAlmacenesParaCocina(): Promise<Almacen[]> {
   return listAlmacenes();
+}
+
+/** ¿Es un resguardo (almacena y distribuye, no sirve comidas)? */
+export function esResguardo(c: Pick<Cocina, 'tipo'> | null | undefined): boolean {
+  return c?.tipo === 'resguardo';
+}
+
+/** Los resguardos viven en Matanzas: solo se ofrecen los almacenes de esa sede. */
+export function esSedeResguardo(sede: string | null | undefined): boolean {
+  return /matanza/i.test(sede ?? '');
 }
 
 export const TIPOS_COMIDA: { value: TipoComida; label: string; icon: string }[] = [

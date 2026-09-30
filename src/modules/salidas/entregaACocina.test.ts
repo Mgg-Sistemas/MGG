@@ -76,6 +76,18 @@ describe('laDescuentaLaCocina / separarValeCocina', () => {
     expect(cocinaDelDestino('TALLER', 'BASE LA GUAIRA', cocinas)).toBeNull();
   });
 
+  it('comida de Los Pinos al resguardo de Matanzas viaja; de Matanzas a Matanzas no', () => {
+    const cocinas = [{ nombre: 'Resguardo Matanzas', almacen: 'Resguardo', sede: 'CENTRO DE FUNDICION - MATANZAS' }];
+    const va = repartirEntregaCocina([{ producto_id: 'arroz' }],
+      { destino: 'RESGUARDO', almacenOrigen: 'Los Pinos', sedeOrigen: 'LOS PINOS' }, cocinas, () => 'VIVERES');
+    expect(va.trasladan.length).toBe(1);
+    const queda = repartirEntregaCocina([{ producto_id: 'arroz' }],
+      { destino: 'PERSONAL', sedeDestino: 'CENTRO DE FUNDICION - MATANZAS', almacenOrigen: 'General', sedeOrigen: 'CENTRO DE FUNDICION - MATANZAS' },
+      cocinas, () => 'VIVERES');
+    expect(queda.trasladan).toEqual([]);
+    expect(queda.descuentan.length).toBe(1);
+  });
+
   it('a la cocina de la MISMA sede sigue siendo vale, no traslado', () => {
     const cocinas = [{ nombre: 'Los Pinos', almacen: 'Los Pinos' }];
     const r = repartirEntregaCocina([{ producto_id: 'papa' }],

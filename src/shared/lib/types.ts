@@ -2135,11 +2135,18 @@ export interface CocinaComida {
 }
 
 /** Una cocina: se vincula a un almacén/subalmacén de donde toma sus víveres. */
+export type TipoCocina = 'cocina' | 'resguardo';
+
 export interface Cocina {
   id: string;
   nombre: string;
   almacen_id?: string | null;
   activa: boolean;
+  /**
+   * `cocina` sirve comidas. `resguardo` (30-09-2026) solo almacena y distribuye:
+   * vive en Matanzas, tiene mercado, entradas, traslados y salidas, pero no comidas.
+   */
+  tipo?: TipoCocina | null;
   /** Parámetros del lote óptimo (EOQ) del control de distribución. */
   eoq_costo_orden?: number | null;
   eoq_costo_almacenar?: number | null;

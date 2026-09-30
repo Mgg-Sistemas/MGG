@@ -14,14 +14,14 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { hoyISO, money, num, dateTime } from '@/shared/lib/format';
-import type { CocinaComida, TipoComida, Cocina, Almacen } from '@/shared/lib/types';
-import { nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
+import type { CocinaComida, TipoComida, Cocina, Almacen, TipoCocina } from '@/shared/lib/types';
+import { crearAlmacen, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { agruparPorCategoria, normCategoria } from './agruparPorCategoria';
 import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import {
   listComidas, crearComida, editarComida, eliminarComida, listViveresGlobal, resumirComidas,
-  listCocinas, crearCocina, actualizarCocina, eliminarCocina, listAlmacenesParaCocina,
+  listCocinas, crearCocina, actualizarCocina, eliminarCocina, listAlmacenesParaCocina, esResguardo, esSedeResguardo,
   movimientoViveresDelPeriodo,
   TIPOS_COMIDA, labelTipoComida, type ViverDisponible, type ResumenCocina, type CocinaConInfo,
 } from './cocina.repository';
@@ -57,7 +57,7 @@ export function CocinaPage() {
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<string | null>(null);        // cocina abierta
-  const [form, setForm] = useState<'nueva' | Cocina | null>(null);
+  const [form, setForm] = useState<TipoCocina | Cocina | null>(null);
   const [borrar, setBorrar] = useState<CocinaConInfo | null>(null);
 
   const reload = useCallback(async () => {
@@ -88,9 +88,14 @@ export function CocinaPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: 0 }}>🍽 Cocinas</h1>
-          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>Cada cocina toma sus víveres del almacén al que está vinculada. Entrá a una para registrar comidas.</p>
+          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>Cada cocina toma sus víveres del almacén al que está vinculada. Los <strong>resguardos</strong> (Matanzas) solo almacenan y distribuyen a las cocinas: no sirven comidas.</p>
         </div>
-        {canWrite && <button className="btn btn-primary" onClick={() => setForm('nueva')}>＋ Nueva cocina</button>}
+        {canWrite && (
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={() => setForm('resguardo')}>＋ Nuevo resguardo</button>
+            <button className="btn btn-primary" onClick={() => setForm('cocina')}>＋ Nueva cocina</button>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -111,13 +116,16 @@ export function CocinaPage() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSel(info.cocina.id); }
               }}
-              title="Entrar a la cocina"
-              aria-label={`Entrar a la cocina ${info.cocina.nombre}`}>
+              title={esResguardo(info.cocina) ? 'Entrar al resguardo' : 'Entrar a la cocina'}
+              aria-label={`Entrar ${esResguardo(info.cocina) ? 'al resguardo' : 'a la cocina'} ${info.cocina.nombre}`}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
-                <strong style={{ fontSize: '1.05rem' }}>🍳 {info.cocina.nombre}</strong>
+                <strong style={{ fontSize: '1.05rem' }}>{esResguardo(info.cocina) ? '🏬' : '🍳'} {info.cocina.nombre}</strong>
                 <span className="badge">Entrar →</span>
               </div>
-              <div className="muted" style={{ fontSize: '.82rem' }}>📦 {info.almacenNombre ?? <span style={{ color: 'var(--warning)' }}>Sin almacén vinculado</span>}</div>
+              {esResguardo(info.cocina) && (
+                <div style={{ fontSize: '.74rem', color: 'var(--info)' }}>Resguardo · almacena y distribuye, no sirve comidas</div>
+              )}
+              <div className="muted" style={{ fontSize: '.82rem' }}>📦 {info.almacenNombre ?? <span style={{ color: 'var(--warning)' }}>Sin almacén vinculado</span>}{info.sede && esResguardo(info.cocina) ? ` · ${info.sede}` : ''}</div>
               {/* El ciclo abierto es lo primero que se quiere saber de una cocina;
                   hasta ahora había que entrar para averiguarlo. Sin mercado se dice
                   también: un espacio vacío no distingue «no hay» de «no cargó». */}
@@ -139,8 +147,8 @@ export function CocinaPage() {
               </div>
               {canWrite && (
                 <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem' }} onClick={(e) => e.stopPropagation()}>
-                  <button className="btn btn-sm btn-ghost" onClick={() => setForm(info.cocina)} title="Editar cocina">✎ Editar</button>
-                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(info)} title="Inhabilitar cocina">🗑</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setForm(info.cocina)} title="Editar">✎ Editar</button>
+                  <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(info)} title="Inhabilitar">🗑</button>
                 </div>
               )}
             </div>
@@ -149,12 +157,15 @@ export function CocinaPage() {
       )}
 
       {form && (
-        <CocinaFormModal cocina={form === 'nueva' ? null : form} almacenes={almacenes} actor={actor}
+        <CocinaFormModal cocina={typeof form === 'string' ? null : form}
+          tipo={typeof form === 'string' ? form : (form.tipo ?? 'cocina')}
+          almacenes={almacenes} actor={actor}
+          onAlmacenCreado={(a) => setAlmacenes((xs) => [...xs, a])}
           onClose={() => setForm(null)} onSaved={async () => { setForm(null); await reload(); }} />
       )}
       {borrar && (
-        <ConfirmDialog title="Inhabilitar cocina"
-          message={`¿Inhabilitar la cocina "${borrar.cocina.nombre}"? Sus comidas quedan en el histórico; podés volver a crearla luego.`}
+        <ConfirmDialog title={esResguardo(borrar.cocina) ? 'Inhabilitar resguardo' : 'Inhabilitar cocina'}
+          message={`¿Inhabilitar ${esResguardo(borrar.cocina) ? 'el resguardo' : 'la cocina'} "${borrar.cocina.nombre}"? Su historial queda guardado; podés volver a crearlo luego. El stock no se toca.`}
           confirmText="Inhabilitar" danger onConfirm={confirmarBorrar} onCancel={() => setBorrar(null)} />
       )}
     </div>
@@ -162,11 +173,20 @@ export function CocinaPage() {
 }
 
 /* ───────────── Alta / edición de una cocina ───────────── */
-function CocinaFormModal({ cocina, almacenes, actor, onClose, onSaved }: {
-  cocina: Cocina | null; almacenes: Almacen[]; actor: string; onClose: () => void; onSaved: () => void;
+function CocinaFormModal({ cocina, tipo, almacenes, actor, onAlmacenCreado, onClose, onSaved }: {
+  cocina: Cocina | null; tipo: TipoCocina; almacenes: Almacen[]; actor: string;
+  onAlmacenCreado: (a: Almacen) => void; onClose: () => void; onSaved: () => void;
 }) {
-  const [nombre, setNombre] = useState(cocina?.nombre ?? '');
-  const [almacenId, setAlmacenId] = useState(cocina?.almacen_id ?? '');
+  const resguardo = tipo === 'resguardo';
+  const palabra = resguardo ? 'el resguardo' : 'la cocina';
+  // Un resguardo nuevo arranca apuntando al almacén «Resguardo» de Matanzas, si existe.
+  const sugerido = resguardo && !cocina
+    ? almacenes.find((a) => esSedeResguardo(a.sede) && /resguardo/i.test(a.nombre))?.id ?? ''
+    : '';
+  const [nombre, setNombre] = useState(cocina?.nombre ?? (resguardo ? 'Resguardo Matanzas' : ''));
+  const [almacenId, setAlmacenId] = useState(cocina?.almacen_id ?? sugerido);
+  const [almacenNuevo, setAlmacenNuevo] = useState('');
+  const [crearAlm, setCrearAlm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -174,48 +194,84 @@ function CocinaFormModal({ cocina, almacenes, actor, onClose, onSaved }: {
   // es decidir de qué almacén va a salir la comida. Un almacenista solo puede apuntarla
   // a los suyos; el consumo diario después no elige nada, sale de esta configuración.
   const { sedes: sedesPermitidas } = useSectorizacion();
+  // La sede de Matanzas, tal como está escrita en los almacenes.
+  const sedeMatanzas = almacenes.find((a) => esSedeResguardo(a.sede))?.sede ?? null;
 
   // Opciones de almacén ordenadas por sede, mostrando el nombre corto del subalmacén.
+  // El resguardo vive en Matanzas: solo se ofrecen los almacenes de esa sede.
   const opciones = useMemo(() => [...almacenes]
     .filter((a) => puedeMoverEnSede(a.sede, sedesPermitidas))
+    .filter((a) => !resguardo || esSedeResguardo(a.sede))
     .sort((a, b) => `${a.sede ?? ''} ${a.nombre}`.localeCompare(`${b.sede ?? ''} ${b.nombre}`, 'es'))
-    .map((a) => ({ value: a.id, label: `${a.sede ? `${a.sede} · ` : ''}${nombreCortoAlmacen(a, almacenes)}` })), [almacenes, sedesPermitidas]);
+    .map((a) => ({ value: a.id, label: `${a.sede ? `${a.sede} · ` : ''}${nombreCortoAlmacen(a, almacenes)}` })), [almacenes, sedesPermitidas, resguardo]);
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!nombre.trim()) { setError('Indicá el nombre de la cocina.'); return; }
-    if (!almacenId) { setError('Vinculá la cocina a un almacén / subalmacén.'); return; }
+    if (!nombre.trim()) { setError(`Indicá el nombre de ${palabra}.`); return; }
+    if (crearAlm && !almacenNuevo.trim()) { setError('Indicá el nombre del almacén nuevo.'); return; }
+    if (!crearAlm && !almacenId) { setError(`Vinculá ${palabra} a un almacén.`); return; }
+    if (crearAlm && !sedeMatanzas) { setError('No encuentro la sede de Matanzas en los almacenes.'); return; }
     const elegido = almacenes.find((a) => a.id === almacenId);
-    if (!puedeMoverEnSede(elegido?.sede, sedesPermitidas)) {
-      setError(`Solo podés vincular la cocina a un almacén de ${(sedesPermitidas ?? []).join(', ')}.`);
+    if (!crearAlm && !puedeMoverEnSede(elegido?.sede, sedesPermitidas)) {
+      setError(`Solo podés vincular ${palabra} a un almacén de ${(sedesPermitidas ?? []).join(', ')}.`);
       return;
     }
+    if (!crearAlm && resguardo && !esSedeResguardo(elegido?.sede)) { setError('El resguardo va en un almacén de Matanzas.'); return; }
     setSaving(true);
     try {
-      if (cocina) await actualizarCocina(cocina.id, { nombre, almacenId });
-      else await crearCocina({ nombre, almacenId, actor });
+      let idAlm = almacenId;
+      if (crearAlm) {
+        const nuevo = await crearAlmacen({ nombre: almacenNuevo, sede: sedeMatanzas }, actor);
+        onAlmacenCreado(nuevo);
+        idAlm = nuevo.id;
+      }
+      if (cocina) await actualizarCocina(cocina.id, { nombre, almacenId: idAlm, tipo });
+      else await crearCocina({ nombre, almacenId: idAlm, tipo, actor });
+      toast(cocina ? 'Guardado' : (resguardo ? 'Resguardo creado' : 'Cocina creada'), 'success');
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
   }
 
+  const titulo = cocina ? (resguardo ? 'Editar resguardo' : 'Editar cocina') : (resguardo ? 'Nuevo resguardo' : 'Nueva cocina');
   return (
-    <Modal title={cocina ? 'Editar cocina' : 'Nueva cocina'} size="md" onClose={() => !saving && onClose()} footer={
+    <Modal title={titulo} size="md" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button type="submit" form="cocina-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : (cocina ? 'Guardar' : 'Crear cocina')}</button>
+        <button type="submit" form="cocina-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : (cocina ? 'Guardar' : titulo.replace('Nuevo', 'Crear').replace('Nueva', 'Crear'))}</button>
       </>
     }>
       <form id="cocina-form" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        {resguardo && (
+          <p className="hint muted" style={{ marginTop: 0 }}>
+            El resguardo <strong>almacena y distribuye</strong> a las cocinas: tiene su mercado, entradas, salidas y
+            distribución, pero <strong>no se registran comidas</strong>. Vive en <strong>Matanzas</strong>.
+          </p>
+        )}
         <div className="form-row">
-          <label>Nombre de la cocina</label>
-          <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: La Esperanza" autoFocus />
+          <label>Nombre {resguardo ? 'del resguardo' : 'de la cocina'}</label>
+          <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder={resguardo ? 'Ej.: Resguardo Matanzas' : 'Ej.: La Esperanza'} autoFocus />
         </div>
         <div className="form-row">
-          <label>Almacén / subalmacén vinculado</label>
-          <SearchSelect value={almacenId} onChange={setAlmacenId} options={opciones}
-            placeholder="🔎 Buscá el almacén…" emptyText="No hay almacenes." />
-          <small className="hint muted">De este almacén salen los víveres y se descuenta el stock de esta cocina.</small>
+          <label>Almacén vinculado{resguardo ? ' (Matanzas)' : ''}</label>
+          {crearAlm ? (
+            <input className="input" value={almacenNuevo} onChange={(e) => setAlmacenNuevo(e.target.value)}
+              placeholder="Ej.: Resguardo de víveres" />
+          ) : (
+            <SearchSelect value={almacenId} onChange={setAlmacenId} options={opciones}
+              placeholder="🔎 Buscá el almacén…" emptyText="No hay almacenes." />
+          )}
+          {resguardo && (
+            <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: '.82rem', marginTop: '.35rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={crearAlm} onChange={(e) => setCrearAlm(e.target.checked)} />
+              Crear un almacén nuevo en {sedeMatanzas ?? 'Matanzas'}
+            </label>
+          )}
+          <small className="hint muted">
+            {resguardo
+              ? 'Ahí entra lo que se distribuye al resguardo y de ahí sale hacia las cocinas. Cuenta todo lo que hay en Matanzas.'
+              : 'De este almacén salen los víveres y se descuenta el stock de esta cocina.'}
+          </small>
         </div>
       </form>
     </Modal>
@@ -228,6 +284,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
 }) {
   const cocinaId = info.cocina.id;
   const almacen = info.almacenNombre;
+  const resguardo = esResguardo(info.cocina);
 
   const [comidas, setComidas] = useState<CocinaComida[]>([]);
   const [, setLoading] = useState(true);   // se carga en segundo plano (para PDF y edición); el mercado tiene su propio loading
@@ -319,15 +376,20 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
     <div>
       <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: '.5rem' }}>← Volver a cocinas</button>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.3rem' }}>
-        <h1 style={{ margin: 0 }}>🍳 {info.cocina.nombre}</h1>
+        <h1 style={{ margin: 0 }}>{resguardo ? '🏬' : '🍳'} {info.cocina.nombre}</h1>
+        {resguardo && <span className="badge" style={{ color: 'var(--info)' }}>Resguardo</span>}
       </div>
-      <p className="hint muted" style={{ marginTop: 0 }}>Toma precios y descuenta stock del almacén <strong>{almacen ?? '— sin almacén vinculado —'}</strong>.</p>
-      {!almacen && <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem' }}>Esta cocina no tiene un almacén vinculado. Volvé y editála para asignarle uno.</div>}
+      <p className="hint muted" style={{ marginTop: 0 }}>
+        {resguardo
+          ? <>Almacena y distribuye a las cocinas desde <strong>{almacen ?? '— sin almacén vinculado —'}</strong>{info.sede ? <> ({info.sede})</> : null}. Acá <strong>no se registran comidas</strong>: lo que entra se reparte con «Distribución a otra cocina / resguardo».</>
+          : <>Toma precios y descuenta stock del almacén <strong>{almacen ?? '— sin almacén vinculado —'}</strong>.</>}
+      </p>
+      {!almacen && <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem' }}>{resguardo ? 'Este resguardo' : 'Esta cocina'} no tiene un almacén vinculado. Volvé y editálo para asignarle uno.</div>}
 
       <div className="filterbar" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen detallado</button>
-          <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(comidas, 'Todas las comidas registradas')).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!comidas.length}>↓ Reporte PDF</button>
+          {!resguardo && <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen detallado</button>}
+          {!resguardo && <button className="btn btn-ghost" onClick={() => void import('./cocinaPdf').then(({ descargarReporteCocinaPdf }) => descargarReporteCocinaPdf(comidas, 'Todas las comidas registradas')).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!comidas.length}>↓ Reporte PDF</button>}
           <button className="btn btn-ghost" onClick={() => setHistOpen(true)} title="Mercados cerrados: ver, reportes, reabrir">🔒 Mercados cerrados</button>
           {canWrite && (
             <button className="btn btn-ghost" style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
@@ -336,7 +398,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
             </button>
           )}
         </div>
-        {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>＋ Añadir movimiento</button>}
+        {canWrite && !resguardo && <button className="btn btn-primary" onClick={() => setModal('add')}>＋ Añadir movimiento</button>}
       </div>
 
       {/* Mercado (ciclo de 21 días): tarjetas + disponible + kardex, o iniciar */}
@@ -377,12 +439,12 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
         </div>
       ) : resumen ? (
         <MercadoPanel resumen={resumen} mercados={mercados} onElegirMercado={(id) => setVerMercadoId(id)}
-          cocinaNombre={info.cocina.nombre} almacen={almacen} canWrite={canWrite} actor={actor} userEmail={userEmail}
+          cocinaNombre={info.cocina.nombre} almacen={almacen} canWrite={canWrite} actor={actor} userEmail={userEmail} resguardo={resguardo}
           onReload={async () => { await loadMercado({ background: true }); await reload(); }}
           onEditComida={(c) => setEditComida(c)} onDelComida={(c) => setDelComida(c)} />
       ) : null}
 
-      {(modal === 'add' || editComida) && (
+      {!resguardo && (modal === 'add' || editComida) && (
         <AnadirMovimientoModal cocinaId={cocinaId} almacen={almacen} actor={actor} actorName={userEmail}
           comida={editComida} mercado={mercado}
           onClose={() => { setModal('none'); setEditComida(null); }}

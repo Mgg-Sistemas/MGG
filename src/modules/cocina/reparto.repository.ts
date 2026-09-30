@@ -34,6 +34,8 @@ export interface CocinaDestino {
   id: string;
   nombre: string;
   almacen: string;
+  /** Un resguardo también recibe (y desde él se distribuye a las cocinas). */
+  resguardo?: boolean;
 }
 
 /** Un víver que este centro puede enviar, desde UN almacén concreto. */
@@ -70,7 +72,7 @@ export async function prepararReparto(
   const exPor = new Map(existencias.map((e) => [`${e.producto_id}|${e.almacen}`, e] as const));
   const destinos = cocinas
     .filter((c) => c.cocina.id !== cocinaId && !!c.almacenNombre)
-    .map((c) => ({ id: c.cocina.id, nombre: c.cocina.nombre, almacen: c.almacenNombre as string }));
+    .map((c) => ({ id: c.cocina.id, nombre: c.cocina.nombre, almacen: c.almacenNombre as string, resguardo: c.cocina.tipo === 'resguardo' }));
 
   const out: ViverParaRepartir[] = [];
   for (const v of viveres) {
@@ -139,8 +141,13 @@ export async function crearReparto(input: {
 
   // Salidas vuelve a mirar el stock al ejecutar, pero una solicitud que pide más de
   // lo que hay no la va a poder ejecutar nadie: mejor decirlo ahora.
-  const existencias = await listExistencias();
-  const stockDe = new Map<string, number>(existencias.map((e) => [`${e.producto_id}|${e.almacen}`, Number(e.stock) || 0]));
+  // Solo las existencias de los víveres que se reparten: bajar las 1.700 del
+  // inventario para mirar veinte era la mitad de la espera del botón.
+  const { data: exs, error: eEx } = await supabase.from('existencias')
+    .select('producto_id, almacen, stock').in('producto_id', [...new Set(lineas.map((l) => l.producto_id))]);
+  if (eEx) throw eEx;
+  const stockDe = new Map<string, number>(((exs ?? []) as { producto_id: string; almacen: string; stock: number | null }[])
+    .map((e) => [`${e.producto_id}|${e.almacen}`, Number(e.stock) || 0]));
   const pedido = new Map<string, number>();
   for (const l of lineas) {
     const k = `${l.producto_id}|${l.almacen}`;

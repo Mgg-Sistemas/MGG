@@ -102,12 +102,15 @@ export function cocinaDelDestino(
  */
 export function repartirEntregaCocina<T extends RenglonConProducto>(
   lineas: readonly T[],
-  s: { destino?: string | null; sedeDestino?: string | null; almacenOrigen?: string | null },
+  s: { destino?: string | null; sedeDestino?: string | null; almacenOrigen?: string | null; sedeOrigen?: string | null },
   cocinas: readonly CocinaDestino[],
   categoriaDe: (productoId: string) => string | null | undefined,
 ): { descuentan: T[]; valeCocina: T[]; trasladan: T[]; cocina: CocinaDestino | null } {
   const cocina = cocinaDelDestino(s.destino, s.sedeDestino, cocinas);
-  if (cocina && cocina.almacen !== (s.almacenOrigen ?? '')) {
+  // Dentro de la MISMA sede no es «ir a otra cocina»: una salida de Matanzas al
+  // personal de Matanzas no se vuelve traslado al resguardo de Matanzas.
+  const mismaSede = !!cocina?.sede && !!s.sedeOrigen && cocina.sede === s.sedeOrigen;
+  if (cocina && !mismaSede && cocina.almacen !== (s.almacenOrigen ?? '')) {
     const descuentan: T[] = [];
     const trasladan: T[] = [];
     for (const l of lineas) (esComestible(categoriaDe(l.producto_id)) ? trasladan : descuentan).push(l);
