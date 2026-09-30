@@ -21,7 +21,6 @@ import { planEntregaPorPrioridad, stockTotal, type CandidatoAlmacen, type Asigna
 import { puedeMoverEnSede, nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
-import { laDescuentaLaCocina } from './entregaACocina';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 
 interface LineaUI {
@@ -459,14 +458,6 @@ export function SalidaMaterialForm({
                         <span className="muted"> · se descuenta acá y queda disponible para las coladas</span>
                       </span>
                     </label>
-                  )}
-                  {/* Comida a la cocina: vale de entrega, no descuento. Lo baja
-                      Distribución de comidas al servirlo; si no, la misma
-                      salchicha bajaba dos veces del mismo almacén. */}
-                  {laDescuentaLaCocina(unidad, prod?.categoria) && (
-                    <small className="hint" style={{ display: 'block', marginTop: '.4rem', color: 'var(--primary-3)', fontSize: '.78rem' }}>
-                      🍽 <strong>Vale de entrega a cocina:</strong> este renglón <strong>no descuenta stock</strong>; lo baja <strong>Distribución de comidas</strong> al servirlo.
-                    </small>
                   )}
                 </div>
                 <div className="form-row">

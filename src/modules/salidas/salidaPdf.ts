@@ -253,10 +253,9 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     const p = Number(it.precio_unit) || 0;
     const u = it.unidad ? ` ${it.unidad}` : '';
     const obs = (it as { observacion?: string | null }).observacion;
-    // El renglón de comida a la cocina no bajó del almacén: lo dice el papel.
-    const vale = (it as { descuenta_cocina?: boolean | null }).descuenta_cocina === true;
-    const viaja = (it as { traslado_cocina?: string | null }).traslado_cocina;
-    const nombre = `${it.producto_nombre || '—'}${vale ? '\nVale de entrega a cocina: no descuenta stock (lo baja Distribución de comidas)' : ''}${viaja ? `\nTrasladado al almacén ${viaja} (cocina)` : ''}`;
+    // Vale o traslado a cocina: el papel NO lo anuncia (30-09-2026, pedido del
+    // usuario). Es contabilidad interna; el renglón se lee como cualquier otro.
+    const nombre = it.producto_nombre || '—';
     return [
       String(i + 1),
       obs ? `${nombre}\nObs: ${obs}` : nombre,

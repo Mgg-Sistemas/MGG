@@ -47,8 +47,6 @@ export function separarValeCocina<T extends RenglonConProducto>(
   return { descuentan, valeCocina };
 }
 
-/** Texto que explica el vale en pantalla y en el PDF. */
-export const NOTA_VALE_COCINA = 'Vale de entrega a cocina: no descuenta stock, lo baja Distribución de comidas al servirlo';
 
 /* ── La comida que va a OTRA cocina es un traslado ─────────────────────────
    El 30-09-2026 Isner hizo la SAL-2026-0245 «a CENTRO DE ACOPIO LA
