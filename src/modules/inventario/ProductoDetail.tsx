@@ -292,46 +292,32 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
         </div>
       )}
 
-      {/* Filtro del kardex por almacén (solo si hay más de un ámbito). */}
+      {/* Filtro del kardex: UN selector y UNA casilla (30-09-2026). La fila de
+          chips —«Todo Los Pinos», «Los Pinos › Los Pinos», «Ver otras sedes»…—
+          repetía nombres y enredaba más de lo que filtraba. Cada fila del kardex
+          ya lleva su almacén en la etiqueta. */}
       {!loading && hayChips && (
-        <div style={{ marginBottom: '.55rem' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', alignItems: 'center' }}>
-            <span className="muted" style={{ fontSize: '.78rem' }}>Kardex de:</span>
-            <button type="button" className={`chip ${!filtroEfectivo ? 'chip-active' : ''}`} onClick={() => setFiltroAlm(null)}>
-              {recorta ? `Todo ${nombreSedeCorto(origen?.sede ?? null)}` : 'Todos los almacenes'}
-              <span className="dim"> · {movsDeSede.length}</span>
-            </button>
-            {almacenesKardex.map((a) => (
-              <button key={a} type="button" className={`chip ${filtroEfectivo === a ? 'chip-active' : ''}`} onClick={() => setFiltroAlm(a)}>
-                ▣ {etiquetaAlmacen(a, almacenes)} <span className="dim">· {movs.filter((m) => (m.almacen ?? '').trim() === a).length}</span>
-              </button>
-            ))}
-            {nSinAlmacen > 0 && (
-              <button type="button" className={`chip ${filtroEfectivo === FILTRO_SIN_ALMACEN ? 'chip-active' : ''}`} onClick={() => setFiltroAlm(FILTRO_SIN_ALMACEN)}>
-                📦 Recepciones de compra (sin almacén) <span className="dim">· {nSinAlmacen}</span>
-              </button>
-            )}
-            {/* El recorte por sede nunca es silencioso: si el producto pasó por
-                otro centro, el botón lo dice y lo trae. */}
-            {origen?.sede && nOtrasSedes > 0 && (
-              <button type="button" className="chip" onClick={() => { setVerOtrasSedes((v) => !v); setFiltroAlm(null); }}
-                title={verOtrasSedes ? `Volver a ver solo ${nombreSedeCorto(origen.sede)}` : 'Este producto también se movió en otros centros'}>
-                {verOtrasSedes
-                  ? `↩ Solo ${nombreSedeCorto(origen.sede)}`
-                  : `🌐 Ver otras sedes · ${nOtrasSedes}`}
-              </button>
-            )}
-          </div>
-          {recorta && nOtrasSedes > 0 && (
-            <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>
-              Se está viendo solo <strong>{nombreSedeCorto(origen?.sede ?? null)}</strong>. Este producto también se movió
-              en {nOtrasSedes === 1 ? 'otro almacén' : `${nOtrasSedes} almacenes`} de otras sedes.
-            </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem 1rem', alignItems: 'center', marginBottom: '.55rem', fontSize: '.8rem' }}>
+          {(almacenesKardex.length > 1 || nSinAlmacen > 0) && (
+            <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+              <span className="muted">Almacén</span>
+              <select className="select" style={{ width: 'auto', padding: '.2rem 1.6rem .2rem .45rem', fontSize: '.8rem' }}
+                value={filtroEfectivo ?? ''} onChange={(e) => setFiltroAlm(e.target.value || null)}>
+                <option value="">Todos ({movsDeSede.length})</option>
+                {almacenesKardex.map((a) => (
+                  <option key={a} value={a}>{etiquetaAlmacen(a, almacenes)} ({movs.filter((m) => (m.almacen ?? '').trim() === a).length})</option>
+                ))}
+                {nSinAlmacen > 0 && <option value={FILTRO_SIN_ALMACEN}>Recepciones sin almacén ({nSinAlmacen})</option>}
+              </select>
+            </label>
           )}
-          {filtroEfectivo && filtroEfectivo !== FILTRO_SIN_ALMACEN && nSinAlmacen > 0 && (
-            <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>
-              Las recepciones de compra no registran a qué almacén entraron: se muestran igual, pero no se cuentan en «Entradas (▣ {filtroEfectivo})».
-            </div>
+          {/* El recorte por sede nunca es silencioso: si el producto pasó por otro
+              centro, la casilla lo dice con cuántos movimientos. */}
+          {origen?.sede && nOtrasSedes > 0 && (
+            <label style={{ display: 'flex', gap: '.35rem', alignItems: 'center', cursor: 'pointer' }}>
+              <input type="checkbox" checked={verOtrasSedes} onChange={() => { setVerOtrasSedes((v) => !v); setFiltroAlm(null); }} />
+              <span>Incluir otras sedes <span className="dim">({nOtrasSedes})</span></span>
+            </label>
           )}
         </div>
       )}
