@@ -330,6 +330,48 @@ export async function valuarExistencia(input: {
   bustCache(['existencias', 'productos']);
 }
 
+/**
+ * Pasa TODO el stock de una existencia a otro almacén (se usa al valorar en
+ * «Productos sin costo» cuando el material quedó cargado en la sede equivocada).
+ * Es una transferencia normal (queda en el kardex) y, si la ficha del producto
+ * apuntaba al almacén de origen, pasa a apuntar al nuevo.
+ */
+export async function reubicarExistencia(input: {
+  producto_id: string;
+  almacenOrigen: string;
+  almacenDestino: string;
+  actor: string;
+  actor_name?: string | null;
+}): Promise<void> {
+  const destino = input.almacenDestino.trim();
+  if (!destino || destino === input.almacenOrigen) return;
+  const { data: ex, error } = await supabase
+    .from('existencias')
+    .select('stock')
+    .eq('producto_id', input.producto_id)
+    .eq('almacen', input.almacenOrigen)
+    .maybeSingle();
+  if (error) throw error;
+  const stock = Number(ex?.stock) || 0;
+  if (stock <= 0) throw new Error(`No hay stock en ${input.almacenOrigen} para pasar a ${destino}.`);
+  await transferir({
+    producto_id: input.producto_id,
+    almacenOrigen: input.almacenOrigen,
+    almacenDestino: destino,
+    cantidad: stock,
+    actor: input.actor,
+    actor_name: input.actor_name ?? null,
+    detalle: 'Ubicación corregida al valorar',
+  });
+  const { error: pErr } = await supabase
+    .from('productos')
+    .update({ almacen: destino })
+    .eq('id', input.producto_id)
+    .eq('almacen', input.almacenOrigen);
+  if (pErr) throw pErr;
+  bustCache(['existencias', 'productos']);
+}
+
 export interface TransferirInput {
   producto_id: string;
   almacenOrigen: string;

@@ -11,7 +11,9 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
-import { valuarExistencia } from './movimientos.repository';
+import type { Almacen } from '@/shared/lib/types';
+import { reubicarExistencia, valuarExistencia } from './movimientos.repository';
+import { listAlmacenes } from './almacenes.repository';
 import { listarSinCosto } from './sinCosto.repository';
 import { claveFila, valorRecuperado, validarCosto, type FilaSinCosto } from './sinCosto';
 
@@ -34,6 +36,15 @@ export function SinCostoModal({ actor, actorName, canWrite, onClose, onValuado }
   const [costos, setCostos] = useState<Map<string, number | null>>(new Map());
   const [guardando, setGuardando] = useState<string | null>(null);
   const [guardandoTodo, setGuardandoTodo] = useState(false);
+  // Almacén al que va cada fila: por defecto donde está; si se cambia, al guardar se traslada.
+  const [destinos, setDestinos] = useState<Map<string, string>>(new Map());
+  const [listaAlmacenes, setListaAlmacenes] = useState<Almacen[]>([]);
+
+  useEffect(() => {
+    listAlmacenes()
+      .then((rows) => setListaAlmacenes(rows.filter((a) => a.estado !== 'inactivo')))
+      .catch(() => setListaAlmacenes([]));
+  }, []);
 
   async function cargar() {
     setCargando(true);
@@ -88,6 +99,35 @@ export function SinCostoModal({ actor, actorName, canWrite, onClose, onValuado }
     });
   }
 
+  const destinoDe = (f: FilaSinCosto) => destinos.get(claveFila(f)) ?? f.almacen;
+
+  function setDestino(f: FilaSinCosto, almacen: string) {
+    setDestinos((prev) => new Map(prev).set(claveFila(f), almacen));
+  }
+
+  /** Valora la existencia donde está y, si se eligió otro almacén, la pasa ahí. */
+  async function valuarFila(f: FilaSinCosto, costo: number): Promise<string> {
+    await valuarExistencia({
+      producto_id: f.producto_id,
+      almacen: f.almacen,
+      costo,
+      actor,
+      actor_name: actorName ?? null,
+      detalle: motivo(f, costo),
+    });
+    const destino = destinoDe(f);
+    if (destino !== f.almacen) {
+      await reubicarExistencia({
+        producto_id: f.producto_id,
+        almacenOrigen: f.almacen,
+        almacenDestino: destino,
+        actor,
+        actor_name: actorName ?? null,
+      });
+    }
+    return destino;
+  }
+
   /** Texto del ajuste que queda en el kardex, para que se entienda solo. */
   const motivo = (f: FilaSinCosto, costo: number) =>
     `Valuación de existencia sin costo · ${f.almacen} · ${num(f.stock)} ${f.unidad ?? 'u'} x ${money(costo)}`;
@@ -97,16 +137,9 @@ export function SinCostoModal({ actor, actorName, canWrite, onClose, onValuado }
     if (costo == null) return;
     setGuardando(claveFila(f));
     try {
-      await valuarExistencia({
-        producto_id: f.producto_id,
-        almacen: f.almacen,
-        costo,
-        actor,
-        actor_name: actorName ?? null,
-        detalle: motivo(f, costo),
-      });
+      const destino = await valuarFila(f, costo);
       setFilas((prev) => prev.filter((x) => claveFila(x) !== claveFila(f)));
-      toast(`"${f.nombre}" valorado en ${money(costo)} · ${f.almacen}`, 'success');
+      toast(`"${f.nombre}" valorado en ${money(costo)} · ${destino}`, 'success');
       onValuado?.();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo guardar el costo.', 'error');
@@ -125,14 +158,7 @@ export function SinCostoModal({ actor, actorName, canWrite, onClose, onValuado }
       const costo = costosValidos.get(claveFila(f));
       if (costo == null) continue;
       try {
-        await valuarExistencia({
-          producto_id: f.producto_id,
-          almacen: f.almacen,
-          costo,
-          actor,
-          actor_name: actorName ?? null,
-          detalle: motivo(f, costo),
-        });
+        await valuarFila(f, costo);
         hechas.push(claveFila(f));
       } catch {
         // Se sigue con el resto: una fila que falló (p. ej. otro usuario la valoró
@@ -177,7 +203,8 @@ export function SinCostoModal({ actor, actorName, canWrite, onClose, onValuado }
       <p className="muted" style={{ marginTop: 0 }}>
         Estas existencias tienen material contado pero valen <strong>$0</strong> en el inventario:
         el stock está, el valor no. Cargá el costo unitario y queda un ajuste en el kardex
-        con quién lo valoró y cuándo.
+        con quién lo valoró y cuándo. Si el material está en otro almacén, cambialo en la
+        columna <strong>Almacén</strong> y al guardar se traslada.
       </p>
 
       {error && (
@@ -248,7 +275,26 @@ export function SinCostoModal({ actor, actorName, canWrite, onClose, onValuado }
                         {f.sku}{f.categoria ? ` · ${f.categoria}` : ''}
                       </div>
                     </td>
-                    <td>{f.almacen}</td>
+                    <td>
+                      {canWrite && listaAlmacenes.length ? (
+                        <select
+                          className="input"
+                          value={destinoDe(f)}
+                          onChange={(e) => setDestino(f, e.target.value)}
+                          disabled={guardandoTodo || guardando === k}
+                          aria-label={`Almacén de ${f.nombre}`}
+                          title="Almacén donde queda el material. Si lo cambiás, al guardar se traslada."
+                        >
+                          {!listaAlmacenes.some((a) => a.nombre === f.almacen) && <option value={f.almacen}>{f.almacen}</option>}
+                          {listaAlmacenes.map((a) => (
+                            <option key={a.id} value={a.nombre}>{a.nombre}{a.sede ? ` · ${a.sede}` : ''}</option>
+                          ))}
+                        </select>
+                      ) : f.almacen}
+                      {destinoDe(f) !== f.almacen && (
+                        <div className="muted" style={{ fontSize: '.75rem' }}>se traslada desde {f.almacen}</div>
+                      )}
+                    </td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {num(f.stock)} {f.unidad ?? ''}
                     </td>
