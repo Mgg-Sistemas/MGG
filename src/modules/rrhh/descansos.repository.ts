@@ -77,6 +77,47 @@ export async function eliminarDescanso(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/* ── Selecciones guardadas (30-09-2026) ──────────────────────────────────
+   Quiénes salen en un plan se elige a mano; la elección se guarda con un
+   nombre («Cocina», «Turno A», «Galpón Los Pinos»…) para cargarla de un
+   toque en el próximo descanso. */
+
+export interface GrupoDescanso {
+  id: string;
+  nombre: string;
+  personal_ids: string[];
+  created_at: string;
+  actor_name?: string | null;
+}
+
+const TABLA_GRUPOS = 'rrhh_descansos_grupos';
+
+export async function listGruposDescanso(empresa: Empresa): Promise<GrupoDescanso[]> {
+  const { data, error } = await supabase.from(TABLA_GRUPOS).select('id, nombre, personal_ids, created_at, actor_name')
+    .eq('empresa', empresa).order('nombre');
+  if (error) throw error;
+  return (data ?? []) as GrupoDescanso[];
+}
+
+/** Guarda la selección con ese nombre; si el nombre ya existe, la reemplaza. */
+export async function guardarGrupoDescanso(
+  empresa: Empresa, nombre: string, personalIds: string[], actor: string, actorName: string | null,
+): Promise<void> {
+  const n = nombre.trim();
+  if (!n) throw new Error('Poné un nombre a la selección.');
+  if (!personalIds.length) throw new Error('La selección está vacía.');
+  const { error } = await supabase.from(TABLA_GRUPOS).upsert({
+    empresa, nombre: n, personal_ids: personalIds, created_by: actor, actor_name: actorName,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'empresa,nombre' });
+  if (error) throw mensaje(error);
+}
+
+export async function eliminarGrupoDescanso(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLA_GRUPOS).delete().eq('id', id);
+  if (error) throw error;
+}
+
 /**
  * Reemplaza el plan: borra los descansos 'plan' de esas personas desde `desde`
  * y guarda los nuevos, todo junto (si algo falla, queda el plan anterior).

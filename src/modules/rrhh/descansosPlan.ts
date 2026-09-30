@@ -1,10 +1,10 @@
 /* ============================================================
    MGG · RRHH · Descansos por rotación (21×7)
 
-   En MGG la rotación es SOLO para la gente de COCINA: cocinero, chef,
-   ayudante de cocina y lo que dependa del departamento de cocina. Ellos
-   trabajan 21 días y salen 7 de descanso. El resto del personal no rota
-   y no aparece en esta pantalla.
+   Desde el 30-09-2026 la rotación es para TODO el personal: quién sale se
+   elige a mano en el plan (y se guarda como selección para el próximo).
+   Antes era solo cocina; `esCargoDeCocina` queda por si se quiere armar
+   una selección de cocina de un toque.
 
    El problema es que no pueden salir todos juntos: la cocina tiene que
    seguir dando de comer, así que hay un TOPE de personas fuera a la vez

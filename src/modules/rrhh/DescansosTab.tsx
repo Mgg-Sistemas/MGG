@@ -1,13 +1,13 @@
 /* ============================================================
-   MGG · RRHH · Descansos (rotación 21×7 de COCINA)
+   MGG · RRHH · Descansos por rotación (21×7)
 
-   Solo aparece acá la gente de cocina: cocinero, chef, ayudante de cocina
-   y lo que dependa del comedor. Ellos trabajan 21 días y salen 7. El resto
-   del personal no rota y no tiene fila en este calendario —se decide por el
-   cargo y el departamento, así una ficha nueva de cocina entra sola (ver
-   `esCargoDeCocina` en `descansosPlan.ts`)—.
+   Desde el 30-09-2026 es para TODO el personal activo (antes solo cocina).
+   Quiénes salen en un plan se elige a mano en «🗓 Generar plan», y esa
+   elección se puede guardar con un nombre para cargarla en el próximo
+   descanso (tabla `rrhh_descansos_grupos`).
 
    Calendario del mes con una fila por trabajador y una barra por descanso.
+   Se filtra por departamento o por «solo quienes tienen descansos».
    Abajo, cuántos están fuera cada día contra el TOPE (rojo si se pasa).
    · Tocar un día vacío → nuevo descanso desde ese día.
    · Tocar una barra → editar fechas, nota o borrarlo.
@@ -26,12 +26,12 @@ import type { Personal } from '@/shared/lib/types';
 import type { Empresa } from './empresa';
 import { listPersonal } from './personal.repository';
 import {
-  aplicarPlanDescansos, crearDescanso, editarDescanso, eliminarDescanso, getConfigDescansos,
-  guardarConfigDescansos, listDescansos, type Descanso,
+  aplicarPlanDescansos, crearDescanso, editarDescanso, eliminarDescanso, eliminarGrupoDescanso, getConfigDescansos,
+  guardarConfigDescansos, guardarGrupoDescanso, listDescansos, listGruposDescanso, type Descanso, type GrupoDescanso,
 } from './descansos.repository';
 import {
   CONFIG_POR_DEFECTO, capacidadRotacion, cargaPorDia, diasConChoque, diasDe, fechasEntre, fueraEl,
-  generarPlan, minimoSimultaneo, seCruzan, sumarDias, type ConfigDescansos, type DescansoRango, type ResultadoPlan, soloCocina,
+  generarPlan, minimoSimultaneo, seCruzan, sumarDias, type ConfigDescansos, type DescansoRango, type ResultadoPlan,
 } from './descansosPlan';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -55,8 +55,9 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
   const hoy = useMemo(hoyVE, []);
   const [cursor, setCursor] = useState(() => ({ y: Number(hoy.slice(0, 4)), m: Number(hoy.slice(5, 7)) - 1 }));
   const [personal, setPersonal] = useState<Personal[]>([]);
-  /** Cuánta gente activa NO rota, para decirlo y que nadie la busque acá. */
-  const [fueraDeRotacion, setFueraDeRotacion] = useState(0);
+  const [grupos, setGrupos] = useState<GrupoDescanso[]>([]);
+  const [depto, setDepto] = useState('');
+  const [soloConDescansos, setSoloConDescansos] = useState(false);
   const [descansos, setDescansos] = useState<Descanso[]>([]);
   const [cfg, setCfg] = useState<ConfigDescansos>(CONFIG_POR_DEFECTO);
   const [loading, setLoading] = useState(true);
@@ -68,23 +69,28 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
 
   const recargar = useCallback(async () => {
     try {
-      // SOLO la gente de cocina: el 21×7 es de ellos. El almacenista, el chofer
-      // y la analista no rotan, y meterlos acá llenaría el calendario de filas
-      // vacías que nadie va a usar. Se decide por cargo/departamento, así una
-      // ficha nueva de cocina entra sola (ver `esCargoDeCocina`).
-      const todos = await listPersonal(true, empresa);
-      const ps = soloCocina(todos).sort((a, b) => nombre(a).localeCompare(nombre(b)));
-      setFueraDeRotacion(todos.length - ps.length);
-      const [ds, c] = await Promise.all([
+      // TODO el personal activo (30-09-2026). Antes era solo cocina; ahora quién
+      // sale se elige a mano en el plan y se puede guardar la selección.
+      const ps = (await listPersonal(true, empresa)).sort((a, b) => nombre(a).localeCompare(nombre(b)));
+      const [ds, c, gs] = await Promise.all([
         listDescansos(ps.map((p) => p.id)),
         getConfigDescansos(empresa).catch(() => CONFIG_POR_DEFECTO),
+        listGruposDescanso(empresa).catch(() => [] as GrupoDescanso[]),
       ]);
-      setPersonal(ps); setDescansos(ds); setCfg(c);
+      setPersonal(ps); setDescansos(ds); setCfg(c); setGrupos(gs);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los descansos', 'error'); }
     finally { setLoading(false); }
   }, [empresa]);
   useEffect(() => { void recargar(); }, [recargar]);
-  useRealtime(['rrhh_descansos', 'rrhh_descansos_config', 'personal'], () => { void recargar(); });
+  useRealtime(['rrhh_descansos', 'rrhh_descansos_config', 'rrhh_descansos_grupos', 'personal'], () => { void recargar(); });
+
+  /** Quienes están en la rotación: tienen algún descanso de hoy en adelante. */
+  const enRotacion = useMemo(() => new Set(descansos.filter((d) => d.hasta >= hoy).map((d) => d.personal_id)), [descansos, hoy]);
+  const conDescansos = useMemo(() => new Set(descansos.map((d) => d.personal_id)), [descansos]);
+  const departamentos = useMemo(
+    () => [...new Set(personal.map((p) => (p.departamento ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')),
+    [personal],
+  );
 
   const persById = useMemo(() => new Map(personal.map((p) => [p.id, p])), [personal]);
 
@@ -104,8 +110,11 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
 
   const filas = useMemo(() => {
     const t = normal(texto.trim());
-    return personal.filter((p) => !t || normal(`${nombre(p)} ${p.cedula ?? ''} ${p.cargo ?? ''} ${p.departamento ?? ''} ${p.numero_ficha ?? ''}`).includes(t));
-  }, [personal, texto]);
+    return personal.filter((p) =>
+      (!depto || (p.departamento ?? '').trim() === depto)
+      && (!soloConDescansos || conDescansos.has(p.id))
+      && (!t || normal(`${nombre(p)} ${p.cedula ?? ''} ${p.cargo ?? ''} ${p.departamento ?? ''} ${p.numero_ficha ?? ''}`).includes(t)));
+  }, [personal, texto, depto, soloConDescansos, conDescansos]);
 
   function mover(delta: number) {
     setCursor((c) => {
@@ -114,7 +123,9 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
     });
   }
 
-  const minimo = minimoSimultaneo(personal.length, cfg);
+  // El mínimo fuera a la vez se mide sobre quienes rotan, no sobre toda la nómina:
+  // con todo el personal a la vista, contar a todos avisaría siempre.
+  const minimo = minimoSimultaneo(enRotacion.size, cfg);
 
   return (
     <div className="descansos">
@@ -153,12 +164,20 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
           <button className="btn btn-sm btn-ghost" onClick={() => setCursor({ y: Number(hoy.slice(0, 4)), m: Number(hoy.slice(5, 7)) - 1 })}>Hoy</button>
         </div>
         <input id="desc-buscar" className="input desc-buscar" placeholder="🔍 Buscar por nombre, cédula, cargo, departamento…" value={texto} onChange={(e) => setTexto(e.target.value)} />
+        {departamentos.length > 1 && (
+          <select className="select" style={{ width: 'auto' }} value={depto} onChange={(e) => setDepto(e.target.value)} aria-label="Departamento">
+            <option value="">Todos los departamentos</option>
+            {departamentos.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        )}
+        <label style={{ display: 'flex', gap: '.35rem', alignItems: 'center', fontSize: '.82rem', cursor: 'pointer' }}>
+          <input type="checkbox" checked={soloConDescansos} onChange={(e) => setSoloConDescansos(e.target.checked)} />
+          Solo con descansos
+        </label>
         <div className="desc-acciones">
           <span className="chip" title="Días de trabajo × días de descanso · tope a la vez">{cfg.dias_trabajo}×{cfg.dias_descanso} · tope {cfg.max_simultaneos}</span>
-          {/* Que se vea por qué la lista es corta: acá solo está la cocina. */}
-          <span className="chip" title="La rotación toma a quien diga cocina, chef o comedor en su cargo o departamento">
-            🍽 Solo cocina · {personal.length}
-            {fueraDeRotacion > 0 && <span className="muted"> · {fueraDeRotacion} no rotan</span>}
+          <span className="chip" title="Todo el personal activo; en la rotación están quienes tienen descansos de hoy en adelante">
+            👥 {personal.length} activos · {enRotacion.size} en rotación
           </span>
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setAjustes(true)}>⚙ Ajustes</button>}
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setPlan(true)} disabled={!personal.length}>🗓 Generar plan</button>}
@@ -169,15 +188,16 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
       {minimo > cfg.max_simultaneos && (
         <div className="aviso warning" style={{ marginBottom: '.6rem' }}>
           <span className="aviso-icono">⚠</span>
-          <div>Con <strong>{personal.length}</strong> trabajadores en {cfg.dias_trabajo}×{cfg.dias_descanso}, lo mínimo que puede haber fuera a la vez es <strong>{minimo}</strong>: el tope de {cfg.max_simultaneos} alcanza para {capacidadRotacion(cfg)} personas. Subí el tope en ⚙ Ajustes o aceptá esos días en rojo.</div>
+          <div>Con <strong>{enRotacion.size}</strong> trabajadores en {cfg.dias_trabajo}×{cfg.dias_descanso}, lo mínimo que puede haber fuera a la vez es <strong>{minimo}</strong>: el tope de {cfg.max_simultaneos} alcanza para {capacidadRotacion(cfg)} personas. Subí el tope en ⚙ Ajustes o aceptá esos días en rojo.</div>
         </div>
       )}
 
       {loading ? <div className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Cargando…</div>
         : !personal.length ? (
-          <EmptyState icon="🍽" message={fueraDeRotacion > 0
-            ? `Ninguna de las ${fueraDeRotacion} personas activas tiene un cargo de cocina, así que nadie rota 21×7. La rotación toma a quien diga cocina, chef o comedor en su cargo o departamento.`
-            : 'Todavía no hay personal cargado. La rotación 21×7 toma sola a quien tenga un cargo de cocina.'} />
+          <EmptyState icon="👥" message="Todavía no hay personal activo cargado." />
+        )
+        : !filas.length ? (
+          <EmptyState icon="🔍" message="Nadie coincide con el filtro." />
         )
         : (
           <div className="card desc-scroll">
@@ -230,11 +250,12 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
           onSaved={async () => { setEditar(null); await recargar(); }} />
       )}
       {ajustes && (
-        <AjustesModal empresa={empresa} cfg={cfg} personas={personal.length} actor={actor}
+        <AjustesModal empresa={empresa} cfg={cfg} personas={enRotacion.size} actor={actor}
           onClose={() => setAjustes(false)} onSaved={async () => { setAjustes(false); await recargar(); }} />
       )}
       {plan && (
-        <GenerarPlanModal personal={personal} descansos={descansos} cfg={cfg} hoy={hoy} actor={actor} actorName={actorName}
+        <GenerarPlanModal empresa={empresa} personal={personal} descansos={descansos} cfg={cfg} hoy={hoy} actor={actor} actorName={actorName}
+          grupos={grupos} departamentos={departamentos} enRotacion={enRotacion}
           onClose={() => setPlan(false)} onSaved={async () => { setPlan(false); await recargar(); }} />
       )}
       {lista && (
@@ -447,18 +468,62 @@ function AjustesModal({ empresa, cfg, personas, actor, onClose, onSaved }: {
 }
 
 /* ───────── Generar plan ───────── */
-function GenerarPlanModal({ personal, descansos, cfg, hoy, actor, actorName, onClose, onSaved }: {
-  personal: Personal[]; descansos: Descanso[]; cfg: ConfigDescansos; hoy: string;
-  actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function GenerarPlanModal({ empresa, personal, descansos, cfg, hoy, actor, actorName, grupos, departamentos, enRotacion, onClose, onSaved }: {
+  empresa: Empresa; personal: Personal[]; descansos: Descanso[]; cfg: ConfigDescansos; hoy: string;
+  actor: string; actorName: string | null;
+  grupos: GrupoDescanso[]; departamentos: string[]; enRotacion: Set<string>;
+  onClose: () => void; onSaved: () => void;
 }) {
   const [desde, setDesde] = useState(hoy);
   const [meses, setMeses] = useState(3);
-  const [sel, setSel] = useState<Set<string>>(() => new Set(personal.map((p) => p.id)));
+  // Arranca con quienes ya rotan: el próximo plan suele ser de la misma gente.
+  // Con todo el personal a la vista, marcar a todos de entrada mandaba de
+  // descanso a la nómina entera con un clic.
+  const idsActivos = useMemo(() => new Set(personal.map((p) => p.id)), [personal]);
+  const [sel, setSel] = useState<Set<string>>(() => new Set([...enRotacion].filter((id) => idsActivos.has(id))));
   const [texto, setTexto] = useState('');
+  const [depto, setDepto] = useState('');
   const [saving, setSaving] = useState(false);
+  const [grupoId, setGrupoId] = useState('');
+  const [nombreGrupo, setNombreGrupo] = useState('');
+  const [guardandoGrupo, setGuardandoGrupo] = useState(false);
+  const [borrarGrupo, setBorrarGrupo] = useState<GrupoDescanso | null>(null);
   const hasta = desde ? finDePlan(desde, Math.max(1, meses)) : '';
 
-  const visibles = personal.filter((p) => !texto.trim() || normal(`${nombre(p)} ${p.cargo ?? ''} ${p.cedula ?? ''}`).includes(normal(texto.trim())));
+  const visibles = personal.filter((p) =>
+    (!depto || (p.departamento ?? '').trim() === depto)
+    && (!texto.trim() || normal(`${nombre(p)} ${p.cargo ?? ''} ${p.cedula ?? ''} ${p.departamento ?? ''}`).includes(normal(texto.trim()))));
+
+  function cargarGrupo(id: string) {
+    setGrupoId(id);
+    const g = grupos.find((x) => x.id === id);
+    if (!g) return;
+    // Solo quienes siguen activos: una ficha dada de baja no puede salir de descanso.
+    const vigentes = g.personal_ids.filter((pid) => idsActivos.has(pid));
+    setSel(new Set(vigentes));
+    setNombreGrupo(g.nombre);
+    const bajas = g.personal_ids.length - vigentes.length;
+    toast(`Selección «${g.nombre}» cargada: ${vigentes.length} persona(s)${bajas ? ` · ${bajas} ya no están activas` : ''}`, 'success');
+  }
+
+  async function guardarGrupo() {
+    setGuardandoGrupo(true);
+    try {
+      await guardarGrupoDescanso(empresa, nombreGrupo, [...sel], actor, actorName);
+      toast(`Selección «${nombreGrupo.trim()}» guardada (${sel.size})`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar la selección', 'error'); }
+    finally { setGuardandoGrupo(false); }
+  }
+
+  async function confirmarBorrarGrupo() {
+    const g = borrarGrupo; setBorrarGrupo(null);
+    if (!g) return;
+    try {
+      await eliminarGrupoDescanso(g.id);
+      if (grupoId === g.id) setGrupoId('');
+      toast(`Selección «${g.nombre}» eliminada`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  }
 
   const propuesta: ResultadoPlan | null = useMemo(() => {
     if (!desde || !hasta || !sel.size) return null;
@@ -524,11 +589,45 @@ function GenerarPlanModal({ personal, descansos, cfg, hoy, actor, actorName, onC
       )}
 
       <div className="desc-plan-personas">
+        {/* Quiénes salen: se eligen a mano y la elección se guarda para el próximo descanso. */}
+        <div className="card" style={{ margin: '0 0 .6rem', padding: '.55rem .7rem', display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontWeight: 600, fontSize: '.84rem' }}>👥 Selección guardada</span>
+          <select className="select" style={{ width: 'auto', minWidth: 180 }} value={grupoId} onChange={(e) => cargarGrupo(e.target.value)}
+            aria-label="Cargar selección guardada">
+            <option value="">{grupos.length ? '— cargar una selección —' : 'Todavía no hay selecciones guardadas'}</option>
+            {grupos.map((g) => <option key={g.id} value={g.id}>{g.nombre} ({g.personal_ids.length})</option>)}
+          </select>
+          {grupoId && (
+            <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
+              onClick={() => setBorrarGrupo(grupos.find((g) => g.id === grupoId) ?? null)} title="Eliminar esta selección guardada">🗑</button>
+          )}
+          <span style={{ flex: '1 1 auto' }} />
+          <input className="input" style={{ width: 200 }} placeholder="Nombre (ej.: Cocina, Turno A)" value={nombreGrupo}
+            onChange={(e) => setNombreGrupo(e.target.value)} aria-label="Nombre de la selección" />
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => void guardarGrupo()}
+            disabled={guardandoGrupo || !sel.size || !nombreGrupo.trim()}
+            title={grupos.some((g) => g.nombre === nombreGrupo.trim()) ? 'Ya existe con ese nombre: se reemplaza' : 'Guardar para el próximo descanso'}>
+            {guardandoGrupo ? 'Guardando…' : `💾 Guardar selección (${sel.size})`}
+          </button>
+        </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.4rem' }}>
           <input id="plan-buscar" className="input" style={{ flex: '1 1 200px' }} placeholder="🔍 Buscar trabajador…" value={texto} onChange={(e) => setTexto(e.target.value)} />
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(new Set(personal.map((p) => p.id)))}>Todos</button>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(new Set())}>Ninguno</button>
-          <span className="muted" style={{ fontSize: '.8rem' }}>{sel.size} de {personal.length}</span>
+          {departamentos.length > 1 && (
+            <select className="select" style={{ width: 'auto' }} value={depto} onChange={(e) => setDepto(e.target.value)} aria-label="Departamento">
+              <option value="">Todos los departamentos</option>
+              {departamentos.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          )}
+          {/* «Marcar/Desmarcar» actúan sobre lo que se ve: con un departamento
+              filtrado, se marca ese departamento entero de un toque. */}
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel((s) => new Set([...s, ...visibles.map((p) => p.id)]))}>
+            Marcar {visibles.length === personal.length ? 'todos' : `los ${visibles.length} visibles`}
+          </button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => {
+            const fuera = new Set(visibles.map((p) => p.id));
+            setSel((s) => new Set([...s].filter((id) => !fuera.has(id))));
+          }}>Desmarcar {visibles.length === personal.length ? 'todos' : 'visibles'}</button>
+          <span className="muted" style={{ fontSize: '.8rem' }}>{sel.size} de {personal.length} salen</span>
         </div>
         <div className="desc-plan-lista">
           {visibles.map((p) => {
@@ -537,7 +636,7 @@ function GenerarPlanModal({ personal, descansos, cfg, hoy, actor, actorName, onC
               <label key={p.id} className="desc-plan-fila">
                 <input type="checkbox" checked={sel.has(p.id)} onChange={() => alternar(p.id)} />
                 <span className="desc-nombre-txt">{nombre(p)}</span>
-                <small className="muted">{p.cargo || ''}</small>
+                <small className="muted">{[p.cargo, p.departamento].filter(Boolean).join(' · ')}</small>
                 <span className="mono" style={{ marginLeft: 'auto', fontSize: '.78rem' }}>
                   {sel.has(p.id) ? (primero ? `sale ${fmtDate(primero.desde)}` : '—') : ''}
                 </span>
@@ -546,6 +645,11 @@ function GenerarPlanModal({ personal, descansos, cfg, hoy, actor, actorName, onC
           })}
         </div>
       </div>
+      {borrarGrupo && (
+        <ConfirmDialog title="Eliminar selección guardada" danger confirmText="Sí, eliminar"
+          message={`Se borra la selección «${borrarGrupo.nombre}» (${borrarGrupo.personal_ids.length} personas). Los descansos ya cargados no se tocan.`}
+          onConfirm={() => { void confirmarBorrarGrupo(); }} onCancel={() => setBorrarGrupo(null)} />
+      )}
     </Modal>
   );
 }

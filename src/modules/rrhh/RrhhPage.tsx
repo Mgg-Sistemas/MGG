@@ -16,7 +16,7 @@ const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'anticipos', label: 'Anticipos / Préstamos', icon: '💵' },
   { key: 'nomina', label: 'Nómina', icon: '📋' },
   { key: 'vacaciones', label: 'Vacaciones', icon: '🏖' },
-  { key: 'descansos', label: 'Descansos (cocina)', icon: '🍽' },
+  { key: 'descansos', label: 'Descansos', icon: '🏠' },
   { key: 'administrativo', label: 'Administrativo', icon: '🗂' },
 ];
 
