@@ -228,6 +228,9 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...TINTA);
   doc.text(lineas, M, y);
   y += lineas.length * 11 + 30;
+  // Las firmas van al FINAL de la hoja (justo sobre el margen de 2 cm), no pegadas
+  // a la declaración con media página en blanco debajo.
+  y = Math.max(y, LIMITE - 36);
 
   doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
   const anchoFirma = 190;
