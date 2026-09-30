@@ -255,7 +255,8 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     const obs = (it as { observacion?: string | null }).observacion;
     // El renglón de comida a la cocina no bajó del almacén: lo dice el papel.
     const vale = (it as { descuenta_cocina?: boolean | null }).descuenta_cocina === true;
-    const nombre = `${it.producto_nombre || '—'}${vale ? '\nVale de entrega a cocina: no descuenta stock (lo baja Distribución de comidas)' : ''}`;
+    const viaja = (it as { traslado_cocina?: string | null }).traslado_cocina;
+    const nombre = `${it.producto_nombre || '—'}${vale ? '\nVale de entrega a cocina: no descuenta stock (lo baja Distribución de comidas)' : ''}${viaja ? `\nTrasladado al almacén ${viaja} (cocina)` : ''}`;
     return [
       String(i + 1),
       obs ? `${nombre}\nObs: ${obs}` : nombre,

@@ -10,7 +10,7 @@ import type {
   Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, ItemSolicitudSalida,
 } from '@/shared/lib/types';
 import { registrarMovimiento, recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
-import { esDestinoCocina, separarValeCocina } from './entregaACocina';
+import { cocinaDelDestino, esDestinoCocina, repartirEntregaCocina, type CocinaDestino } from './entregaACocina';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { rangoSede, type CandidatoAlmacen } from './asignacionPrioridad';
 import { prefijoCodigo, siguienteCodigo } from './codigoSolicitud';
@@ -665,6 +665,20 @@ async function planearSalidaTramos(
   return { tramos, faltantes };
 }
 
+/** Cocinas activas con el NOMBRE de su almacén: a dónde viaja la comida que se les manda. */
+async function listCocinasDestino(): Promise<CocinaDestino[]> {
+  const { data, error } = await supabase.from('cocinas').select('nombre, almacen_id').eq('activa', true);
+  if (error) throw error;
+  const ids = (data ?? []).map((c) => c.almacen_id as string | null).filter((x): x is string => !!x);
+  if (!ids.length) return [];
+  const { data: alms, error: eAlm } = await supabase.from('almacenes').select('id, nombre').in('id', ids);
+  if (eAlm) throw eAlm;
+  const nombreAlm = new Map((alms ?? []).map((a) => [a.id as string, a.nombre as string]));
+  return (data ?? [])
+    .map((c) => ({ nombre: c.nombre as string, almacen: nombreAlm.get(c.almacen_id as string) ?? '' }))
+    .filter((c) => c.almacen);
+}
+
 export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string, actorName?: string | null): Promise<void> {
   if (s.estado !== 'aprobada') throw new Error('Solo se ejecutan solicitudes aprobadas.');
 
@@ -738,32 +752,55 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   // Renglones que quedan como VALE DE ENTREGA A COCINA: comida que va a la
   // cocina no se descuenta acá (la baja Distribución de comidas al servirla).
   let valeCocina: ItemSolicitudSalida[] = [];
+  // Comida que va a OTRA cocina (con su propio almacén): viaja como traslado.
+  let trasladanCocina: ItemSolicitudSalida[] = [];
+  let tramosCocina: ItemSolicitudSalida[] = [];
+  let cocinaDestino: CocinaDestino | null = null;
   if (s.scope === 'salida' && s.tipo === 'material') {
     let aDescontar = lineas;
-    if (esDestinoCocina(s.destino)) {
+    const cocinas = await listCocinasDestino();
+    if (esDestinoCocina(s.destino) || cocinaDelDestino(s.destino, s.sede_destino, cocinas)) {
       const ids = [...new Set(lineas.map((l) => l.producto_id).filter(Boolean))];
       const { data: prods, error: eProd } = await supabase.from('productos').select('id, categoria').in('id', ids);
       if (eProd) throw eProd;
       const categoria = new Map((prods ?? []).map((p) => [p.id as string, p.categoria as string | null]));
-      const sep = separarValeCocina(lineas, s.destino, (id) => categoria.get(id));
+      const sep = repartirEntregaCocina(lineas,
+        { destino: s.destino, sedeDestino: s.sede_destino, almacenOrigen: s.almacen_origen }, cocinas, (id) => categoria.get(id));
       aDescontar = sep.descuentan;
       valeCocina = sep.valeCocina;
+      trasladanCocina = sep.trasladan;
+      cocinaDestino = sep.cocina;
     }
-    const plan = await planearSalidaTramos(aDescontar, s.almacen_origen ?? null);
-    if (plan.faltantes.length) {
-      throw new Error(`No se ejecutó nada (no se descontó stock): faltan existencias en ${plan.faltantes.length} material(es).\n• ${plan.faltantes.join('\n• ')}`);
+    const [plan, planCocina] = await Promise.all([
+      planearSalidaTramos(aDescontar, s.almacen_origen ?? null),
+      planearSalidaTramos(trasladanCocina, s.almacen_origen ?? null),
+    ]);
+    const faltantes = [...plan.faltantes, ...planCocina.faltantes];
+    if (faltantes.length) {
+      throw new Error(`No se ejecutó nada (no se descontó stock): faltan existencias en ${faltantes.length} material(es).\n• ${faltantes.join('\n• ')}`);
     }
     tramosSalida = plan.tramos;
+    // Lo que ya está en el almacén de esa cocina no tiene a dónde viajar.
+    tramosCocina = planCocina.tramos.filter((t) => t.almacen !== cocinaDestino?.almacen);
   }
 
   if (s.scope === 'salida' && s.tipo === 'material') {
-    movId = await ejecutarPorProductoEnTandas(tramosSalida!, (it) => salidaMaterial({
+    const movSalida = await ejecutarPorProductoEnTandas(tramosSalida!, (it) => salidaMaterial({
       productoId: it.producto_id, almacen: it.almacen!, cantidad: Number(it.cantidad) || 0,
       destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
       equipoId: it.equipo_id ?? null, equipoNombre: it.equipo_nombre ?? null,
       fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
     }));
-    movRef = 'salida_modulo';
+    const movCocina = cocinaDestino
+      ? await ejecutarPorProductoEnTandas(tramosCocina, (it) => trasladoMaterial({
+        productoId: it.producto_id, almacenOrigen: it.almacen!, almacenDestino: cocinaDestino!.almacen,
+        cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit ?? null,
+        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante,
+        refId: s.id, refCodigo: s.codigo, actor, actorName,
+      }))
+      : null;
+    movId = movSalida ?? movCocina;
+    movRef = movSalida || !movCocina ? 'salida_modulo' : 'traslado_modulo';
   } else if (s.scope === 'traslado' && s.tipo === 'material') {
     // El destino (que puede venir como sede/centro) ya se resolvió arriba a un almacén real,
     // y `lineasTraslado` trae solo lo que falta mover.
@@ -818,9 +855,11 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   // Los renglones que fueron vale de cocina quedan marcados en la solicitud:
   // así el detalle y el PDF dicen que ese kilo no bajó por acá.
   const patchVale: Record<string, unknown> = {};
-  if (valeCocina.length) {
+  if (valeCocina.length || trasladanCocina.length) {
     const esVale = new Set(valeCocina);
-    patchVale.items = lineas.map((it) => (esVale.has(it) ? { ...it, descuenta_cocina: true } : it));
+    const viaja = new Set(trasladanCocina);
+    patchVale.items = lineas.map((it) => (esVale.has(it) ? { ...it, descuenta_cocina: true }
+      : viaja.has(it) ? { ...it, traslado_cocina: cocinaDestino!.almacen } : it));
   }
 
   const { error } = await supabase
@@ -836,6 +875,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       historial: appendHistorial(s, 'ejecutada', actor, {
         ...(cxcId ? { cxc: `Salida de material · ${s.codigo}`, monto: cxcMonto, moneda: s.cxc_moneda || 'USD' } : {}),
         ...(valeCocina.length ? { vale_cocina: `${valeCocina.length} renglón(es) de comida a cocina sin descontar: los baja Distribución de comidas` } : {}),
+        ...(trasladanCocina.length ? { traslado_cocina: `${trasladanCocina.length} renglón(es) de comida trasladados al almacén ${cocinaDestino!.almacen} (cocina ${cocinaDestino!.nombre})` } : {}),
       }),
     })
     .eq('id', s.id);

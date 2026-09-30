@@ -550,6 +550,11 @@ export interface ItemSolicitudSalida {
    * comidas al servirlo. Se marca al ejecutar la salida.
    */
   descuenta_cocina?: boolean | null;
+  /**
+   * Comida a OTRA cocina (30-09-2026): el renglón viajó como traslado al almacén
+   * de esa cocina (p. ej. «La Esperanza»), no salió del inventario.
+   */
+  traslado_cocina?: string | null;
 }
 
 /** Chofer responsable del despacho (catálogo modificable). */

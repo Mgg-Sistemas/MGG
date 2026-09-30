@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { esDestinoCocina, laDescuentaLaCocina, separarValeCocina } from './entregaACocina';
+import { cocinaDelDestino, esDestinoCocina, laDescuentaLaCocina, repartirEntregaCocina, separarValeCocina } from './entregaACocina';
 import { esCategoriaCocina, esComestible } from '@/modules/cocina/categoriasCocina';
 
 describe('categorías de cocina', () => {
@@ -51,6 +51,29 @@ describe('laDescuentaLaCocina / separarValeCocina', () => {
     );
     expect(r.valeCocina.map((x) => x.producto_id)).toEqual(['salch', 'pan']);
     expect(r.descuentan.map((x) => x.producto_id)).toEqual(['cloro']);
+  });
+
+  it('caso real SAL-2026-0245: comida a CENTRO DE ACOPIO LA ESPERANZA viaja al almacén de esa cocina', () => {
+    const cocinas = [{ nombre: 'Los Pinos', almacen: 'Los Pinos' }, { nombre: 'La Esperanza', almacen: 'La Esperanza' }];
+    const cat = new Map([['aji', 'VIVERES'], ['cloro', 'LIMPIEZA']]);
+    const r = repartirEntregaCocina(
+      [{ producto_id: 'aji' }, { producto_id: 'cloro' }],
+      { destino: 'CENTRO DE ACOPIO LA ESPERANZA', sedeDestino: 'Centro de Acopio LA ESPERANZA', almacenOrigen: 'Los Pinos' },
+      cocinas, (id) => cat.get(id),
+    );
+    expect(r.cocina?.almacen).toBe('La Esperanza');
+    expect(r.trasladan.map((x) => x.producto_id)).toEqual(['aji']);
+    expect(r.descuentan.map((x) => x.producto_id)).toEqual(['cloro']);
+    expect(r.valeCocina).toEqual([]);
+  });
+
+  it('a la cocina de la MISMA sede sigue siendo vale, no traslado', () => {
+    const cocinas = [{ nombre: 'Los Pinos', almacen: 'Los Pinos' }];
+    const r = repartirEntregaCocina([{ producto_id: 'papa' }],
+      { destino: 'COCINA', sedeDestino: 'Los Pinos', almacenOrigen: 'Los Pinos' }, cocinas, () => 'HORTALIZAS Y LEGUMBRES');
+    expect(r.trasladan).toEqual([]);
+    expect(r.valeCocina.length).toBe(1);
+    expect(cocinaDelDestino('BASE LA GUAIRA', null, cocinas)).toBeNull();
   });
 
   it('a otro destino todo descuenta, aunque sea comida', () => {
