@@ -553,15 +553,20 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const preferAlmacenMovimiento = (productoId: string): string | null => {
     if (!almacenesDeScope || !almacenesScopeActual.length) return null;
     if (ui.filterAlmacen && almacenesScopeActual.includes(ui.filterAlmacen)) return ui.filterAlmacen;
-    const scopeSet = new Set(almacenesScopeActual);
+    // Solo almacenes ACTIVOS de la sede que se está mirando: el movimiento entra
+    // donde uno está parado. Antes caía en una fila vieja de un almacén inactivo o
+    // en el primero por nombre, y las 24 sardinas cargadas «en Matanza» terminaron
+    // en Los Pinos (30-09-2026).
+    const activos = new Set(almacenes.filter((a) => a.estado === 'activo').map((a) => a.nombre));
+    const scopeSet = new Set(almacenesScopeActual.filter((n) => activos.has(n)));
     const exs = existMap.get(productoId) ?? [];
     const conStock = exs
       .filter((e) => scopeSet.has(e.almacen) && (Number(e.stock) || 0) > 0)
       .sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0))[0];
     if (conStock) return conStock.almacen;
-    const conRow = exs.find((e) => scopeSet.has(e.almacen));
-    if (conRow) return conRow.almacen;
-    return almacenesScopeActual[0] ?? null;
+    // Sin stock en esta sede: al almacén PRINCIPAL de la sede (el mismo que al crear).
+    if (defaultAlmacenCrear && scopeSet.has(defaultAlmacenCrear)) return defaultAlmacenCrear;
+    return [...scopeSet][0] ?? null;
   };
 
   // Opciones del filtro por almacén, JERÁRQUICAS: primero el almacén PADRE (elegirlo
@@ -1279,7 +1284,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         <MovimientoForm
           producto={modal.producto}
           existencias={existMap.get(modal.producto.id) ?? []}
-          almacenesList={almacenesOfrecibles.map((a) => a.nombre)}
+          almacenesList={almacenesOfrecibles.filter((a) => a.estado === 'activo').map((a) => a.nombre)}
           fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
           preferAlmacen={preferAlmacenMovimiento(modal.producto.id)}
           actorEmail={productoActor}

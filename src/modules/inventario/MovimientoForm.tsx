@@ -46,7 +46,11 @@ const OPCIONES: { value: TipoManual; label: string; sign: 'pos' | 'neg' | 'any' 
 ];
 
 export function MovimientoForm({ producto, existencias, almacenesList, fixedAlmacen, preferAlmacen, actorEmail, actorName, onClose, onSubmit }: MovimientoFormProps) {
-  const almacenInicial = fixedAlmacen || preferAlmacen || producto.almacen || almacenesList[0] || 'General';
+  // La ficha del producto puede apuntar a un almacén inactivo (DEPOSITO) o de otra
+  // sede: solo se usa si todavía se puede elegir. Si no, el picker abría con la sede
+  // en blanco y el movimiento quedaba donde no se lo buscaba.
+  const fichaValida = producto.almacen && almacenesList.includes(producto.almacen) ? producto.almacen : null;
+  const almacenInicial = fixedAlmacen || preferAlmacen || fichaValida || almacenesList[0] || 'General';
   const [almacen, setAlmacen] = useState(almacenInicial);
   const [tipo, setTipo] = useState<TipoManual>('entrada');
   const [cantidad, setCantidad] = useState('1');
