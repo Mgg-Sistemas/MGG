@@ -20,6 +20,7 @@ export const CATEGORIA_VIVERES = 'VIVERES';
 // La lista de categorías vive en `categoriasCocina.ts` (la comparte Salidas);
 // acá se re-exporta para no mover a quien ya la importaba de este archivo.
 import { esCategoriaCocina } from './categoriasCocina';
+import { fechaComidaEnCiclo, inicioExactoDe } from './mercadoComparar';
 export { CATEGORIAS_COCINA, esCategoriaCocina } from './categoriasCocina';
 
 /* ───────── Cocinas (cada una vinculada a un almacén/subalmacén) ───────── */
@@ -407,7 +408,15 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
   // indicó), se deja el timestamp actual (default de la BD) para conservar el orden real.
   const hoyStr = new Date().toISOString().slice(0, 10);
   const fecha = input.fecha && /^\d{4}-\d{2}-\d{2}$/.test(input.fecha) ? input.fecha : null;
-  const atOverride = fecha && fecha !== hoyStr ? new Date(`${fecha}T12:00:00`).toISOString() : null;
+  let atOverride = fecha && fecha !== hoyStr ? new Date(`${fecha}T12:00:00`).toISOString() : null;
+  // Si ese día es el de apertura del mercado abierto y la apertura fue después del
+  // mediodía, la comida se corre al inicio del ciclo (si no, el mercado no la cuenta).
+  if (atOverride && input.cocinaId) {
+    const { data: abierto } = await supabase.from('mercados_cocina').select('historial')
+      .eq('cocina_id', input.cocinaId).eq('estado', 'abierto').maybeSingle();
+    const hist = (abierto as { historial?: Parameters<typeof inicioExactoDe>[0] } | null)?.historial;
+    atOverride = fechaComidaEnCiclo(atOverride, inicioExactoDe(Array.isArray(hist) ? hist : []));
+  }
   const codigo = await nextCodigoCocina(fecha ? Number(fecha.slice(0, 4)) : undefined);
 
   const { data, error } = await supabase.from(TABLE).insert({

@@ -10,7 +10,7 @@ import type {
   Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, ItemSolicitudSalida,
 } from '@/shared/lib/types';
 import { registrarMovimiento, recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
-import { cocinaDelDestino, esDestinoCocina, repartirEntregaCocina, type CocinaDestino } from './entregaACocina';
+import { repartirEntregaCocina, type CocinaDestino } from './entregaACocina';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { rangoSede, type CandidatoAlmacen } from './asignacionPrioridad';
 import { prefijoCodigo, siguienteCodigo } from './codigoSolicitud';
@@ -774,7 +774,8 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   if (s.scope === 'salida' && s.tipo === 'material') {
     let aDescontar = lineas;
     const cocinas = await listCocinasDestino();
-    if (esDestinoCocina(s.destino) || cocinaDelDestino(s.destino, s.sede_destino, cocinas)) {
+    // Siempre: la comida nunca baja por Salidas, sea cual sea el destino (30-09-2026).
+    {
       const ids = [...new Set(lineas.map((l) => l.producto_id).filter(Boolean))];
       const { data: prods, error: eProd } = await supabase.from('productos').select('id, categoria').in('id', ids);
       if (eProd) throw eProd;

@@ -7,7 +7,8 @@ import { ConversorBcv } from '@/shared/ui/ConversorBcv';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
-import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico, OfertaProveedor } from '@/shared/lib/types';
+import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico, OfertaProveedor, Producto } from '@/shared/lib/types';
+import { AgregarProductoCompra } from './AgregarProductoCompra';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, type EditarOfertaInput } from './ofertas.repository';
 import { resincronizarOcDesdeOferta } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
@@ -40,6 +41,7 @@ interface FormItem extends ItemOrden {
   precioUsdStr: string; // texto crudo del precio USD
   _rid: string;         // id local estable (las variantes comparten SKU)
   _variante?: boolean;  // true = renglón agregado como marca/variante extra
+  _agregado?: boolean;  // true = producto sumado en esta edición (se puede quitar)
 }
 
 let _ridSeq = 0;
@@ -286,6 +288,19 @@ export function AgregarOfertaModal({
       return out;
     });
   }
+  /* Productos agregados a la cotización (del inventario o nuevos). Solo mientras la
+     OC no pasó por el Gerente General: después, el total de la OC ya no se
+     re-sincroniza con la oferta. En una sub-OC no, porque cada hija toma solo
+     los SKU que le repartieron. */
+  const puedeAgregarProductos = !esServicio && !orden.parent_orden_id
+    && ['pendiente', 'aprobada', 'asignada', 'desistida_proveedor', 'oc_creada'].includes(orden.estado);
+  const skusEnOferta = useMemo(() => new Set(items.map((i) => i.sku)), [items]);
+  function agregarProducto(p: Producto) {
+    setItems((prev) => prev.some((i) => i.sku === p.sku) ? prev : [...prev, {
+      sku: p.sku, nombre: p.nombre, cantidad: 1, productoId: p.id, unidad: p.unidad, comprar: true,
+      precio: 0, precio_usd: 0, precioStr: '', precioUsdStr: '', _rid: nextRid(), _agregado: true,
+    }]);
+  }
   function quitarItem(idx: number) {
     setItems((prev) => prev.filter((_, k) => k !== idx));
   }
@@ -306,8 +321,8 @@ export function AgregarOfertaModal({
     }
     setSubmitting(true);
     // Se quitan los campos locales (_rid/_variante) y se normaliza marca/modelo.
-    const itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, precioStr, precioUsdStr, ...rest }) => {
-      void _rid; void _variante; void precioStr; void precioUsdStr;
+    const itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, _agregado, precioStr, precioUsdStr, ...rest }) => {
+      void _rid; void _variante; void _agregado; void precioStr; void precioUsdStr;
       return {
         ...rest,
         // Precios de compra siempre a 2 decimales (evita colas largas al guardar).
@@ -695,9 +710,9 @@ export function AgregarOfertaModal({
                     <td className="num" style={{ whiteSpace: 'nowrap' }}>
                       <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem' }}
                         onClick={() => agregarVariante(idx)} title="Agregar otra marca/modelo de este producto">＋ marca</button>
-                      {it._variante && (
+                      {(it._variante || it._agregado) && (
                         <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', color: 'var(--danger)' }}
-                          onClick={() => quitarItem(idx)} title="Quitar esta variante">✕</button>
+                          onClick={() => quitarItem(idx)} title={it._agregado ? 'Quitar este producto' : 'Quitar esta variante'}>✕</button>
                       )}
                     </td>
                   </tr>
@@ -717,6 +732,16 @@ export function AgregarOfertaModal({
             </tfoot>
           </table>
         </div>
+        {puedeAgregarProductos && (
+          <AgregarProductoCompra
+            skusPresentes={skusEnOferta}
+            actorEmail={registradoPorEmail}
+            onAgregar={agregarProducto}
+            hint={ofertaEdit?.estado === 'aceptada'
+              ? 'Se suma a la cotización aceptada; al guardar, la OC toma el producto con su precio y sigue esperando la aprobación del Gerente General.'
+              : 'Se suma a esta cotización con su cantidad y precio.'}
+          />
+        )}
       </div>
 
       {/* Totales BCV/USD/diferencia */}

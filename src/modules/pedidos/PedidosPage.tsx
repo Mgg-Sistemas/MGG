@@ -99,6 +99,7 @@ import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
+import { AgregarProductoCompra } from './AgregarProductoCompra';
 import { ordenesConOfertasDe } from './ordenDeOfertas';
 import { avisoDeCuadre, desglosarOc } from './cuadreOc';
 import { SolicitudMercadoModal } from './SolicitudMercadoModal';
@@ -2611,7 +2612,8 @@ function OrdenDetailModal({
           <button className="btn btn-primary" onClick={onEnviarPagar} title="Indicar método de pago y enviar a Tesorería">
             💳 Indicar método de pago / Enviar para Pagar
           </button>
-          <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (aún no se pagó ni recibió)">⊘ Anular OC</button>
+          {/* Ya la aprobó el Gerente: solo quien aprueba OC la anula (también lo exige la base). */}
+          {puedeAprobarOc && <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (aún no se pagó ni recibió)">⊘ Anular OC</button>}
         </>
       )}
       {/* OC confirmada pagar: el pago se hace en Tesorería → Órdenes pendientes por pagar. */}
@@ -2630,7 +2632,7 @@ function OrdenDetailModal({
               💳 Editar método de pago / datos
             </button>
           )}
-          {canManageProcurement && (
+          {puedeAprobarOc && (
             <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (aún no se pagó en Tesorería)">⊘ Anular OC</button>
           )}
         </>
@@ -2662,7 +2664,7 @@ function OrdenDetailModal({
             </button>
           )}
           {/* Crédito sin abonos todavía: se puede anular. */}
-          {!(Number(o.abonado_total) || 0) && (
+          {puedeAprobarOc && !(Number(o.abonado_total) || 0) && (
             <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC a crédito (aún sin abonos)">⊘ Anular OC</button>
           )}
         </>
@@ -2672,7 +2674,7 @@ function OrdenDetailModal({
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
           <button className="btn btn-primary" onClick={onReceive}>📦 Confirmar recepción</button>
-          {!o.recibida_en && (
+          {puedeAprobarOc && !o.recibida_en && (
             <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (aún no se recibió)">⊘ Anular OC</button>
           )}
         </>
@@ -3554,7 +3556,6 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   const [proveedorId, setProveedorId] = useState<string>(orden.proveedor_id ?? '');
   // Descuento OBTENIDO (negociado), opcional: reduce el total → total = Σ ítems − descuento.
   const [descuentoStr, setDescuentoStr] = useState(orden.descuento_obtenido != null ? String(orden.descuento_obtenido) : '');
-  const [nuevoProd, setNuevoProd] = useState('');   // producto a agregar (id)
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -3567,12 +3568,8 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   }, [proveedores, proveedorActual]);
   const proveedorCambiado = proveedorId !== (orden.proveedor_id ?? '');
 
-  // Productos del catálogo que aún no están en la OC (para agregar uno nuevo).
+  // SKUs que ya están en la OC (no se ofrecen de nuevo al agregar).
   const skusEnOc = useMemo(() => new Set(items.map((i) => i.sku)), [items]);
-  const productosDisponibles = useMemo(
-    () => productos.filter((p) => p.estado === 'activo' && !skusEnOc.has(p.sku)),
-    [productos, skusEnOc],
-  );
 
   const subtotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
   const descuentoObt = Math.max(0, Math.round((Number(descuentoStr) || 0) * 100) / 100);
@@ -3583,11 +3580,10 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   const upd = (idx: number, patch: Partial<ItemOrden>) =>
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
   const quitarItem = (idx: number) => setItems((prev) => prev.filter((_, k) => k !== idx));
-  function agregarProducto() {
-    const p = productos.find((x) => x.id === nuevoProd);
-    if (!p) return;
-    setItems((prev) => [...prev, { sku: p.sku, nombre: p.nombre, cantidad: 1, precio: Number(p.precio) || 0, productoId: p.id, unidad: p.unidad, comprar: true }]);
-    setNuevoProd('');
+  function agregarProducto(p: Producto) {
+    setItems((prev) => prev.some((i) => i.sku === p.sku)
+      ? prev
+      : [...prev, { sku: p.sku, nombre: p.nombre, cantidad: 1, precio: Number(p.precio) || 0, productoId: p.id, unidad: p.unidad, comprar: true }]);
   }
 
   async function guardar() {
@@ -3674,19 +3670,14 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
           onChange={(e) => setDescuentoStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
         <small className="hint muted">Descuento negociado que se le resta al total (la factura a pagar). Se sincroniza con Tesorería y se ve en el PDF y la trazabilidad.</small>
       </div>
-      {/* Agregar un producto nuevo a la OC (del catálogo de inventario). */}
-      <div className="form-row" style={{ marginTop: '.5rem' }}>
-        <label>Agregar producto</label>
-        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 280px' }}>
-            <SearchSelect value={nuevoProd} onChange={setNuevoProd}
-              options={productosDisponibles.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku} · ${money(Number(p.precio) || 0)}` }))}
-              placeholder="Buscar producto del inventario…" emptyText="Sin productos disponibles." />
-          </div>
-          <button type="button" className="btn btn-ghost" disabled={!nuevoProd} onClick={agregarProducto}>＋ Agregar</button>
-        </div>
-        <small className="hint muted">El precio viene del inventario; podés ajustarlo en la tabla. Agregar/quitar productos reabre la OC a aprobación del Gerente.</small>
-      </div>
+      {/* Agregar a la OC un producto del inventario o uno nuevo (nace en el inventario). */}
+      <AgregarProductoCompra
+        skusPresentes={skusEnOc}
+        productos={productos}
+        actorEmail={actorEmail}
+        onAgregar={agregarProducto}
+        hint="El precio viene del inventario (un producto nuevo entra en 0): ajustalo en la tabla. Agregar/quitar productos deja la OC en aprobación del Gerente General."
+      />
       <div className="form-row" style={{ marginTop: '.6rem' }}>
         <label>Condición de pago</label>
         <select className="select" value={cond} onChange={(e) => setCond(e.target.value)}>

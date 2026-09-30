@@ -36,10 +36,13 @@ describe('esDestinoCocina', () => {
 });
 
 describe('laDescuentaLaCocina / separarValeCocina', () => {
-  it('caso real: 400 salchichas a COCINA son vale; el cloro a COCINA sí descuenta', () => {
+  it('REGLA FIJADA POR LA ADMINISTRADORA (30-09): en Los Pinos y La Esperanza lo de Alimentación no baja por Salidas; en el resguardo sí', () => {
     expect(laDescuentaLaCocina('COCINA', 'CARNES')).toBe(true);
-    expect(laDescuentaLaCocina('COCINA', 'LIMPIEZA')).toBe(false);
-    expect(laDescuentaLaCocina('MANTENIMIENTO', 'CARNES')).toBe(false);
+    expect(laDescuentaLaCocina('COCINA', 'LIMPIEZA')).toBe(true);
+    expect(laDescuentaLaCocina('MANTENIMIENTO', 'CARNES', 'LOS PINOS')).toBe(true);
+    expect(laDescuentaLaCocina('COCINA', 'LIMPIEZA', 'CENTRO DE ACOPIO - LA ESPERANZA')).toBe(true);
+    expect(laDescuentaLaCocina('COCINA', 'VIVERES', 'CENTRO DE FUNDICION - MATANZAS')).toBe(false);
+    expect(laDescuentaLaCocina('COCINA', 'PLOMERIA', 'LOS PINOS')).toBe(false);
   });
 
   it('separa los renglones según la categoría del producto', () => {
@@ -49,11 +52,11 @@ describe('laDescuentaLaCocina / separarValeCocina', () => {
       'COCINA',
       (id) => cat.get(id),
     );
-    expect(r.valeCocina.map((x) => x.producto_id)).toEqual(['salch', 'pan']);
-    expect(r.descuentan.map((x) => x.producto_id)).toEqual(['cloro']);
+    expect(r.valeCocina.map((x) => x.producto_id)).toEqual(['salch', 'cloro', 'pan']);
+    expect(r.descuentan).toEqual([]);
   });
 
-  it('caso real SAL-2026-0245: comida a CENTRO DE ACOPIO LA ESPERANZA viaja al almacén de esa cocina', () => {
+  it('caso real SAL-2026-0247: de Los Pinos a otra cocina nada de Alimentación se traslada ni descuenta', () => {
     const cocinas = [{ nombre: 'Los Pinos', almacen: 'Los Pinos' }, { nombre: 'La Esperanza', almacen: 'La Esperanza' }];
     const cat = new Map([['aji', 'VIVERES'], ['cloro', 'LIMPIEZA']]);
     const r = repartirEntregaCocina(
@@ -62,9 +65,9 @@ describe('laDescuentaLaCocina / separarValeCocina', () => {
       cocinas, (id) => cat.get(id),
     );
     expect(r.cocina?.almacen).toBe('La Esperanza');
-    expect(r.trasladan.map((x) => x.producto_id)).toEqual(['aji']);
-    expect(r.descuentan.map((x) => x.producto_id)).toEqual(['cloro']);
-    expect(r.valeCocina).toEqual([]);
+    expect(r.trasladan).toEqual([]);
+    expect(r.valeCocina.map((x) => x.producto_id)).toEqual(['aji', 'cloro']);
+    expect(r.descuentan).toEqual([]);
   });
 
   it('reconoce la cocina por su nombre, su almacén, su sede o sin artículo', () => {
@@ -76,16 +79,18 @@ describe('laDescuentaLaCocina / separarValeCocina', () => {
     expect(cocinaDelDestino('TALLER', 'BASE LA GUAIRA', cocinas)).toBeNull();
   });
 
-  it('comida de Los Pinos al resguardo de Matanzas viaja; de Matanzas a Matanzas no', () => {
+  it('de Los Pinos al resguardo no viaja ni descuenta; desde el RESGUARDO (Matanzas) sí descuenta', () => {
     const cocinas = [{ nombre: 'Resguardo Matanzas', almacen: 'Resguardo', sede: 'CENTRO DE FUNDICION - MATANZAS' }];
     const va = repartirEntregaCocina([{ producto_id: 'arroz' }],
       { destino: 'RESGUARDO', almacenOrigen: 'Los Pinos', sedeOrigen: 'LOS PINOS' }, cocinas, () => 'VIVERES');
-    expect(va.trasladan.length).toBe(1);
+    expect(va.trasladan).toEqual([]);
+    expect(va.valeCocina.length).toBe(1);
     const queda = repartirEntregaCocina([{ producto_id: 'arroz' }],
       { destino: 'PERSONAL', sedeDestino: 'CENTRO DE FUNDICION - MATANZAS', almacenOrigen: 'General', sedeOrigen: 'CENTRO DE FUNDICION - MATANZAS' },
       cocinas, () => 'VIVERES');
     expect(queda.trasladan).toEqual([]);
     expect(queda.descuentan.length).toBe(1);
+    expect(queda.valeCocina).toEqual([]);
   });
 
   it('a la cocina de la MISMA sede sigue siendo vale, no traslado', () => {
@@ -97,9 +102,9 @@ describe('laDescuentaLaCocina / separarValeCocina', () => {
     expect(cocinaDelDestino('BASE LA GUAIRA', null, cocinas)).toBeNull();
   });
 
-  it('a otro destino todo descuenta, aunque sea comida', () => {
-    const r = separarValeCocina([{ producto_id: 'salch' }], 'CAMPAMENTO', () => 'CARNES');
-    expect(r.valeCocina).toEqual([]);
-    expect(r.descuentan.length).toBe(1);
+  it('a otro destino la comida tampoco descuenta; lo que no es comida sí', () => {
+    const r = separarValeCocina([{ producto_id: 'salch' }, { producto_id: 'tubo' }], 'CAMPAMENTO', (id) => (id === 'salch' ? 'CARNES' : 'PLOMERIA'));
+    expect(r.valeCocina.map((x) => x.producto_id)).toEqual(['salch']);
+    expect(r.descuentan.map((x) => x.producto_id)).toEqual(['tubo']);
   });
 });

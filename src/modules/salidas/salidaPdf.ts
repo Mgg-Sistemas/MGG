@@ -280,6 +280,9 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold', halign: 'right', fontSize: 10 },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
+  // La firma y las notas van en la ÚLTIMA página, debajo de donde terminó la tabla
+  // (30-09-2026: la firma escaneada —JPEG con fondo blanco— tapaba renglones).
+  doc.setPage(doc.getNumberOfPages());
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   y = (doc as any).lastAutoTable.finalY + 18;
 
@@ -304,7 +307,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // Se ubican al pie de la página, pero si la tabla es larga y el contenido
   // llega hasta abajo, se bajan debajo del contenido o saltan a una nueva página
   // (evita que la firma/el bloque se solape con los ítems).
-  const needTop = 52;  // espacio sobre la línea (firma)
+  const needTop = 70;  // espacio sobre la línea: la firma mide 52 y no puede tocar la tabla
   const needBot = 34;  // espacio bajo la línea (etiquetas + nombre)
   let fy = PAGE_H - MARGIN - needBot;          // posición preferida (pie de página)
   if (y + needTop > fy) {                       // el contenido invade la zona de firmas

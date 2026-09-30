@@ -58,9 +58,14 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const M = 42;
+  // Márgenes de 2 × 2 cm (≈57 pt) en los cuatro lados (30-09-2026). Nada se
+  // dibuja fuera de esa caja: si un bloque no entra, pasa entero a la hoja siguiente.
+  const M = 57;
+  const LIMITE = H - M;
   const emp = definicionEmpresa(normalizarEmpresa(empresa));
   let y = M;
+  /** Si un bloque de ese alto (pt) no entra antes del margen inferior, hoja nueva. */
+  const asegurar = (alto: number) => { if (y + alto > LIMITE) { doc.addPage(); y = M; } };
 
   /** Encabezado de página. Se repite en la segunda hoja para que suelta se
    *  sepa de dónde salió y de qué formulario es la continuación. */
@@ -78,6 +83,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
 
   /** Título de sección, con su raya naranja. */
   const seccion = (n: number, titulo: string) => {
+    asegurar(16 + 30); // el título nunca queda solo al pie: entra con su primer renglón
     doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
     doc.text(textoPdf(`${n}. ${titulo.toUpperCase()}`), M, y);
     doc.setDrawColor(...NARANJA); doc.setLineWidth(0.8);
@@ -91,6 +97,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
    * pisarlo: en el formato viejo se escribía encima del texto impreso.
    */
   const parDeCampos = (izq: string, der: string) => {
+    asegurar(28);
     const ancho = (W - M * 2 - 18) / 2;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
     doc.text(textoPdf(izq), M, y);
@@ -114,6 +121,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   seccion(1, 'Datos personales');
   for (const [a, b] of DATOS_PERSONALES) parDeCampos(a, b);
   // La dirección va sola: en dos columnas no entra una dirección de verdad.
+  asegurar(46);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
   doc.text(textoPdf('Dirección de habitación'), M, y);
   doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.5);
@@ -134,6 +142,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   const porFila = Math.ceil(NIVELES.length / 2);
   doc.setFontSize(8.5); doc.setTextColor(...TINTA);
   for (let fila = 0; fila * porFila < NIVELES.length; fila++) {
+    asegurar(16);
     let x = M;
     for (const nivel of NIVELES.slice(fila * porFila, (fila + 1) * porFila)) {
       casilla(x, y);
@@ -164,7 +173,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
     bodyStyles: { minCellHeight: 18, lineColor: [200, 200, 200], lineWidth: 0.5 },
     styles: { fontSize: 8.5 },
     columnStyles: { 0: { cellWidth: 200 }, 1: { cellWidth: 95 }, 2: { cellWidth: 105 } },
-    margin: { left: M, right: M },
+    margin: { left: M, right: M, top: M, bottom: M },
   });
   y = ((doc as any).lastAutoTable?.finalY ?? y) + 18;
 
@@ -176,6 +185,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
    * hoja entiende que marcar «Sí» lo obliga a escribir a qué.
    */
   const preguntaSalud = (pregunta: string, detalle: string) => {
+    asegurar(44);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...TINTA);
     doc.text(textoPdf(pregunta), M, y);
     const anchoPregunta = doc.getTextWidth(textoPdf(pregunta));
@@ -194,6 +204,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   };
   preguntaSalud('¿Padece alguna alergia?', '¿A qué? Medicamentos, alimentos, picaduras, polvo…');
   preguntaSalud('¿Padece alguna enfermedad?', '¿Cuál? Indique también el tratamiento que recibe y con qué frecuencia');
+  asegurar(14);
   doc.setFontSize(7); doc.setTextColor(...GRIS);
   doc.text(
     textoPdf('Lo declarado acá se imprime en el carnet y se muestra al escanear su código QR, para que pueda ser atendido en una emergencia.'),
@@ -212,6 +223,9 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   const declaracion = 'Declaro que todos los datos aqui asentados son correctos, veridicos y actualizados, y autorizo a '
     + `${emp.razonSocial} a verificar su autenticidad. Me comprometo a informar cualquier cambio.`;
   const lineas = doc.splitTextToSize(textoPdf(declaracion), W - M * 2) as string[];
+  // Declaración, firma y la nota final van juntas: la firma no se separa de lo que firma.
+  asegurar(lineas.length * 11 + 30 + 40);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...TINTA);
   doc.text(lineas, M, y);
   y += lineas.length * 11 + 30;
 
@@ -224,10 +238,12 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   doc.text(textoPdf('Fecha de entrega'), W - M - anchoFirma / 2, y + 12, { align: 'center' });
 
   /* ── Pie: para qué NO sirve esta hoja ── */
+  // Va en el flujo, debajo de la firma: antes estaba clavada al pie de la hoja y,
+  // cuando el formulario crecía, se montaba encima de «Condiciones de salud».
   doc.setFontSize(7); doc.setTextColor(...GRIS);
   doc.text(
     textoPdf('Los datos bancarios no se piden en esta hoja: se cargan en el sistema una vez dada de alta la ficha.'),
-    W / 2, H - 30, { align: 'center' },
+    W / 2, y + 30, { align: 'center' },
   );
 
   /* ══════════ Página 2 · los papeles que tiene que traer ══════════ */
@@ -242,7 +258,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   for (const grupo of DOCUMENTOS_A_CONSIGNAR) {
     // Ningún grupo arranca al filo de la página: si no entra el título más un
     // par de renglones, se pasa a la siguiente hoja entero.
-    if (y + 70 > H - 100) { doc.addPage(); y = M; }
+    if (y + 70 > LIMITE) { doc.addPage(); y = M; }
     doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(CUERPO + 1);
     doc.text(textoPdf(grupo.titulo.toUpperCase()), M, y);
     doc.setDrawColor(...NARANJA); doc.setLineWidth(0.6);
@@ -253,7 +269,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
     for (const item of grupo.items) {
       const partes = doc.splitTextToSize(textoPdf(item), ANCHO_ITEM) as string[];
       const alto = Math.max(21, partes.length * 14 + 7);
-      if (y + alto > H - 100) {
+      if (y + alto > LIMITE) {
         doc.addPage(); y = M;
         doc.setFont('helvetica', 'normal'); doc.setFontSize(CUERPO);
       }
@@ -268,8 +284,8 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   /* ── Pie de la segunda página: quién recibió ── */
   // Si la lista terminó pegada al borde, el pie se va a la hoja siguiente
   // entero: una firma cortada por la mitad no la firma nadie.
-  if (y + 46 > H - 40) { doc.addPage(); y = M; }
-  const yPie = Math.max(y + 16, H - 78);
+  if (y + 70 > LIMITE) { doc.addPage(); y = M; }
+  const yPie = Math.max(y + 30, LIMITE - 40);
   doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
   const anchoPie = 150;
   doc.line(M, yPie, M + anchoPie, yPie);
@@ -282,7 +298,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   doc.setFontSize(7);
   doc.text(
     textoPdf('Los documentos se consignan en original y copia. Los originales se devuelven una vez cotejados.'),
-    W / 2, H - 30, { align: 'center' },
+    W / 2, yPie + 32, { align: 'center' },
   );
 
   await previewPdfDoc(doc, 'hoja-ingreso-personal.pdf');

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  cicloQueSePisa, explicarSobrante, inicioExactoDe, mermasPorViver, primerDiaLibre, ventanaCicloDe,
+  cicloQueSePisa, explicarSobrante, fechaComidaEnCiclo, inicioExactoDe, mermasPorViver, primerDiaLibre, ventanaCicloDe,
   compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
   deltaEfectivo, separarMovidos, stockAlCorte, totalesDeMercado, trasladosSinLlegada,
 } from './mercadoComparar';
@@ -505,5 +505,17 @@ describe('cicloQueSePisa — un descartado deja de ocupar sus días al descartar
       cierre: { descartado: true, generado_en: '2026-09-14T20:50:00.000Z' } as CierreSnapshot,
     });
     expect(v).toMatchObject({ descartado: true, descartado_en: '2026-09-14T20:50:00.000Z' });
+  });
+});
+
+describe('fechaComidaEnCiclo', () => {
+  it('caso real 30-09: comida del día de apertura cargada a las 12:00 se corre al inicio del ciclo', () => {
+    // Los Pinos #3 abrió el 29-09 a las 16:08:17Z; COC-0423 del 29 quedaba a las 16:00Z.
+    expect(fechaComidaEnCiclo('2026-09-29T16:00:00.000Z', '2026-09-29T16:08:17.517Z')).toBe('2026-09-29T16:08:18.517Z');
+  });
+  it('un día anterior a la apertura se respeta (es del ciclo viejo); después de la apertura no se toca', () => {
+    expect(fechaComidaEnCiclo('2026-09-27T16:00:00.000Z', '2026-09-29T16:08:17.517Z')).toBe('2026-09-27T16:00:00.000Z');
+    expect(fechaComidaEnCiclo('2026-09-30T16:00:00.000Z', '2026-09-29T16:08:17.517Z')).toBe('2026-09-30T16:00:00.000Z');
+    expect(fechaComidaEnCiclo('2026-09-29T16:00:00.000Z', null)).toBe('2026-09-29T16:00:00.000Z');
   });
 });

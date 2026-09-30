@@ -10,8 +10,24 @@
    Distribución de comidas. Una salida a la cocina con comestibles conserva
    el documento —nota de entrega, firma, correlativo—, pero no mueve stock.
    La limpieza sí sigue descontando por Salidas: ningún plato la consume.
+
+   REGLA BLINDADA (30-09-2026): por Salidas NO se descuenta ni se traslada NADA
+   que sea de una categoría de comida, vaya a donde vaya. La SAL-2026-0247
+   «mercado completo de La Esperanza» repitió el reparto TRA-2026-0011 que ya
+   había llevado ese mismo mercado desde Alimentación, y la comida se movió dos
+   veces. La comida se mueve solo desde Alimentación (distribución a otra
+   cocina / resguardo) y se consume plato por plato; la salida queda como
+   documento. La base lo impide también (trigger mgg_guardia_comida_a_cocina).
+
+   Y (30-09, SAL-2026-0248): en LOS PINOS y LA ESPERANZA todo lo de Alimentación
+   —comida Y limpieza— sale por CONSUMO desde el módulo de Alimentación, nunca
+   por Salidas. El RESGUARDO de Matanzas no entra en esta regla: ahí la salida
+   descuenta normal (es un depósito que despacha, no una cocina que sirve).
    ============================================================ */
-import { esComestible } from '@/modules/cocina/categoriasCocina';
+import { esCategoriaCocina } from '@/modules/cocina/categoriasCocina';
+
+/** ¿La sede es la del resguardo (Matanzas)? Ahí las salidas sí descuentan. */
+export const esSedeResguardoSalida = (sede?: string | null): boolean => /matanza/i.test(sede ?? '');
 
 const norm = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
 
@@ -22,8 +38,8 @@ export function esDestinoCocina(destino?: string | null): boolean {
 }
 
 /** ¿Este renglón lo descuenta la cocina al servirlo y NO la salida? */
-export function laDescuentaLaCocina(destino: string | null | undefined, categoria: string | null | undefined): boolean {
-  return esDestinoCocina(destino) && esComestible(categoria);
+export function laDescuentaLaCocina(_destino: string | null | undefined, categoria: string | null | undefined, sedeOrigen?: string | null): boolean {
+  return !esSedeResguardoSalida(sedeOrigen) && esCategoriaCocina(categoria);
 }
 
 export interface RenglonConProducto { producto_id: string }
@@ -36,12 +52,14 @@ export function separarValeCocina<T extends RenglonConProducto>(
   lineas: readonly T[],
   destino: string | null | undefined,
   categoriaDe: (productoId: string) => string | null | undefined,
+  sedeOrigen?: string | null,
 ): { descuentan: T[]; valeCocina: T[] } {
-  if (!esDestinoCocina(destino)) return { descuentan: [...lineas], valeCocina: [] };
+  void destino; // desde el 30-09 no importa el destino: importa de dónde sale
   const descuentan: T[] = [];
   const valeCocina: T[] = [];
+  if (esSedeResguardoSalida(sedeOrigen)) return { descuentan: [...lineas], valeCocina };
   for (const l of lineas) {
-    if (esComestible(categoriaDe(l.producto_id))) valeCocina.push(l);
+    if (esCategoriaCocina(categoriaDe(l.producto_id))) valeCocina.push(l);
     else descuentan.push(l);
   }
   return { descuentan, valeCocina };
@@ -106,15 +124,8 @@ export function repartirEntregaCocina<T extends RenglonConProducto>(
   cocinas: readonly CocinaDestino[],
   categoriaDe: (productoId: string) => string | null | undefined,
 ): { descuentan: T[]; valeCocina: T[]; trasladan: T[]; cocina: CocinaDestino | null } {
+  // Desde el 30-09 la comida ya no viaja por Salidas (ni como traslado): es vale.
+  // La cocina del destino se sigue reconociendo solo para el texto del documento.
   const cocina = cocinaDelDestino(s.destino, s.sedeDestino, cocinas);
-  // Dentro de la MISMA sede no es «ir a otra cocina»: una salida de Matanzas al
-  // personal de Matanzas no se vuelve traslado al resguardo de Matanzas.
-  const mismaSede = !!cocina?.sede && !!s.sedeOrigen && cocina.sede === s.sedeOrigen;
-  if (cocina && !mismaSede && cocina.almacen !== (s.almacenOrigen ?? '')) {
-    const descuentan: T[] = [];
-    const trasladan: T[] = [];
-    for (const l of lineas) (esComestible(categoriaDe(l.producto_id)) ? trasladan : descuentan).push(l);
-    if (trasladan.length) return { descuentan, valeCocina: [], trasladan, cocina };
-  }
-  return { ...separarValeCocina(lineas, s.destino, categoriaDe), trasladan: [], cocina: null };
+  return { ...separarValeCocina(lineas, s.destino, categoriaDe, s.sedeOrigen), trasladan: [], cocina };
 }

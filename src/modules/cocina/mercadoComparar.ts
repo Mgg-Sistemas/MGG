@@ -218,6 +218,25 @@ export function inicioExactoDe(historial: EventoMercado[] | null | undefined): s
   return ev?.desde ?? null;
 }
 
+/**
+ * Fecha de una comida cargada con día desfasado, ajustada al ciclo abierto.
+ *
+ * Una comida de «otro día» se guarda a las 12:00. Si ese día es el MISMO en que
+ * abrió el mercado y la apertura fue después del mediodía, la comida caía antes
+ * del inicio: el inventario la descontaba y el mercado no la contaba (30-09-2026:
+ * COC-0422/0423/0424 del 29 en Los Pinos, abierto a las 12:08 → «faltan 11»).
+ * Ese caso se corre a un segundo después de la apertura. Un día ANTERIOR a la
+ * apertura se respeta: pertenece al ciclo viejo.
+ */
+export function fechaComidaEnCiclo(atIso: string, inicioIso: string | null | undefined): string {
+  if (!inicioIso) return atIso;
+  const a = new Date(atIso);
+  const i = new Date(inicioIso);
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(i.getTime()) || a.getTime() >= i.getTime()) return atIso;
+  const mismoDia = a.getFullYear() === i.getFullYear() && a.getMonth() === i.getMonth() && a.getDate() === i.getDate();
+  return mismoDia ? new Date(i.getTime() + 1000).toISOString() : atIso;
+}
+
 /* ───────── Comparar dos cortes ───────── */
 
 export interface FilaComparacion {
