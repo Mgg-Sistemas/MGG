@@ -671,11 +671,14 @@ async function listCocinasDestino(): Promise<CocinaDestino[]> {
   if (error) throw error;
   const ids = (data ?? []).map((c) => c.almacen_id as string | null).filter((x): x is string => !!x);
   if (!ids.length) return [];
-  const { data: alms, error: eAlm } = await supabase.from('almacenes').select('id, nombre').in('id', ids);
+  const { data: alms, error: eAlm } = await supabase.from('almacenes').select('id, nombre, sede').in('id', ids);
   if (eAlm) throw eAlm;
-  const nombreAlm = new Map((alms ?? []).map((a) => [a.id as string, a.nombre as string]));
+  const alm = new Map((alms ?? []).map((a) => [a.id as string, a as { nombre: string; sede: string | null }]));
   return (data ?? [])
-    .map((c) => ({ nombre: c.nombre as string, almacen: nombreAlm.get(c.almacen_id as string) ?? '' }))
+    .map((c) => {
+      const a = alm.get(c.almacen_id as string);
+      return { nombre: c.nombre as string, almacen: a?.nombre ?? '', sede: a?.sede ?? null };
+    })
     .filter((c) => c.almacen);
 }
 

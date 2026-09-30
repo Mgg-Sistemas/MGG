@@ -67,6 +67,15 @@ describe('laDescuentaLaCocina / separarValeCocina', () => {
     expect(r.valeCocina).toEqual([]);
   });
 
+  it('reconoce la cocina por su nombre, su almacén, su sede o sin artículo', () => {
+    const cocinas = [{ nombre: 'La Esperanza', almacen: 'La Esperanza', sede: 'CENTRO DE ACOPIO - LA ESPERANZA' }];
+    for (const d of ['COCINA ESPERANZA', 'Comedor de la Esperanza', 'CENTRO DE ACOPIO - LA ESPERANZA', 'esperanza']) {
+      expect(cocinaDelDestino(d, null, cocinas)?.almacen, d).toBe('La Esperanza');
+    }
+    expect(cocinaDelDestino('MANTENIMIENTO', 'Centro de Acopio LA ESPERANZA', cocinas)?.almacen).toBe('La Esperanza');
+    expect(cocinaDelDestino('TALLER', 'BASE LA GUAIRA', cocinas)).toBeNull();
+  });
+
   it('a la cocina de la MISMA sede sigue siendo vale, no traslado', () => {
     const cocinas = [{ nombre: 'Los Pinos', almacen: 'Los Pinos' }];
     const r = repartirEntregaCocina([{ producto_id: 'papa' }],

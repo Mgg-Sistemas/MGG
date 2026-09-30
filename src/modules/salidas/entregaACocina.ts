@@ -55,9 +55,31 @@ export function separarValeCocina<T extends RenglonConProducto>(
    ninguna parte, y los dos mercados quedaron descuadrados. Si el destino
    nombra a una cocina con OTRO almacén, lo comestible viaja a ese almacén. */
 
-export interface CocinaDestino { nombre: string; almacen: string }
+export interface CocinaDestino {
+  nombre: string;
+  almacen: string;
+  /** La sede del almacén de la cocina (p. ej. «CENTRO DE ACOPIO - LA ESPERANZA»). */
+  sede?: string | null;
+}
 
 const clave = (s: string | null | undefined): string => norm(s ?? '').replace(/[^A-Z0-9]/g, '');
+
+/**
+ * Las formas en que alguien escribe una cocina en el destino: su nombre, el de
+ * su almacén, el de su sede, y el nombre sin artículo («ESPERANZA», «PINOS»).
+ * Blindaje del 30-09-2026: con un solo texto, «COCINA ESPERANZA» no se
+ * reconocía y la comida volvía a salir del inventario sin llegar a ninguno.
+ */
+export function clavesDeCocina(c: CocinaDestino): string[] {
+  const claves = new Set<string>();
+  for (const t of [c.nombre, c.almacen, c.sede]) {
+    const k = clave(t);
+    if (k.length >= 4) claves.add(k);
+    const sinArticulo = clave(norm(t ?? '').replace(/^(LA|LAS|LOS|EL)\s+/, ''));
+    if (sinArticulo.length >= 5) claves.add(sinArticulo);
+  }
+  return [...claves];
+}
 
 /** La cocina que nombra el destino o la sede destino, si hay una. */
 export function cocinaDelDestino(
@@ -68,7 +90,7 @@ export function cocinaDelDestino(
   for (const texto of [destino, sedeDestino]) {
     const t = clave(texto);
     if (!t) continue;
-    const c = cocinas.find((k) => clave(k.nombre) && t.includes(clave(k.nombre)));
+    const c = cocinas.find((k) => clavesDeCocina(k).some((x) => t.includes(x)));
     if (c) return c;
   }
   return null;
