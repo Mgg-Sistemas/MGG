@@ -355,17 +355,19 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
         })}
       </div>
 
-      {/* Botón de cierre (resaltado desde el día 22). Un mercado ya cerrado se está
-          CONSULTANDO desde el selector: ofrecerle «cerrar» sería una trampa. */}
+      {/* Un solo cierre, el día que sea: los movimientos pasan al histórico y lo que
+          queda es el saldo inicial del mercado siguiente, que arranca hoy. Hasta el
+          30/09/2026 antes del día 22 decía «anticipadamente» y parecía otro trámite.
+          Un mercado ya cerrado se está CONSULTANDO desde el selector: ofrecerle
+          «cerrar» sería una trampa. */}
       {canWrite && mercado.estado === 'abierto' && (
         <div style={{ marginBottom: '.8rem' }}>
           <button
             className={`btn ${puedeCerrar ? 'btn-primary' : 'btn-ghost'}`}
-            style={puedeCerrar ? {} : { borderStyle: 'dashed' }}
             onClick={() => setCerrar(true)}
-            title={puedeCerrar ? 'Cerrar el mercado y arrastrar lo que queda al próximo' : 'Todavía no llega el día 22; podés cerrar igual si hace falta'}
+            title="Cierra el mercado: los movimientos pasan al histórico y lo que queda arranca el mercado siguiente"
           >
-            {puedeCerrar ? '🔒 Cerrar mercado (día 22) — genera PDF y arrastra saldo' : '🔒 Cerrar mercado anticipadamente'}
+            🔒 Cerrar mercado
           </button>
           {/* REPARTIR arma la solicitud de traslado hacia la otra cocina. No mueve stock:
               lo mueve Salidas cuando se autoriza y ejecuta. Va al lado de cerrar porque es

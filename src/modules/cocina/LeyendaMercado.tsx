@@ -127,9 +127,10 @@ const DUDAS: Entrada[] = [
     pregunta: '¿Cuánto dura un ciclo y cuándo se puede cerrar?',
     respuesta: (
       <>
-        Veintiún días contados desde la fecha de apertura. El botón de cerrar se habilita recién
-        pasado el último día. Si hace falta cortarlo antes, está{' '}
-        <strong>«Cerrar mercado anticipadamente»</strong>.
+        Veintiún días contados desde la fecha de apertura; desde el día 22 el botón se resalta.
+        Pero se puede cerrar el día que haga falta con el mismo botón{' '}
+        <strong>«Cerrar mercado»</strong>: es un solo cierre, los movimientos pasan al histórico
+        y lo que queda arranca el mercado siguiente ese mismo día.
       </>
     ),
   },
