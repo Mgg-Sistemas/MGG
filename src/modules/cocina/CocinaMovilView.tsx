@@ -210,6 +210,8 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { listViveresGlobal(almacen).then(setViveres).catch(() => setViveres([])); }, [almacen]);
+  // Si en la PC dan de baja (o alta) un víver, el buscador del teléfono lo refleja al instante.
+  useRealtime(['productos', 'existencias'], () => { listViveresGlobal(almacen).then(setViveres).catch(() => {}); });
   const mapV = useMemo(() => new Map(viveres.map((v) => [v.producto.id, v])), [viveres]);
   const elegidos = useMemo(() => new Set(items.map((i) => i.id)), [items]);
   const sugerencias = useMemo(() => {

@@ -567,7 +567,17 @@ async function trasladosDe(
  * la misma plata. El global queda solo de respaldo para un víver del que el
  * centro no tiene existencia costeada.
  */
-function armarDisponible(
+/**
+ * Las filas del libro del mercado: saldo inicial + entradas + traslados − consumos − mermas,
+ * víver por víver.
+ *
+ * Un producto DESACTIVADO no entra (02-10-2026): la lista de víveres ya lo excluía, pero
+ * el libro lo seguía mostrando porque arma sus filas desde el saldo heredado y los
+ * movimientos del ciclo, sin mirar la ficha. Queda fuera de la tabla, del remanente que
+ * se congela al cerrar y, con eso, del saldo del mercado siguiente. Si vuelve a
+ * activarse, vuelve a aparecer con lo que tenga.
+ */
+export function armarDisponible(
   saldo: SaldoItem[], entradas: Map<string, ItemAgg>, traslados: Map<string, ItemAgg>, consumos: Map<string, ItemAgg>,
   mermas: Map<string, ItemAgg>,
   prodById: Map<string, Producto>,
@@ -583,6 +593,9 @@ function armarDisponible(
     // entró a otro) suma cero: no forma parte del ciclo y no ensucia la tabla.
     if (!s && !e && !c && !m && r2(t?.cantidad ?? 0) === 0) continue;
     const p = prodById.get(id);
+    // Dado de baja: se quita de la lista de cocina. Un id que ya no está en el
+    // catálogo (producto borrado de verdad) se sigue mostrando con su nombre guardado.
+    if (p && p.estado !== 'activo') continue;
     const nombre = s?.nombre ?? e?.nombre ?? t?.nombre ?? c?.nombre ?? m?.nombre ?? p?.nombre ?? id;
     const sku = s?.sku ?? e?.sku ?? t?.sku ?? c?.sku ?? m?.sku ?? p?.sku ?? '';
     const unidad = s?.unidad ?? e?.unidad ?? t?.unidad ?? c?.unidad ?? m?.unidad ?? p?.unidad ?? '';
