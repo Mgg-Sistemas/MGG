@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   SIN_DATO, agruparPersonal, antiguedad, cantidadHijos, edadEn, filtrarPersonal, grupoDe,
   hijosMenores, labelEstadoCivil, labelGenero, labelParentesco, numeroFicha, porDepartamento,
-  errorNumeroFicha, normalizarNumeroFicha, nombreDeCarnet,
+  errorNumeroFicha, normalizarNumeroFicha, nombreDeCarnet, claveFicha, duenoDeFicha, errorCambioFicha,
   errorCorreo, normalizarCorreo, GRADOS_INSTRUCCION, labelGradoInstruccion, ordenarPorFicha,
   gradoMasAlto, gradosTexto, trabajoAnteriorTexto,
   resumenPersonal, textoEdad, tieneHijos,
@@ -448,5 +448,26 @@ describe('el último trabajo en una línea', () => {
   it('un sueldo en cero o basura no se imprime', () => {
     expect(trabajoAnteriorTexto({ trabajo_anterior_empresa: 'X', trabajo_anterior_sueldo: 0 })).toBe('X');
     expect(trabajoAnteriorTexto({ trabajo_anterior_empresa: 'X', trabajo_anterior_sueldo: 'nada' })).toBe('X');
+  });
+});
+
+describe('N° de ficha editable sin repetirse (02-10-2026)', () => {
+  it('«001», «01» y «0001» son la misma ficha; «A01» = «A1»; «100» no es «1»', () => {
+    expect(claveFicha('001')).toBe(claveFicha('01'));
+    expect(claveFicha('0001')).toBe(claveFicha('1'));
+    expect(claveFicha(' a01 ')).toBe(claveFicha('A1'));
+    expect(claveFicha('MGG-015')).toBe('MGG-15');
+    expect(claveFicha('100')).not.toBe(claveFicha('1'));
+  });
+  it('avisa de quién es la ficha, sin contar a la persona que se edita', () => {
+    const lista = [{ id: 'a', numero_ficha: '001', nombre: 'ANA' }, { id: 'b', numero_ficha: '002', nombre: 'LUIS' }];
+    expect(duenoDeFicha('01', lista, 'b')?.nombre).toBe('ANA');
+    expect(duenoDeFicha('0001', lista, 'a')).toBeNull();
+    expect(duenoDeFicha('', lista, null)).toBeNull();
+  });
+  it('a quien ya tiene ficha no se le deja vacía; se puede cambiar por otra', () => {
+    expect(errorCambioFicha('001', '')).toMatch(/no se borra/);
+    expect(errorCambioFicha('001', '005')).toBeNull();
+    expect(errorCambioFicha(null, '')).toBeNull();
   });
 });

@@ -22,6 +22,7 @@ const ProduccionPage = lazyReload(() => import('./modules/produccion/ProduccionP
 const RefinacionPage = lazyReload(() => import('./modules/produccion/ProduccionPage').then((m) => ({ default: m.RefinacionPage })));
 const SalidasPage = lazyReload(() => import('./modules/salidas/SalidasPage').then((m) => ({ default: m.SalidasPage })));
 const CocinaPage = lazyReload(() => import('./modules/cocina/CocinaPage').then((m) => ({ default: m.CocinaPage })));
+const CocinaMovilView = lazyReload(() => import('./modules/cocina/CocinaMovilView').then((m) => ({ default: m.CocinaMovilView })));
 const CombustiblePage = lazyReload(() => import('./modules/combustible/CombustiblePage').then((m) => ({ default: m.CombustiblePage })));
 const AcopioPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.AcopioPage })));
 const ReportePreliminarPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.ReportePreliminarPage })));
@@ -140,6 +141,7 @@ export function App() {
           <Route path="refinacion" element={<RequireModule module="refinacion"><Suspense fallback={<PageLoader />}><RefinacionPage /></Suspense></RequireModule>} />
           <Route path="salidas" element={<RequireModule module="salidas"><Suspense fallback={<PageLoader />}><SalidasPage /></Suspense></RequireModule>} />
           <Route path="cocina" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaPage /></Suspense></RequireModule>} />
+          <Route path="cocina/telefono" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaMovilView /></Suspense></RequireModule>} />
           <Route path="combustible" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><CombustiblePage /></Suspense></RequireModule>} />
           <Route path="combustible/surtidor" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><SurtidorMovilView /></Suspense></RequireModule>} />
           <Route path="acopio" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><AcopioPage /></Suspense></RequireModule>} />

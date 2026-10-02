@@ -10,6 +10,7 @@ import type { CocinaComida, ItemCocina, TipoComida, Producto, Existencia, Cocina
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listExistencias, listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { MODULO_ADJUNTO_COMIDA, eliminarFotosDe } from '@/modules/combustible/adjuntosCombustible.repository';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { movimientoDeViveres, type FichaViver, type FilaViver, type MovimientoViver } from './movimientoViveres';
 import { precioDelCentro } from './precioViver';
@@ -80,6 +81,23 @@ export async function listCocinas(): Promise<CocinaConInfo[]> {
       mercado: mercadoPorCocina.get(c.id) ?? null,
     };
   });
+}
+
+/**
+ * Las cocinas para la vista de teléfono: solo las que SIRVEN comida (el resguardo
+ * no) con el nombre de su almacén. Liviana a propósito: sin el resumen de stock
+ * de `listCocinas`, que en el teléfono con mala señal era esperar de más.
+ */
+export async function listCocinasQueSirven(): Promise<{ cocina: Cocina; almacenNombre: string | null }[]> {
+  const [{ data, error }, almacenes] = await Promise.all([
+    supabase.from('cocinas').select('*').eq('activa', true).order('nombre', { ascending: true }),
+    listAlmacenes(),
+  ]);
+  if (error) throw error;
+  const almById = new Map(almacenes.map((a) => [a.id, a] as const));
+  return ((data ?? []) as Cocina[])
+    .filter((c) => !esResguardo(c))
+    .map((c) => ({ cocina: c, almacenNombre: c.almacen_id ? almById.get(c.almacen_id)?.nombre ?? null : null }));
 }
 
 export async function crearCocina(input: { nombre: string; almacenId: string | null; tipo?: TipoCocina; actor?: string | null }): Promise<Cocina> {
@@ -517,7 +535,16 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
     tipo_comida: input.tipoComida, platos: Number(input.platos) || 0, items, valor_total: valorTotal,
     nota: input.nota?.trim() || null,
   };
-  if (fecha && fecha !== fechaPrev) patch.at = new Date(`${fecha}T12:00:00`).toISOString();
+  if (fecha && fecha !== fechaPrev) {
+    let at = new Date(`${fecha}T12:00:00`).toISOString();
+    if (comidaPrev.cocina_id) {
+      const { data: abierto } = await supabase.from('mercados_cocina').select('historial')
+        .eq('cocina_id', comidaPrev.cocina_id).eq('estado', 'abierto').maybeSingle();
+      const hist = (abierto as { historial?: Parameters<typeof inicioExactoDe>[0] } | null)?.historial;
+      at = fechaComidaEnCiclo(at, inicioExactoDe(Array.isArray(hist) ? hist : []));
+    }
+    patch.at = at;
+  }
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', comidaId).select('*').single();
   if (error) throw error;
   const comida = data as CocinaComida;
@@ -560,6 +587,8 @@ export async function eliminarComida(comidaId: string, actor: string, actorName?
   }
   const { error } = await supabase.from(TABLE).delete().eq('id', comidaId);
   if (error) throw error;
+  // Sus fotos (vista de teléfono) se van con ella: si no, quedan colgando de nada.
+  await eliminarFotosDe(comidaId, MODULO_ADJUNTO_COMIDA).catch(() => {});
 }
 
 /* ───────── Resumen / consumo ───────── */

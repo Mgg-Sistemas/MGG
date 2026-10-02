@@ -97,14 +97,31 @@ export function esRolSurtidor(role: RoleKey | null | undefined): boolean {
   return (role ?? '').trim().toLowerCase() === ROL_SURTIDOR;
 }
 
+/* ───────────── El cocinero, que también usa solo el teléfono (02-10-2026) ─────────────
+   Mismo molde que el surtidor: el rol `cocina` carga desayuno, almuerzo y cena
+   desde el celular (personas, consumo, fotos, WhatsApp) y no tiene nada que hacer
+   en el módulo de escritorio, que es donde la analista verifica y corrige. */
+
+/** El rol que trabaja SOLO desde la vista de teléfono de Alimentación. */
+export const ROL_COCINA: RoleKey = 'cocina';
+
+/** A dónde entra ese rol, bajo `/app/`. */
+export const RUTA_COCINA_TELEFONO = 'cocina/telefono';
+
+/** ¿Este rol vive en la vista de teléfono de la cocina? */
+export function esRolCocina(role: RoleKey | null | undefined): boolean {
+  return (role ?? '').trim().toLowerCase() === ROL_COCINA;
+}
+
 /**
  * A dónde mandar a alguien que acaba de entrar.
  *
- * El surtidor va a su pantalla aunque «combustible» no sea su primer módulo:
- * para él, el módulo ES la vista de teléfono.
+ * El surtidor y el cocinero van a su pantalla aunque ese no sea su primer
+ * módulo: para ellos, el módulo ES la vista de teléfono.
  */
 export function rutaDeInicio(role: RoleKey | null | undefined, permitidos: ModuleKey[]): string {
   if (esRolSurtidor(role) && permitidos.includes('combustible')) return `/app/${RUTA_SURTIDOR}`;
+  if (esRolCocina(role) && permitidos.includes('cocina')) return `/app/${RUTA_COCINA_TELEFONO}`;
   const primero = permitidos[0];
   return primero ? `/app/${modulePath(primero)}` : '/app/sin-acceso';
 }
@@ -135,6 +152,11 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     // escritorio lo rebota a `/app/combustible/surtidor`. Escritura porque su
     // trabajo ES cargar lo que surte; sin ella la pantalla no sirve de nada.
     all.combustible = { lectura: true, escritura: true, full: false };
+  } else if (role === ROL_COCINA) {
+    // Solo Alimentación, y en la práctica solo la vista de teléfono: el módulo de
+    // escritorio lo rebota a `/app/cocina/telefono`. Escritura porque su trabajo
+    // ES cargar las comidas.
+    all.cocina = { lectura: true, escritura: true, full: false };
   } else if (role === 'obrero') {
     all.dashboard  = { lectura: true, escritura: false, full: false };
     all.pedidos    = { lectura: true, escritura: true, full: false };

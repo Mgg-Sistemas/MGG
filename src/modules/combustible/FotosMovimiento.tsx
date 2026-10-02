@@ -16,7 +16,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import type { AdjuntoCombustible } from '@/shared/lib/types';
 import {
-  MAX_FOTOS_MOVIMIENTO, errorFoto, esImagen, eliminarFoto, listarFotos, subirFotos, urlsFotos,
+  MAX_FOTOS_MOVIMIENTO, MODULO_ADJUNTO_TANQUE, errorFoto, esImagen, eliminarFoto, listarFotos, subirFotos, urlsFotos,
+  type ModuloAdjunto,
 } from './adjuntosCombustible.repository';
 
 /* ───────────── Antes de guardar: las que se van a subir ───────────── */
@@ -69,10 +70,13 @@ export function SelectorFotos({ archivos, onChange, titulo }: {
 }
 
 /* ───────────── Ya guardadas: ver, agregar y quitar ───────────── */
-export function FotosDelMovimiento({ movId, actor, soloLectura }: {
+export function FotosDelMovimiento({ movId, actor, soloLectura, modulo = MODULO_ADJUNTO_TANQUE, sinFotosTexto = 'Este movimiento no tiene fotos.' }: {
   movId: string;
   actor: string;
   soloLectura?: boolean;
+  /** De qué es la foto: movimiento de tanque (por defecto) o comida de Alimentación. */
+  modulo?: ModuloAdjunto;
+  sinFotosTexto?: string;
 }) {
   const [fotos, setFotos] = useState<AdjuntoCombustible[]>([]);
   const [urls, setUrls] = useState<Map<string, string>>(new Map());
@@ -82,19 +86,19 @@ export function FotosDelMovimiento({ movId, actor, soloLectura }: {
   const recargar = useCallback(async () => {
     setCargando(true);
     try {
-      const fs = await listarFotos(movId);
+      const fs = await listarFotos(movId, modulo);
       setFotos(fs);
       setUrls(await urlsFotos(fs.map((f) => f.path)));
     } catch { /* sin fotos la pantalla se muestra igual */ }
     finally { setCargando(false); }
-  }, [movId]);
+  }, [movId, modulo]);
   useEffect(() => { void recargar(); }, [recargar]);
 
   async function agregar(lista: FileList | null) {
     if (!lista?.length) return;
     setSubiendo(true);
     try {
-      const { subidas, fallos } = await subirFotos(movId, Array.from(lista), actor);
+      const { subidas, fallos } = await subirFotos(movId, Array.from(lista), actor, modulo);
       for (const f of fallos) toast(f, 'error');
       if (subidas.length) toast(subidas.length === 1 ? 'Foto agregada' : `${subidas.length} fotos agregadas`, 'success');
       await recargar();
@@ -112,7 +116,7 @@ export function FotosDelMovimiento({ movId, actor, soloLectura }: {
     <div style={{ marginTop: '.8rem' }}>
       <div className="surt-rotulo">📷 Fotos y documentos</div>
       {cargando && <p className="muted" style={{ fontSize: '.85rem' }}>Cargando fotos…</p>}
-      {!cargando && !fotos.length && <p className="muted" style={{ fontSize: '.85rem' }}>Este movimiento no tiene fotos.</p>}
+      {!cargando && !fotos.length && <p className="muted" style={{ fontSize: '.85rem' }}>{sinFotosTexto}</p>}
 
       {!!fotos.length && (
         <div className="rep-fotos">

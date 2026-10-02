@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { esRolSurtidor, RUTA_SURTIDOR } from '@/modules/usuarios/permisos.repository';
+import { esRolCocina, esRolSurtidor, RUTA_COCINA_TELEFONO, RUTA_SURTIDOR } from '@/modules/usuarios/permisos.repository';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
@@ -338,7 +338,10 @@ export function AppShell() {
             )
           )}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
-          {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />}
+          {/* El cocinero trabaja desde el teléfono: el menú le ofrece SU pantalla. */}
+          {can('cocina') && (esRolCocina(role)
+            ? <NavItem to={`/app/${RUTA_COCINA_TELEFONO}`} icon="🍳" label="Comidas" />
+            : <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />)}
           {/* El surtidor trabaja desde el teléfono: el menú le ofrece SU pantalla,
               no el módulo de escritorio —que igual lo rebotaría—. */}
           {can('combustible') && (esRolSurtidor(role)

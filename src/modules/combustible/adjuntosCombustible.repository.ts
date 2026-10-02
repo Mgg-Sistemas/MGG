@@ -17,8 +17,12 @@ import type { AdjuntoCombustible } from '@/shared/lib/types';
 const BUCKET = 'combustible-adjuntos';
 const TABLA = 'combustible_adjuntos';
 
-/** Qué cosa del módulo lleva el adjunto. Hoy solo el movimiento de tanque. */
+/** Qué cosa lleva el adjunto: el movimiento de tanque o, desde el 02-10-2026, la
+ *  comida de Alimentación (la vista de teléfono de la cocina usa este mismo
+ *  depósito y tabla, separada por `modulo`; sus archivos van en `cocina_comida/…`). */
 export const MODULO_ADJUNTO_TANQUE = 'tanque_mov';
+export const MODULO_ADJUNTO_COMIDA = 'cocina_comida';
+export type ModuloAdjunto = typeof MODULO_ADJUNTO_TANQUE | typeof MODULO_ADJUNTO_COMIDA;
 
 /** Cuánto vive el enlace de descarga: lo que tarda alguien en mirarlo. */
 const MINUTOS_ENLACE = 10;
@@ -60,28 +64,28 @@ export function esImagen(contentType?: string | null, nombre?: string | null): b
 }
 
 /** Las fotos de UN movimiento. */
-export async function listarFotos(refId: string): Promise<AdjuntoCombustible[]> {
+export async function listarFotos(refId: string, modulo: ModuloAdjunto = MODULO_ADJUNTO_TANQUE): Promise<AdjuntoCombustible[]> {
   const { data, error } = await supabase.from(TABLA).select('*')
-    .eq('modulo', MODULO_ADJUNTO_TANQUE).eq('ref_id', refId)
+    .eq('modulo', modulo).eq('ref_id', refId)
     .order('created_at', { ascending: true });
   if (error) throw error;
   return (data ?? []) as AdjuntoCombustible[];
 }
 
 /** Las fotos de VARIOS movimientos de una sola consulta (para el reporte). */
-export async function listarFotosDe(refIds: string[]): Promise<AdjuntoCombustible[]> {
+export async function listarFotosDe(refIds: string[], modulo: ModuloAdjunto = MODULO_ADJUNTO_TANQUE): Promise<AdjuntoCombustible[]> {
   if (!refIds.length) return [];
   const { data, error } = await supabase.from(TABLA).select('*')
-    .eq('modulo', MODULO_ADJUNTO_TANQUE).in('ref_id', refIds)
+    .eq('modulo', modulo).in('ref_id', refIds)
     .order('created_at', { ascending: true });
   if (error) throw error;
   return (data ?? []) as AdjuntoCombustible[];
 }
 
 /** Cuántas fotos tiene cada movimiento, para el contador de la lista. */
-export async function contarFotos(refIds: string[]): Promise<Map<string, number>> {
+export async function contarFotos(refIds: string[], modulo: ModuloAdjunto = MODULO_ADJUNTO_TANQUE): Promise<Map<string, number>> {
   const acc = new Map<string, number>();
-  for (const a of await listarFotosDe(refIds)) {
+  for (const a of await listarFotosDe(refIds, modulo)) {
     acc.set(a.ref_id, (acc.get(a.ref_id) ?? 0) + 1);
   }
   return acc;
@@ -119,24 +123,27 @@ export interface ResultadoSubida {
  * se caiga, y perder las otras tres por eso sería peor. Lo que falló se informa
  * por su nombre para poder reintentarlo.
  */
-export async function subirFotos(refId: string, files: File[], actor: string): Promise<ResultadoSubida> {
+export async function subirFotos(
+  refId: string, files: File[], actor: string, modulo: ModuloAdjunto = MODULO_ADJUNTO_TANQUE,
+): Promise<ResultadoSubida> {
   const subidas: AdjuntoCombustible[] = [];
   const fallos: string[] = [];
 
-  const yaHay = (await listarFotos(refId).catch(() => [])).length;
+  const yaHay = (await listarFotos(refId, modulo).catch(() => [])).length;
   const cupo = Math.max(0, MAX_FOTOS_MOVIMIENTO - yaHay);
 
   for (const f of files.slice(0, cupo)) {
     const malo = errorFoto(f);
     if (malo) { fallos.push(malo); continue; }
     const rand = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`).slice(0, 8);
-    const path = `${refId}/${rand}-${nombreSeguro(f.name)}`;
+    // Las del tanque siguen en la raíz (como siempre); las demás, en su carpeta.
+    const path = `${modulo === MODULO_ADJUNTO_TANQUE ? '' : `${modulo}/`}${refId}/${rand}-${nombreSeguro(f.name)}`;
     try {
       const { error: sErr } = await supabase.storage.from(BUCKET)
         .upload(path, f, { upsert: false, contentType: f.type || 'application/octet-stream' });
       if (sErr) throw sErr;
       const { data, error } = await supabase.from(TABLA).insert({
-        modulo: MODULO_ADJUNTO_TANQUE, ref_id: refId, path,
+        modulo, ref_id: refId, path,
         nombre: f.name, content_type: f.type || null, bytes: f.size, creado_por: actor,
       }).select('*').single();
       if (error) {
@@ -166,9 +173,9 @@ export async function eliminarFoto(a: AdjuntoCombustible): Promise<void> {
 }
 
 /** Borra todas las fotos de un movimiento (al eliminarlo). */
-export async function eliminarFotosDe(refId: string): Promise<void> {
-  const fotos = await listarFotos(refId).catch(() => [] as AdjuntoCombustible[]);
+export async function eliminarFotosDe(refId: string, modulo: ModuloAdjunto = MODULO_ADJUNTO_TANQUE): Promise<void> {
+  const fotos = await listarFotos(refId, modulo).catch(() => [] as AdjuntoCombustible[]);
   if (!fotos.length) return;
-  await supabase.from(TABLA).delete().eq('modulo', MODULO_ADJUNTO_TANQUE).eq('ref_id', refId);
+  await supabase.from(TABLA).delete().eq('modulo', modulo).eq('ref_id', refId);
   try { await supabase.storage.from(BUCKET).remove(fotos.map((f) => f.path)); } catch { /* el Storage no bloquea */ }
 }

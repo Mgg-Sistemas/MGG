@@ -5,6 +5,8 @@
    - Tabla filtrable + reporte PDF con vista previa.
    ============================================================ */
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link, Navigate } from 'react-router-dom';
+import { esRolCocina, RUTA_COCINA_TELEFONO } from '@/modules/usuarios/permisos.repository';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -37,6 +39,8 @@ import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
 import { MercadoPanel } from './MercadoPanel';
 import { LeyendaMercado } from './LeyendaMercado';
 import { MercadosHistoricoModal } from './MercadosHistorico';
+import { FotosDelMovimiento } from '@/modules/combustible/FotosMovimiento';
+import { MODULO_ADJUNTO_COMIDA } from '@/modules/combustible/adjuntosCombustible.repository';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -49,7 +53,7 @@ function fmtDiaCorto(iso: string): string {
 /* ───────────── Página: tarjetas de cocinas ───────────── */
 export function CocinaPage() {
   const { user } = useSession();
-  const { can } = usePermissions();
+  const { can, role, loading: cargandoPermisos } = usePermissions();
   const canWrite = can('cocina', 'escritura');
   const actor = user?.email ?? 'sistema';
 
@@ -83,6 +87,10 @@ export function CocinaPage() {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
+  // El rol COCINA (cocinero) trabaja desde el teléfono: no ve el módulo de PC.
+  // Va acá abajo, después de los hooks, para no romper el orden con que React los identifica.
+  if (!cargandoPermisos && esRolCocina(role)) return <Navigate to={`/app/${RUTA_COCINA_TELEFONO}`} replace />;
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
@@ -90,12 +98,16 @@ export function CocinaPage() {
           <h1 style={{ margin: 0 }}>🍽 Cocinas</h1>
           <p className="hint muted" style={{ margin: '.25rem 0 0' }}>Cada cocina toma sus víveres del almacén al que está vinculada. Los <strong>resguardos</strong> (Matanzas) solo almacenan y distribuyen a las cocinas: no sirven comidas.</p>
         </div>
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          {/* La vista de teléfono del cocinero: personas, consumo, fotos y WhatsApp. */}
+          <Link to="/app/cocina/telefono" className="btn btn-ghost" title="Vista sencilla para cargar desayuno, almuerzo y cena desde el celular">📱 Vista teléfono</Link>
         {canWrite && (
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <>
             <button className="btn btn-ghost" onClick={() => setForm('resguardo')}>＋ Nuevo resguardo</button>
             <button className="btn btn-primary" onClick={() => setForm('cocina')}>＋ Nueva cocina</button>
-          </div>
+          </>
         )}
+        </div>
       </div>
 
       {loading ? (
@@ -674,6 +686,12 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
           </div>
         </div>
         <small className="hint muted">Se genera un correlativo con fecha y hora, y se descuenta el stock de los víveres del inventario.</small>
+        {/* Las fotos que se cargaron desde el teléfono (máx. 4): acá la analista las ve,
+            agrega o quita. Se guardan aparte de la comida, así que no esperan al «Guardar». */}
+        {esEdicion && comida && (
+          <FotosDelMovimiento movId={comida.id} actor={actor} modulo={MODULO_ADJUNTO_COMIDA}
+            sinFotosTexto="Esta comida no tiene fotos." />
+        )}
       </form>
     </Modal>
   );

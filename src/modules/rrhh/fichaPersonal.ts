@@ -228,6 +228,33 @@ export function normalizarNumeroFicha(v: string | null | undefined): string {
 }
 
 /**
+ * Clave para saber si dos fichas son LA MISMA: «001», «01» y «0001» cuentan
+ * igual (y «A01» = «A1»). Se quitan los ceros de adelante de cada tramo
+ * numérico, además de espacios y mayúsculas. Solo sirve para comparar: la
+ * ficha se guarda y se muestra tal como se escribió.
+ */
+export function claveFicha(v: string | null | undefined): string {
+  return normalizarNumeroFicha(v).replace(/(^|\D)0+(\d)/g, '$1$2');
+}
+
+/** ¿Quién de la lista ya tiene esa ficha? (sin contar a la persona que se edita) */
+export function duenoDeFicha<T extends { id: string; numero_ficha?: string | null }>(
+  ficha: string | null | undefined, lista: readonly T[], excluirId?: string | null,
+): T | null {
+  const k = claveFicha(ficha);
+  if (!k) return null;
+  return lista.find((p) => p.id !== excluirId && claveFicha(p.numero_ficha) === k) ?? null;
+}
+
+/** A quien ya tiene ficha no se le deja vacía: se cambia por otra, no se borra. */
+export function errorCambioFicha(anterior: string | null | undefined, nueva: string | null | undefined): string | null {
+  if (normalizarNumeroFicha(anterior) && !normalizarNumeroFicha(nueva)) {
+    return `No se puede dejar vacía la ficha (${normalizarNumeroFicha(anterior)}): se cambia por otra, no se borra.`;
+  }
+  return null;
+}
+
+/**
  * Ordena por N° de ficha, como se lee un listado de nómina.
  *
  * Es texto, así que un `sort` común pondría «10» antes que «2». Se compara el
