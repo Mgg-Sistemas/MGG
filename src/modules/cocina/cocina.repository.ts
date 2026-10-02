@@ -508,7 +508,11 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
         detalle: `Reverso por edición · ${comidaPrev.codigo}`, precio_unitario: it.precio,
         at: atPrev,
       });
-    } catch { /* no bloquea la edición */ }
+    } catch (e) {
+      // Igual que al eliminar (02-10-2026): si el saldo no se puede sincronizar, la
+      // edición no sigue. Antes esto era mudo y la comida cambiaba sin devolver nada.
+      throw new Error(`No se editó ${comidaPrev.codigo}: no se pudo devolver «${it.nombre}» al inventario (${e instanceof Error ? e.message : 'error'}). Revisá la señal y volvé a intentar.`);
+    }
   }
 
   // 2) Resolver los nuevos ítems contra los víveres del centro (precios actuales).
@@ -552,6 +556,7 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
   // 4) Aplicar el nuevo consumo (salidas en el kardex), con la fecha que quedó
   //    en la comida: si la edición le cambió el día, el stock se mueve con ella.
   const atNuevo = comida.at ?? undefined;
+  const sinDescontar: string[] = [];
   for (const it of items) {
     try {
       await registrarMovimiento({
@@ -561,7 +566,14 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
         detalle: `Cocina (editado) · ${labelTipoComida(input.tipoComida)} · ${comida.codigo}`,
         precio_unitario: it.precio, at: atNuevo,
       });
-    } catch { /* no bloquea */ }
+    } catch (e) {
+      sinDescontar.push(`${it.nombre} (${e instanceof Error ? e.message : 'error'})`);
+    }
+  }
+  // La comida ya quedó guardada con los renglones nuevos; lo que no se pudo
+  // descontar se dice con nombre y apellido para corregirlo, no se calla.
+  if (sinDescontar.length) {
+    throw new Error(`${comida.codigo} se guardó, pero el inventario NO descontó: ${sinDescontar.join('; ')}. Revisá el stock de esos víveres.`);
   }
   return comida;
 }
@@ -574,6 +586,26 @@ export async function eliminarComida(comidaId: string, actor: string, actorName?
   // El reverso vuelve al día de la comida, no al de hoy: así el ciclo que cargó
   // el consumo es el mismo que recibe la devolución.
   const at = comida.at ?? undefined;
+  /* EL SALDO SE SINCRONIZA O NO SE BORRA (02-10-2026). Antes cada reverso iba en
+     un try/catch mudo: si uno fallaba, la comida desaparecía igual y el
+     inventario quedaba con el consumo descontado de una comida que ya no
+     existía. Ahora: se devuelve todo; si un renglón no se puede devolver, se
+     vuelven a descontar los que ya se devolvieron y la comida se queda. Y si la
+     comida no se puede borrar después de devolver, también se vuelve a
+     descontar. El saldo y el libro siempre dicen lo mismo. */
+  const devueltos: ItemCocina[] = [];
+  const volverADescontar = async (motivo: string) => {
+    for (const it of devueltos) {
+      try {
+        await registrarMovimiento({
+          producto_id: it.producto_id, tipo: 'salida', delta: -(Number(it.cantidad) || 0),
+          almacen: it.almacen ?? undefined, actor, actor_name: actorName ?? null,
+          ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comida.codigo,
+          detalle: `Reverso anulado (${motivo}) · ${comida.codigo}`, precio_unitario: it.precio, at,
+        });
+      } catch { /* ya se avisa abajo que hay que revisar */ }
+    }
+  };
   for (const it of comida.items ?? []) {
     try {
       await registrarMovimiento({
@@ -583,10 +615,17 @@ export async function eliminarComida(comidaId: string, actor: string, actorName?
         detalle: `Reverso por eliminación · ${comida.codigo}`, precio_unitario: it.precio,
         at,
       });
-    } catch { /* no bloquea */ }
+      devueltos.push(it);
+    } catch (e) {
+      await volverADescontar('no se pudo devolver todo');
+      throw new Error(`No se eliminó ${comida.codigo}: no se pudo devolver «${it.nombre}» al inventario (${e instanceof Error ? e.message : 'error'}). Revisá la señal y volvé a intentar.`);
+    }
   }
   const { error } = await supabase.from(TABLE).delete().eq('id', comidaId);
-  if (error) throw error;
+  if (error) {
+    await volverADescontar('la comida no se pudo borrar');
+    throw error;
+  }
   // Sus fotos (vista de teléfono) se van con ella: si no, quedan colgando de nada.
   await eliminarFotosDe(comidaId, MODULO_ADJUNTO_COMIDA).catch(() => {});
 }
