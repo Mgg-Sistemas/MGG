@@ -35,6 +35,8 @@ import { SurtidorReporteMovil } from './SurtidorReporteMovil';
 import {
   EMOJI_MOVIMIENTO, TITULO_MOVIMIENTO, compartirMovimiento, enlaceWhatsapp, mensajeMovimiento, puedeCompartir,
 } from './mensajeMovimiento';
+import { errorHorometro, horasTrabajadas, textoHorometro } from './horometro';
+import { claveEquipo } from './equipoVinculo';
 
 /* La clave del rol vive con el resto de los permisos: el redirector de inicio la
    necesita antes de cargar ningún módulo de combustible. Se re-exporta acá para
@@ -291,10 +293,33 @@ function FormularioSurtido({ tipo, tanque, tanques, autorizados, ubicaciones, eq
 
   // Igual que en la PC: el horómetro inicial es del equipo y el contador inicial es del
   // tanque; se traen del último final para que la cadena no se corte.
+  //
+  // Los dos horómetros se limpian ANTES de preguntar por el equipo nuevo. Si no, al
+  // corregir el equipo elegido el HI del anterior quedaba en el campo —editable, porque
+  // `hiAuto` sí se apagaba— y se guardaba como horómetro inicial de un equipo que nunca
+  // estuvo en ese número. El HF también: era del equipo viejo.
   useEffect(() => {
-    if (!equipo) { setHiAuto(false); return; }
-    ultimoHorometroEquipo(equipo).then((u) => { if (u != null) { setHi(String(u)); setHiAuto(true); } else setHiAuto(false); }).catch(() => {});
-    kilometrajesVigentesPorEquipo().then((mapa) => { const u = mapa.get(equipo); if (u != null) setKm(String(u)); }).catch(() => {});
+    setHi(''); setHf(''); setHiAuto(false);
+    if (!equipo) return;
+    // Dos cambios seguidos de equipo con mala señal pueden responder al revés: la
+    // respuesta de un equipo que ya no está elegido no escribe nada.
+    let vigente = true;
+    ultimoHorometroEquipo(equipo).then((u) => {
+      if (!vigente || u == null) return;
+      setHi(String(u)); setHiAuto(true);
+      // El horómetro vivía detrás de «Más datos», así que en el teléfono casi nunca se
+      // cargaba el final y la cadena del equipo no avanzaba. Si el equipo ya tiene
+      // horómetro, se abre para que se vea que falta cerrarlo.
+      setMasDatos(true);
+    }).catch(() => {});
+    kilometrajesVigentesPorEquipo().then((mapa) => {
+      // El mapa viene con la clave NORMALIZADA (sin acentos, en mayúsculas). Buscándolo
+      // con el nombre tal cual se teclea, «Camión NHR» nunca encontraba su kilometraje
+      // y el campo quedaba vacío sin avisar.
+      const u = mapa.get(claveEquipo(equipo));
+      if (vigente && u != null) setKm(String(u));
+    }).catch(() => {});
+    return () => { vigente = false; };
   }, [equipo]);
   useEffect(() => {
     ultimoContadorTanque(tanque.id).then((u) => { if (u != null) { setCi(String(u)); setCiAuto(true); } else { setCi(''); setCiAuto(false); } }).catch(() => {});
@@ -303,6 +328,9 @@ function FormularioSurtido({ tipo, tanque, tanques, autorizados, ubicaciones, eq
   const litrosNum = Number(String(litros).replace(',', '.')) || 0;
   const costoNum = Number(String(costo).replace(',', '.')) || 0;
   const litrosContador = ci !== '' && cf !== '' ? Number(cf) - Number(ci) : null;
+  // Las horas trabajadas no se teclean: son HF − HI. Mismo cálculo que en la PC.
+  const horas = horasTrabajadas(hi, hf);
+  const avisoHorometro = errorHorometro(hi, hf);
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -317,6 +345,8 @@ function FormularioSurtido({ tipo, tanque, tanques, autorizados, ubicaciones, eq
     if (sale && litrosNum > (Number(tanque.litros) || 0)) {
       setError(`El tanque tiene ${num(tanque.litros)} L: no alcanza para ${num(litrosNum)} L.`); return;
     }
+    // El HF de este surtido es el HI del próximo: un retroceso rompe la cadena del equipo.
+    if (avisoHorometro) { setError(avisoHorometro); setMasDatos(true); return; }
     setGuardando(true); setEtapa('movimiento');
     try {
       const movId = await crearTanqueMovimiento({
@@ -441,23 +471,42 @@ function FormularioSurtido({ tipo, tanque, tanques, autorizados, ubicaciones, eq
         titulo={tipo === 'ingreso' ? '📷 Fotos (guía, cisterna, medida)' : tipo === 'merma' ? '📷 Fotos (regla, conteo)' : '📷 Fotos (contador, equipo, vale)'} />
 
       <button type="button" className="surt-mas" onClick={() => setMasDatos((v) => !v)}>
-        {masDatos ? '▾ Menos datos' : `▸ Más datos (${tipo === 'consumo' || tipo === 'traslado' ? 'horómetro, kilometraje, ' : ''}destino, hora${tipo === 'merma' ? '' : ', observación'})`}
+        {masDatos
+          ? '▾ Menos datos'
+          : hiAuto && hf === ''
+            // Si el equipo tiene horómetro y falta el final, se dice acá: con la sección
+            // cerrada no había ninguna señal de que quedaba un dato por poner.
+            ? `▸ Más datos · falta el horómetro final (arrancó en ${hi})`
+            : `▸ Más datos (${tipo === 'consumo' || tipo === 'traslado' ? 'horómetro, kilometraje, ' : ''}destino, hora${tipo === 'merma' ? '' : ', observación'})`}
       </button>
       {masDatos && (
         <>
           {(tipo === 'consumo' || tipo === 'traslado') && (
             <>
+              {/* El HF de este surtido queda como HI del próximo del mismo equipo: por eso
+                  el HI viene precargado y bloqueado, y las horas salen de la resta. */}
               <div className="surt-grid2">
                 <div className="surt-campo">
-                  <label htmlFor="surt-hi">Horómetro inicial</label>
+                  <label htmlFor="surt-hi">Horómetro inicial{hiAuto ? ' 🔒' : ''}</label>
                   <input id="surt-hi" className="input surt-input" type="number" inputMode="decimal" step="any" value={hi} readOnly={hiAuto}
-                    onChange={(e) => setHi(e.target.value)} placeholder="último del equipo" />
+                    onChange={(e) => setHi(e.target.value)} placeholder={equipo ? 'primer horómetro del equipo' : 'elegí el equipo'} />
                 </div>
                 <div className="surt-campo">
                   <label htmlFor="surt-hf">Horómetro final</label>
                   <input id="surt-hf" className="input surt-input" type="number" inputMode="decimal" step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
                 </div>
               </div>
+              {equipo && (
+                <small className={avisoHorometro ? 'surt-alerta' : 'muted'}>
+                  {avisoHorometro
+                    ? avisoHorometro
+                    : horas != null
+                      ? <>Trabajó <strong className="mono">{num(horas)} h</strong> (final − inicial) · ese {num(Number(hf))} queda como inicial del próximo surtido</>
+                      : hiAuto
+                        ? `🔒 Arranca en ${hi}, el último horómetro de ${equipo}. Poné el final para saber las horas.`
+                        : `Primer surtido de ${equipo}: poné el horómetro inicial y el final; de ahí en más se encadena solo.`}
+                </small>
+              )}
               <div className="surt-grid2">
                 <div className="surt-campo">
                   <label htmlFor="surt-km">Kilometraje</label>
@@ -627,7 +676,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, actor
         <Fila k="Observación" v={mov.observacion} />
         {mov.tipo === 'ingreso' && <Fila k="Costo por litro" v={money(mov.costo_litro)} />}
         <Fila k="Contador" v={mov.contador_global_ini != null || mov.contador_global_fin != null ? `${mov.contador_global_ini ?? '—'} → ${mov.contador_global_fin ?? '—'}` : null} />
-        <Fila k="Horómetro" v={mov.horometro_inicial != null || mov.horometro_final != null ? `${mov.horometro_inicial ?? '—'} → ${mov.horometro_final ?? '—'}` : null} />
+        <Fila k="Horómetro" v={textoHorometro(mov.horometro_inicial, mov.horometro_final, num)} />
         <Fila k="Kilometraje" v={mov.kilometraje_final != null ? num(mov.kilometraje_final) : null} />
         <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.actor ? ` · ${mov.actor_name || mov.actor}` : ''}`} />
       </div>
