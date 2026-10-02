@@ -38,14 +38,40 @@ jobs:
         env:
           HAS_HOST: ${{ secrets.DROPLET_HOST != '' }}
           HAS_KEY: ${{ secrets.DROPLET_SSH_KEY != '' }}
+          HAS_USER: ${{ secrets.DROPLET_USER != '' }}
+          HAS_DIR: ${{ secrets.DROPLET_TARGET_DIR != '' }}
+          HAS_SUPA_URL: ${{ secrets.VITE_SUPABASE_URL != '' }}
+          HAS_SUPA_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY != '' }}
         run: |
-          if [ "$HAS_HOST" = "true" ] && [ "$HAS_KEY" = "true" ]; then
+          faltan=""
+          [ "$HAS_HOST" = "true" ]     || faltan="$faltan DROPLET_HOST"
+          [ "$HAS_USER" = "true" ]     || faltan="$faltan DROPLET_USER"
+          [ "$HAS_KEY" = "true" ]      || faltan="$faltan DROPLET_SSH_KEY"
+          [ "$HAS_DIR" = "true" ]      || faltan="$faltan DROPLET_TARGET_DIR"
+          [ "$HAS_SUPA_URL" = "true" ] || faltan="$faltan VITE_SUPABASE_URL"
+          [ "$HAS_SUPA_KEY" = "true" ] || faltan="$faltan VITE_SUPABASE_ANON_KEY"
+
+          if [ -z "$faltan" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "Secrets del Droplet detectados, se procedera con el deploy."
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Droplet no configurado todavia (faltan secrets DROPLET_HOST / DROPLET_SSH_KEY). Se omite el deploy."
+            echo "Secrets completos: se procede con el deploy."
+            exit 0
           fi
+
+          # Antes esto se omitia en silencio y el run salia VERDE: durante mas de una
+          # semana se creyo que lo que entraba a main estaba publicado, y el servidor
+          # seguia sirviendo un build viejo. Un deploy que no ocurrio no es un exito.
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "## El deploy NO se hizo"
+            echo ""
+            echo "Faltan estos secrets en *Settings -> Secrets and variables -> Actions*:"
+            for s in $faltan; do echo "- \`$s\`"; done
+            echo ""
+            echo "El servidor sigue sirviendo el build anterior. Mientras falten, cada"
+            echo "entrega hay que subirla a mano (\`npm run build:prod\` y copiar \`dist/\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Deploy no configurado::Faltan secrets:$faltan - lo que esta en main NO llego al servidor."
+          exit 1
 
   deploy:
     needs: check
