@@ -24,6 +24,7 @@ export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalP
   const [label, setLabel] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [color, setColor] = useState('#7c3aed');
+  const [soloTelefono, setSoloTelefono] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const suggestedKey = label
@@ -51,6 +52,7 @@ export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalP
         label: label.trim(),
         descripcion: descripcion.trim(),
         color,
+        soloTelefono,
         actor: actorEmail,
       });
       notify(`Rol creado: ${creado.label}`, 'success', { link: '#/app/usuarios' });
@@ -111,6 +113,16 @@ export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalP
           style={{ width: 60, height: 36, padding: 0, border: '1px solid var(--border)', borderRadius: 8 }}
         />
       </div>
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', cursor: 'pointer', marginTop: '.3rem' }}>
+        <input type="checkbox" checked={soloTelefono} onChange={(e) => setSoloTelefono(e.target.checked)} disabled={busy} style={{ marginTop: '.2rem' }} />
+        <span>
+          <strong>📱 Solo teléfono</strong>
+          <span className="muted" style={{ display: 'block', fontSize: '.76rem' }}>
+            Trabaja desde las vistas de celular: una por cada módulo permitido que tenga vista de teléfono
+            (Combustible → Surtidor, Alimentación → Comidas). No ve los módulos de escritorio.
+          </span>
+        </span>
+      </label>
       <p className="hint muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
         El rol queda persistido en Supabase y disponible en próximas sesiones. Podrás
         eliminarlo siempre que no tenga usuarios asignados.
@@ -144,6 +156,7 @@ export function GestionarRolesModal({
   const [descEdit, setDescEdit] = useState('');
   const [colorEdit, setColorEdit] = useState('#7c3aed');
   const [guardando, setGuardando] = useState(false);
+  const [soloTelEdit, setSoloTelEdit] = useState(false);
   const [aEliminar, setAEliminar] = useState<CustomRole | null>(null);
   const [filtro, setFiltro] = useState('');
 
@@ -165,6 +178,7 @@ export function GestionarRolesModal({
       setLabelEdit(r.label);
       setDescEdit(r.descripcion ?? '');
       setColorEdit(r.color);
+      setSoloTelEdit(r.solo_telefono === true);
     }
   }, [editando, roles]);
 
@@ -180,6 +194,7 @@ export function GestionarRolesModal({
         label: lbl,
         descripcion: descEdit,
         color: colorEdit,
+        soloTelefono: soloTelEdit,
       });
       notify(`Rol actualizado: ${lbl}`, 'success', { link: '#/app/usuarios' });
       setEditando(null);
@@ -287,11 +302,16 @@ export function GestionarRolesModal({
                           />
                           <small className="muted mono" style={{ fontSize: '.7rem' }}>clave: {r.key}</small>
                         </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.82rem' }}>
+                          <input type="checkbox" checked={soloTelEdit} onChange={(e) => setSoloTelEdit(e.target.checked)} />
+                          <span><strong>📱 Solo teléfono</strong> <span className="muted" style={{ fontSize: '.74rem' }}>· vistas de celular de sus módulos, sin escritorio</span></span>
+                        </label>
                       </div>
                     ) : (
                       <>
                         <strong>{r.label}</strong>
                         {r.sistema && <span className="badge" style={{ marginLeft: '.4rem', fontSize: '.62rem' }}>SISTEMA</span>}
+                        {r.solo_telefono && <span className="badge" style={{ marginLeft: '.4rem', fontSize: '.62rem' }} title="Trabaja desde las vistas de celular; no ve escritorio">📱 SOLO TELÉFONO</span>}
                         {r.descripcion && (
                           <div className="muted" style={{ fontSize: '.74rem' }}>{r.descripcion}</div>
                         )}

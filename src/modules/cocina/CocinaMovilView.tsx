@@ -30,7 +30,8 @@ import { EMOJI_COMIDA, enlaceWhatsapp, fechaComidaTexto, mensajeComida } from '.
 import { compartirMovimiento, puedeCompartir } from '@/modules/combustible/mensajeMovimiento';
 import { FotosDelMovimiento, SelectorFotos } from '@/modules/combustible/FotosMovimiento';
 import { MODULO_ADJUNTO_COMIDA, contarFotos, subirFotos } from '@/modules/combustible/adjuntosCombustible.repository';
-import { esRolCocina } from '@/modules/usuarios/permisos.repository';
+import { RUTA_COCINA_TELEFONO } from '@/modules/usuarios/permisos.repository';
+import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 
 /** Cuántas comidas se ven en el teléfono. El libro completo está en la PC. */
 export const ULTIMAS_COMIDAS_TELEFONO = 10;
@@ -47,10 +48,10 @@ const guardarCocina = (id: string) => { try { localStorage.setItem(CLAVE_COCINA,
 
 export function CocinaMovilView() {
   const { user } = useSession();
-  const { can, appUser, role } = usePermissions();
+  const { can, appUser, soloTelefono } = usePermissions();
   const canWrite = can('cocina', 'escritura');
   // El cocinero no tiene módulo de escritorio al que volver.
-  const esCocinero = esRolCocina(role);
+  const esCocinero = soloTelefono;
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
@@ -101,6 +102,7 @@ export function CocinaMovilView() {
         </div>
         {!esCocinero && <Link to="/app/cocina" className="btn btn-ghost">🖥 Módulo completo</Link>}
       </header>
+      <AtajosTelefono actual={RUTA_COCINA_TELEFONO} />
 
       {loading && <p className="muted">Cargando…</p>}
       {!loading && !cocinas.length && <EmptyState icon="🍳" message="No hay cocinas activas. Se crean desde Control de Alimentación en la PC." />}

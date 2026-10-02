@@ -6,7 +6,7 @@
    ============================================================ */
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { esRolCocina, RUTA_COCINA_TELEFONO } from '@/modules/usuarios/permisos.repository';
+import { RUTA_COCINA_TELEFONO } from '@/modules/usuarios/permisos.repository';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -53,7 +53,7 @@ function fmtDiaCorto(iso: string): string {
 /* ───────────── Página: tarjetas de cocinas ───────────── */
 export function CocinaPage() {
   const { user } = useSession();
-  const { can, role, loading: cargandoPermisos } = usePermissions();
+  const { can, soloTelefono, loading: cargandoPermisos } = usePermissions();
   const canWrite = can('cocina', 'escritura');
   const actor = user?.email ?? 'sistema';
 
@@ -89,7 +89,7 @@ export function CocinaPage() {
 
   // El rol COCINA (cocinero) trabaja desde el teléfono: no ve el módulo de PC.
   // Va acá abajo, después de los hooks, para no romper el orden con que React los identifica.
-  if (!cargandoPermisos && esRolCocina(role)) return <Navigate to={`/app/${RUTA_COCINA_TELEFONO}`} replace />;
+  if (!cargandoPermisos && soloTelefono) return <Navigate to={`/app/${RUTA_COCINA_TELEFONO}`} replace />;
 
   return (
     <div>

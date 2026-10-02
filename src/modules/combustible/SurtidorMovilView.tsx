@@ -39,7 +39,8 @@ import {
 /* La clave del rol vive con el resto de los permisos: el redirector de inicio la
    necesita antes de cargar ningún módulo de combustible. Se re-exporta acá para
    no romper a quien ya la importaba de esta pantalla. */
-import { esRolSurtidor, ROL_SURTIDOR } from '@/modules/usuarios/permisos.repository';
+import { ROL_SURTIDOR, RUTA_SURTIDOR } from '@/modules/usuarios/permisos.repository';
+import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 export { ROL_SURTIDOR };
 
 /** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
@@ -72,9 +73,10 @@ function isoDePlanta(fecha: string, hora: string): string {
 
 export function SurtidorMovilView() {
   const { user } = useSession();
-  const { can, appUser, role } = usePermissions();
+  const { can, appUser, soloTelefono } = usePermissions();
   const canWrite = can('combustible', 'escritura');
-  const esSurtidor = esRolSurtidor(role);
+  // Rol marcado «solo teléfono»: no tiene módulo de escritorio al que volver.
+  const esSurtidor = soloTelefono;
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
@@ -150,6 +152,7 @@ export function SurtidorMovilView() {
           {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost">🖥 Módulo completo</Link>}
         </div>
       </header>
+      <AtajosTelefono actual={RUTA_SURTIDOR} />
 
       {loading && <p className="muted">Cargando…</p>}
       {!loading && !tanques.length && <EmptyState icon="⛽" message="No hay tanques activos. Se crean desde el módulo en la PC." />}

@@ -12,7 +12,9 @@ import {
   type ModuleKey,
   type ModulePermission,
   type RolePermisos,
+  esRolDeTelefono,
 } from '@/modules/usuarios/permisos.repository';
+import { soloTelefonoDeRol } from '@/modules/usuarios/roles.repository';
 
 export type PermLevel = keyof ModulePermission; // 'lectura' | 'escritura' | 'full'
 
@@ -27,6 +29,11 @@ interface PermissionsValue {
   can: (module: ModuleKey, level?: PermLevel) => boolean;
   /** Módulos con al menos lectura, en el orden canónico de MODULES. */
   allowedModules: ModuleKey[];
+  /**
+   * El rol está marcado «solo teléfono» (02-10): trabaja desde las vistas de
+   * celular de sus módulos permitidos y no ve los módulos de escritorio.
+   */
+  soloTelefono: boolean;
 }
 
 const PermissionsContext = createContext<PermissionsValue | null>(null);
@@ -37,6 +44,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<string | null>(null);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [permisos, setPermisos] = useState<RolePermisos | null>(null);
+  const [soloTelefono, setSoloTelefono] = useState(false);
 
   // Carga el rol del usuario y sus permisos. `mostrarCarga` evita el flash de
   // "Cargando…" en los refrescos en vivo (realtime), que sí ocurre al iniciar sesión.
@@ -46,6 +54,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       setRole(null);
       setAppUser(null);
       setPermisos(null);
+      setSoloTelefono(false);
       setLoading(false);
       return;
     }
@@ -56,15 +65,19 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     setRole(r);
     if (!r) {
       setPermisos(null);
+      setSoloTelefono(false);
       setLoading(false);
       return;
     }
     let stored: RolePermisos | null = null;
+    let marcaTelefono: boolean | null = null;
     try {
-      stored = await loadRolePermisos(r);
+      [stored, marcaTelefono] = await Promise.all([loadRolePermisos(r), soloTelefonoDeRol(r).catch(() => null)]);
     } catch {
       stored = null; // RLS/offline: caemos a los defaults del rol
     }
+    // La marca del rol manda; si no se pudo leer, el nombre (surtidor / cocina) sirve de red.
+    setSoloTelefono(marcaTelefono ?? esRolDeTelefono(r));
     // Si la matriz aún no tiene fila para el rol, usamos los defaults (mismos que el panel).
     setPermisos(stored ? normalizeRolePermisos(stored) : defaultsFor(r));
     setLoading(false);
@@ -74,7 +87,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
 
   // Realtime: si el admin cambia los permisos del rol (roles_permisos) o reasigna
   // el rol del usuario (usuarios), recargamos en vivo —sin volver a entrar—.
-  useRealtime(['roles_permisos', 'usuarios'], () => { void cargar(false); }, { enabled: !!user });
+  useRealtime(['roles_permisos', 'usuarios', 'custom_roles'], () => { void cargar(false); }, { enabled: !!user });
 
   const value = useMemo<PermissionsValue>(() => {
     const isAdmin = role === 'admin';
@@ -86,8 +99,8 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       return p.full || p[level];
     };
     const allowedModules = MODULES.map((m) => m.key).filter((k) => can(k, 'lectura'));
-    return { loading, role, appUser, permisos, isAdmin, can, allowedModules };
-  }, [loading, role, appUser, permisos]);
+    return { loading, role, appUser, permisos, isAdmin, can, allowedModules, soloTelefono };
+  }, [loading, role, appUser, permisos, soloTelefono]);
 
   return <PermissionsContext.Provider value={value}>{children}</PermissionsContext.Provider>;
 }
@@ -109,9 +122,9 @@ export function RequireModule({ module, children }: { module: ModuleKey; childre
 
 /** Redirige al primer módulo al que el usuario tiene acceso (usado como índice de /app). */
 export function HomeRedirect() {
-  const { loading, role, allowedModules } = usePermissions();
+  const { loading, role, allowedModules, soloTelefono } = usePermissions();
   if (loading) return <div className="p-8 muted">Cargando…</div>;
-  // `rutaDeInicio` conoce la excepción del surtidor: entra directo a la vista de
-  // teléfono, sin bajar antes el módulo de escritorio nada más que para rebotar.
-  return <Navigate to={rutaDeInicio(role, allowedModules)} replace />;
+  // `rutaDeInicio` conoce a los roles «solo teléfono»: entran directo a su vista
+  // de celular, sin bajar antes el módulo de escritorio nada más que para rebotar.
+  return <Navigate to={rutaDeInicio(role, allowedModules, soloTelefono)} replace />;
 }

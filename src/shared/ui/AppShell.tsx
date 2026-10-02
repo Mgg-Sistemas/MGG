@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { esRolCocina, esRolSurtidor, RUTA_COCINA_TELEFONO, RUTA_SURTIDOR } from '@/modules/usuarios/permisos.repository';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
@@ -38,7 +37,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function AppShell() {
   const { user } = useSession();
-  const { can, role, appUser } = usePermissions();
+  const { can, role, appUser, soloTelefono } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
   const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('acopio') || can('ventas') || can('tesoreria');
@@ -339,13 +338,14 @@ export function AppShell() {
           )}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {/* El cocinero trabaja desde el teléfono: el menú le ofrece SU pantalla. */}
-          {can('cocina') && (esRolCocina(role)
-            ? <NavItem to={`/app/${RUTA_COCINA_TELEFONO}`} icon="🍳" label="Comidas" />
+          {/* Un rol marcado «solo teléfono» ve la vista de celular de CADA módulo que
+              tenga permitido (02-10): el menú le ofrece sus pantallas, no los módulos
+              de escritorio —que igual lo rebotarían—. La marca vive en el rol. */}
+          {can('cocina') && (soloTelefono
+            ? <NavItem to="/app/cocina/telefono" icon="🍳" label="Comidas" />
             : <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />)}
-          {/* El surtidor trabaja desde el teléfono: el menú le ofrece SU pantalla,
-              no el módulo de escritorio —que igual lo rebotaría—. */}
-          {can('combustible') && (esRolSurtidor(role)
-            ? <NavItem to={`/app/${RUTA_SURTIDOR}`} icon="⛽" label="Surtidor" />
+          {can('combustible') && (soloTelefono
+            ? <NavItem to="/app/combustible/surtidor" icon="⛽" label="Surtidor" />
             : <NavItem to="/app/combustible" icon="⛽" label="Combustible" />)}
           {can('maquinaria') && (
             <NavGroup icon="🚜" label="Control de Maquinaria y Vehículos" defaultOpen={location.pathname.startsWith('/app/maquinaria')}>

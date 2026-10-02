@@ -6,6 +6,12 @@ export interface CustomRole {
   descripcion: string | null;
   color: string;
   sistema: boolean;
+  /**
+   * Marca «solo teléfono» (02-10-2026): el rol trabaja desde las vistas de
+   * celular —una por cada módulo permitido que tenga vista de teléfono— y no ve
+   * los módulos de escritorio. Es la marca la que manda, no el nombre del rol.
+   */
+  solo_telefono?: boolean;
   created_at?: string;
   created_by?: string | null;
 }
@@ -27,6 +33,7 @@ export interface CrearRolInput {
   label: string;
   descripcion?: string;
   color?: string;
+  soloTelefono?: boolean;
   actor?: string;
 }
 
@@ -41,6 +48,7 @@ export async function crearRol(input: CrearRolInput): Promise<CustomRole> {
     descripcion: input.descripcion?.trim() || null,
     color: input.color || '#64748b',
     sistema: false,
+    solo_telefono: input.soloTelefono === true,
     created_by: input.actor ?? null,
   };
   const { data, error } = await supabase.from(TABLE).insert(payload).select('*').single();
@@ -57,6 +65,7 @@ export interface ActualizarRolInput {
   label?: string;
   descripcion?: string | null;
   color?: string;
+  soloTelefono?: boolean;
 }
 
 /** Actualiza nombre, descripción y/o color de un rol. La clave (key) no se cambia
@@ -71,6 +80,7 @@ export async function actualizarRol(key: string, patch: ActualizarRolInput): Pro
   }
   if (patch.descripcion !== undefined) payload.descripcion = patch.descripcion?.trim() || null;
   if (patch.color !== undefined) payload.color = patch.color;
+  if (patch.soloTelefono !== undefined) payload.solo_telefono = patch.soloTelefono === true;
   const { data, error } = await supabase
     .from(TABLE)
     .update(payload)
@@ -79,6 +89,17 @@ export async function actualizarRol(key: string, patch: ActualizarRolInput): Pro
     .single();
   if (error) throw error;
   return data as CustomRole;
+}
+
+/**
+ * ¿El rol está marcado «solo teléfono»? null si el rol no tiene fila (o no se
+ * pudo leer): quien llama decide el fallback.
+ */
+export async function soloTelefonoDeRol(key: string): Promise<boolean | null> {
+  const { data, error } = await supabase.from(TABLE).select('solo_telefono').eq('key', key).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return (data as { solo_telefono?: boolean | null }).solo_telefono === true;
 }
 
 export async function eliminarRol(key: string): Promise<void> {
