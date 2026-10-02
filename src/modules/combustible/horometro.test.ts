@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { errorHorometro, horasTrabajadas, leerMedidor, textoHorometro } from './horometro';
+import { errorHorometro, hiEncadenado, horasTrabajadas, leerMedidor, textoHorometro } from './horometro';
 
 describe('leerMedidor', () => {
   it('toma el número tecleado, con coma o con punto', () => {
@@ -76,5 +76,17 @@ describe('textoHorometro', () => {
 
   it('usa el formateador del sistema cuando se lo pasan', () => {
     expect(textoHorometro(1500, 1512.5, (n) => n.toLocaleString('es-VE'))).toBe('1.500 → 1.512,5 · 12,5 h');
+  });
+});
+
+describe('hiEncadenado · el HF anterior es el HI del próximo (al guardar)', () => {
+  it('HI vacío toma el último HF del equipo', () => {
+    expect(hiEncadenado(null, 1142.1)).toBe(1142.1);
+  });
+  it('si el HI vino escrito, se respeta', () => {
+    expect(hiEncadenado(900, 1142.1)).toBe(900);
+  });
+  it('primer surtido del equipo sin HI: queda vacío', () => {
+    expect(hiEncadenado(null, null)).toBeNull();
   });
 });

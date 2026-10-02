@@ -69,3 +69,13 @@ export function textoHorometro(
   const horas = horasTrabajadas(hi, hf);
   return horas == null ? tramo : `${tramo} · ${formatear(horas)} h`;
 }
+
+/**
+ * El HI con que se GUARDA un surtido (la regla en el backend, 02-10-2026): si
+ * llegó vacío y el equipo ya tiene un HF anterior, se usa ese. Así la cadena se
+ * cumple aunque la pantalla no haya precargado el HI (mala señal, otro cliente).
+ */
+export function hiEncadenado(hiEscrito: number | null | undefined, hfAnterior: number | null | undefined): number | null {
+  if (hiEscrito != null && Number.isFinite(Number(hiEscrito))) return Number(hiEscrito);
+  return hfAnterior != null && Number.isFinite(Number(hfAnterior)) ? Number(hfAnterior) : null;
+}

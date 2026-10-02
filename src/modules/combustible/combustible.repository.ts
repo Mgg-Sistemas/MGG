@@ -20,6 +20,7 @@ import type {
 import { createProducto, listProductos, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { claveEquipo } from './equipoVinculo';
+import { hiEncadenado } from './horometro';
 
 /** Categoría y unidad con que se da de alta cada combustible en el inventario. */
 const CATEGORIA_COMBUSTIBLE = 'Combustible';
@@ -1119,6 +1120,16 @@ export async function crearTanqueMovimiento(input: {
 }): Promise<string> {
   const litros = Number(input.litros) || 0;
   if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+
+  // La regla del horómetro, en el backend y no solo en la pantalla (02-10): el HF
+  // del surtido anterior es el HI de este, y HRS = HF − HI nunca es negativa.
+  if (input.horometroFinal != null && input.equipo?.trim()) {
+    const previo = input.horometroInicial == null ? await ultimoHorometroEquipo(input.equipo).catch(() => null) : null;
+    input = { ...input, horometroInicial: hiEncadenado(input.horometroInicial, previo) };
+  }
+  if (input.horometroInicial != null && input.horometroFinal != null && Number(input.horometroFinal) < Number(input.horometroInicial)) {
+    throw new Error(`El horómetro final (${input.horometroFinal}) no puede ser menor que el inicial (${input.horometroInicial}).`);
+  }
 
   // El traslado es el combustible cambiando de tanque, no saliendo de la
   // empresa: se mueve por su propio camino para no tocar el inventario.
