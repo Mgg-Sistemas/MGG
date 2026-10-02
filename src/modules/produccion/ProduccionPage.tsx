@@ -377,8 +377,10 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
                         </div>
                       );
                     })()}
-                    <div style={{ marginTop: '.6rem' }}>
+                    <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem', flexWrap: 'wrap' }}>
                       <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'ver', id: p.id })}>Ver</button>
+                      {/* Finalizada también se edita (02-10): el inventario se sincroniza por la diferencia. */}
+                      {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'editar-materiales', id: p.id })} title="Editar todos los datos (ya finalizada): lo que entró al inventario se sincroniza por la diferencia">✎ Editar</button>}
                     </div>
                   </div>
                 ))}
@@ -425,8 +427,9 @@ function ProduccionModulo({ tipo }: { tipo: ProduccionTipo }) {
                   <td className="mono" style={{ textAlign: 'right' }}>{money(p.costo_unitario)}</td>
                   <td className="actions">
                     <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'ver', id: p.id })}>Ver</button>
-                    {canWrite && p.estado === 'produccion' && (
-                      <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'editar-materiales', id: p.id })} title="Cambiar/quitar materiales">✎ Editar</button>
+                    {canWrite && (
+                      <button className="btn btn-sm btn-ghost" onClick={() => setModal({ kind: 'editar-materiales', id: p.id })}
+                        title={p.estado === 'finalizado' ? 'Editar todos los datos (ya finalizada): lo que entró al inventario se sincroniza por la diferencia' : 'Editar todos los datos de la orden'}>✎ Editar</button>
                     )}
                     {canWrite && p.estado === 'produccion' && (
                       <button className="btn btn-sm btn-primary" onClick={() => setModal({ kind: 'finalizar', prod: p })}>Finalizar</button>

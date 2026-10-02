@@ -58,9 +58,17 @@ interface Props {
    * entró en esa vuelta sin volver a escribir los nombres.
    */
   materialesReceta?: Array<{ nombre: string; unidad?: string | null }>;
+  /**
+   * `inicio` (al crear) pide solo lo que se sabe al arrancar. `edicion`
+   * (✎ Editar) muestra además el CIERRE y los RESULTADOS —fin de jornada,
+   * estaño refinado, lingotes, dross, rendimiento, pureza, merma— porque ahí
+   * se corrige una refinación que puede estar ya finalizada (02-10-2026).
+   */
+  fase?: 'inicio' | 'edicion';
 }
 
-export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFecha, datos, setDatos, coladasFin, slotMaterial, materialesReceta = [] }: Props) {
+export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFecha, datos, setDatos, coladasFin, slotMaterial, materialesReceta = [], fase = 'inicio' }: Props) {
+  const cierre = fase === 'edicion';
   const set = <K extends keyof RefinacionDatos>(key: K, val: RefinacionDatos[K]) => setDatos((p) => ({ ...p, [key]: val }));
   const numVal = (v: number | null | undefined) => (v == null ? '' : String(v));
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s));
@@ -74,6 +82,22 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
     set('estano_crudo_kg', crudoTotal || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [crudoTotal]);
+
+  // Cierre (solo en edición): jornada, peso promedio, rendimiento y merma
+  // referenciales, los mismos que calcula «Finalizar refinación».
+  const jornadaCierre = calcJornadaHoras(datos.fecha_inicio_jornada, datos.hora_inicio_jornada, datos.fecha_fin_jornada, datos.hora_fin_jornada);
+  const refinadoKg = Number(datos.estano_refinado_kg) || 0;
+  const drossKg = Number(datos.dross_kg) || 0;
+  const crudoKgCierre = Number(datos.estano_crudo_kg) || crudoTotal;
+  const nLingotes = Number(datos.n_lingotes) || 0;
+  const pesoProm = refinadoKg > 0 && nLingotes > 0 ? round2(refinadoKg / nLingotes) : 0;
+  const rendSugerido = crudoKgCierre > 0 && refinadoKg > 0 ? round2((refinadoKg / crudoKgCierre) * 100) : 0;
+  const mermaCierre = round2(crudoKgCierre - refinadoKg - drossKg);
+  useEffect(() => {
+    if (!cierre) return;
+    setDatos((p) => ({ ...p, jornada_horas: jornadaCierre, peso_prom_lingote: pesoProm || null }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cierre, jornadaCierre, pesoProm]);
 
   function toggleColada(c: ColadaFinalizada) {
     setDatos((p) => {
@@ -361,10 +385,12 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
             <input className="input" type="time" value={datos.hora_inicio_jornada ?? ''} onChange={(e) => set('hora_inicio_jornada', e.target.value)} />
           </div>
         </div>
-        <small className="hint muted" style={{ fontSize: '.72rem' }}>
-          ⏱ La <strong>fecha y hora de fin</strong> —y con ellas el total de la jornada— se cargan al
-          marcar la refinación como <strong>finalizada</strong>. Acá todavía no se saben.
-        </small>
+        {!cierre && (
+          <small className="hint muted" style={{ fontSize: '.72rem' }}>
+            ⏱ La <strong>fecha y hora de fin</strong> —y con ellas el total de la jornada— se cargan al
+            marcar la refinación como <strong>finalizada</strong>. Acá todavía no se saben.
+          </small>
+        )}
       </div>
 
       {/* Cargas a la olla: las vueltas extra de material */}
@@ -437,6 +463,89 @@ export function RefinacionCampos({ refinacionNum, setRefinacionNum, fecha, setFe
         })}
         <button type="button" className="btn btn-sm btn-ghost" onClick={addCarga}>＋ Agregar una carga</button>
       </div>
+
+      {/* Cierre y resultados: son datos de FIN. Se cargan en «Finalizar
+          refinación»; acá aparecen solo al corregir una refinación (en curso o
+          ya finalizada). Son los mismos campos, con los mismos cálculos. */}
+      {cierre && (
+        <div style={secStyle}>
+          <div style={tituloSec}>Cierre de la jornada y resultados</div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Fecha fin de jornada</label>
+              <input className="input" type="date" value={datos.fecha_fin_jornada ?? ''} onChange={(e) => set('fecha_fin_jornada', e.target.value)} />
+            </div>
+            <div className="form-row">
+              <label>Hora fin de jornada</label>
+              <input className="input" type="time" value={datos.hora_fin_jornada ?? ''} onChange={(e) => set('hora_fin_jornada', e.target.value)} />
+            </div>
+            <div className="form-row">
+              <label>Total de jornada (automático)</label>
+              <input className="input mono" readOnly value={fmtJornada(jornadaCierre)} style={{ background: 'var(--bg-2)', fontWeight: 700 }} />
+            </div>
+            <div className="form-row">
+              <label>Tiempo total de proceso (h)</label>
+              <input className="input mono" type="number" step="any" value={numVal(datos.tiempo_total_horas)} onChange={(e) => set('tiempo_total_horas', toNum(e.target.value))} style={numInput} />
+            </div>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Hora inicio de vaciado</label>
+              <HoraInput value={datos.hora_inicio_vaciado ?? ''} onChange={(h) => set('hora_inicio_vaciado', h)} />
+            </div>
+            <div className="form-row">
+              <label>Temp. de colada (°C)</label>
+              <input className="input mono" type="number" step="any" value={numVal(datos.temp_colada)} onChange={(e) => set('temp_colada', toNum(e.target.value))} style={numInput} />
+            </div>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Estaño refinado obtenido (kg)</label>
+              <input className="input mono" type="number" step="any" min={0} value={numVal(datos.estano_refinado_kg)} onChange={(e) => set('estano_refinado_kg', toNum(e.target.value))} style={numInput} />
+              <small className="hint muted" style={{ fontSize: '.7rem' }}>Es la <strong>cantidad producida</strong>: lo que entró (o entra) al inventario. Se corrige acá y en ningún otro lado.</small>
+            </div>
+            <div className="form-row">
+              <label>N° de lingotes</label>
+              <input className="input mono" type="number" step="any" min={0} value={numVal(datos.n_lingotes)} onChange={(e) => set('n_lingotes', toNum(e.target.value))} style={numInput} title="Admite medios lingotes: la última colada rara vez llena el molde" />
+              {pesoProm > 0 && <small className="hint muted" style={{ fontSize: '.7rem' }}>Peso prom./lingote: <strong>{num(pesoProm)} kg</strong></small>}
+            </div>
+            <div className="form-row">
+              <label>N° de precinto / lote final</label>
+              <input className="input" value={datos.n_precinto ?? ''} onChange={(e) => set('n_precinto', e.target.value)} />
+            </div>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Dross / escoria de refinación (kg)</label>
+              <input className="input mono" type="number" step="any" min={0} value={numVal(datos.dross_kg)} onChange={(e) => set('dross_kg', toNum(e.target.value))} style={numInput} />
+            </div>
+            <div className="form-row">
+              <label>Rendimiento del proceso (%)</label>
+              <input className="input mono" type="number" step="any" min={0} value={numVal(datos.rendimiento)} onChange={(e) => set('rendimiento', toNum(e.target.value))} style={numInput} />
+              {rendSugerido > 0 && <small className="hint muted" style={{ fontSize: '.7rem' }}>Sugerido: {num(rendSugerido)} % (refinado ÷ crudo)</small>}
+            </div>
+            <div className="form-row">
+              <label>Pureza final estimada (% Sn)</label>
+              <input className="input mono" type="number" step="any" min={0} value={numVal(datos.pureza_final)} onChange={(e) => set('pureza_final', toNum(e.target.value))} style={numInput} />
+            </div>
+          </div>
+          <div className="card" style={{ padding: '.5rem .7rem', borderLeft: `3px solid ${mermaCierre < 0 ? 'var(--danger)' : 'var(--primary)'}`, margin: '.3rem 0 .5rem' }}>
+            <div className="mono" style={{ fontSize: '.82rem' }}>
+              Balance: crudo <strong>{num(crudoKgCierre)}</strong> = refinado <strong>{num(refinadoKg)}</strong> + dross <strong>{num(drossKg)}</strong> + merma <strong style={{ color: mermaCierre < 0 ? 'var(--danger)' : 'var(--success)' }}>{num(mermaCierre)}</strong> kg
+              {mermaCierre < 0 && <><br /><span style={{ color: 'var(--danger)' }}>⚠ El refinado + dross supera al crudo cargado: revisá los kg.</span></>}
+            </div>
+          </div>
+          <div className="form-row" style={{ maxWidth: 320 }}>
+            <label>Merma (kg)</label>
+            <input className="input mono" type="number" step="any" value={numVal(datos.merma_kg)} onChange={(e) => set('merma_kg', toNum(e.target.value))} style={numInput} placeholder={String(mermaCierre)} />
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>Referencial: crudo − refinado − dross = <strong>{num(mermaCierre)} kg</strong>.</small>
+          </div>
+          <div className="form-row">
+            <label>Observaciones / incidencias</label>
+            <textarea className="input" rows={3} value={datos.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Notas / incidencias de la refinación (salen en el reporte)…" style={{ resize: 'vertical' }} />
+          </div>
+        </div>
+      )}
 
       {/* Control de temperatura y etapas */}
       <details style={{ ...secStyle, marginBottom: 0 }}>

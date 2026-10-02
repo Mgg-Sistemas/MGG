@@ -637,6 +637,18 @@ export function ColadaCampos({ coladaNum, setColadaNum, fecha, setFecha, datos, 
             <label>Escoria obtenida (kg)</label>
             <DecimalInput className="input mono" value={datos.escoria_kg} onChange={(n) => set('escoria_kg', n)} style={numInput} placeholder="0,00" />
           </div>
+          <div className="form-row">
+            <label>Rendimiento (%)</label>
+            <input className="input mono" type="number" step="any" min={0} value={numVal(datos.rendimiento)} onChange={(e) => set('rendimiento', toNum(e.target.value))} style={numInput} />
+            {(Number(datos.sn_kg) || 0) > 0 && (Number(datos.estano_kg) || 0) > 0 && (
+              <small className="hint muted" style={{ fontSize: '.7rem' }}>Sugerido: {round2(((Number(datos.estano_kg) || 0) / (Number(datos.sn_kg) || 1)) * 100)} % (estaño ÷ Sn)</small>
+            )}
+          </div>
+          <div className="form-row">
+            <label>Merma (kg)</label>
+            <input className="input mono" type="number" step="any" value={numVal(datos.merma_kg)} onChange={(e) => set('merma_kg', toNum(e.target.value))} style={numInput} />
+            <small className="hint muted" style={{ fontSize: '.7rem' }}>Referencial: mezcla − estaño − escoria.</small>
+          </div>
         </div>
         <div className="form-row">
           <label>Observaciones de la colada</label>

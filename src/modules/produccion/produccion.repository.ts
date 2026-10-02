@@ -11,6 +11,8 @@ import { calcularAjusteProduccion, detalleAjuste } from './ajusteProduccion';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
 import { timestampsDeLaOrden, type DatosConHoras } from './tiemposDeLaOrden';
+import { detalleEdicionFinalizada, movimientosDeSincronizacion, NOTA_EDICION_FINALIZADA, type EstadoEnInventario } from './sincronizarFinalizada';
+import { asegurarFichaEscoria } from './escoriaFundicion';
 
 /** Tipo de orden en la tabla `produccion`: fundición o refinación de material. */
 export type ProduccionTipo = 'fundicion' | 'refinacion';
@@ -485,7 +487,7 @@ export async function crearProduccion(input: CrearProduccionInput): Promise<Prod
 
 /**
  * Edita los MATERIALES (y, opcional, cantidad producida / mano de obra / indirectos)
- * de una orden EN CURSO (no finalizada). Es seguro para el inventario:
+ * de una orden, EN CURSO o YA FINALIZADA (02-10-2026). Es seguro para el inventario:
  *  1) revierte el consumo anterior con un 'ajuste' de +cantidad y precio_unitario null
  *     → restaura el stock a su costo vigente SIN tocar el PMP del almacén;
  *  2) reemplaza produccion_materiales;
@@ -515,7 +517,10 @@ export async function editarMaterialesProduccion(input: {
   if (pErr0) throw pErr0;
   if (!prodData) throw new Error('Orden no encontrada.');
   const prodActual = prodData as Produccion;
-  if (prodActual.estado === 'finalizado') throw new Error('No se puede editar una orden ya finalizada.');
+  // Una orden FINALIZADA también se edita (02-10-2026, pedido de la
+  // administradora: «poder modificar todo»). Lo que ya entró al inventario se
+  // sincroniza abajo, por diferencia, en vez de trancar la corrección.
+  const finalizada = prodActual.estado === 'finalizado';
 
   // 1) Editar una colada no devuelve stock, porque tampoco lo había sacado
   //    (ver `crearProduccion`). Lo único que se devuelve es lo que SÍ bajó: las
@@ -585,9 +590,107 @@ export async function editarMaterialesProduccion(input: {
   if (input.horno !== undefined) updPatch.horno = input.horno?.trim() || null;
   if (input.almacenDestino?.trim()) updPatch.almacen_destino = input.almacenDestino.trim();
   updPatch.descontar_inventario = descuentaAhora;
+
+  // 7) Finalizada: el producto terminado YA está en el inventario. Si cambió lo
+  //    que entró (kg, almacén destino o la marca de sumar), se mueve SOLO la
+  //    diferencia, con ajustes sin precio para no tocar el PMP del almacén con
+  //    un número que ya está contado. Y la corrección queda en el historial.
+  if (finalizada) {
+    const antes: EstadoEnInventario = {
+      almacen: prodActual.almacen_destino, cantidad: Number(prodActual.cantidad) || 0, suma: prodActual.sumar_inventario !== false,
+    };
+    const despues: EstadoEnInventario = {
+      almacen: (updPatch.almacen_destino as string | undefined) ?? prodActual.almacen_destino,
+      cantidad,
+      suma: input.sumarInventario !== undefined ? input.sumarInventario : antes.suma,
+    };
+    const movs = prodActual.producto_id ? movimientosDeSincronizacion(antes, despues) : [];
+    const esRef = (prodActual.tipo ?? 'fundicion') === 'refinacion';
+    const numero = await numeroDeProceso(prodActual.id, esRef);
+    const detalle = detalleEdicionFinalizada(prodActual.tipo ?? 'fundicion', numero, antes, despues);
+    for (const mv of movs) {
+      await registrarMovimiento({
+        producto_id: prodActual.producto_id as string,
+        tipo: 'ajuste',
+        delta: mv.delta,
+        almacen: mv.almacen,
+        actor: input.actor,
+        actor_name: input.actorName ?? null,
+        ref_tipo: 'produccion_ajuste',
+        ref_id: prodActual.id,
+        detalle,
+        precio_unitario: null,   // conserva el PMP del almacén
+      });
+    }
+    if (round2(antes.cantidad) !== round2(cantidad)) {
+      const previos = (prodActual as { ajustes?: Array<Record<string, unknown>> | null }).ajustes ?? [];
+      updPatch.ajustes = [...previos, {
+        at: new Date().toISOString(),
+        actor: input.actorName || input.actor,
+        de: round2(antes.cantidad),
+        a: round2(cantidad),
+        nota: NOTA_EDICION_FINALIZADA,
+        movio_inventario: movs.length > 0,
+      }];
+    }
+  }
+
   const { data: upd, error: uErr } = await supabase.from('produccion').update(updPatch).eq('id', input.produccionId).select('*').single();
   if (uErr) throw uErr;
   return upd as Produccion;
+}
+
+/**
+ * Sincroniza la ESCORIA (colada) o el DROSS (refinación) de una orden
+ * finalizada que se editó. Al finalizar entraron X kg a su ficha; si ahora el
+ * reporte dice Y, se mueve la diferencia (Y − X) como ajuste sin precio. Si la
+ * orden dejó de sumar al inventario, sale lo que había entrado; si empezó a
+ * sumar, entra lo nuevo.
+ *
+ * Devuelve el aviso cuando NO se pudo mover (la orden ya se guardó: esto no la
+ * tumba, pero tampoco se calla), o null si todo quedó sincronizado.
+ */
+export async function sincronizarEscoriaFinalizada(input: {
+  produccionId: string;
+  nombreFicha: string;
+  /** Cómo se llama la orden en el kardex: «Colada #12» / «Refinación #3». */
+  etiqueta: string;
+  kgAntes: number | null | undefined;
+  kgDespues: number | null | undefined;
+  sumabaAntes: boolean;
+  sumaAhora: boolean;
+  actor: string;
+  actorName?: string | null;
+}): Promise<string | null> {
+  const kg = (v: number | null | undefined, suma: boolean) => {
+    if (!suma) return 0;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) / 1000 : 0;
+  };
+  const antes = kg(input.kgAntes, input.sumabaAntes);
+  const despues = kg(input.kgDespues, input.sumaAhora);
+  const delta = Math.round((despues - antes) * 1000) / 1000;
+  if (delta === 0) return null;
+  const aviso = `⚠ La orden se guardó, pero la diferencia de ${input.nombreFicha} (${delta > 0 ? '+' : ''}${delta} kg) NO se movió en el inventario. Ajustala a mano.`;
+  try {
+    const ficha = await asegurarFichaEscoria(input.nombreFicha);
+    if (!ficha) return aviso;
+    await registrarMovimiento({
+      producto_id: ficha.id,
+      tipo: 'ajuste',
+      delta,
+      almacen: (ficha.almacen || 'General').trim() || 'General',
+      actor: input.actor,
+      actor_name: input.actorName ?? null,
+      ref_tipo: 'produccion',
+      ref_id: input.produccionId,
+      precio_unitario: null,
+      detalle: `Edición de ${input.etiqueta} finalizada: ${input.nombreFicha} ${antes} → ${despues} kg`,
+    });
+    return null;
+  } catch {
+    return aviso;
+  }
 }
 
 /**

@@ -240,9 +240,10 @@ export function ProduccionDetalle({
             </div>
           </div>
 
-          {/* Reporte de colada (solo fundición con colada): control de temperatura + sangrado + PDF */}
+          {/* Reporte de colada (solo fundición con colada): control de temperatura + sangrado + PDF.
+              Editable también finalizada (02-10): quien tiene escritura corrige todo. */}
           {(prod.tipo ?? 'fundicion') === 'fundicion' && (
-            <ColadaPanel produccionId={id} editable={prod.estado !== 'finalizado'} />
+            <ColadaPanel produccionId={id} editable={puedeCorregir} />
           )}
           {/* Correcciones hechas después de finalizar: qué cambió y por qué. */}
           {!!(prod.ajustes ?? []).length && (
@@ -263,7 +264,7 @@ export function ProduccionDetalle({
 
           {/* Reporte de refinación (MGG-FR-002): origen + parámetros + etapas + PDF */}
           {prod.tipo === 'refinacion' && (
-            <RefinacionPanel produccionId={id} editable={prod.estado !== 'finalizado'} />
+            <RefinacionPanel produccionId={id} editable={puedeCorregir} />
           )}
         </div>
       )}

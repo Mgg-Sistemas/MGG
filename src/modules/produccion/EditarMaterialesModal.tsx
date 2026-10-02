@@ -1,5 +1,8 @@
 /* ============================================================
-   MGG · Editar una colada/refinación EN CURSO (todo):
+   MGG · Editar una colada/refinación (todo), EN CURSO o YA FINALIZADA:
+   - Finalizada (02-10-2026): se edita igual. Lo que ya entró al inventario
+     —kg obtenidos, almacén destino, marca «sumar», escoria / dross— se
+     sincroniza por DIFERENCIA al guardar (ver sincronizarFinalizada.ts).
    - Cantidad producida, mano de obra.
    - Materiales: cambiar cantidades, quitar y agregar (ej. corregir un coque
      con nombre/stock equivocado). Al guardar, el repositorio revierte el consumo
@@ -21,9 +24,13 @@ import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import type { Existencia, Producto, ColadaDatos, RefinacionDatos } from '@/shared/lib/types';
 import {
-  getProduccionConMateriales, editarMaterialesProduccion,
+  getProduccionConMateriales, editarMaterialesProduccion, sellarFechasDeLaOrden, sincronizarEscoriaFinalizada,
   type ProduccionTipo, type MaterialInput,
 } from './produccion.repository';
+import { SelectorInvolucrados } from './SelectorInvolucrados';
+import { sinRepetidos } from './involucrados';
+import { NOMBRE_ESCORIA, NOMBRE_ESCORIA_REFINACION } from './escoriaFundicion';
+import { notify } from '@/shared/lib/notify';
 import { ColadaCampos } from './ColadaCampos';
 import { RefinacionCampos } from './RefinacionCampos';
 import { AlmacenSelectAgrupado } from '@/modules/inventario/AlmacenPicker';
@@ -31,7 +38,7 @@ import {
   getRefinacion, actualizarRefinacionDatos, actualizarRefinacionCabecera, refinacionDatosVacios,
   listColadasFinalizadas, listRefinacionesFinalizadas, type ColadaFinalizada,
 } from './refinacion.repository';
-import { getColada, actualizarColadaDatos, actualizarColadaCabecera, coladaDatosVacios, getConsumoBigBags } from './colada.repository';
+import { getColada, actualizarColadaDatos, actualizarColadaCabecera, coladaDatosVacios, getConsumoBigBags, sellarTiemposDeProceso } from './colada.repository';
 import { CASITERITA_ALMACEN, SKU_CASITERITA, listCasiteritaDetalle, type CasiteritaDetalle } from '@/modules/inventario/casiteritaDetalle.repository';
 import { findBySku } from '@/modules/inventario/inventario.repository';
 import { lineaCasiterita } from './consumoCasiterita';
@@ -81,6 +88,11 @@ export function EditarMaterialesModal({
   const [almacenDestino, setAlmacenDestino] = useState('');
   const [sumarInventario, setSumarInventario] = useState(true);
   const [productoNombre, setProductoNombre] = useState('');
+  /** La orden ya cerró: lo que entró al inventario se sincroniza por diferencia al guardar. */
+  const [finalizada, setFinalizada] = useState(false);
+  const [sumabaAntes, setSumabaAntes] = useState(true);
+  /** Escoria / dross que la orden ya tiene en el inventario (para mover solo la diferencia). */
+  const [escoriaAntes, setEscoriaAntes] = useState<number | null>(null);
 
   // Reporte de refinación (MGG-FR-002): se edita entero, orígenes incluidos.
   const [refDatos, setRefDatos] = useState<RefinacionDatos>(refinacionDatosVacios());
@@ -117,6 +129,8 @@ export function EditarMaterialesModal({
       setHorno(p.horno ?? '');
       setAlmacenDestino(p.almacen_destino ?? '');
       setSumarInventario(p.sumar_inventario !== false);
+      setFinalizada(p.estado === 'finalizado');
+      setSumabaAntes(p.sumar_inventario !== false);
       setRows((p.materiales ?? [])
         // En refinación, el estaño crudo no se edita en esta tabla: se rearma
         // desde los ORÍGENES del reporte (abajo), igual que la casiterita de la
@@ -159,6 +173,7 @@ export function EditarMaterialesModal({
         if (col) {
           setEsColada(true);
           setColadaDatos({ ...coladaDatosVacios(), ...(col.datos ?? {}) });
+          setEscoriaAntes(col.datos?.escoria_kg ?? null);
           setColadaNum(col.colada_num != null ? String(col.colada_num) : '');
           setColadaFecha(col.fecha ?? '');
           setCasiteritaDetalle(det);
@@ -177,6 +192,7 @@ export function EditarMaterialesModal({
         setOrigenesRef([...coladas, ...refinados]);
         if (ref) {
           setRefDatos({ ...refinacionDatosVacios(), ...(ref.datos ?? {}) });
+          setEscoriaAntes(ref.datos?.dross_kg ?? null);
           setRefNum(ref.refinacion_num != null ? String(ref.refinacion_num) : '');
           setRefFecha(ref.fecha ?? '');
         }
@@ -195,7 +211,14 @@ export function EditarMaterialesModal({
   const crudoKg = useMemo(() => Math.round(crudoLines.reduce((a, c) => a + (Number(c.estano_kg) || 0), 0) * 100) / 100, [crudoLines]);
   // En refinación la cantidad de la orden ES el crudo cargado (al finalizar se
   // reemplaza por el estaño refinado obtenido).
-  useEffect(() => { if (esRef && !loading) setCantidad(crudoKg > 0 ? crudoKg : null); }, [esRef, loading, crudoKg]);
+  useEffect(() => { if (esRef && !loading && !finalizada) setCantidad(crudoKg > 0 ? crudoKg : null); }, [esRef, loading, finalizada, crudoKg]);
+  // Finalizada: la cantidad producida ES el resultado del reporte (estaño
+  // obtenido / refinado). Se corrige allá y acá solo se refleja.
+  const resultadoEnReporte = esRef || esColada;
+  const kgResultado = esRef ? refDatos.estano_refinado_kg : coladaDatos.estano_kg;
+  useEffect(() => {
+    if (finalizada && !loading && resultadoEnReporte) setCantidad(Number(kgResultado) > 0 ? Number(kgResultado) : null);
+  }, [finalizada, loading, resultadoEnReporte, kgResultado]);
 
   const stockDe = (pid: string | null, alm: string): number => {
     if (!pid) return Infinity;
@@ -226,7 +249,12 @@ export function EditarMaterialesModal({
   async function guardar() {
     setError(null);
     const cant = Number(cantidad) || 0;
-    if (cant <= 0) { setError('La cantidad producida debe ser mayor que 0.'); return; }
+    if (cant <= 0) {
+      setError(finalizada && resultadoEnReporte
+        ? `Indicá el ${esRef ? 'estaño refinado' : 'estaño obtenido'} (kg) en el reporte, abajo: es lo que está en el inventario.`
+        : 'La cantidad producida debe ser mayor que 0.');
+      return;
+    }
     const validas = rows.filter((r) => (Number(r.cantidad) || 0) > 0);
     if (!validas.length && !(esRef && crudoLines.length)) { setError('Dejá al menos un material con cantidad.'); return; }
     if (esRef && !crudoLines.length) { setError('Elegí al menos un origen del estaño a refinar (o cargá material manual).'); return; }
@@ -288,7 +316,24 @@ export function EditarMaterialesModal({
         });
         await actualizarRefinacionCabecera(produccionId, { refinacion_num: Number.isFinite(nRef) && nRef > 0 ? nRef : undefined, fecha: refFecha || undefined });
       }
-      toast(`${esRef ? 'Refinación' : 'Colada'} actualizada: materiales, inventario y reporte ajustados`, 'success');
+      // Finalizada: la escoria / dross ya entró al inventario; se mueve solo la
+      // diferencia, y la orden se vuelve a sellar con las fechas del reporte.
+      if (finalizada) {
+        const etiqueta = esRef ? `Refinación #${refNum || 's/n'}` : `Colada #${coladaNum || 's/n'}`;
+        const aviso = await sincronizarEscoriaFinalizada({
+          produccionId, etiqueta,
+          nombreFicha: esRef ? NOMBRE_ESCORIA_REFINACION : NOMBRE_ESCORIA,
+          kgAntes: escoriaAntes,
+          kgDespues: esRef ? refDatos.dross_kg : coladaDatos.escoria_kg,
+          sumabaAntes, sumaAhora: sumarInventario, actor, actorName,
+        });
+        if (aviso) notify(aviso, 'warning', { link: '#/app/inventario' });
+        if (esColada) await sellarTiemposDeProceso(produccionId);
+        else if (esRef) await sellarFechasDeLaOrden(produccionId, refDatos);
+      }
+      toast(finalizada
+        ? `${esRef ? 'Refinación' : 'Colada'} corregida: reporte, costos e inventario sincronizados`
+        : `${esRef ? 'Refinación' : 'Colada'} actualizada: materiales, inventario y reporte ajustados`, 'success');
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); }
     finally { setSaving(false); }
@@ -305,14 +350,19 @@ export function EditarMaterialesModal({
       ) : (
         <>
           <p className="hint muted" style={{ marginTop: 0 }}>
-            Editás <strong>{productoNombre}</strong> (orden en curso). Al guardar se <strong>revierte el consumo anterior</strong> y se consume lo nuevo; el inventario, los costos y el reporte se reajustan solos.
+            Editás <strong>{productoNombre}</strong>{' '}
+            {finalizada
+              ? <>(orden <strong>ya finalizada</strong>). Se puede cambiar <strong>todo</strong>. Lo que ya entró al inventario —kg obtenidos, almacén destino, escoria— se <strong>sincroniza por la diferencia</strong>; los costos y el reporte se reajustan solos.</>
+              : <>(orden en curso). Al guardar se <strong>revierte el consumo anterior</strong> y se consume lo nuevo; el inventario, los costos y el reporte se reajustan solos.</>}
           </p>
 
           <div className="form-grid">
             <div className="form-row" style={{ maxWidth: 220 }}>
-              <label>{esRef ? 'Estaño crudo cargado (kg)' : 'Cantidad producida'}</label>
-              <DecimalInput className="input mono" value={cantidad} onChange={setCantidad} style={{ textAlign: 'right' }} disabled={esRef} />
-              {esRef && <small className="hint muted" style={{ fontSize: '.7rem' }}>Σ de los orígenes elegidos abajo</small>}
+              <label>{finalizada ? (esRef ? 'Estaño refinado (kg)' : 'Estaño obtenido (kg)') : esRef ? 'Estaño crudo cargado (kg)' : 'Cantidad producida'}</label>
+              <DecimalInput className="input mono" value={cantidad} onChange={setCantidad} style={{ textAlign: 'right' }} disabled={esRef || (finalizada && resultadoEnReporte)} />
+              {finalizada && resultadoEnReporte
+                ? <small className="hint muted" style={{ fontSize: '.7rem' }}>Se corrige en <strong>«{esRef ? 'Cierre de la jornada y resultados' : 'Observaciones y resultados'}»</strong> del reporte, abajo</small>
+                : esRef && <small className="hint muted" style={{ fontSize: '.7rem' }}>Σ de los orígenes elegidos abajo</small>}
             </div>
             <div className="form-row" style={{ maxWidth: 220 }}>
               <label>Mano de obra ($)</label>
@@ -339,7 +389,11 @@ export function EditarMaterialesModal({
 
           <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', margin: '.2rem 0 .2rem', cursor: 'pointer', fontSize: '.86rem' }}>
             <input type="checkbox" checked={sumarInventario} onChange={(e) => setSumarInventario(e.target.checked)} />
-            <span><strong>Sumar al inventario</strong> al finalizar <span className="muted" style={{ fontSize: '.76rem' }}>· si lo destildás, queda como registro/reporte y NO suma stock del producto</span></span>
+            <span><strong>Sumar al inventario</strong> {finalizada ? '' : 'al finalizar '}<span className="muted" style={{ fontSize: '.76rem' }}>
+              {finalizada
+                ? '· si lo destildás, el estaño que había entrado SALE del almacén destino; si lo tildás, entra'
+                : '· si lo destildás, queda como registro/reporte y NO suma stock del producto'}
+            </span></span>
           </label>
 
           <div className="muted" style={{ fontSize: '.78rem', margin: '0 0 .2rem', lineHeight: 1.6 }}>
@@ -391,6 +445,10 @@ export function EditarMaterialesModal({
                 datos={coladaDatos} setDatos={setColadaDatos}
                 casiteritaDetalle={casiteritaDetalle} consumoBigBags={consumoBigBags}
               />
+              <div className="form-row" style={{ marginTop: '.6rem' }}>
+                <label>Involucrados <span className="muted" style={{ fontWeight: 400 }}>(del catálogo)</span></label>
+                <SelectorInvolucrados valor={coladaDatos.involucrados ?? []} onChange={(v) => setColadaDatos((p) => ({ ...p, involucrados: sinRepetidos(v) }))} actor={actor} />
+              </div>
             </div>
           )}
 
@@ -403,7 +461,12 @@ export function EditarMaterialesModal({
                 datos={refDatos} setDatos={setRefDatos}
                 coladasFin={origenesRef}
                 materialesReceta={rows.filter((r) => (Number(r.cantidad) || 0) > 0).map((r) => ({ nombre: r.material_nombre }))}
+                fase="edicion"
               />
+              <div className="form-row" style={{ marginTop: '.6rem' }}>
+                <label>Personal involucrado <span className="muted" style={{ fontWeight: 400 }}>(del catálogo)</span></label>
+                <SelectorInvolucrados valor={refDatos.involucrados ?? []} onChange={(v) => setRefDatos((p) => ({ ...p, involucrados: sinRepetidos(v) }))} actor={actor} />
+              </div>
             </div>
           )}
 
