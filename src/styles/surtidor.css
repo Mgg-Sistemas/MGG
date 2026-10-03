@@ -35,6 +35,28 @@
 .surt-btn.merma { border-color: var(--danger); }
 .surt-btn:active { transform: scale(.98); }
 
+/* ── Las tres comidas del día (Cocina) ──
+   Acá no hay dos acciones chicas y una principal, como en el surtidor: son tres
+   servicios iguales. Puestos en la rejilla de dos columnas, el del medio salía a
+   todo el ancho y dejaba a desayuno y a cena con un hueco al lado cada uno.
+   Van uno debajo del otro y con el icono al costado: así las tres entran en
+   pantalla, miden lo mismo y el renglón de ayuda se lee completo. */
+.surt-acciones.comidas { grid-template-columns: 1fr; gap: .6rem; }
+.surt-acciones.comidas .surt-btn {
+  flex-direction: row; align-items: center; justify-content: flex-start;
+  gap: .85rem; padding: .85rem 1rem; min-height: 78px; text-align: left;
+}
+.surt-acciones.comidas .surt-btn .icono { font-size: 2rem; flex: 0 0 auto; }
+/* El texto se encoge antes que el icono y parte en varias líneas si hace falta:
+   el nombre de la cocina puede ser largo y antes empujaba el botón a lo ancho. */
+.surt-acciones.comidas .surt-btn .texto { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.surt-acciones.comidas .surt-btn small { white-space: normal; }
+/* Cada comida con su color: antes se resaltaba la del medio solo por venir
+   segunda en la lista, que no quiere decir nada. */
+.surt-acciones.comidas .surt-btn.desayuno { border-color: var(--warning); }
+.surt-acciones.comidas .surt-btn.almuerzo { border-color: var(--primary); background: var(--grad-primary-soft); }
+.surt-acciones.comidas .surt-btn.cena { border-color: var(--info); }
+
 .surt-form { display: flex; flex-direction: column; gap: .9rem; margin: 1rem 0; }
 .surt-form-titulo { display: flex; align-items: center; gap: .75rem; }
 .surt-form-titulo .icono { font-size: 2rem; }
@@ -48,6 +70,11 @@
    mismo alto y letra que los demás campos; se escribe una parte y filtra. */
 .surt-buscable .input { width: 100%; min-height: 56px; font-size: 1.15rem; padding: .6rem .8rem; }
 .surt-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+/* Tres botones parejos (el selector de servicio de Cocina). La clase se usaba sin
+   existir y la rejilla iba en estilos sueltos dentro del JSX. Con el relleno ancho
+   de .btn-grande, «Desayuno» no entraba en un tercio de pantalla y quedaba cortado. */
+.surt-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; }
+.surt-grid3 .btn { padding-left: .3rem; padding-right: .3rem; font-size: .95rem; }
 .surt-mas { background: none; border: none; color: var(--primary-2); font: inherit; font-weight: 600; padding: .4rem 0; cursor: pointer; text-align: left; }
 .surt-guardar { min-height: 66px; font-size: 1.25rem; font-weight: 800; width: 100%; }
 .btn-grande { min-height: 52px; font-size: 1.05rem; padding: .6rem 1rem; }

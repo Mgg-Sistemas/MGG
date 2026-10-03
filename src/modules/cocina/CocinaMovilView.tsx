@@ -124,12 +124,14 @@ export function CocinaMovilView() {
       )}
 
       {sel && !form && canWrite && (
-        <div className="surt-acciones">
-          {TIPOS.map((t, i) => (
-            <button key={t} type="button" className={`surt-btn${i === 1 ? ' primario' : ''}`} onClick={() => setForm({ tipo: t, comida: null })}>
+        <div className="surt-acciones comidas">
+          {TIPOS.map((t) => (
+            <button key={t} type="button" className={`surt-btn ${t}`} onClick={() => setForm({ tipo: t, comida: null })}>
               <span className="icono" aria-hidden>{EMOJI_COMIDA[t]}</span>
-              <span>{labelTipoComida(t)}</span>
-              <small>Personas y consumo de {sel.cocina.nombre}</small>
+              <span className="texto">
+                <span>{labelTipoComida(t)}</span>
+                <small>Personas y consumo de {sel.cocina.nombre}</small>
+              </span>
             </button>
           ))}
         </div>
@@ -265,7 +267,7 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
 
       <div className="surt-campo">
         <label>Servicio</label>
-        <div className="surt-grid3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.4rem' }}>
+        <div className="surt-grid3">
           {TIPOS.map((t) => (
             <button key={t} type="button" className={`btn btn-grande ${tipo === t ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTipo(t)}>
               {EMOJI_COMIDA[t]} {labelTipoComida(t)}
