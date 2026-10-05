@@ -24,8 +24,10 @@ interface CarnetPublico {
   carnet_vence?: string | null;
 }
 
-/** El logo de la empresa (el mismo de los PDF). */
+/** El logo de la empresa (el mismo de los PDF), para el encabezado de la página. */
 const urlLogo = () => new URL(`${import.meta.env.BASE_URL}image.jpeg`, window.location.origin).toString();
+/** Adonde va el QR de alguien desactivado: el logo completo de la empresa, con el RIF. */
+const urlLogoCompleto = () => new URL(`${import.meta.env.BASE_URL}${encodeURIComponent('Mineral Group Guayana.jpg')}`, window.location.origin).toString();
 
 export function CarnetPublicoPage() {
   const { id = '' } = useParams();
@@ -35,13 +37,13 @@ export function CarnetPublicoPage() {
   useEffect(() => {
     let vivo = true;
     const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    if (!esUuid) { window.location.replace(urlLogo()); return; }
+    if (!esUuid) { window.location.replace(urlLogoCompleto()); return; }
     supabase.rpc('carnet_publico', { p_id: id }).then(({ data, error: e }) => {
       if (!vivo) return;
       if (e) { setError(true); return; }
       const d = data as CarnetPublico | null;
       // Desactivado o inexistente: directo al logo de la empresa.
-      if (!d?.activo) { window.location.replace(urlLogo()); return; }
+      if (!d?.activo) { window.location.replace(urlLogoCompleto()); return; }
       setDatos(d);
     });
     return () => { vivo = false; };
