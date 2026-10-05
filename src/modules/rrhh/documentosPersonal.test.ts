@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   MAX_BYTES_DOCUMENTO, TIPOS_DOCUMENTO_PERSONAL, archivoDocumentoValido, documentacionCompleta,
   documentosFaltantes, esImagen, esPdf, esTipoDocumento, labelDocumento, megas, nombreSeguro,
-  resumenDocumentos, validarArchivoDocumento,
+  resumenDocumentos, validarArchivoDocumento, mensajeErrorDocumento,
   TIPO_OTRO, errorEtiquetaDocumento, esTipoFijo, iconoDocumento, tituloDocumento,
 } from './documentosPersonal';
 
@@ -174,5 +174,27 @@ describe('el «2 de 3» cuenta solo los papeles obligatorios', () => {
     const cargados = [{ tipo: 'rif' }, { tipo: 'cedula' }, { tipo: 'cv' }, { tipo: TIPO_OTRO }];
     expect(resumenDocumentos(cargados)).toBe('3 de 3');
     expect(documentacionCompleta(cargados)).toBe(true);
+  });
+});
+
+describe('mensajeErrorDocumento · el motivo real, no el genérico', () => {
+  it('un error de Supabase (no es Error de JS) muestra su mensaje', () => {
+    expect(mensajeErrorDocumento({ code: '42P10', message: 'there is no unique or exclusion constraint matching the ON CONFLICT specification' }))
+      .toMatch(/ON CONFLICT/);
+  });
+  it('nombre repetido', () => {
+    expect(mensajeErrorDocumento({ code: '23505', message: 'duplicate key value' })).toMatch(/Ya hay un documento/);
+  });
+  it('tipo o nombre que la base no acepta', () => {
+    expect(mensajeErrorDocumento({ code: '23514', message: 'new row violates check constraint' })).toMatch(/no aceptó/);
+  });
+  it('sin permiso', () => {
+    expect(mensajeErrorDocumento({ message: 'new row violates row-level security policy' })).toMatch(/permiso/);
+  });
+  it('se cortó la señal', () => {
+    expect(mensajeErrorDocumento(new TypeError('Failed to fetch'))).toMatch(/conexión/);
+  });
+  it('sin nada que decir, el genérico', () => {
+    expect(mensajeErrorDocumento(null)).toBe('No se pudo subir el documento.');
   });
 });

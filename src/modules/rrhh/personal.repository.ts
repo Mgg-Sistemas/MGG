@@ -9,7 +9,7 @@ import type { Personal } from '@/shared/lib/types';
 import { aCentavos, huboCambioSueldo, validarCambioSueldo, type TipoCambioSueldo } from './cambioSueldo';
 import {
   TIPO_OTRO, errorEtiquetaDocumento, nombreSeguro, validarArchivoDocumento,
-  type TipoDocumentoPersonal,
+  type TipoDocumentoPersonal, mensajeErrorDocumento,
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, normalizarEmpresa, type Empresa } from './empresa';
 import { normalizarSalud } from './condicionesSalud';
@@ -286,7 +286,7 @@ export async function subirDocumentoPersonal(
   const path = `${tipo}/${personalId}/${rand}_${nombreSeguro(file.name)}`;
   const { error: errSubir } = await supabase.storage.from(BUCKET_DOCS)
     .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
-  if (errSubir) throw errSubir;
+  if (errSubir) throw new Error(mensajeErrorDocumento(errSubir));
 
   const fila = {
     personal_id: personalId, tipo, path, nombre: file.name,
@@ -295,18 +295,19 @@ export async function subirDocumentoPersonal(
     subido_por: quien.actor ?? null, subido_por_nombre: quien.actorName ?? null,
     created_at: new Date().toISOString(),
   };
-  /* Los tres fijos son uno por persona, así que se pisan por (persona, tipo).
-     Los extra no: se insertan, o se actualiza el que se está reemplazando. */
-  const q = tipo !== TIPO_OTRO
-    ? supabase.from(TABLA_DOCS).upsert(fila, { onConflict: 'personal_id,tipo' })
-    : (previo
-      ? supabase.from(TABLA_DOCS).update(fila).eq('id', previo.id)
-      : supabase.from(TABLA_DOCS).insert(fila));
+  /* Si ya había uno (el fijo de esa persona, o el extra que se reemplaza) se
+     ACTUALIZA esa fila; si no, se inserta. Antes los fijos iban con «upsert por
+     (persona, tipo)», pero desde el 24-09 ese índice único es PARCIAL (excluye
+     los «otro») y Postgres no acepta ON CONFLICT contra un índice parcial:
+     ninguna cédula, RIF ni currículum se pudo cargar hasta el 05-10. */
+  const q = previo
+    ? supabase.from(TABLA_DOCS).update(fila).eq('id', previo.id)
+    : supabase.from(TABLA_DOCS).insert(fila);
   const { data, error } = await q.select('*').single();
   if (error) {
     // La fila no quedó: el archivo recién subido sobra, se limpia.
     await supabase.storage.from(BUCKET_DOCS).remove([path]).catch(() => { /* el Storage no bloquea */ });
-    throw error;
+    throw new Error(mensajeErrorDocumento(error));
   }
 
   if (previo && previo.path !== path) {

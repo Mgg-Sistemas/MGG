@@ -175,3 +175,22 @@ export function tituloDocumento(d: { tipo: string; etiqueta?: string | null }): 
 export function iconoDocumento(tipo: string): string {
   return definicionDocumento(tipo)?.icono ?? '📎';
 }
+
+/**
+ * El motivo REAL por el que no se pudo guardar un documento, en palabras.
+ *
+ * Los errores de Supabase no son `Error` de JavaScript: la pantalla solo veía
+ * «No se pudo subir el documento» y no había forma de saber qué pasaba. Así
+ * estuvo desde el 24-09 hasta el 05-10 sin que nadie supiera la causa.
+ */
+export function mensajeErrorDocumento(e: unknown): string {
+  const err = (e ?? {}) as { code?: unknown; message?: unknown; statusCode?: unknown; error?: unknown };
+  const code = String(err.code ?? '');
+  const msg = String(err.message ?? (typeof e === 'string' ? e : '')).trim();
+  if (code === '23505' || /duplicate key/i.test(msg)) return 'Ya hay un documento con ese nombre en esta carpeta.';
+  if (code === '23514' || /violates check constraint/i.test(msg)) return 'La base no aceptó el documento: falta el nombre o el tipo no es válido.';
+  if (code === '42501' || /row-level security|permission denied|Unauthorized/i.test(msg)) return 'Tu usuario no tiene permiso para cargar documentos de RRHH.';
+  if (/payload too large|exceeded the maximum/i.test(msg)) return 'El archivo es demasiado grande.';
+  if (/failed to fetch|network/i.test(msg)) return 'Se cortó la conexión mientras subía el archivo. Probá de nuevo.';
+  return msg ? `No se pudo subir el documento: ${msg}` : 'No se pudo subir el documento.';
+}

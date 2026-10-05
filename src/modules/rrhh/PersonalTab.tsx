@@ -304,6 +304,10 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   const [motivoSueldo, setMotivoSueldo] = useState('');
   const [tipoSueldo, setTipoSueldo] = useState<TipoCambioSueldo>('aumento');
   const [vigenteDesde, setVigenteDesde] = useState('');
+  // El aviso de error vive arriba del formulario, que es largo: si no se lleva
+  // la vista hasta él, quien guarda abajo no se entera de por qué no guardó.
+  const errorRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { if (error) errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [error]);
   const [carnetPersona, setCarnetPersona] = useState<Personal | null>(null);
   const [constanciaPersona, setConstanciaPersona] = useState<Personal | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -926,7 +930,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
           }
         >
           <form id="rrhh-personal-form" onSubmit={guardar}>
-            {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+            {error && <div ref={errorRef} className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
 
             {/* Foto del carnet (opcional): subir / cambiar / quitar. */}
             <div className="form-row">
@@ -1046,6 +1050,43 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                     if (editId) setTipoSueldo(tipoSugerido(sueldoOriginal, v));
                   }} placeholder="0,00" />
               </div>
+              {/* Cambió el sueldo: acá se explica por qué. Es lo que queda en el historial.
+                  Va PEGADO al campo del sueldo y SIN autoFocus (05-10-2026): con
+                  autoFocus, al escribir «800» sobre «8» el cuadro aparecía con la
+                  primera tecla, se robaba el cursor y el resto del número caía en el
+                  motivo. El sueldo nunca llegaba a cambiar. */}
+              {editId && huboCambioSueldo(sueldoOriginal, form.sueldo_base) && (
+                <div className="card" style={{ borderColor: 'var(--warning)', margin: '.2rem 0 .6rem', gridColumn: '1 / -1' }}>
+                  <div style={{ fontWeight: 700, marginBottom: '.2rem' }}>💵 Estás cambiando el sueldo</div>
+                  <div className="muted mono" style={{ fontSize: '.84rem', marginBottom: '.5rem' }}>
+                    {textoVariacion(variacionSueldo(sueldoOriginal, form.sueldo_base))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                    <div className="form-row" style={{ flex: '1 1 190px', margin: 0 }}>
+                      <label>¿Qué tipo de cambio es?</label>
+                      <select className="select" value={tipoSueldo} onChange={(e) => setTipoSueldo(e.target.value as TipoCambioSueldo)}>
+                        {TIPOS_CAMBIO_SUELDO.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                      </select>
+                      <small className="hint muted">{TIPOS_CAMBIO_SUELDO.find((t) => t.key === tipoSueldo)?.ayuda ?? ''}</small>
+                    </div>
+                    <div className="form-row" style={{ flex: '0 1 165px', margin: 0 }}>
+                      <label>Rige desde</label>
+                      <input className="input" type="date" value={vigenteDesde} onChange={(e) => setVigenteDesde(e.target.value)} />
+                      <small className="hint muted">No siempre es hoy.</small>
+                    </div>
+                  </div>
+                  <div className="form-row" style={{ marginBottom: 0 }}>
+                    <label>¿Por qué cambia el sueldo? <span style={{ color: 'var(--danger)' }}>*</span></label>
+                    <input className="input" value={motivoSueldo} onChange={(e) => setMotivoSueldo(e.target.value)}
+                      placeholder="Ej.: aumento acordado en la reunión del 15/09" />
+                    <small className="hint muted">
+                      Queda en el historial de la persona, con la fecha y con tu nombre. Un aumento y una corrección
+                      de un error se ven igual en la ficha: el motivo es lo que los distingue.
+                    </small>
+                  </div>
+                </div>
+              )}
+
               <div className="form-row">
                 <label>Fecha de ingreso</label>
                 <FechaVe
@@ -1119,39 +1160,6 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 ayuda="¿Cuál? Indicá también el tratamiento que recibe"
               />
             </div>
-
-            {/* Cambió el sueldo: acá se explica por qué. Es lo que queda en el historial. */}
-            {editId && huboCambioSueldo(sueldoOriginal, form.sueldo_base) && (
-              <div className="card" style={{ borderColor: 'var(--warning)', margin: '.6rem 0' }}>
-                <div style={{ fontWeight: 700, marginBottom: '.2rem' }}>💵 Estás cambiando el sueldo</div>
-                <div className="muted mono" style={{ fontSize: '.84rem', marginBottom: '.5rem' }}>
-                  {textoVariacion(variacionSueldo(sueldoOriginal, form.sueldo_base))}
-                </div>
-                <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-                  <div className="form-row" style={{ flex: '1 1 190px', margin: 0 }}>
-                    <label>¿Qué tipo de cambio es?</label>
-                    <select className="select" value={tipoSueldo} onChange={(e) => setTipoSueldo(e.target.value as TipoCambioSueldo)}>
-                      {TIPOS_CAMBIO_SUELDO.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-                    </select>
-                    <small className="hint muted">{TIPOS_CAMBIO_SUELDO.find((t) => t.key === tipoSueldo)?.ayuda ?? ''}</small>
-                  </div>
-                  <div className="form-row" style={{ flex: '0 1 165px', margin: 0 }}>
-                    <label>Rige desde</label>
-                    <input className="input" type="date" value={vigenteDesde} onChange={(e) => setVigenteDesde(e.target.value)} />
-                    <small className="hint muted">No siempre es hoy.</small>
-                  </div>
-                </div>
-                <div className="form-row" style={{ marginBottom: 0 }}>
-                  <label>¿Por qué cambia el sueldo? <span style={{ color: 'var(--danger)' }}>*</span></label>
-                  <input className="input" value={motivoSueldo} onChange={(e) => setMotivoSueldo(e.target.value)} autoFocus
-                    placeholder="Ej.: aumento acordado en la reunión del 15/09" />
-                  <small className="hint muted">
-                    Queda en el historial de la persona, con la fecha y con tu nombre. Un aumento y una corrección
-                    de un error se ven igual en la ficha: el motivo es lo que los distingue.
-                  </small>
-                </div>
-              </div>
-            )}
 
             {/* ── Datos personales de la ficha tecnica ── */}
             <div className="card" style={{ margin: '.7rem 0', padding: '.7rem .8rem' }}>
