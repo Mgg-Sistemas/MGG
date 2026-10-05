@@ -1443,12 +1443,18 @@ function SolicitudDetalleModal({
           <tr><td className="muted">Solicitante</td><td>{sol.solicitante}</td></tr>
           {sol.tipo === 'material' ? (
             <>
-              {(sol.items?.length ?? 0) > 1 ? (
+              {/* Siempre la tabla, aunque haya UN solo material (05-10-2026): antes, con
+                  un renglón, se mostraba «Producto / Cantidad» suelto y sin la unidad. */}
+              {(() => {
+                const renglones = (sol.items?.length ?? 0) > 0
+                  ? sol.items!
+                  : [{ producto_nombre: sol.producto_nombre, cantidad: sol.cantidad, unidad: null, equipo_nombre: null, observacion: null }];
+                return (
                 <tr><td className="muted">Materiales</td><td>
                   <table className="table" style={{ fontSize: '.8rem', margin: 0 }}>
                     <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th><th>Equipo</th><th>Observación</th></tr></thead>
                     <tbody>
-                      {sol.items!.map((it, i) => (
+                      {renglones.map((it, i) => (
                         <tr key={i}>
                           <td>{it.producto_nombre ?? '—'}</td>
                           <td className="mono" style={{ textAlign: 'right' }}>{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>
@@ -1459,14 +1465,8 @@ function SolicitudDetalleModal({
                     </tbody>
                   </table>
                 </td></tr>
-              ) : (
-                <>
-                  <tr><td className="muted">Producto</td><td>{sol.producto_nombre ?? '—'}</td></tr>
-                  <tr><td className="muted">Cantidad</td><td className="mono">{num(Number(sol.cantidad) || 0)}</td></tr>
-                  {sol.items?.[0]?.equipo_nombre && <tr><td className="muted">Equipo</td><td>🔧 {sol.items[0].equipo_nombre}</td></tr>}
-                  {sol.items?.[0]?.observacion && <tr><td className="muted">Observación</td><td>{sol.items[0].observacion}</td></tr>}
-                </>
-              )}
+                );
+              })()}
               <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino (almacén)' : 'Almacén origen'}</td>
                 <td>{sol.scope === 'traslado' ? `${sol.almacen_origen} → ${sol.almacen_destino}` : sol.almacen_origen}</td></tr>
               {sol.scope === 'salida' && <tr><td className="muted">Dirigido a</td><td>{sol.destino ?? '—'}</td></tr>}
