@@ -13,6 +13,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { AdjuntoCombustible } from '@/shared/lib/types';
+import { errorListaMercado } from '@/modules/cocina/listaMercado';
 
 const BUCKET = 'combustible-adjuntos';
 const TABLA = 'combustible_adjuntos';
@@ -22,7 +23,10 @@ const TABLA = 'combustible_adjuntos';
  *  depósito y tabla, separada por `modulo`; sus archivos van en `cocina_comida/…`). */
 export const MODULO_ADJUNTO_TANQUE = 'tanque_mov';
 export const MODULO_ADJUNTO_COMIDA = 'cocina_comida';
-export type ModuloAdjunto = typeof MODULO_ADJUNTO_TANQUE | typeof MODULO_ADJUNTO_COMIDA;
+/** La lista física (fotos o PDF) de lo que entró a un mercado de cocina (05-10-2026).
+ *  Hasta 4 fotos o 1 PDF: la regla está en `errorListaMercado` y se aplica al subir. */
+export const MODULO_ADJUNTO_MERCADO = 'mercado_lista';
+export type ModuloAdjunto = typeof MODULO_ADJUNTO_TANQUE | typeof MODULO_ADJUNTO_COMIDA | typeof MODULO_ADJUNTO_MERCADO;
 
 /** Cuánto vive el enlace de descarga: lo que tarda alguien en mirarlo. */
 const MINUTOS_ENLACE = 10;
@@ -129,8 +133,19 @@ export async function subirFotos(
   const subidas: AdjuntoCombustible[] = [];
   const fallos: string[] = [];
 
-  const yaHay = (await listarFotos(refId, modulo).catch(() => [])).length;
+  const existentes = await listarFotos(refId, modulo).catch(() => [] as AdjuntoCombustible[]);
+  const yaHay = existentes.length;
   const cupo = Math.max(0, MAX_FOTOS_MOVIMIENTO - yaHay);
+
+  // La lista del mercado: hasta 4 fotos o UN PDF, sin mezclar. Se revisa acá,
+  // en el guardado, para que valga desde cualquier pantalla.
+  if (modulo === MODULO_ADJUNTO_MERCADO) {
+    const malo = errorListaMercado(
+      files.map((f) => ({ nombre: f.name, tipo: f.type })),
+      existentes.map((a) => ({ nombre: a.nombre ?? a.path, tipo: a.content_type })),
+    );
+    if (malo) return { subidas, fallos: [malo] };
+  }
 
   for (const f of files.slice(0, cupo)) {
     const malo = errorFoto(f);

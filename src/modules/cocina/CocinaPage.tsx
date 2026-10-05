@@ -37,6 +37,7 @@ import {
 import { cicloQueSePisa, ventanaCicloDe } from './mercadoComparar';
 import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
 import { MercadoPanel } from './MercadoPanel';
+import { SelectorListaMercado, subirListaMercado } from './ListaFisicaMercado';
 import { LeyendaMercado } from './LeyendaMercado';
 import { MercadosHistoricoModal } from './MercadosHistorico';
 import { FotosDelMovimiento } from '@/modules/combustible/FotosMovimiento';
@@ -327,6 +328,8 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
   const [mercadoLoading, setMercadoLoading] = useState(true);
   const [iniciando, setIniciando] = useState(false);
   const [confirmarInicio, setConfirmarInicio] = useState(false);
+  /** Lista física (fotos o PDF) de lo que entra al mercado que se inicia a mano. */
+  const [listaInicio, setListaInicio] = useState<File[]>([]);
   // El mercado arranca en el momento en que se abre: no se elige fecha. Lo único que puede
   // impedirlo es otro ciclo que todavía corre (un descartado ya no estorba).
   const apertura = useMemo(() => {
@@ -377,8 +380,10 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
     setConfirmarInicio(false);
     setIniciando(true);
     try {
-      await iniciarMercado({ cocinaId, almacen, actor, actorName: userEmail });
+      const nuevo = await iniciarMercado({ cocinaId, almacen, actor, actorName: userEmail });
       toast('Mercado iniciado', 'success');
+      await subirListaMercado(nuevo.id, listaInicio, actor).catch(() => { /* ya avisa */ });
+      setListaInicio([]);
       await loadMercado();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo iniciar el mercado', 'error'); }
     finally { setIniciando(false); }
@@ -420,6 +425,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
         <div className="card" style={{ borderColor: 'var(--primary)' }}>
           <div className="card-title">🛒 Iniciar mercado (ciclo de 21 días)</div>
           <p className="hint muted" style={{ marginTop: 0 }}>Todavía no hay un mercado activo para esta cocina. Al iniciarlo, <strong>lo que hay en el inventario en ese momento</strong> es el saldo inicial, y desde ese momento cuenta todo lo que entra, se traslada o se consume. Al llegar el día 22 vas a poder <strong>cerrarlo</strong> (con PDF y arrastre de lo que queda).</p>
+          {canWrite && <SelectorListaMercado archivos={listaInicio} onChange={setListaInicio} disabled={iniciando} />}
           {canWrite ? (
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={() => setConfirmarInicio(true)} disabled={iniciando || !almacen || !!choque}>{iniciando ? 'Iniciando…' : '🛒 Iniciar mercado ahora'}</button>

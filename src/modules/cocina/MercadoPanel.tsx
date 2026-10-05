@@ -29,6 +29,7 @@ import {
 } from './mercados.repository';
 import { RepartirMercadoModal } from './RepartirMercadoModal';
 import { DistribucionPanel } from './DistribucionPanel';
+import { ListaFisicaMercado, SelectorListaMercado, subirListaMercado } from './ListaFisicaMercado';
 import {
   describirEvento, explicarSobrante, productosAjustados, separarMovidos,
   type DiferenciaViver, type SalidaFueraDelCiclo,
@@ -392,6 +393,9 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
               leyendo como se cerraron. */}
         </div>
       )}
+
+      {/* La lista en papel de lo que entró a este mercado (fotos o PDF). */}
+      <ListaFisicaMercado mercadoId={mercado.id} actor={actor} soloLectura={!canWrite} />
 
       {/* Lo que se pidió y todavía no se movió. Sin esto, quien acaba de repartir ve el
           mercado igual que antes y cree que no se guardó. */}
@@ -1005,6 +1009,8 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
   const { mercado, kpis, disponible, totales, diferencias } = resumen;
   const remanente = disponible.filter((d) => d.queda > 0);
   const [correos, setCorreos] = useState('');
+  /** Lista física de lo que entra al mercado NUEVO: se sube cuando ya tiene id. */
+  const [listaFisica, setListaFisica] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // El ajuste solo EXISTE si hay diferencia. Cuando todo cuadra, el modal es un
@@ -1035,8 +1041,11 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
   async function confirmar() {
     setError(null); setSaving(true);
     try {
-      const { cerrado, snapshot } = await cerrarMercado(mercado, almacen, actor, userEmail,
+      const { cerrado, siguiente, snapshot } = await cerrarMercado(mercado, almacen, actor, userEmail,
         hayDiferencia ? { ajustarAInventario: ajustar, motivo } : undefined);
+      // La lista física va al mercado que ARRANCA: es lo que entró para él. Si falla,
+      // el cierre ya quedó hecho y se avisa qué no subió.
+      await subirListaMercado(siguiente.id, listaFisica, actor).catch(() => { /* subirListaMercado ya avisa */ });
       // Siempre genera el PDF del cierre (vista previa).
       try {
         const { descargarCierrePdf } = await import('./mercadoCierrePdf');
@@ -1146,6 +1155,7 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
           )}
         </div>
       )}
+      <SelectorListaMercado archivos={listaFisica} onChange={setListaFisica} disabled={saving} />
       <div className="form-row">
         <label>📧 Enviar por correo <span className="muted" style={{ fontWeight: 400 }}>· opcional (dejalo vacío para solo cerrar y generar el PDF)</span></label>
         <input className="input" value={correos} onChange={(e) => setCorreos(e.target.value)} placeholder="correo1@mgg.com, correo2@mgg.com" />
