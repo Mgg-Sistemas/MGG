@@ -19,6 +19,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf } from '@/shared/lib/textoPdf';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { definicionEmpresa, normalizarEmpresa, type Empresa } from './empresa';
 import { DOCUMENTOS_A_CONSIGNAR } from './hojaIngresoDocumentos';
 import { GRADOS_INSTRUCCION } from './fichaPersonal';
@@ -58,14 +59,17 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  // Márgenes de 2 × 2 cm (≈57 pt) en los cuatro lados (30-09-2026). Nada se
+  // Márgenes de 2 × 2 cm (MARGEN_PDF, 56,69 pt) en los cuatro lados (30-09-2026). Nada se
   // dibuja fuera de esa caja: si un bloque no entra, pasa entero a la hoja siguiente.
-  const M = 57;
-  const LIMITE = H - M;
+  const M = MARGEN_PDF;
+  const LIMITE = limiteInferiorPdf(H);
+  // Primera línea de base al pasar de hoja: el texto cuelga hacia ARRIBA de su línea
+  // de base, así que se baja un poco para que las mayúsculas no pisen el margen.
+  const TOPE = M + 10;
   const emp = definicionEmpresa(normalizarEmpresa(empresa));
   let y = M;
   /** Si un bloque de ese alto (pt) no entra antes del margen inferior, hoja nueva. */
-  const asegurar = (alto: number) => { if (y + alto > LIMITE) { doc.addPage(); y = M; } };
+  const asegurar = (alto: number) => { if (y + alto > LIMITE) { doc.addPage(); y = TOPE; } };
 
   /** Encabezado de página. Se repite en la segunda hoja para que suelta se
    *  sepa de dónde salió y de qué formulario es la continuación. */
@@ -173,7 +177,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
     bodyStyles: { minCellHeight: 18, lineColor: [200, 200, 200], lineWidth: 0.5 },
     styles: { fontSize: 8.5 },
     columnStyles: { 0: { cellWidth: 200 }, 1: { cellWidth: 95 }, 2: { cellWidth: 105 } },
-    margin: { left: M, right: M, top: M, bottom: M },
+    margin: MARGENES_TABLA_PDF,
   });
   y = ((doc as any).lastAutoTable?.finalY ?? y) + 18;
 
@@ -261,7 +265,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   for (const grupo of DOCUMENTOS_A_CONSIGNAR) {
     // Ningún grupo arranca al filo de la página: si no entra el título más un
     // par de renglones, se pasa a la siguiente hoja entero.
-    if (y + 70 > LIMITE) { doc.addPage(); y = M; }
+    if (y + 70 > LIMITE) { doc.addPage(); y = TOPE; }
     doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(CUERPO + 1);
     doc.text(textoPdf(grupo.titulo.toUpperCase()), M, y);
     doc.setDrawColor(...NARANJA); doc.setLineWidth(0.6);
@@ -273,7 +277,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
       const partes = doc.splitTextToSize(textoPdf(item), ANCHO_ITEM) as string[];
       const alto = Math.max(21, partes.length * 14 + 7);
       if (y + alto > LIMITE) {
-        doc.addPage(); y = M;
+        doc.addPage(); y = TOPE;
         doc.setFont('helvetica', 'normal'); doc.setFontSize(CUERPO);
       }
       casilla(M, y + 1, 11);
@@ -287,7 +291,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   /* ── Pie de la segunda página: quién recibió ── */
   // Si la lista terminó pegada al borde, el pie se va a la hoja siguiente
   // entero: una firma cortada por la mitad no la firma nadie.
-  if (y + 70 > LIMITE) { doc.addPage(); y = M; }
+  if (y + 70 > LIMITE) { doc.addPage(); y = TOPE; }
   const yPie = Math.max(y + 30, LIMITE - 40);
   doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
   const anchoPie = 150;

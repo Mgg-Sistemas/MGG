@@ -4,6 +4,7 @@
    Solo por botón (vista previa).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { MovimientoCaja } from '@/shared/lib/types';
 
 const CAT_LABEL: Record<string, string> = {
@@ -37,7 +38,7 @@ export async function descargarLibroMayorMonedaPdf(moneda: string, movs: Movimie
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF; // 2 cm
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -84,11 +85,11 @@ export async function descargarLibroMayorMonedaPdf(moneda: string, movs: Movimie
       5: { halign: 'right', cellWidth: 80 },
       6: { halign: 'right', cellWidth: 84 },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 }, // el pie va dentro del marco, bajo la tabla
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(doc.internal.pageSize.getHeight()));
 
   previewPdfDoc(doc, `libro-mayor-${moneda.toLowerCase()}.pdf`);
 }

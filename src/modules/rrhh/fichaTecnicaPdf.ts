@@ -12,6 +12,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf, filaPdf } from '@/shared/lib/textoPdf';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import { date as fmtDate } from '@/shared/lib/format';
 import type { Personal } from '@/shared/lib/types';
 import { definicionEmpresa, normalizarEmpresa } from './empresa';
@@ -35,7 +36,10 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
-  const M = 42;
+  const M = MARGEN_PDF;
+  const LIMITE = limiteInferiorPdf(doc.internal.pageSize.getHeight());
+  /** Si el bloque que viene no cabe sobre el margen inferior, se pasa a la hoja siguiente. */
+  const asegurar = (alto: number) => { if (y + alto > LIMITE) { doc.addPage(); y = M + 10; } };
   const empresa = definicionEmpresa(normalizarEmpresa(p.empresa));
   let y = M;
 
@@ -51,7 +55,7 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
 
   /* ── Nombre, ficha y estado ── */
   doc.setDrawColor(230, 230, 230); doc.setFillColor(248, 248, 248);
-  doc.rect(M, y, W - M * 2, 46, 'FD');
+  doc.rect(M, y, anchoUtilPdf(W), 46, 'FD');
   doc.setTextColor(20, 20, 20); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text(textoPdf(`${p.nombre} ${p.apellido ?? ''}`.trim().toUpperCase()), M + 12, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(100, 100, 100);
@@ -68,6 +72,7 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
 
   /* ── Un bloque de dos columnas, en forma de tabla sin bordes ── */
   const bloque = (titulo: string, pares: [string, string][]) => {
+    asegurar(40); // el título nunca queda solo al pie de la hoja
     doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
     doc.text(textoPdf(titulo.toUpperCase()), M, y);
     doc.setDrawColor(255, 138, 0); doc.setLineWidth(0.8);
@@ -92,7 +97,7 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
         2: { cellWidth: 95, textColor: [120, 120, 120] },
         3: { fontStyle: 'bold' },
       },
-      margin: { left: M, right: M },
+      margin: MARGENES_TABLA_PDF,
     });
     y = ((doc as any).lastAutoTable?.finalY ?? y) + 16;
   };
@@ -138,6 +143,7 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
   ]);
 
   /* ── Carga familiar ── */
+  asegurar(40);
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
   doc.text(textoPdf('CARGA FAMILIAR'), M, y);
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(0.8);
@@ -162,9 +168,10 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
       ])),
       styles: { fontSize: 8, cellPadding: 3.5 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
-      margin: { left: M, right: M },
+      margin: MARGENES_TABLA_PDF,
     });
     y = ((doc as any).lastAutoTable?.finalY ?? y) + 8;
+    asegurar(6);
     const hijos = cantidadHijos(familia);
     doc.setTextColor(100, 100, 100); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
     doc.text(
@@ -175,8 +182,10 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
   }
 
   /* ── Firmas ── */
-  const fy = Math.max(y + 20, doc.internal.pageSize.getHeight() - 90);
-  const colW = (W - M * 2 - 40) / 2;
+  // El bloque de firmas termina (fy + 23) a más tardar en el margen inferior.
+  let fy = Math.max(y + 20, LIMITE - 33);
+  if (fy + 23 > LIMITE) { doc.addPage(); fy = LIMITE - 33; }
+  const colW = (anchoUtilPdf(W) - 40) / 2;
   doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
   doc.line(M, fy, M + colW, fy);
   doc.line(M + colW + 40, fy, W - M, fy);

@@ -5,6 +5,7 @@
    a Bs a la tasa BCV del día. Solo por botón (vista previa).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
 import type { DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
 import { getTasaHoy, aBs, aExtranjero } from './tasas.repository';
@@ -38,8 +39,8 @@ export async function descargarResumenPorPagarPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm
-  const CW = W - MARGIN * 2; // ancho útil imprimible (tabla y caja lo comparten)
+  const MARGIN = MARGEN_PDF; // 2 cm
+  const CW = anchoUtilPdf(W); // ancho útil imprimible (tabla y caja lo comparten)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -143,7 +144,7 @@ export async function descargarResumenPorPagarPdf(
         4: { halign: 'right', cellWidth: wUsd },
         5: { halign: 'right', cellWidth: wBs },
       },
-      margin: { top: MARGIN, bottom: MARGIN + 70, left: MARGIN, right: MARGIN },
+      margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 70 },
     });
     // @ts-expect-error jspdf-autotable agrega lastAutoTable en runtime
     y = (doc.lastAutoTable?.finalY ?? y) + 16;
@@ -153,7 +154,8 @@ export async function descargarResumenPorPagarPdf(
   const totalUsd = segmentos.reduce((a, s) => a + s.filas.reduce((b, f) => b + f.montoUsd, 0), 0);
   const totalBs = tasa > 0 ? aBs(totalUsd, tasa) : 0;
   const H = doc.internal.pageSize.getHeight();
-  if (y > H - 96) { doc.addPage(); y = MARGIN; }
+  // La caja (66 pt) + la línea del pie deben caber antes del margen inferior.
+  if (y + 66 > limiteInferiorPdf(H) - 14) { doc.addPage(); y = MARGIN; }
   const boxW = CW;
   doc.setFillColor(255, 138, 0);
   doc.rect(MARGIN, y, boxW, 66, 'F');
@@ -170,7 +172,7 @@ export async function descargarResumenPorPagarPdf(
   //    son deudas que se saldan con abonos, no un egreso inmediato de caja.
   const CRED_COLOR: [number, number, number] = [220, 38, 38]; // rojo
   if (creditos.length > 0) {
-    if (y > H - 120) { doc.addPage(); y = MARGIN; }
+    if (y > limiteInferiorPdf(H) - 80) { doc.addPage(); y = MARGIN; }
     const filasCred = creditos.map((r) => {
       const total = Number(r.montoAPagar) || 0;
       const abon = Math.max(0, Number(r.orden.abonado_total) || 0);
@@ -203,7 +205,7 @@ export async function descargarResumenPorPagarPdf(
         5: { halign: 'right', cellWidth: wUsd },
         6: { halign: 'right', cellWidth: wBs },
       },
-      margin: { top: MARGIN, bottom: MARGIN + 40, left: MARGIN, right: MARGIN },
+      margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 40 },
     });
     // @ts-expect-error jspdf-autotable agrega lastAutoTable en runtime
     y = (doc.lastAutoTable?.finalY ?? y) + 8;
@@ -212,7 +214,7 @@ export async function descargarResumenPorPagarPdf(
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
   const nTotal = rows.length + directos.length;
   const credTxt = creditos.length > 0 ? ` · ${creditos.length} cuenta(s) a crédito` : ' · sin cuentas a crédito';
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${nTotal} pendiente(s)${credTxt} · Mineral Group Guayana C.A.`, MARGIN, H - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${nTotal} pendiente(s)${credTxt} · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(H));
 
   previewPdfDoc(doc, 'pendientes-por-pagar.pdf');
 }

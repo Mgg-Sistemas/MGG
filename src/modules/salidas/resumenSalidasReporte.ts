@@ -8,6 +8,7 @@
    ============================================================ */
 import { previewWorkbook, previewPdfDoc } from '@/shared/lib/reportPreview';
 import { supabase } from '@/shared/lib/supabase';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 
 export interface SalidaResumenRow {
   fecha: string;        // ISO de la ejecución de la salida
@@ -56,7 +57,7 @@ async function construirDoc(grupos: SalidaResumenGrupo[], rows: SalidaResumenRow
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm
+  const MARGIN = MARGEN_PDF; // 2 cm (margen único de todos los PDF)
   let y = MARGIN;
 
   const LOGO = 56;
@@ -87,7 +88,7 @@ async function construirDoc(grupos: SalidaResumenGrupo[], rows: SalidaResumenRow
     head: [['Unidad solicitante', 'Salidas', 'Cantidad', 'Valor ($)']],
     body: grupos.map((g) => [g.unidad, String(g.movs), numero(g.cantidad), money(g.valor)]),
     foot: [['TOTAL', String(movsTotal), '', money(valorTotal)]],
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 9, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
@@ -106,7 +107,7 @@ async function construirDoc(grupos: SalidaResumenGrupo[], rows: SalidaResumenRow
       dateTime(r.fecha), r.unidad, r.solicitante, r.producto,
       `${numero(r.cantidad)}${r.unidadMedida ? ` ${r.unidadMedida}` : ''}`, money(r.valor),
     ]),
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } },

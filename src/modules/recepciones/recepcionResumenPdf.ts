@@ -5,6 +5,7 @@
    con sus lecturas + Kg Neto de Sn. Todo se toma de los datos ya cargados.
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import {
   netoPorProcedenciaGrupo, catLado, esRecepcionCompartida, SOCIO_COMPARTIDO,
   type RecepcionGrupo, type Recepcion, type RecepcionPesaje, type RecepcionAnalisis, type RecepcionMineral,
@@ -96,7 +97,9 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm
+  const MARGIN = MARGEN_PDF; // 2 cm
+  const ANCHO = anchoUtilPdf(W);
+  const LIMITE = limiteInferiorPdf(doc.internal.pageSize.getHeight());
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -105,9 +108,11 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
   doc.setTextColor(20, 20, 20); doc.setFontSize(10);
   doc.text(`RECEPCIÓN N° ${numero ?? '—'}   ·   ${fmt.date(fecha)}`, W / 2 + 24, y + 36, { align: 'center' });
   doc.setTextColor(90, 90, 90); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`Procedencia C/A: ${procedencia}`, W / 2 + 24, y + 50, { align: 'center' });
+  // Centrado en W/2+24: el ancho máximo es el doble de la distancia al margen derecho.
+  const lineasProc = doc.splitTextToSize(`Procedencia C/A: ${procedencia}`, 2 * (W - MARGIN - (W / 2 + 24))) as string[];
+  doc.text(lineasProc, W / 2 + 24, y + 50, { align: 'center' });
   doc.setTextColor(0, 0, 0);
-  y += 68;
+  y += 68 + Math.max(0, lineasProc.length - 1) * 11;
 
   // Tabla principal (Concepto · Kg · Observaciones). La fila "finales" resaltada.
   const FINAL_ROW = 'Kg neto finales seco y limpio';
@@ -126,11 +131,12 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
     styles: { fontSize: 10, cellPadding: 5, valign: 'middle' },
     headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
     columnStyles: {
-      0: { cellWidth: 230, fontStyle: 'bold' },
-      1: { cellWidth: 110, halign: 'right', fontStyle: 'bold' },
-      2: { cellWidth: 190, fontSize: 8, textColor: [90, 90, 90] },
+      // Mismas proporciones de siempre (230 · 110 · 190), repartidas en el ancho útil.
+      0: { cellWidth: ANCHO * (230 / 530), fontStyle: 'bold' },
+      1: { cellWidth: ANCHO * (110 / 530), halign: 'right', fontStyle: 'bold' },
+      2: { cellWidth: ANCHO * (190 / 530), fontSize: 8, textColor: [90, 90, 90] },
     },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF },
     didParseCell: (h) => {
       if (h.section === 'body' && h.row.raw && (h.row.raw as string[])[0] === FINAL_ROW) {
         h.cell.styles.fillColor = [255, 244, 214]; // resaltado (crema)
@@ -173,7 +179,7 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
       headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 8 },
       footStyles: { fillColor: [255, 244, 214], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: 120 } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { ...MARGENES_TABLA_PDF },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
     y = doc.lastAutoTable.finalY + 18;
@@ -223,7 +229,7 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center', fontSize: chico ? 7 : 9 },
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
     columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: chico ? 90 : 150 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF },
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = doc.lastAutoTable.finalY + 8;
@@ -248,20 +254,22 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
       headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 8 },
       footStyles: { fillColor: [255, 244, 214], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { halign: 'left', fontStyle: 'bold', cellWidth: 150 }, 4: { halign: 'left', fontStyle: 'bold' } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: { ...MARGENES_TABLA_PDF },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
     y = doc.lastAutoTable.finalY + 8;
   }
 
+  // Nota + pie dentro del marco de 2 cm (si no caben bajo la última tabla, van a otra hoja).
+  if (y + 4 + 14 > LIMITE) { doc.addPage(); y = MARGIN; }
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
   doc.text(
     `Kg Neto de ${tenorNombre} por procedencia = neto seco × su tenor promedio ÷ 100 · Total = ${n2(kgSnTotal)}.`,
-    MARGIN, y + 4,
+    MARGIN, y + 4, { maxWidth: ANCHO },
   );
   doc.text(
     `Generado ${fmt.dateTime(new Date().toISOString())} · ${grupo.nombre} · Mineral Group Guayana C.A.`,
-    MARGIN, doc.internal.pageSize.getHeight() - 16,
+    MARGIN, LIMITE, { maxWidth: ANCHO },
   );
 
   previewPdfDoc(doc, `resumen-recepcion-${numero ?? grupo.nombre}`.replace(/\s+/g, '-') + '.pdf');

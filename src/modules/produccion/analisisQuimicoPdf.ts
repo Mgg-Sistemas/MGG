@@ -6,6 +6,7 @@
    ============================================================ */
 import type { jsPDF } from 'jspdf';
 import type { RecepcionMineral, RecepcionAnalisis, ValorMineral } from '@/modules/recepciones/recepciones.repository';
+import { MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 type AutoTable = (doc: jsPDF, options: Record<string, unknown>) => void;
 
@@ -43,7 +44,7 @@ export function renderAnalisisQuimicoPdf(doc: jsPDF, autoTable: AutoTable, ctx: 
   if (!analisis.length || !minerales.length) return y;
 
   // Barra de sección naranja.
-  if (y > doc.internal.pageSize.getHeight() - 90) { doc.addPage(); y = MARGIN; }
+  if (y > limiteInferiorPdf(doc.internal.pageSize.getHeight()) - 40) { doc.addPage(); y = MARGIN + 10; }
   doc.setFillColor(...ORANGE); doc.rect(MARGIN, y, CW, 17, 'F');
   doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
   doc.text('ANÁLISIS QUÍMICO DE LABORATORIO', MARGIN + 8, y + 12);
@@ -62,7 +63,7 @@ export function renderAnalisisQuimicoPdf(doc: jsPDF, autoTable: AutoTable, ctx: 
 
   for (const proc of orden) {
     const lecturas = porProc.get(proc)!;
-    if (y > doc.internal.pageSize.getHeight() - 90) { doc.addPage(); y = MARGIN; }
+    if (y > limiteInferiorPdf(doc.internal.pageSize.getHeight()) - 40) { doc.addPage(); y = MARGIN + 10; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...ORANGE);
     doc.text(`${proc}  ·  ${lecturas.length} lectura${lecturas.length === 1 ? '' : 's'}`, MARGIN + 2, y + 2);
     doc.setTextColor(0, 0, 0);
@@ -76,7 +77,7 @@ export function renderAnalisisQuimicoPdf(doc: jsPDF, autoTable: AutoTable, ctx: 
       return [m.nombre, ...vals.map((v) => (v == null ? '—' : n2(v))), prom == null ? '—' : n2(prom)];
     });
     autoTable(doc, {
-      startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+      startY: y, margin: { ...MARGENES_TABLA_PDF, left: MARGIN, right: MARGIN }, tableWidth: CW,
       head: [head], body: [numerosRow, ...filas],
       theme: 'grid',
       headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 7, halign: 'center' },

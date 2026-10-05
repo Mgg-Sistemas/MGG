@@ -6,6 +6,7 @@
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { filaPdf, textoPdf } from '@/shared/lib/textoPdf';
 import type { CierreSnapshot, MercadoCocina } from './mercados.repository';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 function money(n: number | null | undefined): string {
   return `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -24,8 +25,12 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF; // 2 cm
+  const ANCHO = anchoUtilPdf(W);
+  const LIMITE = limiteInferiorPdf(doc.internal.pageSize.getHeight());
   let y = MARGIN;
+  /** Si el título + el arranque de su tabla no caben sobre el margen inferior, pasa de página. */
+  const asegurar = (alto: number) => { if (y + alto > LIMITE) { doc.addPage(); y = MARGIN; } };
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
@@ -39,11 +44,13 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   y += 66;
 
   doc.setFontSize(10); doc.setFont('helvetica', 'bold');
-  doc.text(
+  // Se parte al ancho útil para que no pase del margen derecho.
+  const resumen = doc.splitTextToSize(
     textoPdf(`Platos: ${num(snap.totales.platos)}   ·   Consumo total: ${money(snap.totales.valor)}   ·   Entradas del período: ${money(snap.totales.entradasValor)}`),
-    MARGIN, y,
-  );
-  y += 12;
+    ANCHO,
+  ) as string[];
+  doc.text(resumen, MARGIN, y);
+  y += 12 + (resumen.length - 1) * 12;
 
   // Consumos por ítem
   autoTable(doc, {
@@ -57,11 +64,12 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
     columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
     foot: [['TOTAL', '', money(snap.totales.valor)]],
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   y = (doc as any).lastAutoTable.finalY + 16;
 
   // LO QUE QUEDA (remanente) — resaltado en verde
+  asegurar(40);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(30, 130, 60);
   doc.text(textoPdf('LO QUE QUEDA (pasa al próximo mercado)'), MARGIN, y);
   doc.setTextColor(0, 0, 0);
@@ -74,12 +82,13 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
     styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
     headStyles: { fillColor: [46, 160, 80], textColor: [255, 255, 255], fontStyle: 'bold' },
     columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   y = (doc as any).lastAutoTable.finalY + 16;
 
   // Entradas del período
   if (snap.entradas.length) {
+    asegurar(40);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text(textoPdf('Entradas del período'), MARGIN, y);
     autoTable(doc, {
@@ -89,7 +98,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     y = (doc as any).lastAutoTable.finalY + 12;
   }
@@ -97,6 +106,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   // Traslados del período, con signo: lo que el centro envió (−) y lo que recibió (+). Los
   // cierres anteriores al 14/09/2026 no los tienen: ahí lo recibido quedó en las entradas.
   if (snap.traslados?.length) {
+    asegurar(40);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text(textoPdf('Traslados del período (− enviado · + recibido)'), MARGIN, y);
     autoTable(doc, {
@@ -106,7 +116,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     y = (doc as any).lastAutoTable.finalY + 12;
   }
@@ -114,6 +124,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   // Mermas / salidas: pérdidas, salidas manuales y ajustes a la baja. Restan del remanente
   // desde el 15/09/2026; los cierres anteriores no las tienen.
   if (snap.mermas?.length) {
+    asegurar(40);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text(textoPdf('Mermas / salidas del período (pérdidas, salidas manuales, ajustes)'), MARGIN, y);
     autoTable(doc, {
@@ -123,13 +134,15 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     y = (doc as any).lastAutoTable.finalY + 12;
   }
 
+  // El pie va en el último renglón dentro del margen; si la última tabla llegó hasta ahí, pasa de página.
+  if (y > LIMITE - 10) doc.addPage();
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(textoPdf(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`), MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(textoPdf(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`), MARGIN, LIMITE);
   return doc;
 }
 

@@ -6,6 +6,7 @@ import { loadLogoDataUrl, loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl } fro
  *  el PDF muestra SU firma (firma2.jpeg) en vez de la del Gerente General. */
 const EMAIL_JEFA_ADMIN = 'jhzgcontabilidad@gmail.com';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { descuentoEfectivo } from './ofertas.repository';
 import { lineasDeTotal } from './totalesOc';
 import type { OfertaDetalle, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
@@ -107,8 +108,14 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
+  const pageH = doc.internal.pageSize.getHeight();
+  const LIMITE = limiteInferiorPdf(pageH); // última línea del marco (pie)
   let y = MARGIN;
+  // Antes de un título suelto: si no cabe `alto` dentro del marco, página nueva.
+  const asegurarEspacio = (alto: number) => {
+    if (y + alto > LIMITE) { doc.addPage(); y = MARGIN + 10; }
+  };
 
   const LOGO_SIZE = 60;
   const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
@@ -194,6 +201,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
+  asegurarEspacio(30);
   doc.text('CONDICIONES', MARGIN, y);
   y += 12;
   doc.setFont('helvetica', 'normal');
@@ -233,7 +241,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180 }, 1: { cellWidth: 'auto' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
 
@@ -274,6 +282,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   if (tecnFilas.length) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
+    asegurarEspacio(30);
     doc.text('DATOS DE LA OFERTA ELEGIDA', MARGIN, y);
     y += 6;
     autoTable(doc, {
@@ -282,7 +291,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       theme: 'grid',
       styles: { fontSize: 8.5, cellPadding: 3 },
       columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180, fillColor: [244, 244, 244] }, 1: { cellWidth: 'auto' } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
   }
@@ -292,6 +301,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   if (historial.some((h) => h.evento === 'desistida_proveedor')) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
+    asegurarEspacio(30);
     doc.text('DESISTIMIENTOS DE PROVEEDOR', MARGIN, y);
     y += 10;
 
@@ -319,6 +329,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
       if (!primero) y += 8;
       primero = false;
+      asegurarEspacio(34);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9.5);
       doc.setTextColor(20);
@@ -344,7 +355,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         theme: 'grid',
         styles: { fontSize: 8.5, cellPadding: 3 },
         columnStyles: { 0: { fontStyle: 'bold', cellWidth: 170, fillColor: [244, 244, 244] }, 1: { cellWidth: 'auto' } },
-        margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+        margin: MARGENES_TABLA_PDF,
       });
       y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
     });
@@ -352,12 +363,14 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
+  asegurarEspacio(30);
   doc.text(esConsolidada ? `ÍTEMS · ${ordenes.length} órdenes consolidadas` : 'ÍTEMS', MARGIN, y);
   y += 6;
 
   ordenes.forEach((o, idx) => {
     if (esConsolidada) {
       if (idx > 0) y += 8;
+      asegurarEspacio(40);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.text(o.codigo, MARGIN, y + 12);
@@ -407,7 +420,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       styles: { fontSize: 9, cellPadding: 4 },
       columnStyles: { 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
   });
@@ -419,7 +432,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       theme: 'plain',
       styles: { fontSize: 11, fontStyle: 'bold', cellPadding: 6 },
       columnStyles: { 0: { halign: 'right' }, 1: { halign: 'right', textColor: [255, 138, 0] } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
   }
@@ -439,25 +452,26 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       theme: 'plain',
       styles: { fontSize: 10, cellPadding: 3 },
       columnStyles: { 0: { fontStyle: 'bold', halign: 'right', cellWidth: 260 }, 1: { halign: 'right' } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
   }
 
-  const pageH = doc.internal.pageSize.getHeight();
-  const FOOTER_RESERVA = 100; // espacio reservado para firmas + pie
+  // Espacio reservado para firmas + pie, medido desde la última línea del marco:
+  // la imagen de la firma arranca 100 pt por encima del pie.
+  const FOOTER_RESERVA = 100;
 
   if (orden.notas) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    const split = doc.splitTextToSize(orden.notas, PAGE_W - MARGIN * 2);
+    const split = doc.splitTextToSize(orden.notas, anchoUtilPdf(PAGE_W));
     const altoNotas = 12 + split.length * 11 + 16;
     // Si las notas + el pie no caben en la página, saltamos a una nueva.
-    if (y + altoNotas > pageH - FOOTER_RESERVA) {
+    if (y + altoNotas > LIMITE - FOOTER_RESERVA) {
       doc.addPage();
-      y = MARGIN;
+      y = MARGIN + 10;
     }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
@@ -470,9 +484,9 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   }
 
   // Garantizar que el pie no se solape con el contenido: si no hay espacio, nueva página.
-  if (y > pageH - FOOTER_RESERVA) {
+  if (y > LIMITE - FOOTER_RESERVA) {
     doc.addPage();
-    y = MARGIN;
+    y = MARGIN + 10;
   }
 
   // Firma de quien AUTORIZÓ la OC: se inserta abajo a la izquierda cuando la OC ya
@@ -487,22 +501,22 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   if (firmaMostrar && aprobadaPorGG) {
     try {
       const fw = 120, fh = 50;
-      doc.addImage(firmaMostrar, firmaFmt, MARGIN + 6, pageH - 80 - fh + 6, fw, fh, undefined, 'FAST');
+      doc.addImage(firmaMostrar, firmaFmt, MARGIN + 6, LIMITE - 56 - fh + 6, fw, fh, undefined, 'FAST');
     } catch { /* firma opcional */ }
   }
 
   doc.setDrawColor(180);
-  doc.line(MARGIN, pageH - 80, MARGIN + 200, pageH - 80);
-  doc.line(PAGE_W - MARGIN - 200, pageH - 80, PAGE_W - MARGIN, pageH - 80);
+  doc.line(MARGIN, LIMITE - 56, MARGIN + 200, LIMITE - 56);
+  doc.line(PAGE_W - MARGIN - 200, LIMITE - 56, PAGE_W - MARGIN, LIMITE - 56);
   doc.setFontSize(9);
-  doc.text(aprobadaPorGG ? firmaLabel : 'Firma autorizada · MGG', MARGIN, pageH - 66);
-  doc.text('Recibido por proveedor', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
+  doc.text(aprobadaPorGG ? firmaLabel : 'Firma autorizada · MGG', MARGIN, LIMITE - 42);
+  doc.text('Recibido por proveedor', PAGE_W - MARGIN, LIMITE - 42, { align: 'right' });
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text(
     `Documento auto-generado · ${orden.codigo} · ${dateTime(new Date().toISOString())}`,
     MARGIN,
-    pageH - 24,
+    LIMITE,
   );
 
   // Vista previa directa (no depende del parche global de jsPDF.save): muestra el

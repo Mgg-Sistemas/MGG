@@ -5,6 +5,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { CompraDirecta } from './compras.repository';
 
 export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<void> {
@@ -17,7 +18,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 60 : MARGIN;
@@ -60,12 +61,14 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
 
   // Detalle de materiales: cantidad, costo unitario y precio (gasto) de cada renglón.
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  // Si el título no cabe (con la cabecera de la tabla) dentro del marco, página nueva.
+  if (y + 30 > limiteInferiorPdf(doc.internal.pageSize.getHeight())) { doc.addPage(); y = MARGIN + 10; }
   doc.text('Materiales comprados', MARGIN, y);
   y += 6;
   autoTable(doc, {
@@ -89,22 +92,28 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
     styles: { fontSize: 9, cellPadding: 4 },
     columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
 
   const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   let blockY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
   // Bloque de texto con título (reintegro / nota). Avanza el cursor `blockY`.
   const bloqueTexto = (titulo: string, texto: string) => {
     blockY += 18;
+    // Título + al menos una línea dentro del marco; si no caben, página nueva.
+    if (blockY + 14 > limiteInferiorPdf(pageH)) { doc.addPage(); blockY = MARGIN + 10; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.text(titulo, MARGIN, blockY);
     blockY += 14;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    const lineas = doc.splitTextToSize(texto, pageW - MARGIN * 2) as string[];
-    doc.text(lineas, MARGIN, blockY);
-    blockY += lineas.length * 12;
+    const lineas = doc.splitTextToSize(texto, anchoUtilPdf(pageW)) as string[];
+    for (const linea of lineas) {
+      if (blockY > limiteInferiorPdf(pageH)) { doc.addPage(); blockY = MARGIN + 10; }
+      doc.text(linea, MARGIN, blockY);
+      blockY += 12;
+    }
   };
 
   // Pago a externo (si aplica): lo pagó una persona externa y MGG debe reintegrarle.

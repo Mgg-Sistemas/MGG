@@ -3,6 +3,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type {
   EvaluacionRecepcion,
   OfertaProveedor,
@@ -98,8 +99,16 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
+  const pageH = doc.internal.pageSize.getHeight();
+  // El pie va en la última línea del marco; el contenido le deja 14 pt.
+  const LIMITE_TEXTO = limiteInferiorPdf(pageH) - 14;
+  const MARGEN_TABLAS = { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 };
   let y = MARGIN;
+  // Antes de un título suelto: si no cabe `alto` dentro del marco, página nueva.
+  const asegurarEspacio = (alto: number) => {
+    if (y + alto > LIMITE_TEXTO) { doc.addPage(); y = MARGIN + 10; }
+  };
 
   // ─── Header ────────────────────────────────────────────
   const LOGO_SIZE = 56;
@@ -151,12 +160,13 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 4 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 140 }, 1: { cellWidth: 'auto' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGEN_TABLAS,
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
 
   // ─── 2. Ítems solicitados ──────────────────────────────
   doc.setFont('helvetica', 'bold');
+  asegurarEspacio(30);
   doc.text(`2. ${L.items}`, MARGIN, y);
   y += 6;
   autoTable(doc, {
@@ -186,12 +196,13 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
     columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGEN_TABLAS,
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
 
   // ─── 3. Ofertas de proveedores ─────────────────────────
   doc.setFont('helvetica', 'bold');
+  asegurarEspacio(30);
   doc.text(`3. Ofertas de proveedores (${ofertas.length})`, MARGIN, y);
   y += 6;
   if (!ofertas.length) {
@@ -214,13 +225,14 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
       headStyles: { fillColor: [230, 230, 230], textColor: 20 },
       styles: { fontSize: 9, cellPadding: 4 },
       columnStyles: { 1: { halign: 'right' }, 4: { halign: 'right' } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGEN_TABLAS,
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
   }
 
   // ─── 4. Orden de compra (proveedor aceptado) ───────────
   doc.setFont('helvetica', 'bold');
+  asegurarEspacio(30);
   doc.text(`4. ${L.orden}${orden.oc_codigo ? ` · ${orden.oc_codigo}` : ''}`, MARGIN, y);
   y += 14;
   doc.setFont('helvetica', 'normal');
@@ -249,12 +261,13 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 4 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180 }, 1: { cellWidth: 'auto' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGEN_TABLAS,
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
 
   // ─── 5. Recepción ──────────────────────────────────────
   doc.setFont('helvetica', 'bold');
+  asegurarEspacio(30);
   doc.text(`5. ${L.recepcion}`, MARGIN, y);
   y += 14;
   doc.setFont('helvetica', 'normal');
@@ -281,7 +294,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 4 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180 }, 1: { cellWidth: 'auto' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGEN_TABLAS,
   });
 
   /* ─── 6. Despiece ───────────────────────────────────────
@@ -293,7 +306,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     const d = it.despiece as NonNullable<typeof it.despiece>;
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
     y = (doc.lastAutoTable?.finalY ?? y) + 22;
-    if (y > doc.internal.pageSize.getHeight() - 200) { doc.addPage(); y = MARGIN; }
+    if (y > LIMITE_TEXTO - 170) { doc.addPage(); y = MARGIN + 10; }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(20);
@@ -302,11 +315,13 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(90);
-    doc.text(
+    const lineasLlegada = doc.splitTextToSize(
       `Llegaron ${d.kg_recibidos} kg. El costo se reparte entre los kilos útiles, así que la merma encarece el corte: ${money(d.costo_por_kg)}/kg.`,
-      MARGIN, y, { maxWidth: doc.internal.pageSize.getWidth() - MARGIN * 2 },
-    );
-    y += 16;
+      anchoUtilPdf(PAGE_W),
+    ) as string[];
+    doc.text(lineasLlegada, MARGIN, y);
+    // Si el texto ocupa más de una línea, la tabla arranca debajo (no encima).
+    y += 16 + (lineasLlegada.length - 1) * 11;
     doc.setTextColor(20);
 
     /* Rendimiento de la res. Los % se recalculan si la recepción es vieja y no
@@ -333,7 +348,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGEN_TABLAS,
     });
 
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
@@ -341,16 +356,20 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(90);
-    doc.text(
+    const lineasRend = doc.splitTextToSize(
       `Rendimiento de la res: de ${kgRec} kg comprados se pueden cocinar ${kgUtiles} kg (${pctUtiles} %) y se pierden ${d.merma_kg ?? 0} kg (${pctMerma} %) como merma. El costo de la merma ya está repartido en el $/kg de cada corte.`,
-      MARGIN, y, { maxWidth: doc.internal.pageSize.getWidth() - MARGIN * 2 },
-    );
+      anchoUtilPdf(PAGE_W),
+    ) as string[];
+    // Si el párrafo de rendimiento no cabe dentro del marco, página nueva.
+    asegurarEspacio(lineasRend.length * 10 + 4);
+    doc.text(lineasRend, MARGIN, y);
+    y += lineasRend.length * 10;
     doc.setTextColor(20);
 
     const reparto = d.por_almacen ?? [];
     if (reparto.length) {
-      // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-      y = (doc.lastAutoTable?.finalY ?? y) + 12;
+      // Debajo del párrafo de rendimiento (no encima: antes se pisaban).
+      y += 8;
       autoTable(doc, {
         startY: y,
         head: [['Entró a', 'Cortes', 'Kg']],
@@ -363,19 +382,18 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
         styles: { fontSize: 9, cellPadding: 4 },
         headStyles: { fillColor: [55, 55, 55], textColor: 255, fontStyle: 'bold' },
         columnStyles: { 0: { cellWidth: 150 }, 2: { halign: 'right', cellWidth: 60 } },
-        margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+        margin: MARGEN_TABLAS,
       });
     }
   }
 
   // ─── Footer ────────────────────────────────────────────
-  const pageH = doc.internal.pageSize.getHeight();
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text(
     `Documento auto-generado · Orden ${orden.codigo} · ${dateTime(new Date().toISOString())}`,
     MARGIN,
-    pageH - 24,
+    limiteInferiorPdf(pageH),
   );
 
   return { doc, codigo: orden.codigo, filename: `trazabilidad-${orden.codigo}.pdf` };

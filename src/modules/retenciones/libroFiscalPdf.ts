@@ -9,6 +9,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf, filaPdf } from '@/shared/lib/textoPdf';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import {
   TIPOS_IMPUESTO, labelDireccion,
   type ConfigRetencion, type DireccionRetencion, type ResumenLibro,
@@ -46,7 +47,7 @@ export async function verLibroFiscalPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 36;
+  const MARGIN = MARGEN_PDF;
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 40, 40); } catch { /* opcional */ } }
 
@@ -100,14 +101,16 @@ export async function verLibroFiscalPdf(
       0: { cellWidth: 78, font: 'courier' },
       7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right', fontStyle: 'bold' },
     },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
 
-  const finY = (doc as any).lastAutoTable?.finalY ?? y;
+  let finY = (doc as any).lastAutoTable?.finalY ?? y;
+  // La nota (dos renglones) no puede pasar del margen inferior: si no cabe, va en hoja nueva.
+  if (finY + 16 + 20 > limiteInferiorPdf(doc.internal.pageSize.getHeight())) { doc.addPage(); finY = MARGIN - 8; }
   doc.setFontSize(7.5); doc.setTextColor(110, 110, 110);
   doc.text(textoPdf(
     'Lo que nos retienen es un anticipo de impuesto que se descuenta en la declaracion. Lo que retiene la empresa hay que enterarlo al fisco. El IGTF no se recupera: es costo.',
-  ), MARGIN, finY + 16, { maxWidth: W - MARGIN * 2 });
+  ), MARGIN, finY + 16, { maxWidth: anchoUtilPdf(W) });
 
   previewPdfDoc(doc, `libro-retenciones-${ctx.desde}-a-${ctx.hasta}.pdf`);
 }

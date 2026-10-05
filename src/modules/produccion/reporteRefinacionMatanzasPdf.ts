@@ -12,6 +12,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf } from '@/shared/lib/textoPdf';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { ColadaReporte } from './reporteFundicionMatanzas';
 import {
   filaRefinacion, totalesRefinacion, reactivosDelPeriodo, hallazgosRefinacion,
@@ -22,7 +23,7 @@ import {
 const ORANGE: [number, number, number] = [255, 138, 0];
 const GREY: [number, number, number] = [90, 90, 90];
 const FOOT: [number, number, number] = [60, 60, 60];
-const MARGIN = 42.52;
+const MARGIN = MARGEN_PDF;
 
 export interface OpcionesReporteRefinacion {
   lugar: string;
@@ -87,10 +88,10 @@ async function lienzo(subtitulo: string, orientacion: 'portrait' | 'landscape' =
   st.y += 74;
 
   const finY = () => (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? st.y;
-  const margin = { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN };
+  const margin = MARGENES_TABLA_PDF;
 
   function barra(texto: string): void {
-    if (st.y > H - 90) { doc.addPage(); st.y = MARGIN; }
+    if (st.y > limiteInferiorPdf(H) - 50) { doc.addPage(); st.y = MARGIN; }
     doc.setFillColor(...ORANGE);
     doc.rect(MARGIN, st.y, ANCHO, 15, 'F');
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(255, 255, 255);
@@ -117,10 +118,14 @@ async function lienzo(subtitulo: string, orientacion: 'portrait' | 'landscape' =
     const t = T(texto).trim();
     if (!t) return;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-    const lineas = doc.splitTextToSize(t, ANCHO);
-    if (st.y + lineas.length * 11 > H - MARGIN) { doc.addPage(); st.y = MARGIN; }
-    doc.text(lineas, MARGIN, st.y + 8);
-    st.y += lineas.length * 11 + 8;
+    const lineas: string[] = doc.splitTextToSize(t, ANCHO);
+    // Renglón por renglón: un párrafo largo salta de página sin pasar el margen inferior.
+    for (const linea of lineas) {
+      if (st.y + 11 > limiteInferiorPdf(H)) { doc.addPage(); st.y = MARGIN; }
+      doc.text(linea, MARGIN, st.y + 8);
+      st.y += 11;
+    }
+    st.y += 8;
   }
   function tabla(opts: { head: string[]; body: string[][]; foot?: string[]; fontSize?: number; columnStyles?: Record<number, object> }): void {
     const fs = opts.fontSize ?? 7;
@@ -137,7 +142,7 @@ async function lienzo(subtitulo: string, orientacion: 'portrait' | 'landscape' =
     st.y = finY() + 14;
   }
   function firma(nombre: string, cargo: string): void {
-    if (st.y > H - 110) { doc.addPage(); st.y = MARGIN; }
+    if (st.y > limiteInferiorPdf(H) - 70) { doc.addPage(); st.y = MARGIN; }
     st.y += 24;
     doc.setDrawColor(...GREY);
     doc.line(MARGIN, st.y, MARGIN + 200, st.y);

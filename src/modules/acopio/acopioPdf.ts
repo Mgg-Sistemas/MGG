@@ -6,6 +6,7 @@
 import type { RecepcionAcopio } from '@/shared/lib/types';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { totalesRecepcion } from './acopio.repository';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 const ESTADO_LABEL: Record<string, string> = {
   abierta: 'Abierta', cerrada: 'Cerrada', anulada: 'Anulada',
@@ -22,7 +23,8 @@ async function construir(r: RecepcionAcopio) {
   // Apaisado: la tabla tiene muchas columnas (igual que el Excel).
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const H = doc.internal.pageSize.getHeight();
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
@@ -48,7 +50,7 @@ async function construir(r: RecepcionAcopio) {
     ]],
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   // @ts-expect-error lastAutoTable lo añade el plugin.
   y = (doc.lastAutoTable?.finalY ?? y) + 6;
@@ -88,10 +90,12 @@ async function construir(r: RecepcionAcopio) {
       1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
       5: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 10: { halign: 'center' },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   // @ts-expect-error lastAutoTable lo añade el plugin.
   y = (doc.lastAutoTable?.finalY ?? y) + 24;
+  // Las firmas (+ observaciones) ocupan ~80 pt: si no caben, van en otra hoja.
+  if (y + 80 > limiteInferiorPdf(H)) { doc.addPage(); y = MARGIN + 12; }
 
   // Firmas (Conforme Entregado / Conforme Recibido).
   const colW = (W - MARGIN * 2 - 24) / 2;
@@ -108,7 +112,7 @@ async function construir(r: RecepcionAcopio) {
 
   if (r.observaciones) {
     doc.setFontSize(8.5); doc.setTextColor(90);
-    doc.text(`Observaciones: ${r.observaciones}`, MARGIN, y + 72);
+    doc.text(doc.splitTextToSize(`Observaciones: ${r.observaciones}`, W - MARGIN * 2), MARGIN, y + 72);
     doc.setTextColor(0);
   }
 

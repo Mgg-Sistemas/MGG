@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { RankedBarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { money, num } from '@/shared/lib/format';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 
 /** Una fila de consumo: un producto/combustible consumido en el período. */
 export interface ConsumoRow {
@@ -126,7 +127,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, grupos, reporte, en
     ]);
     const logo = await loadLogoDataUrl().catch(() => null);
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-    const MARGIN = 42.52;
+    const MARGIN = MARGEN_PDF; // 2 cm
     let y = MARGIN;
     if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
     const tx = logo ? MARGIN + 56 : MARGIN;
@@ -146,7 +147,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, grupos, reporte, en
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       styles: { fontSize: 9, cellPadding: 4 },
       columnStyles: { 0: { halign: 'center', cellWidth: 28 }, 2: { halign: 'right' }, 3: { halign: 'right' } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     return { doc, filename: `${reporte?.archivo ?? 'reporte'}-${isoDay(new Date())}.pdf` };
   }

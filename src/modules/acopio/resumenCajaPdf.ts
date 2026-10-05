@@ -4,6 +4,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { ResumenCajaAcopio } from './caja.repository';
 
 const NOMBRE = 'resumen-caja-acopio';
@@ -19,7 +20,8 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const PAGE_H = doc.internal.pageSize.getHeight();
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
@@ -36,7 +38,9 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
   // Período
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
   const periodo = `Inicio: ${r.fechaInicio ?? '—'}   ·   Última actualización: ${r.fechaActualizacion}   ·   Días transcurridos: ${r.dias}   ·   ${r.movimientos} movimiento(s)`;
-  doc.text(periodo, MARGIN, y); y += 20;
+  // Se parte en líneas para no pasar del margen derecho (2 cm).
+  const periodoLineas = doc.splitTextToSize(periodo, PAGE_W - MARGIN * 2) as string[];
+  doc.text(periodoLineas, MARGIN, y); y += 20 + (periodoLineas.length - 1) * 12;
 
   // KPIs principales (en dos columnas)
   const kpis: [string, string][] = [
@@ -52,12 +56,13 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
     theme: 'grid',
     styles: { fontSize: 10, cellPadding: 5 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 240 }, 1: { halign: 'right' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = doc.lastAutoTable.finalY + 18;
 
-  // Bloque de Kg de casiterita
+  // Bloque de Kg de casiterita (título + tabla ≈ 60 pt; si no cabe, otra hoja)
+  if (y + 60 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN + 12; }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
   doc.text('Kg de casiterita', MARGIN, y); y += 6;
   autoTable(doc, {
@@ -67,13 +72,14 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
     theme: 'striped',
     headStyles: { fillColor: [255, 138, 0], textColor: 20 },
     styles: { fontSize: 10, halign: 'center', cellPadding: 5 },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   // @ts-expect-error lastAutoTable
   y = doc.lastAutoTable.finalY + 18;
 
   // Distribución de gastos por categoría (incluye la nómina como una categoría más)
   if (r.gastosPorCategoria.length) {
+    if (y + 60 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN + 12; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.text('Gastos por categoría (incluye nómina)', MARGIN, y); y += 6;
     autoTable(doc, {
@@ -86,7 +92,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
       footStyles: { fillColor: [40, 40, 40], textColor: 255, fontStyle: 'bold' },
       columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
       styles: { fontSize: 9, cellPadding: 4 },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     // @ts-expect-error lastAutoTable
     y = doc.lastAutoTable.finalY + 18;

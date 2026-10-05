@@ -21,6 +21,7 @@ import { tiemposDeLaOrden, type DatosConHoras } from './tiemposDeLaOrden';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { horaLegible } from '@/shared/lib/hora';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 const ORANGE: [number, number, number] = [255, 138, 0];
 
@@ -53,7 +54,8 @@ async function construir(prod: Produccion, det: Detalle) {
   const logo = await loadLogoDataUrl().catch(() => null);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
+  const H = doc.internal.pageSize.getHeight();
   const ANCHO = doc.internal.pageSize.getWidth() - MARGIN * 2;
   let y = MARGIN;
 
@@ -78,7 +80,7 @@ async function construir(prod: Produccion, det: Detalle) {
 
   /** Una barra de sección naranja, para que el reporte se lea por bloques. */
   function barra(texto: string): void {
-    if (y > doc.internal.pageSize.getHeight() - 90) { doc.addPage(); y = MARGIN; }
+    if (y > limiteInferiorPdf(H) - 50) { doc.addPage(); y = MARGIN; }
     doc.setFillColor(...ORANGE);
     doc.rect(MARGIN, y, ANCHO, 15, 'F');
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(255, 255, 255);
@@ -99,7 +101,7 @@ async function construir(prod: Produccion, det: Detalle) {
         1: { cellWidth: ANCHO * 0.22 },
         2: { fontStyle: 'bold', cellWidth: ANCHO * 0.28 },
       },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
     y = (doc.lastAutoTable?.finalY ?? y) + 10;
@@ -114,7 +116,7 @@ async function construir(prod: Produccion, det: Detalle) {
       headStyles: { fillColor: ORANGE, textColor: 255, fontSize: 8 },
       styles: { fontSize: 8, cellPadding: 3 },
       columnStyles,
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     // @ts-expect-error lastAutoTable
     y = (doc.lastAutoTable?.finalY ?? y) + 12;
@@ -322,10 +324,14 @@ async function construir(prod: Produccion, det: Detalle) {
   barra('OBSERVACIONES');
   if (obs) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    const lineas = doc.splitTextToSize(obs, ANCHO);
-    if (y + lineas.length * 12 > doc.internal.pageSize.getHeight() - MARGIN) { doc.addPage(); y = MARGIN; }
-    doc.text(lineas, MARGIN, y + 8);
-    y += lineas.length * 12 + 12;
+    const lineas: string[] = doc.splitTextToSize(obs, ANCHO);
+    // Renglón por renglón: un texto largo salta de página sin pasar el margen inferior.
+    for (const linea of lineas) {
+      if (y + 12 > limiteInferiorPdf(H)) { doc.addPage(); y = MARGIN; }
+      doc.text(linea, MARGIN, y + 8);
+      y += 12;
+    }
+    y += 12;
   } else {
     ficha([['Observaciones', 'Sin observaciones', '', '']]);
   }
@@ -342,7 +348,7 @@ async function construir(prod: Produccion, det: Detalle) {
       theme: 'plain',
       styles: { fontSize: 9, cellPadding: 2 },
       columnStyles: { 0: { cellWidth: 22, fontStyle: 'bold' }, 1: { cellWidth: ANCHO * 0.44 }, 2: { cellWidth: 22, fontStyle: 'bold' } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     // @ts-expect-error lastAutoTable
     y = (doc.lastAutoTable?.finalY ?? y) + 12;
@@ -351,7 +357,7 @@ async function construir(prod: Produccion, det: Detalle) {
   }
 
   // ── Firmas ──
-  if (y > doc.internal.pageSize.getHeight() - 90) { doc.addPage(); y = MARGIN; }
+  if (y > limiteInferiorPdf(H) - 75) { doc.addPage(); y = MARGIN; }
   autoTable(doc, {
     startY: y,
     head: [['ELABORADO POR', 'REVISADO POR', 'APROBADO POR']],
@@ -359,7 +365,7 @@ async function construir(prod: Produccion, det: Detalle) {
     theme: 'grid',
     headStyles: { fillColor: [70, 70, 70], textColor: 255, fontSize: 8, halign: 'center' },
     styles: { fontSize: 8, cellPadding: 3, minCellHeight: 46, halign: 'center' },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
 
   const base = det.esRefinacion ? 'refinacion' : 'produccion';

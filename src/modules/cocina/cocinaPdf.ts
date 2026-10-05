@@ -6,6 +6,7 @@ import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, resumirComidas } from './cocina.repository';
 import { totalesDeViveres, kardexDetallado, ETIQUETA_CLASE, type FilaViver } from './movimientoViveres';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 function money(n: number | null | undefined): string {
   return `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -29,8 +30,13 @@ export async function descargarReporteCocinaPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm
+  const H = doc.internal.pageSize.getHeight();
+  const MARGIN = MARGEN_PDF; // 2 cm
+  const ANCHO = anchoUtilPdf(W);
+  const LIMITE = limiteInferiorPdf(H);
   let y = MARGIN;
+  /** Si el bloque que sigue no cabe sobre el margen inferior, pasa de página. */
+  const asegurar = (alto: number) => { if (y + alto > LIMITE) { doc.addPage(); y = MARGIN; } };
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
@@ -58,7 +64,7 @@ export async function descargarReporteCocinaPdf(
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 360 }, 1: { halign: 'right', cellWidth: 160 }, 2: { halign: 'right', cellWidth: 120 } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
     y = doc.lastAutoTable.finalY + 14;
@@ -87,18 +93,20 @@ export async function descargarReporteCocinaPdf(
         4: { halign: 'right', cellWidth: 66 }, 5: { halign: 'right', cellWidth: 66 },
         6: { halign: 'right', cellWidth: 92 }, 7: { halign: 'right', cellWidth: 62 },
       },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
       didDrawPage: () => { /* la tabla puede pasar de página: autoTable repite el encabezado */ },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
     y = doc.lastAutoTable.finalY + 8;
     doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
-    doc.text(
+    const nota = doc.splitTextToSize(
       'Había + Entró ± Traslados − Comido − Salidas/ajustes = Queda. «Había» se reconstruye desde el stock actual hacia atrás. Los totales mezclan unidades: sirven para cuadrar, no como cantidad.',
-      MARGIN, y,
-    );
+      ANCHO,
+    ) as string[];
+    asegurar(nota.length * 9);
+    doc.text(nota, MARGIN, y);
     doc.setTextColor(0, 0, 0);
-    y += 16;
+    y += 16 + (nota.length - 1) * 9;
 
     /* EL DETALLE: cada movimiento de cada víver, agrupado por víver y en orden
        cronológico dentro de cada uno, que es como se lee un kardex —se sigue el
@@ -107,6 +115,7 @@ export async function descargarReporteCocinaPdf(
        que son los que hay que poder explicar. */
     const detalle = kardexDetallado(movViveres);
     if (detalle.length) {
+      asegurar(56); // el título no se queda solo al pie ni pasa del margen
       doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 138, 0);
       doc.text('DETALLE · MOVIMIENTO POR MOVIMIENTO', MARGIN, y + 10);
       doc.setTextColor(0, 0, 0); doc.setFont('helvetica', 'normal');
@@ -132,7 +141,7 @@ export async function descargarReporteCocinaPdf(
           0: { cellWidth: 150 }, 1: { cellWidth: 86 }, 2: { cellWidth: 68 }, 3: { cellWidth: 56 },
           4: { halign: 'right', cellWidth: 82 }, 5: { cellWidth: 160 }, 6: { cellWidth: 72 },
         },
-        margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+        margin: MARGENES_TABLA_PDF,
       });
       // @ts-expect-error lastAutoTable lo agrega el plugin
       y = doc.lastAutoTable.finalY + 14;
@@ -140,6 +149,7 @@ export async function descargarReporteCocinaPdf(
   }
 
   // Detalle de comidas
+  asegurar(40);
   autoTable(doc, {
     startY: y,
     head: [['N°', 'FECHA · HORA', 'COMIDA', 'PLATOS', 'VÍVERES', 'VALOR $', 'PROM./PLATO']],
@@ -158,14 +168,16 @@ export async function descargarReporteCocinaPdf(
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
     columnStyles: {
       0: { cellWidth: 70 }, 1: { cellWidth: 110 }, 2: { cellWidth: 70 },
-      3: { halign: 'right', cellWidth: 50 }, 4: { cellWidth: 240 },
+      // VÍVERES toma lo que sobra del ancho útil (las demás suman 467 pt).
+      3: { halign: 'right', cellWidth: 50 }, 4: { cellWidth: ANCHO - 467 },
       5: { halign: 'right', cellWidth: 90 }, 6: { halign: 'right', cellWidth: 77 },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    // +14 abajo: deja sitio para el pie «Generado…» dentro del margen.
+    margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 },
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${comidas.length} comida(s) · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${comidas.length} comida(s) · Mineral Group Guayana C.A.`, MARGIN, LIMITE);
 
   previewPdfDoc(doc, 'cocina-consumo.pdf');
 }

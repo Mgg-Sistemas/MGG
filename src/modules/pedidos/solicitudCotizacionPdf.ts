@@ -7,6 +7,7 @@
    Solo por botón: nunca se descarga solo.
    ============================================================ */
 import type { Orden } from '@/shared/lib/types';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { quienSolicitaConRespaldo } from './quienSolicita';
 
 export interface FilaSolicitud {
@@ -66,7 +67,10 @@ export async function descargarSolicitudCotizacionPdf(orden: Orden): Promise<voi
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF; // 2 cm por lado
+  const pageH = doc.internal.pageSize.getHeight();
+  // Última línea para contenido: 14 pt por encima del pie (que va en el borde del marco).
+  const LIMITE_TEXTO = limiteInferiorPdf(pageH) - 14;
   let y = MARGIN;
 
   // ─── Encabezado ────────────────────────────────────────
@@ -97,14 +101,18 @@ export async function descargarSolicitudCotizacionPdf(orden: Orden): Promise<voi
   dato('Solicitante', persona);
 
   // ─── Descripción y nota ────────────────────────────────
-  const anchoTexto = PAGE_W - MARGIN * 2 - 110;
+  const anchoTexto = anchoUtilPdf(PAGE_W) - 110;
   const parrafo = (etiqueta: string, cuerpo: string) => {
     if (!cuerpo) return;
     doc.setFont('helvetica', 'bold'); doc.text(`${etiqueta}:`, MARGIN, y);
     doc.setFont('helvetica', 'normal');
     const lineas = doc.splitTextToSize(cuerpo, anchoTexto) as string[];
-    doc.text(lineas, MARGIN + 110, y);
-    y += Math.max(15, lineas.length * 12 + 3);
+    lineas.forEach((linea, i) => {
+      if (i > 0 && y > LIMITE_TEXTO) { doc.addPage(); y = MARGIN + 10; }
+      doc.text(linea, MARGIN + 110, y);
+      if (i < lineas.length - 1) y += 12;
+    });
+    y += 15;
   };
   parrafo('Descripción', descripcionSolicitud(orden));
   parrafo('Nota', texto(orden.notas));
@@ -113,6 +121,7 @@ export async function descargarSolicitudCotizacionPdf(orden: Orden): Promise<voi
   // ─── Lo que se cotiza ──────────────────────────────────
   const filas = filasSolicitud(orden);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  if (y + 30 > LIMITE_TEXTO) { doc.addPage(); y = MARGIN + 10; }
   doc.text(`Materiales solicitados (${filas.length})`, MARGIN, y);
   y += 10;
 
@@ -132,20 +141,20 @@ export async function descargarSolicitudCotizacionPdf(orden: Orden): Promise<voi
       5: { cellWidth: 68 },
       6: { cellWidth: 68 },
     },
-    margin: { top: MARGIN, bottom: MARGIN + 40, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 40 },
   });
 
   const finTabla = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
   y = finTabla + 24;
 
   // ─── Para que el proveedor complete ────────────────────
-  const pageH = doc.internal.pageSize.getHeight();
-  if (y > pageH - 130) { doc.addPage(); y = MARGIN; }
+  // El bloque mide ~82 pt (título + 3 renglones): si no cabe sobre el pie, página nueva.
+  if (y + 82 > LIMITE_TEXTO) { doc.addPage(); y = MARGIN + 10; }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
   doc.text('A completar por el proveedor', MARGIN, y);
   y += 16;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  const mitad = (PAGE_W - MARGIN * 2 - 20) / 2;
+  const mitad = (anchoUtilPdf(PAGE_W) - 20) / 2;
   for (const [izq, der] of [
     ['Proveedor', 'RIF'],
     ['Validez de la oferta', 'Tiempo de entrega'],
@@ -162,7 +171,7 @@ export async function descargarSolicitudCotizacionPdf(orden: Orden): Promise<voi
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(
     `Documento auto-generado · ${dateTime(new Date().toISOString())} · Los precios los completa el proveedor.`,
-    MARGIN, pageH - 24,
+    MARGIN, limiteInferiorPdf(pageH),
   );
 
   previewPdfDoc(doc, `${orden.codigo.replace(/[^\w.-]+/g, '_')}-cotizar.pdf`);

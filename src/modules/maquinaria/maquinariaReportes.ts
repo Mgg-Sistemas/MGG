@@ -1,11 +1,12 @@
 ﻿/* ============================================================
    MGG · Control de Maquinaria · reportes
    PDF, Excel y correo del registro de equipos. Mantiene el
-   encabezado/estilos estándar (logo, naranja, margen 1.5 cm).
+   encabezado/estilos estándar (logo, naranja, margen 2 cm).
    ============================================================ */
 import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { supabase } from '@/shared/lib/supabase';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 
 const NOMBRE = 'control-maquinaria';
 const fmtNum = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('es', { maximumFractionDigits: 2 }));
@@ -17,7 +18,7 @@ async function construirEquiposDoc(rows: MaquinariaEquipo[]) {
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1.5 cm
+  const MARGIN = MARGEN_PDF; // 2 cm
   let y = MARGIN;
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
@@ -39,7 +40,7 @@ async function construirEquiposDoc(rows: MaquinariaEquipo[]) {
     theme: 'striped',
     headStyles: { fillColor: [255, 138, 0], textColor: 255 },
     styles: { fontSize: 8, cellPadding: 3 },
-    margin: MARGIN,
+    margin: MARGENES_TABLA_PDF,
   });
   return doc;
 }

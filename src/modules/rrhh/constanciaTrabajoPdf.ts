@@ -7,6 +7,7 @@
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { money } from '@/shared/lib/format';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import type { Personal } from '@/shared/lib/types';
 
 const EMPRESA = 'Mineral Group Guayana C.A.';
@@ -39,8 +40,8 @@ export async function descargarConstanciaTrabajoPdf(persona: Personal, opts: Con
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 56.7; // 2 cm
-  const CW = PAGE_W - MARGIN * 2;
+  const MARGIN = MARGEN_PDF; // 2 cm
+  const CW = anchoUtilPdf(PAGE_W);
   let y = MARGIN;
 
   // ── Encabezado: logo + empresa + RIF ──
@@ -111,7 +112,7 @@ export async function descargarConstanciaTrabajoPdf(persona: Personal, opts: Con
   const cx = PAGE_W / 2;
   const SELLO_ESPACIO = 84;                         // alto en blanco para firma + sello
   // Ancla el bloque cerca del pie, dejando el espacio de sello sobre la línea.
-  const fy = Math.min(PAGE_H - MARGIN - 52, Math.max(y + SELLO_ESPACIO + 24, PAGE_H - 170));
+  const fy = Math.min(limiteInferiorPdf(PAGE_H) - 52, Math.max(y + SELLO_ESPACIO + 24, PAGE_H - 170));
 
   // Caption tenue del recuadro de sello (guía, no imprime borde).
   doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(150);
@@ -130,7 +131,7 @@ export async function descargarConstanciaTrabajoPdf(persona: Personal, opts: Con
 
   // ── Pie ──
   doc.setFontSize(8); doc.setTextColor(120);
-  doc.text('Documento generado por el sistema · válido con sello y firma autorizada.', MARGIN, PAGE_H - MARGIN + 18);
+  doc.text('Documento generado por el sistema · válido con sello y firma autorizada.', MARGIN, limiteInferiorPdf(PAGE_H));
 
   const base = `constancia-trabajo-${nombre}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   previewPdfDoc(doc, `${base}.pdf`);

@@ -7,8 +7,9 @@
 import type { Venta } from './ventas.repository';
 import { nombreDocumento, nombreCondicion, costoUnitMaterial } from './ventasLogica';
 import { autorizanteDe } from '@/modules/salidas/autorizanteSalida';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
-const MARGIN = 42.52;
+const MARGIN = MARGEN_PDF; // 2 cm (margen único de todos los PDF)
 const fmt = (v: number | null | undefined) => Number(v || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 async function base() {
@@ -59,6 +60,8 @@ export async function verDocumentoVentaPdf(v: Venta): Promise<void> {
   const tipo = nombreDocumento(v.tipo_documento);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const PAGE_W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const LIMITE = limiteInferiorPdf(H);
 
   let y = encabezado(doc, logo, tipo, [v.numero, `Fecha: ${date(v.fecha)}`, `Pago: ${nombreCondicion(v.condicion_pago)}`]);
 
@@ -80,7 +83,7 @@ export async function verDocumentoVentaPdf(v: Venta): Promise<void> {
     headStyles: { fillColor: [255, 138, 0], textColor: 20 },
     columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
     styles: { fontSize: 9, cellPadding: 4 },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   y = finalY(doc) + 12;
 
@@ -93,16 +96,19 @@ export async function verDocumentoVentaPdf(v: Venta): Promise<void> {
   const iTotal = filas.length - 1;
   autoTable(doc, {
     startY: y, body: filas, theme: 'plain', tableWidth: 240,
-    margin: { left: PAGE_W - MARGIN - 240, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF, left: PAGE_W - MARGIN - 240 },
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold' }, 1: { halign: 'right' } },
     didParseCell: (d) => { if (d.row.index === iTotal) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fontSize = 12; } },
   });
   y = finalY(doc) + 16;
+  // Lo que se escribe suelto debajo de las tablas tampoco pasa del margen inferior.
+  const asegurar = (alto: number) => { if (y + alto > LIMITE) { doc.addPage(); y = MARGIN + 10; } };
 
   // Pago en material (intercambio).
   const mat = v.pago_material ?? [];
   if (v.condicion_pago === 'intercambio' && mat.length) {
+    asegurar(40);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Pago recibido en material', MARGIN, y); y += 6;
     autoTable(doc, {
       startY: y,
@@ -110,16 +116,19 @@ export async function verDocumentoVentaPdf(v: Venta): Promise<void> {
       body: mat.map((p) => [p.producto_nombre, `${fmt(p.cantidad)}${p.unidad ? ` ${p.unidad}` : ''}`, p.almacen, fmt(p.valor), fmt(costoUnitMaterial(p))]),
       theme: 'grid', headStyles: { fillColor: [60, 60, 60], textColor: 255 },
       columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
-      styles: { fontSize: 9, cellPadding: 3 }, margin: { left: MARGIN, right: MARGIN },
+      styles: { fontSize: 9, cellPadding: 3 }, margin: MARGENES_TABLA_PDF,
     });
     y = finalY(doc) + 8;
+    asegurar(4);
     const dif = Math.max(0, Number(v.total) - (Number(v.valor_material) || 0));
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     doc.text(`Material recibido: ${m} ${fmt(v.valor_material)} · Diferencia en dinero: ${m} ${fmt(dif)}`, MARGIN, y); y += 16;
   }
 
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120);
-  if (v.nota) { doc.text(doc.splitTextToSize(`Nota: ${v.nota}`, PAGE_W - 2 * MARGIN), MARGIN, y); y += 14; }
+  const notaLineas: string[] = v.nota ? doc.splitTextToSize(`Nota: ${v.nota}`, PAGE_W - 2 * MARGIN) : [];
+  asegurar(notaLineas.length * 10 + (v.estado === 'anulada' ? 12 : 0) + 4);
+  if (v.nota) { doc.text(notaLineas, MARGIN, y); y += Math.max(14, notaLineas.length * 10); }
   if (v.estado === 'anulada') {
     doc.setTextColor(220, 38, 38);
     doc.text(`ANULADA el ${v.anulada_en ? dateTime(v.anulada_en) : '—'}${v.motivo_anulacion ? ` · Motivo: ${v.motivo_anulacion}` : ''}`, MARGIN, y); y += 12;
@@ -129,9 +138,10 @@ export async function verDocumentoVentaPdf(v: Venta): Promise<void> {
 
   // Firmas: entregado · AUTORIZADO (Leydis Rengel / Jesús Lozada) · recibido.
   // La firma escaneada va solo si autorizó su dueña, como en Salidas.
-  const H = doc.internal.pageSize.getHeight();
-  let fy = Math.max(y + 70, H - 100);
-  if (fy > H - 50) { doc.addPage(); fy = MARGIN + 70; }
+  // Bajo la línea van etiqueta + nombre (≈28 pt): todo termina en el límite inferior.
+  const needBot = 28;
+  let fy = Math.max(y + 70, Math.min(H - 100, LIMITE - needBot));
+  if (fy > LIMITE - needBot) { doc.addPage(); fy = MARGIN + 70; }
   const autoriza = autorizanteDe(v.aprobada_por);
   const firma = autoriza.firma
     ? await import('@/shared/lib/pdfLogo').then((m) => m.loadFirmaSalidasDataUrl()).catch(() => null)
@@ -182,7 +192,7 @@ export async function verReporteVentasPdf(input: { ventas: Venta[]; desde: strin
     styles: { fontSize: 7.5, cellPadding: 3 },
     columnStyles: Object.fromEntries([6, 7, 8, 9, 10, 11, 12].map((i) => [i, { halign: 'right' }])),
     didParseCell: (d) => { if (d.section === 'body' && input.ventas[d.row.index]?.estado === 'anulada') d.cell.styles.textColor = [200, 40, 40]; },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   y = finalY(doc) + 18;
 
@@ -195,7 +205,7 @@ export async function verReporteVentasPdf(input: { ventas: Venta[]; desde: strin
     porProd.set(k, cur);
   }));
   if (porProd.size) {
-    if (y > doc.internal.pageSize.getHeight() - 120) { doc.addPage(); y = MARGIN; }
+    if (y > limiteInferiorPdf(doc.internal.pageSize.getHeight()) - 64) { doc.addPage(); y = MARGIN + 10; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Por producto (vigentes)', MARGIN, y); y += 6;
     autoTable(doc, {
       startY: y,
@@ -204,7 +214,7 @@ export async function verReporteVentasPdf(input: { ventas: Venta[]; desde: strin
       theme: 'grid', headStyles: { fillColor: [60, 60, 60], textColor: 255, fontSize: 8 },
       styles: { fontSize: 8, cellPadding: 3 }, tableWidth: 420,
       columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
   }
   previewPdfDoc(doc, `reporte-ventas-${input.desde}_${input.hasta}.pdf`);
@@ -230,9 +240,10 @@ export async function verTrazabilidadVentaPdf(v: Venta): Promise<void> {
     ],
     theme: 'plain', styles: { fontSize: 9, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 80 }, 2: { fontStyle: 'bold', cellWidth: 90 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   y = finalY(doc) + 14;
+  if (y > limiteInferiorPdf(doc.internal.pageSize.getHeight()) - 40) { doc.addPage(); y = MARGIN + 10; }
 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Historial', MARGIN, y); y += 6;
   const hist = [...(v.historial ?? [])].sort((a, b) => a.at.localeCompare(b.at));
@@ -246,7 +257,7 @@ export async function verTrazabilidadVentaPdf(v: Venta): Promise<void> {
     theme: 'grid', headStyles: { fillColor: [255, 138, 0], textColor: 20, fontSize: 8.5 },
     styles: { fontSize: 8, cellPadding: 3, valign: 'top' },
     columnStyles: { 0: { cellWidth: 90 }, 1: { cellWidth: 55 }, 2: { cellWidth: 85 }, 4: { cellWidth: 110 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   if (v.estado === 'anulada') marcaAnulada(doc);
   previewPdfDoc(doc, `trazabilidad-${v.numero}.pdf`);

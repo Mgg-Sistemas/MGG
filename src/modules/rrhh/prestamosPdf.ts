@@ -15,6 +15,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf, filaPdf } from '@/shared/lib/textoPdf';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import { date as fmtDate } from '@/shared/lib/format';
 import type { Personal } from '@/shared/lib/types';
 import { definicionEmpresa, normalizarEmpresa } from './empresa';
@@ -64,7 +65,7 @@ async function encabezado(doc: any, W: number, M: number, titulo: string, sub: s
  * el que las discuta.
  */
 function cajasTotales(doc: any, W: number, M: number, y: number, total: number, pagado: number, debe: number): number {
-  const ancho = (W - M * 2 - 16) / 3;
+  const ancho = (anchoUtilPdf(W) - 16) / 3;
   const alto = 46;
   const cajas: Array<[string, number, [number, number, number]]> = [
     ['Total prestado', total, TINTA],
@@ -85,8 +86,12 @@ function cajasTotales(doc: any, W: number, M: number, y: number, total: number, 
 }
 
 /** Pie con la firma de conformidad. Solo en el de una persona. */
-function firmas(doc: any, W: number, M: number, H: number) {
-  const y = H - 74;
+function firmas(doc: any, W: number, M: number, H: number, yActual: number) {
+  // El bloque (firmas + nota) termina justo en el margen inferior de 2 cm. Si lo
+  // de arriba ya llegó hasta ahí, va entero en la hoja siguiente.
+  const limite = limiteInferiorPdf(H);
+  if (yActual > limite - 60) doc.addPage();
+  const y = limite - 44;
   doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
   const ancho = 190;
   doc.line(M, y, M + ancho, y);
@@ -97,7 +102,7 @@ function firmas(doc: any, W: number, M: number, H: number) {
   doc.setFontSize(7);
   doc.text(
     textoPdf('El saldo se descuenta por cuotas en la nómina hasta saldar. Este documento refleja el estado a la fecha de emisión.'),
-    W / 2, H - 30, { align: 'center' },
+    W / 2, limite, { align: 'center' },
   );
 }
 
@@ -117,7 +122,7 @@ export async function verEstadoCuentaPrestamosPdf(
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const M = 42;
+  const M = MARGEN_PDF;
   const emp = definicionEmpresa(normalizarEmpresa(persona.empresa));
   const ec = estadoDeCuenta(persona.id, prestamos, pagos);
 
@@ -146,7 +151,7 @@ export async function verEstadoCuentaPrestamosPdf(
   if (!ec.renglones.length) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...GRIS);
     doc.text(textoPdf('Esta persona no tiene prestamos ni anticipos registrados en el periodo.'), M, y);
-    firmas(doc, W, M, H);
+    firmas(doc, W, M, H, y);
     await previewPdfDoc(doc, `estado-cuenta-${(persona.nombre ?? '').toLowerCase()}.pdf`);
     return;
   }
@@ -155,7 +160,7 @@ export async function verEstadoCuentaPrestamosPdf(
   for (const r of ec.renglones) {
     // Que un préstamo no arranque al filo de la hoja y sus abonos queden solos
     // en la siguiente: se lee mal y se presta a discusión.
-    if (y + 70 > H - 100) { doc.addPage(); y = M; }
+    if (y + 70 > limiteInferiorPdf(H) - 44) { doc.addPage(); y = M + 10; }
 
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...NARANJA);
     const titulo = `${r.prestamo.tipo === 'anticipo' ? 'ANTICIPO' : 'PRESTAMO'} · ${fmtDate(fechaDePrestamo(r.prestamo))}`;
@@ -168,7 +173,7 @@ export async function verEstadoCuentaPrestamosPdf(
 
     if (r.prestamo.motivo) {
       doc.setFontSize(8); doc.setTextColor(...GRIS);
-      const lineas = doc.splitTextToSize(textoPdf(r.prestamo.motivo), W - M * 2) as string[];
+      const lineas = doc.splitTextToSize(textoPdf(r.prestamo.motivo), anchoUtilPdf(W)) as string[];
       doc.text(lineas, M, y + 6);
       y += lineas.length * 10 + 4;
     }
@@ -182,7 +187,7 @@ export async function verEstadoCuentaPrestamosPdf(
         headStyles: { fillColor: [245, 245, 245], textColor: GRIS, fontSize: 7.5, fontStyle: 'bold', lineColor: [215, 215, 215], lineWidth: 0.4 },
         bodyStyles: { fontSize: 8, lineColor: [215, 215, 215], lineWidth: 0.4 },
         columnStyles: { 0: { cellWidth: 95 }, 1: { cellWidth: 85 }, 3: { cellWidth: 80, halign: 'right' } },
-        margin: { left: M, right: M },
+        margin: MARGENES_TABLA_PDF,
       });
       y = ((doc as any).lastAutoTable?.finalY ?? y) + 14;
     } else {
@@ -192,7 +197,7 @@ export async function verEstadoCuentaPrestamosPdf(
     }
   }
 
-  firmas(doc, W, M, H);
+  firmas(doc, W, M, H, y);
   await previewPdfDoc(doc, `estado-cuenta-${(persona.nombre ?? '').toLowerCase()}.pdf`);
 }
 
@@ -210,7 +215,7 @@ export async function verConsolidadoPrestamosPdf(
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
-  const M = 42;
+  const M = MARGEN_PDF;
   const emp = definicionEmpresa(normalizarEmpresa(empresa));
 
   let y = await encabezado(
@@ -254,7 +259,7 @@ export async function verConsolidadoPrestamosPdf(
       4: { cellWidth: 75, halign: 'right' },
       5: { cellWidth: 75, halign: 'right', fontStyle: 'bold' },
     },
-    margin: { left: M, right: M },
+    margin: MARGENES_TABLA_PDF,
   });
 
   await previewPdfDoc(doc, 'prestamos-consolidado.pdf');

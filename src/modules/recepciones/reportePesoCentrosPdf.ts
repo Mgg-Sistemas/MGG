@@ -7,6 +7,7 @@
    Se muestra SIN LOGO (reporte interno de operaciones).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl, loadFirmaOperacionesDataUrl, loadFirmaAnalistaDataUrl } from '@/shared/lib/pdfLogo';
 import type { ResumenCentro, RecepcionFila } from './recepciones.repository';
 
@@ -41,20 +42,22 @@ export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Pro
   ]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 42.52;                 // 1,5 cm
+  const MARGIN = MARGEN_PDF;            // 2 cm
   const pageW = doc.internal.pageSize.getWidth();
+  const LIMITE = limiteInferiorPdf(doc.internal.pageSize.getHeight());
   const fecha = data.fecha ? new Date(data.fecha) : new Date();
   const fechaVE = fecha.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
   // ── Encabezado (SIN LOGO) ──
   let y = MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-  doc.text('REPORTE PRELIMINAR DE PESO ENVIADO POR', pageW / 2, y + 6, { align: 'center' });
-  doc.text('CENTROS DE ACOPIO (OPERACIONES)', pageW / 2, y + 22, { align: 'center' });
+  // La línea base va bajo el margen lo suficiente para que las mayúsculas no lo crucen.
+  doc.text('REPORTE PRELIMINAR DE PESO ENVIADO POR', pageW / 2, y + 10, { align: 'center' });
+  doc.text('CENTROS DE ACOPIO (OPERACIONES)', pageW / 2, y + 26, { align: 'center' });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-  doc.text(`FECHA: ${fechaVE}`, MARGIN, y + 42);
-  doc.text(`RECEPCIÓN: ${data.referencia ?? 'GENERAL'}`, pageW - MARGIN, y + 42, { align: 'right' });
-  y += 56;
+  doc.text(`FECHA: ${fechaVE}`, MARGIN, y + 46);
+  doc.text(`RECEPCIÓN: ${data.referencia ?? 'GENERAL'}`, pageW - MARGIN, y + 46, { align: 'right' });
+  y += 60;
 
   const finalY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
@@ -92,7 +95,7 @@ export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Pro
         2: { cellWidth: 184 },
         3: { cellWidth: 'auto' },
       },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: { ...MARGENES_TABLA_PDF },
     });
     y = finalY() + 10;
   }
@@ -109,12 +112,13 @@ export async function descargarReportePesoCentrosPdf(data: ReportePesoData): Pro
     footStyles: { fillColor: [20, 20, 20], textColor: 255, fontStyle: 'bold', fontSize: 10 },
     styles: { fontSize: 9, cellPadding: 4 },
     columnStyles: { 0: { cellWidth: 130, halign: 'right' }, 1: { cellWidth: 'auto' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF },
   });
   y = finalY() + 28;
 
   // ── FIRMA DE RESPONSABLES (2×2 líneas de firma con su rol) ──
-  if (y > doc.internal.pageSize.getHeight() - 210) { doc.addPage(); y = MARGIN; }
+  // El bloque completo (título + 2 filas de firmas con nombre y rol) mide ~160 pt.
+  if (y + 160 > LIMITE) { doc.addPage(); y = MARGIN + 10; }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
   doc.text('FIRMA DE RESPONSABLES', pageW / 2, y, { align: 'center' });
   y += 62;   // espacio para la firma escaneada más alta (arriba de la línea)

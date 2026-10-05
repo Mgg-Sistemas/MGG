@@ -4,6 +4,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 import type { MartilloMovimiento } from './martillos.repository';
 
 const NOMBRE = 'consumo-martillos-molino-h66';
@@ -22,7 +23,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 58 : MARGIN;
@@ -45,7 +46,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
     startY: y + 4,
     head: [HEAD],
     body,
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 8, cellPadding: 3 },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {

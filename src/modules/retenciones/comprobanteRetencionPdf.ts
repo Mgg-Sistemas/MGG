@@ -13,6 +13,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf } from '@/shared/lib/textoPdf';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import { labelImpuesto, labelPeriodo, labelSujeto, type ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 
@@ -34,7 +35,8 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF;
+  const LIMITE = limiteInferiorPdf(doc.internal.pageSize.getHeight());
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -85,7 +87,7 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
     styles: { fontSize: 8.5, cellPadding: 6, overflow: 'linebreak', valign: 'top' },
     headStyles: { fillColor: [235, 235, 235], textColor: [20, 20, 20], fontStyle: 'bold', fontSize: 8 },
     columnStyles: { 0: { cellWidth: (W - MARGIN * 2) / 2 }, 1: { cellWidth: (W - MARGIN * 2) / 2 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   y = (doc as any).lastAutoTable.finalY + 14;
 
@@ -112,7 +114,7 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
     styles: { fontSize: 7.5, cellPadding: 5, overflow: 'linebreak' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', fontSize: 7 },
     columnStyles: Object.fromEntries(cabecera.map((_, i) => [i, { halign: i >= 3 ? 'right' as const : 'left' as const }])),
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   y = (doc as any).lastAutoTable.finalY + 14;
 
@@ -146,8 +148,8 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
   const pie = esIva
     ? 'El comprobante se entrega al proveedor dentro de los plazos de la Providencia. El número no se reusa: una retención anulada conserva el suyo.'
     : 'Comprobante de retención. El número no se reusa: una retención anulada conserva el suyo.';
-  doc.text(textoPdf(pie), MARGIN, doc.internal.pageSize.getHeight() - 30, { maxWidth: W - MARGIN * 2 });
-  doc.text(textoPdf(`Emitido por ${r.actorName ?? '—'} · Mineral Group Guayana C.A.`), MARGIN, doc.internal.pageSize.getHeight() - 18);
+  doc.text(textoPdf(pie), MARGIN, LIMITE - 22, { maxWidth: anchoUtilPdf(W) });
+  doc.text(textoPdf(`Emitido por ${r.actorName ?? '—'} · Mineral Group Guayana C.A.`), MARGIN, LIMITE);
 
   await previewPdfDoc(doc, `retencion-${r.tipo}-${r.numeroComprobante ?? r.id.slice(0, 8)}.pdf`);
 }

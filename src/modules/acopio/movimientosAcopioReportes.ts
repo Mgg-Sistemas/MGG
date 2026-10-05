@@ -7,6 +7,7 @@
    Saldo en moneda $ Usd, Kg Recibidos por MGG, Saldo en Kg de casiterita.
    ============================================================ */
 import { previewWorkbook, previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 import { supabase } from '@/shared/lib/supabase';
 
 export interface MovAcopioRow {
@@ -48,7 +49,7 @@ async function construirDoc(rows: MovAcopioRow[], meta: MovAcopioMeta = {}) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 58 : MARGIN;
@@ -75,7 +76,7 @@ async function construirDoc(rows: MovAcopioRow[], meta: MovAcopioMeta = {}) {
     startY: y + 4,
     head: [HEAD],
     body,
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 7.5, cellPadding: 3 },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {

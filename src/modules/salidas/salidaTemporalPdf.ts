@@ -10,6 +10,7 @@ import type { SalidaTemporal } from '@/shared/lib/types';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { duracionesSalidaTemporal, fmtDuracion } from './salidasTemporales.repository';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 const EST_TXT: Record<string, string> = {
   por_aprobar: 'Por aprobar',
@@ -44,7 +45,7 @@ export async function descargarOrdenSalidaTemporalPdf(sol: SalidaTemporal): Prom
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 42.52; // 1,5 cm
+  const MARGIN = MARGEN_PDF; // 2 cm (margen único de todos los PDF)
   let y = MARGIN;
 
   // ── Encabezado ──
@@ -117,13 +118,14 @@ export async function descargarOrdenSalidaTemporalPdf(sol: SalidaTemporal): Prom
       foot: [['', '', '', '', 'TOTAL', `${fmt.money(totalGeneral)} USD`]],
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold', halign: 'right', fontSize: 10 },
     } : {}),
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   y = (doc as any).lastAutoTable.finalY + 16;
 
   // ── Tiempos (solo al finalizar) ──
   if (sol.estado === 'finalizada') {
+    if (y + 14 + 3 * 12 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN + 10; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text('TIEMPOS', MARGIN, y);
     y += 14;
@@ -144,21 +146,28 @@ export async function descargarOrdenSalidaTemporalPdf(sol: SalidaTemporal): Prom
   if (sol.motivo) obs.push(`Motivo: ${sol.motivo}`);
   if (sol.nota) obs.push(`Nota: ${sol.nota}`);
   if (obs.length) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    const wrapped = doc.splitTextToSize(obs.join('\n'), PAGE_W - MARGIN * 2);
+    // Las notas no pasan del margen inferior: si no caben, van a una página nueva.
+    if (y + 14 + wrapped.length * 12 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN + 10; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text('OBSERVACIONES / NOTAS', MARGIN, y);
     y += 14;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-    const wrapped = doc.splitTextToSize(obs.join('\n'), PAGE_W - MARGIN * 2);
     doc.text(wrapped, MARGIN, y);
     y += wrapped.length * 12;
   }
 
   // ── Firmas al pie ──
+  // Firmas y pie terminan en el límite inferior del marco de 2 cm: el pie ocupa
+  // la última línea y las firmas quedan por encima de él.
+  const PIE = 14;
+  const LIM = limiteInferiorPdf(PAGE_H) - PIE;
   const needTop = 52;
   const needBot = 34;
-  let fy = PAGE_H - MARGIN - needBot;
+  let fy = LIM - needBot;
   if (y + needTop > fy) {
-    if (y + needTop + needBot <= PAGE_H - MARGIN) fy = y + needTop;
+    if (y + needTop + needBot <= LIM) fy = y + needTop;
     else { doc.addPage(); fy = MARGIN + needTop; }
   }
   const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
@@ -180,7 +189,7 @@ export async function descargarOrdenSalidaTemporalPdf(sol: SalidaTemporal): Prom
   doc.text(aprobador || '— (pendiente) —', cxAprueba, fy + 27, { align: 'center' });
 
   doc.setFontSize(8); doc.setTextColor(120);
-  doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
+  doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, limiteInferiorPdf(PAGE_H));
 
   previewPdfDoc(doc, `orden-salida-temporal-${sol.codigo}.pdf`);
 }

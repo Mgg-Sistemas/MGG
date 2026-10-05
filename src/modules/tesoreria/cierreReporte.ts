@@ -6,6 +6,7 @@
    ============================================================ */
 import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 import type { CellHookData } from 'jspdf-autotable';
 import type { ReporteCierre } from './cierres.repository';
 
@@ -35,7 +36,7 @@ async function construirDoc(r: ReporteCierre) {
   ]);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF; // 2 cm en los cuatro lados
   let y = MARGIN;
 
   if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'PNG', MARGIN, y, 90, 36); } catch { /* logo opcional */ } }
@@ -60,7 +61,7 @@ async function construirDoc(r: ReporteCierre) {
       styles: { fontSize: 10, cellPadding: 4 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 200 }, 1: { halign: 'right' } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
     y = doc.lastAutoTable.finalY;
@@ -89,7 +90,7 @@ async function construirDoc(r: ReporteCierre) {
         data.cell.styles.textColor = [197, 48, 48];
       }
     },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
 
   return doc;

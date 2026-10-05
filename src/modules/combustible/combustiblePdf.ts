@@ -4,6 +4,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { SolicitudCombustible } from '@/shared/lib/types';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 
 const ESTADO_LABEL: Record<string, string> = {
   por_aprobar: 'Por aprobar',
@@ -21,7 +22,7 @@ async function construir(s: SolicitudCombustible) {
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 50, 50); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 64 : MARGIN;
@@ -71,7 +72,7 @@ async function construir(s: SolicitudCombustible) {
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 4 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 200 }, 1: { cellWidth: 'auto' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
 
   return { doc, filename: `solicitud-combustible-${s.codigo}.pdf` };

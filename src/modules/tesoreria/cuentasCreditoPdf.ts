@@ -3,6 +3,7 @@
    N° OC · Proveedor · Finalidad · Total · Abonado · Saldo. Vista previa.
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
 
 function money(n: number | null | undefined): string {
@@ -19,7 +20,7 @@ export async function descargarResumenCreditosPdf(rows: OrdenPorPagar[]): Promis
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm
+  const MARGIN = MARGEN_PDF; // 2 cm
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -65,16 +66,17 @@ export async function descargarResumenCreditosPdf(rows: OrdenPorPagar[]): Promis
       0: { halign: 'center', cellWidth: 30 },
       1: { halign: 'center', cellWidth: 70 },
       2: { cellWidth: 150 },
-      3: { cellWidth: 215 },
+      // FINALIDAD toma lo que queda del ancho útil (las demás columnas son fijas).
+      3: { cellWidth: anchoUtilPdf(W) - (30 + 70 + 150 + 80 + 80 + 82) },
       4: { halign: 'right', cellWidth: 80 },
       5: { halign: 'right', cellWidth: 80 },
       6: { halign: 'right', cellWidth: 82 },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 }, // el pie va dentro del marco, bajo la tabla
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} cuenta(s) a crédito · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} cuenta(s) a crédito · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(doc.internal.pageSize.getHeight()));
 
   previewPdfDoc(doc, 'cuentas-credito.pdf');
 }

@@ -12,6 +12,7 @@ import { textoPdf } from '@/shared/lib/textoPdf';
 import { dateTime, num } from '@/shared/lib/format';
 import { listFundicionesFinalizadasConDatos } from './colada.repository';
 import { listRefinacionesFinalizadasConDatos } from './refinacion.repository';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 
 const ORANGE: [number, number, number] = [255, 138, 0];
 const GREY: [number, number, number] = [90, 90, 90];
@@ -46,7 +47,7 @@ async function nuevoDoc(titulo: string) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF;
   let y = MARGIN;
 
   // ── Encabezado ──
@@ -67,7 +68,7 @@ async function nuevoDoc(titulo: string) {
 /** RESUMEN DE FUNDICIÓN: todas las coladas finalizadas + fila de totales. */
 export async function descargarResumenFundicionPdf(): Promise<void> {
   const filas = await listFundicionesFinalizadasConDatos();
-  const { doc, autoTable, W, MARGIN, y } = await nuevoDoc('RESUMEN DE FUNDICIÓN');
+  const { doc, autoTable, W, y } = await nuevoDoc('RESUMEN DE FUNDICIÓN');
 
   // Totales de columnas de kg (la Ley total = promedio ponderado Σsn/Σcasiterita×100).
   let tCasi = 0, tSn = 0, tCoque = 0, tCaco3 = 0, tEstano = 0, tLingotes = 0;
@@ -95,7 +96,7 @@ export async function descargarResumenFundicionPdf(): Promise<void> {
   ]);
 
   autoTable(doc, {
-    startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: W - MARGIN * 2,
+    startY: y, margin: MARGENES_TABLA_PDF, tableWidth: anchoUtilPdf(W),
     head: [['N° Colada', 'Fecha', 'Materia prima', 'Casiterita (kg)', 'Ley Sn/Tenor %', 'Sn contenido (kg)', 'Coque (kg)', 'CaCO3 (kg)', 'Estaño obtenido (kg)', 'N° lingotes'].map(textoPdf)],
     body: (body.length ? body : [['—', '—', '—', '—', '—', '—', '—', '—', '—', '—']]).map((f) => f.map(textoPdf)),
     foot: [['TOTALES', '', '', kg(tCasi), pct(leyProm), kg(tSn), kg(tCoque), kg(tCaco3), kg(tEstano), entero(tLingotes)]],
@@ -116,7 +117,7 @@ export async function descargarResumenFundicionPdf(): Promise<void> {
 /** RESUMEN DE REFINACIÓN: todas las refinaciones finalizadas + fila de totales. */
 export async function descargarResumenRefinacionPdf(): Promise<void> {
   const filas = await listRefinacionesFinalizadasConDatos();
-  const { doc, autoTable, W, MARGIN, y } = await nuevoDoc('RESUMEN DE REFINACIÓN');
+  const { doc, autoTable, W, y } = await nuevoDoc('RESUMEN DE REFINACIÓN');
 
   // Totales (la Ley total = promedio ponderado ΣSnTeórico/Σbruto×100).
   let tCrudo = 0, tTeorico = 0, tSoda = 0, tAzufre = 0, tCarbon = 0, tCal = 0, tRefinado = 0, tLingotes = 0;
@@ -151,7 +152,7 @@ export async function descargarResumenRefinacionPdf(): Promise<void> {
   const leyProm = tCrudo > 0 ? (tTeorico / tCrudo) * 100 : null;
 
   autoTable(doc, {
-    startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: W - MARGIN * 2,
+    startY: y, margin: MARGENES_TABLA_PDF, tableWidth: anchoUtilPdf(W),
     head: [['N° Refinación', 'Fecha', 'Materia prima', 'Estaño en bruto (kg)', 'Ley/Tenor %', 'Sn Teórico (kg)', 'Soda cáustica (kg)', 'Azufre (kg)', 'Carbón vegetal (kg)', 'Cal (kg)', 'Estaño Refinado (kg)', 'N° lingotes'].map(textoPdf)],
     body: body.length ? body : [['—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—']],
     foot: [['TOTALES', '', '', kg(tCrudo), pct(leyProm), kg(tTeorico), kg(tSoda), kg(tAzufre), kg(tCarbon), kg(tCal), kg(tRefinado), entero(tLingotes)]],

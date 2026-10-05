@@ -6,9 +6,14 @@
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { fmtDuracion, duracionSesionMs, moduloDeTabla, queHizo, type UserSession, type ActividadEvento } from './auditoria.repository';
 
-const MARGIN = 42.52;
+const MARGIN = MARGEN_PDF; // 2 cm por lado
+/** Línea reservada sobre el margen inferior para el pie de página. */
+const ALTO_PIE = 14;
+/** Márgenes de las tablas: 2 cm y, abajo, además el renglón del pie. */
+const MARGENES_TABLA = { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + ALTO_PIE };
 
 async function nuevoDoc(titulo: string, sub: string) {
   const [{ jsPDF }, { default: autoTable }, logo] = await Promise.all([
@@ -23,8 +28,10 @@ async function nuevoDoc(titulo: string, sub: string) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text(titulo, TX, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
   doc.text('Mineral Group Guayana C.A.', TX, y + 34);
-  doc.setTextColor(90); doc.text(sub, TX, y + 48); doc.setTextColor(0);
-  y += Math.max(LOGO, 50) + 10;
+  // El subtítulo se parte para no pasar del margen derecho (2 cm).
+  const subLineas = doc.splitTextToSize(sub, PAGE_W - MARGIN - TX) as string[];
+  doc.setTextColor(90); doc.text(subLineas, TX, y + 48); doc.setTextColor(0);
+  y += Math.max(LOGO, 50 + (subLineas.length - 1) * 12) + 10;
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5); doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 16;
   return { doc, autoTable, y, PAGE_W };
 }
@@ -32,7 +39,7 @@ async function nuevoDoc(titulo: string, sub: string) {
 function pie(doc: import('jspdf').jsPDF, texto: string) {
   const h = doc.internal.pageSize.getHeight();
   doc.setFontSize(8); doc.setTextColor(120);
-  doc.text(texto, MARGIN, h - 24);
+  doc.text(texto, MARGIN, limiteInferiorPdf(h));
 }
 
 export interface AuditoriaFila {
@@ -56,7 +63,7 @@ export async function descargarAuditoriaOverviewPdf(data: AuditoriaOverviewData)
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 9 },
     styles: { fontSize: 8.5, cellPadding: 3 },
     columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA,
   });
   pie(doc, `Auditoría de Usuarios · ${dateTime(new Date().toISOString())}`);
   previewPdfDoc(doc, `auditoria-usuarios-${data.desde}_${data.hasta}.pdf`);
@@ -80,7 +87,7 @@ export async function descargarAuditoriaMovimientosPdf(data: AuditoriaMovimiento
   }
   usuarios.forEach((u, idx) => {
     // Encabezado del usuario (con salto de página si no cabe).
-    if (idx > 0 && cursorY > doc.internal.pageSize.getHeight() - 120) { doc.addPage(); cursorY = MARGIN; }
+    if (idx > 0 && cursorY > limiteInferiorPdf(doc.internal.pageSize.getHeight()) - 80) { doc.addPage(); cursorY = MARGIN + 10; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(20);
     doc.text(`${u.nombre}`, MARGIN, cursorY + 4);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90);
@@ -93,7 +100,7 @@ export async function descargarAuditoriaMovimientosPdf(data: AuditoriaMovimiento
       body: u.eventos.map((a) => [dateTime(a.ts), moduloDeTabla(a.tabla).modulo, a.accion, queHizo(a)]),
       theme: 'grid', headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 8.5 },
       styles: { fontSize: 8, cellPadding: 2.5 },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA,
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
     cursorY = doc.lastAutoTable.finalY + 24;
@@ -110,9 +117,9 @@ export interface AuditoriaUsuarioData {
 /** Reporte de detalle: sesiones + actividad de un usuario. */
 export async function descargarAuditoriaUsuarioPdf(data: AuditoriaUsuarioData): Promise<void> {
   const msTotal = data.sesiones.reduce((a, s) => a + duracionSesionMs(s), 0);
-  const { doc, autoTable } = await nuevoDoc(`Auditoría · ${data.nombre}`, `${data.email} · Período ${data.desde} → ${data.hasta} · Tiempo conectado ${fmtDuracion(msTotal)} · ${data.actividad.length} acciones`);
-  // @ts-expect-error lastAutoTable lo agrega el plugin
-  let y = doc.lastAutoTable?.finalY ?? 120;
+  const { doc, autoTable, y: yInicio } = await nuevoDoc(`Auditoría · ${data.nombre}`, `${data.email} · Período ${data.desde} → ${data.hasta} · Tiempo conectado ${fmtDuracion(msTotal)} · ${data.actividad.length} acciones`);
+  // Arranca debajo del encabezado (con el margen de 2 cm ya no cabe en un valor fijo).
+  let y = yInicio;
 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Sesiones', MARGIN, y + 2);
   autoTable(doc, {
@@ -123,10 +130,12 @@ export async function descargarAuditoriaUsuarioPdf(data: AuditoriaUsuarioData): 
     ]),
     theme: 'grid', headStyles: { fillColor: [59, 130, 246], textColor: 255, fontSize: 9 },
     styles: { fontSize: 8.5, cellPadding: 3 }, columnStyles: { 2: { halign: 'right' } },
-    margin: { left: MARGIN, right: MARGIN, bottom: MARGIN },
+    margin: MARGENES_TABLA,
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = doc.lastAutoTable.finalY + 18;
+  // Que el título no quede solo al filo de la hoja.
+  if (y + 40 > limiteInferiorPdf(doc.internal.pageSize.getHeight()) - ALTO_PIE) { doc.addPage(); y = MARGIN + 10; }
 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Actividad', MARGIN, y);
   autoTable(doc, {
@@ -135,7 +144,7 @@ export async function descargarAuditoriaUsuarioPdf(data: AuditoriaUsuarioData): 
     body: data.actividad.map((a) => [dateTime(a.ts), moduloDeTabla(a.tabla).modulo, a.accion, queHizo(a)]),
     theme: 'grid', headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 9 },
     styles: { fontSize: 8.5, cellPadding: 3 },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA,
   });
   pie(doc, `Auditoría · ${data.nombre} · ${dateTime(new Date().toISOString())}`);
   previewPdfDoc(doc, `auditoria-${data.email}-${data.desde}_${data.hasta}.pdf`);

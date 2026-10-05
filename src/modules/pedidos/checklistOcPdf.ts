@@ -4,6 +4,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { OcLoteRow } from './ocLote.repository';
 
 async function construir(rows: OcLoteRow[], codigo: string) {
@@ -17,7 +18,8 @@ async function construir(rows: OcLoteRow[], codigo: string) {
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const H = doc.internal.pageSize.getHeight();
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -56,7 +58,8 @@ async function construir(rows: OcLoteRow[], codigo: string) {
       6: { halign: 'right', cellWidth: 56 },
       9: { halign: 'center', cellWidth: 86 },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    // Abajo se reservan 14 pt para el pie (va en la última línea del marco).
+    margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 },
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index === 9) {
         const confirmada = data.cell.raw === 'CONFIRMADA';
@@ -68,7 +71,7 @@ async function construir(rows: OcLoteRow[], codigo: string) {
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(H));
 
   return { doc, filename: `checklist-${codigo}.pdf` };
 }

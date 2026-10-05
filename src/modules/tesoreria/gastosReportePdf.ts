@@ -3,6 +3,7 @@
    Categoría · Subcategoría · N° mov · totales por moneda. Vista previa.
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 export interface GastoReporteRow {
   categoria: string;
@@ -30,7 +31,7 @@ export async function descargarReporteGastosPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm
+  const MARGIN = MARGEN_PDF; // 2 cm
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -76,11 +77,11 @@ export async function descargarReporteGastosPdf(
       3: { halign: 'center', cellWidth: 38 },
       ...Object.fromEntries(monedas.map((_, idx) => [4 + idx, { halign: 'right' as const }])),
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 }, // el pie va dentro del marco, bajo la tabla
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} subcategoría(s) · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} subcategoría(s) · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(doc.internal.pageSize.getHeight()));
 
   previewPdfDoc(doc, 'gastos-por-categoria.pdf');
 }

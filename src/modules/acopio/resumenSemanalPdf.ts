@@ -3,6 +3,7 @@
    Réplica de la hoja «REPORTE PRELIMINAR DE CENTROS DE ACOPIOS».
    ============================================================ */
 import { previewWorkbook, previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { ResumenSemanal } from './resumenSemanal.repository';
 import { computeTotales, acopiadoMggSector, resguardoSector } from './resumenSemanal.repository';
 
@@ -43,7 +44,7 @@ async function construirSemanalDoc(r: ResumenSemanal) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 36;
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
@@ -124,14 +125,17 @@ async function construirSemanalDoc(r: ResumenSemanal) {
       2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
       5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
 
   if (r.nota) {
     // @ts-expect-error lastAutoTable lo agrega el plugin
-    const fy = doc.lastAutoTable.finalY + 14;
+    let fy = doc.lastAutoTable.finalY + 14;
     doc.setFont('helvetica', 'italic'); doc.setFontSize(9);
-    doc.text(`Nota: ${r.nota}`, MARGIN, fy);
+    // La nota se parte para no pasar del margen derecho y baja de hoja si no cabe.
+    const notaLineas = doc.splitTextToSize(`Nota: ${r.nota}`, PAGE_W - MARGIN * 2) as string[];
+    if (fy + notaLineas.length * 11 > limiteInferiorPdf(doc.internal.pageSize.getHeight())) { doc.addPage(); fy = MARGIN + 10; }
+    doc.text(notaLineas, MARGIN, fy);
   }
 
   return doc;

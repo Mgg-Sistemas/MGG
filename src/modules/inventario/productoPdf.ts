@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { Almacen, Existencia, Movimiento, Producto } from '@/shared/lib/types';
 import { desglosePorSede } from './stockPorAlmacen';
 import { TIPOS_MOVIMIENTO } from './movimientos.repository';
@@ -54,8 +55,13 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
+  const LIMITE = limiteInferiorPdf(doc.internal.pageSize.getHeight());
   let y = MARGIN;
+  // Un título (o la nota) no queda cortado al pie: si no cabe, salta de página.
+  const asegurarEspacio = (need: number) => {
+    if (y + need > LIMITE) { doc.addPage(); y = MARGIN; }
+  };
 
   const LOGO_SIZE = 56;
   const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
@@ -108,7 +114,7 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 200 }, 1: { cellWidth: 'auto' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
 
@@ -116,6 +122,7 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
   const desglose = desglosePorSede(existencias, almacenes, null);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
+  asegurarEspacio(40);
   doc.text('Stock por sede y almacén', MARGIN, y);
   y += 4;
   if (!desglose.sedes.length) {
@@ -135,7 +142,7 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 9 },
       styles: { fontSize: 8, cellPadding: 3 },
       columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: { ...MARGENES_TABLA_PDF },
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
   }
@@ -143,6 +150,7 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
   // Movimientos
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
+  asegurarEspacio(40);
   doc.text(`Movimientos (${movimientos.length})`, MARGIN, y);
   y += 4;
 
@@ -150,6 +158,7 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(10);
     doc.text('Sin movimientos registrados.', MARGIN, y + 14);
+    y += 14;
   } else {
     autoTable(doc, {
       startY: y + 4,
@@ -174,25 +183,29 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
         5: { halign: 'right' },
         6: { halign: 'right' },
       },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: { ...MARGENES_TABLA_PDF },
     });
     // Saldo y PMP son del almacén de cada línea; las recepciones de compra no registran
     // almacén y llevan el saldo y el PMP de TODAS las sedes. El papel debe decirlo.
-    const yNota = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    asegurarEspacio(20);
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8);
     doc.setTextColor(90);
-    doc.text('Saldo y PMP corresponden al almacén de cada línea. En las líneas «(sin almacén)» (recepciones de compra) son el saldo y el PMP de todas las sedes.', MARGIN, yNota, { maxWidth: PAGE_W - 2 * MARGIN });
+    doc.text('Saldo y PMP corresponden al almacén de cada línea. En las líneas «(sin almacén)» (recepciones de compra) son el saldo y el PMP de todas las sedes.', MARGIN, y, { maxWidth: anchoUtilPdf(PAGE_W) });
     doc.setTextColor(0);
+    y += 20;
   }
 
-  const pageH = doc.internal.pageSize.getHeight();
+  // El pie va dentro del marco de 2 cm, sin pisar lo último que se escribió.
+  asegurarEspacio(14);
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text(
     `Documento auto-generado · ${producto.sku} · ${dateTime(new Date().toISOString())}`,
     MARGIN,
-    pageH - 24,
+    LIMITE,
   );
 
   doc.save(`trazabilidad-${producto.sku}.pdf`);

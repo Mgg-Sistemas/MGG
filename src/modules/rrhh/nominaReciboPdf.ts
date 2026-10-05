@@ -4,6 +4,7 @@
    desglose del pago y las líneas de firma (trabajador y RRHH).
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import { definicionEmpresa, normalizarEmpresa } from './empresa';
 import { date as fmtDate } from '@/shared/lib/format';
 import { aBs, calcularRecibo } from './sueldoQuincena';
@@ -39,7 +40,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
 
   renglones.forEach((r, idx) => {
     if (idx > 0) doc.addPage();
@@ -87,7 +88,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['Estado', r.estado === 'pagada' ? `Pagado${r.pagada_en ? ' · ' + fmtDate(r.pagada_en) : ''}` : 'Por pagar',
           'Sueldo mensual', usd(r.sueldo_base_mensual)],
       ],
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
       theme: 'grid',
       styles: { fontSize: 9, cellPadding: 5 },
       columnStyles: { 0: { fontStyle: 'bold', cellWidth: 90 }, 2: { fontStyle: 'bold', cellWidth: 90 } },
@@ -145,7 +146,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['', 'TOTALES', bsStr(c.totalDevengadoBs), usd(c.totalDevengadoUsd), bsStr(c.totalDeduccionBs), usd(c.totalDeduccionUsd)],
         ['', 'NETO DEL RECIBO', bsStr(c.netoBs), usd(c.netoUsd), '', ''],
       ],
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
       styles: { fontSize: 8.5, cellPadding: 4 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
@@ -165,7 +166,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       startY: y,
       head: [['BONO', 'Monto $']],
       body: [['Bono de la quincena (80 % del total acordado)', usd(c.bonoUsd)]],
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
       styles: { fontSize: 8.5, cellPadding: 4 },
       headStyles: { fillColor: [55, 55, 55], textColor: 255, fontStyle: 'bold' },
       columnStyles: { 1: { halign: 'right', cellWidth: 120 } },
@@ -184,7 +185,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['Bono en divisas', '', usd(c.bonoUsd)],
       ],
       foot: [['TOTAL RECIBIDO', '', usd(c.totalRecibidoUsd)]],
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
       styles: { fontSize: 8.5, cellPadding: 4 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
@@ -196,17 +197,25 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     // moneda pero el sueldo se pactó en la otra.
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
     const conformidad = `Certifico haber recibido ${bsStr(c.netoBs)} en bolívares (${usd(c.netoUsd)} a la tasa de ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$) más ${usd(c.bonoUsd)} de bono en divisas, lo que hace un total de ${usd(c.totalRecibidoUsd)}, que comprende la totalidad de mi remuneración del período indicado, y firmo en señal de conformidad.`;
-    doc.text(doc.splitTextToSize(conformidad, PAGE_W - MARGIN * 2), MARGIN, y + 10);
-    y += 10 + doc.splitTextToSize(conformidad, PAGE_W - MARGIN * 2).length * 11;
+    const lineasConformidad = doc.splitTextToSize(conformidad, anchoUtilPdf(PAGE_W)) as string[];
+    // Si no entra sobre el margen inferior, la conformidad pasa a la hoja siguiente.
+    if (y + 10 + lineasConformidad.length * 11 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN; }
+    doc.text(lineasConformidad, MARGIN, y + 10);
+    y += 10 + lineasConformidad.length * 11;
 
     if (r.seriales_billetes && r.seriales_billetes.length) {
       doc.setFontSize(8);
-      doc.text(`Seriales de billetes: ${r.seriales_billetes.join(', ')}`, MARGIN, y + 8);
+      const seriales = doc.splitTextToSize(`Seriales de billetes: ${r.seriales_billetes.join(', ')}`, anchoUtilPdf(PAGE_W)) as string[];
+      if (y + 8 + seriales.length * 10 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN; }
+      doc.text(seriales, MARGIN, y + 8);
+      y += 8 + seriales.length * 10;
     }
 
-    // Firmas (al pie de la página).
-    const fy = PAGE_H - MARGIN - 50;
-    const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
+    // Firmas (al pie de la página). El bloque termina (fy + 26) dentro del margen
+    // inferior; si lo de arriba llegó hasta ahí, las firmas pasan a la hoja siguiente.
+    const fy = limiteInferiorPdf(PAGE_H) - 50;
+    if (y + 24 > fy) doc.addPage();
+    const colW = (anchoUtilPdf(PAGE_W) - 40) / 2;
     doc.setDrawColor(120); doc.setLineWidth(0.7);
     doc.line(MARGIN, fy, MARGIN + colW, fy);
     doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);

@@ -5,6 +5,7 @@
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { ResumenInventarioMovs } from './inventarioResumen.repository';
 
 export interface ResumenAlmacenFila {
@@ -23,7 +24,7 @@ export interface ResumenInventarioFull {
   movs: ResumenInventarioMovs;
 }
 
-const MARGIN = 42.52; // 1,5 cm
+const MARGIN = MARGEN_PDF; // 2 cm
 
 async function construirDoc(data: ResumenInventarioFull) {
   const [{ jsPDF }, { default: autoTable }, logoDataUrl] = await Promise.all([
@@ -33,7 +34,13 @@ async function construirDoc(data: ResumenInventarioFull) {
   ]);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
+  const LIMITE = limiteInferiorPdf(doc.internal.pageSize.getHeight());
   let y = MARGIN;
+  // Un título no queda solo al pie: si no cabe con un par de filas debajo, salta de página.
+  const asegurarEspacio = (yAct: number, need: number) => {
+    if (yAct + need > LIMITE) { doc.addPage(); return MARGIN; }
+    return yAct;
+  };
 
   const LOGO_SIZE = 56;
   const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
@@ -70,13 +77,14 @@ async function construirDoc(data: ResumenInventarioFull) {
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 240 }, 1: { halign: 'right' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
 
   // Almacenes y subalmacenes
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
+  y = asegurarEspacio(y, 40);
   doc.text('Total por almacén y subalmacén', MARGIN, y);
   autoTable(doc, {
     startY: y + 6,
@@ -91,7 +99,7 @@ async function construirDoc(data: ResumenInventarioFull) {
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 9 },
     styles: { fontSize: 8, cellPadding: 3 },
     columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
 
@@ -105,7 +113,7 @@ async function construirDoc(data: ResumenInventarioFull) {
     if (!g.items.length) continue;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    const yTit = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
+    const yTit = asegurarEspacio((doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16, 40);
     doc.text(`${titulo} (${g.count})`, MARGIN, yTit);
     autoTable(doc, {
       startY: yTit + 6,
@@ -123,14 +131,16 @@ async function construirDoc(data: ResumenInventarioFull) {
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 8 },
       styles: { fontSize: 7.5, cellPadding: 2.5 },
       columnStyles: { 3: { halign: 'right' }, 6: { halign: 'right' } },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: { ...MARGENES_TABLA_PDF },
     });
   }
 
-  const pageH = doc.internal.pageSize.getHeight();
+  // El pie va dentro del marco de 2 cm; si la última tabla llega hasta abajo, pasa a otra hoja.
+  const finTablas = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  if (finTablas + 14 > LIMITE) doc.addPage();
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text(`Documento auto-generado · Resumen de Inventario · ${dateTime(new Date().toISOString())}`, MARGIN, pageH - 24);
+  doc.text(`Documento auto-generado · Resumen de Inventario · ${dateTime(new Date().toISOString())}`, MARGIN, LIMITE);
   return doc;
 }
 

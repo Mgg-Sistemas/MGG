@@ -6,6 +6,7 @@
    ============================================================ */
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { MARGEN_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
 const GRIS_TEXTO: [number, number, number] = [60, 60, 60];
@@ -200,16 +201,21 @@ export async function descargarManualUsuario(capturas: CapturasManual = {}): Pro
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
-  const CONTENT_W = PAGE_W - MARGIN * 2;
-  const BOTTOM = PAGE_H - 54;
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
+  const CONTENT_W = anchoUtilPdf(PAGE_W);
+  // El pie (número de página) va en la última línea del marco; el contenido termina encima.
+  const PIE_Y = limiteInferiorPdf(PAGE_H);
+  const BOTTOM = PIE_Y - 16;
+  // El texto se escribe sobre su línea base: al empezar hoja se baja un poco para que
+  // las mayúsculas no crucen el margen superior.
+  const TOPE_TEXTO = MARGIN + 12;
   let y = MARGIN;
 
   // Asegura espacio vertical; si no entra, agrega página nueva.
   function ensure(h: number) {
     if (y + h > BOTTOM) {
       doc.addPage();
-      y = MARGIN;
+      y = TOPE_TEXTO;
     }
   }
 
@@ -249,7 +255,8 @@ export async function descargarManualUsuario(capturas: CapturasManual = {}): Pro
     const ratio = cap.h > 0 ? cap.h / cap.w : 0.6;
     let w = CONTENT_W;
     let h = w * ratio;
-    const MAX_H = 380; // no más de ~media página, para que respire
+    // no más de ~media página, para que respire (y nunca más alto que lo que cabe en el marco)
+    const MAX_H = Math.min(380, BOTTOM - TOPE_TEXTO - 22);
     if (h > MAX_H) { h = MAX_H; w = h / ratio; }
     const x = MARGIN + (CONTENT_W - w) / 2;
 
@@ -367,8 +374,8 @@ export async function descargarManualUsuario(capturas: CapturasManual = {}): Pro
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
-    doc.text('Mineral Group Guayana C.A. · Manual de Usuario', MARGIN, PAGE_H - 28);
-    doc.text(`Página ${i} de ${total}`, PAGE_W - MARGIN, PAGE_H - 28, { align: 'right' });
+    doc.text('Mineral Group Guayana C.A. · Manual de Usuario', MARGIN, PIE_Y);
+    doc.text(`Página ${i} de ${total}`, PAGE_W - MARGIN, PIE_Y, { align: 'right' });
   }
 
   doc.save('Manual-de-Usuario-MGG.pdf');

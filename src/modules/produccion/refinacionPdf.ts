@@ -12,6 +12,7 @@ import { listMinerales, type RecepcionMineral, type RecepcionAnalisis } from '@/
 import { renderAnalisisQuimicoPdf } from './analisisQuimicoPdf';
 import { horaLegible } from '@/shared/lib/hora';
 import { listaPrecintos } from './precintosOrigen';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 const ORANGE: [number, number, number] = [214, 90, 24];
 const GREY: [number, number, number] = [90, 90, 90];
@@ -42,7 +43,8 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const H = doc.internal.pageSize.getHeight();
+  const MARGIN = MARGEN_PDF;
   const CW = W - MARGIN * 2;
   let y = MARGIN;
 
@@ -58,7 +60,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
     ['EMISIÓN', '17-07-2026'], ['LOTE N°', ref ? String(ref.refinacion_num) : '—'],
   ];
   autoTable(doc, {
-    startY: y, margin: { left: W - MARGIN - 150, right: MARGIN },
+    startY: y, margin: { ...MARGENES_TABLA_PDF, left: W - MARGIN - 150 },
     body: codBox, theme: 'grid', tableWidth: 150,
     styles: { fontSize: 7, cellPadding: 1.6 },
     columnStyles: { 0: { fillColor: ORANGE, textColor: 255, fontStyle: 'bold', cellWidth: 62 }, 1: { cellWidth: 88 } },
@@ -66,7 +68,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
   y += 56;
 
   const barra = (texto: string) => {
-    if (y > doc.internal.pageSize.getHeight() - 90) { doc.addPage(); y = MARGIN; }
+    if (y > limiteInferiorPdf(H) - 50) { doc.addPage(); y = MARGIN; }
     doc.setFillColor(...ORANGE); doc.rect(MARGIN, y, CW, 17, 'F');
     doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
     doc.text(texto, MARGIN + 8, y + 12);
@@ -75,7 +77,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
   };
   const ficha = (rows: Array<[string, string, string?, string?]>) => {
     autoTable(doc, {
-      startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+      startY: y, margin: MARGENES_TABLA_PDF, tableWidth: CW,
       body: rows.map((r) => [r[0], r[1], r[2] ?? '', r[3] ?? '']),
       theme: 'plain', styles: { fontSize: 8.5, cellPadding: 2.5, valign: 'middle' },
       columnStyles: {
@@ -104,7 +106,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
   if (coladas.length) {
     barra('TRAZABILIDAD · ORIGEN DEL MATERIAL Y PRECINTOS');
     autoTable(doc, {
-      startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+      startY: y, margin: MARGENES_TABLA_PDF, tableWidth: CW,
       head: [['Origen', 'Fecha', 'Almacén', 'Kg tomados', 'Precintos']],
       body: coladas.map((c) => [
         c.etiqueta ?? `#${c.colada_num || 's/n'}`,
@@ -142,7 +144,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
     ] as [string, string, string, string]),
   ];
   autoTable(doc, {
-    startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+    startY: y, margin: MARGENES_TABLA_PDF, tableWidth: CW,
     head: [['Material / reactivo', 'Almacén', 'Cantidad (kg)', '% de la mezcla']],
     body: compBody,
     foot: [['TOTAL', '', n2(totalMezcla), '100,00 %']],
@@ -169,7 +171,7 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
   barra('CONTROL DE TEMPERATURA Y ETAPAS');
   const etapas = d.etapas ?? [];
   autoTable(doc, {
-    startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+    startY: y, margin: MARGENES_TABLA_PDF, tableWidth: CW,
     head: [['N°', 'Hora', 'T. baño', 'T. quemador', 'Acción operativa / reactivo']],
     body: etapas.length
       ? etapas.map((et, i) => [String(i + 1), txt(horaLegible(et.hora)), tempC(et.temp_bano), tempC(et.temp_quemador), txt(et.accion || et.etapa)])
@@ -214,10 +216,10 @@ async function construir(prod: Produccion, ref: ProduccionRefinacion | null, ana
   }
 
   // ── Firmas ──
-  if (y > doc.internal.pageSize.getHeight() - 80) { doc.addPage(); y = MARGIN; }
+  if (y > limiteInferiorPdf(H) - 75) { doc.addPage(); y = MARGIN; }
   y += 6;
   autoTable(doc, {
-    startY: y, margin: { left: MARGIN, right: MARGIN }, tableWidth: CW,
+    startY: y, margin: MARGENES_TABLA_PDF, tableWidth: CW,
     head: [['ELABORADO POR', 'REVISADO POR', 'APROBADO POR']],
     body: [['\n\n\n', '\n\n\n', '\n\n\n']],
     theme: 'grid',

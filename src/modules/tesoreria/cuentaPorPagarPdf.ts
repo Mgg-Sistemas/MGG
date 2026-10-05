@@ -7,6 +7,7 @@
    ============================================================ */
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { CuentaPorPagar, AbonoCxP, IngresoCxP } from './cuentasPorPagar.repository';
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -25,8 +26,11 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
+  const PAGE_H = doc.internal.pageSize.getHeight();
   let y = MARGIN;
+  // Si lo que viene no cabe antes del margen inferior, pasa a una página nueva.
+  const asegurarEspacio = (alto: number) => { if (y + alto > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN; } };
 
   const moneda = cuenta.moneda;
   const tipoLabel = cuenta.tipo === 'proveedor' ? 'Proveedor' : 'Cliente';
@@ -61,7 +65,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
     startY: y,
     head: [['Total', 'Abonado', 'Saldo pendiente']],
     body: [[montoStr(cuenta.monto, moneda), montoStr(cuenta.abonado, moneda), montoStr(saldo, moneda)]],
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 10, cellPadding: 6, halign: 'center', fontStyle: 'bold' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', halign: 'center' },
   });
@@ -71,13 +75,16 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
   if (cuenta.nota) {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'italic');
-    doc.text(`Nota: ${cuenta.nota}`, MARGIN, y);
-    y += 14;
+    const lineasNota = doc.splitTextToSize(`Nota: ${cuenta.nota}`, anchoUtilPdf(PAGE_W)) as string[];
+    asegurarEspacio(lineasNota.length * 11);
+    doc.text(lineasNota, MARGIN, y);
+    y += 14 + (lineasNota.length - 1) * 11;
   }
 
   // Detalle de ingresos (cada entrada de dinero del cliente/proveedor con su fecha + acumulado).
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
+  asegurarEspacio(40);
   doc.text('Detalle de ingresos (fechas)', MARGIN, y);
   y += 6;
   let acc = 0;
@@ -89,7 +96,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
     startY: y + 4,
     head: [['#', 'Fecha', 'Ingreso', 'Acumulado (se debe)', 'Nota']],
     body: filasIng.length ? filasIng : [['—', '—', 'Sin ingresos registrados', '—', '—']],
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 8.5, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     footStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
@@ -109,6 +116,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
   // Historial de abonos.
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
+  asegurarEspacio(40);
   doc.text('Historial de abonos', MARGIN, y);
   y += 6;
 
@@ -123,7 +131,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
     startY: y + 4,
     head: [['Fecha', 'Abono', 'Saldo restante', 'Nota']],
     body: filas.length ? filas : [['—', 'Sin abonos registrados', '—', '—']],
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 8.5, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     footStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },

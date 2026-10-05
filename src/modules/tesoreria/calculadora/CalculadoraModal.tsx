@@ -16,6 +16,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '../tasas.repository';
 import { calcular } from '@/shared/lib/calculo';
 import {
@@ -255,7 +256,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       const logo = await logoMod.loadLogoDataUrl().catch(() => null);
       const doc = new jsPDF({ unit: 'pt', format: 'letter' });
       const PAGE_W = doc.internal.pageSize.getWidth();
-      const MARGIN = 42.52; let y = MARGIN;
+      const MARGIN = MARGEN_PDF; let y = MARGIN; // 2 cm
       const LOGO = 60; const TX = logo ? MARGIN + LOGO + 14 : MARGIN;
       if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* logo opcional */ } }
       doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
@@ -273,7 +274,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
         startY: y + 8,
         head: [['#', 'Operación', 'Resultado']],
         body: filas,
-        margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+        margin: MARGENES_TABLA_PDF,
         styles: { fontSize: 9, cellPadding: 5, overflow: 'linebreak' },
         headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
         columnStyles: { 0: { cellWidth: 30, halign: 'right' }, 1: { cellWidth: 'auto', font: 'courier' }, 2: { cellWidth: 140, halign: 'right', fontStyle: 'bold' } },

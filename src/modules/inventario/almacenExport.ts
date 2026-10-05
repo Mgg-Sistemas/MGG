@@ -5,6 +5,7 @@
    vienen con los valores propios del almacén (PMP por almacén).
    ============================================================ */
 import { previewWorkbook, previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 
 interface FilaAlmacen extends Producto { _valor?: number }
@@ -79,7 +80,7 @@ export async function descargarAlmacenPdf(almacen: string, rows: Producto[]): Pr
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 60 : MARGIN;
@@ -105,7 +106,7 @@ export async function descargarAlmacenPdf(almacen: string, rows: Producto[]): Pr
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
     styles: { fontSize: 8, cellPadding: 3 },
     columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF },
   });
   previewPdfDoc(doc, `almacen-${almacen}.pdf`);
 }
@@ -146,7 +147,7 @@ export async function descargarReporteAlmacenesPdf(espacio: 'principal' | 'depos
   }
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF; // 2 cm
   const PAGE_H = doc.internal.pageSize.getHeight();
   let y = MARGIN;
 

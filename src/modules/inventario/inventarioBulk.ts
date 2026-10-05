@@ -1,4 +1,5 @@
 import { previewWorkbook } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 import { supabase } from '@/shared/lib/supabase';
 import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
@@ -708,7 +709,7 @@ export async function exportarInventarioPdf(productos: Producto[], rot?: ExportR
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   const LOGO_SIZE = 50;
@@ -751,7 +752,7 @@ export async function exportarInventarioPdf(productos: Producto[], rot?: ExportR
       5: { halign: 'right' }, 6: { halign: 'right' },
       7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF },
   });
 
   const stamp = new Date().toISOString().slice(0, 10);

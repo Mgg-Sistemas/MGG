@@ -4,6 +4,10 @@
    consumos del período (aceite / gasoil / refrigerante / filtros).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
+
+/** Margen de la tabla con 14 pt extra abajo: deja sitio al pie «Generado…» dentro del marco. */
+const MARGEN_TABLA_CON_PIE = { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 };
 
 export interface ResumenMantRow {
   equipo: string;
@@ -54,7 +58,7 @@ export async function descargarMovimientosEquipoPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF; // 2 cm
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -100,14 +104,15 @@ export async function descargarMovimientosEquipoPdf(
       5: { halign: 'right', cellWidth: 45 },
       6: { halign: 'right', cellWidth: 48 },
       7: { halign: 'right', cellWidth: 60 },
-      8: { cellWidth: 150 },
-      9: { cellWidth: 110 },
+      // Suman 678 pt: caben en el ancho útil de la carta apaisada con 2 cm por lado.
+      8: { cellWidth: 130 },
+      9: { cellWidth: 97 },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGEN_TABLA_CON_PIE,
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} movimiento(s) · ${equipo} · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} movimiento(s) · ${equipo} · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(doc.internal.pageSize.getHeight()));
 
   previewPdfDoc(doc, `bitacora-${equipo.toLowerCase().replace(/\s+/g, '-')}.pdf`);
 }
@@ -126,7 +131,7 @@ export async function descargarResumenMantenimientoPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm
+  const MARGIN = MARGEN_PDF; // 2 cm
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -174,7 +179,8 @@ export async function descargarResumenMantenimientoPdf(
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right' },
     columnStyles: {
       0: { halign: 'center', cellWidth: 32 },
-      1: { cellWidth: 200 },
+      // EQUIPO cede ancho para que la tabla (678 pt) quepa entre los márgenes de 2 cm.
+      1: { cellWidth: 156 },
       2: { cellWidth: 95 },
       3: { halign: 'right', cellWidth: 75 },
       4: { halign: 'right', cellWidth: 70 },
@@ -183,11 +189,11 @@ export async function descargarResumenMantenimientoPdf(
       7: { halign: 'right', cellWidth: 65 },
       8: { halign: 'right', cellWidth: 55 },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGEN_TABLA_CON_PIE,
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} equipo(s) · ${grupo} · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} equipo(s) · ${grupo} · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(doc.internal.pageSize.getHeight()));
 
   previewPdfDoc(doc, `mantenimiento-${grupo.toLowerCase().replace(/\s+/g, '-')}.pdf`);
 }

@@ -10,6 +10,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf } from '@/shared/lib/textoPdf';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import {
   filaColada, agruparPorCiclo, totalesPeriodo, periodoDe, hallazgos,
   type ColadaReporte,
@@ -70,7 +71,7 @@ export async function generarReporteFundicionMatanzas(
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF;
   const ANCHO = W - MARGIN * 2;
   let y = MARGIN;
   const T = (v: unknown): string => textoPdf(v);
@@ -89,7 +90,7 @@ export async function generarReporteFundicionMatanzas(
   y += 74;
 
   function barra(texto: string): void {
-    if (y > H - 90) { doc.addPage(); y = MARGIN; }
+    if (y > limiteInferiorPdf(H) - 50) { doc.addPage(); y = MARGIN; }
     doc.setFillColor(...ORANGE);
     doc.rect(MARGIN, y, ANCHO, 15, 'F');
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(255, 255, 255);
@@ -108,7 +109,7 @@ export async function generarReporteFundicionMatanzas(
         0: { fontStyle: 'bold', cellWidth: ANCHO * 0.2 }, 1: { cellWidth: ANCHO * 0.3 },
         2: { fontStyle: 'bold', cellWidth: ANCHO * 0.2 },
       },
-      margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margin: MARGENES_TABLA_PDF,
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
     y = (doc.lastAutoTable?.finalY ?? y) + 10;
@@ -118,10 +119,14 @@ export async function generarReporteFundicionMatanzas(
     const t = T(texto).trim();
     if (!t) return;
     doc.setFont('helvetica', negrita ? 'bold' : 'normal'); doc.setFontSize(8.5);
-    const lineas = doc.splitTextToSize(t, ANCHO);
-    if (y + lineas.length * 11 > H - MARGIN) { doc.addPage(); y = MARGIN; }
-    doc.text(lineas, MARGIN, y + 8);
-    y += lineas.length * 11 + 8;
+    const lineas: string[] = doc.splitTextToSize(t, ANCHO);
+    // Renglón por renglón: un párrafo largo salta de página sin pasar el margen inferior.
+    for (const linea of lineas) {
+      if (y + 11 > limiteInferiorPdf(H)) { doc.addPage(); y = MARGIN; }
+      doc.text(linea, MARGIN, y + 8);
+      y += 11;
+    }
+    y += 8;
   }
 
   // ── 1. Identificación ──
@@ -142,7 +147,7 @@ export async function generarReporteFundicionMatanzas(
   // ── 3. Resumen individual por colada ──
   barra('RESUMEN INDIVIDUAL POR COLADA');
   autoTable(doc, {
-    startY: y, margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN }, tableWidth: ANCHO,
+    startY: y, margin: MARGENES_TABLA_PDF, tableWidth: ANCHO,
     head: [['Colada', 'Fecha', 'Turno', 'Casiterita (kg)', 'Tenor', 'Sn teórico (kg)', 'Coque (kg)', 'Caliza (kg)', 'Mezcla (kg)', 'Estaño (kg)', 'Ling.', 'Peso/ling.', 'Escoria (kg)', 'Merma (kg)', 'Rendim.', 'Temp.', 'Dur. (h)'].map(T)],
     body: filas.map((f) => [
       `#${f.colada_num}`, fecha(f.fecha), f.turno || '—',
@@ -166,7 +171,7 @@ export async function generarReporteFundicionMatanzas(
   // ── 4. Rendimiento por ciclo de escoria ──
   barra('RENDIMIENTO AGRUPADO POR CICLO DE ESCORIA');
   autoTable(doc, {
-    startY: y, margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN }, tableWidth: ANCHO,
+    startY: y, margin: MARGENES_TABLA_PDF, tableWidth: ANCHO,
     head: [['Ciclo', 'Casiterita (kg)', 'Sn teórico (kg)', 'Estaño obtenido (kg)', 'Escoria (kg)', 'Sn recuperable XRF (kg)', 'Estaño potencial (kg)', 'Rendim. real', 'Rendim. potencial'].map(T)],
     body: grupos.map((g) => [
       g.etiqueta, kg(g.casiterita_kg), kg(g.sn_teorico_kg), kg(g.estano_kg),
@@ -198,7 +203,7 @@ export async function generarReporteFundicionMatanzas(
   if (conEscoria.length) {
     barra('ANÁLISIS DE ESCORIAS · RECUPERACIÓN ADICIONAL (XRF)');
     autoTable(doc, {
-      startY: y, margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN }, tableWidth: ANCHO,
+      startY: y, margin: MARGENES_TABLA_PDF, tableWidth: ANCHO,
       head: [['Colada', 'Muestra N°', 'Masa de escoria (kg)', 'Sn (%) XRF', 'Sn recuperable (kg)'].map(T)],
       body: conEscoria.map((f) => [
         `#${f.colada_num}`, f.muestra_escoria || '—', kg(f.escoria_kg),
@@ -224,7 +229,7 @@ export async function generarReporteFundicionMatanzas(
   if (!hs.length && !obs.length) parrafo('Sin observaciones registradas en el período.');
 
   // ── Firma ──
-  if (y > H - 110) { doc.addPage(); y = MARGIN; }
+  if (y > limiteInferiorPdf(H) - 70) { doc.addPage(); y = MARGIN; }
   y += 24;
   doc.setDrawColor(...GREY);
   doc.line(MARGIN, y, MARGIN + 200, y);

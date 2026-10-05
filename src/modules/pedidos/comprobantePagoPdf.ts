@@ -11,6 +11,7 @@ import { dateTime, money } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
+import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 import { labelMetodoPago } from './pedidos.repository';
 import { labelCondicionPago } from './ofertas.repository';
 import type { Orden, Proveedor } from '@/shared/lib/types';
@@ -28,7 +29,7 @@ async function construir(orden: Orden, proveedor: Proveedor | null) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF; // 2 cm por lado
   let y = MARGIN;
 
   const LOGO = 60;
@@ -63,7 +64,7 @@ async function construir(orden: Orden, proveedor: Proveedor | null) {
     startY: y + 6,
     head: [['Orden de compra', '']],
     body: filasOrden,
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 9, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: ORANGE, textColor: 255, fontStyle: 'bold' },
     columnStyles: { 0: { cellWidth: 150, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
@@ -88,7 +89,7 @@ async function construir(orden: Orden, proveedor: Proveedor | null) {
     startY: afterY,
     head: [['Pago', '']],
     body: filasPago,
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 9, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: ORANGE, textColor: 255, fontStyle: 'bold' },
     columnStyles: { 0: { cellWidth: 150, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },

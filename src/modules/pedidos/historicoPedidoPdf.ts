@@ -5,6 +5,7 @@
    historial. Solo por botón, con vista previa.
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { Orden } from '@/shared/lib/types';
 
 function money(n: number | null | undefined): string {
@@ -24,7 +25,10 @@ export async function descargarDetallePedidoPdf(orden: Orden, proveedorNombre?: 
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = MARGEN_PDF; // 2 cm por lado
+  const PAGE_H = doc.internal.pageSize.getHeight();
+  // El pie va en la última línea del marco; las tablas le dejan 14 pt.
+  const MARGEN_TABLAS = { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 };
   let y = MARGIN;
 
   const LOGO = 56;
@@ -56,8 +60,8 @@ export async function descargarDetallePedidoPdf(orden: Orden, proveedorNombre?: 
     body: filas.map(([k, v]) => [k, v]),
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 2 },
-    columnStyles: { 0: { cellWidth: 120, fontStyle: 'bold', textColor: [90, 90, 90] }, 1: { cellWidth: W - MARGIN * 2 - 120 } },
-    margin: { left: MARGIN, right: MARGIN },
+    columnStyles: { 0: { cellWidth: 120, fontStyle: 'bold', textColor: [90, 90, 90] }, 1: { cellWidth: anchoUtilPdf(W) - 120 } },
+    margin: MARGEN_TABLAS,
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = (doc.lastAutoTable?.finalY ?? y) + 12;
@@ -83,33 +87,38 @@ export async function descargarDetallePedidoPdf(orden: Orden, proveedorNombre?: 
     columnStyles: {
       0: { halign: 'center', cellWidth: 26 },
       1: { cellWidth: 90 },
-      2: { cellWidth: W - MARGIN * 2 - 26 - 90 - 80 - 75 - 80 },
+      2: { cellWidth: anchoUtilPdf(W) - 26 - 90 - 80 - 75 - 80 },
       3: { halign: 'right', cellWidth: 80 },
       4: { halign: 'right', cellWidth: 75 },
       5: { halign: 'right', cellWidth: 80 },
     },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGEN_TABLAS,
   });
   // @ts-expect-error lastAutoTable lo agrega el plugin
   y = (doc.lastAutoTable?.finalY ?? y) + 14;
 
   const motivo = (orden.motivo ?? orden.finalidad ?? '').trim();
   const notas = (orden.notas ?? '').trim();
-  const PAGE_H = doc.internal.pageSize.getHeight();
+  // Contenido hasta 14 pt por encima del pie.
+  const LIMITE_TEXTO = limiteInferiorPdf(PAGE_H) - 14;
   function bloqueTexto(titulo: string, texto: string) {
     if (!texto) return;
-    if (y > PAGE_H - MARGIN - 50) { doc.addPage(); y = MARGIN; }
+    if (y > LIMITE_TEXTO - 30) { doc.addPage(); y = MARGIN + 10; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
     doc.text(titulo, MARGIN, y); y += 13;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0);
-    const lines = doc.splitTextToSize(texto, W - MARGIN * 2);
-    doc.text(lines, MARGIN, y); y += lines.length * 12 + 8;
+    const lines = doc.splitTextToSize(texto, anchoUtilPdf(W)) as string[];
+    for (const line of lines) {
+      if (y > LIMITE_TEXTO) { doc.addPage(); y = MARGIN + 10; }
+      doc.text(line, MARGIN, y); y += 12;
+    }
+    y += 8;
   }
   bloqueTexto('Motivo / finalidad', motivo);
   bloqueTexto('Notas', notas);
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`, MARGIN, PAGE_H - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(PAGE_H));
 
   previewPdfDoc(doc, `pedido-${orden.codigo}.pdf`);
 }

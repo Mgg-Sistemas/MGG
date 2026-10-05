@@ -5,6 +5,7 @@
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 export interface ActividadFila {
   nombre: string;
@@ -22,7 +23,7 @@ export interface ActividadPdfData {
   filas: ActividadFila[];
 }
 
-const MARGIN = 42.52; // 1,5 cm
+const MARGIN = MARGEN_PDF; // 2 cm
 
 /** Minutos → "Xh Ym" (o "Ym" si <1h). */
 export function fmtDuracionMin(min: number): string {
@@ -74,13 +75,16 @@ async function construirDoc(data: ActividadPdfData) {
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: 9 },
     styles: { fontSize: 8.5, cellPadding: 3 },
     columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
 
-  const pageH = doc.internal.pageSize.getHeight();
+  const limite = limiteInferiorPdf(doc.internal.pageSize.getHeight());
+  // El pie va sobre el margen inferior; si la tabla llegó hasta ahí, va en hoja nueva.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (((doc as any).lastAutoTable?.finalY ?? y) + 14 > limite) doc.addPage();
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text(`Documento auto-generado · Resumen de Actividad · ${dateTime(new Date().toISOString())}`, MARGIN, pageH - 24);
+  doc.text(`Documento auto-generado · Resumen de Actividad · ${dateTime(new Date().toISOString())}`, MARGIN, limite);
   return doc;
 }
 

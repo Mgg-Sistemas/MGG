@@ -15,6 +15,7 @@
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf, filaPdf } from '@/shared/lib/textoPdf';
 import { date as fmtDate } from '@/shared/lib/format';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { Asignacion, Personal } from '@/shared/lib/types';
 import { numeroFicha } from '@/modules/rrhh/fichaPersonal';
 import {
@@ -26,6 +27,12 @@ const GRIS: [number, number, number] = [120, 120, 120];
 const TINTA: [number, number, number] = [40, 40, 40];
 const ROJO: [number, number, number] = [200, 60, 60];
 const VERDE: [number, number, number] = [40, 150, 90];
+
+/**
+ * Lo que ocupan las firmas al pie (línea, rótulo y nota), medido desde el
+ * margen inferior de 2 cm: las tablas terminan antes para no pisarlas.
+ */
+const ALTO_FIRMAS = 70;
 
 /** El rango que se está mirando, para el encabezado. */
 function textoRango(desde?: string | null, hasta?: string | null): string {
@@ -64,7 +71,9 @@ async function encabezado(doc: any, W: number, M: number, titulo: string, sub: s
 
 /** Las dos firmas del pie: quien recibe y quien entrega. */
 function firmas(doc: any, W: number, M: number, H: number, nota: string): void {
-  const y = H - 78;
+  // La nota va justo sobre el margen inferior (2 cm); las firmas, 40 pt arriba.
+  const yNota = limiteInferiorPdf(H);
+  const y = yNota - 40;
   const ancho = (W - M * 2 - 40) / 2;
   doc.setDrawColor(...GRIS); doc.setLineWidth(0.6);
   doc.line(M, y, M + ancho, y);
@@ -73,7 +82,7 @@ function firmas(doc: any, W: number, M: number, H: number, nota: string): void {
   doc.text(textoPdf('Firma del trabajador'), M + ancho / 2, y + 12, { align: 'center' });
   doc.text(textoPdf('Por la empresa'), W - M - ancho / 2, y + 12, { align: 'center' });
   doc.setFontSize(7);
-  doc.text(textoPdf(nota), W / 2, H - 30, { align: 'center' });
+  doc.text(textoPdf(nota), W / 2, yNota, { align: 'center', maxWidth: W - M * 2 });
 }
 
 /**
@@ -117,7 +126,7 @@ export async function verHistorialAsignacionesPdf(
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const M = 42;
+  const M = MARGEN_PDF;
 
   let y = await encabezado(
     doc, W, M,
@@ -155,7 +164,7 @@ export async function verHistorialAsignacionesPdf(
   const tabla = (titulo: string, color: [number, number, number], lista: Asignacion[], conRetorno: boolean) => {
     if (!lista.length) return;
     // Que un título no quede solo al filo de la hoja con su tabla en la siguiente.
-    if (y + 60 > H - 110) { doc.addPage(); y = M; }
+    if (y + 60 > limiteInferiorPdf(H) - ALTO_FIRMAS) { doc.addPage(); y = M + 10; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...color);
     doc.text(textoPdf(titulo), M, y);
     doc.setDrawColor(...color); doc.setLineWidth(0.6);
@@ -174,7 +183,7 @@ export async function verHistorialAsignacionesPdf(
            textoEstado(a.estado, a.retornable)])),
       styles: { fontSize: 7.5, cellPadding: 3 },
       headStyles: { fillColor: color, textColor: 255, fontStyle: 'bold' },
-      margin: { left: M, right: M, bottom: 100 },
+      margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + ALTO_FIRMAS },
       theme: 'grid',
     });
     y = ((doc as any).lastAutoTable?.finalY ?? y) + 18;
@@ -203,7 +212,7 @@ export async function verConsolidadoAsignacionesPdf(
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const M = 36;
+  const M = MARGEN_PDF;
 
   let y = await encabezado(
     doc, W, M,
@@ -226,8 +235,9 @@ export async function verConsolidadoAsignacionesPdf(
   const porTipo = conteoPorTipo(filas);
   if (porTipo.length) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GRIS);
-    doc.text(textoPdf(porTipo.map((t) => `${t.label}: ${t.cantidad}`).join('   ·   ')), M, y);
-    y += 16;
+    const lineasTipo = doc.splitTextToSize(textoPdf(porTipo.map((t) => `${t.label}: ${t.cantidad}`).join('   ·   ')), W - M * 2) as string[];
+    doc.text(lineasTipo, M, y);
+    y += 16 + (lineasTipo.length - 1) * 10;
   }
 
   autoTable(doc as any, {
@@ -250,14 +260,15 @@ export async function verConsolidadoAsignacionesPdf(
       const fila = filas[d.row.index];
       if (fila && estaPendiente(fila)) d.cell.styles.textColor = ROJO;
     },
-    margin: { left: M, right: M, bottom: 40 },
+    // Abajo se reserva la línea de la nota, que va sobre el margen de 2 cm.
+    margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 16 },
     theme: 'grid',
   });
 
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...GRIS);
   doc.text(
     textoPdf('En rojo, lo que esta pendiente de devolucion. La dotacion y el material de oficina no retornan.'),
-    W / 2, H - 20, { align: 'center' },
+    W / 2, limiteInferiorPdf(H), { align: 'center', maxWidth: W - M * 2 },
   );
   previewPdfDoc(doc, 'asignaciones-consolidado.pdf');
 }

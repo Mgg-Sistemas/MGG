@@ -1,6 +1,7 @@
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 export interface DemandaRow {
   sku: string;
@@ -36,7 +37,7 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   // ─── Header ────────────────────────────────────────────
@@ -115,14 +116,15 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
     columnStyles: { 0: { cellWidth: 26, halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    // Abajo se reservan 14 pt para el pie (va en la última línea del marco).
+    margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 },
   });
 
   // ─── Footer ────────────────────────────────────────────
   const pageH = doc.internal.pageSize.getHeight();
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text(`Documento auto-generado · ${dateTime(new Date().toISOString())}`, MARGIN, pageH - 24);
+  doc.text(`Documento auto-generado · ${dateTime(new Date().toISOString())}`, MARGIN, limiteInferiorPdf(pageH));
 
   previewPdfDoc(doc, `materiales-demanda-${new Date().toISOString().slice(0, 10)}.pdf`);
 }

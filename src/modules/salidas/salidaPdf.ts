@@ -7,6 +7,7 @@ import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/t
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { autorizanteDe } from './autorizanteSalida';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 async function nuevoDoc(titulo: string) {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, personas] = await Promise.all([
@@ -18,7 +19,7 @@ async function nuevoDoc(titulo: string) {
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 60 : MARGIN;
@@ -32,7 +33,7 @@ async function nuevoDoc(titulo: string) {
 
 /** Comprobante de salida o traslado de material. */
 export async function descargarSalidaMaterialPdf(mov: Movimiento, esTraslado: boolean): Promise<void> {
-  const { doc, autoTable, fmt, MARGIN, y, personas } = await nuevoDoc(esTraslado ? 'Comprobante de Traslado' : 'Comprobante de Salida');
+  const { doc, autoTable, fmt, y, personas } = await nuevoDoc(esTraslado ? 'Comprobante de Traslado' : 'Comprobante de Salida');
   const prod = mov.producto;
   const cant = Math.abs(Number(mov.delta) || 0);
   const precio = Number(mov.precio_unitario) || 0;
@@ -54,7 +55,7 @@ export async function descargarSalidaMaterialPdf(mov: Movimiento, esTraslado: bo
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 150 } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   previewPdfDoc(doc, `${esTraslado ? 'traslado' : 'salida'}-${(prod?.sku ?? 'material')}-${mov.id.slice(0, 8)}.pdf`);
 }
@@ -65,7 +66,7 @@ export async function obtenerSalidaMaterialPdfBase64(
   mov: Movimiento,
   esTraslado: boolean,
 ): Promise<{ base64: string; filename: string }> {
-  const { doc, autoTable, fmt, MARGIN, y, personas } = await nuevoDoc(esTraslado ? 'Comprobante de Traslado' : 'Comprobante de Salida');
+  const { doc, autoTable, fmt, y, personas } = await nuevoDoc(esTraslado ? 'Comprobante de Traslado' : 'Comprobante de Salida');
   const prod = mov.producto;
   const cant = Math.abs(Number(mov.delta) || 0);
   const precio = Number(mov.precio_unitario) || 0;
@@ -87,7 +88,7 @@ export async function obtenerSalidaMaterialPdfBase64(
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 150 } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   const dataUri = doc.output('datauristring');
   const base64 = dataUri.split(',')[1] ?? '';
@@ -96,7 +97,7 @@ export async function obtenerSalidaMaterialPdfBase64(
 
 /** Comprobante de salida de dinero (anticipo). */
 export async function descargarSalidaDineroPdf(mov: MovimientoCaja): Promise<void> {
-  const { doc, autoTable, fmt, MARGIN, y, personas } = await nuevoDoc('Comprobante de Salida de Dinero');
+  const { doc, autoTable, fmt, y, personas } = await nuevoDoc('Comprobante de Salida de Dinero');
   const ficha: Array<[string, string]> = [
     ['Caja', mov.caja ? `${mov.caja.nombre} (${mov.caja.moneda})` : '—'],
     ['Dirigido a', mov.destino || '—'],
@@ -119,14 +120,14 @@ export async function descargarSalidaDineroPdf(mov: MovimientoCaja): Promise<voi
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   previewPdfDoc(doc, `salida-dinero-${mov.id.slice(0, 8)}.pdf`);
 }
 
 /** Comprobante de traslado de dinero entre cajas (incluye nota de entrega). */
 export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<void> {
-  const { doc, autoTable, fmt, MARGIN, y, personas } = await nuevoDoc('Comprobante de Traslado de Dinero');
+  const { doc, autoTable, fmt, y, personas } = await nuevoDoc('Comprobante de Traslado de Dinero');
   const ficha: Array<[string, string]> = [
     ['Caja origen', mov.caja ? `${mov.caja.nombre} (${mov.caja.moneda})` : '—'],
     ['Caja destino', mov.destino || '—'],
@@ -140,7 +141,7 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   previewPdfDoc(doc, `traslado-dinero-${mov.id.slice(0, 8)}.pdf`);
 }
@@ -188,7 +189,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 42.52; // 1,5 cm (margen uniforme en todos los lados)
+  const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
 
   // ── Encabezado: logo + título + N° ──
@@ -278,7 +279,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     },
     foot: [['', '', '', '', 'TOTAL', `${fmt.money(totalGeneral)} USD`]],
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold', halign: 'right', fontSize: 10 },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: MARGENES_TABLA_PDF,
   });
   // La firma y las notas van en la ÚLTIMA página, debajo de donde terminó la tabla
   // (30-09-2026: la firma escaneada —JPEG con fondo blanco— tapaba renglones).
@@ -294,11 +295,14 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   if (sol.nota_entrega) obs.push(`Nota de entrega: ${sol.nota_entrega}`);
   if (sol.consumo_interno) obs.push('Consumo interno: el material se queda dentro de la empresa.');
   if (obs.length) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    const wrapped = doc.splitTextToSize(obs.join('\n'), PAGE_W - MARGIN * 2);
+    // Las notas no pasan del margen inferior: si no caben, van a una página nueva.
+    if (y + 14 + wrapped.length * 12 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN + 10; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text('OBSERVACIONES / NOTAS', MARGIN, y);
     y += 14;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-    const wrapped = doc.splitTextToSize(obs.join('\n'), PAGE_W - MARGIN * 2);
     doc.text(wrapped, MARGIN, y);
     y += wrapped.length * 12;
   }
@@ -307,11 +311,15 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // Se ubican al pie de la página, pero si la tabla es larga y el contenido
   // llega hasta abajo, se bajan debajo del contenido o saltan a una nueva página
   // (evita que la firma/el bloque se solape con los ítems).
+  // Firmas y pie terminan en el límite inferior del marco de 2 cm: el pie ocupa
+  // la última línea y las firmas quedan por encima de él.
+  const PIE = 14;
+  const LIM = limiteInferiorPdf(PAGE_H) - PIE;
   const needTop = 70;  // espacio sobre la línea: la firma mide 52 y no puede tocar la tabla
   const needBot = 34;  // espacio bajo la línea (etiquetas + nombre)
-  let fy = PAGE_H - MARGIN - needBot;          // posición preferida (pie de página)
+  let fy = LIM - needBot;                       // posición preferida (pie de página)
   if (y + needTop > fy) {                       // el contenido invade la zona de firmas
-    if (y + needTop + needBot <= PAGE_H - MARGIN) {
+    if (y + needTop + needBot <= LIM) {
       fy = y + needTop;                          // cabe justo debajo del contenido
     } else {
       doc.addPage();                             // no cabe: nueva página
@@ -339,7 +347,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.text(autoriza.nombre, cxAutoriza, fy + 27, { align: 'center', maxWidth: colW });
 
   doc.setFontSize(8); doc.setTextColor(120);
-  doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
+  doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, limiteInferiorPdf(PAGE_H));
 
   previewPdfDoc(doc, `orden-${esTraslado ? 'traslado' : 'salida'}-${sol.codigo}.pdf`);
 }

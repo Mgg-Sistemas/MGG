@@ -4,6 +4,7 @@
    Multi-moneda: el total se desglosa por moneda. Vista previa.
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { CuentaPorCobrar } from './cuentasPorCobrar.repository';
 
 function simbolo(moneda: string): string {
@@ -26,7 +27,7 @@ export async function descargarResumenPorCobrarPdf(rows: CuentaPorCobrar[]): Pro
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm
+  const MARGIN = MARGEN_PDF; // 2 cm
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -67,17 +68,18 @@ export async function descargarResumenPorCobrarPdf(rows: CuentaPorCobrar[]): Pro
       0: { halign: 'center', cellWidth: 30 },
       1: { cellWidth: 85 },
       2: { cellWidth: 150 },
-      3: { cellWidth: 200 },
+      // DETALLE toma lo que queda del ancho útil (las demás columnas son fijas).
+      3: { cellWidth: anchoUtilPdf(W) - (30 + 85 + 150 + 55 + 67 * 3) },
       4: { halign: 'center', cellWidth: 55 },
       5: { halign: 'right', cellWidth: 67 },
       6: { halign: 'right', cellWidth: 67 },
       7: { halign: 'right', cellWidth: 67 },
     },
-    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 }, // el pie va dentro del marco, bajo la tabla
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} cuenta(s) por cobrar · Mineral Group Guayana C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} cuenta(s) por cobrar · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(doc.internal.pageSize.getHeight()));
 
   previewPdfDoc(doc, 'cuentas-por-cobrar.pdf');
 }
