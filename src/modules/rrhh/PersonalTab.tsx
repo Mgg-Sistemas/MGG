@@ -40,6 +40,7 @@ import {
   type FamiliarPersonal, type FamiliarInput,
 } from './personal.repository';
 import { verFichaTecnicaPdf } from './fichaTecnicaPdf';
+import { ExportarPersonalModal } from './ExportarPersonalModal';
 import {
   TIPOS_CAMBIO_SUELDO, huboCambioSueldo, labelTipoCambio, textoVariacion, tipoSugerido,
   validarCambioSueldo, variacionSueldo, type TipoCambioSueldo,
@@ -653,6 +654,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   }
   // El cartel del navegador se reemplaza por el diálogo del sistema.
   const [porBorrar, setPorBorrar] = useState<Personal | null>(null);
+  const [exportando, setExportando] = useState(false);
   async function confirmarBorrado() {
     if (!porBorrar) return;
     try { await eliminarPersonal(porBorrar.id); setPorBorrar(null); await recargar(); toast('Eliminado', 'success'); }
@@ -661,16 +663,25 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
 
   return (
     <div>
-      {canWrite && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
-          {/* La hoja en blanco es para ANTES de que exista la ficha: se imprime,
-              la llena la persona que entra y con eso se carga el registro. */}
-          <button className="btn btn-ghost" onClick={() => void hojaIngreso()} disabled={hojaAbriendo}
-            title="Formulario en blanco para imprimir y que lo llene quien ingresa">
-            {hojaAbriendo ? 'Generando…' : '🖨 Hoja de ingreso (en blanco)'}
-          </button>
-          <button className="btn btn-primary" onClick={abrirNuevo}>+ Ingresar Registro de Personal</button>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
+        {/* Exportar: con casillas se elige qué datos salen (ej. solo nombre y cédula). */}
+        <button className="btn btn-ghost" onClick={() => setExportando(true)} disabled={!lista.length}
+          title="Elegí qué datos y de quiénes, y bajalo en Excel o PDF">⬇ Exportar datos</button>
+        {canWrite && (
+          <>
+            {/* La hoja en blanco es para ANTES de que exista la ficha: se imprime,
+                la llena la persona que entra y con eso se carga el registro. */}
+            <button className="btn btn-ghost" onClick={() => void hojaIngreso()} disabled={hojaAbriendo}
+              title="Formulario en blanco para imprimir y que lo llene quien ingresa">
+              {hojaAbriendo ? 'Generando…' : '🖨 Hoja de ingreso (en blanco)'}
+            </button>
+            <button className="btn btn-primary" onClick={abrirNuevo}>+ Ingresar Registro de Personal</button>
+          </>
+        )}
+      </div>
+      {exportando && (
+        <ExportarPersonalModal todos={lista} visibles={visibles} hayFiltros={visibles.length !== lista.length}
+          onClose={() => setExportando(false)} />
       )}
 
       {/* Las tarjetas se tocan y filtran, y SE COMBINAN entre sí. La primera es
