@@ -8,6 +8,7 @@ import { date, money, num } from '@/shared/lib/format';
 import { textoDeError } from '@/shared/lib/errores';
 import { recibirOrdenParcial, recibirOrdenDespiezada } from '@/modules/pedidos/pedidos.repository';
 import { esDespiezable } from './despieceRes';
+import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from '@/modules/pedidos/unidadCompra';
 import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece } from './DespieceResForm';
 import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
 import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedidos/compraDirectaMoneda';
@@ -462,10 +463,16 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
               {items.map((it) => (
                 <tr key={it.sku}>
                   <td>{it.nombre ?? it.sku}<span className="muted"> · {it.sku}</span></td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{num(Number(it.cantidad) || 0)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad) || 0) : num(Number(it.cantidad) || 0)}</td>
                   <td>
                     <input className="input mono" type="number" min={0} max={Number(it.cantidad) || undefined} step="any"
                       value={recibidas[it.sku] ?? ''} onChange={(e) => setRecibidas((m) => ({ ...m, [it.sku]: e.target.value }))} />
+                    {/* Se cuenta en la medida del proveedor; al inventario entra en la de uso. */}
+                    {usaUnidadCompra(it) && (
+                      <small className="muted" style={{ display: 'block', fontSize: '.72rem' }}>
+                        {it.unidad_compra} · entran <strong className="mono">{num(cantidadEnUso(it, Number(recibidas[it.sku]) || 0))} {it.unidad}</strong>
+                      </small>
+                    )}
                   </td>
                 </tr>
               ))}

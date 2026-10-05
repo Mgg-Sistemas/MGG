@@ -13,6 +13,8 @@ import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, C
 import { resincronizarOcDesdeOferta } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
+import { cantidadCompraPara, cantidadEnUso, costoPorUnidadDeUso, factorDe, normalizarUnidad, usaUnidadCompra } from './unidadCompra';
+import { contextoPresentaciones, recordarPresentaciones, sugerirPara } from './presentaciones.repository';
 
 /** Estrellas ★ según un promedio 1–5. */
 function estrellas(avg: number): string {
@@ -42,6 +44,10 @@ interface FormItem extends ItemOrden {
   _rid: string;         // id local estable (las variantes comparten SKU)
   _variante?: boolean;  // true = renglón agregado como marca/variante extra
   _agregado?: boolean;  // true = producto sumado en esta edición (se puede quitar)
+  /** Lo pedido en UNIDAD DE USO: al cambiar la unidad de compra, la cantidad se recalcula desde acá. */
+  _usoPedido: number;
+  /** El usuario ya eligió la unidad de compra de este renglón: no se pisa con la sugerencia. */
+  _ucTocada?: boolean;
 }
 
 let _ridSeq = 0;
@@ -126,11 +132,11 @@ export function AgregarOfertaModal({
       ? ofertaEdit.items.map((i) => {
           const precio = round2(Number(i.precio) || 0);
           const precioUsd = round2(Number(i.precio_usd) || 0);
-          return { ...i, precio, precio_usd: precioUsd, precioStr: numToStr(precio), precioUsdStr: numToStr(precioUsd), _rid: nextRid() };
+          return { ...i, precio, precio_usd: precioUsd, precioStr: numToStr(precio), precioUsdStr: numToStr(precioUsd), _rid: nextRid(), _usoPedido: cantidadEnUso(i, Number(i.cantidad) || 0), _ucTocada: true };
         })
       : orden.items
           .filter((i) => i.comprar !== false && (!soloSkus || soloSkus.has(i.sku)))
-          .map((i) => ({ ...i, precio: 0, precio_usd: 0, precioStr: '', precioUsdStr: '', _rid: nextRid() })),
+          .map((i) => ({ ...i, precio: 0, precio_usd: 0, precioStr: '', precioUsdStr: '', _rid: nextRid(), _usoPedido: cantidadEnUso(i, Number(i.cantidad) || 0) })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEdit?.fecha_entrega_prometida ?? '');
   const [condiciones, setCondiciones] = useState(ofertaEdit?.condiciones_pago ?? '');
@@ -273,8 +279,49 @@ export function AgregarOfertaModal({
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precioUsdStr: str, precio_usd: parseDecimal(str) } : it)));
   }
   function updateItemCampo(idx: number, patch: Partial<FormItem>) {
-    setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
+    setItems((prev) => prev.map((it, k) => {
+      if (k !== idx) return it;
+      const nuevo = { ...it, ...patch };
+      // La cantidad escrita a mano redefine lo pedido en unidad de uso.
+      if (patch.cantidad !== undefined) nuevo._usoPedido = cantidadEnUso(nuevo, nuevo.cantidad);
+      return nuevo;
+    }));
   }
+  /* Unidad de compra del renglón (05-10-2026). La cantidad se recalcula desde lo
+     pedido en unidad de uso: 500 kg en bultos de 50 → 10 bultos. */
+  function updatePresentacion(idx: number, patch: { unidad_compra?: string; factor_compra?: number | null }) {
+    setItems((prev) => prev.map((it, k) => {
+      if (k !== idx) return it;
+      const unidad_compra = patch.unidad_compra !== undefined ? patch.unidad_compra : (it.unidad_compra ?? '');
+      const factor_compra = patch.factor_compra !== undefined ? patch.factor_compra : (it.factor_compra ?? null);
+      const f = factorDe({ unidad_compra, factor_compra });
+      return { ...it, unidad_compra: unidad_compra || null, factor_compra, cantidad: cantidadCompraPara(it._usoPedido, f), _ucTocada: true };
+    }));
+  }
+
+  /* Sugerencia de la unidad de compra: lo último que cotizó ESTE proveedor; si
+     nunca lo cotizó, lo de la ficha del producto. Solo en renglones que el
+     usuario no tocó, y nunca al editar una oferta ya guardada. */
+  const provSugerencia = isEdit ? null : (nuevoProveedor ? '' : proveedorId);
+  const idsProductos = useMemo(() => [...new Set(items.map((i) => i.productoId).filter(Boolean) as string[])].sort().join(','), [items]);
+  useEffect(() => {
+    if (provSugerencia === null || esServicio || !idsProductos) return;
+    let vivo = true;
+    contextoPresentaciones(provSugerencia || null, idsProductos.split(','))
+      .then((ctx) => {
+        if (!vivo) return;
+        setItems((prev) => prev.map((it) => {
+          if (it._ucTocada) return it;
+          const sug = sugerirPara(ctx, it.productoId);
+          const unidad_compra = sug?.unidad_compra ?? null;
+          const factor_compra = sug?.factor_compra ?? null;
+          if ((it.unidad_compra ?? null) === unidad_compra && (it.factor_compra ?? null) === factor_compra) return it;
+          return { ...it, unidad_compra, factor_compra, cantidad: cantidadCompraPara(it._usoPedido, factorDe({ unidad_compra, factor_compra })) };
+        }));
+      })
+      .catch(() => { /* sin sugerencia: se compra en la unidad de uso */ });
+    return () => { vivo = false; };
+  }, [provSugerencia, idsProductos, esServicio]);
   // Agrega otra marca/variante del MISMO producto justo debajo (mismo SKU, su propio precio).
   function agregarVariante(idx: number) {
     setItems((prev) => {
@@ -298,7 +345,7 @@ export function AgregarOfertaModal({
   function agregarProducto(p: Producto) {
     setItems((prev) => prev.some((i) => i.sku === p.sku) ? prev : [...prev, {
       sku: p.sku, nombre: p.nombre, cantidad: 1, productoId: p.id, unidad: p.unidad, comprar: true,
-      precio: 0, precio_usd: 0, precioStr: '', precioUsdStr: '', _rid: nextRid(), _agregado: true,
+      precio: 0, precio_usd: 0, precioStr: '', precioUsdStr: '', _rid: nextRid(), _agregado: true, _usoPedido: 1,
     }]);
   }
   function quitarItem(idx: number) {
@@ -319,12 +366,21 @@ export function AgregarOfertaModal({
       toast('El precio en divisa efectivo debe ser menor al total BCV (es un descuento por pago en efectivo).', 'error');
       return;
     }
+    const sinFactor = items.find((i) => normalizarUnidad(i.unidad_compra) && !(Number(i.factor_compra) > 0));
+    if (sinFactor) {
+      toast(`${sinFactor.nombre}: indicá cuántas ${sinFactor.unidad || 'unidades'} trae cada ${normalizarUnidad(sinFactor.unidad_compra)}.`, 'error');
+      return;
+    }
     setSubmitting(true);
     // Se quitan los campos locales (_rid/_variante) y se normaliza marca/modelo.
-    const itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, _agregado, precioStr, precioUsdStr, ...rest }) => {
-      void _rid; void _variante; void _agregado; void precioStr; void precioUsdStr;
+    const itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, _agregado, precioStr, precioUsdStr, _usoPedido, _ucTocada, ...rest }) => {
+      void _rid; void _variante; void _agregado; void precioStr; void precioUsdStr; void _usoPedido; void _ucTocada;
+      const uc = normalizarUnidad(rest.unidad_compra);
       return {
         ...rest,
+        // Unidad de compra: solo si hay medida y factor; si no, se compra en la unidad de uso.
+        unidad_compra: uc || null,
+        factor_compra: uc ? Number(rest.factor_compra) : null,
         // Precios de compra siempre a 2 decimales (evita colas largas al guardar).
         precio: round2(Number(rest.precio) || 0),
         precio_usd: round2(Number(rest.precio_usd) || 0),
@@ -389,6 +445,8 @@ export function AgregarOfertaModal({
             { link: '#/app/pedidos' },
           );
         }
+        recordarPresentaciones(proveedorId || ofertaEdit.proveedor_id, itemsLimpios, registradoPorEmail)
+          .catch((e) => console.error('No se pudo recordar la unidad de compra del proveedor:', e));
         notify(`Oferta actualizada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
         onCreated();
         return;
@@ -453,6 +511,8 @@ export function AgregarOfertaModal({
         pdf_filename: adjuntos[0]?.filename ?? null,
         adjuntos: adjuntos.length ? adjuntos : null,
       });
+      recordarPresentaciones(provId, itemsLimpios, registradoPorEmail)
+        .catch((e) => console.error('No se pudo recordar la unidad de compra del proveedor:', e));
       notify(`Oferta registrada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
       onCreated();
     } catch (e) {
@@ -653,6 +713,7 @@ export function AgregarOfertaModal({
                 {esServicio && <th rowSpan={2}>Categoría</th>}
                 {esServicio && <th rowSpan={2}>Subcategoría</th>}
                 <th rowSpan={2}>Marca / modelo</th>
+                {!esServicio && <th rowSpan={2} title="La medida en que vende este proveedor. El inventario entra en la unidad de uso.">Se compra en</th>}
                 <th className="num" rowSpan={2}>Cant.</th>
                 <th className="num" colSpan={2} style={{ textAlign: 'center', background: 'rgba(80,140,255,.10)' }}>Pago en Bs a BCV</th>
                 <th className="num" colSpan={2} style={{ textAlign: 'center', background: 'rgba(255,120,120,.10)' }}>Pago en USD</th>
@@ -691,6 +752,28 @@ export function AgregarOfertaModal({
                           value={it.modelo ?? ''} onChange={(e) => updateItemCampo(idx, { modelo: e.target.value })} />
                       </div>
                     </td>
+                    {!esServicio && (
+                      <td style={{ minWidth: 150 }}>
+                        <div style={{ display: 'flex', gap: '.25rem', alignItems: 'center' }}>
+                          <input className="input" style={{ width: 82, fontSize: '.78rem' }} list="oferta-unidades-compra"
+                            placeholder={it.unidad || 'Unidad'} value={it.unidad_compra ?? ''}
+                            onChange={(e) => updatePresentacion(idx, { unidad_compra: e.target.value })} />
+                          {normalizarUnidad(it.unidad_compra) && (
+                            <>
+                              <span className="muted" style={{ fontSize: '.72rem' }}>de</span>
+                              <input type="number" className="input mono" style={{ width: 58, textAlign: 'right', fontSize: '.78rem' }} min={0} step="any"
+                                title={`¿Cuántas ${it.unidad || 'unidades'} trae cada ${normalizarUnidad(it.unidad_compra)}?`}
+                                value={it.factor_compra ?? ''} onChange={(e) => updatePresentacion(idx, { factor_compra: e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0) })} />
+                            </>
+                          )}
+                        </div>
+                        <div className="muted" style={{ fontSize: '.7rem', marginTop: '.15rem' }}>
+                          {usaUnidadCompra(it)
+                            ? <>= {cantidadEnUso(it, it.cantidad)} {it.unidad}{it.precio > 0 ? <> · {money(costoPorUnidadDeUso(it, it.precio))}/{it.unidad}</> : null}</>
+                            : <>en {it.unidad || 'unidad de uso'}</>}
+                        </div>
+                      </td>
+                    )}
                     <td className="num">
                       <input type="number" className="input mono" style={{ width: 64, textAlign: 'right' }} min={0} step="any"
                         value={it.cantidad} onChange={(e) => updateItemCampo(idx, { cantidad: Math.max(0, Number(e.target.value) || 0) })} />
@@ -721,7 +804,7 @@ export function AgregarOfertaModal({
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={esServicio ? 7 : 5} className="num" style={{ fontWeight: 700 }}>SUBTOTAL</td>
+                <td colSpan={esServicio ? 7 : 6} className="num" style={{ fontWeight: 700 }}>SUBTOTAL</td>
                 <td className="num mono" style={{ fontWeight: 700 }}>{money(bcvSubtotal)}</td>
                 <td></td>
                 <td className="num mono" style={{ fontWeight: 700 }}>{usdTotal > 0 ? money(usdTotal) : '—'}</td>
@@ -731,7 +814,15 @@ export function AgregarOfertaModal({
               </tr>
             </tfoot>
           </table>
+          <datalist id="oferta-unidades-compra">
+            {['BULTO', 'CAJA', 'SACO', 'PAQUETE', 'CUÑETE', 'GALON', 'BIDON', 'TAMBOR', 'ROLLO', 'DOCENA', 'BOBINA', 'RESMA'].map((u) => <option key={u} value={u} />)}
+          </datalist>
         </div>
+        {!esServicio && items.some((i) => usaUnidadCompra(i)) && (
+          <small className="hint muted" style={{ display: 'block', marginTop: '.3rem' }}>
+            📦 Cantidad y precio van en la medida del proveedor. Al recibir, el inventario entra en la unidad de uso (ej.: 10 BULTO de 50 = 500 KILOGRAMO, y el costo por kilo es el precio ÷ 50).
+          </small>
+        )}
         {puedeAgregarProductos && (
           <AgregarProductoCompra
             skusPresentes={skusEnOferta}

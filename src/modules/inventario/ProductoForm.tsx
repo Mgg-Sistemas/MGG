@@ -60,6 +60,7 @@ interface FormState {
   restock_pct: string;
   presentacion: string;
   unidades_empaque: string;
+  unidad_compra: string;
   esReceta: boolean;
   receta_fundicion: RecetaFundicion | '';
   // Detalle del producto (todos opcionales)
@@ -103,6 +104,7 @@ function initialState(p: Producto | null, cats: string[], unids: string[], fixed
     restock_pct: p?.restock_pct != null ? String(p.restock_pct) : '',
     presentacion: p?.presentacion ?? '',
     unidades_empaque: p?.unidades_empaque != null ? String(p.unidades_empaque) : '',
+    unidad_compra: p?.unidad_compra ?? '',
     esReceta: !!p?.receta_fundicion,
     receta_fundicion: (p?.receta_fundicion ?? '') as RecetaFundicion | '',
     nombre_busqueda: p?.nombre_busqueda ?? '',
@@ -370,11 +372,11 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
       almacen: form.almacen.trim() || 'General',
       estado: form.estado,
       restock_pct: restockRaw === '' ? null : Math.max(0, Number(restockRaw)),
-      // Unidades líquidas (litros) no usan bultos: no persistimos esos campos.
+      // Unidades líquidas (litros) no usan el texto de presentación por bulto.
       presentacion: esUnidadLiquida(form.unidad) ? null : (form.presentacion.trim() || null),
-      unidades_empaque: esUnidadLiquida(form.unidad)
-        ? null
-        : (form.unidades_empaque.trim() === '' ? null : Math.max(0, Number(form.unidades_empaque)) || null),
+      // El factor vale también para líquidos: un CUÑETE trae 5 GALONES (05-10-2026).
+      unidades_empaque: form.unidades_empaque.trim() === '' ? null : Math.max(0, Number(form.unidades_empaque)) || null,
+      unidad_compra: form.unidad_compra.trim().replace(/s+/g, ' ').toUpperCase() || null,
       receta_fundicion: form.esReceta && form.receta_fundicion ? (form.receta_fundicion as RecetaFundicion) : null,
       // Marcar receta no se des-marca al editar (lo añade el toggle o el alta desde fundición).
       es_receta: form.esReceta || (producto?.es_receta ?? false),
@@ -778,9 +780,28 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
           </div>
         </div>
 
-        {!esUnidadLiquida(form.unidad) && (
+        {/* Unidad de compra (05-10-2026): se compra en una medida y se usa en otra.
+            El stock SIEMPRE va en la unidad de uso; esto es solo la sugerencia para
+            las cotizaciones. Cada proveedor puede cotizar en su propia medida. */}
+        <div className="form-grid">
           <div className="form-row">
-            <label>Unidades por caja/bulto (opcional)</label>
+            <label>Se compra en (opcional)</label>
+            <input
+              className="input"
+              list="uc-unidades"
+              value={form.unidad_compra}
+              onChange={(e) => update('unidad_compra', e.target.value)}
+              placeholder="Ej: BULTO, CAJA, CUÑETE"
+            />
+            <datalist id="uc-unidades">
+              {unidades.map((u) => <option key={u} value={u} />)}
+            </datalist>
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
+              La medida en que lo vende el proveedor. Vacío = se compra en {form.unidad || 'la unidad de uso'}.
+            </small>
+          </div>
+          <div className="form-row">
+            <label>{form.unidad_compra.trim() ? `¿Cuántas ${form.unidad || 'unidades'} trae cada ${form.unidad_compra.trim().toUpperCase()}?` : 'Unidades por caja/bulto (opcional)'}</label>
             <input
               className="input mono"
               type="number"
@@ -788,13 +809,16 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               step="any"
               value={form.unidades_empaque}
               onChange={(e) => update('unidades_empaque', e.target.value)}
-              placeholder="Ej: 24"
+              placeholder="Ej: 50"
+              required={!!form.unidad_compra.trim()}
             />
             <small className="hint muted" style={{ fontSize: '.72rem' }}>
-              Cuántas {form.unidad || 'unidades'} trae cada caja/bulto. Se usa para convertir el stock al ingresarlo por bulto (el stock siempre se guarda en {form.unidad || 'unidades'}).
+              {form.unidad_compra.trim() && Number(form.unidades_empaque) > 0
+                ? <>1 {form.unidad_compra.trim().toUpperCase()} = <strong className="mono">{num(Number(form.unidades_empaque))} {form.unidad || 'und'}</strong>. Al recibir una compra, el inventario entra en {form.unidad || 'unidades'}.</>
+                : <>El inventario se guarda siempre en {form.unidad || 'unidades'}.</>}
             </small>
           </div>
-        )}
+        </div>
 
         {/* ── Detalle del producto (identificación física, todo opcional) ── */}
         <details style={{ marginTop: '.6rem', border: '1px solid var(--border)', borderRadius: 8, padding: '.6rem .8rem' }}>

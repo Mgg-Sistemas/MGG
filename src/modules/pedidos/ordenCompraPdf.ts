@@ -1,3 +1,4 @@
+import { textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl, loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl } from '@/shared/lib/pdfLogo';
@@ -400,8 +401,9 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         [it.marca, it.modelo].filter(Boolean).join(' · ') || '—',
         it.servicio_categoria?.trim() || '—',
         it.servicio_tipo?.trim() || '—',
-        num(it.cantidad),
-        money(it.precio),
+        // Medida del proveedor y su equivalencia en la unidad de uso (05-10-2026).
+        usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad)) : num(it.cantidad),
+        usaUnidadCompra(it) ? `${money(it.precio)} / ${it.unidad_compra}` : money(it.precio),
         money(it.cantidad * it.precio),
       ];
       }),

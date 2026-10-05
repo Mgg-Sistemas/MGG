@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { ItemOrden, OfertaProveedor, OfertaDetalle, OfertaAdjunto } from '@/shared/lib/types';
 import { ofertaCubreTodoLoPendiente, type HijaCobertura } from './subOc';
+import { costoPorUnidadDeUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 
 const TABLE = 'ofertas_proveedor';
 const BUCKET = 'ofertas-pdf';
@@ -88,6 +89,12 @@ export interface FilaComparativaProducto {
   precioBcv: number; totalBcv: number;
   precioUsd: number; totalUsd: number;
   diferencia: number; pct: number;
+  /** «10 BULTO (= 500 KILOGRAMO)»: la cantidad con la medida del proveedor. */
+  cantidadTexto: string;
+  /** Precio BCV por unidad de USO cuando el proveedor vende en otra medida: así se
+   *  comparan dos proveedores que cotizan en bultos de distinto tamaño. */
+  precioPorUso: number | null;
+  unidadUso: string;
 }
 
 /** Descompone los ítems de una oferta en la tabla BCV vs USD por producto. */
@@ -104,6 +111,9 @@ export function comparativaPorProducto(items: ItemOrden[]): FilaComparativaProdu
       sku: it.sku, nombre: it.nombre, cantidad,
       marca: (it.marca ?? '').toString(), modelo: (it.modelo ?? '').toString(),
       precioBcv, totalBcv, precioUsd, totalUsd, diferencia, pct,
+      cantidadTexto: textoCantidadCompra(it, cantidad),
+      precioPorUso: usaUnidadCompra(it) ? costoPorUnidadDeUso(it, precioBcv > 0 ? precioBcv : precioUsd) : null,
+      unidadUso: (it.unidad ?? '').toString(),
     };
   });
 }

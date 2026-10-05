@@ -765,8 +765,12 @@ export interface Producto {
   restock_pct?: number | null;
   /** Empaque sugerido para el conversor de bultos (ej. "Caja"). Default editable. */
   presentacion?: string | null;
-  /** Unidades por bulto sugeridas (ej. 24). Solo un default; el stock va en unidades. */
+  /** Unidades por bulto sugeridas (ej. 24). Solo un default; el stock va en unidades.
+   *  Es también el FACTOR de la unidad de compra: cuántas `unidad` trae cada `unidad_compra`. */
   unidades_empaque?: number | null;
+  /** Unidad en que se compra por defecto (BULTO, CAJA, CUÑETE…). El inventario va
+   *  siempre en `unidad`; cada proveedor puede vender en otra (05-10-2026). */
+  unidad_compra?: string | null;
   tipo?: TipoInventario | null;
   /** Espacio de inventario: 'principal' (Inventario) o 'deposito'. Su total no se mezcla. */
   espacio?: string | null;
@@ -900,8 +904,15 @@ export interface ItemOrden {
   finalidad?: string;
   /** Área a la que pertenece la compra de este ítem: Administrativa / Fundición. */
   area?: string;
-  /** Cantidad realmente recibida (recepción parcial). Si falta = aún no recibido. */
+  /** Cantidad realmente recibida (recepción parcial). Si falta = aún no recibido.
+   *  Va en la unidad de COMPRA del renglón, igual que `cantidad`. */
   cantidad_recibida?: number;
+  /** Unidad en que se le compra a ESTE proveedor (BULTO, CAJA…). Si está, `cantidad`
+   *  y `precio` van en esa unidad, y al recibir entran `cantidad × factor_compra`
+   *  unidades de uso al inventario (`unidad`). Falta = se compra en la unidad de uso. */
+  unidad_compra?: string | null;
+  /** Cuántas unidades de uso trae cada unidad de compra (ej. 50 kg por bulto). */
+  factor_compra?: number | null;
   /**
    * Despiece de una RES EN CANAL: en qué cortes se convirtió al recibirla.
    * Vive en el ítem de la compra porque es la trazabilidad de ESA compra: al

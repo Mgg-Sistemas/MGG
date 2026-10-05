@@ -88,6 +88,8 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const [bultos, setBultos] = useState('1');
   const [uPorBulto, setUPorBulto] = useState(producto.unidades_empaque != null ? String(producto.unidades_empaque) : '');
   const [costoBulto, setCostoBulto] = useState('');
+  // Nombre de la unidad de compra de la ficha (BULTO, CAJA, CUÑETE…), si lo tiene.
+  const uc = (producto.unidad_compra ?? '').trim().toUpperCase();
 
   const opcion = OPCIONES.find((o) => o.value === tipo)!;
   const bultosNum = Number(bultos) || 0;
@@ -290,7 +292,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
         {esEntradaConCosto && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', marginBottom: '.6rem', cursor: 'pointer' }}>
             <input type="checkbox" checked={porBultos} onChange={(e) => setPorBultos(e.target.checked)} />
-            <span style={{ fontSize: '.85rem' }}>📦 Ingresar por bultos / cajas (convierte a {producto.unidad})</span>
+            <span style={{ fontSize: '.85rem' }}>📦 Ingresar por {uc || 'bultos / cajas'} (convierte a {producto.unidad})</span>
           </label>
         )}
 
@@ -298,18 +300,18 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
           <>
             <div className="form-grid">
               <div className="form-row">
-                <label>Bultos / cajas</label>
+                <label>{uc || 'Bultos / cajas'}</label>
                 <input className="input mono" type="number" min={0} step="any" value={bultos} onChange={(e) => setBultos(e.target.value)} required />
               </div>
               <div className="form-row">
-                <label>Unidades por bulto</label>
+                <label>{producto.unidad || 'Unidades'} por {uc || 'bulto'}</label>
                 <input className="input mono" type="number" min={0} step="any" value={uPorBulto} onChange={(e) => setUPorBulto(e.target.value)}
                   placeholder={producto.unidades_empaque != null ? String(producto.unidades_empaque) : 'Ej: 24'} required />
                 <small className="hint muted" style={{ fontSize: '.72rem' }}>Ajustalo en cada ingreso; el tamaño puede variar.</small>
               </div>
             </div>
             <div className="form-row">
-              <label>Costo por bulto (USD)</label>
+              <label>Costo por {uc || 'bulto'} (USD)</label>
               <input className="input mono" type="text" inputMode="decimal" value={costoBulto} onChange={(e) => setCostoBulto(e.target.value)} placeholder="Precio pagado por cada bulto" />
               <small className="hint muted" style={{ fontSize: '.72rem' }}>
                 {bultosNum > 0 && uPorBultoNum > 0

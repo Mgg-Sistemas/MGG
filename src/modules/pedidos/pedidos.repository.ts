@@ -1,3 +1,4 @@
+import { cantidadEnUso, costoPorUnidadDeUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 import { supabase } from '@/shared/lib/supabase';
 import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { bustCache, cachedQuery } from '@/shared/lib/queryCache';
@@ -1930,8 +1931,11 @@ export async function recibirOrdenParcial(
   // Entradas al inventario solo por lo recibido (>0), recalculando PMP por ítem.
   // Si la orden está marcada "sin inventario" (carga manual previa), se omite.
   if (tocaInventario) await Promise.all(o.items.map(async (it) => {
-    const rec = recMap.get(it.sku) ?? 0;
-    if (!it.productoId || rec <= 0) return;
+    // `rec` va en la unidad de COMPRA del renglón (lo que factura el proveedor).
+    // Al inventario entra en la unidad de USO: 10 BULTO × 50 = 500 KG (05-10-2026).
+    const recCompra = recMap.get(it.sku) ?? 0;
+    if (!it.productoId || recCompra <= 0) return;
+    const rec = cantidadEnUso(it, recCompra);
     const { data: prod, error: pErr } = await supabase
       .from('productos')
       .select('stock, precio, precio_promedio, almacen, marca, modelo, descripcion')
@@ -1943,9 +1947,11 @@ export async function recibirOrdenParcial(
     const almacenProd = destinoFinal || (prod?.almacen as string) || 'General';
     const precioActual = Number(prod?.precio_promedio ?? prod?.precio ?? 0);
     // Costo en $: si la orden es en Bs, se divide por la tasa BCV (nunca entra el Bs crudo como $).
-    const precioCompra = o.moneda === 'Bs' && tasaOrden
-      ? Number((Number(it.precio) / tasaOrden).toFixed(4))
+    // Y por unidad de USO: el precio del bulto ÷ lo que trae el bulto.
+    const precioCompraUc = o.moneda === 'Bs' && tasaOrden
+      ? Number(it.precio) / tasaOrden
       : Number(it.precio);
+    const precioCompra = costoPorUnidadDeUso(it, precioCompraUc);
     const precioPromedio = stockDespues > 0
       ? Number(((stockAntes * precioActual + rec * precioCompra) / stockDespues).toFixed(4))
       : precioCompra;
@@ -1973,7 +1979,9 @@ export async function recibirOrdenParcial(
       // y el PMP resultante: se ven en la trazabilidad/kardex del producto.
       precio_unitario: precioCompra,
       costo_promedio: precioPromedio,
-      detalle: `Recepción de ${rec}/${it.cantidad} ${it.sku} @ $${precioCompra.toFixed(2)} (promedio: $${precioPromedio.toFixed(2)}) → ${almacenProd}`,
+      detalle: usaUnidadCompra(it)
+        ? `Recepción de ${recCompra}/${it.cantidad} ${it.unidad_compra} ${it.sku} = ${textoCantidadCompra(it, recCompra)} @ ${precioCompra.toFixed(4)} por ${it.unidad ?? 'unidad'} (promedio: ${precioPromedio.toFixed(2)}) → ${almacenProd}`
+        : `Recepción de ${rec}/${it.cantidad} ${it.sku} @ ${precioCompra.toFixed(2)} (promedio: ${precioPromedio.toFixed(2)}) → ${almacenProd}`,
     });
     if (mErr) throw mErr;
 

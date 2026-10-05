@@ -608,8 +608,12 @@ export function OfertasComparativa({
                                   <tr key={`${f.sku}-${fi}`}>
                                     <td>{f.nombre}</td>
                                     <td>{[f.marca, f.modelo].filter(Boolean).join(' · ') || <span className="muted">—</span>}</td>
-                                    <td className="num mono">{f.cantidad}</td>
-                                    <td className="num mono">{money(f.precioBcv)}</td>
+                                    <td className="num mono">{f.precioPorUso != null ? f.cantidadTexto : f.cantidad}</td>
+                                    <td className="num mono">
+                                      {money(f.precioBcv)}
+                                      {/* Precio por unidad de uso: compara proveedores que venden en medidas distintas. */}
+                                      {f.precioPorUso != null && <div className="muted" style={{ fontSize: '.7rem' }}>≈ {money(f.precioPorUso)}/{f.unidadUso || 'und'}</div>}
+                                    </td>
                                     <td className="num mono">{money(f.totalBcv)}</td>
                                     <td className="num mono">{f.precioUsd > 0 ? money(f.precioUsd) : '—'}</td>
                                     <td className="num mono">{f.precioUsd > 0 ? money(f.totalUsd) : '—'}</td>

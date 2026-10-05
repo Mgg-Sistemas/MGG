@@ -1,3 +1,4 @@
+import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -1846,11 +1847,17 @@ function RecepcionParcialModal({
                 <tr key={it.sku}>
                   <td className="mono">{it.sku}</td>
                   <td>{it.nombre}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad)) : num(it.cantidad)}</td>
                   <td style={{ textAlign: 'right' }}>
                     <input className="input mono" type="number" min={0} max={it.cantidad} step="any"
                       value={recs[it.sku]} onChange={(e) => setRec(it.sku, Number(it.cantidad), e.target.value)}
                       style={{ width: 90, textAlign: 'right', borderColor: falta ? 'var(--warning)' : undefined }} />
+                    {/* Se cuenta en la medida del proveedor; al inventario entra en la de uso. */}
+                    {usaUnidadCompra(it) && !sinInv && (
+                      <small className="muted" style={{ display: 'block', fontSize: '.72rem' }}>
+                        {it.unidad_compra} · entran <strong className="mono">{num(cantidadEnUso(it, rec))} {it.unidad}</strong>
+                      </small>
+                    )}
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(rec * Number(it.precio))}</td>
                 </tr>
@@ -3124,8 +3131,11 @@ function OrdenDetailModal({
                       onChange={(e) => setCantDraft((d) => ({ ...d, [it.sku]: e.target.value }))}
                       style={{ width: 80, textAlign: 'right', padding: '.15rem .35rem' }}
                     />
-                    {it.unidad ? <span className="muted" style={{ fontSize: '.78rem' }}>{it.unidad}</span> : null}
+                    {(it.unidad_compra || it.unidad) ? <span className="muted" style={{ fontSize: '.78rem' }}>{usaUnidadCompra(it) ? it.unidad_compra : it.unidad}</span> : null}
                   </span>
+                ) : usaUnidadCompra(it) ? (
+                  // Medida del proveedor y lo que entra al inventario (05-10-2026).
+                  <>{textoCantidadCompra(it, Number(it.cantidad))}</>
                 ) : (
                   <>{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</>
                 )}
@@ -3644,7 +3654,10 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
                     title="Editar nombre (se sincroniza con el inventario al guardar)" />
                   <span className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</span>
                 </td>
-                <td><input className="input mono" type="number" min={0} step="any" value={it.cantidad} onChange={(e) => upd(idx, { cantidad: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} /></td>
+                <td>
+                  <input className="input mono" type="number" min={0} step="any" value={it.cantidad} onChange={(e) => upd(idx, { cantidad: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} />
+                  {usaUnidadCompra(it) && <span className="muted mono" style={{ fontSize: '.72rem' }}>{textoCantidadCompra(it, Number(it.cantidad) || 0)}</span>}
+                </td>
                 <td><input className="input mono" type="number" min={0} step="any" value={it.precio} onChange={(e) => upd(idx, { precio: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} /></td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}</td>
                 <td style={{ textAlign: 'center' }}>{items.length > 1 && <button type="button" className="btn btn-sm btn-ghost" title="Quitar producto" onClick={() => quitarItem(idx)}>✕</button>}</td>
