@@ -11,6 +11,7 @@ import qrcode from 'qrcode-generator';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { Personal } from '@/shared/lib/types';
 import { nombreDeCarnet } from './fichaPersonal';
+import { textoVence } from './carnetVence';
 import { lineasSaludQR } from './condicionesSalud';
 
 // 54 × 86 mm a 300 DPI. 1 mm = 300 / 25.4 px.
@@ -194,6 +195,7 @@ function textoQR(p: Personal): string {
     'MGG · CARNET',
     `Nombre: ${nombre}`,
     p.cedula ? `Cédula: ${p.cedula}` : '',
+    p.carnet_vence ? `Carnet vence: ${textoVence(p.carnet_vence)}` : '',
     p.cargo ? `Cargo: ${p.cargo}` : '',
     p.departamento ? `Departamento: ${p.departamento}` : '',
     p.telefono ? `Teléfono: ${p.telefono}` : '',
@@ -274,8 +276,8 @@ async function pngConDpi(blob: Blob, dpi: number): Promise<Blob> {
 
 // Texto legal del reverso (según lo indicado por la empresa).
 const REV_P1 = 'Credencial de uso exclusivo para las alianzas en minerales estratégicos suscritas en la República Bolivariana de Venezuela. Agradecemos a todas las autoridades civiles, militares e institucionales prestar la mayor colaboración posible al portador de esta identificación.';
-const REV_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianza de minerales estratégicos de la Corporación Venezolana de Minería.';
-const REV_EMAIL = 'mineralgroupguayanaca@gmail.com';
+const REV_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianzas de minerales estratégicos de la Corporación Venezolana de Minería.';
+const REV_EMAIL = 'info@mineralgroupguayana.com';
 const REV_WHATSAPP = 'WhatsApp +58 424-9349731';
 
 /** Lienzo base con fondo, marco y barra de acento. Devuelve ctx + degradado de acento. */
@@ -356,22 +358,28 @@ export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'oscuro'
   const { canvas, ctx, accent } = nuevoLienzo(c);
   const cx = W / 2;
 
-  // Encabezado: logo + marca (alineado a la izquierda).
+  // Encabezado: logo a la izquierda; empresa y «CARNET» CENTRADOS en el carnet (05-10-2026).
   const logoBox = 92;
-  await dibujarLogo(ctx, 44, 46, logoBox, false, c);
-  ctx.textAlign = 'left';
+  await dibujarLogo(ctx, 44, 40, logoBox, false, c);
+  ctx.textAlign = 'center';
   ctx.fillStyle = c.gold;
   ctx.font = `800 25px ${FONT}`;
-  ctx.fillText('MINERAL GROUP', 152, 78);
-  ctx.fillText('GUAYANA c.A.', 152, 108);
+  ctx.fillText('MINERAL GROUP', cx, 66);
+  ctx.fillText('GUAYANA C.A.', cx, 96);
   ctx.fillStyle = c.muted;
   ctx.font = `600 14px ${FONT}`;
-  ctx.fillText('CARNET DE IDENTIFICACIÓN', 152, 132);
-  ctx.textAlign = 'center';
+  ctx.fillText('CARNET DE IDENTIFICACIÓN', cx, 120);
+  // Hasta cuándo vale (personal.carnet_vence).
+  const vence = textoVence(p.carnet_vence);
+  if (vence) {
+    ctx.fillStyle = c.primary3;
+    ctx.font = `700 14px ${FONT}`;
+    ctx.fillText(`VENCE: ${vence}`, cx, 142);
+  }
 
   // Divisor de acento.
   ctx.fillStyle = accent;
-  roundRect(ctx, 44, 158, W - 88, 3, 2);
+  roundRect(ctx, 44, 160, W - 88, 3, 2);
   ctx.fill();
 
   // Foto (o iniciales) en marco dorado.
@@ -400,7 +408,7 @@ export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'oscuro'
   // Chip de cédula.
   const chipY = ny + 6;
   ctx.font = `700 25px ${FONT}`;
-  const ced = p.cedula ? `c.I. ${p.cedula}` : 'c.I. —';
+  const ced = p.cedula ? `C.I. ${p.cedula}` : 'C.I. —';
   const chipW = Math.min(ctx.measureText(ced).width + 52, W - 90);
   ctx.fillStyle = 'rgba(255,138,0,0.16)';
   roundRect(ctx, cx - chipW / 2, chipY, chipW, 48, 24);
@@ -586,7 +594,7 @@ export async function generarReversoBlob(tema: TemaCarnet = 'oscuro'): Promise<B
   ctx.textAlign = 'center';
   ctx.fillStyle = c.gold;
   ctx.font = `800 21px ${FONT}`;
-  tracked(ctx, 'MINERAL GROUP GUAYANA c.A.', cx, headBottom + 34, 0.5);
+  tracked(ctx, 'MINERAL GROUP GUAYANA C.A.', cx, headBottom + 34, 0.5);
   ctx.fillStyle = accent;
   roundRect(ctx, cx - 60, headBottom + 52, 120, 3, 2);
   ctx.fill();

@@ -87,6 +87,8 @@ export interface PersonalInput {
   contacto_emergencia_parentesco?: string | null;
   sueldo_base?: number;
   fecha_ingreso?: string | null;
+  /** Hasta cuándo vale el carnet (aaaa-mm-dd). */
+  carnet_vence?: string | null;
   telefono?: string | null;
   correo?: string | null;
   contacto_emergencia?: string | null;
@@ -190,6 +192,7 @@ function payload(input: PersonalInput) {
     direccion: input.direccion === undefined ? undefined : (input.direccion?.trim() || null),
     contacto_emergencia_parentesco: input.contacto_emergencia_parentesco === undefined ? undefined : (input.contacto_emergencia_parentesco?.trim() || null),
     fecha_ingreso: input.fecha_ingreso || null,
+    carnet_vence: input.carnet_vence === undefined ? undefined : (input.carnet_vence || null),
     telefono: input.telefono?.trim() || null,
     // En minúsculas siempre: nadie escribe su correo dos veces igual, y así
     // «J.Perez@Gmail.com» y «j.perez@gmail.com» no quedan como dos personas.

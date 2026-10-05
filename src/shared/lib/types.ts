@@ -1198,6 +1198,8 @@ export interface Personal {
   foto_pos_y?: number | null;
   foto_zoom?: number | null;
   datos_pago?: Record<string, unknown> | null;
+  /** Hasta cuándo vale el carnet (aaaa-mm-dd). Se imprime en el frente. Ver `rrhh/carnetVence.ts`. */
+  carnet_vence?: string | null;
   created_at: string;
   created_by?: string | null;
 }

@@ -41,6 +41,7 @@ import {
 } from './personal.repository';
 import { verFichaTecnicaPdf } from './fichaTecnicaPdf';
 import { ExportarPersonalModal } from './ExportarPersonalModal';
+import { CARNET_VENCE_POR_DEFECTO, UNIDADES_DURACION, finDeMes, textoVence, venceTras, carnetVencido, type UnidadDuracion } from './carnetVence';
 import {
   TIPOS_CAMBIO_SUELDO, huboCambioSueldo, labelTipoCambio, textoVariacion, tipoSugerido,
   validarCambioSueldo, variacionSueldo, type TipoCambioSueldo,
@@ -53,7 +54,7 @@ import {
 } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
 /**
  * La ficha guardada → el formulario.
@@ -101,6 +102,7 @@ function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
     contacto_emergencia_parentesco: p.contacto_emergencia_parentesco ?? '',
     sueldo_base: Number(p.sueldo_base) || 0,
     fecha_ingreso: p.fecha_ingreso ?? '',
+    carnet_vence: p.carnet_vence ?? '',
     telefono: p.telefono ?? '',
     correo: p.correo ?? '',
     contacto_emergencia: p.contacto_emergencia ?? '',
@@ -1109,6 +1111,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                     : 'dd/mm/aaaa · de acá sale la antigüedad'}
                 />
               </div>
+              <VenceCarnetCampo value={form.carnet_vence ?? ''} onChange={(v) => setForm((x) => ({ ...x, carnet_vence: v }))} />
               <div className="form-row"><label>Teléfono</label><input className="input mono" value={form.telefono ?? ''} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
               {/* El correo se guarda en minúsculas al grabar: así el mismo
                   correo cargado por dos personas distintas queda igual. */}
@@ -2148,5 +2151,58 @@ function HistoricoPersonaModal({ persona, onClose }: { persona: Personal; onClos
         </table>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Vencimiento del carnet (05-10-2026): por MES y AÑO (vale hasta el último día
+ * del mes) o por DURACIÓN desde hoy (días, semanas, meses o años).
+ */
+function VenceCarnetCampo({ value, onChange }: { value: string; onChange: (iso: string) => void }) {
+  const [modo, setModo] = useState<'mes' | 'duracion'>('mes');
+  const [cantidad, setCantidad] = useState('1');
+  const [unidad, setUnidad] = useState<UnidadDuracion>('anios');
+  const anioActual = new Date().getFullYear();
+  const mes = value ? Number(value.slice(5, 7)) : 0;
+  const anio = value ? Number(value.slice(0, 4)) : 0;
+  const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  function aplicarDuracion(c: string, u: UnidadDuracion) {
+    const v = venceTras(new Date().toISOString().slice(0, 10), Number(c), u);
+    if (v) onChange(v);
+  }
+  return (
+    <div className="form-row">
+      <label>Carnet válido hasta</label>
+      <div className="view-toggle" role="tablist" style={{ margin: '0 0 .35rem' }}>
+        <button type="button" className={modo === 'mes' ? 'active' : ''} onClick={() => setModo('mes')}>Mes y año</button>
+        <button type="button" className={modo === 'duracion' ? 'active' : ''} onClick={() => setModo('duracion')}>Por duración</button>
+      </div>
+      {modo === 'mes' ? (
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          <select className="select" value={mes || ''} onChange={(e) => { const v = finDeMes(Number(e.target.value), anio || anioActual); if (v) onChange(v); }}>
+            <option value="" disabled>Mes</option>
+            {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+          </select>
+          <select className="select" value={anio || ''} onChange={(e) => { const v = finDeMes(mes || 12, Number(e.target.value)); if (v) onChange(v); }}>
+            <option value="" disabled>Año</option>
+            {Array.from({ length: 8 }, (_, i) => anioActual - 1 + i).map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="muted" style={{ fontSize: '.85rem' }}>Desde hoy,</span>
+          <input className="input mono" type="number" min={1} step={1} style={{ width: 80 }} value={cantidad}
+            onChange={(e) => { setCantidad(e.target.value); aplicarDuracion(e.target.value, unidad); }} />
+          <select className="select" value={unidad} onChange={(e) => { const u = e.target.value as UnidadDuracion; setUnidad(u); aplicarDuracion(cantidad, u); }}>
+            {UNIDADES_DURACION.map((u) => <option key={u.key} value={u.key}>{u.label}</option>)}
+          </select>
+        </div>
+      )}
+      <small className="hint muted" style={value && carnetVencido(value) ? { color: 'var(--danger)' } : undefined}>
+        {value
+          ? <>Vence el <strong className="mono">{textoVence(value)}</strong>{carnetVencido(value) ? ' · ya venció' : ''}. Se imprime en el carnet.</>
+          : 'Sin fecha: el carnet sale sin vencimiento.'}
+      </small>
+    </div>
   );
 }
