@@ -20,7 +20,7 @@ const TABLE = 'cocina_comidas';
 export const CATEGORIA_VIVERES = 'VIVERES';
 // La lista de categorías vive en `categoriasCocina.ts` (la comparte Salidas);
 // acá se re-exporta para no mover a quien ya la importaba de este archivo.
-import { esCategoriaCocina } from './categoriasCocina';
+import { asegurarCategoriasCocina, esCategoriaCocina } from './categoriasCocina';
 import { fechaComidaEnCiclo, inicioExactoDe } from './mercadoComparar';
 export { CATEGORIAS_COCINA, esCategoriaCocina } from './categoriasCocina';
 
@@ -226,6 +226,7 @@ export interface ViverDisponible {
  * agregando todos los almacenes.
  */
 export async function listViveres(almacen?: string | null): Promise<ViverDisponible[]> {
+  await asegurarCategoriasCocina(); // la lista gestionable (tabla categorias_cocina)
   const [productos, existencias] = await Promise.all([listProductos(), listExistencias()]);
   const porProducto = new Map<string, Existencia[]>();
   for (const e of existencias) {
@@ -262,6 +263,7 @@ export async function listViveres(almacen?: string | null): Promise<ViverDisponi
  * Sin almacén vinculado (legado) cae al comportamiento global (todos los almacenes).
  */
 export async function listViveresGlobal(preferAlmacen?: string | null): Promise<ViverDisponible[]> {
+  await asegurarCategoriasCocina(); // la lista gestionable (tabla categorias_cocina)
   const [productos, existencias, almacenes] = await Promise.all([listProductos(), listExistencias(), listAlmacenes()]);
 
   // Alcance por CENTRO: nombres de almacén que pertenecen a la misma sede que el vinculado.
@@ -324,6 +326,7 @@ interface ViverEnAlmacen { producto_id: string; almacen: string; stock: number; 
  * así que las dos pantallas mostraban verdades distintas sobre la misma cocina.
  */
 async function listViveresConStock(): Promise<ViverEnAlmacen[]> {
+  await asegurarCategoriasCocina(); // la lista gestionable (tabla categorias_cocina)
   const [productos, existencias] = await Promise.all([listProductos(), listExistencias()]);
   const precioProd = new Map<string, number>();
   for (const p of productos) {

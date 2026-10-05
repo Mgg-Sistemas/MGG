@@ -19,6 +19,8 @@ import { hoyISO, money, num, dateTime } from '@/shared/lib/format';
 import type { CocinaComida, TipoComida, Cocina, Almacen, TipoCocina } from '@/shared/lib/types';
 import { crearAlmacen, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { agruparPorCategoria, normCategoria } from './agruparPorCategoria';
+import { CategoriasCocinaModal } from './CategoriasCocinaModal';
+import { recargarCategoriasCocina } from './categoriasCocina';
 import { puedeMoverEnSede } from '@/modules/inventario/sectorizacion';
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import {
@@ -64,6 +66,7 @@ export function CocinaPage() {
   const [sel, setSel] = useState<string | null>(null);        // cocina abierta
   const [form, setForm] = useState<TipoCocina | Cocina | null>(null);
   const [borrar, setBorrar] = useState<CocinaConInfo | null>(null);
+  const [verCategorias, setVerCategorias] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -76,6 +79,8 @@ export function CocinaPage() {
   // Incluye inventario (productos/existencias/movimientos): la cocina refleja en vivo
   // el stock del almacén vinculado.
   useRealtime(['cocinas', 'cocina_comidas', 'productos', 'existencias', 'movimientos'], () => { void reload(); });
+  // Si alguien cambia las categorías que entran a Cocina, la lista se relee en vivo.
+  useRealtime(['categorias_cocina'], () => { void recargarCategoriasCocina().then(reload); });
 
   const selInfo = cocinas.find((c) => c.cocina.id === sel) ?? null;
   if (selInfo) {
@@ -102,6 +107,7 @@ export function CocinaPage() {
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           {/* La vista de teléfono del cocinero: personas, consumo, fotos y WhatsApp. */}
           <Link to="/app/cocina/telefono" className="btn btn-ghost" title="Vista sencilla para cargar desayuno, almuerzo y cena desde el celular">📱 Vista teléfono</Link>
+          <button className="btn btn-ghost" onClick={() => setVerCategorias(true)} title="Qué categorías del inventario entran a Cocina">🏷 Categorías</button>
         {canWrite && (
           <>
             <button className="btn btn-ghost" onClick={() => setForm('resguardo')}>＋ Nuevo resguardo</button>
@@ -176,6 +182,7 @@ export function CocinaPage() {
           onAlmacenCreado={(a) => setAlmacenes((xs) => [...xs, a])}
           onClose={() => setForm(null)} onSaved={async () => { setForm(null); await reload(); }} />
       )}
+      {verCategorias && <CategoriasCocinaModal actor={actor} canWrite={canWrite} onClose={() => setVerCategorias(false)} />}
       {borrar && (
         <ConfirmDialog title={esResguardo(borrar.cocina) ? 'Inhabilitar resguardo' : 'Inhabilitar cocina'}
           message={`¿Inhabilitar ${esResguardo(borrar.cocina) ? 'el resguardo' : 'la cocina'} "${borrar.cocina.nombre}"? Su historial queda guardado; podés volver a crearlo luego. El stock no se toca.`}
@@ -375,6 +382,8 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
   // `solicitudes_salida`: el aviso de repartos pendientes tiene que irse solo cuando Salidas
   // autoriza o ejecuta el traslado, no cuando alguien recarga la página.
   useRealtime(['cocina_comidas', 'productos', 'movimientos', 'mercados_cocina', 'solicitudes_salida'], () => { void reload(); void loadMercado({ background: true }); });
+  // Cambió la lista de categorías que entran a Cocina: se relee y se recalcula el mercado.
+  useRealtime(['categorias_cocina'], () => { void recargarCategoriasCocina().then(() => { void reload(); void loadMercado({ background: true }); }); });
 
   async function iniciar() {
     setConfirmarInicio(false);

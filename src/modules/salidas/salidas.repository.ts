@@ -11,6 +11,7 @@ import type {
 } from '@/shared/lib/types';
 import { registrarMovimiento, recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
 import { repartirEntregaCocina, type CocinaDestino } from './entregaACocina';
+import { recargarCategoriasCocina } from '@/modules/cocina/categoriasCocina';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { rangoSede, type CandidatoAlmacen } from './asignacionPrioridad';
 import { prefijoCodigo, siguienteCodigo } from './codigoSolicitud';
@@ -773,7 +774,8 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   let cocinaDestino: CocinaDestino | null = null;
   if (s.scope === 'salida' && s.tipo === 'material') {
     let aDescontar = lineas;
-    const cocinas = await listCocinasDestino();
+    // La lista FRESCA de categorías de Cocina: la misma que valida la base al descontar.
+    const [cocinas] = await Promise.all([listCocinasDestino(), recargarCategoriasCocina()]);
     // Siempre: la comida nunca baja por Salidas, sea cual sea el destino (30-09-2026).
     {
       const ids = [...new Set(lineas.map((l) => l.producto_id).filter(Boolean))];

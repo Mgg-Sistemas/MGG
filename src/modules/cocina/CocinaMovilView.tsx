@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { recargarCategoriasCocina } from './categoriasCocina';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -216,6 +217,7 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
   useEffect(() => { listViveresGlobal(almacen).then(setViveres).catch(() => setViveres([])); }, [almacen]);
   // Si en la PC dan de baja (o alta) un víver, el buscador del teléfono lo refleja al instante.
   useRealtime(['productos', 'existencias'], () => { listViveresGlobal(almacen).then(setViveres).catch(() => {}); });
+  useRealtime(['categorias_cocina'], () => { void recargarCategoriasCocina().then(() => listViveresGlobal(almacen)).then(setViveres).catch(() => {}); });
   const mapV = useMemo(() => new Map(viveres.map((v) => [v.producto.id, v])), [viveres]);
   const elegidos = useMemo(() => new Set(items.map((i) => i.id)), [items]);
   const sugerencias = useMemo(() => {

@@ -23,6 +23,7 @@ import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { trasladoDeMovimiento } from '@/modules/inventario/stockPorAlmacen';
 import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, diaDeComida } from './cocina.repository';
+import { asegurarCategoriasCocina } from './categoriasCocina';
 import { repartosPendientes, type RepartoPendiente } from './reparto.repository';
 import {
   cicloQueSePisa, deltaEfectivo, diferenciasPorViver, inicioExactoDe, mermasPorViver, stockAlCorte, totalesDeMercado,
@@ -403,6 +404,7 @@ async function entradasDe(
   almacen: string | null,
   prodById: Map<string, Producto>,
 ): Promise<EntradasResult> {
+  await asegurarCategoriasCocina(); // la lista gestionable (tabla categorias_cocina)
   const { desde, hasta } = ventana(m);
   const scope = await almacenesScope(almacen);
   let q = supabase.from('movimientos')
@@ -490,6 +492,7 @@ async function trasladosDe(
   prodById: Map<string, Producto>,
   opciones: { verificarLlegada?: boolean } = {},
 ): Promise<TrasladosResult> {
+  await asegurarCategoriasCocina(); // la lista gestionable (tabla categorias_cocina)
   const { desde, hasta } = ventana(m);
   const [scope, almacenes] = await Promise.all([almacenesScope(almacen), listAlmacenes()]);
   let q = supabase.from('movimientos')
@@ -644,6 +647,7 @@ async function mermasDe(
   almacen: string | null,
   prodById: Map<string, Producto>,
 ): Promise<MermasResult> {
+  await asegurarCategoriasCocina(); // la lista gestionable (tabla categorias_cocina)
   const { desde, hasta } = ventana(m);
   const scope = await almacenesScope(almacen);
   // Por páginas: Supabase corta en 1.000 filas sin avisar, y en 21 días un centro las pasa.
@@ -704,6 +708,7 @@ function restaMermas(m: MercadoCocina): boolean {
 /* ───────── Resumen en vivo del mercado abierto ───────── */
 
 export async function resumenMercado(mercado: MercadoCocina, almacen: string | null): Promise<ResumenMercado> {
+  await asegurarCategoriasCocina(); // la lista gestionable (tabla categorias_cocina)
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
   const abierto = mercado.estado === 'abierto';
