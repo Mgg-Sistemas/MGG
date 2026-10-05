@@ -17,6 +17,11 @@ const HEADER_STYLE = {
   },
 };
 const TITLE_STYLE = { font: { name: 'Arial', sz: 14, bold: true } };
+const CELDA_STYLE = {
+  font: { name: 'Arial', sz: 10 },
+  alignment: { vertical: 'center', wrapText: true },
+  border: HEADER_STYLE.border,
+};
 
 const hoyTxt = () => new Date().toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 const nombreArchivo = (ext: string) => `personal-${new Date().toISOString().slice(0, 10)}.${ext}`;
@@ -49,6 +54,12 @@ export async function descargarPersonalExcel(personas: Personal[], keys: string[
   const cellAt = (r: number, c: number) => (ws as Record<string, { s?: unknown }>)[XLSX.utils.encode_cell({ r, c })];
   const tituloCell = cellAt(0, 0); if (tituloCell) tituloCell.s = TITLE_STYLE;
   head.forEach((_, c) => { const cell = cellAt(3, c); if (cell) cell.s = HEADER_STYLE; });
+  // Cada celda de la tabla con borde, para que al imprimir se vea como tabla.
+  filas.forEach((f, i) => f.forEach((_, c) => {
+    const cell = cellAt(4 + i, c);
+    if (cell) cell.s = { ...CELDA_STYLE, ...(c === 0 ? { alignment: { horizontal: 'center', vertical: 'center' } } : {}) };
+  }));
+  (ws as Record<string, unknown>)['!rows'] = [{ hpt: 24 }, { hpt: 18 }, { hpt: 8 }, { hpt: 22 }, ...filas.map(() => ({ hpt: 18 }))];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Personal');
   previewWorkbook(XLSX, wb, nombreArchivo('xlsx'));
@@ -69,14 +80,22 @@ export async function descargarPersonalPdf(personas: Personal[], keys: string[],
   const H = doc.internal.pageSize.getHeight();
   const logo = await loadLogoDataUrl().catch(() => null);
 
+  // Encabezado: logo, empresa, título y datos, con aire entre cada cosa.
   let y = MARGEN_PDF;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGEN_PDF, y, 42, 42); } catch { /* opcional */ } }
-  const tx = logo ? MARGEN_PDF + 54 : MARGEN_PDF;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-  doc.text(`Personal · ${titulo}`, tx, y + 16);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`MGG · ${personas.length} persona(s) · ${hoyTxt()}`, tx, y + 31);
-  y += 54;
+  const LOGO = 58;
+  if (logo) { try { doc.addImage(logo, 'JPEG', MARGEN_PDF, y, LOGO, LOGO); } catch { /* opcional */ } }
+  const tx = logo ? MARGEN_PDF + LOGO + 16 : MARGEN_PDF;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(150, 90, 0);
+  doc.text('MINERAL GROUP GUAYANA C.A.', tx, y + 14);
+  doc.setTextColor(20); doc.setFontSize(16);
+  doc.text(`Personal · ${titulo}`, tx, y + 36);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(90);
+  doc.text(`${personas.length} persona(s) · ${hoyTxt()}`, tx, y + 54);
+  doc.setTextColor(0);
+  y += LOGO + 14;
+  doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
+  doc.line(MARGEN_PDF, y, W - MARGEN_PDF, y);
+  y += 18;
 
   // Columnas proporcionales a su ancho sugerido, dentro de los 2 cm de margen.
   const util = anchoUtilPdf(W);
@@ -91,8 +110,10 @@ export async function descargarPersonalPdf(personas: Personal[], keys: string[],
     // El N° de renglón va tal cual; el sueldo, con dos decimales.
     body: filas.map((f) => f.map((v, j) => (j > 0 && typeof v === 'number' ? v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v)))),
     theme: 'grid',
-    headStyles: { fillColor: [255, 138, 0], textColor: 255, fontSize: campos.length > 8 ? 7 : 9 },
-    styles: { fontSize: campos.length > 8 ? 7 : 9, cellPadding: 3, overflow: 'linebreak' },
+    // Tabla bien marcada: líneas oscuras y renglones alternados, para que se lea impresa.
+    headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', fontSize: campos.length > 8 ? 7.5 : 10, halign: 'center', valign: 'middle', lineColor: [60, 60, 60], lineWidth: 0.75 },
+    styles: { fontSize: campos.length > 8 ? 7.5 : 10, cellPadding: campos.length > 8 ? 4 : 6, overflow: 'linebreak', valign: 'middle', lineColor: [60, 60, 60], lineWidth: 0.75, textColor: 20 },
+    alternateRowStyles: { fillColor: [246, 246, 246] },
     columnStyles,
     // Abajo deja lugar al número de página, que va sobre la línea de los 2 cm.
     margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 },

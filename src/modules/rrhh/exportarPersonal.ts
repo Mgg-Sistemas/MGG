@@ -81,11 +81,11 @@ export function camposElegidos(keys: readonly string[]): CampoExport[] {
   return CAMPOS_EXPORT.filter((c) => set.has(c.key));
 }
 
-/** Encabezado y filas listos para Excel o PDF. La primera columna es el N° de renglón. */
+/** Encabezado y filas listos para Excel o PDF. La primera columna es el N° de ítem. */
 export function tablaExport(personas: readonly Personal[], keys: readonly string[]): { head: string[]; filas: (string | number)[][] } {
   const campos = camposElegidos(keys);
   return {
-    head: ['#', ...campos.map((c) => c.label)],
+    head: ['N°', ...campos.map((c) => c.label)],
     filas: personas.map((p, i) => [i + 1, ...campos.map((c) => c.valor(p))]),
   };
 }

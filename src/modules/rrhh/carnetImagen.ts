@@ -364,30 +364,33 @@ export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'oscuro'
   ctx.textAlign = 'center';
   ctx.fillStyle = c.gold;
   ctx.font = `800 25px ${FONT}`;
-  ctx.fillText('MINERAL GROUP', cx, 66);
-  ctx.fillText('GUAYANA C.A.', cx, 96);
+  ctx.fillText('MINERAL GROUP', cx, 74);
+  ctx.fillText('GUAYANA C.A.', cx, 104);
   ctx.fillStyle = c.muted;
   ctx.font = `600 14px ${FONT}`;
-  ctx.fillText('CARNET DE IDENTIFICACIÓN', cx, 120);
-  // Hasta cuándo vale (personal.carnet_vence).
-  const vence = textoVence(p.carnet_vence);
-  if (vence) {
-    ctx.fillStyle = c.primary3;
-    ctx.font = `700 14px ${FONT}`;
-    ctx.fillText(`VENCE: ${vence}`, cx, 142);
-  }
+  ctx.fillText('CARNET DE IDENTIFICACIÓN', cx, 130);
 
   // Divisor de acento.
   ctx.fillStyle = accent;
-  roundRect(ctx, 44, 160, W - 88, 3, 2);
+  roundRect(ctx, 44, 156, W - 88, 3, 2);
   ctx.fill();
 
-  // Foto (o iniciales) en marco dorado.
+  // Foto (o iniciales) en marco dorado. 20 px más baja que antes para dejarle
+  // lugar a la vigencia sin empujar el QR.
   const fotoW = 260;
-  const fotoH = 300;
-  const fotoY = 180;
+  const fotoH = 280;
+  const fotoY = 176;
   await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH, c);
-  const fotoBottom = fotoY + fotoH;
+  let fotoBottom = fotoY + fotoH;
+
+  // Vigencia del carnet, justo debajo de la foto (personal.carnet_vence).
+  const vence = textoVence(p.carnet_vence);
+  if (vence) {
+    ctx.fillStyle = c.primary3;
+    ctx.font = `700 17px ${FONT}`;
+    tracked(ctx, `VIGENCIA: ${vence}`, cx, fotoBottom + 22, 1);
+  }
+  fotoBottom += 20;
 
   // Primer nombre + primer apellido, grande. El nombre completo sigue en la ficha
   // y en el QR: acá lo que importa es que se lea de lejos, y «ANGELICA DANIELA

@@ -7,9 +7,9 @@ const p = (x: Partial<Personal>): Personal => ({
 }) as Personal;
 
 describe('exportar datos del personal', () => {
-  it('por defecto sale nombre y cédula, con el N° de renglón', () => {
+  it('por defecto sale nombre y cédula, con el N° de ítem', () => {
     const { head, filas } = tablaExport([p({ cedula: 'V-12345678' }), p({ nombre: 'ANA', apellido: 'GIL', cedula: 'V-9' })], CAMPOS_POR_DEFECTO);
-    expect(head).toEqual(['#', 'Nombre y apellido', 'Cédula']);
+    expect(head).toEqual(['N°', 'Nombre y apellido', 'Cédula']);
     expect(filas).toEqual([[1, 'LENISKA PÉREZ', 'V-12345678'], [2, 'ANA GIL', 'V-9']]);
   });
   it('las columnas salen en el orden de la lista, no en el que se marcaron', () => {
