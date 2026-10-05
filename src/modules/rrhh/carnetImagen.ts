@@ -188,7 +188,19 @@ function tracked(ctx: CanvasRenderingContext2D, text: string, cx: number, y: num
  * primero que necesita quien la atiende es saber a qué es alérgica. Solo
  * aparecen si hay algo que declarar; dos «No» le quitarían lugar a lo demás.
  */
-function textoQR(p: Personal): string {
+/**
+ * Lo que lleva el QR desde el 05-10-2026: un ENLACE a la verificación en vivo.
+ * Si la persona está activa, la página muestra sus datos; si está desactivada,
+ * manda al logo de la empresa. Va siempre al dominio de producción, aunque el
+ * carnet se genere desde otro lado.
+ */
+export const URL_CARNET = 'https://sistema.mineralgroupguayana.com/#/carnet/';
+export function urlQRCarnet(p: Pick<Personal, 'id'>): string {
+  return `${URL_CARNET}${p.id}`;
+}
+
+/** El texto que llevaba el QR antes (datos escritos). Se conserva como referencia. */
+export function textoQR(p: Personal): string {
   const nombre = `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim();
   const emerg = [p.contacto_emergencia, p.contacto_emergencia_tlf].filter(Boolean).join(' · ');
   return [
@@ -438,7 +450,7 @@ export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'oscuro'
   ctx.fillStyle = c.white;
   roundRect(ctx, panelX, panelY, panel, panel, 20);
   ctx.fill();
-  dibujarQR(ctx, textoQR(p), panelX, panelY, panel, c);
+  dibujarQR(ctx, urlQRCarnet(p), panelX, panelY, panel, c);
 
   ctx.fillStyle = c.dim;
   ctx.font = `600 14px ${FONT}`;

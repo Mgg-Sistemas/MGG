@@ -11,6 +11,7 @@ import { lazyReload, ChunkErrorBoundary } from './shared/lib/lazyReload';
 
 // Lazy: las páginas internas se descargan en chunks separados al navegarlas.
 // lazyReload(): si un chunk fue borrado por un despliegue nuevo, recarga sola.
+const CarnetPublicoPage = lazyReload(() => import('./modules/rrhh/CarnetPublicoPage').then((m) => ({ default: m.CarnetPublicoPage })));
 const DashboardPage = lazyReload(() => import('./modules/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })));
 const PedidosPage = lazyReload(() => import('./modules/pedidos/PedidosPage').then((m) => ({ default: m.PedidosPage })));
 const HistoricoPage = lazyReload(() => import('./modules/pedidos/HistoricoPage').then((m) => ({ default: m.HistoricoPage })));
@@ -107,6 +108,8 @@ export function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        {/* Pública: lo que abre el QR del carnet (verificación en vivo). */}
+        <Route path="/carnet/:id" element={<Suspense fallback={null}><CarnetPublicoPage /></Suspense>} />
         <Route
           path="/cambiar-clave"
           element={
