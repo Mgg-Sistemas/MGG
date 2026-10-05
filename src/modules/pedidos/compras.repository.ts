@@ -8,6 +8,7 @@
    (costo = gasto/cant → PMP). El inventario está en $: una compra en Bs
    entra convertida con su tasa BCV (ver compraDirectaMoneda.ts).
    ============================================================ */
+import { cantidadEnUso, normalizarUnidad } from './unidadCompra';
 import { supabase } from '@/shared/lib/supabase';
 import { createProducto, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -36,9 +37,16 @@ export interface CompraDirectaItem {
   producto_id: string;
   producto_nombre: string;
   producto_sku: string | null;
+  /** En la unidad de COMPRA del renglón si tiene `unidad_compra`; si no, en la de uso. */
   cantidad: number;
   /** Gasto del renglón (se carga al finalizar). */
   gasto?: number | null;
+  /** Unidad de uso del producto (la del inventario), copiada al cargar la compra. */
+  unidad?: string | null;
+  /** Medida en que se compró (BULTO, CAJA…) y cuántas unidades de uso trae cada una.
+   *  Al recibir entra `cantidad × factor_compra` al inventario (05-10-2026). */
+  unidad_compra?: string | null;
+  factor_compra?: number | null;
 }
 
 /** Una factura adjunta (PDF o imagen) guardada en Storage. */
@@ -233,8 +241,23 @@ export async function listComprasDirectasCredito(): Promise<CompraDirectaCredito
 
 /* ───────── Alta (varios materiales) ───────── */
 
-export interface LineaExistente { modo: 'existente'; productoId: string; cantidad: number }
-export interface LineaNueva { modo: 'nuevo'; nombre: string; categoria: string; unidad: string; cantidad: number }
+/** Medida de compra de un renglón (opcional): BULTO de 50, CAJA de 24… */
+interface MedidaCompra { unidad_compra?: string | null; factor_compra?: number | null }
+export interface LineaExistente extends MedidaCompra { modo: 'existente'; productoId: string; cantidad: number }
+export interface LineaNueva extends MedidaCompra { modo: 'nuevo'; nombre: string; categoria: string; unidad: string; cantidad: number }
+
+/** Los campos de medida que se guardan en el renglón (solo si hay medida y factor). */
+function medidaDe(l: MedidaCompra, unidad: string | null | undefined): Pick<CompraDirectaItem, 'unidad' | 'unidad_compra' | 'factor_compra'> {
+  const uc = normalizarUnidad(l.unidad_compra);
+  const f = Number(l.factor_compra);
+  if (uc && !(f > 0)) throw new Error(`Indicá cuántas ${unidad || 'unidades'} trae cada ${uc}.`);
+  return { unidad: unidad ?? null, unidad_compra: uc || null, factor_compra: uc ? f : null };
+}
+
+/** Lo que entra (o salió) del inventario por un renglón: siempre en unidad de uso. */
+export function cantidadInventarioCompra(it: CompraDirectaItem): number {
+  return cantidadEnUso(it, Number(it.cantidad) || 0);
+}
 export type LineaCompra = LineaExistente | LineaNueva;
 
 export interface CrearCompraInput {
@@ -265,7 +288,7 @@ export async function crearCompraDirecta(
     if (l.modo === 'existente') {
       if (!l.productoId) throw new Error('Elegí el material en cada renglón.');
       const p = productosExistentes.find((x) => x.id === l.productoId) ?? null;
-      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad });
+      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad, ...medidaDe(l, p?.unidad) });
     } else {
       const nom = l.nombre.trim().toUpperCase();
       if (!nom) throw new Error('Indicá el nombre del material nuevo.');
@@ -275,7 +298,7 @@ export async function crearCompraDirecta(
         stock: 0, stock_min: 0, precio: 0, almacen, estado: 'activo',
       });
       productosExistentes = [...productosExistentes, nuevo];
-      items.push({ producto_id: nuevo.id, producto_nombre: nuevo.nombre, producto_sku: nuevo.sku, cantidad });
+      items.push({ producto_id: nuevo.id, producto_nombre: nuevo.nombre, producto_sku: nuevo.sku, cantidad, ...medidaDe(l, nuevo.unidad) });
     }
   }
 
@@ -334,7 +357,7 @@ export async function editarCompraDirectaEnProceso(
     if (l.modo === 'existente') {
       if (!l.productoId) throw new Error('Elegí el material en cada renglón.');
       const p = productosExistentes.find((x) => x.id === l.productoId) ?? null;
-      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad });
+      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad, ...medidaDe(l, p?.unidad) });
     } else {
       const nom = l.nombre.trim().toUpperCase();
       if (!nom) throw new Error('Indicá el nombre del material nuevo.');
@@ -344,7 +367,7 @@ export async function editarCompraDirectaEnProceso(
         stock: 0, stock_min: 0, precio: 0, almacen, estado: 'activo',
       });
       productosExistentes = [...productosExistentes, nuevo];
-      items.push({ producto_id: nuevo.id, producto_nombre: nuevo.nombre, producto_sku: nuevo.sku, cantidad });
+      items.push({ producto_id: nuevo.id, producto_nombre: nuevo.nombre, producto_sku: nuevo.sku, cantidad, ...medidaDe(l, nuevo.unidad) });
     }
   }
 
@@ -737,14 +760,15 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
   // Entrada al inventario por cada material (costo en $ = gasto / cantidad, ÷ tasa si es Bs).
   let primerMov: string | null = yaEntraron[0]?.id ?? null;
   for (const it of pendientes) {
-    const cantidad = Number(it.cantidad) || 0;
+    // En unidad de USO: 10 BULTO de 50 entran como 500 KG, y el costo se reparte entre los 500.
+    const cantidad = cantidadInventarioCompra(it);
     if (cantidad <= 0 || !it.producto_id) continue;
     const costoUnit = costoUnitarioUsd(it.gasto, cantidad, compra.moneda, tasa);
     const mov = await registrarMovimiento({
       producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
       ref_tipo: 'compra_directa', ref_id: compra.id,
-      detalle: `Compra directa · ${it.producto_nombre}${enBs ? ` · Bs→$ a ${fmtTasa(tasa)}${notaTasa}` : ''}`, precio_unitario: costoUnit,
+      detalle: `Compra directa · ${it.producto_nombre}${it.unidad_compra ? ` · ${it.cantidad} ${it.unidad_compra} de ${it.factor_compra}` : ''}${enBs ? ` · Bs→$ a ${fmtTasa(tasa)}${notaTasa}` : ''}`, precio_unitario: costoUnit,
     });
     if (!primerMov) primerMov = mov.id;
   }
@@ -939,7 +963,7 @@ export async function editarCompraDirectaFinalizada(input: EditarCompraFinalizad
 
   // 2) Inventario: reversar la entrada previa y reingresar al nuevo costo (misma cantidad).
   for (const it of items) {
-    const cantidad = Number(it.cantidad) || 0;
+    const cantidad = cantidadInventarioCompra(it);   // lo que entró, en unidad de uso
     if (cantidad <= 0 || !it.producto_id) continue;
     // Reversa: salida de la cantidad ingresada (no altera el PMP).
     await registrarMovimiento({
@@ -1033,7 +1057,7 @@ export async function eliminarCompraDirecta(compra: CompraDirecta, actor?: strin
   // 1) Revertir INVENTARIO si ya se recibió (salida por la cantidad ingresada de cada material).
   if (compra.recibida_at || compra.mov_id) {
     for (const it of compra.items ?? []) {
-      const cantidad = Number(it.cantidad) || 0;
+      const cantidad = cantidadInventarioCompra(it);   // lo que entró, en unidad de uso
       if (cantidad <= 0 || !it.producto_id) continue;
       try {
         await registrarMovimiento({

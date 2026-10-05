@@ -3,6 +3,7 @@
    Se abre en VISTA PREVIA SOLO al hacer clic (regla del sistema).
    Muestra TODOS los materiales con cantidad y precio.
    ============================================================ */
+import { textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
@@ -81,8 +82,8 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
       return [
         it.producto_sku || '—',
         it.producto_nombre,
-        fmt.num(cant),
-        cu != null ? monto(cu) : '—',
+        usaUnidadCompra(it) ? textoCantidadCompra(it, cant) : fmt.num(cant),
+        cu != null ? `${monto(cu)}${usaUnidadCompra(it) ? ` / ${it.unidad_compra}` : ''}` : '—',
         g != null ? monto(g) : '—',
       ];
     }),

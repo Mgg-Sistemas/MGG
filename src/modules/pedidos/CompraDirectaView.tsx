@@ -19,6 +19,8 @@ import {
   urlAdjuntoCompra, gestionarFacturasCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
 } from './compras.repository';
 import { FacturasModal } from './FacturasModal';
+import { cantidadEnUso, costoPorUnidadDeUso, normalizarUnidad, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
+import { contextoPresentaciones, recordarPresentaciones, sugerirPara } from './presentaciones.repository';
 import { DetalleDirectoModal } from './DetalleDirectoModal';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 
@@ -232,7 +234,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
             ['Comprada', detalle.finalizada_at ? dateTime(detalle.finalizada_at) : '—'],
           ]}
           itemsTitle="Materiales"
-          items={detalle.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: it.gasto }))}
+          items={detalle.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: it.gasto, cantidadTexto: usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad) || 0) : undefined }))}
           moneda={detalle.moneda || 'USD'}
           total={detalle.gasto}
           nota={detalle.nota}
@@ -270,7 +272,7 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditar, o
       {compra.proveedor_nombre && <div className="muted" style={{ fontSize: '.74rem' }}>🏭 {compra.proveedor_nombre}</div>}
       {compra.items.length > 1 && (
         <ul className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0', paddingLeft: '1rem' }}>
-          {compra.items.map((it, i) => <li key={i}>{it.producto_nombre} · {num(it.cantidad)}</li>)}
+          {compra.items.map((it, i) => <li key={i}>{it.producto_nombre} · {usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad) || 0) : num(it.cantidad)}</li>)}
         </ul>
       )}
       <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem', lineHeight: 1.5 }}>
@@ -320,7 +322,13 @@ function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
 
 /* ───────── Modal: nueva compra (varios materiales) ───────── */
 
-interface LineaUI { id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string }
+interface LineaUI {
+  id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string;
+  /** Medida en que se compra (BULTO, CAJA…) y cuánto trae: la cantidad va en esa medida. */
+  unidadCompra: string; factorCompra: string;
+  /** El usuario ya tocó la medida: no se pisa con la sugerencia. */
+  ucTocada?: boolean;
+}
 
 function CrearCompraModal({ productos, categorias, unidades, proveedores, editCompra, actor, actorName, onClose, onSaved }: {
   productos: Producto[]; categorias: string[]; unidades: string[]; proveedores: Proveedor[];
@@ -338,6 +346,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
   const nuevaLinea = (id: number): LineaUI => ({
     id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
     nombre: '', categoria: categorias[0] ?? '', unidad: unidades[0] ?? 'und', cantidad: '1',
+    unidadCompra: '', factorCompra: '',
   });
   // En modo edición, precargar los renglones desde los materiales ya cargados en la compra.
   const [lineas, setLineas] = useState<LineaUI[]>(() => {
@@ -347,6 +356,8 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
         nombre: it.producto_nombre ?? '', categoria: categorias[0] ?? '',
         unidad: productos.find((p) => p.id === it.producto_id)?.unidad ?? unidades[0] ?? 'und',
         cantidad: String(it.cantidad ?? 1),
+        unidadCompra: it.unidad_compra ?? '', factorCompra: it.factor_compra != null ? String(it.factor_compra) : '',
+        ucTocada: true,
       }));
     }
     return [nuevaLinea(1)];
@@ -362,8 +373,39 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
   const [seq, setSeq] = useState((editCompra?.items?.length ?? 1) + 1);
 
   function set(id: number, patch: Partial<LineaUI>) { setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l))); }
+
+  /* Medida de compra sugerida (05-10-2026): lo último que le compramos en esa medida
+     a ESTE proveedor; si no hay, la de la ficha del producto. Solo en renglones del
+     inventario que el usuario no tocó. */
+  const provSug = provModo === 'existente' ? proveedorId : '';
+  const idsSug = useMemo(() => [...new Set(lineas.filter((l) => l.modo === 'existente' && !l.ucTocada).map((l) => l.productoId).filter(Boolean))].sort().join(','), [lineas]);
+  useEffect(() => {
+    if (!idsSug) return;
+    let vivo = true;
+    contextoPresentaciones(provSug || null, idsSug.split(','))
+      .then((ctx) => {
+        if (!vivo) return;
+        setLineas((ls) => ls.map((l) => {
+          if (l.modo !== 'existente' || l.ucTocada) return l;
+          const sug = sugerirPara(ctx, l.productoId);
+          const unidadCompra = sug?.unidad_compra ?? '';
+          const factorCompra = sug ? String(sug.factor_compra) : '';
+          return l.unidadCompra === unidadCompra && l.factorCompra === factorCompra ? l : { ...l, unidadCompra, factorCompra };
+        }));
+      })
+      .catch(() => { /* sin sugerencia: se compra en la unidad de uso */ });
+    return () => { vivo = false; };
+  }, [provSug, idsSug]);
   function add() { setLineas((ls) => [...ls, nuevaLinea(seq)]); setSeq((s) => s + 1); }
   function quitar(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
+
+  /** La medida en que se le compró a este proveedor queda como sugerencia para la próxima. */
+  function recordarMedidas(provId: string | null, payload: LineaCompra[]) {
+    if (!provId) return;
+    const its = payload.filter((p): p is Extract<LineaCompra, { modo: 'existente' }> => p.modo === 'existente')
+      .map((p) => ({ sku: '', nombre: '', cantidad: p.cantidad, precio: 0, productoId: p.productoId, unidad_compra: p.unidad_compra ?? null, factor_compra: p.factor_compra ?? null }));
+    recordarPresentaciones(provId, its, actor).catch((e) => console.error('No se pudo recordar la medida del proveedor:', e));
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -377,9 +419,10 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
     for (const l of lineas) {
       const cant = Number(l.cantidad) || 0;
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
+      if (normalizarUnidad(l.unidadCompra) && !(Number(l.factorCompra) > 0)) { setError(`Indicá cuántas ${l.unidad || 'unidades'} trae cada ${normalizarUnidad(l.unidadCompra)}.`); return; }
       if (l.modo === 'existente') {
         if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
-        payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant });
+        payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant, unidad_compra: l.unidadCompra, factor_compra: Number(l.factorCompra) || null });
         // Si tocaron la medida del producto existente, se actualiza en el inventario.
         const prod = activos.find((p) => p.id === l.productoId);
         const med = l.unidad.trim();
@@ -391,7 +434,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
         if (!l.nombre.trim()) { setError('Indicá el nombre del material nuevo.'); return; }
         const uni = l.unidad.trim() || 'und';
         const cat = l.categoria.trim();
-        payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: cat, unidad: uni, cantidad: cant });
+        payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: cat, unidad: uni, cantidad: cant, unidad_compra: l.unidadCompra, factor_compra: Number(l.factorCompra) || null });
         if (cat && !tieneCat(cat)) nuevasCats.add(cat);
         if (uni && !tieneUni(uni)) nuevasUnis.add(uni);
       }
@@ -414,9 +457,11 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
       }
       if (editCompra) {
         await editarCompraDirectaEnProceso(editCompra.id, { lineas: payload, almacen, proveedorId: proveedorId2, proveedorNombre, actor, actorName }, productos);
+        recordarMedidas(proveedorId2, payload);
         notify(`Compra directa actualizada · ${payload.length} material(es)${proveedorNombre ? ` · ${proveedorNombre}` : ''}`, 'success', { link: '#/app/pedidos' });
       } else {
         await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorId2, proveedorNombre, actor, actorName }, productos);
+        recordarMedidas(proveedorId2, payload);
         notify(`Compra directa creada · ${payload.length} material(es)${proveedorNombre ? ` · ${proveedorNombre}` : ''}`, 'success', { link: '#/app/pedidos' });
       }
       onSaved();
@@ -476,9 +521,10 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
                       options={unidades.map((u) => ({ value: u, label: u }))}
                       placeholder="🔎 Buscá o escribí una medida…" emptyText="Sin medidas." />
                     <small className="hint muted" style={{ fontSize: '.72rem' }}>Si la cambiás, se actualiza la medida del producto en el inventario.</small></div>
-                  <div className="form-row"><label>Cantidad</label>
-                    <input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
+                  <div className="form-row"><label>{normalizarUnidad(l.unidadCompra) ? `Cantidad (${normalizarUnidad(l.unidadCompra)})` : 'Cantidad'}</label>
+                    <input className="input mono" type="number" min={0} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
+                <MedidaCompraCampos linea={l} onChange={(patch) => set(l.id, { ...patch, ucTocada: true })} />
               </>
             ) : (
               <>
@@ -496,9 +542,10 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
                     <SearchSelect allowCreate value={l.unidad} onChange={(v) => set(l.id, { unidad: v })}
                       options={unidades.map((u) => ({ value: u, label: u }))}
                       placeholder="🔎 Buscá o escribí una medida…" emptyText="Sin medidas." /></div>
-                  <div className="form-row"><label>Cantidad</label>
-                    <input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
+                  <div className="form-row"><label>{normalizarUnidad(l.unidadCompra) ? `Cantidad (${normalizarUnidad(l.unidadCompra)})` : 'Cantidad'}</label>
+                    <input className="input mono" type="number" min={0} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
+                <MedidaCompraCampos linea={l} onChange={(patch) => set(l.id, { ...patch, ucTocada: true })} />
               </>
             )}
           </div>
@@ -544,11 +591,39 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
   );
 }
 
+/** «Se compra en»: medida del proveedor y cuánto trae (05-10-2026). Vacío = unidad de uso. */
+function MedidaCompraCampos({ linea, onChange }: { linea: LineaUI; onChange: (p: Partial<LineaUI>) => void }) {
+  const uc = normalizarUnidad(linea.unidadCompra);
+  const it = { unidad: linea.unidad, unidad_compra: linea.unidadCompra, factor_compra: Number(linea.factorCompra) || null };
+  return (
+    <div className="form-grid">
+      <div className="form-row"><label>Se compra en <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        <input className="input" list="cd-unidades-compra" value={linea.unidadCompra} placeholder={`Ej: BULTO · vacío = ${linea.unidad || 'unidad'}`}
+          onChange={(e) => onChange({ unidadCompra: e.target.value })} />
+        <datalist id="cd-unidades-compra">
+          {['BULTO', 'CAJA', 'SACO', 'PAQUETE', 'CUÑETE', 'GALON', 'BIDON', 'TAMBOR', 'ROLLO', 'DOCENA', 'BOBINA', 'RESMA'].map((u) => <option key={u} value={u} />)}
+        </datalist></div>
+      {uc && (
+        <div className="form-row"><label>¿Cuántas {linea.unidad || 'unidades'} trae cada {uc}?</label>
+          <input className="input mono" type="number" min={0} step="any" value={linea.factorCompra} placeholder="Ej: 50"
+            onChange={(e) => onChange({ factorCompra: e.target.value })} required />
+          {usaUnidadCompra(it) && (
+            <small className="hint muted" style={{ fontSize: '.72rem' }}>
+              Al inventario entran <strong className="mono">{num(cantidadEnUso(it, Number(linea.cantidad) || 0))} {linea.unidad}</strong>.
+            </small>
+          )}</div>
+      )}
+    </div>
+  );
+}
+
 /* ───────── Modal: montar (analista carga factura + precios → POR PAGAR) ───────── */
 
 /** Línea editable del montaje: cantidad y costo unitario modificables; se puede quitar.
  *  El monto del renglón = cantidad × costo unit. (se recalcula al cambiar la cantidad). */
-type MontarLinea = { key: number; producto_id: string; producto_nombre: string; producto_sku: string | null; cantidad: string; costoUnit: string };
+type MontarLinea = { key: number; producto_id: string; producto_nombre: string; producto_sku: string | null; cantidad: string; costoUnit: string;
+  /** Medida de compra del renglón (se conserva tal cual): cantidad y costo van en esa medida. */
+  unidad?: string | null; unidad_compra?: string | null; factor_compra?: number | null };
 
 const IVA_PCT = 16;   // IVA vigente (%). Sugerido; el monto queda editable.
 const IGTF_PCT = 3;   // IGTF vigente (%). Sugerido para pagos en divisas; el monto queda editable.
@@ -565,6 +640,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     return {
       key: i, producto_id: it.producto_id, producto_nombre: it.producto_nombre, producto_sku: it.producto_sku,
       cantidad: String(it.cantidad ?? ''), costoUnit: cu > 0 ? String(Math.round(cu * 1e4) / 1e4) : '',
+      unidad: it.unidad ?? null, unidad_compra: it.unidad_compra ?? null, factor_compra: it.factor_compra ?? null,
     };
   }));
   const [moneda, setMoneda] = useState<'USD' | 'Bs'>(compra.moneda === 'Bs' ? 'Bs' : 'USD');
@@ -718,6 +794,7 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     const items: CompraDirectaItem[] = lineas.map((l) => ({
       producto_id: l.producto_id, producto_nombre: l.producto_nombre, producto_sku: l.producto_sku,
       cantidad: Number(l.cantidad) || 0, gasto: montoLinea(l),
+      unidad: l.unidad ?? null, unidad_compra: l.unidad_compra ?? null, factor_compra: l.factor_compra ?? null,
     }));
     setSaving(true);
     try {
@@ -799,8 +876,18 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
               ) : lineas.map((l) => (
                 <tr key={l.key}>
                   <td>{l.producto_nombre}{l.producto_sku ? <span className="muted"> · {l.producto_sku}</span> : null}</td>
-                  <td><input className="input mono" type="number" min={0} step="any" style={{ textAlign: 'right' }} value={l.cantidad} onChange={(e) => setLinea(l.key, { cantidad: e.target.value })} placeholder="0" /></td>
-                  <td><input className="input mono" type="number" min={0} step="any" value={l.costoUnit} onChange={(e) => setLinea(l.key, { costoUnit: e.target.value })} placeholder="0,00" /></td>
+                  <td>
+                    <input className="input mono" type="number" min={0} step="any" style={{ textAlign: 'right' }} value={l.cantidad} onChange={(e) => setLinea(l.key, { cantidad: e.target.value })} placeholder="0" />
+                    {usaUnidadCompra(l) && <small className="muted" style={{ display: 'block', fontSize: '.7rem' }}>{textoCantidadCompra(l, Number(l.cantidad) || 0)}</small>}
+                  </td>
+                  <td>
+                    <input className="input mono" type="number" min={0} step="any" value={l.costoUnit} onChange={(e) => setLinea(l.key, { costoUnit: e.target.value })} placeholder="0,00" />
+                    {usaUnidadCompra(l) && (
+                      <small className="muted" style={{ display: 'block', fontSize: '.7rem' }}>
+                        por {l.unidad_compra}{Number(l.costoUnit) > 0 ? <> · ≈ {montoCaja(costoPorUnidadDeUso(l, Number(l.costoUnit)), monedaLbl)}/{l.unidad}</> : null}
+                      </small>
+                    )}
+                  </td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{montoCaja(montoLinea(l), monedaLbl)}</td>
                   <td style={{ textAlign: 'right' }}><button type="button" className="btn btn-sm btn-ghost" onClick={() => removeLinea(l.key)} title="Quitar material">✕</button></td>
                 </tr>

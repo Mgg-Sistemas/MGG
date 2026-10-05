@@ -21,7 +21,7 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
   estadoLabel: string;
   ficha: Array<[string, string]>;
   itemsTitle: string;
-  items: { nombre: string; cantidad: number; gasto: number | null | undefined; detalle?: DetalleServicioItem[] | null }[];
+  items: { nombre: string; cantidad: number; gasto: number | null | undefined; detalle?: DetalleServicioItem[] | null; /** «10 BULTO (= 500 KG)» si se compró en otra medida. */ cantidadTexto?: string }[];
   moneda: string;
   total: number | null | undefined;
   nota?: string | null;
@@ -81,7 +81,7 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
                       </ul>
                     )}
                   </td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{it.cantidadTexto ?? num(it.cantidad)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{cu != null ? montoCaja(cu, moneda) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{g != null ? montoCaja(g, moneda) : '—'}</td>
                 </tr>

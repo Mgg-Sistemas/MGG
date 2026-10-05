@@ -10,7 +10,7 @@ import { recibirOrdenParcial, recibirOrdenDespiezada } from '@/modules/pedidos/p
 import { esDespiezable } from './despieceRes';
 import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from '@/modules/pedidos/unidadCompra';
 import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece } from './DespieceResForm';
-import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
+import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, cantidadInventarioCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
 import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedidos/compraDirectaMoneda';
 import { destinoRecepcionPorUsuario, opcionesRecepcion } from './sectorizacion';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -339,10 +339,12 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
                 return (
                   <tr key={i}>
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(cant)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(cu, compra.moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      {usaUnidadCompra(it) ? textoCantidadCompra(it, cant) : num(cant)}
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(cu, compra.moneda)}{usaUnidadCompra(it) ? <span className="muted"> /{it.unidad_compra}</span> : null}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(monto, compra.moneda)}</td>
-                    {enBs && <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{tasa ? fmtUsd4(costoUnitarioUsd(monto, cant, 'Bs', tasa)) : '—'}</td>}
+                    {enBs && <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{tasa ? fmtUsd4(costoUnitarioUsd(monto, cantidadInventarioCompra(it), 'Bs', tasa)) : '—'}</td>}
                   </tr>
                 );
               })}
