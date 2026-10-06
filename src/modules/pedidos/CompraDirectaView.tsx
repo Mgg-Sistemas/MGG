@@ -234,7 +234,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
             ['Comprada', detalle.finalizada_at ? dateTime(detalle.finalizada_at) : '—'],
           ]}
           itemsTitle="Materiales"
-          items={detalle.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: it.gasto, cantidadTexto: usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad) || 0) : undefined }))}
+          items={detalle.items.map((it) => ({ nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`, cantidad: it.cantidad, gasto: it.gasto, cantidadTexto: usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad) || 0) : undefined, marca: it.marca_recibida ?? null }))}
           moneda={detalle.moneda || 'USD'}
           total={detalle.gasto}
           nota={detalle.nota}

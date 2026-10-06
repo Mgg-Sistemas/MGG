@@ -1,4 +1,5 @@
 import { textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
+import { marcaCambio } from './marcaRecibida';
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl, loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl } from '@/shared/lib/pdfLogo';
@@ -398,7 +399,10 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         return [
         it.sku,
         it.nombre + detTxt,
-        [it.marca, it.modelo].filter(Boolean).join(' · ') || '—',
+        // Si llegó otra marca, el papel lo dice: «Pedida: SHELL / Recibida: CASTROL».
+        marcaCambio(it.marca, it.marca_recibida)
+          ? `Pedida: ${it.marca}\nRecibida: ${it.marca_recibida}${it.modelo ? ` · ${it.modelo}` : ''}`
+          : ([it.marca, it.modelo].filter(Boolean).join(' · ') || '—'),
         it.servicio_categoria?.trim() || '—',
         it.servicio_tipo?.trim() || '—',
         // Medida del proveedor y su equivalencia en la unidad de uso (05-10-2026).

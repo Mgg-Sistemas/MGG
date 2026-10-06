@@ -3,6 +3,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
+import { textoMarcaRecepcion } from './marcaRecibida';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type {
   EvaluacionRecepcion,
@@ -288,6 +289,12 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ) : '—'],
     ['Comentario', evaluacion?.comentario ?? '—'],
   ];
+  // Renglones que llegaron con otra marca que la pedida, con la nota del almacenista.
+  const marcasDistintas = orden.items
+    .map((it) => ({ it, txt: textoMarcaRecepcion(it) }))
+    .filter((x): x is { it: typeof x.it; txt: string } => !!x.txt)
+    .map(({ it, txt }) => `${it.nombre}: ${txt}${it.nota_marca ? ` (${it.nota_marca})` : ''}`);
+  if (marcasDistintas.length) filasRecepcion.push(['Marcas distintas', marcasDistintas.join('\n')]);
   autoTable(doc, {
     startY: y,
     body: filasRecepcion,

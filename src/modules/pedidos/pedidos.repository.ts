@@ -13,6 +13,7 @@ import { fechaVE, tasaValida } from './compraDirectaMoneda';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
 import { ubicacionAlRecibir } from '@/modules/inventario/ubicacionProducto';
 import { identidadAlRecibir } from '@/modules/inventario/identidadProducto';
+import { errorMarcasRecepcion, marcaCambio, marcaQueEntra, normMarca, textoMarcaKardex, type MarcaRecepcion } from './marcaRecibida';
 import { calcularDespiece, calcularReparto, esDespiezable, type CorteDespiece } from '@/modules/inventario/despieceRes';
 import { recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
 import type {
@@ -1882,9 +1883,12 @@ export function esServicioOrden(o: { clase?: string | null; codigo?: string | nu
   return o.clase === 'servicio' || String(o.codigo ?? '').toUpperCase().startsWith('SV-');
 }
 
+/** Lo que se confirma por renglón al recibir: cuánto llegó y con qué marca. */
+export type RecepcionRenglon = { sku: string; cantidad_recibida: number } & MarcaRecepcion;
+
 export async function recibirOrdenParcial(
   o: Orden,
-  recepciones: { sku: string; cantidad_recibida: number }[],
+  recepciones: RecepcionRenglon[],
   nota: string | null,
   actorEmail: string,
   actorName: string | null,
@@ -1913,6 +1917,11 @@ export async function recibirOrdenParcial(
   }
   if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0))
     throw new Error('Indicá al menos una cantidad recibida.');
+  // Marca con la que llegó cada renglón. Si el proveedor mandó otra marca, la
+  // nota es obligatoria: queda en la OC para pagos y para evaluar al proveedor.
+  const marcaMap = new Map(recepciones.map((r) => [r.sku, r]));
+  const errMarca = errorMarcasRecepcion(o.items, recepciones);
+  if (errMarca) throw new Error(errMarca);
 
   // Orden en Bs: el inventario está en $, así que el precio de cada ítem se convierte con
   // la tasa BCV (la de la fecha de la orden; si no hay, la de hoy). Sin tasa no se recibe:
@@ -1955,6 +1964,10 @@ export async function recibirOrdenParcial(
     const precioPromedio = stockDespues > 0
       ? Number(((stockAntes * precioActual + rec * precioCompra) / stockDespues).toFixed(4))
       : precioCompra;
+    // La marca que de verdad entró: la recibida si se indicó, si no la pedida.
+    const marcaRec = marcaMap.get(it.sku)?.marca_recibida;
+    const marcaEntra = marcaQueEntra(it.marca, marcaRec);
+    const txtMarca = textoMarcaKardex(it.marca, marcaRec);
 
     const { error: mErr } = await supabase.from('movimientos').insert({
       producto_id: it.productoId,
@@ -1979,9 +1992,10 @@ export async function recibirOrdenParcial(
       // y el PMP resultante: se ven en la trazabilidad/kardex del producto.
       precio_unitario: precioCompra,
       costo_promedio: precioPromedio,
-      detalle: usaUnidadCompra(it)
+      marca: marcaEntra,
+      detalle: (usaUnidadCompra(it)
         ? `Recepción de ${recCompra}/${it.cantidad} ${it.unidad_compra} ${it.sku} = ${textoCantidadCompra(it, recCompra)} @ ${precioCompra.toFixed(4)} por ${it.unidad ?? 'unidad'} (promedio: ${precioPromedio.toFixed(2)}) → ${almacenProd}`
-        : `Recepción de ${rec}/${it.cantidad} ${it.sku} @ ${precioCompra.toFixed(2)} (promedio: ${precioPromedio.toFixed(2)}) → ${almacenProd}`,
+        : `Recepción de ${rec}/${it.cantidad} ${it.sku} @ ${precioCompra.toFixed(2)} (promedio: ${precioPromedio.toFixed(2)}) → ${almacenProd}`) + txtMarca,
     });
     if (mErr) throw mErr;
 
@@ -1992,9 +2006,10 @@ export async function recibirOrdenParcial(
     // La marca y el modelo se cargaron en la solicitud y viajaron hasta acá: la
     // recepción es donde la ficha por fin se entera. Solo LLENA lo que está
     // vacío — comprar otra marca no puede renombrar el stock que ya había.
+    // Y la marca que se le propone es la que LLEGÓ, no la del papel.
     const identidad = identidadAlRecibir(
       prod as { marca?: string | null; modelo?: string | null; descripcion?: string | null } | null,
-      { marca: it.marca, modelo: it.modelo },
+      { marca: marcaEntra, modelo: it.modelo },
     );
     const { error: uErr } = await supabase
       .from('productos')
@@ -2022,7 +2037,19 @@ export async function recibirOrdenParcial(
     if (exErr) throw exErr;
   }));
 
-  const itemsRec = o.items.map((it) => ({ ...it, cantidad_recibida: recMap.get(it.sku) ?? 0 }));
+  // En la OC queda, por renglón, cuánto llegó y con qué marca (y la nota si cambió).
+  const itemsRec = o.items.map((it) => {
+    const r = marcaMap.get(it.sku);
+    const marcaRecibida = normMarca(r?.marca_recibida) || null;
+    const cambio = marcaCambio(it.marca, marcaRecibida);
+    return {
+      ...it,
+      cantidad_recibida: recMap.get(it.sku) ?? 0,
+      ...(marcaRecibida ? { marca_recibida: marcaRecibida } : {}),
+      ...(cambio ? { nota_marca: (r?.nota_marca ?? '').trim() || null } : {}),
+    };
+  });
+  const marcasCambiadas = itemsRec.filter((it) => marcaCambio(it.marca, it.marca_recibida)).map((it) => it.sku);
   const recibidoTotal = Math.round(itemsRec.reduce((a, it) => a + (it.cantidad_recibida ?? 0) * Number(it.precio), 0) * 100) / 100;
   const huboDiferencia = itemsRec.some((it) => (it.cantidad_recibida ?? 0) < Number(it.cantidad));
   // Crédito recibido sin terminar de pagar: queda RECIBIDO pero la cuenta sigue
@@ -2039,7 +2066,7 @@ export async function recibirOrdenParcial(
     nota_recepcion: huboDiferencia ? (nota?.trim() || 'Recepción parcial: llegó menos de lo solicitado.') : (nota?.trim() || null),
     recibida_por: actorEmail,
     recibida_en: new Date().toISOString(),
-    historial: appendHistorial(o, 'recibida', actorEmail, { recibido_total: recibidoTotal, parcial: huboDiferencia, nota: nota?.trim() || null, almacen_destino: destinoFinal, sin_inventario: omitirInventario }),
+    historial: appendHistorial(o, 'recibida', actorEmail, { recibido_total: recibidoTotal, parcial: huboDiferencia, nota: nota?.trim() || null, almacen_destino: destinoFinal, sin_inventario: omitirInventario, ...(marcasCambiadas.length ? { marcas_cambiadas: marcasCambiadas } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;

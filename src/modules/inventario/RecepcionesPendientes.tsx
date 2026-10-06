@@ -6,11 +6,12 @@ import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
 import { textoDeError } from '@/shared/lib/errores';
-import { recibirOrdenParcial, recibirOrdenDespiezada } from '@/modules/pedidos/pedidos.repository';
+import { recibirOrdenParcial, recibirOrdenDespiezada, type RecepcionRenglon } from '@/modules/pedidos/pedidos.repository';
+import { errorMarcasRecepcion, marcaCambio } from '@/modules/pedidos/marcaRecibida';
 import { esDespiezable } from './despieceRes';
 import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from '@/modules/pedidos/unidadCompra';
 import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece } from './DespieceResForm';
-import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, cantidadInventarioCompra, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
+import { recibirCompraDirecta, anularCompraDirecta, resolverTasaCompra, cantidadInventarioCompra, marcasDeFichas, type CompraDirecta, type TasaCompraResuelta } from '@/modules/pedidos/compras.repository';
 import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedidos/compraDirectaMoneda';
 import { destinoRecepcionPorUsuario, opcionesRecepcion } from './sectorizacion';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -250,6 +251,14 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Marca con la que llegó cada material: arranca con la de la ficha y se corrige si llegó otra.
+  const [marcas, setMarcas] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let vivo = true;
+    marcasDeFichas(items.map((it) => it.producto_id)).then((m) => { if (vivo) setMarcas((prev) => ({ ...m, ...prev })); }).catch(() => {});
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compra.id]);
   // Compra en Bs: el inventario está en $, así que se muestra (y se escribe) el costo convertido
   // con la tasa BCV de la compra. Sin tasa no se puede recibir (antes entraba el monto en Bs como $).
   const enBs = esCompraEnBs(compra.moneda);
@@ -274,7 +283,7 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
     if (enBs && !tasa) { setError('Esta compra está en bolívares y no hay tasa BCV para convertirla a dólares. Pedile a Compras que cargue la tasa en «✎ Factura/precios» y volvé a intentar.'); return; }
     setSaving(true);
     try {
-      await recibirCompraDirecta({ compra, almacen: almacenFinal, tasaBs: tasa, tasaOrigen: origenTasa, actor, actorName });
+      await recibirCompraDirecta({ compra, almacen: almacenFinal, tasaBs: tasa, tasaOrigen: origenTasa, marcas, actor, actorName });
       notify(`Compra directa ${compra.codigo ?? ''} recibida → 🏭 ${sedeDeAlmacen(almacenFinal, almacenes)}`, 'success', { link: '#/app/inventario' });
       toast('Materiales ingresados al inventario', 'success');
       onSaved();
@@ -330,7 +339,7 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
         {/* Detalle de la compra: materiales, cantidad y costo unitario */}
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Costo unit.</th><th style={{ textAlign: 'right' }}>Monto</th>{enBs && <th style={{ textAlign: 'right' }}>Entra al inventario ($/u)</th>}</tr></thead>
+            <thead><tr><th>Material</th><th>Marca recibida</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Costo unit.</th><th style={{ textAlign: 'right' }}>Monto</th>{enBs && <th style={{ textAlign: 'right' }}>Entra al inventario ($/u)</th>}</tr></thead>
             <tbody>
               {items.map((it, i) => {
                 const cant = Number(it.cantidad) || 0;
@@ -339,6 +348,11 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
                 return (
                   <tr key={i}>
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
+                    {/* Marca con la que llegó: queda en el kardex y, si la ficha no tenía, en la ficha. */}
+                    <td style={{ minWidth: 140 }}>
+                      <input className="input" value={marcas[it.producto_id] ?? ''} placeholder="marca que llegó"
+                        onChange={(e) => setMarcas((m) => ({ ...m, [it.producto_id]: e.target.value }))} style={{ width: '100%' }} />
+                    </td>
                     <td className="mono" style={{ textAlign: 'right' }}>
                       {usaUnidadCompra(it) ? textoCantidadCompra(it, cant) : num(cant)}
                     </td>
@@ -376,6 +390,9 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
   const [recibidas, setRecibidas] = useState<Record<string, string>>(
     () => Object.fromEntries(items.map((it) => [it.sku, String(it.cantidad ?? 0)])),
   );
+  // Marca con la que llegó cada renglón (prellenada con la pedida) y la nota si cambió.
+  const [marcas, setMarcas] = useState<Record<string, string>>(() => Object.fromEntries(items.map((it) => [it.sku, it.marca ?? ''])));
+  const [notasMarca, setNotasMarca] = useState<Record<string, string>>({});
   const [nota, setNota] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -393,7 +410,11 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
     e.preventDefault();
     setError(null);
     if (!almacenFinal) { setError('Elegí la sede y el almacén destino.'); return; }
-    const recepciones = items.map((it) => ({ sku: it.sku, cantidad_recibida: Math.max(0, Number(recibidas[it.sku]) || 0) }));
+    const recepciones: RecepcionRenglon[] = items.map((it) => ({
+      sku: it.sku, cantidad_recibida: Math.max(0, Number(recibidas[it.sku]) || 0),
+      marca_recibida: (marcas[it.sku] ?? '').trim() || null, nota_marca: (notasMarca[it.sku] ?? '').trim() || null,
+    }));
+    { const em = errorMarcasRecepcion(items, recepciones); if (em) { setError(em); return; } }
     for (const it of items) {
       const rec = Number(recibidas[it.sku]) || 0;
       if (rec > Number(it.cantidad)) { setError(`No podés recibir más de lo pedido en ${it.sku}.`); return; }
@@ -460,11 +481,28 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
         {/* Cantidades recibidas por ítem */}
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Pedido</th><th style={{ width: 140 }}>Recibido</th></tr></thead>
+            <thead><tr><th>Material</th><th>Marca recibida</th><th style={{ textAlign: 'right' }}>Pedido</th><th style={{ width: 140 }}>Recibido</th></tr></thead>
             <tbody>
               {items.map((it) => (
                 <tr key={it.sku}>
-                  <td>{it.nombre ?? it.sku}<span className="muted"> · {it.sku}</span></td>
+                  <td>
+                    {it.nombre ?? it.sku}<span className="muted"> · {it.sku}</span>
+                    {it.marca && <div className="muted" style={{ fontSize: '.74rem' }}>🏷️ Pedido: {it.marca}</div>}
+                  </td>
+                  {/* Con qué marca llegó. Si no es la pedida, se avisa y se pide una nota corta. */}
+                  <td style={{ minWidth: 150 }}>
+                    <input className="input" value={marcas[it.sku] ?? ''} placeholder={it.marca ? it.marca : 'marca que llegó'}
+                      onChange={(e) => setMarcas((m) => ({ ...m, [it.sku]: e.target.value }))}
+                      style={{ width: '100%', borderColor: marcaCambio(it.marca, marcas[it.sku]) ? 'var(--warning)' : undefined }} />
+                    {marcaCambio(it.marca, marcas[it.sku]) && (
+                      <>
+                        <small style={{ display: 'block', color: 'var(--warning, #f5a524)', fontSize: '.72rem', marginTop: '.15rem' }}>⚠ Llegó otra marca: anotá por qué</small>
+                        <input className="input" value={notasMarca[it.sku] ?? ''} placeholder="Ej.: el proveedor no tenía, mandó esta"
+                          onChange={(e) => setNotasMarca((m) => ({ ...m, [it.sku]: e.target.value }))}
+                          style={{ width: '100%', marginTop: '.2rem', fontSize: '.8rem' }} />
+                      </>
+                    )}
+                  </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad) || 0) : num(Number(it.cantidad) || 0)}</td>
                   <td>
                     <input className="input mono" type="number" min={0} max={Number(it.cantidad) || undefined} step="any"

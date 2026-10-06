@@ -9,6 +9,8 @@
    entra convertida con su tasa BCV (ver compraDirectaMoneda.ts).
    ============================================================ */
 import { cantidadEnUso, normalizarUnidad } from './unidadCompra';
+import { normMarca } from './marcaRecibida';
+import { identidadAlRecibir } from '@/modules/inventario/identidadProducto';
 import { supabase } from '@/shared/lib/supabase';
 import { createProducto, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -47,6 +49,8 @@ export interface CompraDirectaItem {
    *  Al recibir entra `cantidad × factor_compra` al inventario (05-10-2026). */
   unidad_compra?: string | null;
   factor_compra?: number | null;
+  /** Marca con la que llegó el material (la escribe el almacenista al recibir). */
+  marca_recibida?: string | null;
 }
 
 /** Una factura adjunta (PDF o imagen) guardada en Storage. */
@@ -715,6 +719,8 @@ export interface RecibirCompraInput {
   tasaBs?: number | null;
   /** De dónde salió esa tasa (queda en el detalle del kardex para que sea auditable). */
   tasaOrigen?: OrigenTasaCompra | null;
+  /** Marca con la que llegó cada material, por producto_id (opcional). */
+  marcas?: Record<string, string | null | undefined>;
   actor: string;
   actorName?: string | null;
 }
@@ -764,14 +770,23 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
     const cantidad = cantidadInventarioCompra(it);
     if (cantidad <= 0 || !it.producto_id) continue;
     const costoUnit = costoUnitarioUsd(it.gasto, cantidad, compra.moneda, tasa);
+    const marca = normMarca(input.marcas?.[it.producto_id]) || null;
     const mov = await registrarMovimiento({
       producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
       ref_tipo: 'compra_directa', ref_id: compra.id,
-      detalle: `Compra directa · ${it.producto_nombre}${it.unidad_compra ? ` · ${it.cantidad} ${it.unidad_compra} de ${it.factor_compra}` : ''}${enBs ? ` · Bs→$ a ${fmtTasa(tasa)}${notaTasa}` : ''}`, precio_unitario: costoUnit,
+      detalle: `Compra directa · ${it.producto_nombre}${it.unidad_compra ? ` · ${it.cantidad} ${it.unidad_compra} de ${it.factor_compra}` : ''}${enBs ? ` · Bs→$ a ${fmtTasa(tasa)}${notaTasa}` : ''}${marca ? ` · marca ${marca}` : ''}`,
+      precio_unitario: costoUnit, marca,
     });
     if (!primerMov) primerMov = mov.id;
+    // La ficha toma la marca solo si estaba vacía; si ya tenía, se respeta.
+    if (marca) await llenarMarcaFicha(it.producto_id, marca);
   }
+  // La compra guarda la marca con la que llegó cada material.
+  const itemsConMarca = compra.items.map((it) => {
+    const m = normMarca(input.marcas?.[it.producto_id]) || null;
+    return m ? { ...it, marca_recibida: m } : it;
+  });
 
   // Recepción hecha. Si la compra YA está pagada (o se maneja a crédito), queda
   // FINALIZADA; si no, sigue ABIERTA esperando el pago (la mercancía ya está en inventario).
@@ -781,6 +796,7 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
     .from('compras_directas')
     .update({
       estado: yaPagada ? 'finalizada' : 'abierta', almacen, mov_id: primerMov ?? compra.mov_id ?? null,
+      items: itemsConMarca,
       // Queda registrada la tasa con la que entró (para la traza y para una edición posterior).
       ...(enBs && tasa && !tasaValida(compra.tasa_bcv) ? { tasa_bcv: tasa } : {}),
       recibida_por: input.actorName || input.actor, recibida_at: nowIso,
@@ -788,6 +804,26 @@ export async function recibirCompraDirecta(input: RecibirCompraInput): Promise<v
     })
     .eq('id', compra.id);
   if (error) throw new Error(textoDeError(error, 'Los materiales entraron al inventario, pero no se pudo marcar la compra como recibida. Volvé a darle a recibir: no se va a cargar dos veces.'));
+}
+
+/** Escribe la marca en la ficha SOLO si la ficha no tenía (nunca pisa la que ya está). */
+async function llenarMarcaFicha(productoId: string, marca: string): Promise<void> {
+  const { data } = await supabase.from('productos').select('marca, modelo, descripcion').eq('id', productoId).maybeSingle();
+  const patch = identidadAlRecibir(data as { marca?: string | null; modelo?: string | null; descripcion?: string | null } | null, { marca });
+  if (!patch) return;
+  const { error } = await supabase.from('productos').update(patch).eq('id', productoId);
+  if (error) throw new Error(textoDeError(error, 'No se pudo anotar la marca en la ficha del producto.'));
+}
+
+/** Marcas actuales de las fichas, por producto_id: para prellenar «Marca recibida». */
+export async function marcasDeFichas(productoIds: string[]): Promise<Record<string, string>> {
+  const ids = Array.from(new Set(productoIds.filter(Boolean)));
+  if (!ids.length) return {};
+  const { data, error } = await supabase.from('productos').select('id, marca').in('id', ids);
+  if (error) throw new Error(textoDeError(error, 'No se pudieron leer las marcas de los productos.'));
+  const out: Record<string, string> = {};
+  for (const r of (data ?? []) as { id: string; marca: string | null }[]) if (r.marca?.trim()) out[r.id] = r.marca.trim();
+  return out;
 }
 
 /** Estado de recepción vigente EN LA BASE (no el que quedó en pantalla). */

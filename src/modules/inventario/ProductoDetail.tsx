@@ -11,6 +11,7 @@ import {
   filtrarKardex, FILTRO_SIN_ALMACEN, nombreSedeCorto, sinAlmacen, stockEn, trasladoDeMovimiento,
   almacenesDeOtrasSedes,
 } from './stockPorAlmacen';
+import { marcasRecibidas } from '@/modules/pedidos/marcaRecibida';
 // descargarProductoPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 /* Formateadores creados UNA vez: `toLocaleDateString/TimeString` con `timeZone` construye
@@ -255,6 +256,8 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
       </div>
 
       {(() => {
+        // Qué marcas entraron de verdad, sacado del kardex: «CASTROL (12) · SHELL (4)».
+        const porMarca = marcasRecibidas(movs);
         const detalle = ([
           ['Almacén principal (catálogo)', producto.almacen],
           ['Nombre de búsqueda', producto.nombre_busqueda],
@@ -267,6 +270,7 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
           ['Código', producto.codigo],
           ['Ubicación física', producto.ubicacion_fisica],
           ['Descripción', producto.descripcion],
+          ['Marcas recibidas', porMarca.length ? porMarca.map((r) => `${r.marca} (${num(r.cantidad)})`).join(' · ') : null],
         ] as Array<[string, string | null | undefined]>).filter(([, v]) => v && String(v).trim());
         if (!detalle.length) return null;
         return (
@@ -364,6 +368,7 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
                         ? <span className="badge warning" style={{ fontSize: '.62rem' }}>sin almacén · recepción de compra</span>
                         : m.almacen && <span className="badge" style={{ fontSize: '.62rem' }}>▣ {etiquetaAlmacen((m.almacen ?? '').trim(), almacenes)}</span>}
                       {m.consumo_interno && <span className="badge info" style={{ fontSize: '.62rem' }}>🏭 Consumo interno</span>}
+                      {m.marca && <span className="badge" style={{ fontSize: '.62rem' }}>🏷️ {m.marca}</span>}
                     </div>
                     {(tras ? tras.nota : m.detalle) && <div className="kx-detalle">{tras ? tras.nota : m.detalle}</div>}
                     {/* Traslado: el par completo, con la sede de cada lado. Sin esto la fila

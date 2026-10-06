@@ -841,6 +841,8 @@ export interface Movimiento {
   consumo_interno?: boolean | null;
   /** Quién solicitó la salida/traslado (se muestra en el historial). */
   solicitante?: string | null;
+  /** Marca con la que entró el material (recepción de OC o compra directa). */
+  marca?: string | null;
   at: string;
   created_at: string;
 }
@@ -924,6 +926,10 @@ export interface ItemOrden {
    *  producto en varias marcas: cada variante es un renglón propio con su precio. */
   marca?: string | null;
   modelo?: string | null;
+  /** Marca con la que LLEGÓ la mercancía (se carga al recibir; prellenada con `marca`).
+   *  Si difiere de la pedida, `nota_marca` explica por qué (06-10-2026). */
+  marca_recibida?: string | null;
+  nota_marca?: string | null;
   /** Servicios (clase='servicio'): categoría del servicio (recarga de gas, mantenimiento…). */
   servicio_categoria?: string | null;
   /** Servicios: tipo de servicio elegido (cambio de aceite, cauchos, repuestos…). */

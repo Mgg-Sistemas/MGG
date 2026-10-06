@@ -1,4 +1,6 @@
 import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
+import { errorMarcasRecepcion, marcaCambio, textoMarcaRecepcion } from './marcaRecibida';
+import type { RecepcionRenglon } from './pedidos.repository';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -1720,13 +1722,16 @@ function RecepcionParcialModal({
    * la res no entra como res, entra despiezada en cortes (y se reparte a las
    * cocinas). Lo demás se recibe como siempre.
    */
-  onConfirm: (recepciones: { sku: string; cantidad_recibida: number }[], nota: string | null, almacenDestino: string, sinInventario: boolean, despiece?: { skuRes: string; datos: RecepcionDespiezada }) => Promise<void> | void;
+  onConfirm: (recepciones: RecepcionRenglon[], nota: string | null, almacenDestino: string, sinInventario: boolean, despiece?: { skuRes: string; datos: RecepcionDespiezada }) => Promise<void> | void;
 }) {
   const [recs, setRecs] = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {};
     orden.items.forEach((it) => { m[it.sku] = String(it.cantidad); });
     return m;
   });
+  // Marca con la que llegó cada renglón (prellenada con la pedida) y la nota si cambió.
+  const [marcas, setMarcas] = useState<Record<string, string>>(() => Object.fromEntries(orden.items.map((it) => [it.sku, it.marca ?? ''])));
+  const [notasMarca, setNotasMarca] = useState<Record<string, string>>({});
   const [nota, setNota] = useState('');
   // Un SERVICIO no se almacena ni entra al inventario: se presta y su rastro queda en el
   // equipo asociado. Por eso no elige almacén y va SIEMPRE sin movimiento de stock.
@@ -1791,8 +1796,12 @@ function RecepcionParcialModal({
 
   async function handleConfirm() {
     setError(null);
-    const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
+    const recepciones: RecepcionRenglon[] = orden.items.map((it) => ({
+      sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0,
+      marca_recibida: (marcas[it.sku] ?? '').trim() || null, nota_marca: (notasMarca[it.sku] ?? '').trim() || null,
+    }));
     if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
+    if (!esServicio) { const em = errorMarcasRecepcion(orden.items, recepciones); if (em) { setError(em); return; } }
     if (!esServicio && !almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
     // La res se recibe despiezada: los kg de los cortes + la merma tienen que
@@ -1838,15 +1847,35 @@ function RecepcionParcialModal({
 
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
-          <thead><tr><th>SKU</th><th>Producto</th><th style={{ textAlign: 'right' }}>Pedido</th><th style={{ textAlign: 'right' }}>Recibido</th><th style={{ textAlign: 'right' }}>Subtotal</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Producto</th>{!esServicio && <th>Marca recibida</th>}<th style={{ textAlign: 'right' }}>Pedido</th><th style={{ textAlign: 'right' }}>Recibido</th><th style={{ textAlign: 'right' }}>Subtotal</th></tr></thead>
           <tbody>
             {orden.items.map((it) => {
               const rec = Number(recs[it.sku]) || 0;
               const falta = rec < Number(it.cantidad);
+              const cambioMarca = marcaCambio(it.marca, marcas[it.sku]);
               return (
                 <tr key={it.sku}>
                   <td className="mono">{it.sku}</td>
-                  <td>{it.nombre}</td>
+                  <td>
+                    {it.nombre}
+                    {it.marca && <div className="muted" style={{ fontSize: '.74rem' }}>🏷️ Pedido: {it.marca}</div>}
+                  </td>
+                  {/* Con qué marca llegó. Si no es la pedida, se avisa y se pide una nota corta. */}
+                  {!esServicio && (
+                    <td style={{ minWidth: 150 }}>
+                      <input className="input" value={marcas[it.sku] ?? ''} placeholder={it.marca ? it.marca : 'marca que llegó'}
+                        onChange={(e) => setMarcas((m) => ({ ...m, [it.sku]: e.target.value }))}
+                        style={{ width: '100%', borderColor: cambioMarca ? 'var(--warning)' : undefined }} />
+                      {cambioMarca && (
+                        <>
+                          <small style={{ display: 'block', color: 'var(--warning, #f5a524)', fontSize: '.72rem', marginTop: '.15rem' }}>⚠ Llegó otra marca: anotá por qué</small>
+                          <input className="input" value={notasMarca[it.sku] ?? ''} placeholder="Ej.: el proveedor no tenía, mandó esta"
+                            onChange={(e) => setNotasMarca((m) => ({ ...m, [it.sku]: e.target.value }))}
+                            style={{ width: '100%', marginTop: '.2rem', fontSize: '.8rem' }} />
+                        </>
+                      )}
+                    </td>
+                  )}
                   <td className="mono" style={{ textAlign: 'right' }}>{usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad)) : num(it.cantidad)}</td>
                   <td style={{ textAlign: 'right' }}>
                     <input className="input mono" type="number" min={0} max={it.cantidad} step="any"
@@ -1865,7 +1894,7 @@ function RecepcionParcialModal({
             })}
           </tbody>
           <tfoot>
-            <tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Total recibido</td><td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(recibidoTotal)}</td></tr>
+            <tr><td colSpan={esServicio ? 4 : 5} style={{ textAlign: 'right', fontWeight: 600 }}>Total recibido</td><td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(recibidoTotal)}</td></tr>
           </tfoot>
         </table>
       </div>
@@ -3117,6 +3146,12 @@ function OrdenDetailModal({
                 {it.nombre}
                 {[it.marca, it.modelo].filter(Boolean).length > 0 && (
                   <div className="muted" style={{ fontSize: '.74rem' }}>🏷️ {[it.marca, it.modelo].filter(Boolean).join(' · ')}</div>
+                )}
+                {/* Llegó otra marca: se ve «Pedido: X · Recibido: Y» y la nota del almacenista. */}
+                {textoMarcaRecepcion(it) && (
+                  <div style={{ fontSize: '.74rem', color: 'var(--warning, #f5a524)' }}>
+                    ⚠ {textoMarcaRecepcion(it)}{it.nota_marca ? <span className="muted"> — {it.nota_marca}</span> : null}
+                  </div>
                 )}
               </td>
               <td style={{ fontSize: '.84rem' }}>{it.servicio_categoria?.trim() ? it.servicio_categoria : <span className="muted">—</span>}</td>

@@ -15,6 +15,7 @@ import { errorMotivo } from './motivoMovimiento';
 import { bustCache } from '@/shared/lib/queryCache';
 import type { Movimiento, TipoMovimiento } from '@/shared/lib/types';
 import { asegurarUbicacion, findProducto } from './inventario.repository';
+import { normMarca } from '@/modules/pedidos/marcaRecibida';
 
 export const TIPOS_MOVIMIENTO: Record<TipoMovimiento, { label: string; icon: string; color: 'success' | 'warning' | 'danger' | 'info' }> = {
   creacion:      { label: 'Alta de producto',     icon: '✨', color: 'info' },
@@ -54,6 +55,8 @@ export interface MovimientoInput {
   consumo_interno?: boolean | null;
   /** Quién solicitó la salida/traslado (se muestra en el historial). */
   solicitante?: string | null;
+  /** Marca con la que entró el material (entradas por compra). */
+  marca?: string | null;
   /** Equipo de maquinaria al que va el material (opcional, salidas de mantenimiento). */
   equipo_id?: string | null;
   equipo_nombre?: string | null;
@@ -218,6 +221,7 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
     solicitante: input.solicitante ?? null,
     equipo_id: input.equipo_id ?? null,
     equipo_nombre: (input.equipo_nombre ?? '').trim() || null,
+    marca: normMarca(input.marca) || null,
     at: fechaDelMovimiento(input.at),
   };
 

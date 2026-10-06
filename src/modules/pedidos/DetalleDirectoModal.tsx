@@ -21,7 +21,7 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
   estadoLabel: string;
   ficha: Array<[string, string]>;
   itemsTitle: string;
-  items: { nombre: string; cantidad: number; gasto: number | null | undefined; detalle?: DetalleServicioItem[] | null; /** «10 BULTO (= 500 KG)» si se compró en otra medida. */ cantidadTexto?: string }[];
+  items: { nombre: string; cantidad: number; gasto: number | null | undefined; detalle?: DetalleServicioItem[] | null; /** «10 BULTO (= 500 KG)» si se compró en otra medida. */ cantidadTexto?: string; /** Marca con la que llegó (la anotó el almacenista al recibir). */ marca?: string | null }[];
   moneda: string;
   total: number | null | undefined;
   nota?: string | null;
@@ -75,6 +75,7 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
                 <tr key={i}>
                   <td>
                     {it.nombre}
+                    {it.marca && <div className="muted" style={{ fontSize: '.76rem' }}>🏷️ Recibido: {it.marca}</div>}
                     {det.length > 0 && (
                       <ul className="muted" style={{ margin: '.25rem 0 0', paddingLeft: '1rem', fontSize: '.78rem' }}>
                         {det.map((d, j) => <li key={j}>{d.descripcion}{d.cantidad != null ? ` · ${num(d.cantidad)}` : ''}{d.precio != null ? ` · ${montoCaja(d.precio, moneda)}` : ''}</li>)}
