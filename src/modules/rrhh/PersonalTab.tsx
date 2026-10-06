@@ -50,7 +50,6 @@ import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import {
   generarFrenteBlob, generarReversoBlob, descargarFrente, descargarReverso,
-  type TemaCarnet,
 } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
@@ -1476,15 +1475,12 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
   const [reverso, setReverso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bajando, setBajando] = useState<false | 1 | 2>(false);
-  /* En qué fondo se ve y se baja. El oscuro es el de la marca; el blanco existe
-     porque un carnet negro a sangre se come el tóner de una impresora común. */
-  const [tema, setTema] = useState<TemaCarnet>('oscuro');
 
   useEffect(() => {
     let urls: string[] = [];
     let vivo = true;
     setFrente(null); setReverso(null); setError(null);
-    Promise.all([generarFrenteBlob(persona, tema), generarReversoBlob(tema)])
+    Promise.all([generarFrenteBlob(persona), generarReversoBlob()])
       .then(([bf, br]) => {
         if (!vivo) return;
         const uf = URL.createObjectURL(bf);
@@ -1494,7 +1490,7 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
       })
       .catch((e) => { if (vivo) setError(e instanceof Error ? e.message : 'No se pudo generar el carnet'); });
     return () => { vivo = false; urls.forEach((u) => URL.revokeObjectURL(u)); };
-  }, [persona, tema]);
+  }, [persona]);
 
   /** Una cara por vez: así cada archivo cae con su nombre y en el orden en que
       se manda a imprimir. Bajar las dos juntas hacía que el navegador ignorara
@@ -1502,8 +1498,8 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
   async function bajar(cara: 1 | 2) {
     setBajando(cara);
     try {
-      if (cara === 1) await descargarFrente(persona, tema);
-      else await descargarReverso(persona, tema);
+      if (cara === 1) await descargarFrente(persona);
+      else await descargarReverso(persona);
       toast(cara === 1 ? 'Frente descargado' : 'Reverso descargado', 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo descargar', 'error'); }
     finally { setBajando(false); }
@@ -1516,13 +1512,6 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
     }>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.7rem' }}>
-        {/* Alternador de fondo. */}
-        <div className="view-toggle" role="tablist" aria-label="Fondo del carnet">
-          <button type="button" className={tema === 'oscuro' ? 'active' : ''}
-            onClick={() => setTema('oscuro')} title="El de la marca, para pantalla">◼ Oscuro</button>
-          <button type="button" className={tema === 'blanco' ? 'active' : ''}
-            onClick={() => setTema('blanco')} title="Fondo blanco: gasta mucha menos tinta al imprimir">◻ Blanco</button>
-        </div>
         {error && <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>}
         {!error && !frente && <div className="muted" style={{ padding: '2rem' }}>Generando carnet…</div>}
         {/* Cada cara con su rótulo arriba y su descarga justo debajo: el botón
@@ -1539,10 +1528,8 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
           )}
         </div>
         <small className="hint muted" style={{ textAlign: 'center' }}>
-          PNG de 54×86&nbsp;mm a 300&nbsp;DPI (638×1016&nbsp;px), <strong>uno por cara</strong>. El QR del frente incluye cédula, teléfono y contacto de emergencia.
-          {tema === 'blanco'
-            ? ' El fondo blanco es para imprimir: mismos datos, muchísima menos tinta.'
-            : ' Para imprimir conviene el fondo blanco: el oscuro se come el tóner.'}
+          PNG de 54×86&nbsp;mm a 300&nbsp;DPI (638×1016&nbsp;px), <strong>uno por cara</strong>, formato Aliados CVM.
+          El QR del frente se verifica en vivo: activo muestra sus datos; desactivado lleva al logo de la empresa.
         </small>
       </div>
     </Modal>

@@ -1,14 +1,20 @@
 /* ============================================================
    MGG · RRHH · Carnet de identificación (imagen PNG)
-   Genera un carnet vertical de 54×86 mm a 300 DPI (638×1016 px)
-   con el logo de MGG, nombre/apellido, cédula y un QR con los
-   datos de la persona (cédula, teléfono, contacto de emergencia y las
-   condiciones de salud declaradas, que es lo que hace falta en una urgencia).
-   Colores del sistema (dark + naranja/dorado). Todo se dibuja en
-   un <canvas>, así que no depende de estilos ni fuentes web.
+   Carnet vertical de 54×86 mm a 300 DPI (638×1016 px).
+
+   Formato «Aliados CVM» (06-10-2026), el que pidió la administradora a
+   partir del carnet de Golden Touch:
+   · FRENTE: fondo blanco con borde dorado; arriba el logo de la CVM y el de
+     Motor Minero en Marcha; la foto con marco naranja; nombre y C.I.; el logo
+     de MGG; cargo y vigencia. Un QR chico abajo a la derecha abre la
+     verificación en vivo (activo = datos; desactivado = logo de la empresa).
+   · REVERSO: el sello «CVM Aliados» sobre un recuadro punteado con el texto
+     legal y el contacto; firma del autorizado y sello de MGG; una raya
+     naranja y el logo del Gobierno Bolivariano / Ministerio de Desarrollo
+     Minero Ecológico.
+   Todo se dibuja en un <canvas>: no depende de estilos ni fuentes web.
    ============================================================ */
 import qrcode from 'qrcode-generator';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { Personal } from '@/shared/lib/types';
 import { nombreDeCarnet } from './fichaPersonal';
 import { textoVence } from './carnetVence';
@@ -20,70 +26,18 @@ const MM = DPI / 25.4;
 const W = Math.round(54 * MM); // 638
 const H = Math.round(86 * MM); // 1016
 
-/**
- * En qué fondo se imprime el carnet.
- *
- * El oscuro es el de pantalla, el de la marca. El BLANCO existe por una razón
- * práctica: un carnet negro a sangre se come el tóner de una impresora común y
- * sale manchado y con bandas. Mismo diseño, mismos datos, mismo QR — solo
- * cambia en qué fondo se apoya.
- */
+/** Se conserva por compatibilidad: desde el 06-10 hay un solo formato (blanco). */
 export type TemaCarnet = 'oscuro' | 'blanco';
 
-interface Paleta {
-  bgTop: string; bgBottom: string;
-  /** Marco de la foto y aro del logo. El naranja de la marca, en los dos temas. */
-  primary: string;
-  /** Dorado de los títulos. En blanco se oscurece: el dorado claro no se lee. */
-  gold: string;
-  /** Dorado suave: cédula e iniciales. También se oscurece en blanco. */
-  primary3: string;
-  text: string; muted: string; dim: string; border: string;
-  /** Extremos de la barra de acento (arriba y abajo). */
-  accentIni: string; accentFin: string;
-  /** Fijos en los dos temas: el panel del QR es blanco y sus módulos negros,
-   *  porque así es como un lector de QR espera encontrarlos. */
-  white: string; dark: string;
-}
-
-// Paleta oscura (idéntica a theme.css).
-const OSCURO: Paleta = {
-  bgTop: '#0d1014',
-  bgBottom: '#161c25',
-  primary: '#ff8a00',
-  gold: '#ffd54a',
-  primary3: '#ffd07a',
-  text: '#e7ecf3',
-  muted: '#9aa6b5',
-  dim: '#6a7585',
-  border: '#2f3a4a',
-  accentIni: '#ff8a00',
-  accentFin: '#ffd54a',
-  white: '#ffffff',
-  dark: '#0d1014',
+const C = {
+  fondo: '#ffffff',
+  borde: '#c9a227',      // dorado del borde del frente
+  naranja: '#f28c00',    // marco de la foto y raya del reverso
+  texto: '#111111',
+  gris: '#6b7280',
+  punteado: '#1a1a1a',
 };
-
-/* Paleta clara. No es la oscura invertida: los dorados se BAJAN de tono porque
-   un #ffd54a sobre blanco no se lee, y los grises se suben de contraste. */
-const BLANCO: Paleta = {
-  bgTop: '#ffffff',
-  bgBottom: '#eef1f5',
-  primary: '#ff8a00',
-  gold: '#a85c00',
-  primary3: '#8a4b00',
-  text: '#12181f',
-  muted: '#55606d',
-  dim: '#6b7681',
-  border: '#c8d1dc',
-  accentIni: '#ff8a00',
-  accentFin: '#ffc02e',
-  white: '#ffffff',
-  dark: '#0d1014',
-};
-
-export function paletaDe(tema: TemaCarnet): Paleta { return tema === 'blanco' ? BLANCO : OSCURO; }
-
-const FONT = 'Arial, "Segoe UI", Helvetica, sans-serif';
+const FONT = 'Arial, "Helvetica Neue", Helvetica, sans-serif';
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const rr = Math.min(r, w / 2, h / 2);
@@ -106,6 +60,79 @@ function loadImage(src: string, crossOrigin?: string): Promise<HTMLImageElement>
   });
 }
 
+/** Carga la primera imagen de /public que exista, probando varios nombres. */
+async function cargarDePublic(candidatos: string[]): Promise<HTMLImageElement | null> {
+  const base = import.meta.env.BASE_URL;
+  for (const nombre of candidatos) {
+    try {
+      const img = await loadImage(`${base}${nombre.split('/').map(encodeURIComponent).join('/')}`);
+      if (img.width > 1) return img; // en dev un 404 devuelve el index.html: no decodifica
+    } catch { /* probamos el siguiente */ }
+  }
+  return null;
+}
+
+/**
+ * Un logo en JPEG con su transparencia aparte (una máscara en grises): así
+ * vinieron dentro del PDF del carnet. Sin la máscara el fondo sale negro.
+ */
+async function logoConAlfa(jpg: string, alfa: string): Promise<CanvasImageSource & { width: number; height: number } | null> {
+  const [img, mask] = await Promise.all([cargarDePublic([jpg]), cargarDePublic([alfa])]);
+  if (!img) return null;
+  if (!mask) return img;
+  const cv = document.createElement('canvas');
+  cv.width = img.naturalWidth || img.width;
+  cv.height = img.naturalHeight || img.height;
+  const cx = cv.getContext('2d');
+  if (!cx) return img;
+  cx.drawImage(img, 0, 0);
+  const m = document.createElement('canvas');
+  m.width = cv.width; m.height = cv.height;
+  const mx = m.getContext('2d');
+  if (!mx) return img;
+  mx.drawImage(mask, 0, 0, cv.width, cv.height);
+  try {
+    const d = cx.getImageData(0, 0, cv.width, cv.height);
+    const a = mx.getImageData(0, 0, cv.width, cv.height).data;
+    for (let i = 0; i < d.data.length; i += 4) d.data[i + 3] = a[i];
+    cx.putImageData(d, 0, 0);
+  } catch { return img; }
+  return cv;
+}
+
+/** Dibuja una imagen dentro de una caja, sin deformarla y centrada. */
+function dibujarContenido(
+  ctx: CanvasRenderingContext2D, src: CanvasImageSource, w0: number, h0: number,
+  x: number, y: number, maxW: number, maxH: number,
+): void {
+  if (!w0 || !h0) return;
+  const k = Math.min(maxW / w0, maxH / h0);
+  const w = w0 * k;
+  const h = h0 * k;
+  ctx.drawImage(src, x + (maxW - w) / 2, y + (maxH - h) / 2, w, h);
+}
+
+/* Rampa de transparencia para firmas y sellos escaneados (papel → transparente). */
+const PAPEL = 235;
+const TINTA = 120;
+function sinFondoBlanco(img: HTMLImageElement): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.width = img.naturalWidth || img.width;
+  cv.height = img.naturalHeight || img.height;
+  const cx = cv.getContext('2d');
+  if (!cx) return cv;
+  cx.drawImage(img, 0, 0);
+  let datos: ImageData;
+  try { datos = cx.getImageData(0, 0, cv.width, cv.height); } catch { return cv; }
+  const px = datos.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    px[i + 3] = lum >= PAPEL ? 0 : lum <= TINTA ? 255 : Math.round((255 * (PAPEL - lum)) / (PAPEL - TINTA));
+  }
+  cx.putImageData(datos, 0, 0);
+  return cv;
+}
+
 /** Iniciales (nombre + apellido) para el marco cuando no hay foto. */
 function iniciales(p: Personal): string {
   const a = (p.nombre ?? '').trim()[0] ?? '';
@@ -113,46 +140,39 @@ function iniciales(p: Personal): string {
   return (a + b).toUpperCase() || '·';
 }
 
-/** Dibuja la foto (cover, recortada al marco) o, si no hay, las iniciales. */
-async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number, y: number, w: number, h: number, c: Paleta) {
-  const r = 20;
+/** La foto (cover, con el encuadre que eligió el usuario) en marco naranja. */
+async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number, y: number, w: number, h: number) {
   let img: HTMLImageElement | null = null;
   if (p.foto_url) {
     try { img = await loadImage(p.foto_url, 'anonymous'); } catch { img = null; }
   }
   ctx.save();
-  roundRect(ctx, x, y, w, h, r);
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
   ctx.clip();
   if (img) {
-    // Cover con encuadre del usuario: llena el marco (proporción) y aplica su zoom y
-    // posición. pos 0..1 (0,5 = centrado) reparte el sobrante recortado; zoom ≥1 acerca.
     const zoom = Math.min(4, Math.max(1, Number(p.foto_zoom) || 1));
     const posX = Math.min(1, Math.max(0, p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x)));
     const posY = Math.min(1, Math.max(0, p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y)));
     const scale = Math.max(w / img.width, h / img.height) * zoom;
     const dw = img.width * scale;
     const dh = img.height * scale;
-    // drawX = x − sobranteHorizontal × posX (posX 0 = pega a la izquierda, 1 = a la derecha).
     ctx.drawImage(img, x - (dw - w) * posX, y - (dh - h) * posY, dw, dh);
   } else {
-    const g = ctx.createLinearGradient(x, y, x, y + h);
-    g.addColorStop(0, c.bgBottom);
-    g.addColorStop(1, c.bgTop);
-    ctx.fillStyle = g;
+    ctx.fillStyle = '#eef1f5';
     ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = c.primary3;
+    ctx.fillStyle = C.gris;
     ctx.font = `800 110px ${FONT}`;
     ctx.fillText(iniciales(p), x + w / 2, y + h / 2);
   }
   ctx.restore();
-  // Marco dorado.
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = c.primary;
-  roundRect(ctx, x, y, w, h, r);
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = C.naranja;
+  roundRect(ctx, x - 4, y - 4, w + 8, h + 8, 6);
   ctx.stroke();
 }
 
-/** Parte "NOMBRE APELLIDO" en varias líneas que quepan en maxW. */
+/** Parte un texto en líneas que quepan en maxW. */
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
@@ -166,33 +186,25 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): st
   return lines;
 }
 
-/** Dibuja texto centrado con espaciado entre letras (para los títulos). */
-function tracked(ctx: CanvasRenderingContext2D, text: string, cx: number, y: number, spacing: number) {
-  const chars = [...text];
-  let total = 0;
-  for (const ch of chars) total += ctx.measureText(ch).width + spacing;
-  total -= spacing;
-  let x = cx - total / 2;
-  for (const ch of chars) {
-    const w = ctx.measureText(ch).width;
-    ctx.fillText(ch, x + w / 2, y);
-    x += w + spacing;
+/** Escribe un texto centrado bajando la letra hasta que entre en maxW (y en `maxLineas`). */
+function textoAjustado(ctx: CanvasRenderingContext2D, text: string, cx: number, y: number, maxW: number, size: number, min: number, maxLineas = 1, peso = 700): number {
+  let s = size;
+  ctx.font = `${peso} ${s}px ${FONT}`;
+  let lines = wrapText(ctx, text, maxW);
+  while ((lines.length > maxLineas || lines.some((l) => ctx.measureText(l).width > maxW)) && s > min) {
+    s -= 1;
+    ctx.font = `${peso} ${s}px ${FONT}`;
+    lines = wrapText(ctx, text, maxW);
   }
+  let yy = y;
+  for (const ln of lines.slice(0, maxLineas)) { ctx.fillText(ln, cx, yy); yy += s + 4; }
+  return yy;
 }
 
 /**
- * Contenido legible del QR (lo que se ve al escanear).
- *
- * Las condiciones de salud van al final y en mayúsculas: el QR de un carnet se
- * escanea, sobre todo, cuando la persona no puede contestar por sí misma, y lo
- * primero que necesita quien la atiende es saber a qué es alérgica. Solo
- * aparecen si hay algo que declarar; dos «No» le quitarían lugar a lo demás.
- */
-/**
  * Lo que lleva el QR desde el 05-10-2026: un ENLACE a la verificación en vivo.
  * Si la persona está activa, la página muestra sus datos; si está desactivada,
- * manda al logo de la empresa. Va siempre al dominio de producción, aunque el
- * carnet se genere desde otro lado.
+ * manda al logo de la empresa. Va siempre al dominio de producción.
  */
 export const URL_CARNET = 'https://sistema.mineralgroupguayana.com/#/carnet/';
 export function urlQRCarnet(p: Pick<Personal, 'id'>): string {
@@ -217,25 +229,23 @@ export function textoQR(p: Personal): string {
   ].filter(Boolean).join('\n');
 }
 
-/** Dibuja el QR (módulos nítidos) centrado en un panel blanco. */
-function dibujarQR(ctx: CanvasRenderingContext2D, data: string, panelX: number, panelY: number, panel: number, c: Paleta) {
+/** Dibuja el QR (módulos nítidos) dentro de un cuadrado. */
+function dibujarQR(ctx: CanvasRenderingContext2D, data: string, x: number, y: number, size: number) {
   const qr = qrcode(0, 'M');
-  // UTF-8: cada carácter multibyte se convierte en bytes 0-255 para que los
-  // lectores modernos muestren bien acentos y ñ.
   qr.addData(unescape(encodeURIComponent(data)), 'Byte');
   qr.make();
   const count = qr.getModuleCount();
-  const quiet = 4; // zona de silencio (módulos) recomendada por el estándar
-  const cell = Math.floor(panel / (count + quiet * 2));
+  const quiet = 2;
+  const cell = Math.floor(size / (count + quiet * 2));
   const qrSize = cell * (count + quiet * 2);
-  const ox = panelX + Math.round((panel - qrSize) / 2);
-  const oy = panelY + Math.round((panel - qrSize) / 2);
-  ctx.fillStyle = c.dark;
+  const ox = x + Math.round((size - qrSize) / 2);
+  const oy = y + Math.round((size - qrSize) / 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(ox, oy, qrSize, qrSize);
+  ctx.fillStyle = '#000000';
   for (let r = 0; r < count; r++) {
     for (let c = 0; c < count; c++) {
-      if (qr.isDark(r, c)) {
-        ctx.fillRect(ox + (c + quiet) * cell, oy + (r + quiet) * cell, cell, cell);
-      }
+      if (qr.isDark(r, c)) ctx.fillRect(ox + (c + quiet) * cell, oy + (r + quiet) * cell, cell, cell);
     }
   }
 }
@@ -270,14 +280,13 @@ function pngChunk(type: string, data: Uint8Array): Uint8Array {
 /** Inserta un chunk pHYs (DPI físico) justo después del IHDR del PNG. */
 async function pngConDpi(blob: Blob, dpi: number): Promise<Blob> {
   const buf = new Uint8Array(await blob.arrayBuffer());
-  // Firma PNG (8 bytes) + IHDR (4 long + 4 "IHDR" + 13 datos + 4 CRC = 25) → 33.
-  const insertAt = 33;
-  const ppu = Math.round(dpi / 0.0254); // píxeles por metro
+  const insertAt = 33; // firma (8) + IHDR (25)
+  const ppu = Math.round(dpi / 0.0254);
   const data = new Uint8Array(9);
   const dv = new DataView(data.buffer);
   dv.setUint32(0, ppu);
   dv.setUint32(4, ppu);
-  data[8] = 1; // unidad = metro
+  data[8] = 1;
   const chunk = pngChunk('pHYs', data);
   const out = new Uint8Array(buf.length + chunk.length);
   out.set(buf.subarray(0, insertAt), 0);
@@ -286,14 +295,14 @@ async function pngConDpi(blob: Blob, dpi: number): Promise<Blob> {
   return new Blob([out], { type: 'image/png' });
 }
 
-// Texto legal del reverso (según lo indicado por la empresa).
-const REV_P1 = 'Credencial de uso exclusivo para las alianzas en minerales estratégicos suscritas en la República Bolivariana de Venezuela. Agradecemos a todas las autoridades civiles, militares e institucionales prestar la mayor colaboración posible al portador de esta identificación.';
-const REV_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianzas de minerales estratégicos de la Corporación Venezolana de Minería.';
-const REV_EMAIL = 'info@mineralgroupguayana.com';
-const REV_WHATSAPP = 'WhatsApp +58 424-9349731';
+function lienzoAPng(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo generar la imagen'))), 'image/png');
+  }).then((b) => pngConDpi(b, DPI));
+}
 
-/** Lienzo base con fondo, marco y barra de acento. Devuelve ctx + degradado de acento. */
-function nuevoLienzo(c: Paleta): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; accent: CanvasGradient } {
+/** Lienzo blanco del tamaño del carnet. */
+function nuevoLienzo(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -301,381 +310,146 @@ function nuevoLienzo(c: Paleta): { canvas: HTMLCanvasElement; ctx: CanvasRenderi
   if (!ctx) throw new Error('El navegador no soporta canvas 2D.');
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
-
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, c.bgTop);
-  grad.addColorStop(1, c.bgBottom);
-  ctx.fillStyle = grad;
+  ctx.fillStyle = C.fondo;
   ctx.fillRect(0, 0, W, H);
-
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = c.border;
-  roundRect(ctx, 16, 16, W - 32, H - 32, 34);
-  ctx.stroke();
-
-  const accent = ctx.createLinearGradient(0, 0, W, 0);
-  accent.addColorStop(0, c.accentIni);
-  accent.addColorStop(1, c.accentFin);
-  ctx.fillStyle = accent;
-  roundRect(ctx, 16, 16, W - 32, 20, 10);
-  ctx.fill();
-  return { canvas, ctx, accent };
+  return { canvas, ctx };
 }
 
-/** Dibuja el logo en un recuadro blanco (redondeado o, si `circular`, en círculo). */
-async function dibujarLogo(ctx: CanvasRenderingContext2D, x: number, y: number, box: number, circular = false, c: Paleta = OSCURO) {
-  const cx = x + box / 2;
-  const cy = y + box / 2;
-  ctx.save();
-  ctx.fillStyle = c.white;
-  if (circular) {
-    ctx.beginPath();
-    ctx.arc(cx, cy, box / 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.clip(); // el logo (fondo blanco) queda recortado dentro del círculo
-  } else {
-    roundRect(ctx, x, y, box, box, box * 0.16);
-    ctx.fill();
-  }
-  try {
-    const logo = await loadImage(await loadLogoDataUrl());
-    const pad = box * 0.12;
-    const maxW = box - pad * 2;
-    const maxH = box - pad * 2;
-    const scale = Math.min(maxW / logo.width, maxH / logo.height);
-    const dw = logo.width * scale;
-    const dh = logo.height * scale;
-    ctx.drawImage(logo, cx - dw / 2, cy - dh / 2, dw, dh);
-  } catch { /* si el logo falta, el carnet igual se genera */ }
-  ctx.restore();
-  if (circular) {
-    // Aro dorado alrededor del círculo.
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = c.primary;
-    ctx.beginPath();
-    ctx.arc(cx, cy, box / 2, 0, Math.PI * 2);
-    ctx.stroke();
-  }
+// Texto legal del reverso (según lo indicado por la empresa).
+const REV_P1 = 'Credencial de uso exclusivo para las alianzas en minerales estratégicos suscritas en la República Bolivariana de Venezuela. Agradecemos a todas las autoridades civiles, militares e institucionales prestar la mayor colaboración posible al portador de esta identificación.';
+const REV_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianzas de minerales estratégicos de la Corporación Venezolana de Minería.';
+const REV_EMAIL = 'info@mineralgroupguayana.com';
+const REV_WHATSAPP = 'WhatsApp +58 424-9349731';
+
+/** El logo completo de MGG (con el RIF). Si falta, el cuadrado de siempre. */
+function cargarLogoEmpresa(): Promise<HTMLImageElement | null> {
+  return cargarDePublic(['Mineral Group Guayana.jpg', 'image.jpeg']);
 }
 
-function lienzoAPng(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo generar la imagen'))), 'image/png');
-  }).then((b) => pngConDpi(b, DPI));
-}
-
-/** Genera el FRENTE del carnet (638×1016 px · 54×86 mm @ 300 DPI). */
-export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'oscuro'): Promise<Blob> {
-  const c = paletaDe(tema);
-  const { canvas, ctx, accent } = nuevoLienzo(c);
+/** Genera el FRENTE del carnet. */
+export async function generarFrenteBlob(p: Personal): Promise<Blob> {
+  const { canvas, ctx } = nuevoLienzo();
   const cx = W / 2;
 
-  // Encabezado: logo a la izquierda; empresa y «CARNET» CENTRADOS en el carnet (05-10-2026).
-  const logoBox = 92;
-  await dibujarLogo(ctx, 44, 40, logoBox, false, c);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = c.gold;
-  ctx.font = `800 25px ${FONT}`;
-  ctx.fillText('MINERAL GROUP', cx, 74);
-  ctx.fillText('GUAYANA C.A.', cx, 104);
-  ctx.fillStyle = c.muted;
-  ctx.font = `600 14px ${FONT}`;
-  ctx.fillText('CARNET DE IDENTIFICACIÓN', cx, 130);
-
-  // Divisor de acento.
-  ctx.fillStyle = accent;
-  roundRect(ctx, 44, 156, W - 88, 3, 2);
-  ctx.fill();
-
-  // Foto (o iniciales) en marco dorado. 20 px más baja que antes para dejarle
-  // lugar a la vigencia sin empujar el QR.
-  const fotoW = 260;
-  const fotoH = 280;
-  const fotoY = 176;
-  await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH, c);
-  let fotoBottom = fotoY + fotoH;
-
-  // Vigencia del carnet, justo debajo de la foto (personal.carnet_vence).
-  const vence = textoVence(p.carnet_vence);
-  if (vence) {
-    ctx.fillStyle = c.primary3;
-    ctx.font = `700 17px ${FONT}`;
-    tracked(ctx, `VIGENCIA: ${vence}`, cx, fotoBottom + 22, 1);
-  }
-  fotoBottom += 20;
-
-  // Primer nombre + primer apellido, grande. El nombre completo sigue en la ficha
-  // y en el QR: acá lo que importa es que se lea de lejos, y «ANGELICA DANIELA
-  // SOLIS HERNANDEZ» obligaba a bajar la letra hasta hacerlo ilegible.
-  const nombreFull = nombreDeCarnet(p.nombre, p.apellido).toUpperCase() || '—';
-  let fontSize = 44;
-  ctx.font = `800 ${fontSize}px ${FONT}`;
-  let lines = wrapText(ctx, nombreFull, W - 90);
-  while (lines.length > 2 && fontSize > 28) {
-    fontSize -= 3;
-    ctx.font = `800 ${fontSize}px ${FONT}`;
-    lines = wrapText(ctx, nombreFull, W - 90);
-  }
-  ctx.fillStyle = c.text;
-  let ny = fotoBottom + 52;
-  for (const ln of lines.slice(0, 2)) { ctx.fillText(ln, cx, ny); ny += fontSize + 6; }
-
-  // Chip de cédula.
-  const chipY = ny + 6;
-  ctx.font = `700 25px ${FONT}`;
-  const ced = p.cedula ? `C.I. ${p.cedula}` : 'C.I. —';
-  const chipW = Math.min(ctx.measureText(ced).width + 52, W - 90);
-  ctx.fillStyle = 'rgba(255,138,0,0.16)';
-  roundRect(ctx, cx - chipW / 2, chipY, chipW, 48, 24);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,138,0,0.55)';
-  ctx.lineWidth = 2;
-  roundRect(ctx, cx - chipW / 2, chipY, chipW, 48, 24);
+  // Borde dorado redondeado.
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = C.borde;
+  roundRect(ctx, 12, 12, W - 24, H - 24, 34);
   ctx.stroke();
-  ctx.fillStyle = c.primary3;
-  ctx.fillText(ced, cx, chipY + 25);
 
-  // Cargo · Departamento (una línea).
-  const sub = [p.cargo, p.departamento].filter(Boolean).join('  ·  ').toUpperCase();
-  if (sub) {
-    ctx.fillStyle = c.muted;
-    ctx.font = `600 17px ${FONT}`;
-    ctx.fillText(wrapText(ctx, sub, W - 110)[0], cx, chipY + 76);
-  }
+  // Encabezado: CVM a la izquierda, Motor Minero en Marcha a la derecha.
+  const [cvm, motor, empresa] = await Promise.all([
+    logoConAlfa('carnet/cvm.jpg', 'carnet/cvm-alfa.png'),
+    logoConAlfa('carnet/motor-minero.jpg', 'carnet/motor-minero-alfa.png'),
+    cargarLogoEmpresa(),
+  ]);
+  if (cvm) dibujarContenido(ctx, cvm, cvm.width, cvm.height, 38, 40, 300, 150);
+  if (motor) dibujarContenido(ctx, motor, motor.width, motor.height, W - 38 - 175, 30, 175, 175);
 
-  // Panel blanco con el QR (abajo).
-  const panel = 210;
-  const panelX = cx - panel / 2;
-  const panelY = H - panel - 84;
-  ctx.fillStyle = c.white;
-  roundRect(ctx, panelX, panelY, panel, panel, 20);
-  ctx.fill();
-  dibujarQR(ctx, urlQRCarnet(p), panelX, panelY, panel, c);
+  // Foto con marco naranja.
+  const fotoW = 236;
+  const fotoH = 290;
+  const fotoY = 218;
+  await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH);
 
-  ctx.fillStyle = c.dim;
-  ctx.font = `600 14px ${FONT}`;
-  tracked(ctx, 'ESCANEÁ EL QR PARA VER LOS DATOS', cx, panelY + panel + 24, 1.5);
-  ctx.fillStyle = accent;
-  roundRect(ctx, 16, H - 36, W - 32, 20, 10);
-  ctx.fill();
+  // Nombre (hasta dos líneas) y cédula.
+  ctx.fillStyle = C.texto;
+  const nombre = nombreDeCarnet(p.nombre, p.apellido) || '—';
+  let y = fotoY + fotoH + 46;
+  y = textoAjustado(ctx, nombre, cx, y, W - 80, 36, 24, 2, 800);
+  textoAjustado(ctx, p.cedula ? `C.I. ${p.cedula}` : 'C.I. —', cx, y + 2, W - 80, 36, 24, 1, 800);
+  y += 40;
+
+  // Logo de la empresa.
+  const logoY = y + 22;
+  const logoH = 132;
+  if (empresa) dibujarContenido(ctx, empresa, empresa.naturalWidth || empresa.width, empresa.naturalHeight || empresa.height, 70, logoY, W - 140, logoH);
+
+  // Cargo y vigencia. El QR va abajo a la derecha: el texto se acomoda para no pisarlo.
+  const qrSize = 116;
+  const qrX = W - 34 - qrSize;
+  const qrY = H - 34 - qrSize;
+  const maxTexto = 2 * (qrX - 12 - cx);
+  ctx.fillStyle = C.texto;
+  let ty = logoY + logoH + 42;
+  const cargo = (p.cargo ?? '').trim();
+  if (cargo) ty = textoAjustado(ctx, cargo, cx, ty, maxTexto, 31, 20, 2, 800);
+  const vence = textoVence(p.carnet_vence);
+  if (vence) textoAjustado(ctx, `Vigencia ${vence}`, cx, ty + 4, maxTexto, 31, 20, 1, 800);
+
+  // QR en vivo (activo = datos; desactivado = logo de la empresa).
+  dibujarQR(ctx, urlQRCarnet(p), qrX, qrY, qrSize);
 
   return lienzoAPng(canvas);
 }
 
-/** Carga el logo de la Corporación Venezolana de Minería (public/cvm.*).
- *  Prueba varias extensiones y mayúsc/minúsc (el servidor Linux distingue may/min). */
-/** Carga la primera imagen de /public que exista, probando varios nombres. */
-async function cargarDePublic(candidatos: string[]): Promise<HTMLImageElement | null> {
-  const base = import.meta.env.BASE_URL;
-  for (const nombre of candidatos) {
-    try {
-      const img = await loadImage(`${base}${encodeURIComponent(nombre)}`);
-      if (img.width > 1) return img; // en dev un 404 devuelve el index.html: no decodifica
-    } catch { /* probamos el siguiente */ }
-  }
-  return null;
-}
-
-function hexARgb(hex: string): [number, number, number] {
-  const h = hex.replace('#', '');
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-}
-
-/* Dónde empieza y termina la rampa de transparencia, en luminancia (0 negro,
-   255 blanco). El papel escaneado nunca es 255 limpio —tiene grano y compresión
-   JPEG—, así que el corte va bastante por debajo del blanco puro. */
-const PAPEL = 235;
-const TINTA = 120;
-
-/**
- * Recorta el fondo blanco de un sello o una firma escaneados.
- *
- * Vienen en JPEG, que no tiene transparencia: pegados tal cual sobre el carnet
- * oscuro dejarían un recuadro blanco alrededor. Acá el PAPEL se vuelve
- * transparente y la TINTA se queda, con una rampa suave en el medio para que el
- * borde del trazo no quede dentado.
- *
- * Con `tinta` se repinta el trazo: en el carnet oscuro una firma negra no se ve,
- * así que se pasa a un tono claro. En el blanco se deja su color original.
- */
-function sinFondoBlanco(img: HTMLImageElement, tinta?: string): HTMLCanvasElement {
-  const cv = document.createElement('canvas');
-  cv.width = img.naturalWidth || img.width;
-  cv.height = img.naturalHeight || img.height;
-  const cx = cv.getContext('2d');
-  if (!cx) return cv;
-  cx.drawImage(img, 0, 0);
-  let datos: ImageData;
-  // Si el navegador marcó el lienzo como contaminado no se puede leer: se
-  // devuelve la imagen tal cual antes que quedarse sin sello.
-  try { datos = cx.getImageData(0, 0, cv.width, cv.height); } catch { return cv; }
-  const px = datos.data;
-  const rgb = tinta ? hexARgb(tinta) : null;
-  for (let i = 0; i < px.length; i += 4) {
-    const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-    const alfa = lum >= PAPEL ? 0
-      : lum <= TINTA ? 255
-      : Math.round((255 * (PAPEL - lum)) / (PAPEL - TINTA));
-    px[i + 3] = alfa;
-    if (rgb && alfa > 0) { px[i] = rgb[0]; px[i + 1] = rgb[1]; px[i + 2] = rgb[2]; }
-  }
-  cx.putImageData(datos, 0, 0);
-  return cv;
-}
-
-/** Dibuja una imagen dentro de una caja, sin deformarla y centrada. */
-function dibujarContenido(
-  ctx: CanvasRenderingContext2D, src: CanvasImageSource, w0: number, h0: number,
-  x: number, y: number, maxW: number, maxH: number,
-): void {
-  if (!w0 || !h0) return;
-  const k = Math.min(maxW / w0, maxH / h0);
-  const w = w0 * k;
-  const h = h0 * k;
-  ctx.drawImage(src, x + (maxW - w) / 2, y + (maxH - h) / 2, w, h);
-}
-
-async function cargarLogoCVM(): Promise<HTMLImageElement | null> {
-  const base = import.meta.env.BASE_URL;
-  const candidatos = ['cvm.jpg', 'cvm.jpeg', 'cvm.png', 'cvm.webp', 'CVM.jpg', 'CVM.jpeg', 'CVM.png', 'CVM.webp'];
-  for (const nombre of candidatos) {
-    try {
-      const img = await loadImage(`${base}${nombre}`);
-      if (img.width > 1) return img; // en dev, un 404 devuelve el index.html (no decodifica): se ignora
-    } catch { /* probamos el siguiente */ }
-  }
-  return null;
-}
-
-/** Dibuja una imagen recortada en círculo (cover), con aro dorado opcional. */
-function dibujarCirculo(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, box: number, aro = true, c: Paleta = OSCURO) {
-  const cx = x + box / 2;
-  const cy = y + box / 2;
+/** Recuadro con borde punteado (cuadraditos), como el del formato. */
+function rectPunteado(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
   ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, box / 2, 0, Math.PI * 2);
-  ctx.clip();
-  const scale = Math.max(box / img.width, box / img.height);
-  const dw = img.width * scale;
-  const dh = img.height * scale;
-  ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+  ctx.strokeStyle = C.punteado;
+  ctx.lineWidth = 4;
+  ctx.setLineDash([4, 9]);
+  ctx.strokeRect(x, y, w, h);
   ctx.restore();
-  if (aro) {
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = c.primary;
-    ctx.beginPath();
-    ctx.arc(cx, cy, box / 2, 0, Math.PI * 2);
-    ctx.stroke();
-  }
 }
 
-/** Dibuja UNA línea justificada: reparte el sobrante entre las palabras (textAlign 'left'). */
-function lineaJustificada(ctx: CanvasRenderingContext2D, line: string, x: number, y: number, maxW: number) {
-  const words = line.split(/\s+/).filter(Boolean);
-  if (words.length <= 1) { ctx.fillText(line, x, y); return; }
-  const wordsW = words.reduce((a, w) => a + ctx.measureText(w).width, 0);
-  const gap = (maxW - wordsW) / (words.length - 1);
-  let cx = x;
-  for (const w of words) { ctx.fillText(w, cx, y); cx += ctx.measureText(w).width + gap; }
-}
-
-/** Dibuja un párrafo con ajuste de línea; devuelve la Y donde termina.
- *  Si `justify`, justifica todas las líneas menos la última (requiere textAlign 'left'). */
-function parrafo(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lineH: number, justify = false): number {
-  const lines = wrapText(ctx, text, maxW);
-  let yy = y;
-  lines.forEach((ln, i) => {
-    if (justify && i < lines.length - 1) lineaJustificada(ctx, ln, x, yy, maxW);
-    else ctx.fillText(ln, x, yy);
-    yy += lineH;
-  });
-  return yy;
-}
-
-/** Genera el REVERSO del carnet (texto legal + imagen institucional + contacto). */
-export async function generarReversoBlob(tema: TemaCarnet = 'oscuro'): Promise<Blob> {
-  const c = paletaDe(tema);
-  const { canvas, ctx, accent } = nuevoLienzo(c);
+/** Genera el REVERSO del carnet. */
+export async function generarReversoBlob(): Promise<Blob> {
+  const { canvas, ctx } = nuevoLienzo();
   const cx = W / 2;
-
-  // Encabezado: logo de la Corporación Venezolana de Minería (redondo, prominente).
-  const cvm = await cargarLogoCVM();
-  const logoBox = 190;
-  const logoY = 58;
-  if (cvm) dibujarCirculo(ctx, cvm, cx - logoBox / 2, logoY, logoBox, true, c);
-  else await dibujarLogo(ctx, cx - logoBox / 2, logoY, logoBox, true, c); // respaldo: logo MGG
-  const headBottom = logoY + logoBox;
-
-  ctx.textAlign = 'center';
-  ctx.fillStyle = c.gold;
-  ctx.font = `800 21px ${FONT}`;
-  tracked(ctx, 'MINERAL GROUP GUAYANA C.A.', cx, headBottom + 34, 0.5);
-  ctx.fillStyle = accent;
-  roundRect(ctx, cx - 60, headBottom + 52, 120, 3, 2);
-  ctx.fill();
-
-  // Texto legal (alineado a la izquierda con márgenes).
-  const margin = 50;
-  const maxW = W - margin * 2;
-  ctx.textAlign = 'left';
-  ctx.fillStyle = c.text;
-  ctx.font = `500 21px ${FONT}`;
-  let y = headBottom + 92;
-  y = parrafo(ctx, REV_P1, margin, y, maxW, 30, true);   // justificado
-  y += 20;
-  ctx.fillStyle = c.primary3;
-  ctx.font = `600 21px ${FONT}`;
-  y = parrafo(ctx, REV_P2, margin, y, maxW, 30, true);    // justificado
-
-  /* Firma del autorizado y sello de la empresa, justo debajo del texto legal.
-     Los dos son escaneos con fondo blanco: se les recorta el papel para que no
-     queden dos recuadros blancos sobre el carnet oscuro, y en ese tema el trazo
-     se repinta claro (una firma negra sobre negro no existe). */
-  const [firmaImg, selloImg] = await Promise.all([
-    cargarDePublic(['firma-autorizado-carnet.jpeg', 'firma de autorizado carnet.jpeg', 'firma-autorizado-carnet.jpg', 'firma-autorizado-carnet.png']),
-    cargarDePublic(['sello-mgg.jpeg', 'sello mineral group.jpeg', 'sello-mgg.jpg', 'sello-mgg.png']),
+  const [aliados, gobierno, firmaImg, selloImg] = await Promise.all([
+    cargarDePublic(['carnet/cvm-aliados.jpg', 'cvm.jpg']),
+    cargarDePublic(['carnet/gobierno-minero.jpg']),
+    cargarDePublic(['firma-autorizado-carnet.jpeg', 'firma-autorizado-carnet.jpg', 'firma-autorizado-carnet.png']),
+    cargarDePublic(['sello-mgg.jpeg', 'sello-mgg.jpg', 'sello-mgg.png']),
   ]);
-  if (firmaImg || selloImg) {
-    const claro = tema === 'oscuro' ? c.text : undefined;
-    const filaY = Math.max(y + 18, H - 300);
-    const filaH = 132;
-    const cajaW = (maxW - 30) / 2;
-    if (firmaImg) {
-      const cv = sinFondoBlanco(firmaImg, claro);
-      dibujarContenido(ctx, cv, cv.width, cv.height, margin, filaY, cajaW, filaH);
-    }
-    if (selloImg) {
-      const cv = sinFondoBlanco(selloImg, claro);
-      dibujarContenido(ctx, cv, cv.width, cv.height, margin + cajaW + 30, filaY, cajaW, filaH);
-    }
-    // Una línea bajo cada uno: es una firma, y una firma va sobre su raya.
-    ctx.strokeStyle = c.border;
-    ctx.lineWidth = 2;
-    const rayaY = filaY + filaH + 6;
-    for (const rx of [margin, margin + cajaW + 30]) {
-      ctx.beginPath();
-      ctx.moveTo(rx + 20, rayaY);
-      ctx.lineTo(rx + cajaW - 20, rayaY);
-      ctx.stroke();
-    }
-    ctx.textAlign = 'center';
-    ctx.fillStyle = c.dim;
-    ctx.font = `600 13px ${FONT}`;
-    tracked(ctx, 'AUTORIZADO POR', margin + cajaW / 2, rayaY + 18, 1.2);
-    tracked(ctx, 'SELLO DE LA EMPRESA', margin + cajaW + 30 + cajaW / 2, rayaY + 18, 1.2);
+
+  // Recuadro punteado; el sello «CVM Aliados» se monta sobre su borde de arriba.
+  const boxX = 34;
+  const boxY = 150;
+  const boxW = W - 68;
+  const boxH = 520;
+  rectPunteado(ctx, boxX, boxY, boxW, boxH);
+  if (aliados) {
+    const lw = 250;
+    const lh = Math.round(lw * (aliados.height / aliados.width));
+    // Fondo blanco detrás del sello para tapar el punteado que pasa por debajo.
+    ctx.fillStyle = C.fondo;
+    ctx.fillRect(cx - lw / 2 + 12, boxY - 10, lw - 24, Math.round(lh * 0.62));
+    ctx.drawImage(aliados, cx - lw / 2, 22, lw, lh);
   }
 
-  // Contacto (abajo).
-  ctx.textAlign = 'center';
-  ctx.fillStyle = c.gold;
-  ctx.font = `700 20px ${FONT}`;
-  ctx.fillText(REV_EMAIL, cx, H - 84);
-  ctx.fillStyle = c.text;
-  ctx.font = `600 19px ${FONT}`;
-  ctx.fillText(REV_WHATSAPP, cx, H - 58);
-  ctx.fillStyle = accent;
-  roundRect(ctx, 16, H - 36, W - 32, 20, 10);
-  ctx.fill();
+  // Texto legal, centrado.
+  const maxW = boxW - 50;
+  ctx.fillStyle = C.texto;
+  ctx.font = `400 22px ${FONT}`;
+  let y = boxY + 130;
+  for (const ln of wrapText(ctx, REV_P1, maxW)) { ctx.fillText(ln, cx, y); y += 29; }
+  y += 20;
+  for (const ln of wrapText(ctx, REV_P2, maxW)) { ctx.fillText(ln, cx, y); y += 29; }
+  y += 22;
+  ctx.font = `400 22px ${FONT}`;
+  ctx.fillText(REV_EMAIL, cx, y); y += 29;
+  ctx.fillText(REV_WHATSAPP, cx, y);
+
+  // Firma del autorizado (izquierda) y sello de MGG (derecha).
+  const filaY = boxY + boxH + 14;
+  const filaH = 128;
+  const cajaW = (W - 100) / 2;
+  if (firmaImg) { const cv = sinFondoBlanco(firmaImg); dibujarContenido(ctx, cv, cv.width, cv.height, 40, filaY, cajaW, filaH); }
+  if (selloImg) { const cv = sinFondoBlanco(selloImg); dibujarContenido(ctx, cv, cv.width, cv.height, 60 + cajaW, filaY, cajaW, filaH); }
+
+  // Raya naranja y logo del Gobierno / Ministerio de Desarrollo Minero Ecológico.
+  const rayaY = filaY + filaH + 12;
+  ctx.fillStyle = C.naranja;
+  ctx.fillRect(70, rayaY, W - 140, 8);
+  if (gobierno) {
+    // Se recorta la franja verde de abajo de la imagen: queda solo el logo.
+    const sx = 0; const sy = 40; const sw = gobierno.width; const sh = Math.round(gobierno.height * 0.66);
+    const dh = H - (rayaY + 18) - 22;
+    const dw = Math.round(dh * (sw / sh));
+    ctx.drawImage(gobierno, sx, sy, sw, sh, cx - dw / 2, rayaY + 18, dw, dh);
+  }
 
   return lienzoAPng(canvas);
 }
@@ -683,12 +457,9 @@ export async function generarReversoBlob(tema: TemaCarnet = 'oscuro'): Promise<B
 /** Compat: el "carnet" por defecto es el frente. */
 export const generarCarnetBlob = generarFrenteBlob;
 
-/** Nombre de archivo sugerido. El tema va en el nombre para que la versión
-    blanca no pise a la oscura en la carpeta de descargas. */
-function nombreArchivo(p: Personal, cara: string, tema: TemaCarnet = 'oscuro'): string {
+function nombreArchivo(p: Personal, cara: string): string {
   const base = `${p.nombre ?? ''}-${p.apellido ?? ''}`.trim().replace(/\s+/g, '-').replace(/[^\w\-áéíóúñ]/gi, '');
-  const suf = tema === 'blanco' ? '-blanco' : '';
-  return `carnet-${cara}${suf}-${base || 'personal'}.png`;
+  return `carnet-${cara}-${base || 'personal'}.png`;
 }
 
 function descargarBlob(blob: Blob, filename: string) {
@@ -703,25 +474,18 @@ function descargarBlob(blob: Blob, filename: string) {
 }
 
 /** Descarga SOLO el frente. */
-export async function descargarFrente(p: Personal, tema: TemaCarnet = 'oscuro'): Promise<void> {
-  descargarBlob(await generarFrenteBlob(p, tema), nombreArchivo(p, 'frente', tema));
+export async function descargarFrente(p: Personal): Promise<void> {
+  descargarBlob(await generarFrenteBlob(p), nombreArchivo(p, 'frente'));
 }
 
 /** Descarga SOLO el reverso. */
-export async function descargarReverso(p: Personal, tema: TemaCarnet = 'oscuro'): Promise<void> {
-  descargarBlob(await generarReversoBlob(tema), nombreArchivo(p, 'reverso', tema));
+export async function descargarReverso(p: Personal): Promise<void> {
+  descargarBlob(await generarReversoBlob(), nombreArchivo(p, 'reverso'));
 }
 
-/**
- * Genera y descarga las DOS caras.
- *
- * Dos descargas seguidas: el navegador ignora la segunda si llegan juntas, de
- * ahí la espera. Para imprimir conviene bajarlas de a una (hay un botón por
- * cara), porque así cada archivo cae con su nombre y en el orden en que se
- * mandan a la impresora.
- */
-export async function descargarCarnet(p: Personal, tema: TemaCarnet = 'oscuro'): Promise<void> {
-  await descargarFrente(p, tema);
+/** Genera y descarga las DOS caras (con una pausa: el navegador ignora la segunda si llegan juntas). */
+export async function descargarCarnet(p: Personal): Promise<void> {
+  await descargarFrente(p);
   await new Promise((r) => setTimeout(r, 350));
-  await descargarReverso(p, tema);
+  await descargarReverso(p);
 }
