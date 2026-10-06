@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { ConfirmDialog } from '@/shared/ui/Modal';
@@ -51,6 +51,13 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
   const [loading, setLoading] = useState(true);
   const [autoEstado, setAutoEstado] = useState<'idle' | 'guardando' | 'guardado' | 'error'>('idle');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
+  // Buscador de roles (06-10-2026): con muchos roles, la grilla se hace larga.
+  const [busca, setBusca] = useState('');
+  const rolesVisibles = useMemo(() => {
+    const t = busca.trim().toLowerCase();
+    if (!t) return roles;
+    return roles.filter((r) => `${r.label} ${r.key} ${r.descripcion ?? ''}`.toLowerCase().includes(t));
+  }, [roles, busca]);
 
   async function refresh() {
     setLoading(true);
@@ -171,9 +178,22 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
         )}
       </div>
 
+      {!loading && (
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
+          <input className="input" value={busca} onChange={(e) => setBusca(e.target.value)}
+            placeholder="🔍 Buscar rol por nombre o descripción…" style={{ width: 'min(100%, 340px)' }} />
+          <span className="muted" style={{ fontSize: '.8rem' }}>{rolesVisibles.length} de {roles.length} rol(es)</span>
+          {busca && <button className="btn btn-sm btn-ghost" onClick={() => setBusca('')}>✕ Limpiar</button>}
+        </div>
+      )}
+
       {loading ? (
         <div className="card" style={{ padding: '1.25rem' }}>
           <p className="hint muted" style={{ margin: 0 }}>Cargando matriz de permisos…</p>
+        </div>
+      ) : !rolesVisibles.length ? (
+        <div className="card" style={{ padding: '1.25rem' }}>
+          <p className="hint muted" style={{ margin: 0 }}>Ningún rol coincide con «{busca.trim()}».</p>
         </div>
       ) : (
         <div
@@ -183,7 +203,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
             gap: '1rem',
           }}
         >
-          {roles.map((rc) => {
+          {rolesVisibles.map((rc) => {
             const enUso = counts[rc.key] ?? 0;
             return (
               <div
