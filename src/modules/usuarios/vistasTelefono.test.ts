@@ -21,7 +21,7 @@ describe('vistas de teléfono según permisos (02-10)', () => {
 
   it('solo las que tiene permitidas', () => {
     expect(vistasTelefonoDe('cocina', ['cocina']).map((v) => v.ruta)).toEqual(['cocina/telefono']);
-    expect(vistasTelefonoDe('cocina', ['inventario'])).toEqual([]);
+    expect(vistasTelefonoDe('cocina', ['acopio'])).toEqual([]);
   });
 
   it('un rol de escritorio con los dos módulos también las tiene (para los atajos)', () => {
@@ -32,7 +32,7 @@ describe('vistas de teléfono según permisos (02-10)', () => {
     expect(rutaDeInicio('combustible', ['cocina', 'combustible'])).toBe('/app/combustible/surtidor');
     expect(rutaDeInicio('combustible', ['cocina'])).toBe('/app/cocina/telefono');
     expect(rutaDeInicio('cocina', ['combustible', 'cocina'])).toBe('/app/cocina/telefono');
-    expect(rutaDeInicio('cocina', ['inventario'])).toBe('/app/inventario');
+    expect(rutaDeInicio('cocina', ['acopio'])).toBe('/app/acopio');
     expect(rutaDeInicio('admin', ['combustible', 'cocina'])).toBe('/app/combustible');
     expect(rutaDeInicio('cocina', [])).toBe('/app/sin-acceso');
   });
@@ -45,5 +45,15 @@ describe('vistas de teléfono según permisos (02-10)', () => {
     expect(rutaDeInicio('cocina', ['cocina'], false)).toBe('/app/cocina');
     // Sin marca leída (null) cae al nombre.
     expect(rutaDeInicio('cocina', ['cocina'], null)).toBe('/app/cocina/telefono');
+  });
+});
+
+describe('Inventario desde el teléfono (06-10)', () => {
+  it('quien tiene Inventario tiene la pantalla; un rol «solo teléfono» entra directo a ella', () => {
+    expect(vistasTelefonoDe('almacen_telefono', ['inventario']).map((v) => v.ruta)).toEqual(['inventario/telefono']);
+    expect(rutaDeInicio('almacen_telefono', ['inventario'], true)).toBe('/app/inventario/telefono');
+  });
+  it('un rol de escritorio con Inventario sigue entrando al escritorio', () => {
+    expect(rutaDeInicio('admin', ['inventario'], false)).toBe('/app/inventario');
   });
 });

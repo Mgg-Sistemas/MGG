@@ -113,6 +113,16 @@ export function esRolCocina(role: RoleKey | null | undefined): boolean {
   return (role ?? '').trim().toLowerCase() === ROL_COCINA;
 }
 
+/* ───────────── Inventario desde el teléfono (06-10-2026) ─────────────
+   Traída del «Depósito Mina» de Golden Touch: producto nuevo y entradas en el
+   almacén elegido, con botones grandes. La habilita el permiso de Inventario. */
+
+/** El rol que vive SOLO en la vista de teléfono de Inventario (si se crea). */
+export const ROL_INVENTARIO_TELEFONO: RoleKey = 'almacen_telefono';
+
+/** A dónde entra, bajo `/app/`. */
+export const RUTA_INVENTARIO_TELEFONO = 'inventario/telefono';
+
 /* ───────────── Las vistas de teléfono, en UN solo registro (02-10-2026) ─────────────
    Pedido de la administradora: una persona de teléfono puede necesitar varias
    pantallas (el que carga combustible también sirve la comida). Los accesos ya
@@ -135,6 +145,7 @@ export interface VistaTelefono {
 export const VISTAS_TELEFONO: readonly VistaTelefono[] = [
   { modulo: 'combustible', ruta: RUTA_SURTIDOR, icono: '⛽', label: 'Surtidor', rolPropio: ROL_SURTIDOR },
   { modulo: 'cocina', ruta: RUTA_COCINA_TELEFONO, icono: '🍳', label: 'Comidas', rolPropio: ROL_COCINA },
+  { modulo: 'inventario', ruta: RUTA_INVENTARIO_TELEFONO, icono: '📦', label: 'Inventario', rolPropio: ROL_INVENTARIO_TELEFONO },
 ];
 
 /**

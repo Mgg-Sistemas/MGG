@@ -307,7 +307,9 @@ export function AppShell() {
           {can('dashboard') && <NavItem to="/app/dashboard" icon="▦" label="Dashboard" />}
           {can('pedidos') && <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
-          {(can('inventario') || can('deposito')) && (
+          {/* Un rol «solo teléfono» con Inventario ve su pantalla de celular, no el escritorio. */}
+          {soloTelefono && can('inventario') && <NavItem to="/app/inventario/telefono" icon="📦" label="Inventario" />}
+          {!soloTelefono && (can('inventario') || can('deposito')) && (
             can('deposito') ? (
               <NavGroup icon="⬢" label="Inventario" defaultOpen={location.pathname.startsWith('/app/inventario') || location.pathname.startsWith('/app/deposito')}>
                 {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario" />}

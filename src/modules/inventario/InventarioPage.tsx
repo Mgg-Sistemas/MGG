@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from 'react';
-import { useSearchParams, useParams, Navigate } from 'react-router-dom';
+import { useSearchParams, useParams, Navigate, Link } from 'react-router-dom';
 import { money, num } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -819,6 +819,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           </p>
         </div>
         <div className="actions">
+          {/* La pantalla de teléfono (producto nuevo y entradas), parada en este almacén. */}
+          {!esDeposito && (
+            <Link className="btn btn-ghost" title="Producto nuevo y entradas con botones grandes, para el celular"
+              to={`/app/inventario/telefono${(ui.filterAlmacen || almacenesScopeActual[0]) ? `?almacen=${encodeURIComponent(ui.filterAlmacen || almacenesScopeActual[0])}` : ''}`}>
+              📱 Vista teléfono
+            </Link>
+          )}
           {!centroMode && (
           <button
             className={`btn ${ui.view === 'productos' ? 'btn-primary' : 'btn-ghost'}`}

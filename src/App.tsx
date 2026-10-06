@@ -12,6 +12,7 @@ import { lazyReload, ChunkErrorBoundary } from './shared/lib/lazyReload';
 // Lazy: las páginas internas se descargan en chunks separados al navegarlas.
 // lazyReload(): si un chunk fue borrado por un despliegue nuevo, recarga sola.
 const CarnetPublicoPage = lazyReload(() => import('./modules/rrhh/CarnetPublicoPage').then((m) => ({ default: m.CarnetPublicoPage })));
+const InventarioMovilView = lazyReload(() => import('./modules/inventario/InventarioMovilView').then((m) => ({ default: m.InventarioMovilView })));
 const DashboardPage = lazyReload(() => import('./modules/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })));
 const PedidosPage = lazyReload(() => import('./modules/pedidos/PedidosPage').then((m) => ({ default: m.PedidosPage })));
 const HistoricoPage = lazyReload(() => import('./modules/pedidos/HistoricoPage').then((m) => ({ default: m.HistoricoPage })));
@@ -138,6 +139,8 @@ export function App() {
           <Route path="pedidos/historico" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><HistoricoPage /></Suspense></RequireModule>} />
           <Route path="proveedores" element={<RequireModule module="proveedores"><Suspense fallback={<PageLoader />}><ProveedoresPage /></Suspense></RequireModule>} />
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
+          {/* Inventario desde el teléfono: producto nuevo y entradas en el almacén elegido. */}
+          <Route path="inventario/telefono" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioMovilView /></Suspense></RequireModule>} />
           <Route path="deposito" element={<RequireModule module="deposito"><Suspense fallback={<PageLoader />}><DepositoPage /></Suspense></RequireModule>} />
           <Route path="almacenes/:sede" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><AlmacenCentroPage /></Suspense></RequireModule>} />
           <Route path="produccion" element={<RequireModule module="produccion"><Suspense fallback={<PageLoader />}><ProduccionPage /></Suspense></RequireModule>} />
