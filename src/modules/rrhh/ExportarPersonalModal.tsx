@@ -31,6 +31,7 @@ export function ExportarPersonalModal({ todos, visibles, hayFiltros, onClose }: 
   const [campos, setCampos] = useState<string[]>(camposGuardados);
   const [quienes, setQuienes] = useState<Quienes>(hayFiltros ? 'visibles' : 'activos');
   const [generando, setGenerando] = useState<'excel' | 'pdf' | null>(null);
+  const [orientacion, setOrientacion] = useState<'auto' | 'vertical' | 'horizontal'>('auto');
 
   const activos = useMemo(() => ordenarPorFicha(todos.filter((p) => p.activo)), [todos]);
   const todosOrd = useMemo(() => ordenarPorFicha([...todos]), [todos]);
@@ -54,7 +55,7 @@ export function ExportarPersonalModal({ todos, visibles, hayFiltros, onClose }: 
     try {
       const m = await import('./exportarPersonalArchivos');
       if (tipo === 'excel') await m.descargarPersonalExcel(personas, campos, titulo);
-      else await m.descargarPersonalPdf(personas, campos, titulo);
+      else await m.descargarPersonalPdf(personas, campos, titulo, orientacion);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el archivo', 'error');
     } finally { setGenerando(null); }
@@ -88,6 +89,18 @@ export function ExportarPersonalModal({ todos, visibles, hayFiltros, onClose }: 
             Todo el personal ({todos.length})
           </label>
         </div>
+      </div>
+
+      <div className="form-row">
+        <label>Hoja del PDF</label>
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          {([['auto', 'Automática (se acuesta si hay muchas columnas)'], ['vertical', 'Vertical'], ['horizontal', 'Horizontal']] as const).map(([k, l]) => (
+            <label key={k} style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'center' }}>
+              <input type="radio" checked={orientacion === k} onChange={() => setOrientacion(k)} />{l}
+            </label>
+          ))}
+        </div>
+        <small className="hint muted">Elegí la misma orientación con la que vas a imprimir: así la hoja se llena sin blancos arriba y abajo. En vertical con muchos datos, la letra se achica para que todo entre.</small>
       </div>
 
       <div className="form-row">

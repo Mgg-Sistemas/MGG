@@ -65,7 +65,10 @@ export async function descargarPersonalExcel(personas: Personal[], keys: string[
   previewWorkbook(XLSX, wb, nombreArchivo('xlsx'));
 }
 
-export async function descargarPersonalPdf(personas: Personal[], keys: string[], titulo: string): Promise<void> {
+/** Orientación de la hoja: la elige el usuario; «auto» la acuesta solo si hay muchas columnas. */
+export type OrientacionPdf = 'auto' | 'vertical' | 'horizontal';
+
+export async function descargarPersonalPdf(personas: Personal[], keys: string[], titulo: string, orientacion: OrientacionPdf = 'auto'): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -75,7 +78,15 @@ export async function descargarPersonalPdf(personas: Personal[], keys: string[],
   const { head, filas } = tablaExport(personas, keys);
   // Con muchas columnas, la hoja va acostada para que todo entre.
   const anchoTotal = 5 + campos.reduce((a, c) => a + c.ancho, 0);
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: anchoTotal > 95 ? 'landscape' : 'portrait' });
+  // Si la hoja sale acostada y se imprime parada, la impresora la achica y deja
+  // blanco arriba y abajo. Por eso la orientación se elige y la tabla se adapta.
+  const horizontal = orientacion === 'horizontal' || (orientacion === 'auto' && anchoTotal > 95);
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: horizontal ? 'landscape' : 'portrait' });
+  // Letra según cuánto ancho le toca a cada carácter: en vertical con muchas
+  // columnas baja hasta 6 pt para que todo entre a lo ancho de la hoja.
+  const ptPorCaracter = anchoUtilPdf(doc.internal.pageSize.getWidth()) / anchoTotal;
+  const letra = Math.max(6, Math.min(10, Math.round(ptPorCaracter * 1.7 * 2) / 2));
+  const relleno = letra >= 9 ? 6 : letra >= 7.5 ? 4 : 3;
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const logo = await loadLogoDataUrl().catch(() => null);
@@ -111,8 +122,8 @@ export async function descargarPersonalPdf(personas: Personal[], keys: string[],
     body: filas.map((f) => f.map((v, j) => (j > 0 && typeof v === 'number' ? v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v)))),
     theme: 'grid',
     // Tabla bien marcada: líneas oscuras y renglones alternados, para que se lea impresa.
-    headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', fontSize: campos.length > 8 ? 7.5 : 10, halign: 'center', valign: 'middle', lineColor: [60, 60, 60], lineWidth: 0.75 },
-    styles: { fontSize: campos.length > 8 ? 7.5 : 10, cellPadding: campos.length > 8 ? 4 : 6, overflow: 'linebreak', valign: 'middle', lineColor: [60, 60, 60], lineWidth: 0.75, textColor: 20 },
+    headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', fontSize: letra, halign: 'center', valign: 'middle', lineColor: [60, 60, 60], lineWidth: 0.75 },
+    styles: { fontSize: letra, cellPadding: relleno, overflow: 'linebreak', valign: 'middle', lineColor: [60, 60, 60], lineWidth: 0.75, textColor: 20 },
     alternateRowStyles: { fillColor: [246, 246, 246] },
     columnStyles,
     // Abajo deja lugar al número de página, que va sobre la línea de los 2 cm.
