@@ -18,7 +18,7 @@ import { num } from '@/shared/lib/format';
 import type { Asignacion, Existencia, Personal, Producto } from '@/shared/lib/types';
 import { numeroFicha } from '@/modules/rrhh/fichaPersonal';
 import {
-  TIPOS_ASIGNACION, definicionTipo, errorRenglones, retornablePorDefecto,
+  TIPOS_ASIGNACION, GRUPOS_ASIGNACION, tiposDelGrupo, definicionTipo, errorRenglones, retornablePorDefecto,
 } from './asignaciones';
 import type { AsignacionInput } from './asignaciones.repository';
 
@@ -243,10 +243,16 @@ export function AsignacionFormModal({
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
                 <div className="form-row" style={{ flex: '0 1 220px' }}>
                   <label>Categoría *</label>
+                  {/* Agrupado en las tres clases: bienes y equipo, dotación, vehículos. */}
                   <select className="select" value={r.tipo} onChange={(e) => cambiarTipo(r.key, e.target.value)}>
-                    {TIPOS_ASIGNACION.map((t) => (
-                      <option key={t.key} value={t.key}>{t.icon} {t.label}</option>
+                    {GRUPOS_ASIGNACION.map((g) => (
+                      <optgroup key={g.key} label={`${g.icon} ${g.label}`}>
+                        {tiposDelGrupo(g.key).map((t) => (
+                          <option key={t.key} value={t.key}>{t.icon} {t.label}</option>
+                        ))}
+                      </optgroup>
                     ))}
+                    {TIPOS_ASIGNACION.some((t) => t.key === r.tipo) ? null : <option value={r.tipo}>{r.tipo}</option>}
                   </select>
                 </div>
                 <div className="form-row" style={{ flex: '2 1 280px' }}>
@@ -254,12 +260,18 @@ export function AsignacionFormModal({
                   <input className="input"
                     value={r.descripcion}
                     onChange={(e) => cambiar(r.key, { descripcion: e.target.value })}
-                    placeholder="Laptop Lenovo T480, uniforme completo talla M…" />
+                    placeholder={def?.pidePlaca ? 'Toyota Hilux 2019 blanca, moto Bera 150…' : 'Laptop Lenovo T480, uniforme completo talla M…'} />
                 </div>
               </div>
 
-              {(def?.pideSerial || def?.pideLinea) && (
+              {(def?.pideSerial || def?.pideLinea || def?.pidePlaca) && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
+                  {def?.pidePlaca && (
+                    <div className="form-row" style={{ flex: '1 1 200px' }}>
+                      <label>Placa *</label>
+                      <input className="input mono" value={r.serial} onChange={(e) => cambiar(r.key, { serial: e.target.value.toUpperCase() })} placeholder="AB123CD" />
+                    </div>
+                  )}
                   {def?.pideSerial && (
                     <div className="form-row" style={{ flex: '1 1 200px' }}>
                       <label>Serial</label>

@@ -23,7 +23,7 @@ import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listExistencias } from '@/modules/inventario/almacenes.repository';
 import type { Asignacion, Existencia, Personal, Producto } from '@/shared/lib/types';
 import {
-  ESTADOS_ASIGNACION, FILTRO_ASIGNACIONES_VACIO, TIPOS_ASIGNACION,
+  ESTADOS_ASIGNACION, FILTRO_ASIGNACIONES_VACIO, TIPOS_ASIGNACION, GRUPOS_ASIGNACION,
   estaPendiente, filtrarAsignaciones, hayFiltro, iconoTipo, labelTipo,
   pendientesPorPersona, rangosRapidos, resumenAsignaciones, resumenLote, textoEstado,
   type EstadoAsignacion, type FiltroAsignaciones,
@@ -166,7 +166,7 @@ export function AsignacionesPage() {
         <div>
           <h1>🎒 Asignaciones</h1>
           <p className="hint muted">
-            Lo que la empresa le entrega a cada trabajador: dotación, líneas telefónicas, equipos y material de oficina.
+            Lo que la empresa le entrega a cada trabajador, en tres clases: <strong>bienes y equipo</strong>, <strong>dotación</strong> y <strong>vehículos</strong>.
             Lo que <strong>sale del inventario</strong> se descuenta del almacén; lo <strong>retornable</strong> queda pendiente hasta que lo devuelvan.
           </p>
         </div>
@@ -205,6 +205,15 @@ export function AsignacionesPage() {
         </div>
       </div>
 
+      {/* ── Las tres clases (06-10-2026) ── */}
+      <div className="view-toggle" role="tablist" aria-label="Clase de asignación" style={{ marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <button className={!filtro.grupo ? 'active' : ''} onClick={() => setFiltro((f) => ({ ...f, grupo: '', tipo: '' }))}>Todas</button>
+        {GRUPOS_ASIGNACION.map((g) => (
+          <button key={g.key} className={filtro.grupo === g.key ? 'active' : ''} title={g.descripcion}
+            onClick={() => setFiltro((f) => ({ ...f, grupo: g.key, tipo: '' }))}>{g.icon} {g.label}</button>
+        ))}
+      </div>
+
       {/* ── Filtros ── */}
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
@@ -228,7 +237,7 @@ export function AsignacionesPage() {
             <label>Tipo</label>
             <select className="select" value={filtro.tipo} onChange={(e) => setFiltro((f) => ({ ...f, tipo: e.target.value }))}>
               <option value="">Todos</option>
-              {TIPOS_ASIGNACION.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+              {TIPOS_ASIGNACION.filter((t) => !filtro.grupo || t.grupo === filtro.grupo).map((t) => <option key={t.key} value={t.key}>{t.icon} {t.label}</option>)}
             </select>
           </div>
           <div className="form-row" style={{ flex: '0 1 170px', margin: 0 }}>

@@ -26,7 +26,21 @@ export type TipoAsignacion =
   | 'material_oficina'
   | 'herramienta'
   | 'epp'
+  | 'vehiculo'
   | 'otro';
+
+/**
+ * Las tres clases de asignación (06-10-2026): lo que se le DOTA al personal
+ * (uniformes, EPP, material), los BIENES Y EQUIPOS que se le confían (laptop,
+ * teléfono, herramienta) y los VEHÍCULOS. Cada tipo pertenece a una.
+ */
+export type GrupoAsignacion = 'dotacion' | 'bienes' | 'vehiculos';
+
+export const GRUPOS_ASIGNACION: { key: GrupoAsignacion; label: string; icon: string; descripcion: string }[] = [
+  { key: 'bienes',    label: 'Asignación de bienes y equipo', icon: '💻', descripcion: 'Laptops, teléfonos, líneas, herramientas y otros bienes que se confían y vuelven.' },
+  { key: 'dotacion',  label: 'Dotación al personal',          icon: '👕', descripcion: 'Uniformes, implementos de seguridad y material de oficina que se entregan.' },
+  { key: 'vehiculos', label: 'Asignación de vehículos',       icon: '🚗', descripcion: 'Vehículos y motos asignados a un trabajador, con su placa.' },
+];
 
 /** En qué anda la asignación. */
 export type EstadoAsignacion = 'asignado' | 'devuelto' | 'perdido' | 'danado';
@@ -35,6 +49,10 @@ export interface DefinicionTipo {
   key: TipoAsignacion;
   label: string;
   icon: string;
+  /** A cuál de las tres clases pertenece. */
+  grupo: GrupoAsignacion;
+  /** Pide la placa (vehículos; se guarda en el serial). */
+  pidePlaca?: boolean;
   /** Valor por defecto de «tiene que volver» al elegir este tipo. */
   retornable: boolean;
   /** Pide el número de línea (solo telefonía). */
@@ -50,14 +68,33 @@ export interface DefinicionTipo {
  * pareja: un uniforme entregado no se recibe de vuelta, una laptop sí.
  */
 export const TIPOS_ASIGNACION: DefinicionTipo[] = [
-  { key: 'dotacion',           label: 'Dotación / Uniformes',   icon: '👕', retornable: false },
-  { key: 'linea_telefonica',   label: 'Línea telefónica',       icon: '📱', retornable: true,  pideLinea: true },
-  { key: 'equipo_electronico', label: 'Equipo electrónico',     icon: '💻', retornable: true,  pideSerial: true },
-  { key: 'material_oficina',   label: 'Material de oficina',    icon: '📎', retornable: false },
-  { key: 'herramienta',        label: 'Herramienta',            icon: '🔧', retornable: true,  pideSerial: true },
-  { key: 'epp',                label: 'Implementos de seguridad', icon: '🦺', retornable: false },
-  { key: 'otro',               label: 'Otro',                   icon: '📦', retornable: true },
+  { key: 'dotacion',           label: 'Dotación / Uniformes',   icon: '👕', grupo: 'dotacion',  retornable: false },
+  { key: 'epp',                label: 'Implementos de seguridad', icon: '🦺', grupo: 'dotacion', retornable: false },
+  { key: 'material_oficina',   label: 'Material de oficina',    icon: '📎', grupo: 'dotacion',  retornable: false },
+  { key: 'equipo_electronico', label: 'Equipo electrónico',     icon: '💻', grupo: 'bienes',    retornable: true,  pideSerial: true },
+  { key: 'linea_telefonica',   label: 'Línea telefónica',       icon: '📱', grupo: 'bienes',    retornable: true,  pideLinea: true },
+  { key: 'herramienta',        label: 'Herramienta',            icon: '🔧', grupo: 'bienes',    retornable: true,  pideSerial: true },
+  { key: 'otro',               label: 'Otro bien',              icon: '📦', grupo: 'bienes',    retornable: true },
+  { key: 'vehiculo',           label: 'Vehículo / moto',        icon: '🚗', grupo: 'vehiculos', retornable: true,  pidePlaca: true },
 ];
+
+export function definicionGrupo(g: string | null | undefined) {
+  return GRUPOS_ASIGNACION.find((x) => x.key === g) ?? null;
+}
+
+/** A qué clase pertenece un tipo. Un tipo desconocido cae en bienes. */
+export function grupoDe(tipo: string | null | undefined): GrupoAsignacion {
+  return definicionTipo(tipo)?.grupo ?? 'bienes';
+}
+
+export function labelGrupo(g: string | null | undefined): string {
+  return definicionGrupo(g)?.label ?? String(g ?? '—');
+}
+
+/** Los tipos de una clase, en su orden. */
+export function tiposDelGrupo(g: GrupoAsignacion): DefinicionTipo[] {
+  return TIPOS_ASIGNACION.filter((t) => t.grupo === g);
+}
 
 export function definicionTipo(t: string | null | undefined): DefinicionTipo | null {
   return TIPOS_ASIGNACION.find((x) => x.key === t) ?? null;
@@ -244,6 +281,8 @@ export function reingresaAlInventario(a: AsignacionBase, estadoCierre: string): 
 export interface FiltroAsignaciones {
   texto: string;
   personalId: string;
+  /** Clase: dotación, bienes y equipo, vehículos ('' = todas). */
+  grupo: string;
   tipo: string;
   estado: string;
   desde: string;
@@ -255,13 +294,13 @@ export interface FiltroAsignaciones {
 }
 
 export const FILTRO_ASIGNACIONES_VACIO: FiltroAsignaciones = {
-  texto: '', personalId: '', tipo: '', estado: '',
+  texto: '', personalId: '', grupo: '', tipo: '', estado: '',
   desde: '', hasta: '', soloPendientes: false, soloHistoricas: false,
 };
 
 /** ¿Hay algún filtro puesto? Sirve para mostrar el botón de limpiar. */
 export function hayFiltro(f: FiltroAsignaciones): boolean {
-  return !!(f.texto.trim() || f.personalId || f.tipo || f.estado || f.desde || f.hasta
+  return !!(f.texto.trim() || f.personalId || f.grupo || f.tipo || f.estado || f.desde || f.hasta
     || f.soloPendientes || f.soloHistoricas);
 }
 
@@ -297,6 +336,7 @@ export function filtrarAsignaciones<T extends AsignacionBase>(
   const q = plano(f.texto.trim());
   return filas.filter((a) => {
     if (f.personalId && a.personal_id !== f.personalId) return false;
+    if (f.grupo && grupoDe(a.tipo) !== f.grupo) return false;
     if (f.tipo && a.tipo !== f.tipo) return false;
     if (f.estado && (a.estado ?? 'asignado') !== f.estado) return false;
     if (f.soloPendientes && !estaPendiente(a)) return false;
