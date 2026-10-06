@@ -346,7 +346,7 @@ function SocialLinks({ compact = false }: { compact?: boolean }) {
         {!compact && <span>@mineralgroupguayana</span>}
       </a>
       <a
-        href="mailto:mineralgroupguayanaca@gmail.com"
+        href="mailto:info@mineralgroupguayana.com"
         aria-label="Escríbenos por correo"
         title="Escríbenos por correo"
         style={linkStyle}
@@ -354,7 +354,7 @@ function SocialLinks({ compact = false }: { compact?: boolean }) {
         onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; }}
       >
         <MailIcon size={compact ? 28 : 32} />
-        {!compact && <span>mineralgroupguayanaca@gmail.com</span>}
+        {!compact && <span>info@mineralgroupguayana.com</span>}
       </a>
     </div>
   );
