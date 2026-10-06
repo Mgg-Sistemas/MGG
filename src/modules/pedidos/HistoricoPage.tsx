@@ -6,8 +6,9 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
-import { listOrdenes, listProveedoresActivos } from './pedidos.repository';
+import type { AbonoCredito, EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
+import { listAbonos, listOrdenes, listProveedoresActivos, urlAdjuntoOc } from './pedidos.repository';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
 // descargarDetallePedidoPdf / descargarOrdenCompraPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 
@@ -309,6 +310,22 @@ function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
   const motivo = (orden.motivo ?? orden.finalidad ?? '').trim();
   const notas = (orden.notas ?? '').trim();
 
+  // Adjuntos del pago (06-10-2026): el soporte que cargó Tesorería al pagar
+  // (factura o nota) y los comprobantes de cada abono si la OC fue a crédito.
+  // Estaban en Pedidos pero no en el Histórico: al buscar una OC vieja no había
+  // forma de ver el papel del pago.
+  const [abonos, setAbonos] = useState<AbonoCredito[]>([]);
+  useEffect(() => {
+    if (!orden.oc_codigo || !((Number(orden.abonado_total) || 0) > 0)) { setAbonos([]); return; }
+    let vivo = true;
+    listAbonos(orden.id).then((ab) => { if (vivo) setAbonos(ab.filter((b) => !!b.comprobante_path)); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [orden.id, orden.oc_codigo, orden.abonado_total]);
+  async function verAdjunto(path: string, nombre: string | null | undefined, titulo: string) {
+    try { await previewFileUrl(await urlAdjuntoOc(path), nombre ?? 'adjunto', titulo); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el adjunto', 'error'); }
+  }
+
   return (
     <Modal
       title={`Pedido ${orden.codigo}${orden.oc_codigo ? ` · OC ${orden.oc_codigo}` : ''}`}
@@ -335,6 +352,25 @@ function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
               🧾 Comprobante de pago
             </button>
           )}
+          {/* Soporte adjunto del pago (lo cargó Tesorería al pagar): mismo botón que en Pedidos. */}
+          {orden.factura_path && (
+            <button className="btn btn-ghost" onClick={() => void verAdjunto(orden.factura_path!, orden.factura_nombre, 'Comprobante de la OC')}
+              title={orden.factura_nombre ?? 'Soporte adjunto del pago'}>
+              📎 Ver adjunto de pago
+            </button>
+          )}
+          {orden.pago_qr_path && (
+            <button className="btn btn-ghost" onClick={() => void verAdjunto(orden.pago_qr_path!, orden.pago_qr_nombre, 'QR de pago')}
+              title={orden.pago_qr_nombre ?? 'QR de pago'}>
+              📎 QR de pago
+            </button>
+          )}
+          {abonos.map((b, i) => (
+            <button key={b.id} className="btn btn-ghost" onClick={() => void verAdjunto(b.comprobante_path!, b.comprobante_nombre, `Comprobante del abono ${i + 1}`)}
+              title={b.comprobante_nombre ?? 'Comprobante del abono'}>
+              📎 Abono {i + 1} · {money(b.monto, b.moneda)}
+            </button>
+          ))}
           <button className="btn btn-primary"
             onClick={() => void import('./historicoPedidoPdf').then(({ descargarDetallePedidoPdf }) => descargarDetallePedidoPdf(orden, proveedorNombre)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
             🖨 Imprimir PDF
