@@ -49,7 +49,7 @@ import {
 import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import {
-  generarFrenteBlob, generarReversoBlob, descargarFrente, descargarReverso,
+  generarFrenteBlob, generarReversoBlob, descargarFrente, descargarReverso, carnetPdf, type ModoPdfCarnet,
 } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
@@ -1475,6 +1475,13 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
   const [reverso, setReverso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bajando, setBajando] = useState<false | 1 | 2>(false);
+  const [pdfModo, setPdfModo] = useState<ModoPdfCarnet | null>(null);
+  async function verPdf(modo: ModoPdfCarnet) {
+    setPdfModo(modo);
+    try { await carnetPdf(persona, modo); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    finally { setPdfModo(null); }
+  }
 
   useEffect(() => {
     let urls: string[] = [];
@@ -1527,8 +1534,20 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
               onBajar={() => bajar(2)} bajando={bajando === 2} deshabilitado={!listo || bajando !== false} />
           )}
         </div>
+        {/* PDF para imprimir: carta con las dos caras a tamaño real, o tamaño carnet. */}
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <button className="btn btn-primary" disabled={!listo || !!pdfModo} onClick={() => void verPdf('carta')}
+            title="Hoja carta con frente y reverso a tamaño real y marcas de corte">
+            {pdfModo === 'carta' ? 'Generando…' : '🖨 PDF para imprimir (hoja carta)'}
+          </button>
+          <button className="btn btn-ghost" disabled={!listo || !!pdfModo} onClick={() => void verPdf('tarjeta')}
+            title="Dos páginas del tamaño exacto del carnet: para impresora de carnets o imprenta">
+            {pdfModo === 'tarjeta' ? 'Generando…' : '🪪 PDF tamaño carnet'}
+          </button>
+        </div>
         <small className="hint muted" style={{ textAlign: 'center' }}>
-          PNG de 54×86&nbsp;mm a 300&nbsp;DPI (638×1016&nbsp;px), <strong>uno por cara</strong>, formato Aliados CVM.
+          Medida estándar de carnet <strong>85,6 × 54&nbsp;mm (CR80)</strong>. PNG a 300&nbsp;DPI, <strong>uno por cara</strong>, formato Aliados CVM.
+          Al imprimir el PDF, elegí <strong>tamaño real (100&nbsp;%)</strong>, sin «ajustar a la página», para que salga a la medida.
           El QR del frente se verifica en vivo: activo muestra sus datos; desactivado lleva al logo de la empresa.
         </small>
       </div>

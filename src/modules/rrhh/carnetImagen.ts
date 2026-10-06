@@ -1,6 +1,7 @@
 /* ============================================================
    MGG · RRHH · Carnet de identificación (imagen PNG)
-   Carnet vertical de 54×86 mm a 300 DPI (638×1016 px).
+   Carnet vertical CR80 (el tamaño estándar de las tarjetas): 53,98 × 85,6 mm,
+   a 300 DPI (638×1011 px). También sale en PDF a tamaño real.
 
    Formato «Aliados CVM» (06-10-2026), el que pidió la administradora a
    partir del carnet de Golden Touch:
@@ -20,11 +21,12 @@ import { nombreDeCarnet } from './fichaPersonal';
 import { textoVence } from './carnetVence';
 import { lineasSaludQR } from './condicionesSalud';
 
-// 54 × 86 mm a 300 DPI. 1 mm = 300 / 25.4 px.
+// CR80: 53,98 × 85,6 mm (ISO/IEC 7810 ID-1) a 300 DPI. 1 mm = 300 / 25.4 px.
+export const CARNET_MM = { ancho: 53.98, alto: 85.6 } as const;
 const DPI = 300;
 const MM = DPI / 25.4;
-const W = Math.round(54 * MM); // 638
-const H = Math.round(86 * MM); // 1016
+const W = Math.round(CARNET_MM.ancho * MM); // 638
+const H = Math.round(CARNET_MM.alto * MM);  // 1011
 
 /** Se conserva por compatibilidad: desde el 06-10 hay un solo formato (blanco). */
 export type TemaCarnet = 'oscuro' | 'blanco';
@@ -488,4 +490,69 @@ export async function descargarCarnet(p: Personal): Promise<void> {
   await descargarFrente(p);
   await new Promise((r) => setTimeout(r, 350));
   await descargarReverso(p);
+}
+
+/* ───────── PDF para imprimir (06-10-2026) ─────────
+   · «carta»: una hoja carta con las dos caras a TAMAÑO REAL (85,6 × 54 mm), una
+     al lado de la otra, con marcas de corte. Para cualquier impresora: se
+     imprime al 100 % («tamaño real», sin «ajustar a la página») y se recorta.
+   · «tarjeta»: dos páginas del tamaño exacto del carnet (frente y reverso), para
+     impresoras de carnets o imprentas. */
+export type ModoPdfCarnet = 'carta' | 'tarjeta';
+
+function blobADataUrl(b: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(new Error('No se pudo leer la imagen del carnet'));
+    fr.readAsDataURL(b);
+  });
+}
+
+/** Marcas de corte en las cuatro esquinas de un rectángulo (fuera de él). */
+function marcasDeCorte(doc: { line: (a: number, b: number, c: number, d: number) => unknown }, x: number, y: number, w: number, h: number) {
+  const l = 4; const g = 1.5;
+  for (const [cx, cy, dx, dy] of [[x, y, -1, -1], [x + w, y, 1, -1], [x, y + h, -1, 1], [x + w, y + h, 1, 1]] as const) {
+    doc.line(cx + dx * g, cy, cx + dx * (g + l), cy);
+    doc.line(cx, cy + dy * g, cx, cy + dy * (g + l));
+  }
+}
+
+export async function carnetPdf(p: Personal, modo: ModoPdfCarnet = 'carta'): Promise<void> {
+  const [{ jsPDF }, { previewPdfDoc }, frente, reverso] = await Promise.all([
+    import('jspdf'),
+    import('@/shared/lib/reportPreview'),
+    generarFrenteBlob(p).then(blobADataUrl),
+    generarReversoBlob().then(blobADataUrl),
+  ]);
+  const { ancho, alto } = CARNET_MM;
+  const nombre = `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim();
+  const base = nombreArchivo(p, 'pdf').replace(/\.png$/, '');
+  if (modo === 'tarjeta') {
+    const doc = new jsPDF({ unit: 'mm', format: [ancho, alto], orientation: 'portrait' });
+    doc.addImage(frente, 'PNG', 0, 0, ancho, alto);
+    doc.addPage([ancho, alto], 'portrait');
+    doc.addImage(reverso, 'PNG', 0, 0, ancho, alto);
+    previewPdfDoc(doc, `${base}-tamano-carnet.pdf`);
+    return;
+  }
+  const doc = new jsPDF({ unit: 'mm', format: 'letter', orientation: 'portrait' });
+  const pw = doc.internal.pageSize.getWidth();
+  const sep = 12;
+  const x0 = (pw - (ancho * 2 + sep)) / 2;
+  const y0 = 38;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+  doc.text(`Carnet · ${nombre || 'Personal'}`, pw / 2, 20, { align: 'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90);
+  doc.text('Tamaño real 85,6 × 54 mm (CR80). Imprimir al 100 % («Tamaño real», sin «Ajustar a la página») y recortar por las marcas.', pw / 2, 27, { align: 'center' });
+  doc.setTextColor(0);
+  doc.addImage(frente, 'PNG', x0, y0, ancho, alto);
+  doc.addImage(reverso, 'PNG', x0 + ancho + sep, y0, ancho, alto);
+  doc.setDrawColor(120); doc.setLineWidth(0.2);
+  marcasDeCorte(doc, x0, y0, ancho, alto);
+  marcasDeCorte(doc, x0 + ancho + sep, y0, ancho, alto);
+  doc.setFontSize(7.5); doc.setTextColor(120);
+  doc.text('FRENTE', x0 + ancho / 2, y0 + alto + 9, { align: 'center' });
+  doc.text('REVERSO', x0 + ancho + sep + ancho / 2, y0 + alto + 9, { align: 'center' });
+  previewPdfDoc(doc, `${base}-carta.pdf`);
 }
