@@ -49,7 +49,7 @@ import {
 import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import {
-  generarFrenteBlob, generarReversoBlob, descargarFrente, descargarReverso, carnetPdf, type ModoPdfCarnet,
+  generarFrenteBlob, generarReversoBlob, descargarFrente, descargarReverso, carnetPdf, type ModoPdfCarnet, type TemaCarnet,
 } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
 
@@ -1476,9 +1476,11 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
   const [error, setError] = useState<string | null>(null);
   const [bajando, setBajando] = useState<false | 1 | 2>(false);
   const [pdfModo, setPdfModo] = useState<ModoPdfCarnet | null>(null);
+  /** El mismo formato en fondo blanco (para imprimir) o negro. */
+  const [tema, setTema] = useState<TemaCarnet>('blanco');
   async function verPdf(modo: ModoPdfCarnet) {
     setPdfModo(modo);
-    try { await carnetPdf(persona, modo); }
+    try { await carnetPdf(persona, modo, tema); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
     finally { setPdfModo(null); }
   }
@@ -1487,7 +1489,7 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
     let urls: string[] = [];
     let vivo = true;
     setFrente(null); setReverso(null); setError(null);
-    Promise.all([generarFrenteBlob(persona), generarReversoBlob()])
+    Promise.all([generarFrenteBlob(persona, tema), generarReversoBlob(tema)])
       .then(([bf, br]) => {
         if (!vivo) return;
         const uf = URL.createObjectURL(bf);
@@ -1497,7 +1499,7 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
       })
       .catch((e) => { if (vivo) setError(e instanceof Error ? e.message : 'No se pudo generar el carnet'); });
     return () => { vivo = false; urls.forEach((u) => URL.revokeObjectURL(u)); };
-  }, [persona]);
+  }, [persona, tema]);
 
   /** Una cara por vez: así cada archivo cae con su nombre y en el orden en que
       se manda a imprimir. Bajar las dos juntas hacía que el navegador ignorara
@@ -1505,8 +1507,8 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
   async function bajar(cara: 1 | 2) {
     setBajando(cara);
     try {
-      if (cara === 1) await descargarFrente(persona);
-      else await descargarReverso(persona);
+      if (cara === 1) await descargarFrente(persona, tema);
+      else await descargarReverso(persona, tema);
       toast(cara === 1 ? 'Frente descargado' : 'Reverso descargado', 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo descargar', 'error'); }
     finally { setBajando(false); }
@@ -1519,6 +1521,13 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
     }>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.7rem' }}>
+        {/* Fondo del carnet: mismo formato, blanco o negro. */}
+        <div className="view-toggle" role="tablist" aria-label="Fondo del carnet">
+          <button type="button" className={tema === 'blanco' ? 'active' : ''} onClick={() => setTema('blanco')}
+            title="Fondo blanco: el que gasta menos tinta al imprimir">◻ Blanco</button>
+          <button type="button" className={tema === 'negro' ? 'active' : ''} onClick={() => setTema('negro')}
+            title="Fondo negro: los logos van sobre placas blancas">◼ Negro</button>
+        </div>
         {error && <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>}
         {!error && !frente && <div className="muted" style={{ padding: '2rem' }}>Generando carnet…</div>}
         {/* Cada cara con su rótulo arriba y su descarga justo debajo: el botón

@@ -28,17 +28,37 @@ const MM = DPI / 25.4;
 const W = Math.round(CARNET_MM.ancho * MM); // 638
 const H = Math.round(CARNET_MM.alto * MM);  // 1011
 
-/** Se conserva por compatibilidad: desde el 06-10 hay un solo formato (blanco). */
-export type TemaCarnet = 'oscuro' | 'blanco';
+/**
+ * El mismo formato en dos fondos (06-10-2026): BLANCO (el de imprimir) y NEGRO.
+ * En negro los logos institucionales van sobre placas blancas redondeadas:
+ * tienen letras oscuras que sobre negro no se leerían.
+ */
+export type TemaCarnet = 'blanco' | 'negro';
 
-const C = {
-  fondo: '#ffffff',
-  borde: '#c9a227',      // dorado del borde del frente
-  naranja: '#f28c00',    // marco de la foto y raya del reverso
-  texto: '#111111',
-  gris: '#6b7280',
-  punteado: '#1a1a1a',
+interface Paleta {
+  fondo: string; fondo2: string;
+  borde: string;      // dorado del borde del frente
+  naranja: string;    // marco de la foto y raya del reverso
+  texto: string; gris: string; punteado: string;
+  sinFoto: string;
+  /** Logos sobre placas blancas (en el fondo negro). */
+  placas: boolean;
+  /** Color al que se repinta la firma y el sello (en negro, claro). */
+  tinta?: string;
+}
+const PALETAS: Record<TemaCarnet, Paleta> = {
+  blanco: { fondo: '#ffffff', fondo2: '#ffffff', borde: '#c9a227', naranja: '#f28c00', texto: '#111111', gris: '#6b7280', punteado: '#1a1a1a', sinFoto: '#eef1f5', placas: false },
+  negro: { fondo: '#0d1014', fondo2: '#1a212b', borde: '#d4af37', naranja: '#f28c00', texto: '#f2f4f7', gris: '#9aa6b5', punteado: '#d6dbe2', sinFoto: '#252d38', placas: true, tinta: '#f2f4f7' },
 };
+const paleta = (t?: TemaCarnet | string | null): Paleta => (t === 'negro' ? PALETAS.negro : PALETAS.blanco);
+
+/** Placa blanca redondeada detrás de un logo (solo en el fondo negro). */
+function placa(ctx: CanvasRenderingContext2D, pal: Paleta, x: number, y: number, w: number, h: number, r = 18) {
+  if (!pal.placas) return;
+  ctx.fillStyle = '#ffffff';
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fill();
+}
 const FONT = 'Arial, "Helvetica Neue", Helvetica, sans-serif';
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -117,7 +137,7 @@ function dibujarContenido(
 /* Rampa de transparencia para firmas y sellos escaneados (papel → transparente). */
 const PAPEL = 235;
 const TINTA = 120;
-function sinFondoBlanco(img: HTMLImageElement): HTMLCanvasElement {
+function sinFondoBlanco(img: HTMLImageElement, tinta?: string): HTMLCanvasElement {
   const cv = document.createElement('canvas');
   cv.width = img.naturalWidth || img.width;
   cv.height = img.naturalHeight || img.height;
@@ -127,9 +147,11 @@ function sinFondoBlanco(img: HTMLImageElement): HTMLCanvasElement {
   let datos: ImageData;
   try { datos = cx.getImageData(0, 0, cv.width, cv.height); } catch { return cv; }
   const px = datos.data;
+  const rgb = tinta ? [parseInt(tinta.slice(1, 3), 16), parseInt(tinta.slice(3, 5), 16), parseInt(tinta.slice(5, 7), 16)] : null;
   for (let i = 0; i < px.length; i += 4) {
     const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
     px[i + 3] = lum >= PAPEL ? 0 : lum <= TINTA ? 255 : Math.round((255 * (PAPEL - lum)) / (PAPEL - TINTA));
+    if (rgb && px[i + 3] > 0) { px[i] = rgb[0]; px[i + 1] = rgb[1]; px[i + 2] = rgb[2]; }
   }
   cx.putImageData(datos, 0, 0);
   return cv;
@@ -143,7 +165,7 @@ function iniciales(p: Personal): string {
 }
 
 /** La foto (cover, con el encuadre que eligió el usuario) en marco naranja. */
-async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number, y: number, w: number, h: number) {
+async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number, y: number, w: number, h: number, pal: Paleta) {
   let img: HTMLImageElement | null = null;
   if (p.foto_url) {
     try { img = await loadImage(p.foto_url, 'anonymous'); } catch { img = null; }
@@ -161,15 +183,15 @@ async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number
     const dh = img.height * scale;
     ctx.drawImage(img, x - (dw - w) * posX, y - (dh - h) * posY, dw, dh);
   } else {
-    ctx.fillStyle = '#eef1f5';
+    ctx.fillStyle = pal.sinFoto;
     ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = C.gris;
+    ctx.fillStyle = pal.gris;
     ctx.font = `800 110px ${FONT}`;
     ctx.fillText(iniciales(p), x + w / 2, y + h / 2);
   }
   ctx.restore();
   ctx.lineWidth = 8;
-  ctx.strokeStyle = C.naranja;
+  ctx.strokeStyle = pal.naranja;
   roundRect(ctx, x - 4, y - 4, w + 8, h + 8, 6);
   ctx.stroke();
 }
@@ -304,7 +326,7 @@ function lienzoAPng(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 /** Lienzo blanco del tamaño del carnet. */
-function nuevoLienzo(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+function nuevoLienzo(pal: Paleta): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -312,7 +334,10 @@ function nuevoLienzo(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext
   if (!ctx) throw new Error('El navegador no soporta canvas 2D.');
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
-  ctx.fillStyle = C.fondo;
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, pal.fondo);
+  g.addColorStop(1, pal.fondo2);
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
   return { canvas, ctx };
 }
@@ -329,13 +354,14 @@ function cargarLogoEmpresa(): Promise<HTMLImageElement | null> {
 }
 
 /** Genera el FRENTE del carnet. */
-export async function generarFrenteBlob(p: Personal): Promise<Blob> {
-  const { canvas, ctx } = nuevoLienzo();
+export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'blanco'): Promise<Blob> {
+  const pal = paleta(tema);
+  const { canvas, ctx } = nuevoLienzo(pal);
   const cx = W / 2;
 
   // Borde dorado redondeado.
   ctx.lineWidth = 9;
-  ctx.strokeStyle = C.borde;
+  ctx.strokeStyle = pal.borde;
   roundRect(ctx, 12, 12, W - 24, H - 24, 34);
   ctx.stroke();
 
@@ -345,6 +371,8 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
     logoConAlfa('carnet/motor-minero.jpg', 'carnet/motor-minero-alfa.png'),
     cargarLogoEmpresa(),
   ]);
+  // En negro, una franja blanca detrás de los dos logos.
+  placa(ctx, pal, 30, 28, W - 60, 182, 24);
   if (cvm) dibujarContenido(ctx, cvm, cvm.width, cvm.height, 38, 40, 300, 150);
   if (motor) dibujarContenido(ctx, motor, motor.width, motor.height, W - 38 - 175, 30, 175, 175);
 
@@ -352,10 +380,10 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
   const fotoW = 236;
   const fotoH = 290;
   const fotoY = 218;
-  await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH);
+  await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH, pal);
 
   // Nombre (hasta dos líneas) y cédula.
-  ctx.fillStyle = C.texto;
+  ctx.fillStyle = pal.texto;
   const nombre = nombreDeCarnet(p.nombre, p.apellido) || '—';
   let y = fotoY + fotoH + 46;
   y = textoAjustado(ctx, nombre, cx, y, W - 80, 36, 24, 2, 800);
@@ -365,6 +393,7 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
   // Logo de la empresa.
   const logoY = y + 22;
   const logoH = 132;
+  placa(ctx, pal, 66, logoY - 8, W - 132, logoH + 16, 16);
   if (empresa) dibujarContenido(ctx, empresa, empresa.naturalWidth || empresa.width, empresa.naturalHeight || empresa.height, 70, logoY, W - 140, logoH);
 
   // Cargo y vigencia. El QR va abajo a la derecha: el texto se acomoda para no pisarlo.
@@ -372,7 +401,7 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
   const qrX = W - 34 - qrSize;
   const qrY = H - 34 - qrSize;
   const maxTexto = 2 * (qrX - 12 - cx);
-  ctx.fillStyle = C.texto;
+  ctx.fillStyle = pal.texto;
   let ty = logoY + logoH + 42;
   const cargo = (p.cargo ?? '').trim();
   if (cargo) ty = textoAjustado(ctx, cargo, cx, ty, maxTexto, 31, 20, 2, 800);
@@ -386,9 +415,9 @@ export async function generarFrenteBlob(p: Personal): Promise<Blob> {
 }
 
 /** Recuadro con borde punteado (cuadraditos), como el del formato. */
-function rectPunteado(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+function rectPunteado(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string) {
   ctx.save();
-  ctx.strokeStyle = C.punteado;
+  ctx.strokeStyle = color;
   ctx.lineWidth = 4;
   ctx.setLineDash([4, 9]);
   ctx.strokeRect(x, y, w, h);
@@ -396,8 +425,9 @@ function rectPunteado(ctx: CanvasRenderingContext2D, x: number, y: number, w: nu
 }
 
 /** Genera el REVERSO del carnet. */
-export async function generarReversoBlob(): Promise<Blob> {
-  const { canvas, ctx } = nuevoLienzo();
+export async function generarReversoBlob(tema: TemaCarnet = 'blanco'): Promise<Blob> {
+  const pal = paleta(tema);
+  const { canvas, ctx } = nuevoLienzo(pal);
   const cx = W / 2;
   const [aliados, gobierno, firmaImg, selloImg] = await Promise.all([
     cargarDePublic(['carnet/cvm-aliados.jpg', 'cvm.jpg']),
@@ -411,19 +441,24 @@ export async function generarReversoBlob(): Promise<Blob> {
   const boxY = 150;
   const boxW = W - 68;
   const boxH = 520;
-  rectPunteado(ctx, boxX, boxY, boxW, boxH);
+  rectPunteado(ctx, boxX, boxY, boxW, boxH, pal.punteado);
   if (aliados) {
     const lw = 250;
     const lh = Math.round(lw * (aliados.height / aliados.width));
-    // Fondo blanco detrás del sello para tapar el punteado que pasa por debajo.
-    ctx.fillStyle = C.fondo;
-    ctx.fillRect(cx - lw / 2 + 12, boxY - 10, lw - 24, Math.round(lh * 0.62));
-    ctx.drawImage(aliados, cx - lw / 2, 22, lw, lh);
+    // Fondo detrás del sello para tapar el punteado que pasa por debajo
+    // (en negro, una placa blanca: el sello tiene letras oscuras).
+    // Solo hasta la línea de «Aliados» (80 % de la imagen): el resto es fondo
+    // blanco que en el carnet negro taparía la primera línea del texto.
+    const corte = 0.8;
+    const dh = Math.round(lh * corte);
+    if (pal.placas) placa(ctx, pal, cx - lw / 2 - 4, 14, lw + 8, dh + 14, 22);
+    else { ctx.fillStyle = pal.fondo; ctx.fillRect(cx - lw / 2 + 12, boxY - 10, lw - 24, Math.round(lh * 0.62)); }
+    ctx.drawImage(aliados, 0, 0, aliados.width, Math.round(aliados.height * corte), cx - lw / 2, 22, lw, dh);
   }
 
   // Texto legal, centrado.
   const maxW = boxW - 50;
-  ctx.fillStyle = C.texto;
+  ctx.fillStyle = pal.texto;
   ctx.font = `400 22px ${FONT}`;
   let y = boxY + 130;
   for (const ln of wrapText(ctx, REV_P1, maxW)) { ctx.fillText(ln, cx, y); y += 29; }
@@ -438,18 +473,19 @@ export async function generarReversoBlob(): Promise<Blob> {
   const filaY = boxY + boxH + 14;
   const filaH = 128;
   const cajaW = (W - 100) / 2;
-  if (firmaImg) { const cv = sinFondoBlanco(firmaImg); dibujarContenido(ctx, cv, cv.width, cv.height, 40, filaY, cajaW, filaH); }
-  if (selloImg) { const cv = sinFondoBlanco(selloImg); dibujarContenido(ctx, cv, cv.width, cv.height, 60 + cajaW, filaY, cajaW, filaH); }
+  if (firmaImg) { const cv = sinFondoBlanco(firmaImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, 40, filaY, cajaW, filaH); }
+  if (selloImg) { const cv = sinFondoBlanco(selloImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, 60 + cajaW, filaY, cajaW, filaH); }
 
   // Raya naranja y logo del Gobierno / Ministerio de Desarrollo Minero Ecológico.
   const rayaY = filaY + filaH + 12;
-  ctx.fillStyle = C.naranja;
+  ctx.fillStyle = pal.naranja;
   ctx.fillRect(70, rayaY, W - 140, 8);
   if (gobierno) {
     // Se recorta la franja verde de abajo de la imagen: queda solo el logo.
     const sx = 0; const sy = 40; const sw = gobierno.width; const sh = Math.round(gobierno.height * 0.66);
     const dh = H - (rayaY + 18) - 22;
     const dw = Math.round(dh * (sw / sh));
+    placa(ctx, pal, cx - dw / 2 - 10, rayaY + 12, dw + 20, dh + 10, 14);
     ctx.drawImage(gobierno, sx, sy, sw, sh, cx - dw / 2, rayaY + 18, dw, dh);
   }
 
@@ -459,9 +495,9 @@ export async function generarReversoBlob(): Promise<Blob> {
 /** Compat: el "carnet" por defecto es el frente. */
 export const generarCarnetBlob = generarFrenteBlob;
 
-function nombreArchivo(p: Personal, cara: string): string {
+function nombreArchivo(p: Personal, cara: string, tema: TemaCarnet = 'blanco'): string {
   const base = `${p.nombre ?? ''}-${p.apellido ?? ''}`.trim().replace(/\s+/g, '-').replace(/[^\w\-áéíóúñ]/gi, '');
-  return `carnet-${cara}-${base || 'personal'}.png`;
+  return `carnet-${cara}${tema === 'negro' ? '-negro' : ''}-${base || 'personal'}.png`;
 }
 
 function descargarBlob(blob: Blob, filename: string) {
@@ -476,20 +512,20 @@ function descargarBlob(blob: Blob, filename: string) {
 }
 
 /** Descarga SOLO el frente. */
-export async function descargarFrente(p: Personal): Promise<void> {
-  descargarBlob(await generarFrenteBlob(p), nombreArchivo(p, 'frente'));
+export async function descargarFrente(p: Personal, tema: TemaCarnet = 'blanco'): Promise<void> {
+  descargarBlob(await generarFrenteBlob(p, tema), nombreArchivo(p, 'frente', tema));
 }
 
 /** Descarga SOLO el reverso. */
-export async function descargarReverso(p: Personal): Promise<void> {
-  descargarBlob(await generarReversoBlob(), nombreArchivo(p, 'reverso'));
+export async function descargarReverso(p: Personal, tema: TemaCarnet = 'blanco'): Promise<void> {
+  descargarBlob(await generarReversoBlob(tema), nombreArchivo(p, 'reverso', tema));
 }
 
 /** Genera y descarga las DOS caras (con una pausa: el navegador ignora la segunda si llegan juntas). */
-export async function descargarCarnet(p: Personal): Promise<void> {
-  await descargarFrente(p);
+export async function descargarCarnet(p: Personal, tema: TemaCarnet = 'blanco'): Promise<void> {
+  await descargarFrente(p, tema);
   await new Promise((r) => setTimeout(r, 350));
-  await descargarReverso(p);
+  await descargarReverso(p, tema);
 }
 
 /* ───────── PDF para imprimir (06-10-2026) ─────────
@@ -518,16 +554,16 @@ function marcasDeCorte(doc: { line: (a: number, b: number, c: number, d: number)
   }
 }
 
-export async function carnetPdf(p: Personal, modo: ModoPdfCarnet = 'carta'): Promise<void> {
+export async function carnetPdf(p: Personal, modo: ModoPdfCarnet = 'carta', tema: TemaCarnet = 'blanco'): Promise<void> {
   const [{ jsPDF }, { previewPdfDoc }, frente, reverso] = await Promise.all([
     import('jspdf'),
     import('@/shared/lib/reportPreview'),
-    generarFrenteBlob(p).then(blobADataUrl),
-    generarReversoBlob().then(blobADataUrl),
+    generarFrenteBlob(p, tema).then(blobADataUrl),
+    generarReversoBlob(tema).then(blobADataUrl),
   ]);
   const { ancho, alto } = CARNET_MM;
   const nombre = `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim();
-  const base = nombreArchivo(p, 'pdf').replace(/\.png$/, '');
+  const base = nombreArchivo(p, 'pdf', tema).replace(/\.png$/, '');
   if (modo === 'tarjeta') {
     const doc = new jsPDF({ unit: 'mm', format: [ancho, alto], orientation: 'portrait' });
     doc.addImage(frente, 'PNG', 0, 0, ancho, alto);
