@@ -1,46 +1,42 @@
+/* ============================================================
+   MGG · Módulo Documentación (06-10-2026) · igual al de Golden Touch
+   Dos apartados:
+     · 🗂 Documentos de la empresa (archivo con vencimientos).
+     · 📨 Formato de envío de documentación (notas de envío con
+       correlativo e histórico).
+   ============================================================ */
 import { useState } from 'react';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { DocumentosEmpresaTab } from './DocumentosEmpresaTab';
-import { NotaEnvioTab } from './NotaEnvioTab';
+import { DocumentosPanel } from './DocumentosPanel';
+import { NotasEnvioPanel } from './NotasEnvioPanel';
 
-type Vista = 'documentos' | 'nota';
+type Vista = 'documentos' | 'envios';
 
-const TABS: { key: Vista; label: string; icon: string }[] = [
-  { key: 'documentos', label: 'Documentos de la empresa', icon: '📁' },
-  { key: 'nota', label: 'Formato envío de documentación', icon: '📨' },
-];
-
-/**
- * Documentación (06-10-2026): los papeles de la empresa en un solo lugar y el
- * formato con el que se entrega documentación a terceros (nota de envío con
- * correlativo e histórico).
- */
 export function DocumentacionPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
   const canWrite = can('documentacion', 'escritura');
-  const actor = user?.email ?? 'sistema';
-  const actorName = appUser?.nombre ?? null;
-  const [vista, setVista] = useState<Vista>('documentos');
+  const actor = { email: user?.email ?? 'sistema', nombre: appUser?.nombre ?? null };
+  const [vista, setVista] = useState<Vista>('envios');
 
   return (
     <div>
-      <div style={{ marginBottom: '1rem' }}>
-        <h1 style={{ margin: 0 }}>📁 Documentación</h1>
-        <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
-          Documentos de la empresa y <strong>notas de envío de documentación</strong> con correlativo e histórico.
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <div>
+          <h1 style={{ margin: 0 }}>🗂 Documentación</h1>
+          <p className="muted" style={{ margin: '.25rem 0 0' }}>
+            Documentos de la empresa y notas de envío de documentación con su correlativo.
+          </p>
+        </div>
+        <div className="view-toggle" role="tablist" aria-label="Apartado de documentación">
+          <button className={vista === 'documentos' ? 'active' : ''} onClick={() => setVista('documentos')}>🗂 Documentos</button>
+          <button className={vista === 'envios' ? 'active' : ''} onClick={() => setVista('envios')}>📨 Formato envío de documentación</button>
+        </div>
       </div>
-
-      <div className="view-toggle" role="tablist" aria-label="Vista de Documentación" style={{ marginBottom: '1rem', flexWrap: 'wrap' }}>
-        {TABS.map((t) => (
-          <button key={t.key} className={vista === t.key ? 'active' : ''} onClick={() => setVista(t.key)}>{t.icon} {t.label}</button>
-        ))}
-      </div>
-
-      {vista === 'documentos' && <DocumentosEmpresaTab canWrite={canWrite} actor={actor} actorName={actorName} />}
-      {vista === 'nota' && <NotaEnvioTab canWrite={canWrite} actor={actor} actorName={actorName} />}
+      {vista === 'documentos'
+        ? <DocumentosPanel canWrite={canWrite} actor={actor} />
+        : <NotasEnvioPanel canWrite={canWrite} actor={actor} />}
     </div>
   );
 }

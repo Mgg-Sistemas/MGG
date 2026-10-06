@@ -1,20 +1,82 @@
 /* ============================================================
-   MGG · Documentación · Nota de envío de documentación (06-10-2026)
+   MGG · Documentación · Reglas de la nota de envío (06-10-2026)
 
    El papel con el que se entrega documentación a otra empresa o a un
-   departamento: «le llevo 296 facturas originales a Golden Touch, firmame
-   que las recibiste». Lleva correlativo propio (NE-0001, NE-0002…), los
-   datos del destinatario, los renglones (qué se entrega y cuántos) y dos
-   firmas que se hacen A MANO sobre el papel impreso: quien entrega y quien
-   recibe conforme (firma, sello, cédula y fecha). Nada de firma digital.
+   departamento: «le llevo 296 facturas originales, firmame que las
+   recibiste». Lleva correlativo propio (lo asigna la BASE: secuencia +
+   trigger; acá solo se le da formato), los datos del destinatario, los
+   renglones (qué se entrega y cuántos) y dos firmas que se hacen A MANO
+   sobre el papel impreso: quien entrega y quien recibe conforme (firma,
+   sello, cédula y fecha). Nada de firma digital.
 
+   Mismo formato y reglas que el módulo de Golden Touch.
    Acá vive la lógica sin base ni pantalla: validar, totalizar, formatear.
    ============================================================ */
 
-/** Un renglón de la nota: qué se entrega y cuántos. */
+/** Un renglón de la nota: qué se entrega y cuántos (la cantidad puede ir vacía). */
 export interface ItemNotaEnvio {
   descripcion: string;
-  cantidad: number;
+  cantidad: number | null;
+}
+
+/** Estado que se muestra: anulada manda; si se marcó recibida, recibida; si no, enviada. */
+export type EstadoEnvio = 'emitido' | 'recibido' | 'anulado';
+
+export const ESTADO_ENVIO_LABEL: Record<EstadoEnvio, string> = {
+  emitido: 'Enviada',
+  recibido: 'Recibida conforme',
+  anulado: 'Anulada',
+};
+
+export function estadoEnvio(n: { estado: string; recibido_en?: string | null }): EstadoEnvio {
+  if (n.estado === 'anulada') return 'anulado';
+  if (n.recibido_en) return 'recibido';
+  return 'emitido';
+}
+
+/** Datos de la empresa que emite la nota (encabezado del papel), tal cual el SENIAT. */
+export const EMISOR_NOTA = {
+  razonSocial: 'MINERAL GROUP GUAYANA, C.A.',
+  rif: 'J-50221930-7',
+  domicilio: 'Calle Manzana 03 Local Parcela N° 15 Urb. Villa Betania, Puerto Ordaz, Ciudad Guayana, Bolívar, Zona Postal 8050',
+} as const;
+
+/** N° de la nota con 4 dígitos, como en el formato impreso: 1 → «0001». */
+export function numeroEnvio(n: number | null | undefined): string {
+  const v = Math.max(0, Math.trunc(Number(n) || 0));
+  return String(v).padStart(4, '0');
+}
+
+/** «NE-0001» (el código que guarda la base). */
+export function codigoNotaEnvio(numero: number): string {
+  return `NE-${numeroEnvio(numero)}`;
+}
+
+/** Texto limpio: sin espacios de más. */
+export function limpio(v: string | null | undefined): string {
+  return (v ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/** Renglones que van a la nota: con descripción. La cantidad vacía se guarda como null. */
+export function renglonesValidos(items: ItemNotaEnvio[]): ItemNotaEnvio[] {
+  return items
+    .map((r) => ({
+      descripcion: limpio(r.descripcion),
+      cantidad: r.cantidad == null || Number.isNaN(Number(r.cantidad)) ? null : Number(r.cantidad),
+    }))
+    .filter((r) => r.descripcion.length > 0);
+}
+
+/** Suma de cantidades (los renglones sin cantidad no suman). */
+export function totalRenglones(items: ItemNotaEnvio[]): number {
+  return renglonesValidos(items).reduce((a, r) => a + (r.cantidad ?? 0), 0);
+}
+
+/** Texto de cantidad para tabla/PDF: enteros sin decimales, el resto con coma. */
+export function cantidadTexto(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(Number(n))) return '';
+  const v = Number(n);
+  return Number.isInteger(v) ? String(v) : v.toLocaleString('es-VE', { maximumFractionDigits: 2 });
 }
 
 export interface DatosNotaEnvio {
@@ -25,69 +87,44 @@ export interface DatosNotaEnvio {
   atencion_a?: string | null;
   condicion?: string | null;
   items: ItemNotaEnvio[];
-  entregado_por: string;
+  total_etiqueta?: string | null;
+  /** Total escrito a mano; si falta, se usa la suma de cantidades. */
+  total?: number | null;
+  entregado_por?: string | null;
   nota?: string | null;
-}
-
-/** Datos de la empresa que emite la nota (encabezado del papel). */
-export const EMISOR_NOTA = {
-  razonSocial: 'MINERAL GROUP GUAYANA C.A.',
-  rif: 'J-50221930-7',
-  domicilio: 'Calle Manzana 03 Parcela 15, Urb. Villa Betania, Puerto Ordaz, Estado Bolívar',
-} as const;
-
-/** Condiciones de entrega frecuentes (se pueden escribir otras). */
-export const CONDICIONES_NOTA = ['Facturas originales', 'Copias', 'Originales y copias', 'Documentos originales', 'Para firma y devolución'] as const;
-
-/** «NE-0001». */
-export function codigoNotaEnvio(numero: number): string {
-  return `NE-${String(Math.max(0, Math.trunc(numero))).padStart(4, '0')}`;
-}
-
-/** Texto limpio: sin espacios de más. */
-export function limpio(v: string | null | undefined): string {
-  return (v ?? '').replace(/\s+/g, ' ').trim();
-}
-
-/** Renglones que cuentan: con descripción y cantidad > 0. */
-export function itemsValidos(items: ItemNotaEnvio[]): ItemNotaEnvio[] {
-  return items
-    .map((it) => ({ descripcion: limpio(it.descripcion).toUpperCase(), cantidad: Number(it.cantidad) || 0 }))
-    .filter((it) => it.descripcion && it.cantidad > 0);
-}
-
-/** Total de documentos de la nota (suma de cantidades). */
-export function totalNotaEnvio(items: ItemNotaEnvio[]): number {
-  return itemsValidos(items).reduce((a, it) => a + it.cantidad, 0);
 }
 
 /** Motivo por el que la nota no se puede emitir, o null si está bien. */
 export function errorNotaEnvio(d: DatosNotaEnvio): string | null {
   if (!limpio(d.razon_social)) return 'Indicá a quién se le envía (razón social o departamento).';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d.fecha)) return 'La fecha no es válida.';
-  const sinCantidad = d.items.find((it) => limpio(it.descripcion) && !(Number(it.cantidad) > 0));
-  if (sinCantidad) return `«${limpio(sinCantidad.descripcion)}» no tiene cantidad.`;
-  const items = itemsValidos(d.items);
-  if (!items.length) return 'Agregá al menos un renglón con descripción y cantidad.';
-  if (!limpio(d.entregado_por)) return 'Indicá quién entrega la documentación.';
+  if (!renglonesValidos(d.items).length) return 'Agregá al menos un renglón con su descripción.';
   return null;
 }
 
 /** La nota lista para guardar: textos limpios, renglones válidos y total. */
 export function normalizarNotaEnvio(d: DatosNotaEnvio) {
-  const items = itemsValidos(d.items);
+  const items = renglonesValidos(d.items);
+  const suma = items.reduce((a, r) => a + (r.cantidad ?? 0), 0);
+  const total = d.total == null || Number.isNaN(Number(d.total)) ? suma : Number(d.total);
   return {
     fecha: d.fecha,
-    razon_social: limpio(d.razon_social).toUpperCase(),
+    razon_social: limpio(d.razon_social),
     rif: limpio(d.rif).toUpperCase() || null,
     direccion: limpio(d.direccion) || null,
     atencion_a: limpio(d.atencion_a) || null,
     condicion: limpio(d.condicion) || null,
     items,
-    total_cantidad: items.reduce((a, it) => a + it.cantidad, 0),
-    entregado_por: limpio(d.entregado_por).toUpperCase(),
+    total_etiqueta: limpio(d.total_etiqueta) || 'Documentos',
+    total_cantidad: total,
+    entregado_por: limpio(d.entregado_por) || '—',
     nota: limpio(d.nota) || null,
   };
+}
+
+/** Sin acentos y en minúsculas, para buscar. */
+export function norm(s: unknown): string {
+  return String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
 
 export interface DestinatarioLike {
@@ -99,11 +136,11 @@ export interface DestinatarioLike {
 
 /** Busca destinatarios por texto (razón social, RIF o persona de atención). */
 export function filtrarDestinatarios<T extends DestinatarioLike>(lista: T[], q: string): T[] {
-  const t = limpio(q).toLowerCase();
+  const t = norm(q);
   if (!t) return lista;
-  const palabras = t.split(' ');
+  const palabras = t.split(/\s+/);
   return lista.filter((d) => {
-    const txt = `${d.razon_social} ${d.rif ?? ''} ${d.atencion_a ?? ''} ${d.direccion ?? ''}`.toLowerCase();
+    const txt = norm(`${d.razon_social} ${d.rif ?? ''} ${d.atencion_a ?? ''} ${d.direccion ?? ''}`);
     return palabras.every((p) => txt.includes(p));
   });
 }

@@ -1,137 +1,143 @@
 /* ============================================================
-   MGG · Documentación · PDF de la nota de envío
+   MGG · Documentación · Nota de envío (PDF · vista previa)
 
-   Hoja carta, igual al papel que ya usan: encabezado de la empresa a la
-   izquierda y «NOTA DE ENVÍO» con N° y fecha a la derecha; dos recuadros
-   (datos del destinatario / detalles de entrega); tabla ITEM · DESCRIPCIÓN ·
-   CANTD.; recuadro «Total documentos»; y abajo dos líneas de firma A MANO:
-   «Entregado por …» y «Recibido conforme (firma, sello, cédula y fecha)».
+   Mismo contenido que el formato de papel («Nota de entrega»): N° y
+   fecha, cliente / departamento, detalles de entrega, tabla ÍTEM ·
+   DESCRIPCIÓN · CANT., total y las dos firmas A MANO (Entregado por /
+   Recibido conforme). Con los colores y el encabezado de los PDF del
+   sistema: logo + título + gris, naranja #FF8A00 en la línea, los
+   títulos y la cabecera de la tabla. Carta, márgenes de 2 cm.
+   Igual al PDF del módulo de Golden Touch.
    ============================================================ */
-import { date } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { MARGEN_PDF } from '@/shared/lib/pdfMargen';
-import { EMISOR_NOTA } from './notaEnvio';
+import { EMISOR_NOTA, cantidadTexto, numeroEnvio } from './notaEnvio';
 import type { NotaEnvio } from './documentacion.repository';
 
-const NARANJA: [number, number, number] = [194, 95, 60];
-const GRIS: [number, number, number] = [120, 120, 120];
+/** Naranja del sistema (el de las cabeceras de tabla de todos los PDF). */
+const NARANJA: [number, number, number] = [255, 138, 0];
+const FONDO_CAJA: [number, number, number] = [255, 247, 237];
+const BORDE_CAJA: [number, number, number] = [255, 200, 140];
 
-export async function notaEnvioPdf(n: NotaEnvio): Promise<void> {
-  const [{ jsPDF }, autoTableMod, logo] = await Promise.all([
-    import('jspdf'), import('jspdf-autotable'), loadLogoDataUrl().catch(() => null),
+function fechaVe(iso: string): string {
+  const [a, m, d] = iso.slice(0, 10).split('-');
+  return a && m && d ? `${d}/${m}/${a}` : iso;
+}
+
+export async function descargarNotaEnvioPdf(n: NotaEnvio): Promise<void> {
+  const [{ jsPDF }, { default: autoTable }, logo] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+    loadLogoDataUrl().catch(() => null),
   ]);
-  const autoTable = autoTableMod.default;
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const M = MARGEN_PDF;
+  const der = W - M;
   let y = M;
+  const anulada = n.estado === 'anulada';
 
-  // Encabezado: empresa a la izquierda, título + N° + fecha a la derecha.
-  if (logo) { try { doc.addImage(logo, 'JPEG', M, y - 6, 44, 44); } catch { /* sin logo */ } }
-  const tx = logo ? M + 52 : M;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(0);
-  doc.text(EMISOR_NOTA.razonSocial, tx, y + 10);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-  doc.text(`RIF: ${EMISOR_NOTA.rif}`, tx, y + 24);
-  const dom = doc.splitTextToSize(`Domicilio Fiscal: ${EMISOR_NOTA.domicilio}`, W / 2 + 20 - tx) as string[];
-  dom.forEach((t, i) => doc.text(t, tx, y + 36 + i * 11));
+  // ─── Encabezado del sistema: logo + título + gris; N° y fecha a la derecha ───
+  const LOGO = 52;
+  const tx = logo ? M + LOGO + 12 : M;
+  if (logo) { try { doc.addImage(logo, 'JPEG', M, y, LOGO, LOGO); } catch { /* sin logo */ } }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(20);
+  doc.text(anulada ? 'Nota de envío · ANULADA' : 'Nota de envío', tx, y + 17);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120);
+  doc.text(`${EMISOR_NOTA.razonSocial} · RIF ${EMISOR_NOTA.rif}`, tx, y + 32);
+  doc.text('Envío de documentación', tx, y + 44);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...NARANJA);
+  doc.text(`N° ${numeroEnvio(n.numero)}`, der, y + 17, { align: 'right' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(60);
+  doc.text(`Fecha: ${fechaVe(n.fecha)}`, der, y + 33, { align: 'right' });
+  y += Math.max(LOGO, 44) + 8;
 
-  const bx = W - M - 180;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(...NARANJA);
-  doc.text('NOTA DE ENVÍO', W - M, y + 10, { align: 'right' });
-  doc.setTextColor(0); doc.setFontSize(9);
-  doc.text('N°:', bx, y + 30); doc.text('Fecha:', bx, y + 46);
-  doc.setFont('helvetica', 'normal');
-  doc.setDrawColor(170); doc.setLineWidth(0.5); doc.setLineDashPattern([2, 2], 0);
-  doc.rect(bx + 40, y + 20, 140, 15); doc.rect(bx + 40, y + 36, 140, 15);
-  doc.setLineDashPattern([], 0);
-  doc.setFont('helvetica', 'bold');
-  doc.text(n.codigo, bx + 174, y + 31, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.text(date(n.fecha), bx + 174, y + 47, { align: 'right' });
-  if (n.estado === 'anulada') {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(220, 38, 38);
-    doc.text('ANULADA', W - M, y + 64, { align: 'right' });
-    doc.setTextColor(0);
-  }
-  y += Math.max(60, 36 + dom.length * 11) + 8;
-  doc.setDrawColor(...NARANJA); doc.setLineWidth(1.2); doc.line(M, y, W - M, y);
-  y += 16;
+  doc.setFontSize(8); doc.setTextColor(110);
+  const dom = doc.splitTextToSize(`Domicilio fiscal: ${EMISOR_NOTA.domicilio}`, W - 2 * M) as string[];
+  doc.text(dom, M, y);
+  y += dom.length * 10 + 2;
+  doc.setDrawColor(...NARANJA); doc.setLineWidth(1.5);
+  doc.line(M, y, der, y);
+  y += 14;
 
-  // Dos recuadros: destinatario / detalles de entrega.
-  const gap = 14; const cw = (W - 2 * M - gap) / 2; const ch = 92;
-  const recuadro = (x: number, titulo: string, filas: Array<[string, string]>) => {
-    doc.setDrawColor(200); doc.setLineWidth(0.6); doc.roundedRect(x, y, cw, ch, 4, 4);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...NARANJA);
-    doc.text(titulo, x + 10, y + 15);
-    doc.setTextColor(0); doc.setFontSize(8.5);
-    let fy = y + 32;
-    for (const [k, v] of filas) {
-      doc.setFont('helvetica', 'bold'); doc.text(k, x + 10, fy);
-      doc.setFont('helvetica', 'normal');
-      const lineas = doc.splitTextToSize(v || '—', cw - 100) as string[];
-      lineas.slice(0, 2).forEach((t, i) => doc.text(t, x + 92, fy + i * 10));
-      fy += Math.max(1, Math.min(2, lineas.length)) * 10 + 4;
-    }
+  // ─── Recuadros: cliente / departamento · detalles de entrega ───
+  const gap = 12;
+  const bw = (W - 2 * M - gap) / 2;
+  const bh = 92;
+  const caja = (x: number, titulo: string, filas: Array<[string, string]>) => {
+    doc.setFillColor(...FONDO_CAJA); doc.setDrawColor(...BORDE_CAJA); doc.setLineWidth(0.7);
+    doc.roundedRect(x, y, bw, bh, 5, 5, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...NARANJA);
+    doc.text(titulo, x + 10, y + 16);
+    let fy = y + 34;
+    filas.forEach(([k, v]) => {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90);
+      doc.text(k, x + 10, fy);
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(20);
+      const val = doc.splitTextToSize(v || '—', bw - 100) as string[];
+      doc.text(val.slice(0, 2), x + 90, fy);
+      fy += val.length > 1 ? 22 : 17;
+    });
   };
-  recuadro(M, 'DATOS DEL DESTINATARIO / DEPARTAMENTO', [
-    ['Razón Social:', n.razon_social],
-    ['RIF / C.I.:', n.rif ?? ''],
-    ['Dirección:', n.direccion ?? ''],
-  ]);
-  recuadro(M + cw + gap, 'DETALLES DE ENTREGA', [
-    ['Atención a:', n.atencion_a ?? ''],
-    ['Condición:', n.condicion ?? ''],
-    ['Entregado por:', n.entregado_por],
-  ]);
-  y += ch + 16;
+  caja(M, 'DATOS DEL CLIENTE / DEPARTAMENTO', [['Razón social:', n.razon_social], ['RIF / C.I.:', n.rif ?? ''], ['Dirección:', n.direccion ?? '']]);
+  caja(M + bw + gap, 'DETALLES DE ENTREGA', [['Atención a:', n.atencion_a ?? ''], ['Condición:', n.condicion ?? ''], ['Entregado por:', n.entregado_por === '—' ? '' : n.entregado_por]]);
+  y += bh + 16;
 
-  // Renglones.
+  // ─── Renglones (tabla del sistema: cabecera naranja, cuadrícula gris) ───
   autoTable(doc, {
     startY: y,
-    head: [['ITEM', 'DESCRIPCIÓN / CONCEPTO', 'CANTD.']],
-    body: n.items.map((it, i) => [String(i + 1).padStart(2, '0'), it.descripcion, String(it.cantidad)]),
-    theme: 'striped',
-    headStyles: { fillColor: NARANJA, textColor: 255, fontStyle: 'bold', fontSize: 9 },
-    styles: { fontSize: 9, cellPadding: 5 },
-    columnStyles: { 0: { cellWidth: 44, halign: 'center' }, 2: { cellWidth: 70, halign: 'right' } },
     margin: { left: M, right: M },
+    head: [['ÍTEM', 'DESCRIPCIÓN / CONCEPTO', 'CANT.']],
+    body: n.items.map((r, i) => [String(i + 1).padStart(2, '0'), r.descripcion, cantidadTexto(r.cantidad)]),
+    theme: 'grid',
+    styles: { font: 'helvetica', fontSize: 9.5, cellPadding: 6, textColor: 20, lineColor: [210, 210, 210], lineWidth: 0.5 },
+    headStyles: { fillColor: NARANJA, textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [250, 250, 250] },
+    columnStyles: { 0: { cellWidth: 46, halign: 'center' }, 2: { cellWidth: 70, halign: 'right' } },
   });
-  y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
-
-  // Total.
-  const tw = 220; const tx2 = W - M - tw;
-  doc.setDrawColor(200); doc.roundedRect(tx2, y, tw, 34, 4, 4);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-  doc.text('Total documentos:', tx2 + 12, y + 21);
-  doc.setLineDashPattern([2, 2], 0); doc.setDrawColor(170);
-  doc.rect(tx2 + 120, y + 8, 88, 18); doc.setLineDashPattern([], 0);
-  doc.text(String(n.total_cantidad), tx2 + 202, y + 21, { align: 'right' });
-  y += 48;
+  y = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+  y += 16;
 
   if (n.nota) {
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...GRIS);
-    const obs = doc.splitTextToSize(`Observación: ${n.nota}`, W - 2 * M) as string[];
-    obs.forEach((t, i) => doc.text(t, M, y + i * 10));
-    doc.setTextColor(0);
-    y += obs.length * 10 + 8;
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(70);
+    const nl = doc.splitTextToSize(`Observaciones: ${n.nota}`, W - 2 * M) as string[];
+    doc.text(nl, M, y + 4);
+    y += nl.length * 12 + 8;
   }
 
-  // Firmas a mano: líneas vacías, abajo de la hoja.
-  const fy = Math.max(y + 110, H - M - 60);
-  const lw = (W - 2 * M - 60) / 2;
-  doc.setDrawColor(0); doc.setLineWidth(0.8);
-  doc.line(M, fy, M + lw, fy);
-  doc.line(W - M - lw, fy, W - M, fy);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-  doc.text(`Entregado por: ${n.entregado_por}`, M + lw / 2, fy + 13, { align: 'center' });
-  doc.text('Recibido conforme', W - M - lw / 2, fy + 13, { align: 'center' });
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GRIS);
-  doc.text('Firma', M + lw / 2, fy + 25, { align: 'center' });
-  doc.text('Firma, sello, cédula y fecha', W - M - lw / 2, fy + 25, { align: 'center' });
-  doc.setTextColor(0);
+  // ─── Total (abajo a la derecha, sobre las firmas) ───
+  const firmaY = Math.max(y + 130, H - 120);
+  const totalY = Math.max(y, firmaY - 110);
+  const tw = 210, th = 40;
+  doc.setFillColor(...FONDO_CAJA); doc.setDrawColor(...BORDE_CAJA); doc.setLineWidth(0.7);
+  doc.roundedRect(der - tw, totalY, tw, th, 5, 5, 'FD');
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(40);
+  doc.text(`Total ${n.total_etiqueta}:`, der - tw + 12, totalY + 25);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...NARANJA);
+  doc.text(cantidadTexto(n.total_cantidad), der - 14, totalY + 25, { align: 'right' });
 
-  previewPdfDoc(doc, `${n.codigo}-nota-de-envio.pdf`);
+  // ─── Firmas (a mano: el sistema no estampa firma digital) ───
+  const fw = (W - 2 * M - 40) / 2;
+  doc.setDrawColor(120); doc.setLineWidth(0.6);
+  doc.line(M, firmaY, M + fw, firmaY);
+  doc.line(der - fw, firmaY, der, firmaY);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20);
+  const entregadoPor = n.entregado_por === '—' ? '' : n.entregado_por;
+  doc.text(`Entregado por ${entregadoPor}`.trim(), M + fw / 2, firmaY + 15, { align: 'center', maxWidth: fw });
+  doc.text('Recibido conforme', der - fw / 2, firmaY + 15, { align: 'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90);
+  doc.text('Firma', M + fw / 2, firmaY + 29, { align: 'center' });
+  doc.text('Firma, sello, cédula y fecha', der - fw / 2, firmaY + 29, { align: 'center' });
+
+  if (anulada) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(70); doc.setTextColor(220, 60, 60);
+    doc.text('ANULADA', W / 2, H / 2, { align: 'center', angle: 30 });
+  }
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(150);
+  doc.text(`Documento generado por el sistema · Nota de envío N° ${numeroEnvio(n.numero)}`, M, H - 30);
+
+  previewPdfDoc(doc, `nota-envio-${numeroEnvio(n.numero)}.pdf`);
 }
