@@ -372,6 +372,7 @@ export function AppShell() {
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
           {can('asignaciones') && <NavItem to="/app/asignaciones" icon="🎒" label="Asignaciones" />}
+          {can('documentacion') && <NavItem to="/app/documentacion" icon="📁" label="Documentación" />}
         </nav>
 
         {showSistema && <div className="sidebar-section">Sistema</div>}
