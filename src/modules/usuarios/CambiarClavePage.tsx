@@ -11,6 +11,8 @@ export function CambiarClavePage() {
   const [clave, setClave] = useState('');
   const [confirmacion, setConfirmacion] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // 👁 Ver lo que se escribe: un solo botón muestra u oculta los dos campos.
+  const [verClave, setVerClave] = useState(false);
   // El error también se muestra EN la tarjeta, no solo en un toast: el toast se
   // va solo y el usuario se queda mirando la pantalla sin saber qué pasó.
   const [error, setError] = useState<string | null>(null);
@@ -146,17 +148,20 @@ export function CambiarClavePage() {
 
         <div className="form-row">
           <label>Ingrese clave nueva</label>
-          <input
-            type="password"
-            className="input"
-            autoComplete="new-password"
-            value={clave}
-            onChange={(e) => { setClave(e.target.value); setError(null); }}
-            placeholder="Mínimo 6 caracteres"
-            disabled={submitting}
-            style={claveTrim.length > 0 && !largoOk ? { borderColor: 'var(--danger)' } : undefined}
-            autoFocus
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              type={verClave ? 'text' : 'password'}
+              className="input"
+              autoComplete="new-password"
+              value={clave}
+              onChange={(e) => { setClave(e.target.value); setError(null); }}
+              placeholder="Mínimo 6 caracteres"
+              disabled={submitting}
+              style={{ paddingRight: '2.6rem', width: '100%', ...(claveTrim.length > 0 && !largoOk ? { borderColor: 'var(--danger)' } : {}) }}
+              autoFocus
+            />
+            <BotonVerClave ver={verClave} onToggle={() => setVerClave((v) => !v)} />
+          </div>
           {/* El largo se dice MIENTRAS se escribe: antes el botón quedaba
               deshabilitado en silencio y parecía que el sistema no hacía nada. */}
           {claveTrim.length > 0 && !largoOk && (
@@ -173,17 +178,20 @@ export function CambiarClavePage() {
 
         <div className="form-row">
           <label>Confirmación de clave</label>
-          <input
-            type="password"
-            className="input"
-            autoComplete="new-password"
-            value={confirmacion}
-            onChange={(e) => { setConfirmacion(e.target.value); setError(null); }}
-            placeholder="Repite la clave nueva"
-            disabled={submitting}
-            style={mostrarNoCoincide ? { borderColor: 'var(--danger)' } : undefined}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !submitting) handleAceptar(); }}
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              type={verClave ? 'text' : 'password'}
+              className="input"
+              autoComplete="new-password"
+              value={confirmacion}
+              onChange={(e) => { setConfirmacion(e.target.value); setError(null); }}
+              placeholder="Repite la clave nueva"
+              disabled={submitting}
+              style={{ paddingRight: '2.6rem', width: '100%', ...(mostrarNoCoincide ? { borderColor: 'var(--danger)' } : {}) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !submitting) handleAceptar(); }}
+            />
+            <BotonVerClave ver={verClave} onToggle={() => setVerClave((v) => !v)} />
+          </div>
           {mostrarNoCoincide && (
             <small style={{ color: 'var(--danger)', marginTop: '.35rem', display: 'block' }}>
               Las claves no coinciden.
@@ -219,5 +227,25 @@ export function CambiarClavePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** El ojo para ver u ocultar la clave (mismo estilo que en el inicio de sesión). */
+function BotonVerClave({ ver, onToggle }: { ver: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={ver ? 'Ocultar clave' : 'Mostrar clave'}
+      aria-label={ver ? 'Ocultar clave' : 'Mostrar clave'}
+      aria-pressed={ver}
+      style={{
+        position: 'absolute', top: '50%', right: '.5rem', transform: 'translateY(-50%)',
+        background: 'transparent', border: 'none', cursor: 'pointer', padding: '.25rem',
+        fontSize: '1.05rem', lineHeight: 1, color: 'var(--muted)',
+      }}
+    >
+      {ver ? '🙈' : '👁'}
+    </button>
   );
 }
