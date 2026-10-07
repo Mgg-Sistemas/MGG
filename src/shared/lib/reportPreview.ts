@@ -103,17 +103,34 @@ function abrirVisor(opts: {
   });
 }
 
-/** Abre el diálogo de impresión del PDF que muestra el iframe. Si el navegador
- *  no deja imprimir el iframe, abre el PDF en una pestaña para imprimir desde ahí. */
-function imprimirIframe(iframe: HTMLIFrameElement, url: string): void {
-  try {
-    const w = iframe.contentWindow;
-    if (!w) throw new Error('sin-ventana');
-    w.focus();
-    w.print();
-  } catch {
-    window.open(url, '_blank', 'noopener');
+/**
+ * Imprime el PDF abriéndolo en SU PROPIA pestaña y pidiendo la impresión ahí.
+ *
+ * POR QUÉ NO SE IMPRIME EL IFRAME DEL VISOR (07-10-2026)
+ * `iframe.contentWindow.print()` imprimía el MARCO del visor, no el PDF: el
+ * navegador tomaba la página embebida como una página web, la encogía a ~75 %
+ * y la pegaba arriba a la izquierda de la hoja, con el resto en blanco. El
+ * archivo descargado se veía bien; solo «🖨 Imprimir» salía descuadrado.
+ * En una pestaña propia el visor de PDF del navegador imprime a tamaño real,
+ * igual que el archivo descargado.
+ *
+ * Si el navegador bloquea la pestaña nueva (bloqueador de ventanas) se avisa
+ * para que la persona descargue e imprima desde el archivo.
+ */
+function imprimirPdfEnPestana(url: string): void {
+  const w = window.open(url, '_blank');
+  if (!w) {
+    try { window.alert('El navegador bloqueó la pestaña de impresión. Descargá el PDF y imprimilo desde el archivo.'); } catch { /* sin alert */ }
+    return;
   }
+  // El visor de PDF tarda un momento en cargar; el diálogo se pide después.
+  // Si el navegador ignora el print() sobre un PDF, la pestaña queda abierta
+  // y se imprime desde el botón del visor (o Ctrl+P).
+  const pedir = () => { try { w.focus(); w.print(); } catch { /* queda la pestaña abierta */ } };
+  let pedido = false;
+  const unaVez = () => { if (!pedido) { pedido = true; pedir(); } };
+  try { w.addEventListener('load', unaVez); } catch { /* documento PDF: puede no avisar */ }
+  setTimeout(unaVez, 1200);
 }
 
 /** Imprime una imagen sola, en una hoja, con un iframe oculto. */
@@ -143,7 +160,7 @@ export function previewPdfDoc(doc: { output: (type: string) => unknown }, filena
   abrirVisor({
     titulo: 'PDF', filename, cuerpo: iframe, blob,
     onClose: () => URL.revokeObjectURL(url),
-    imprimir: () => imprimirIframe(iframe, url),
+    imprimir: () => imprimirPdfEnPestana(url),
   });
 }
 
@@ -180,7 +197,7 @@ export async function previewFileUrl(url: string, filename: string, titulo = 'Fa
     iframe.src = objUrl;
     iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
     cuerpo = iframe;
-    imprimir = () => imprimirIframe(iframe, objUrl);
+    imprimir = () => imprimirPdfEnPestana(objUrl);
   }
   abrirVisor({ titulo, filename, cuerpo, blob, imprimir, onClose: () => URL.revokeObjectURL(objUrl) });
 }

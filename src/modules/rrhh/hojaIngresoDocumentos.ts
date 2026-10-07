@@ -9,6 +9,11 @@
    Para poder probar la lista sin dibujar una página: que no falte un grupo,
    que no haya dos renglones iguales, que «si aplica» esté donde corresponde.
 
+   SOLO COPIAS
+   Ningún renglón pide un original: la oficina se queda con la carpeta y no
+   devuelve papeles. Lo que antes decía «original o copia certificada» pasó a
+   «copia». El test lo vigila: si alguien escribe «original», falla.
+
    POR QUÉ NO PIDE DATOS BANCARIOS
    Misma razón que la hoja de ingreso: la cuenta se carga en el sistema cuando
    la persona ya está dada de alta, no queda dando vueltas en una carpeta.
@@ -35,7 +40,7 @@ export const DOCUMENTOS_A_CONSIGNAR: GrupoDocumentos[] = [
     items: [
       'Copia de la cédula de identidad (ampliada y legible)',
       'Copia del RIF vigente (SENIAT)',
-      'Partida de nacimiento (original o copia certificada)',
+      'Copia de la partida de nacimiento',
       'Dos (2) fotos tipo carnet, fondo blanco',
       'Constancia de residencia',
       'Copia de la licencia de conducir y certificado médico vial (si aplica)',

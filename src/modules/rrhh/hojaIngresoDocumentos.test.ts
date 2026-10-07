@@ -40,6 +40,13 @@ describe('la lista de papeles a consignar', () => {
     expect(todos).toMatch(/RIF/);
   });
 
+  it('solo pide copias: ningún renglón dice «original»', () => {
+    // La oficina se queda con la carpeta; no recibe ni devuelve originales.
+    const todos = DOCUMENTOS_A_CONSIGNAR.flatMap((g) => g.items);
+    for (const t of todos) expect(t).not.toMatch(/original/i);
+    expect(todos).toContain('Copia de la partida de nacimiento');
+  });
+
   it('no pide datos bancarios: la cuenta se carga cuando ya está dada de alta', () => {
     const todos = DOCUMENTOS_A_CONSIGNAR.flatMap((g) => g.items).join(' | ');
     expect(todos).not.toMatch(/banc|cuenta nómina|nro\. de cuenta/i);

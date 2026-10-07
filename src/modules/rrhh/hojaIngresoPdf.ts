@@ -46,9 +46,16 @@ const DATOS_PERSONALES: Array<[string, string]> = [
   ['Fecha de ingreso', ''],
 ];
 
-/** Cuántas filas en blanco lleva la carga familiar. Cinco cubre a casi todos y
- *  deja la hoja en una sola página; quien tenga más agrega al dorso. */
+/** Cuántas filas en blanco lleva la carga familiar. Cinco cubre a casi todos;
+ *  quien tenga más agrega al dorso. */
 const FILAS_FAMILIA = 5;
+/** Alto de cada fila de la tabla de carga familiar (pt). */
+const ALTO_FILA_FAMILIA = 17;
+/** Alto de un renglón de dos campos (rótulo + raya). 26 y no 28: con eso las
+ *  secciones 1 a 4 entran completas en la primera hoja (07-10-2026). */
+const ALTO_PAR = 26;
+/** Alto del encabezado de la tabla de carga familiar (letra 7,5 + relleno). */
+const ALTO_CABECERA_FAMILIA = 34;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
@@ -101,7 +108,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
    * pisarlo: en el formato viejo se escribía encima del texto impreso.
    */
   const parDeCampos = (izq: string, der: string) => {
-    asegurar(28);
+    asegurar(ALTO_PAR);
     const ancho = (W - M * 2 - 18) / 2;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
     doc.text(textoPdf(izq), M, y);
@@ -109,7 +116,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
     doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.5);
     doc.line(M, y + 15, M + ancho, y + 15);
     if (der) doc.line(M + ancho + 18, y + 15, W - M, y + 15);
-    y += 28;
+    y += ALTO_PAR;
   };
 
   /** Una casilla vacía de 9 pt. Se tilda a mano. */
@@ -166,15 +173,22 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   parDeCampos('Cuánto tiempo duró ahí', 'Último sueldo (indique Bs o $)');
   parDeCampos('Motivo del retiro', 'Teléfono de referencia');
 
-  /* ── 4. Carga familiar ── */
+  /* ── 4. Carga familiar ──
+     La tabla va ENTERA en una hoja. Si se partiera, una fila sola quedaría en
+     la hoja siguiente y el resto de la primera en blanco (pasó el 07-10-2026:
+     la hoja terminaba a un tercio y la quinta fila salía sola en la página 2).
+     `asegurar` mueve el título junto con la tabla y `pageBreak: 'avoid'` es
+     el seguro de autoTable por si el alto estimado se queda corto. */
+  if (y + 16 + ALTO_CABECERA_FAMILIA + FILAS_FAMILIA * ALTO_FILA_FAMILIA > LIMITE) { doc.addPage(); y = TOPE; }
   seccion(4, 'Carga familiar y dependientes directos');
   autoTable(doc as any, {
     startY: y,
+    pageBreak: 'avoid',
     head: [[textoPdf('Nombre y apellido'), textoPdf('Parentesco'), textoPdf('Fecha de nacimiento'), textoPdf('Cédula')]],
     body: Array.from({ length: FILAS_FAMILIA }, () => ['', '', '', '']),
     theme: 'grid',
     headStyles: { fillColor: [245, 245, 245], textColor: GRIS, fontSize: 7.5, fontStyle: 'bold', lineColor: [200, 200, 200], lineWidth: 0.5 },
-    bodyStyles: { minCellHeight: 18, lineColor: [200, 200, 200], lineWidth: 0.5 },
+    bodyStyles: { minCellHeight: ALTO_FILA_FAMILIA, lineColor: [200, 200, 200], lineWidth: 0.5 },
     styles: { fontSize: 8.5 },
     columnStyles: { 0: { cellWidth: 200 }, 1: { cellWidth: 95 }, 2: { cellWidth: 105 } },
     margin: MARGENES_TABLA_PDF,
@@ -255,7 +269,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
 
   /* ══════════ Página 2 · los papeles que tiene que traer ══════════ */
   doc.addPage();
-  encabezado('DOCUMENTOS A CONSIGNAR POR OFICINA', 'Marque cada documento al momento de recibirlo. Los marcados «(si aplica)» no le tocan a todos.');
+  encabezado('DOCUMENTOS A CONSIGNAR POR OFICINA', 'Se consignan únicamente copias. Marque cada documento al momento de recibirlo; los marcados «(si aplica)» no le tocan a todos.');
 
   // Letra 12: esta hoja se llena parada en la oficina, con la carpeta en la
   // mano, y se tilda de un vistazo. A 8,5 pt entraba todo en una página pero
@@ -304,7 +318,7 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   doc.text(textoPdf('Fecha'), W - M - anchoPie / 2, yPie + 12, { align: 'center' });
   doc.setFontSize(7);
   doc.text(
-    textoPdf('Los documentos se consignan en original y copia. Los originales se devuelven una vez cotejados.'),
+    textoPdf('Todos los documentos se consignan en COPIA. No traiga originales: la oficina no los recibe ni los devuelve.'),
     W / 2, yPie + 32, { align: 'center' },
   );
 
