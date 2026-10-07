@@ -133,6 +133,7 @@ export function HistoricoSolicitudes({
                         {acciones.map((a, i) => (
                           <span key={`${a.evento}-${a.at}-${i}`} className="muted" style={{ fontSize: '.7rem', whiteSpace: 'nowrap' }}>
                             {verboEvento(a.evento)} · <strong style={{ color: 'var(--text)' }}>{nombreDeActor(a.actor, dir)}</strong>
+                            {a.motivo && <span style={{ color: 'var(--danger)', whiteSpace: 'normal' }} title="Motivo"> · {a.motivo}</span>}
                           </span>
                         ))}
                         {!acciones.length && <span className="muted" style={{ fontSize: '.7rem' }}>—</span>}

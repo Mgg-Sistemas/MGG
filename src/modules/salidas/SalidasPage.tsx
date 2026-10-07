@@ -14,7 +14,7 @@ import type {
 } from '@/shared/lib/types';
 import { SOL_COLS, colDe, etiquetaCol, etiquetaDe, type SolColKey } from './columnasSalida';
 import { HistoricoSolicitudes } from './HistoricoSolicitudes';
-import { TOPE_COLUMNA, conteoPorColumna, recorteDeColumna, type FiltroHistorico } from './historicoSalidas';
+import { TOPE_COLUMNA, cancelacionDe, conteoPorColumna, nombreDeActor, recorteDeColumna, type FiltroHistorico } from './historicoSalidas';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
 import {
@@ -684,6 +684,11 @@ function SolicitudesKanban({ sols, scope, onVer, onVerHistorico }: {
                     👤 {s.solicitante ?? '—'}
                   </div>
                   <div className="muted" style={{ fontSize: '.68rem', marginTop: '.15rem' }}>{dateTime(s.created_at)}</div>
+                  {s.estado === 'cancelada' && (
+                    <div style={{ fontSize: '.7rem', marginTop: '.2rem', color: 'var(--danger)', fontWeight: 600 }} title="Motivo de la cancelación">
+                      ✖ {cancelacionDe(s)?.motivo || 'Cancelada sin motivo escrito'}
+                    </div>
+                  )}
                 </button>
               ))}
               {!items.length && <div className="muted" style={{ fontSize: '.74rem', padding: '.25rem' }}>—</div>}
@@ -744,6 +749,8 @@ function SolicitudDetalleModal({
   const bloqueoEjecutar = origenAjeno ? sector.motivo(origenAjeno) : null;
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancel, setMotivoCancel] = useState('');
+  // Quién la canceló y por qué: se guardaba en el historial pero no se mostraba.
+  const cancelacion = useMemo(() => cancelacionDe(sol), [sol]);
   // Cierre SIN descontar (la salida ya se hizo por fuera, ej.: una salida manual de inventario).
   const [sinDescOpen, setSinDescOpen] = useState(false);
   const [motivoSinDesc, setMotivoSinDesc] = useState('');
@@ -1498,6 +1505,18 @@ function SolicitudDetalleModal({
           )}
           {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {autorizanteDe(sol.aprobada_por, sol.sin_autorizacion).nombre}</td></tr>}
           {sol.ejecutada_en && <tr><td className="muted">{sol.mov_ref === 'manual_externo' ? 'Cerrada' : 'Ejecutada'}</td><td>{dateTime(sol.ejecutada_en)} · {sol.ejecutada_por ?? ''}</td></tr>}
+          {cancelacion && (
+            <>
+              <tr><td className="muted">Cancelada</td><td>
+                <span className="badge danger">✖ Cancelada</span>
+                {cancelacion.at && <> · {dateTime(cancelacion.at)}</>}
+                {cancelacion.actor && <> · {nombreDeActor(cancelacion.actor)}</>}
+              </td></tr>
+              <tr><td className="muted">Motivo de cancelación</td><td style={{ color: 'var(--danger)', fontWeight: 600 }}>
+                {cancelacion.motivo || <span className="muted" style={{ fontWeight: 400 }}>No se escribió motivo</span>}
+              </td></tr>
+            </>
+          )}
           {sol.estado === 'ejecutada' && sol.mov_ref === 'manual_externo' && (
             <tr><td className="muted">Traza</td><td>⚠️ Cerrada <strong>sin {esTraslado ? 'mover stock' : 'descontar'}</strong> — {esTraslado ? 'el movimiento se hizo por fuera (ej.: traslado manual de inventario)' : 'el descuento se hizo por fuera (ej.: salida manual de inventario)'}.</td></tr>
           )}

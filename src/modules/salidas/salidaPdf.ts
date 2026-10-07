@@ -7,6 +7,7 @@ import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/t
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { autorizanteDe } from './autorizanteSalida';
+import { cancelacionDe } from './historicoSalidas';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 async function nuevoDoc(titulo: string) {
@@ -229,6 +230,14 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
       : (SOL_ESTADO_TXT[sol.estado] ?? sol.estado)],
     ['Autorizado por', autoriza.nombre],
   ];
+  // Una orden cancelada dice quién la canceló y por qué: el papel no puede
+  // quedar como si estuviera viva.
+  const cancelacion = cancelacionDe(sol);
+  if (cancelacion) {
+    const quien = cancelacion.actor ? personaDe(cancelacion.actor, personas, cancelacion.actor) : '';
+    datos.push(['Cancelada', [cancelacion.at ? fmt.dateTime(cancelacion.at) : '', quien].filter(Boolean).join(' · ') || 'Sí']);
+    datos.push(['Motivo de cancelación', cancelacion.motivo || 'No se escribió motivo']);
+  }
   let dy = y;
   doc.setFontSize(9);
   // El valor se ENVUELVE dentro del margen derecho (antes valores largos como el

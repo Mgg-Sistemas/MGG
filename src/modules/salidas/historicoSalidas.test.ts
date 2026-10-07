@@ -3,7 +3,7 @@ import type { SolicitudSalida } from '@/shared/lib/types';
 import {
   TOPE_COLUMNA, accionesDe, actoresDe, hizoAlgo, ultimaAccion, etiquetaEvento,
   directorioDeActores, nombreDeActor, personasDelHistorico, filtrarHistorico,
-  recorteDeColumna, conteoPorColumna, verboEvento,
+  recorteDeColumna, conteoPorColumna, verboEvento, cancelacionDe,
 } from './historicoSalidas';
 
 /** Una solicitud mínima; cada prueba cambia solo lo que le importa. */
@@ -261,5 +261,28 @@ describe('conteo de los chips', () => {
     expect(c.cancelada).toBe(1);
     expect(c.por_aprobar).toBe(0);
     expect(c.ejecutada_sin_descuento).toBe(0);
+  });
+});
+
+describe('cancelacionDe · el motivo de cancelar se lee del historial', () => {
+  it('devuelve quién, cuándo y por qué de la última cancelación', () => {
+    const s = sol({
+      estado: 'cancelada',
+      historial: [
+        { at: '2026-10-07T19:56:19Z', evento: 'creada', actor: 'almacenmatanzas2026@gmail.com' },
+        { at: '2026-10-07T19:56:44Z', evento: 'cancelada', actor: 'almacenmatanzas2026@gmail.com', motivo: '  ERROR DE FECHA ' },
+      ],
+    });
+    expect(cancelacionDe(s)).toEqual({ at: '2026-10-07T19:56:44Z', actor: 'almacenmatanzas2026@gmail.com', motivo: 'ERROR DE FECHA' });
+  });
+  it('una solicitud que no está cancelada no tiene cancelación', () => {
+    expect(cancelacionDe(sol({ estado: 'aprobada', historial: [{ at: '', evento: 'cancelada', actor: 'x@y.z', motivo: 'viejo' }] }))).toBeNull();
+  });
+  it('cancelada sin evento en el historial (filas viejas) no revienta', () => {
+    expect(cancelacionDe(sol({ estado: 'cancelada', historial: [] }))).toEqual({ at: '', actor: '', motivo: '' });
+  });
+  it('las acciones del histórico llevan el motivo cuando lo hay', () => {
+    const s = sol({ estado: 'cancelada', historial: [{ at: '2026-10-07T19:56:44Z', evento: 'cancelada', actor: 'a@b.c', motivo: 'ERROR DE FECHA' }] });
+    expect(accionesDe(s).find((a) => a.evento === 'cancelada')?.motivo).toBe('ERROR DE FECHA');
   });
 });

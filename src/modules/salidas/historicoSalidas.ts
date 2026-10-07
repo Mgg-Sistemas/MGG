@@ -20,6 +20,8 @@ export interface AccionSolicitud {
   actor: string;
   /** Cuándo (ISO). Puede venir vacío en filas viejas. */
   at: string;
+  /** Lo que escribió quien hizo la acción (el motivo de una cancelación, p. ej.). */
+  motivo?: string;
 }
 
 const limpio = (v: string | null | undefined): string => (v ?? '').trim();
@@ -37,7 +39,11 @@ const correo = (v: string | null | undefined): string => limpio(v).toLowerCase()
 export function accionesDe(s: SolicitudSalida): AccionSolicitud[] {
   const out: AccionSolicitud[] = (s.historial ?? [])
     .filter((e) => limpio(e?.actor))
-    .map((e) => ({ evento: limpio(e.evento), actor: limpio(e.actor), at: limpio(e.at) }));
+    .map((e) => {
+      const a: AccionSolicitud = { evento: limpio(e.evento), actor: limpio(e.actor), at: limpio(e.at) };
+      if (limpio(e.motivo)) a.motivo = limpio(e.motivo);
+      return a;
+    });
 
   const yaEsta = (evento: string, actor: string) =>
     out.some((a) => a.evento.startsWith(evento) && correo(a.actor) === correo(actor));
@@ -98,6 +104,27 @@ export function verboEvento(evento: string): string {
     cancelada: 'Canceló', editada: 'Editó',
   };
   return verbos[e] ?? etiquetaEvento(evento);
+}
+
+/** Quién canceló la solicitud, cuándo y por qué. */
+export interface CancelacionSolicitud {
+  at: string;
+  actor: string;
+  motivo: string;
+}
+
+/**
+ * La cancelación de una solicitud, sacada de su historial (el último evento
+ * «cancelada»). El motivo que se escribe al cancelar se guardaba ahí desde
+ * siempre, pero ninguna pantalla lo leía (07-10-2026: «se acaba de cancelar
+ * una con motivo y no se refleja»). Null si no está cancelada.
+ */
+export function cancelacionDe(s: Pick<SolicitudSalida, 'estado' | 'historial'>): CancelacionSolicitud | null {
+  if (s.estado !== 'cancelada') return null;
+  const evs = (s.historial ?? []).filter((e) => limpio(e?.evento).toLowerCase() === 'cancelada');
+  const e = evs[evs.length - 1];
+  if (!e) return { at: '', actor: '', motivo: '' };
+  return { at: limpio(e.at), actor: limpio(e.actor), motivo: limpio(e.motivo) };
 }
 
 /** Cuántas filas del histórico se muestran de una vez (el resto, con «ver más»). */
