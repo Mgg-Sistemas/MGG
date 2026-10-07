@@ -194,25 +194,48 @@ export function UsuariosPage() {
         <RolesPermisosPanel readOnly={!canWrite} onRolesChanged={refresh} />
       ) : (
       <>
+      {/* Tarjetas dinámicas (07-10-2026): al tocarlas se ve la información.
+          Activos / deshabilitados filtran la lista (tocar de nuevo quita el
+          filtro); archivados abre su ventana. */}
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-        <div className="kpi">
+        <button
+          type="button"
+          className="kpi"
+          onClick={() => setFilterEstado((f) => (f === 'activo' ? '' : 'activo'))}
+          aria-pressed={filterEstado === 'activo'}
+          title={filterEstado === 'activo' ? 'Quitar el filtro' : 'Ver solo los usuarios activos'}
+          style={{ textAlign: 'left', cursor: 'pointer', width: '100%', outline: filterEstado === 'activo' ? '2px solid var(--primary)' : undefined }}
+        >
           <div className="label">Usuarios activos</div>
           <div className="value">{activos}</div>
-          <div className="delta">Con acceso al sistema</div>
+          <div className="delta">{filterEstado === 'activo' ? '● Mostrando solo activos · tocá para ver todos' : 'Con acceso al sistema · tocá para verlos'}</div>
           <div className="icon">✓</div>
-        </div>
-        <div className="kpi">
+        </button>
+        <button
+          type="button"
+          className="kpi"
+          onClick={() => setFilterEstado((f) => (f === 'inactivo' ? '' : 'inactivo'))}
+          aria-pressed={filterEstado === 'inactivo'}
+          title={filterEstado === 'inactivo' ? 'Quitar el filtro' : 'Ver solo los usuarios deshabilitados'}
+          style={{ textAlign: 'left', cursor: 'pointer', width: '100%', outline: filterEstado === 'inactivo' ? '2px solid var(--danger)' : undefined }}
+        >
           <div className="label">Usuarios deshabilitados</div>
           <div className="value">{inactivos}</div>
-          <div className="delta down">No pueden ingresar</div>
+          <div className="delta down">{filterEstado === 'inactivo' ? '● Mostrando solo deshabilitados · tocá para ver todos' : 'No pueden ingresar · tocá para verlos'}</div>
           <div className="icon">⛔</div>
-        </div>
-        <div className="kpi">
+        </button>
+        <button
+          type="button"
+          className="kpi"
+          onClick={() => setModal({ kind: 'archivados' })}
+          title="Abrir la lista de usuarios archivados"
+          style={{ textAlign: 'left', cursor: 'pointer', width: '100%' }}
+        >
           <div className="label">Usuarios archivados</div>
           <div className="value">{archivados}</div>
-          <div className="delta">Fuera de la lista principal</div>
+          <div className="delta">Fuera de la lista principal · tocá para verlos</div>
           <div className="icon">🗂</div>
-        </div>
+        </button>
       </div>
 
       <div className="filterbar" style={{ marginTop: '1rem' }}>
