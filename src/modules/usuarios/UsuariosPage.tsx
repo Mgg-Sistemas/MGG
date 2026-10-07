@@ -12,7 +12,7 @@ import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import {
   crearUsuario,
   actualizarUsuario,
-  cambiaNombre, listHistorialNombres, MOTIVO_NOMBRE_MINIMO, type CambioNombreUsuario,
+  cambiaNombre, listHistorialNombres, listHistorialNombresTodos, MOTIVO_NOMBRE_MINIMO, type CambioNombreUsuario,
   archivarUsuario,
   labelRol,
   listUsuarios,
@@ -31,6 +31,7 @@ import { RolesPermisosPanel } from './RolesPermisosPanel';
 import { NuevoRolModal, GestionarRolesModal } from './RolesModales';
 import { ResumenActividadModal } from './ResumenActividadModal';
 import { UsuariosArchivadosModal } from './UsuariosArchivadosModal';
+import { HistorialNombresModal } from './HistorialNombresModal';
 import { estaArchivado, puedeArchivarse } from './usuariosArchivados';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -49,6 +50,7 @@ type ModalKind =
   | { kind: 'archive-confirm'; usuario: Usuario }
   | { kind: 'archivados' }
   | { kind: 'actividad' }
+  | { kind: 'historial-nombres' }
   | { kind: 'clave'; email: string; clave: string | null; motivo: 'creado' | 'reseteado' };
 
 type RoleQuickModal = 'none' | 'crear' | 'gestionar';
@@ -58,6 +60,17 @@ export function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [loading, setLoading] = useState(true);
+  // Historial de renombres de todos los usuarios (07-10-2026): se ve en la fila,
+  // en el detalle y en el botón 📜 de arriba.
+  const [historialNombres, setHistorialNombres] = useState<CambioNombreUsuario[]>([]);
+  const cargarHistorialNombres = useCallback(() => { listHistorialNombresTodos().then(setHistorialNombres).catch(() => undefined); }, []);
+  useEffect(() => { cargarHistorialNombres(); }, [cargarHistorialNombres]);
+  useRealtime(['usuarios_nombre_historial'], cargarHistorialNombres);
+  const ultimoRenombre = useMemo(() => {
+    const m = new Map<string, CambioNombreUsuario>();
+    for (const h of historialNombres) if (!m.has(h.usuario_id)) m.set(h.usuario_id, h);
+    return m;
+  }, [historialNombres]);
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
   // Pre-carga el filtro si se llega desde la búsqueda global (?buscar=…).
@@ -245,6 +258,13 @@ export function UsuariosPage() {
         >
           📊 Resumen de Actividad
         </button>
+        <button
+          className="btn btn-ghost"
+          onClick={() => setModal({ kind: 'historial-nombres' })}
+          title="Cuándo se le cambió el nombre a cada usuario, de qué a qué, por qué y quién lo hizo"
+        >
+          📜 Historial de nombres{historialNombres.length ? ` (${historialNombres.length})` : ''}
+        </button>
         {canWrite && (
           <button
             className="btn btn-primary"
@@ -280,6 +300,11 @@ export function UsuariosPage() {
                 <tr key={u.id}>
                   <td>
                     <strong>{[u.nombre, u.apellido].filter(Boolean).join(' ') || u.nombre}</strong>
+                    {ultimoRenombre.get(u.id) && (
+                      <div className="muted" style={{ fontSize: '.7rem' }} title={`Renombrado el ${dateTime(ultimoRenombre.get(u.id)!.created_at)} · ${ultimoRenombre.get(u.id)!.motivo}`}>
+                        📜 antes: {ultimoRenombre.get(u.id)!.nombre_anterior}
+                      </div>
+                    )}
                     {u.must_change_password && (
                       <div className="muted" style={{ fontSize: '.7rem' }}>
                         ⚠ Debe cambiar clave al ingresar
@@ -319,6 +344,10 @@ export function UsuariosPage() {
 
       {modal.kind === 'actividad' && (
         <ResumenActividadModal onClose={() => setModal({ kind: 'none' })} />
+      )}
+
+      {modal.kind === 'historial-nombres' && (
+        <HistorialNombresModal historial={historialNombres} onClose={() => setModal({ kind: 'none' })} />
       )}
 
       {modal.kind === 'create' && (
@@ -1308,9 +1337,9 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, o
         <div className="k">Nombre completo</div>
         <div className="v">
           {[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}
-          {historialNombres.length > 0 && (
-            <div style={{ marginTop: '.4rem' }}>
+          <div style={{ marginTop: '.4rem' }}>
               <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '.25rem' }}>📜 Historial de cambios de nombre</div>
+              {historialNombres.length === 0 && <small className="muted">Sin cambios de nombre.</small>}
               <div style={{ display: 'grid', gap: '.3rem' }}>
                 {historialNombres.map((h) => (
                   <div key={h.id} className="card" style={{ margin: 0, padding: '.45rem .65rem', fontSize: '.82rem' }}>
@@ -1321,9 +1350,8 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, o
                   </div>
                 ))}
               </div>
-              <small className="hint muted">Lo registrado con cada nombre anterior se sigue mostrando con ese nombre.</small>
+              {historialNombres.length > 0 && <small className="hint muted">Lo registrado con cada nombre anterior se sigue mostrando con ese nombre.</small>}
             </div>
-          )}
         </div>
       </div>
       <div className="detail-row">

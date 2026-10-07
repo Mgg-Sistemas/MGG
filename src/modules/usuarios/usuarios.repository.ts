@@ -175,6 +175,13 @@ export function cambiaNombre(actual: { nombre?: string | null; apellido?: string
   return nombreCompleto(actual) !== nombreCompleto(nuevo);
 }
 
+/** Todo el historial de renombres, del más nuevo al más viejo. */
+export async function listHistorialNombresTodos(): Promise<CambioNombreUsuario[]> {
+  const { data, error } = await supabase.from('usuarios_nombre_historial').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as CambioNombreUsuario[];
+}
+
 export async function listHistorialNombres(usuarioId: string): Promise<CambioNombreUsuario[]> {
   const { data, error } = await supabase.from('usuarios_nombre_historial').select('*')
     .eq('usuario_id', usuarioId).order('created_at', { ascending: false });
