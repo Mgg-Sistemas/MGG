@@ -12,6 +12,7 @@ import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import {
   crearUsuario,
   actualizarUsuario,
+  cambiaNombre, listHistorialNombres, MOTIVO_NOMBRE_MINIMO, type CambioNombreUsuario,
   archivarUsuario,
   labelRol,
   listUsuarios,
@@ -806,6 +807,12 @@ function UsuarioEditModal({
   const [sedesAsignadas, setSedesAsignadas] = useState<string[]>(usuario.sedes_asignadas ?? []);
   const [almacenRecepcion, setAlmacenRecepcion] = useState<string>(usuario.almacen_recepcion ?? '');
   const [submitting, setSubmitting] = useState(false);
+  // Renombre: lo hecho con el nombre viejo se conserva; el cambio queda en el
+  // historial con su motivo (07-10-2026).
+  const [motivoNombre, setMotivoNombre] = useState('');
+  const renombra = cambiaNombre(usuario, { nombre, apellido });
+  const { user: sesion } = useSession();
+  const { appUser: yo } = usePermissions();
 
   useEffect(() => {
     if (recientementeCreado && roles.some((r) => r.key === recientementeCreado)) {
@@ -825,6 +832,10 @@ function UsuarioEditModal({
       toast('El correo no es válido', 'error');
       return;
     }
+    if (renombra && motivoNombre.trim().length < MOTIVO_NOMBRE_MINIMO) {
+      toast('Indicá el motivo del cambio de nombre', 'error');
+      return;
+    }
     setSubmitting(true);
     try {
       await actualizarUsuario(usuario.id, {
@@ -836,6 +847,8 @@ function UsuarioEditModal({
         role,
         sedes_asignadas: sedesAsignadas,
         almacen_recepcion: sedesAsignadas.length ? almacenRecepcion : null,
+        motivo_cambio_nombre: renombra ? motivoNombre.trim() : null,
+        cambiado_por: { email: sesion?.email ?? 'sistema', nombre: yo?.nombre ?? null },
       });
       // El correo es la identidad de login: se cambia vía Edge Function (solo admin),
       // que actualiza Auth + la tabla usuarios.
@@ -882,6 +895,17 @@ function UsuarioEditModal({
             disabled={submitting}
           />
         </div>
+        {renombra && (
+          <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+            <label>Motivo del cambio de nombre *</label>
+            <input className="input" value={motivoNombre} onChange={(e) => setMotivoNombre(e.target.value)} disabled={submitting}
+              placeholder="Ej.: estaba mal escrito, cambio legal de apellido…" />
+            <small className="hint muted">
+              Pasa de <strong>{[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}</strong> a <strong>{`${nombre.trim()} ${apellido.trim()}`.trim()}</strong>.
+              Lo que ya hizo con el nombre anterior se sigue mostrando con ese nombre; el cambio queda en el historial del usuario.
+            </small>
+          </div>
+        )}
         <div className="form-row" style={{ gridColumn: '1 / -1' }}>
           <label>Correo <span className="muted" style={{ fontWeight: 400 }}>(correo de inicio de sesión)</span></label>
           <input
@@ -1240,6 +1264,13 @@ interface UsuarioDetailModalProps {
 }
 function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, onToggleEstado, onArchivar, onEdit }: UsuarioDetailModalProps) {
   const isActive = usuario.estado === 'activo';
+  // Historial de nombres: de qué a qué, cuándo, por qué y quién (07-10-2026).
+  const [historialNombres, setHistorialNombres] = useState<CambioNombreUsuario[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    listHistorialNombres(usuario.id).then((h) => { if (vivo) setHistorialNombres(h); }).catch(() => undefined);
+    return () => { vivo = false; };
+  }, [usuario.id, usuario.nombre, usuario.apellido]);
   return (
     <Modal
       title={`Usuario · ${[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}`}
@@ -1275,7 +1306,25 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, o
     >
       <div className="detail-row">
         <div className="k">Nombre completo</div>
-        <div className="v">{[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}</div>
+        <div className="v">
+          {[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}
+          {historialNombres.length > 0 && (
+            <div style={{ marginTop: '.4rem' }}>
+              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '.25rem' }}>📜 Historial de cambios de nombre</div>
+              <div style={{ display: 'grid', gap: '.3rem' }}>
+                {historialNombres.map((h) => (
+                  <div key={h.id} className="card" style={{ margin: 0, padding: '.45rem .65rem', fontSize: '.82rem' }}>
+                    <div><strong>{h.nombre_anterior}</strong> → <strong>{h.nombre_nuevo}</strong></div>
+                    <div className="muted" style={{ fontSize: '.76rem' }}>
+                      {dateTime(h.created_at)} · por {h.cambiado_por_nombre || h.cambiado_por || '—'} · Motivo: {h.motivo}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <small className="hint muted">Lo registrado con cada nombre anterior se sigue mostrando con ese nombre.</small>
+            </div>
+          )}
+        </div>
       </div>
       <div className="detail-row">
         <div className="k">CI</div>

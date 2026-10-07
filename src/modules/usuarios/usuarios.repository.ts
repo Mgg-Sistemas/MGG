@@ -144,10 +144,76 @@ export interface ActualizarUsuarioInput {
   sedes_asignadas?: string[] | null;
   /** Almacén destino por defecto al recepcionar compras. */
   almacen_recepcion?: string | null;
+  /** Obligatorio si cambia el nombre o el apellido: por qué se renombra (queda en el historial). */
+  motivo_cambio_nombre?: string | null;
+  /** Quién hace el cambio (para el historial de nombres). */
+  cambiado_por?: { email: string; nombre?: string | null } | null;
 }
 
-/** Actualiza datos editables del usuario (no toca email ni password). */
+/** Una línea del historial de nombres de un usuario. */
+export interface CambioNombreUsuario {
+  id: string;
+  usuario_id: string;
+  email: string;
+  nombre_anterior: string;
+  nombre_nuevo: string;
+  motivo: string;
+  cambiado_por: string | null;
+  cambiado_por_nombre: string | null;
+  created_at: string;
+}
+
+export const MOTIVO_NOMBRE_MINIMO = 3;
+
+/** «Nombre Apellido» tal como se muestra en todo el sistema. */
+export function nombreCompleto(u: { nombre?: string | null; apellido?: string | null }): string {
+  return `${u.nombre ?? ''} ${u.apellido ?? ''}`.replace(/\s+/g, ' ').trim();
+}
+
+/** ¿El cambio renombra a la persona? Compara «Nombre Apellido» sin espacios de más. */
+export function cambiaNombre(actual: { nombre?: string | null; apellido?: string | null }, nuevo: { nombre?: string | null; apellido?: string | null }): boolean {
+  return nombreCompleto(actual) !== nombreCompleto(nuevo);
+}
+
+export async function listHistorialNombres(usuarioId: string): Promise<CambioNombreUsuario[]> {
+  const { data, error } = await supabase.from('usuarios_nombre_historial').select('*')
+    .eq('usuario_id', usuarioId).order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as CambioNombreUsuario[];
+}
+
+/**
+ * Actualiza datos editables del usuario (no toca email ni password).
+ * Si cambia el nombre o el apellido, exige el motivo y deja una línea en el
+ * historial de nombres (de qué a qué, cuándo, por qué y quién).
+ */
 export async function actualizarUsuario(id: string, input: ActualizarUsuarioInput): Promise<void> {
+  // Renombre: se compara contra lo que hay HOY en la base, no contra la pantalla.
+  let cambioNombre: { anterior: string; nuevo: string; email: string } | null = null;
+  if (input.nombre != null || input.apellido != null) {
+    const { data: actual } = await supabase.from(TABLE).select('email, nombre, apellido').eq('id', id).maybeSingle();
+    if (actual) {
+      const nuevo = { nombre: input.nombre ?? actual.nombre, apellido: input.apellido ?? actual.apellido };
+      if (cambiaNombre(actual, nuevo)) {
+        const motivo = (input.motivo_cambio_nombre ?? '').trim();
+        if (motivo.length < MOTIVO_NOMBRE_MINIMO) throw new Error('Para cambiar el nombre del usuario hay que indicar el motivo.');
+        cambioNombre = { anterior: nombreCompleto(actual), nuevo: nombreCompleto(nuevo), email: String(actual.email ?? '') };
+      }
+    }
+  }
+  await actualizarUsuarioFila(id, input);
+  if (cambioNombre) {
+    const { error } = await supabase.from('usuarios_nombre_historial').insert({
+      usuario_id: id, email: cambioNombre.email,
+      nombre_anterior: cambioNombre.anterior, nombre_nuevo: cambioNombre.nuevo,
+      motivo: (input.motivo_cambio_nombre ?? '').trim(),
+      cambiado_por: input.cambiado_por?.email ?? null, cambiado_por_nombre: input.cambiado_por?.nombre ?? null,
+    });
+    if (error) throw new Error(`El usuario se renombró, pero no se pudo guardar el historial del cambio: ${error.message}`);
+  }
+}
+
+async function actualizarUsuarioFila(id: string, input: ActualizarUsuarioInput): Promise<void> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.nombre != null) payload.nombre = input.nombre.trim();
   if (input.apellido != null) payload.apellido = input.apellido.trim();

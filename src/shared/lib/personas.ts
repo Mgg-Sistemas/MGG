@@ -16,11 +16,62 @@ export async function cargarPersonasPorEmail(): Promise<Map<string, string>> {
   return map;
 }
 
-/** Resuelve un correo a "Nombre Apellido"; si no hay usuario, usa el respaldo o el propio correo. */
-export function personaDe(email: string | null | undefined, map: Map<string, string>, respaldo?: string | null): string {
+/* ─── Historial de nombres (07-10-2026) ───
+   Cuando a un usuario se le cambia el nombre, lo que hizo ANTES tiene que
+   seguir diciendo el nombre de entonces. Los documentos ya sellan el nombre al
+   nacer; las pantallas que resuelven el correo en vivo miran este historial:
+   «¿cómo se llamaba este correo en tal fecha?». */
+
+export interface CambioNombre {
+  email: string;
+  nombre_anterior: string;
+  nombre_nuevo: string;
+  motivo?: string | null;
+  created_at: string;
+}
+
+/** Mapa de personas que además carga el historial de renombres (opcional). */
+export type PersonasMap = Map<string, string> & { historial?: CambioNombre[] };
+
+export async function cargarHistorialNombres(): Promise<CambioNombre[]> {
+  const { data } = await supabase.from('usuarios_nombre_historial')
+    .select('email, nombre_anterior, nombre_nuevo, motivo, created_at')
+    .order('created_at', { ascending: true });
+  return (data ?? []) as CambioNombre[];
+}
+
+/** El mapa de personas con el historial pegado, para resolver por fecha. */
+export async function cargarPersonasConHistorial(): Promise<PersonasMap> {
+  const [map, historial] = await Promise.all([cargarPersonasPorEmail(), cargarHistorialNombres().catch(() => [] as CambioNombre[])]);
+  return Object.assign(map, { historial }) as PersonasMap;
+}
+
+/**
+ * Cómo se llamaba un correo en una fecha dada. Si después de esa fecha hubo
+ * renombres, vale el nombre ANTERIOR del primero de ellos; si no, el actual.
+ */
+export function nombreEnFecha(
+  email: string | null | undefined, fecha: string | null | undefined, historial: CambioNombre[] | undefined, actual: string | null | undefined,
+): string | null {
+  const e = (email ?? '').trim().toLowerCase();
+  if (!e || !fecha || !historial?.length) return actual ?? null;
+  const t = new Date(fecha).getTime();
+  if (!Number.isFinite(t)) return actual ?? null;
+  const posteriores = historial
+    .filter((h) => h.email.toLowerCase() === e && new Date(h.created_at).getTime() > t)
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  return posteriores.length ? posteriores[0].nombre_anterior : (actual ?? null);
+}
+
+/**
+ * Resuelve un correo a "Nombre Apellido"; si no hay usuario, usa el respaldo o
+ * el propio correo. Con `fecha` (y un mapa con historial) devuelve el nombre
+ * que la persona tenía en esa fecha.
+ */
+export function personaDe(email: string | null | undefined, map: PersonasMap, respaldo?: string | null, fecha?: string | null): string {
   const e = (email ?? '').trim();
   if (e) {
-    const nom = map.get(e.toLowerCase());
+    const nom = nombreEnFecha(e, fecha, map.historial, map.get(e.toLowerCase()));
     if (nom) return nom;
   }
   return (respaldo && respaldo.trim()) || e || '—';

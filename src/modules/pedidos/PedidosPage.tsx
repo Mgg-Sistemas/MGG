@@ -110,6 +110,7 @@ import { SolicitudMercadoModal } from './SolicitudMercadoModal';
 // (al generar) para no cargar jsPDF al abrir Pedidos.
 import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
+import { cargarHistorialNombres, nombreEnFecha, type CambioNombre, type PersonasMap } from '@/shared/lib/personas';
 import { PendientesPorPagarModal } from './PendientesPorPagarModal';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
@@ -259,6 +260,12 @@ export function PedidosPage() {
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [proveedoresAll, setProveedoresAll] = useState<Proveedor[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  // Historial de renombres de usuarios: lo hecho con el nombre viejo se muestra
+  // con el nombre viejo (07-10-2026).
+  const [historialNombres, setHistorialNombres] = useState<CambioNombre[]>([]);
+  const cargarHistorial = useCallback(() => { cargarHistorialNombres().then(setHistorialNombres).catch(() => undefined); }, []);
+  useEffect(() => { cargarHistorial(); }, [cargarHistorial]);
+  useRealtime(['usuarios_nombre_historial'], cargarHistorial);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -371,9 +378,12 @@ export function PedidosPage() {
     [proveedoresAll]
   );
   // email → "Nombre Apellido" para mostrar personas en vez del correo.
-  const personaMap = useMemo(
-    () => new Map(usuarios.map((u) => [u.email.toLowerCase(), `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email])),
-    [usuarios]
+  const personaMap = useMemo<PersonasMap>(
+    () => Object.assign(
+      new Map(usuarios.map((u) => [u.email.toLowerCase(), `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email])),
+      { historial: historialNombres },
+    ),
+    [usuarios, historialNombres]
   );
 
   // Admin o quien tenga FULL CONTROL de Pedidos/Compras puede hacer todo en el módulo.
@@ -2120,7 +2130,7 @@ function OrdenesTable({ ordenes, proveedorMap, personaMap, canManageProcurement,
                   )}
                 </td>
                 <td>
-                  <div>{quienSolicita(o) ?? persona(o.solicitante_email, personaMap)}</div>
+                  <div>{quienSolicita(o) ?? persona(o.solicitante_email, personaMap, o.created_at)}</div>
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{o.items.length}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(o.total, o.moneda)}</td>
@@ -2843,7 +2853,7 @@ function OrdenDetailModal({
       <div className="detail-row">
         <div className="k">Cargada por</div>
         <div className="v">
-          {o.solicitante_persona ?? persona(o.solicitante_email, personaMap)}
+          {o.solicitante_persona ?? persona(o.solicitante_email, personaMap, o.created_at)}
         </div>
       </div>
       <div className="detail-row">
@@ -2860,7 +2870,7 @@ function OrdenDetailModal({
         <div className="detail-row">
           <div className="k">Aprobada</div>
           <div className="v">
-            {dateTime(o.aprobada_en)} <span className="muted">por {persona(o.aprobada_por, personaMap)}</span>
+            {dateTime(o.aprobada_en)} <span className="muted">por {persona(o.aprobada_por, personaMap, o.aprobada_en)}</span>
           </div>
         </div>
       )}
@@ -2879,13 +2889,13 @@ function OrdenDetailModal({
       {o.oc_creada_en && (
         <div className="detail-row">
           <div className="k">OC creada</div>
-          <div className="v">{dateTime(o.oc_creada_en)} <span className="muted">por {persona(o.oc_creada_por, personaMap)}</span></div>
+          <div className="v">{dateTime(o.oc_creada_en)} <span className="muted">por {persona(o.oc_creada_por, personaMap, o.oc_creada_en)}</span></div>
         </div>
       )}
       {o.oc_aprobada_en && (
         <div className="detail-row">
           <div className="k">OC confirmada</div>
-          <div className="v">{dateTime(o.oc_aprobada_en)} <span className="muted">por {persona(o.oc_aprobada_por, personaMap)}</span></div>
+          <div className="v">{dateTime(o.oc_aprobada_en)} <span className="muted">por {persona(o.oc_aprobada_por, personaMap, o.oc_aprobada_en)}</span></div>
         </div>
       )}
       {o.oc_codigo && (
@@ -2957,7 +2967,7 @@ function OrdenDetailModal({
                 {labelMetodoPago(m.metodo)} · {m.monto > 0 ? `${money(m.monto)} ${m.moneda}` : m.moneda}
               </div>
             ))}
-            {o.metodo_pago_en && <span className="muted" style={{ fontSize: '.74rem' }}>indicado {dateTime(o.metodo_pago_en)} por {persona(o.metodo_pago_por, personaMap)}</span>}
+            {o.metodo_pago_en && <span className="muted" style={{ fontSize: '.74rem' }}>indicado {dateTime(o.metodo_pago_en)} por {persona(o.metodo_pago_por, personaMap, o.metodo_pago_en)}</span>}
           </div>
         </div>
       )}
@@ -2981,7 +2991,7 @@ function OrdenDetailModal({
         <div className="detail-row">
           <div className="k">Recepción</div>
           <div className="v">
-            {dateTime(o.recibida_en)} <span className="muted">por {persona(o.recibida_por, personaMap)}</span>
+            {dateTime(o.recibida_en)} <span className="muted">por {persona(o.recibida_por, personaMap, o.recibida_en)}</span>
             {o.recibido_total != null && <div className="mono" style={{ fontSize: '.84rem' }}>Total recibido: {money(o.recibido_total, o.moneda)}{o.recibido_total < o.total && <span className="muted"> · de {money(o.total, o.moneda)}</span>}</div>}
           </div>
         </div>
@@ -3001,7 +3011,7 @@ function OrdenDetailModal({
       {o.pagada_en && (
         <div className="detail-row">
           <div className="k">Pagada</div>
-          <div className="v">{dateTime(o.pagada_en)} <span className="muted">por {persona(o.pagada_por, personaMap)}</span></div>
+          <div className="v">{dateTime(o.pagada_en)} <span className="muted">por {persona(o.pagada_por, personaMap, o.pagada_en)}</span></div>
         </div>
       )}
       {o.motivo && (
@@ -3533,9 +3543,10 @@ function EnviarPorCorreoModal({
 }
 
 /** Muestra el nombre de la persona a partir de su email; si no está, el propio email. */
-function persona(email: string | null | undefined, map: Map<string, string>): string {
+/** Correo → nombre. Con `fecha`, el nombre que la persona tenía ese día (historial de renombres). */
+function persona(email: string | null | undefined, map: PersonasMap, fecha?: string | null): string {
   if (!email) return '—';
-  return map.get(email.toLowerCase()) ?? email;
+  return nombreEnFecha(email, fecha, map.historial, map.get(email.toLowerCase())) ?? email;
 }
 
 function Timeline({
@@ -3579,7 +3590,7 @@ function Timeline({
                   📄 Documentos: {h.documentos.join(' · ')}
                 </div>
               )}
-              <div className="tl-meta">{dateTime(h.at)} · {persona(h.actor, personaMap)}</div>
+              <div className="tl-meta">{dateTime(h.at)} · {persona(h.actor, personaMap, h.at)}</div>
             </div>
           </div>
         );
