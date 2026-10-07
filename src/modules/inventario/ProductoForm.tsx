@@ -20,6 +20,7 @@ import {
 import { listAlmacenes, crearAlmacen } from './almacenes.repository';
 import { useSectorizacion } from './useSectorizacion';
 import { normalizarNombre, productosSimilares, type Duplicado } from './duplicados';
+import { pideFactor } from '@/modules/pedidos/unidadCompra';
 
 interface ProductoFormProps {
   producto: Producto | null; // null => crear
@@ -375,8 +376,9 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
       // Unidades líquidas (litros) no usan el texto de presentación por bulto.
       presentacion: esUnidadLiquida(form.unidad) ? null : (form.presentacion.trim() || null),
       // El factor vale también para líquidos: un CUÑETE trae 5 GALONES (05-10-2026).
-      unidades_empaque: form.unidades_empaque.trim() === '' ? null : Math.max(0, Number(form.unidades_empaque)) || null,
-      unidad_compra: form.unidad_compra.trim().replace(/s+/g, ' ').toUpperCase() || null,
+      // Si se «compra en» la misma medida de uso (KG en KG), no hay presentación: queda vacío.
+      unidades_empaque: !pideFactor(form.unidad_compra, form.unidad) ? null : (form.unidades_empaque.trim() === '' ? null : Math.max(0, Number(form.unidades_empaque)) || null),
+      unidad_compra: pideFactor(form.unidad_compra, form.unidad) ? form.unidad_compra.trim().replace(/\s+/g, ' ').toUpperCase() : null,
       receta_fundicion: form.esReceta && form.receta_fundicion ? (form.receta_fundicion as RecetaFundicion) : null,
       // Marcar receta no se des-marca al editar (lo añade el toggle o el alta desde fundición).
       es_receta: form.esReceta || (producto?.es_receta ?? false),
@@ -800,6 +802,16 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               La medida en que lo vende el proveedor. Vacío = se compra en {form.unidad || 'la unidad de uso'}.
             </small>
           </div>
+          {/* El factor solo tiene sentido cuando la medida de compra es OTRA (BULTO → KG).
+              Si es la misma (KG en KG), no se pregunta nada. */}
+          {form.unidad_compra.trim() && !pideFactor(form.unidad_compra, form.unidad) ? (
+            <div className="form-row">
+              <label>Equivalencia</label>
+              <small className="hint muted" style={{ fontSize: '.78rem' }}>
+                ✓ <strong>{form.unidad_compra.trim().toUpperCase()}</strong> es la misma medida de uso: se compra y se guarda en {form.unidad || 'la misma unidad'}, sin conversión.
+              </small>
+            </div>
+          ) : (
           <div className="form-row">
             <label>{form.unidad_compra.trim() ? `¿Cuántas ${form.unidad || 'unidades'} trae cada ${form.unidad_compra.trim().toUpperCase()}?` : 'Unidades por caja/bulto (opcional)'}</label>
             <input
@@ -810,7 +822,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
               value={form.unidades_empaque}
               onChange={(e) => update('unidades_empaque', e.target.value)}
               placeholder="Ej: 50"
-              required={!!form.unidad_compra.trim()}
+              required={pideFactor(form.unidad_compra, form.unidad)}
             />
             <small className="hint muted" style={{ fontSize: '.72rem' }}>
               {form.unidad_compra.trim() && Number(form.unidades_empaque) > 0
@@ -818,6 +830,7 @@ export function ProductoForm({ producto, productos = [], existencias = [], onUsa
                 : <>El inventario se guarda siempre en {form.unidad || 'unidades'}.</>}
             </small>
           </div>
+          )}
         </div>
 
         {/* ── Detalle del producto (identificación física, todo opcional) ── */}

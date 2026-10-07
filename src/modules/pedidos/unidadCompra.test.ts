@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  cambiarPresentacion, cantidadCompraPara, cantidadEnUso, costoPorUnidadDeUso, factorDe,
-  presentacionSugerida, textoCantidadCompra, textoEquivalencia, usaUnidadCompra,
+  cambiarPresentacion, cantidadCompraPara, cantidadEnUso, costoPorUnidadDeUso, factorDe, mismaUnidad, pideFactor,
+  presentacionSugerida, textoCantidadCompra, textoEquivalencia, unidadCanonica, usaUnidadCompra,
 } from './unidadCompra';
 
 const azucar = { unidad: 'KILOGRAMO', unidad_compra: 'BULTO', factor_compra: 50 };
@@ -49,5 +49,31 @@ describe('unidad de compra vs unidad de uso', () => {
   it('misma unidad con factor 1 no es conversión', () => {
     expect(usaUnidadCompra({ unidad: 'GALON', unidad_compra: 'galon', factor_compra: 1 })).toBe(false);
     expect(usaUnidadCompra({ unidad: 'GALON', unidad_compra: 'CUÑETE', factor_compra: 5 })).toBe(true);
+  });
+});
+
+describe('misma medida de compra y de uso (07-10-2026)', () => {
+  it('reconoce sinónimos: KG = KILO = KILOGRAMO, LT = LITRO, GR = GRAMO, PAR = PARES', () => {
+    expect(unidadCanonica('kg')).toBe('KILOGRAMO');
+    expect(mismaUnidad('KG', 'Kilogramo')).toBe(true);
+    expect(mismaUnidad('lt', 'LITROS')).toBe(true);
+    expect(mismaUnidad('gr', 'GRAMO')).toBe(true);
+    expect(mismaUnidad('PAR', 'pares')).toBe(true);
+    expect(mismaUnidad('BULTO', 'KILOGRAMO')).toBe(false);
+    expect(mismaUnidad('', 'KILOGRAMO')).toBe(false);
+  });
+  it('no pide factor cuando se compra en la misma medida de uso', () => {
+    expect(pideFactor('KILOGRAMO', 'KILOGRAMO')).toBe(false);
+    expect(pideFactor('kg', 'KILOGRAMO')).toBe(false);
+    expect(pideFactor('BULTO', 'KILOGRAMO')).toBe(true);
+    expect(pideFactor('', 'KILOGRAMO')).toBe(false);
+  });
+  it('KG en KG entra tal cual, sin conversión ni factor, aunque alguien haya escrito un factor', () => {
+    const it = { unidad: 'KILOGRAMO', unidad_compra: 'KG', factor_compra: 50 };
+    expect(usaUnidadCompra(it)).toBe(false);
+    expect(factorDe(it)).toBe(1);
+    expect(cantidadEnUso(it, 10)).toBe(10);
+    expect(costoPorUnidadDeUso(it, 8)).toBe(8);
+    expect(textoCantidadCompra(it, 10)).toBe('10 KILOGRAMO');
   });
 });

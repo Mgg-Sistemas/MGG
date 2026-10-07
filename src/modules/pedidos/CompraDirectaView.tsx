@@ -19,7 +19,7 @@ import {
   urlAdjuntoCompra, gestionarFacturasCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
 } from './compras.repository';
 import { FacturasModal } from './FacturasModal';
-import { cantidadEnUso, costoPorUnidadDeUso, normalizarUnidad, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
+import { cantidadEnUso, costoPorUnidadDeUso, normalizarUnidad, pideFactor, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 import { contextoPresentaciones, recordarPresentaciones, sugerirPara } from './presentaciones.repository';
 import { DetalleDirectoModal } from './DetalleDirectoModal';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
@@ -419,10 +419,13 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
     for (const l of lineas) {
       const cant = Number(l.cantidad) || 0;
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
-      if (normalizarUnidad(l.unidadCompra) && !(Number(l.factorCompra) > 0)) { setError(`Indicá cuántas ${l.unidad || 'unidades'} trae cada ${normalizarUnidad(l.unidadCompra)}.`); return; }
+      // Solo se exige factor cuando se compra en OTRA medida (BULTO → KG); KG en KG no pregunta.
+      if (pideFactor(l.unidadCompra, l.unidad) && !(Number(l.factorCompra) > 0)) { setError(`Indicá cuántas ${l.unidad || 'unidades'} trae cada ${normalizarUnidad(l.unidadCompra)}.`); return; }
+      const ucLinea = pideFactor(l.unidadCompra, l.unidad) ? l.unidadCompra : '';
+      const factorLinea = ucLinea ? (Number(l.factorCompra) || null) : null;
       if (l.modo === 'existente') {
         if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
-        payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant, unidad_compra: l.unidadCompra, factor_compra: Number(l.factorCompra) || null });
+        payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant, unidad_compra: ucLinea, factor_compra: factorLinea });
         // Si tocaron la medida del producto existente, se actualiza en el inventario.
         const prod = activos.find((p) => p.id === l.productoId);
         const med = l.unidad.trim();
@@ -434,7 +437,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
         if (!l.nombre.trim()) { setError('Indicá el nombre del material nuevo.'); return; }
         const uni = l.unidad.trim() || 'und';
         const cat = l.categoria.trim();
-        payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: cat, unidad: uni, cantidad: cant, unidad_compra: l.unidadCompra, factor_compra: Number(l.factorCompra) || null });
+        payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: cat, unidad: uni, cantidad: cant, unidad_compra: ucLinea, factor_compra: factorLinea });
         if (cat && !tieneCat(cat)) nuevasCats.add(cat);
         if (uni && !tieneUni(uni)) nuevasUnis.add(uni);
       }
@@ -603,7 +606,11 @@ function MedidaCompraCampos({ linea, onChange }: { linea: LineaUI; onChange: (p:
         <datalist id="cd-unidades-compra">
           {['BULTO', 'CAJA', 'SACO', 'PAQUETE', 'CUÑETE', 'GALON', 'BIDON', 'TAMBOR', 'ROLLO', 'DOCENA', 'BOBINA', 'RESMA'].map((u) => <option key={u} value={u} />)}
         </datalist></div>
-      {uc && (
+      {uc && !pideFactor(uc, linea.unidad) && (
+        <div className="form-row"><label>Equivalencia</label>
+          <small className="hint muted" style={{ fontSize: '.78rem' }}>✓ <strong>{uc}</strong> es la misma medida de uso: entra en {linea.unidad || 'la misma unidad'}, sin conversión.</small></div>
+      )}
+      {uc && pideFactor(uc, linea.unidad) && (
         <div className="form-row"><label>¿Cuántas {linea.unidad || 'unidades'} trae cada {uc}?</label>
           <input className="input mono" type="number" min={0} step="any" value={linea.factorCompra} placeholder="Ej: 50"
             onChange={(e) => onChange({ factorCompra: e.target.value })} required />

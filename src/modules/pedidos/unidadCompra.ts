@@ -37,9 +37,42 @@ export function normalizarUnidad(u: string | null | undefined): string {
   return (u ?? '').toString().trim().replace(/\s+/g, ' ').toUpperCase();
 }
 
-/** El factor válido del renglón: > 0 y con unidad de compra; si no, 1 (se compra en la de uso). */
+/* Sinónimos de las medidas básicas (07-10-2026): KG, KILO y KILOGRAMO son la
+   misma unidad; LT, L y LITRO también. Si se «compra en KILOGRAMO» un producto
+   que se usa en KILOGRAMO, no hay conversión que hacer y no se pregunta
+   «¿cuántos kilogramos trae cada kilogramo?». */
+const SINONIMOS: Record<string, string> = {
+  KG: 'KILOGRAMO', KGS: 'KILOGRAMO', KILO: 'KILOGRAMO', KILOS: 'KILOGRAMO', KILOGRAMO: 'KILOGRAMO', KILOGRAMOS: 'KILOGRAMO',
+  GR: 'GRAMO', G: 'GRAMO', GRS: 'GRAMO', GRAMO: 'GRAMO', GRAMOS: 'GRAMO',
+  LT: 'LITRO', L: 'LITRO', LTS: 'LITRO', LITRO: 'LITRO', LITROS: 'LITRO',
+  ML: 'MILILITRO', MILILITRO: 'MILILITRO', MILILITROS: 'MILILITRO',
+  GAL: 'GALON', GALON: 'GALON', GALONES: 'GALON', 'GALÓN': 'GALON',
+  UND: 'UNIDAD', UN: 'UNIDAD', U: 'UNIDAD', UNID: 'UNIDAD', UNIDAD: 'UNIDAD', UNIDADES: 'UNIDAD', PZA: 'UNIDAD', PIEZA: 'UNIDAD', PIEZAS: 'UNIDAD',
+  PAR: 'PAR', PARES: 'PAR',
+  MT: 'METRO', M: 'METRO', MTS: 'METRO', METRO: 'METRO', METROS: 'METRO',
+  TON: 'TONELADA', TONELADA: 'TONELADA', TONELADAS: 'TONELADA',
+};
+
+/** La unidad «canónica»: KG, KILO y KILOGRAMO → KILOGRAMO. Lo desconocido queda como está. */
+export function unidadCanonica(u: string | null | undefined): string {
+  const n = normalizarUnidad(u).replace(/\.$/, '');
+  return SINONIMOS[n] ?? n;
+}
+
+/** ¿Son la misma medida (contando sinónimos)? Vacíos no cuentan. */
+export function mismaUnidad(a: string | null | undefined, b: string | null | undefined): boolean {
+  const ca = unidadCanonica(a); const cb = unidadCanonica(b);
+  return !!ca && !!cb && ca === cb;
+}
+
+/** ¿Hay que preguntar el factor? Solo cuando se compra en una medida DISTINTA a la de uso. */
+export function pideFactor(unidadCompra: string | null | undefined, unidadUso: string | null | undefined): boolean {
+  return !!normalizarUnidad(unidadCompra) && !mismaUnidad(unidadCompra, unidadUso);
+}
+
+/** El factor válido del renglón: > 0 y con unidad de compra distinta a la de uso; si no, 1. */
 export function factorDe(it: ConUnidadCompra | null | undefined): number {
-  if (!it || !normalizarUnidad(it.unidad_compra)) return 1;
+  if (!it || !pideFactor(it.unidad_compra, it.unidad)) return 1;
   const f = Number(it.factor_compra);
   return Number.isFinite(f) && f > 0 ? f : 1;
 }
@@ -48,7 +81,7 @@ export function factorDe(it: ConUnidadCompra | null | undefined): number {
 export function usaUnidadCompra(it: ConUnidadCompra | null | undefined): boolean {
   if (!it) return false;
   const uc = normalizarUnidad(it.unidad_compra);
-  if (!uc) return false;
+  if (!uc || mismaUnidad(uc, it.unidad)) return false;
   return factorDe(it) !== 1 || uc !== normalizarUnidad(it.unidad);
 }
 

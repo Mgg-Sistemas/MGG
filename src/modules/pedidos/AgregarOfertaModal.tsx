@@ -13,7 +13,7 @@ import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, C
 import { resincronizarOcDesdeOferta } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
-import { cantidadCompraPara, cantidadEnUso, costoPorUnidadDeUso, factorDe, normalizarUnidad, usaUnidadCompra } from './unidadCompra';
+import { cantidadCompraPara, cantidadEnUso, costoPorUnidadDeUso, factorDe, normalizarUnidad, pideFactor, usaUnidadCompra } from './unidadCompra';
 import { contextoPresentaciones, recordarPresentaciones, sugerirPara } from './presentaciones.repository';
 
 /** Estrellas ★ según un promedio 1–5. */
@@ -366,7 +366,8 @@ export function AgregarOfertaModal({
       toast('El precio en divisa efectivo debe ser menor al total BCV (es un descuento por pago en efectivo).', 'error');
       return;
     }
-    const sinFactor = items.find((i) => normalizarUnidad(i.unidad_compra) && !(Number(i.factor_compra) > 0));
+    // Solo se exige factor cuando se compra en OTRA medida (BULTO → KG); KG en KG no pregunta.
+    const sinFactor = items.find((i) => pideFactor(i.unidad_compra, i.unidad) && !(Number(i.factor_compra) > 0));
     if (sinFactor) {
       toast(`${sinFactor.nombre}: indicá cuántas ${sinFactor.unidad || 'unidades'} trae cada ${normalizarUnidad(sinFactor.unidad_compra)}.`, 'error');
       return;
@@ -375,10 +376,11 @@ export function AgregarOfertaModal({
     // Se quitan los campos locales (_rid/_variante) y se normaliza marca/modelo.
     const itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, _agregado, precioStr, precioUsdStr, _usoPedido, _ucTocada, ...rest }) => {
       void _rid; void _variante; void _agregado; void precioStr; void precioUsdStr; void _usoPedido; void _ucTocada;
-      const uc = normalizarUnidad(rest.unidad_compra);
+      // Unidad de compra: solo si es OTRA medida con su factor; si es la misma
+      // de uso (o vacía), se compra en la unidad de uso.
+      const uc = pideFactor(rest.unidad_compra, rest.unidad) ? normalizarUnidad(rest.unidad_compra) : '';
       return {
         ...rest,
-        // Unidad de compra: solo si hay medida y factor; si no, se compra en la unidad de uso.
         unidad_compra: uc || null,
         factor_compra: uc ? Number(rest.factor_compra) : null,
         // Precios de compra siempre a 2 decimales (evita colas largas al guardar).
@@ -758,7 +760,7 @@ export function AgregarOfertaModal({
                           <input className="input" style={{ width: 82, fontSize: '.78rem' }} list="oferta-unidades-compra"
                             placeholder={it.unidad || 'Unidad'} value={it.unidad_compra ?? ''}
                             onChange={(e) => updatePresentacion(idx, { unidad_compra: e.target.value })} />
-                          {normalizarUnidad(it.unidad_compra) && (
+                          {pideFactor(it.unidad_compra, it.unidad) && (
                             <>
                               <span className="muted" style={{ fontSize: '.72rem' }}>de</span>
                               <input type="number" className="input mono" style={{ width: 58, textAlign: 'right', fontSize: '.78rem' }} min={0} step="any"
