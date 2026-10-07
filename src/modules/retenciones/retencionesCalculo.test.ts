@@ -18,9 +18,15 @@ const concepto = (over: Partial<ConceptoRetencion>): ConceptoRetencion => ({
 
 describe('retención de IVA · Providencia SNAT/2015/0049', () => {
   it('quien no es contribuyente especial no retiene IVA', () => {
-    const r = calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, CONFIG_RETENCION_DEFECTO);
+    const noEspecial: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, esContribuyenteEspecial: false };
+    const r = calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, noEspecial);
     expect(r.montoRetenido).toBe(0);
     expect(r.explicacion).toContain('no está marcada como contribuyente especial');
+  });
+
+  it('MGG arranca como agente de retención de IVA (07-10-2026): el defecto retiene', () => {
+    expect(CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial).toBe(true);
+    expect(calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, CONFIG_RETENCION_DEFECTO).montoRetenido).toBe(120);
   });
 
   it('el contribuyente especial retiene el 75% del IVA', () => {

@@ -55,7 +55,9 @@ const primeroDelMes = () => `${new Date().toISOString().slice(0, 7)}-01`;
 export function LibroFiscalView({ canWrite, actor, actorName }: {
   canWrite: boolean; actor: string; actorName: string | null;
 }) {
-  const [direccion, setDireccion] = useState<'' | DireccionRetencion>('recibida');
+  // Desde el 07-10-2026 MGG retiene IVA: el libro abre en lo que la empresa
+  // practicó (lo que hay que enterar), que ahora es el trabajo del día a día.
+  const [direccion, setDireccion] = useState<'' | DireccionRetencion>('practicada');
   const [tipo, setTipo] = useState<'' | TipoImpuesto>('');
   const [estado, setEstado] = useState<'' | EstadoRetencion | 'anulada'>('');
   const [desde, setDesde] = useState(primeroDelMes());
@@ -380,7 +382,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [config, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
 
-  const [direccion, setDireccion] = useState<DireccionRetencion>(semilla.direccion ?? 'recibida');
+  const [direccion, setDireccion] = useState<DireccionRetencion>(semilla.direccion ?? 'practicada');
   const [tipo, setTipo] = useState<TipoImpuesto>('islr');
   const [sujeto, setSujeto] = useState<SujetoRetenido>('pj_domiciliada');
   const [conceptoId, setConceptoId] = useState('');
@@ -754,8 +756,8 @@ export function ConfiguracionFiscalModal({ actor, onClose }: { actor: string; on
               La empresa es contribuyente especial designada agente de retención de IVA
             </label>
             <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.82rem' }}>
-              Solo el contribuyente especial designado por el SENIAT retiene IVA. <strong>Arranca apagado a propósito</strong>:
-              préndanlo cuando confirmen la condición, porque de esto depende que se calcule o no la retención de IVA.
+              Solo el contribuyente especial designado por el SENIAT retiene IVA. <strong>MGG lo es desde el 07-10-2026</strong>,
+              así que la casilla queda encendida: de esto depende que se calcule la retención de IVA. Se apaga solo si el SENIAT revoca la condición.
             </p>
             <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
               <div className="form-row" style={{ flex: '1 1 120px', margin: 0 }}>

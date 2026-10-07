@@ -31,8 +31,8 @@ create table if not exists public.retencion_config (
   municipio text,
   estado text,
   /* Providencia SNAT/2015/0049: solo el contribuyente especial DESIGNADO retiene
-     IVA. Arranca apagado a propósito: que lo prenda quien confirme su condición. */
-  es_contribuyente_especial boolean not null default false,
+     IVA. MGG lo es (decisión de la administradora, 07-10-2026): arranca encendido. */
+  es_contribuyente_especial boolean not null default true,
   pct_iva_general numeric not null default 75,
   pct_iva_especial numeric not null default 100,
   /* Valor de la Unidad Tributaria: define el sustraendo y el mínimo del ISLR

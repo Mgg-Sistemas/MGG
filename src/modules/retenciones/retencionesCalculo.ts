@@ -70,9 +70,15 @@ export interface ConfigRetencion {
   pctIgtf: number;          // 3
 }
 
+/**
+ * 07-10-2026 · Decisión de la administradora: MGG es contribuyente especial
+ * designada agente de retención de IVA. Por eso la casilla arranca ENCENDIDA
+ * (antes arrancaba apagada «hasta confirmar la condición»). Se apaga en
+ * ⚙ Parámetros si el SENIAT la revoca.
+ */
 export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   rif: null, razonSocial: null, direccionFiscal: null, municipio: null, estado: null,
-  esContribuyenteEspecial: false,
+  esContribuyenteEspecial: true,
   pctIvaGeneral: 75, pctIvaEspecial: 100,
   valorUt: 0, pctIgtf: 3,
 };
