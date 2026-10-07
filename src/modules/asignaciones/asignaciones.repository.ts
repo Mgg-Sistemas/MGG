@@ -36,6 +36,10 @@ export interface AsignacionInput {
   retornable: boolean;
   historico?: boolean;
   observaciones?: string | null;
+  /** Vehículo del catálogo (solo tipo vehiculo). */
+  vehiculo_id?: string | null;
+  /** Hasta cuándo vale la autorización de circulación (opcional). */
+  autorizacion_hasta?: string | null;
 }
 
 /**
@@ -147,6 +151,8 @@ export async function crearAsignacion(
     historico: input.historico === true,
     descontado: false,
     observaciones: (input.observaciones ?? '').trim() || null,
+    vehiculo_id: input.vehiculo_id || null,
+    autorizacion_hasta: input.autorizacion_hasta || null,
     creado_por: a.actor,
     actor_name: a.actorName ?? null,
   }).select('*').single();
@@ -243,6 +249,8 @@ export async function actualizarAsignacion(
     historico: input.historico === true,
     descontado: false,
     observaciones: (input.observaciones ?? '').trim() || null,
+    vehiculo_id: input.vehiculo_id || null,
+    autorizacion_hasta: input.autorizacion_hasta || null,
     updated_at: new Date().toISOString(),
   }).eq('id', id).select('*').single();
   if (error) throw error;

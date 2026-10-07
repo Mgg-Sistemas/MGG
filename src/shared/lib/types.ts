@@ -2201,6 +2201,10 @@ export interface Asignacion {
   /** Ya existía antes del sistema: no toca el inventario. */
   historico: boolean;
   observaciones?: string | null;
+  /** Vehículo del catálogo (tipo vehiculo): la asignación es la autorización para transitar en él. */
+  vehiculo_id?: string | null;
+  /** Vigencia de la autorización de circulación (vacío = hasta la devolución). */
+  autorizacion_hasta?: string | null;
   creado_por?: string | null;
   actor_name?: string | null;
   created_at: string;

@@ -34,6 +34,8 @@ import {
 } from './asignaciones.repository';
 import { AsignacionFormModal } from './AsignacionFormModal';
 import { verConsolidadoAsignacionesPdf, verHistorialAsignacionesPdf } from './asignacionesPdf';
+import { listVehiculos, type Vehiculo } from './vehiculos.repository';
+import { VehiculosCatalogoModal } from './VehiculosCatalogoModal';
 
 function hoyIso(): string {
   const d = new Date();
@@ -50,6 +52,18 @@ export function AsignacionesPage() {
 
   const [lista, setLista] = useState<Asignacion[]>([]);
   const [personal, setPersonal] = useState<Personal[]>([]);
+  // Catálogo de vehículos (07-10-2026): para la 🪪 autorización de circulación y su ventana.
+  const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+  const [verVehiculos, setVerVehiculos] = useState(false);
+  const cargarVehiculos = useCallback(() => { listVehiculos().then(setVehiculos).catch(() => undefined); }, []);
+  useEffect(() => { cargarVehiculos(); }, [cargarVehiculos]);
+  useRealtime(['vehiculos_catalogo'], cargarVehiculos);
+  async function verAutorizacion(a: Asignacion) {
+    try {
+      const { verAutorizacionVehiculoPdf } = await import('./autorizacionVehiculoPdf');
+      await verAutorizacionVehiculoPdf(a, personaPorId.get(a.personal_id) ?? null, vehiculos.find((v) => v.id === a.vehiculo_id) ?? null);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar la autorización', 'error'); }
+  }
   const [productos, setProductos] = useState<Producto[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [loading, setLoading] = useState(true);
@@ -301,7 +315,13 @@ export function AsignacionesPage() {
           </button>
         )}
         <button className="btn btn-ghost" onClick={() => void verConsolidado()}>📄 Consolidado en PDF</button>
+        <button className="btn btn-ghost" onClick={() => setVerVehiculos(true)} title="Catálogo de vehículos: agregar, editar o borrar">🚗 Vehículos{vehiculos.length ? ` (${vehiculos.length})` : ''}</button>
       </div>
+
+      {verVehiculos && (
+        <VehiculosCatalogoModal vehiculos={vehiculos} canWrite={canWrite} actor={actor}
+          onClose={() => setVerVehiculos(false)} onChanged={cargarVehiculos} />
+      )}
 
       {/* ── La tabla ── */}
       <div className="table-wrap">
@@ -354,6 +374,10 @@ export function AsignacionesPage() {
                     )}
                   </td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {a.tipo === 'vehiculo' && (
+                      <button className="btn btn-icon btn-ghost" title="Autorización de circulación en PDF (para firmar y llevar en el vehículo)"
+                        onClick={() => void verAutorizacion(a)}>🪪</button>
+                    )}
                     {persona && (
                       <button className="btn btn-icon btn-ghost" title="Histórico de esta persona en PDF"
                         onClick={() => void verHistorialPdf(persona)}>📄</button>

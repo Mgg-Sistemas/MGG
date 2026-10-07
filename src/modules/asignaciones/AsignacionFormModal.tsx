@@ -11,7 +11,12 @@
    Al CORREGIR se edita un solo renglón —el que se tocó—, así que ahí no
    se agregan ni se quitan ítems.
    ============================================================ */
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { useSession } from '@/modules/auth/authStore';
+import { listVehiculos, type Vehiculo } from './vehiculos.repository';
+import { normalizarPlaca, textoVehiculo } from './vehiculos';
+import { VehiculosCatalogoModal } from './VehiculosCatalogoModal';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { num } from '@/shared/lib/format';
@@ -41,6 +46,9 @@ interface Renglon {
   serial: string;
   numeroLinea: string;
   retornable: boolean;
+  /** Vehículo del catálogo (tipo vehiculo) y vigencia de la autorización. */
+  vehiculoId: string;
+  autorizacionHasta: string;
 }
 
 let contador = 0;
@@ -57,6 +65,8 @@ function renglonVacio(tipo = 'dotacion'): Renglon {
     serial: '',
     numeroLinea: '',
     retornable: retornablePorDefecto(tipo),
+    vehiculoId: '',
+    autorizacionHasta: '',
   };
 }
 
@@ -73,6 +83,8 @@ function renglonDe(a: Asignacion): Renglon {
     serial: a.serial ?? '',
     numeroLinea: a.numero_linea ?? '',
     retornable: a.retornable,
+    vehiculoId: a.vehiculo_id ?? '',
+    autorizacionHasta: a.autorizacion_hasta ?? '',
   };
 }
 
@@ -95,6 +107,20 @@ export function AsignacionFormModal({
     () => (editando ? [renglonDe(editando)] : [renglonVacio()]),
   );
   const [error, setError] = useState<string | null>(null);
+  // Catálogo de vehículos (07-10-2026): asignar uno es autorizar a la persona a transitar en él.
+  const { user } = useSession();
+  const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+  const [catalogoPara, setCatalogoPara] = useState<string | null>(null);
+  const cargarVehiculos = () => { listVehiculos().then(setVehiculos).catch(() => undefined); };
+  useEffect(() => { cargarVehiculos(); }, []);
+  useRealtime(['vehiculos_catalogo'], cargarVehiculos);
+  const opcionesVehiculo = useMemo(() => vehiculos.filter((v) => v.activo).map((v) => ({
+    value: v.id, label: textoVehiculo(v), hint: v.placa, keywords: [v.marca ?? '', v.modelo ?? '', v.color ?? '', v.serial_carroceria ?? ''],
+  })), [vehiculos]);
+  function elegirVehiculo(key: string, id: string) {
+    const v = vehiculos.find((x) => x.id === id);
+    cambiar(key, { vehiculoId: id, descripcion: v ? textoVehiculo(v) : '', serial: v ? normalizarPlaca(v.placa) : '' });
+  }
 
   const opcionesPersonal = useMemo(() => personal.map((p) => ({
     value: p.id,
@@ -162,6 +188,8 @@ export function AsignacionFormModal({
     retornable: r.retornable,
     historico,
     observaciones,
+    vehiculo_id: r.vehiculoId || null,
+    autorizacion_hasta: r.autorizacionHasta || null,
   }));
 
   function submit(e: FormEvent) {
@@ -171,6 +199,8 @@ export function AsignacionFormModal({
 
     const mal = errorRenglones(inputs);
     if (mal) { setError(mal); return; }
+    const sinVehiculo = renglones.find((r) => definicionTipo(r.tipo)?.pidePlaca && !r.vehiculoId);
+    if (sinVehiculo) { setError('Elegí el vehículo del catálogo (o agregalo con 🚗 Catálogo).'); return; }
 
     for (let i = 0; i < renglones.length; i += 1) {
       const r = renglones[i];
@@ -267,10 +297,24 @@ export function AsignacionFormModal({
               {(def?.pideSerial || def?.pideLinea || def?.pidePlaca) && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
                   {def?.pidePlaca && (
-                    <div className="form-row" style={{ flex: '1 1 200px' }}>
-                      <label>Placa *</label>
-                      <input className="input mono" value={r.serial} onChange={(e) => cambiar(r.key, { serial: e.target.value.toUpperCase() })} placeholder="AB123CD" />
-                    </div>
+                    <>
+                      <div className="form-row" style={{ flex: '2 1 280px' }}>
+                        <label>Vehículo del catálogo *</label>
+                        <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+                          <div style={{ flex: 1 }}>
+                            <SearchSelect options={opcionesVehiculo} value={r.vehiculoId} onChange={(id) => elegirVehiculo(r.key, id)}
+                              placeholder={vehiculos.length ? '🔍 Placa, marca, modelo…' : 'Todavía no hay vehículos: agregá uno'} sinPreseleccion />
+                          </div>
+                          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCatalogoPara(r.key)} title="Agregar, editar o borrar vehículos">🚗 Catálogo</button>
+                        </div>
+                        <small className="hint muted" style={{ fontSize: '.74rem' }}>Asignar el vehículo es autorizar a la persona a transitar en él. Al guardar se imprime la 🪪 autorización.</small>
+                      </div>
+                      <div className="form-row" style={{ flex: '1 1 160px' }}>
+                        <label>Autorización vigente hasta</label>
+                        <input className="input" type="date" value={r.autorizacionHasta} onChange={(e) => cambiar(r.key, { autorizacionHasta: e.target.value })} />
+                        <small className="hint muted" style={{ fontSize: '.74rem' }}>Vacío = hasta que devuelva el vehículo.</small>
+                      </div>
+                    </>
                   )}
                   {def?.pideSerial && (
                     <div className="form-row" style={{ flex: '1 1 200px' }}>
@@ -368,6 +412,11 @@ export function AsignacionFormModal({
 
         {error && <p style={{ color: 'var(--danger)', margin: '.5rem 0 0', fontSize: '.85rem' }}>{error}</p>}
       </form>
+      {catalogoPara && (
+        <VehiculosCatalogoModal vehiculos={vehiculos} canWrite actor={user?.email ?? 'sistema'}
+          onClose={() => setCatalogoPara(null)} onChanged={cargarVehiculos}
+          onElegir={(v) => { elegirVehiculo(catalogoPara, v.id); setCatalogoPara(null); }} />
+      )}
     </Modal>
   );
 }
