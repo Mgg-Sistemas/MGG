@@ -13,8 +13,11 @@ import { dateTime } from '@/shared/lib/format';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
-  listNotasEnvio, listDestinatarios, marcarRecibida, anularNotaEnvio, urlArchivoDocumentacion, type Actor, type Destinatario, type NotaEnvio,
+  listNotasEnvio, listDestinatarios, listCatalogoDoc, marcarRecibida, anularNotaEnvio, urlArchivoDocumentacion,
+  type Actor, type Destinatario, type ItemCatalogoDoc, type NotaEnvio,
 } from './documentacion.repository';
+import { CatalogoTextoModal } from './CatalogoTextoModal';
+import { DestinatariosModal } from './DestinatariosModal';
 import { ESTADO_ENVIO_LABEL, cantidadTexto, estadoEnvio, norm, numeroEnvio, type EstadoEnvio } from './notaEnvio';
 import { NotaEnvioForm } from './NotaEnvioForm';
 
@@ -40,18 +43,23 @@ export function NotasEnvioPanel({ canWrite, actor }: { canWrite: boolean; actor:
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [form, setForm] = useState<NotaEnvio | 'nueva' | null>(null);
+  const [catalogo, setCatalogo] = useState<ItemCatalogoDoc[]>([]);
+  const [catDest, setCatDest] = useState(false);
+  const [catTexto, setCatTexto] = useState(false);
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
-      const [ns, ds] = await Promise.all([listNotasEnvio(), listDestinatarios().catch(() => [] as Destinatario[])]);
-      setNotas(ns); setDestinatarios(ds);
+      const [ns, ds, cs] = await Promise.all([
+        listNotasEnvio(), listDestinatarios().catch(() => [] as Destinatario[]), listCatalogoDoc().catch(() => [] as ItemCatalogoDoc[]),
+      ]);
+      setNotas(ns); setDestinatarios(ds); setCatalogo(cs);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las notas', 'error'); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['notas_envio', 'destinatarios_documentacion'], () => { void cargar(); });
+  useRealtime(['notas_envio', 'destinatarios_documentacion', 'catalogo_documentacion'], () => { void cargar(); });
 
   // Lo ya usado, para autocompletar la próxima nota: los destinatarios guardados
   // más lo que aparece en las notas (atención, condición).
@@ -115,6 +123,8 @@ export function NotasEnvioPanel({ canWrite, actor }: { canWrite: boolean; actor:
             <input id="ne-hasta" className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
           </div>
           <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{filtradas.length} de {notas.length}</span>
+          <button className="btn btn-ghost" onClick={() => setCatDest(true)} title="Destinatarios: agregar, editar, borrar">📇 Destinatarios ({destinatarios.length})</button>
+          <button className="btn btn-ghost" onClick={() => setCatTexto(true)} title="Condiciones, conceptos de renglón y personas de atención">📋 Catálogos</button>
           {canWrite && (
             <button className="btn btn-primary" onClick={() => setForm('nueva')} title={`La próxima nota sale con el N° ${numeroEnvio(proximo)} (aprox.)`}>
               ＋ Nueva nota de envío
@@ -158,10 +168,20 @@ export function NotasEnvioPanel({ canWrite, actor }: { canWrite: boolean; actor:
 
       {form && (
         <NotaEnvioForm
-          nota={form === 'nueva' ? null : form} sugerencias={sugerencias} actor={actor}
+          nota={form === 'nueva' ? null : form} sugerencias={sugerencias} destinatarios={destinatarios} catalogo={catalogo}
+          canWrite={canWrite} actor={actor}
           onClose={() => setForm(null)}
           onSaved={async (n) => { setForm(null); await cargar(); setDetalleId(n.id); }}
+          onCatalogoChanged={() => cargar()}
         />
+      )}
+      {catDest && (
+        <DestinatariosModal destinatarios={destinatarios} canWrite={canWrite} actor={actor.email}
+          onClose={() => setCatDest(false)} onChanged={() => cargar()} />
+      )}
+      {catTexto && (
+        <CatalogoTextoModal items={catalogo} scope="condicion" canWrite={canWrite} actor={actor.email}
+          onClose={() => setCatTexto(false)} onChanged={() => cargar()} />
       )}
       {detalle && (
         <NotaDetalle

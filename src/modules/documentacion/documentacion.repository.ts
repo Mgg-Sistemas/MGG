@@ -16,6 +16,9 @@ import { textoDeError } from '@/shared/lib/errores';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { limpiarNombreDoc, nombreArchivoSeguro, nombreDescarga } from '@/modules/maquinaria/documentosEquipo';
 import { errorNotaEnvio, normalizarNotaEnvio, type DatosNotaEnvio, type ItemNotaEnvio } from './notaEnvio';
+import {
+  errorDestinatario, errorNombreCatalogo, limpiarDestinatario, limpiarNombreCatalogo, type DatosDestinatario, type ScopeCatalogoDoc,
+} from './catalogoDocumentacion';
 
 export const BUCKET_DOCUMENTACION = 'documentacion';
 export const MAX_BYTES_DOCUMENTACION = 20 * 1024 * 1024;
@@ -249,6 +252,115 @@ export async function listDestinatarios(): Promise<Destinatario[]> {
   return (data ?? []) as Destinatario[];
 }
 
+/* El catálogo se administra desde el módulo (08-10-2026): agregar, editar y borrar. */
+
+export async function crearDestinatario(d: DatosDestinatario, actor: string): Promise<Destinatario> {
+  const err = errorDestinatario(d);
+  if (err) throw new Error(err);
+  const l = limpiarDestinatario(d);
+  const { data: ex } = await supabase.from('destinatarios_documentacion').select('id, activo').ilike('razon_social', l.razon_social).limit(1).maybeSingle();
+  if (ex?.activo) throw new Error(`Ya existe un destinatario «${l.razon_social}».`);
+  if (ex) {
+    // Estaba dado de baja: se reactiva con los datos nuevos en vez de duplicarlo.
+    const { data, error } = await supabase.from('destinatarios_documentacion')
+      .update({ ...l, activo: true, updated_at: new Date().toISOString() }).eq('id', ex.id).select('*').single();
+    if (error) throw new Error(textoDeError(error, 'No se pudo guardar el destinatario.'));
+    return data as Destinatario;
+  }
+  const { data, error } = await supabase.from('destinatarios_documentacion')
+    .insert({ ...l, usos: 0, creado_por: actor }).select('*').single();
+  if (error) throw new Error(textoDeError(error, 'No se pudo guardar el destinatario.'));
+  return data as Destinatario;
+}
+
+export async function editarDestinatario(id: string, d: DatosDestinatario): Promise<Destinatario> {
+  const err = errorDestinatario(d);
+  if (err) throw new Error(err);
+  const l = limpiarDestinatario(d);
+  const { data: ex } = await supabase.from('destinatarios_documentacion').select('id').ilike('razon_social', l.razon_social).neq('id', id).eq('activo', true).limit(1).maybeSingle();
+  if (ex) throw new Error(`Ya existe otro destinatario «${l.razon_social}».`);
+  const { data, error } = await supabase.from('destinatarios_documentacion')
+    .update({ ...l, updated_at: new Date().toISOString() }).eq('id', id).select('*').single();
+  if (error) throw new Error(textoDeError(error, 'No se pudo guardar el destinatario.'));
+  return data as Destinatario;
+}
+
+/** Borra el destinatario del catálogo. Las notas emitidas conservan sus datos (van escritos en cada nota). */
+export async function eliminarDestinatario(id: string): Promise<void> {
+  const { error } = await supabase.from('destinatarios_documentacion').delete().eq('id', id);
+  if (error) throw new Error(textoDeError(error, 'No se pudo eliminar el destinatario.'));
+}
+
+/* ───────── Catálogos de texto: condición, conceptos, atención ───────── */
+
+export interface ItemCatalogoDoc {
+  id: string;
+  scope: ScopeCatalogoDoc;
+  nombre: string;
+  usos: number;
+  ultimo_uso: string | null;
+  created_at: string;
+}
+
+export async function listCatalogoDoc(): Promise<ItemCatalogoDoc[]> {
+  const { data, error } = await supabase.from('catalogo_documentacion').select('*').order('usos', { ascending: false }).order('nombre');
+  if (error) throw new Error(textoDeError(error, 'No se pudo leer el catálogo.'));
+  return (data ?? []) as ItemCatalogoDoc[];
+}
+
+function nombreRepetido(e: { code?: string }): boolean { return e.code === '23505'; }
+
+export async function crearItemCatalogoDoc(scope: ScopeCatalogoDoc, nombre: string, actor: string): Promise<ItemCatalogoDoc> {
+  const err = errorNombreCatalogo(nombre);
+  if (err) throw new Error(err);
+  const { data, error } = await supabase.from('catalogo_documentacion')
+    .insert({ scope, nombre: limpiarNombreCatalogo(nombre), usos: 0, creado_por: actor }).select('*').single();
+  if (error) throw new Error(nombreRepetido(error) ? 'Ya está en el catálogo.' : textoDeError(error, 'No se pudo agregar.'));
+  return data as ItemCatalogoDoc;
+}
+
+export async function renombrarItemCatalogoDoc(id: string, nombre: string): Promise<ItemCatalogoDoc> {
+  const err = errorNombreCatalogo(nombre);
+  if (err) throw new Error(err);
+  const { data, error } = await supabase.from('catalogo_documentacion')
+    .update({ nombre: limpiarNombreCatalogo(nombre), updated_at: new Date().toISOString() }).eq('id', id).select('*').single();
+  if (error) throw new Error(nombreRepetido(error) ? 'Ya hay otro con ese texto.' : textoDeError(error, 'No se pudo guardar.'));
+  return data as ItemCatalogoDoc;
+}
+
+export async function eliminarItemCatalogoDoc(id: string): Promise<void> {
+  const { error } = await supabase.from('catalogo_documentacion').delete().eq('id', id);
+  if (error) throw new Error(textoDeError(error, 'No se pudo eliminar.'));
+}
+
+/** Asegura que el texto esté en su catálogo y le suma un uso. Best-effort: nunca frena la nota. */
+async function recordarEnCatalogo(scope: ScopeCatalogoDoc, nombre: string | null | undefined): Promise<void> {
+  const n = limpiarNombreCatalogo(nombre);
+  if (!n || errorNombreCatalogo(n)) return;
+  const ahora = new Date().toISOString();
+  const { data: ex } = await supabase.from('catalogo_documentacion').select('id, usos').eq('scope', scope).ilike('nombre', n).limit(1).maybeSingle();
+  if (ex) {
+    await supabase.from('catalogo_documentacion').update({ usos: (Number(ex.usos) || 0) + 1, ultimo_uso: ahora, updated_at: ahora }).eq('id', ex.id);
+    return;
+  }
+  await supabase.from('catalogo_documentacion').insert({ scope, nombre: n, usos: 1, ultimo_uso: ahora });
+}
+
+/** Lo que se escribió en la nota queda en los catálogos para la próxima. */
+async function recordarCatalogosDeNota(n: { condicion?: string | null; atencion_a?: string | null; items: ItemNotaEnvio[] }): Promise<void> {
+  try {
+    await recordarEnCatalogo('condicion', n.condicion);
+    await recordarEnCatalogo('atencion', n.atencion_a);
+    const vistos = new Set<string>();
+    for (const it of n.items) {
+      const k = limpiarNombreCatalogo(it.descripcion).toLowerCase();
+      if (!k || vistos.has(k)) continue;
+      vistos.add(k);
+      await recordarEnCatalogo('concepto', it.descripcion);
+    }
+  } catch { /* el catálogo es ayuda, no requisito */ }
+}
+
 /** Recuerda al destinatario: si ya existía (misma razón social), actualiza y suma un uso; si no, lo crea. */
 async function recordarDestinatario(d: { razon_social: string; rif: string | null; direccion: string | null; atencion_a: string | null }, actor: string): Promise<string | null> {
   const { data: ex } = await supabase.from('destinatarios_documentacion').select('id, usos')
@@ -289,17 +401,21 @@ export async function crearNotaEnvio(d: DatosNotaEnvio, actor: Actor): Promise<N
     .insert({ ...n, destinatario_id: destinatarioId, actor: actor.email, actor_name: actor.nombre })
     .select('*').single();
   if (error) throw new Error(textoDeError(error, 'No se pudo emitir la nota de envío.'));
+  await recordarCatalogosDeNota(n);
   return data as NotaEnvio;
 }
 
-/** Corrige una nota mientras está enviada (no cambia su N°). */
-export async function actualizarNotaEnvio(id: string, d: DatosNotaEnvio): Promise<NotaEnvio> {
+/** Corrige una nota mientras está enviada (no cambia su N°). Lo nuevo que se escriba también va al catálogo. */
+export async function actualizarNotaEnvio(id: string, d: DatosNotaEnvio, actor?: Actor): Promise<NotaEnvio> {
+  const n = filaNota(d);
   const { data, error } = await supabase.from('notas_envio')
-    .update({ ...filaNota(d), updated_at: new Date().toISOString() })
+    .update({ ...n, updated_at: new Date().toISOString() })
     .eq('id', id).eq('estado', 'emitida').is('recibido_en', null)
     .select('*').maybeSingle();
   if (error) throw new Error(textoDeError(error, 'No se pudo guardar la nota.'));
   if (!data) throw new Error('La nota ya no está en estado «Enviada»: no se puede editar.');
+  if (actor) await recordarDestinatario(n, actor.email).catch(() => null);
+  await recordarCatalogosDeNota(n);
   return data as NotaEnvio;
 }
 
