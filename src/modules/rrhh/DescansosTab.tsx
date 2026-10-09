@@ -34,6 +34,8 @@ import {
   generarPlan, minimoSimultaneo, seCruzan, sumarDias, type ConfigDescansos, type DescansoRango, type ResultadoPlan,
 } from './descansosPlan';
 import { alternar as alternarSel, desmarcarVisibles, marcarVisibles, todosMarcados } from './seleccion';
+import { armarFilasDescansos, nombreMes, textoAlcance } from './calendarioRrhh';
+import { verDescansosExcel, verDescansosPdf } from './calendarioRrhhReporte';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const DIA_SEM = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
@@ -67,6 +69,9 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
   const [ajustes, setAjustes] = useState(false);
   const [plan, setPlan] = useState(false);
   const [lista, setLista] = useState<'fuera' | 'proximos' | null>(null);
+  // PDF y Excel (09-10-2026): del mes visible o de todo, con los filtros puestos.
+  const [alcance, setAlcance] = useState<'mes' | 'todos'>('mes');
+  const [generando, setGenerando] = useState<'pdf' | 'xlsx' | null>(null);
 
   const recargar = useCallback(async () => {
     try {
@@ -128,6 +133,22 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
   // con todo el personal a la vista, contar a todos avisaría siempre.
   const minimo = minimoSimultaneo(enRotacion.size, cfg);
 
+  async function exportar(formato: 'pdf' | 'xlsx') {
+    setGenerando(formato);
+    try {
+      const mes = alcance === 'mes' ? { desde: mesIni, hasta: mesFin } : null;
+      const filasReporte = armarFilasDescansos(descansos, filas, mes);
+      const o = {
+        titulo: `Descansos · ${mes ? nombreMes(mes) : 'todos'}`,
+        subtitulo: textoAlcance({ mes, departamento: depto, texto, soloConDescansos }),
+        config: `${cfg.dias_trabajo}×${cfg.dias_descanso} · tope ${cfg.max_simultaneos}`,
+      };
+      if (formato === 'pdf') await verDescansosPdf(filasReporte, o);
+      else await verDescansosExcel(filasReporte, o);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el archivo', 'error'); }
+    finally { setGenerando(null); }
+  }
+
   return (
     <div className="descansos">
       <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
@@ -180,6 +201,12 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
           <span className="chip" title="Todo el personal activo; en la rotación están quienes tienen descansos de hoy en adelante">
             👥 {personal.length} activos · {enRotacion.size} en rotación
           </span>
+          <select className="select" style={{ width: 'auto' }} value={alcance} onChange={(e) => setAlcance(e.target.value as 'mes' | 'todos')} aria-label="Qué sale en el PDF y el Excel" title="Qué sale en el PDF y el Excel: lo que se está viendo, de este mes o de todo">
+            <option value="mes">Este mes</option>
+            <option value="todos">Todos los descansos</option>
+          </select>
+          <button className="btn btn-sm btn-ghost" onClick={() => void exportar('xlsx')} disabled={loading || !!generando} title="Vista previa del Excel con lo que se está viendo">{generando === 'xlsx' ? 'Generando…' : '📊 Excel'}</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => void exportar('pdf')} disabled={loading || !!generando} title="Vista previa del PDF con lo que se está viendo">{generando === 'pdf' ? 'Generando…' : '🖨 PDF'}</button>
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setAjustes(true)}>⚙ Ajustes</button>}
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setPlan(true)} disabled={!personal.length}>🗓 Generar plan</button>}
           {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setEditar({})} disabled={!personal.length}>+ Descanso</button>}

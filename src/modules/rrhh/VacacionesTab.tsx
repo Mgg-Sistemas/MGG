@@ -10,6 +10,8 @@ import { listPersonal } from './personal.repository';
 import { listEventos, crearEvento, eliminarEvento, marcarVacacionProcesada } from './eventos.repository';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 import { procesarVacacion, montoVacacion } from './nomina.repository';
+import { armarFilasVacaciones, nombreMes, textoAlcance } from './calendarioRrhh';
+import { verVacacionesExcel, verVacacionesPdf } from './calendarioRrhhReporte';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -40,6 +42,9 @@ export function VacacionesTab({ canWrite, actor, actorName, empresa = EMPRESA_PO
   const [loading, setLoading] = useState(true);
   const [detalle, setDetalle] = useState<RrhhEvento | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // PDF y Excel (09-10-2026): del mes visible o de todas las vacaciones cargadas.
+  const [alcance, setAlcance] = useState<'mes' | 'todas'>('mes');
+  const [generando, setGenerando] = useState<'pdf' | 'xlsx' | null>(null);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -104,6 +109,19 @@ export function VacacionesTab({ canWrite, actor, actorName, empresa = EMPRESA_PO
 
   const hayConflictos = filas.some((f) => f.evs.some((e) => conflictoIds.has(e.id)));
 
+  async function exportar(formato: 'pdf' | 'xlsx') {
+    setGenerando(formato);
+    try {
+      const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const mes = alcance === 'mes' ? { desde: iso(mesIni), hasta: iso(mesFin) } : null;
+      const lista = armarFilasVacaciones(eventos, personal, conflictoIds, mes);
+      const o = { titulo: `Vacaciones · ${mes ? nombreMes(mes) : 'todas'}`, subtitulo: textoAlcance({ mes }) };
+      if (formato === 'pdf') await verVacacionesPdf(lista, o);
+      else await verVacacionesExcel(lista, o);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el archivo', 'error'); }
+    finally { setGenerando(null); }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
@@ -113,7 +131,15 @@ export function VacacionesTab({ canWrite, actor, actorName, empresa = EMPRESA_PO
           <button className="btn btn-sm btn-ghost" onClick={() => mover(1)}>→</button>
           <button className="btn btn-sm btn-ghost" onClick={() => setCursor({ y: now.getFullYear(), m: now.getMonth() })}>Hoy</button>
         </div>
-        {canWrite && <button className="btn btn-primary" onClick={() => setAddOpen(true)}>+ Programar vacaciones</button>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+          <select className="select" style={{ width: 'auto' }} value={alcance} onChange={(e) => setAlcance(e.target.value as 'mes' | 'todas')} aria-label="Qué sale en el PDF y el Excel" title="Qué sale en el PDF y el Excel">
+            <option value="mes">Este mes</option>
+            <option value="todas">Todas las vacaciones</option>
+          </select>
+          <button className="btn btn-sm" onClick={() => void exportar('xlsx')} disabled={loading || !!generando} title="Vista previa del Excel">{generando === 'xlsx' ? 'Generando…' : '📊 Excel'}</button>
+          <button className="btn btn-sm" onClick={() => void exportar('pdf')} disabled={loading || !!generando} title="Vista previa del PDF">{generando === 'pdf' ? 'Generando…' : '🖨 PDF'}</button>
+          {canWrite && <button className="btn btn-primary" onClick={() => setAddOpen(true)}>+ Programar vacaciones</button>}
+        </div>
       </div>
 
       {hayConflictos && (
