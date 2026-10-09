@@ -75,7 +75,8 @@ describe('formatos', () => {
     expect(fmtTasa(777.4215)).toBe('777,4215 Bs/$');
     expect(fmtTasa(null)).toBe('—');
     expect(fmtUsd4(0.002)).toBe('$ 0,002');
-    expect(fmtUsd4(472.8547)).toBe('$ 472,8547');
+    expect(fmtUsd4(472.8547)).toBe('$ 472,85');
+    expect(fmtUsd4(9.2859)).toBe('$ 9,29');
     expect(fmtUsd4(8.5)).toBe('$ 8,50');
   });
 });

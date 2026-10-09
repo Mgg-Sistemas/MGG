@@ -73,10 +73,13 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   // Catálogos del formulario de alta (productos, categorías, medidas, cajas, proveedores):
   // casi estáticos; se cargan al entrar y solo se refrescan si cambian en su origen.
   const reloadCatalogos = useCallback(async () => {
-    const [pds, cats, unis, provs] = await Promise.all([
-      listProductos().catch(() => [] as Producto[]),
-      getCategorias().catch(() => [] as string[]),
-      getUnidades().catch(() => [] as string[]),
+    // Primero los productos: las categorías y medidas se arman con las del catálogo MÁS las
+    // que ya tienen los productos (09-10-2026). Antes se pedían sin productos y el desplegable
+    // del producto nuevo no mostraba categorías que sí existen en el inventario.
+    const pds = await listProductos().catch(() => [] as Producto[]);
+    const [cats, unis, provs] = await Promise.all([
+      getCategorias(pds).catch(() => [] as string[]),
+      getUnidades(pds).catch(() => [] as string[]),
       listProveedores().catch(() => [] as Proveedor[]),
     ]);
     setProductos(pds); setCategorias(cats); setUnidades(unis);

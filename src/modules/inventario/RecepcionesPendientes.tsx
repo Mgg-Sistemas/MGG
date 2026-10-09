@@ -123,7 +123,15 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
                   <span className="badge warning">🛒 Directo</span>
                 </div>
                 <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
-                  <div><strong>{c.producto_nombre}</strong>{itemsCount > 1 ? <span className="muted"> · {num(itemsCount)} materiales</span> : null}</div>
+                  {/* Con varios materiales el nombre guardado ya dice «N materiales»: se muestran los nombres (09-10-2026). */}
+                  <div>
+                    <strong>{itemsCount > 1 ? `${num(itemsCount)} materiales` : c.producto_nombre}</strong>
+                    {itemsCount > 1 && (
+                      <div className="muted" style={{ fontSize: '.76rem' }} title={c.items.map((it) => it.producto_nombre).join(' · ')}>
+                        {c.items.slice(0, 2).map((it) => it.producto_nombre).join(' · ')}{itemsCount > 2 ? ` · +${num(itemsCount - 2)}` : ''}
+                      </div>
+                    )}
+                  </div>
                   <div className="muted">{num(totalUnidades)} und.{c.pagada_por ? ` · pagó ${c.pagada_por}` : ''}</div>
                   <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(c.gasto, c.moneda)}</div>
                 </div>

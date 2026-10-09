@@ -66,7 +66,14 @@ export function fmtTasa(t: number | null | undefined): string {
   return `${t.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} Bs/$`;
 }
 
-/** Costo unitario en $ con hasta 4 decimales: la vista previa muestra lo mismo que se escribe. */
+/**
+ * Costo en $ para la vista previa: 2 decimales, como todo monto en pantalla. Con 4
+ * decimales «$ 9,2859» se leía como nueve mil (09-10-2026). Solo cuando el costo es
+ * menor a un centavo (0,002 por unidad) se muestran los 4, para que no salga «0,00».
+ * El kardex sigue guardando los 4 decimales.
+ */
 export function fmtUsd4(n: number | null | undefined): string {
-  return `$ ${(Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+  const v = Number(n) || 0;
+  const chico = v !== 0 && Math.abs(v) < 0.01;
+  return `$ ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: chico ? 4 : 2 })}`;
 }
