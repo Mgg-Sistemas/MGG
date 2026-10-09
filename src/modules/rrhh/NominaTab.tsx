@@ -20,6 +20,7 @@ import {
   motivoEliminacionValido, motivoNoCargar, nominaAbierta,
 } from './nominaPeriodos';
 import { diasDeFecha, DIAS_TRABAJADOS } from './diasQuincena';
+import { ResumenNominaModal } from './ResumenNominaModal';
 // descargarNominaReciboPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import {
   cargarNomina, listNominas, listNominasEliminadas, listRenglones, eliminarNomina, recuperarNomina,
@@ -43,6 +44,7 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
   const [liqOpen, setLiqOpen] = useState(false);
   const [papeleraOpen, setPapeleraOpen] = useState(false);
   const [verPeriodo, setVerPeriodo] = useState<NominaPeriodoResumen | null>(null);
+  const [resumenOpen, setResumenOpen] = useState(false);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -96,6 +98,8 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
         <div className="muted" style={{ fontSize: '.88rem' }}>Nómina quincenal · se paga desde Tesorería.</div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          {/* Lo ve cualquiera con acceso a la pestaña: es un reporte, no cambia nada. */}
+          <button className="btn btn-ghost" onClick={() => setResumenOpen(true)} title="Tabla con lo que cobró cada persona, por nómina o en general, en Excel o PDF">📊 Resumen de nómina</button>
           {/* La papelera la ve cualquiera; recuperar y vaciar es solo del administrador. */}
           <button className="btn btn-ghost" onClick={() => setPapeleraOpen(true)} title="Nóminas eliminadas: quién, cuándo y por qué">
             🗑 Papelera ({eliminadas.length})
@@ -156,6 +160,7 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
       {cargarOpen && <CargarNominaModal empresa={empresa} actor={actor} actorName={actorName} onClose={() => setCargarOpen(false)} onSaved={async () => { setCargarOpen(false); await recargar(); }} />}
       {liqOpen && <LiquidacionModal empresa={empresa} actor={actor} actorName={actorName} onClose={() => setLiqOpen(false)} onSaved={async () => { setLiqOpen(false); await recargar(); }} />}
       {verPeriodo && <NominaDetalleModal periodo={verPeriodo} empresa={empresa} onClose={() => setVerPeriodo(null)} />}
+      {resumenOpen && <ResumenNominaModal empresa={empresa} onClose={() => setResumenOpen(false)} />}
       {porBorrar && (
         <EliminarNominaModal periodo={porBorrar} onConfirm={(motivo) => void confirmarBorrado(motivo)} onCancel={() => setPorBorrar(null)} />
       )}
