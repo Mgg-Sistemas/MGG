@@ -606,12 +606,15 @@ export interface SueldoHistoricoOpts {
   motivo: string;
   actor?: string | null;
   actorName?: string | null;
+  /** Es el sueldo de hoy con su fecha real: corrige la carga inicial en vez de duplicarla. */
+  esSueldoActual?: boolean;
 }
 
 /**
  * Carga un sueldo VIEJO al historial (el Excel de antes del sistema), sin
- * tocar el sueldo actual de la ficha. La base exige que rija antes del sueldo
- * de hoy y nunca a futuro; el renglón queda tipo «historico».
+ * tocar el sueldo actual de la ficha. La base exige que rija antes del último
+ * cambio real y nunca a futuro; el renglón queda tipo «historico». El renglón
+ * del sueldo actual con su fecha real corrige la carga inicial (la semilla).
  */
 export async function registrarSueldoHistorico(personalId: string, o: SueldoHistoricoOpts): Promise<CambioSueldoRegistro> {
   const { data, error } = await supabase.rpc('registrar_sueldo_historico', {
@@ -622,9 +625,26 @@ export async function registrarSueldoHistorico(personalId: string, o: SueldoHist
     p_motivo: o.motivo.trim(),
     p_actor: o.actor ?? null,
     p_actor_name: o.actorName ?? null,
+    p_es_sueldo_actual: !!o.esSueldoActual,
   });
   if (error) throw new Error(error.message || 'No se pudo cargar el sueldo histórico.');
   return aCambio(data as Record<string, unknown>);
+}
+
+/** La carga del Excel, todo o nada. Devuelve cuántos renglones entraron. */
+export async function cargarSueldosHistoricos(filas: Array<{
+  fila: number; personalId: string; fecha: string; sueldo: number; motivo: string; nota?: string | null;
+}>, actor?: string | null, actorName?: string | null): Promise<number> {
+  const { data, error } = await supabase.rpc('cargar_sueldos_historicos', {
+    p_filas: filas.map((f) => ({
+      fila: f.fila, personal_id: f.personalId, fecha: f.fecha,
+      sueldo: aCentavos(f.sueldo), motivo: f.motivo, nota: f.nota?.trim() || null,
+    })),
+    p_actor: actor ?? null,
+    p_actor_name: actorName ?? null,
+  });
+  if (error) throw new Error(error.message || 'No se pudo cargar el Excel.');
+  return Number(data) || 0;
 }
 
 /** Quita un renglón «historico» mal cargado. Solo administradores; los demás tipos no se borran nunca. */

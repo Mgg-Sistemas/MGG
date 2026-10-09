@@ -57,7 +57,8 @@ import {
   type RenglonHistoricoSalarial,
 } from './historicoSalarial';
 import { verHistoricoSalarialExcel, verHistoricoSalarialPdf } from './historicoSalarialReporte';
-import { MOTIVO_HISTORICO_POR_DEFECTO, esRenglonHistorico, sueldoPorAnio, sugerirSueldoAnterior, validarSueldoHistorico, vigenciaSueldoActual } from './sueldoHistorico';
+import { MOTIVO_HISTORICO_POR_DEFECTO, corrigeSemilla, esRenglonHistorico, esRenglonSemilla, puedeMarcarSueldoActual, semillaDe, sueldoPorAnio, sugerirSueldoAnterior, validarSueldoHistorico, vigenciaSueldoActual } from './sueldoHistorico';
+import { CargarSueldosHistoricosModal } from './CargarSueldosHistoricosModal';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
@@ -2110,8 +2111,8 @@ function HistorialSueldoModal({ persona, canWrite, isAdmin, actor, actorName, on
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
         {canWrite && (
-          <button className="btn" onClick={() => setCargarViejo(true)} disabled={loading} title="Cargar un sueldo anterior al sistema (el histórico del Excel) sin tocar el sueldo actual">
-            🕰 Cargar sueldo viejo
+          <button className="btn" onClick={() => setCargarViejo(true)} disabled={loading} title="Cargar un sueldo de años anteriores (el histórico del Excel) sin tocar el sueldo actual">
+            📜 Agregar sueldo anterior
           </button>
         )}
         <button className="btn" onClick={() => void exportar('xlsx')} disabled={loading || !!generando} title="Vista previa del Excel">
@@ -2166,8 +2167,11 @@ function HistorialSueldoModal({ persona, canWrite, isAdmin, actor, actorName, on
               const v = variacionSueldo(r.sueldoAnterior, r.sueldoNuevo);
               return (
                 <tr key={r.id}>
-                  <td className="mono">{date(r.vigenteDesde)}</td>
-                  <td><span className="badge">{labelTipoCambio(r.tipo)}</span></td>
+                  <td className="mono">
+                    {date(r.vigenteDesde)}
+                    {esRenglonHistorico(r) && <div className="muted" style={{ fontSize: '.7rem' }} title="Sueldo viejo cargado después: no movió el sueldo de la ficha">📜 histórico</div>}
+                  </td>
+                  <td><span className="badge" title={esRenglonSemilla(r) ? 'El sueldo con el que se creó la ficha, con la fecha de ingreso. Al cargar el sueldo actual con su fecha real, este renglón toma esa fecha.' : undefined}>{labelTipoCambio(r.tipo)}</span></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{r.sueldoAnterior > 0 ? money(r.sueldoAnterior) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.sueldoNuevo)}</td>
                   <td className="mono" style={{ textAlign: 'right', color: v.direccion === 'aumento' ? 'var(--success)' : v.direccion === 'rebaja' ? 'var(--danger)' : undefined }}>
@@ -2194,7 +2198,8 @@ function HistorialSueldoModal({ persona, canWrite, isAdmin, actor, actorName, on
       <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
         Un renglón del historial <strong>no se edita ni se borra</strong>. Si alguno quedó mal cargado, se registra
         otro cambio que lo corrija: un historial que se puede reescribir no sirve para respaldar una nómina vieja.
-        La excepción son los <strong>sueldos viejos cargados a mano</strong> desde el Excel (🕰): no movieron la ficha, y el administrador puede quitarlos si quedaron mal.
+        La excepción son los <strong>sueldos viejos cargados después</strong> (📜 histórico): no movieron la ficha, y el administrador puede quitarlos si quedaron mal.
+        El renglón <strong>Carga inicial</strong> lleva la fecha de ingreso; al cargar el <strong>sueldo actual con su fecha real</strong>, ese renglón toma esa fecha en vez de duplicarse.
       </small>
       {cargarViejo && (
         <SueldoHistoricoForm persona={persona} historial={filas} actor={actor} actorName={actorName}
@@ -2227,8 +2232,11 @@ function SueldoHistoricoForm({ persona, historial, actor, actorName, onClose, on
   const [motivo, setMotivo] = useState(MOTIVO_HISTORICO_POR_DEFECTO);
   const [guardando, setGuardando] = useState(false);
   const [cargados, setCargados] = useState(0);
+  const [marcarActual, setMarcarActual] = useState(false);
   const hoy = hoyISO();
   const vigenciaActual = vigenciaSueldoActual(historial);
+  const sueldoActual = Number(persona.sueldo_base) || 0;
+  const semilla = semillaDe(historial);
 
   // El «anterior» se sugiere con el renglón previo ya cargado; si la persona lo tocó, se respeta.
   useEffect(() => {
@@ -2236,27 +2244,33 @@ function SueldoHistoricoForm({ persona, historial, actor, actorName, onClose, on
     setAnterior(vigenteDesde ? sugerirSueldoAnterior(historial, vigenteDesde) : null);
   }, [vigenteDesde, historial, anteriorTocado]);
 
-  const error = validarSueldoHistorico({ vigenteDesde, sueldoNuevo: sueldo ?? '', sueldoAnterior: anterior ?? 0, motivo, hoy, vigenciaActual, historial });
+  const entrada = { vigenteDesde, sueldoNuevo: sueldo ?? '', sueldoAnterior: anterior ?? 0, motivo, hoy, vigenciaActual, historial, sueldoActual, marcarActual };
+  const error = validarSueldoHistorico(entrada);
   const tocado = vigenteDesde !== '' || sueldo !== null;
+  // ¿Este renglón es el sueldo de hoy con su fecha real? (corrige la carga inicial en vez de duplicarla)
+  const esDeHoy = corrigeSemilla(entrada);
+  const ofrecerMarcar = puedeMarcarSueldoActual(entrada);
 
   async function guardar(otro: boolean) {
     if (error) { toast(error, 'error'); return; }
     setGuardando(true);
     try {
       await registrarSueldoHistorico(persona.id, {
-        sueldoAnterior: anterior ?? 0, sueldoNuevo: sueldo ?? 0, vigenteDesde, motivo, actor, actorName,
+        sueldoAnterior: anterior ?? 0, sueldoNuevo: sueldo ?? 0, vigenteDesde, motivo, actor, actorName, esSueldoActual: esDeHoy,
       });
-      toast(`Sueldo desde el ${date(vigenteDesde)} cargado al historial de ${persona.nombre}`, 'success');
+      toast(esDeHoy
+        ? `Listo: el sueldo actual de ${persona.nombre} rige desde el ${date(vigenteDesde)} (se corrigió la carga inicial)`
+        : `Sueldo desde el ${date(vigenteDesde)} cargado al historial de ${persona.nombre}`, 'success');
       onGuardado();
       if (!otro) { onClose(); return; }
       setCargados((n) => n + 1);
-      setVigenteDesde(''); setSueldo(null); setAnterior(null); setAnteriorTocado(false);
+      setVigenteDesde(''); setSueldo(null); setAnterior(null); setAnteriorTocado(false); setMarcarActual(false);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el sueldo', 'error'); }
     finally { setGuardando(false); }
   }
 
   return (
-    <Modal title={`Cargar sueldo viejo · ${persona.nombre} ${persona.apellido ?? ''}`.trim()} size="md" onClose={onClose}
+    <Modal title={`Agregar sueldo anterior · ${persona.nombre} ${persona.apellido ?? ''}`.trim()} size="md" onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>{cargados ? 'Listo' : 'Cancelar'}</button>
         <button className="btn" onClick={() => void guardar(true)} disabled={guardando || !!error} title="Guarda este y deja el formulario listo para el siguiente renglón del Excel">
@@ -2268,9 +2282,11 @@ function SueldoHistoricoForm({ persona, historial, actor, actorName, onClose, on
       </>}>
       <div className="card" style={{ marginBottom: '.7rem', fontSize: '.84rem' }}>
         Es para pasar el <strong>histórico que está en Excel</strong>: desde cuándo rigió cada sueldo y a cuánto.
-        <strong> No cambia el sueldo actual</strong> ({Number(persona.sueldo_base) > 0 ? money(persona.sueldo_base) : '—'}
-        {vigenciaActual ? `, que rige desde el ${date(vigenciaActual)}` : ''}): un sueldo viejo tiene que regir <strong>antes</strong> de esa fecha.
-        Para cambiar el de hoy se usa «cambiar sueldo» en la ficha.
+        <strong> No cambia el sueldo actual</strong> ({sueldoActual > 0 ? money(sueldoActual) : '—'}
+        {vigenciaActual ? `, que rige desde el ${date(vigenciaActual)}` : ''}).
+        {semilla && !vigenciaActual && <> La carga inicial dice que ese sueldo rige desde el <strong>{date(semilla.vigenteDesde)}</strong> (la fecha de ingreso):
+          cargá primero el <strong>sueldo actual con la fecha real</strong> desde la que rige, y eso la corrige; después los anteriores.</>}
+        {' '}Para cambiar el de hoy se usa «cambiar sueldo» en la ficha.
         {cargados > 0 && <div style={{ marginTop: '.3rem' }}>✔ {cargados} renglón(es) cargado(s) en esta tanda.</div>}
       </div>
       <div className="form-grid">
@@ -2292,11 +2308,19 @@ function SueldoHistoricoForm({ persona, historial, actor, actorName, onClose, on
           <label>Motivo / de dónde sale el dato *</label>
           <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={300} />
         </div>
+        {ofrecerMarcar && (
+          <label className="form-row" style={{ gridColumn: '1 / -1', display: 'flex', gap: '.4rem', alignItems: 'flex-start', fontSize: '.84rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={marcarActual} onChange={(e) => setMarcarActual(e.target.checked)} />
+            <span>Es el <strong>sueldo actual</strong> ({money(sueldoActual)}) con su fecha real: corregir la carga inicial, que hoy dice desde el {semilla ? date(semilla.vigenteDesde) : '—'}.</span>
+          </label>
+        )}
       </div>
       {tocado && error && <div className="muted" style={{ marginTop: '.5rem', fontSize: '.82rem', color: 'var(--warning)' }}>⚠ {error}</div>}
       {!error && vigenteDesde && sueldo !== null && (
         <div className="muted" style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
-          Quedará: desde el <strong>{date(vigenteDesde)}</strong>, de {(anterior ?? 0) > 0 ? money(anterior ?? 0) : '—'} a <strong>{money(sueldo ?? 0)}</strong>, marcado <span className="badge">Histórico (carga manual)</span>.
+          {esDeHoy
+            ? <>Quedará: el <strong>sueldo actual</strong> ({money(sueldo ?? 0)}) rige desde el <strong>{date(vigenteDesde)}</strong>, viniendo de {(anterior ?? 0) > 0 ? money(anterior ?? 0) : '—'}. Se corrige la <span className="badge">Carga inicial</span>, no se duplica.</>
+            : <>Quedará: desde el <strong>{date(vigenteDesde)}</strong>, de {(anterior ?? 0) > 0 ? money(anterior ?? 0) : '—'} a <strong>{money(sueldo ?? 0)}</strong>, marcado <span className="badge">Histórico (carga manual)</span>.</>}
         </div>
       )}
     </Modal>
@@ -2316,6 +2340,7 @@ function HistoricoSalarialModal({ personal, canWrite, isAdmin, actor, actorName,
   const [elegirPersona, setElegirPersona] = useState(false);
   const [personaId, setPersonaId] = useState('');
   const [abrirDe, setAbrirDe] = useState<Personal | null>(null);
+  const [cargarExcel, setCargarExcel] = useState(false);
   const opcionesPersonal = useMemo(() => [...personal]
     .sort((a, b) => `${a.nombre} ${a.apellido ?? ''}`.localeCompare(`${b.nombre} ${b.apellido ?? ''}`, 'es'))
     .map((p) => ({ value: p.id, label: `${p.nombre} ${p.apellido ?? ''}`.trim(), hint: `${p.cedula || ''} · ${p.cargo || ''}${p.activo === false ? ' · inactivo' : ''}` })), [personal]);
@@ -2357,9 +2382,14 @@ function HistoricoSalarialModal({ personal, canWrite, isAdmin, actor, actorName,
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
         {canWrite && (
-          <button className="btn" onClick={() => setElegirPersona(true)} title="Cargar al historial sueldos anteriores al sistema (el Excel), persona por persona">
-            🕰 Cargar sueldos viejos
-          </button>
+          <>
+            <button className="btn" onClick={() => setCargarExcel(true)} title="Subir el Excel con los sueldos de años anteriores: todo o nada, sin tocar los sueldos de hoy">
+              📥 Cargar históricos (Excel)
+            </button>
+            <button className="btn btn-ghost" onClick={() => setElegirPersona(true)} title="Cargar sueldos anteriores a mano, persona por persona">
+              📜 Uno a mano
+            </button>
+          </>
         )}
         <button className="btn" onClick={() => void exportar('xlsx')} disabled={loading || !!generando} title="Vista previa del Excel con lo que se está viendo">
           {generando === 'xlsx' ? 'Generando…' : '📊 Excel'}
@@ -2423,8 +2453,12 @@ function HistoricoSalarialModal({ personal, canWrite, isAdmin, actor, actorName,
       </div>
       <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
         El PDF y el Excel salen con <strong>lo que se está viendo</strong> (búsqueda, cargo y rango puestos), en vista previa.
-        Un renglón del histórico <strong>no se edita ni se borra</strong>; los sueldos viejos cargados a mano (🕰) los puede quitar el administrador.
+        Un renglón del histórico <strong>no se edita ni se borra</strong>; los sueldos viejos cargados después (📜 histórico) los puede quitar el administrador.
       </small>
+      {cargarExcel && (
+        <CargarSueldosHistoricosModal personal={personal} actor={actor} actorName={actorName}
+          onClose={() => setCargarExcel(false)} onCargado={cargar} />
+      )}
       {elegirPersona && (
         <Modal title="¿De quién es el sueldo viejo?" size="sm" onClose={() => setElegirPersona(false)}
           footer={<>
@@ -2437,7 +2471,7 @@ function HistoricoSalarialModal({ personal, canWrite, isAdmin, actor, actorName,
           <div className="form-row">
             <label>Persona</label>
             <SearchSelect options={opcionesPersonal} value={personaId} onChange={setPersonaId} placeholder="Buscar por nombre, cédula o cargo…" />
-            <small className="hint muted">Se abre su historial de sueldos con el botón <strong>🕰 Cargar sueldo viejo</strong>, para pasar los renglones del Excel uno por uno.</small>
+            <small className="hint muted">Se abre su historial de sueldos con el botón <strong>📜 Agregar sueldo anterior</strong>, para cargar los renglones uno por uno.</small>
           </div>
         </Modal>
       )}
