@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { CocinaComida } from '@/shared/lib/types';
 import type { KardexRow } from './mercados.repository';
 import {
-  diaLocal, filtrarKardex, hayFiltro, numerosDePagina, paginar, textoBuscable,
-  totalesDeKardex, FILTRO_KARDEX_VACIO, POR_PAGINA, type FiltroKardex,
+  alternarTipo, buscarTipos, diaLocal, filtrarKardex, hayFiltro, numerosDePagina, paginar, textoBuscable,
+  tipoDeFila, tiposDeKardex, totalesDeKardex, FILTRO_KARDEX_VACIO, POR_PAGINA, type FiltroKardex,
 } from './filtroKardex';
 
 /** Mediodía: el mismo día del calendario en cualquier huso donde corra el test. */
@@ -56,6 +56,62 @@ describe('hayFiltro', () => {
     expect(hayFiltro(filtro({ tipoComida: 'desayuno' }))).toBe(true);
     expect(hayFiltro(filtro({ texto: '  ' }))).toBe(false);
     expect(hayFiltro(filtro({ texto: 'pollo' }))).toBe(true);
+    expect(hayFiltro(filtro({ tipos: ['entrada:orden'] }))).toBe(true);
+  });
+});
+
+describe('tipoDeFila · el tipo fino del movimiento', () => {
+  it('una entrada se distingue por de dónde vino', () => {
+    expect(tipoDeFila(entrada('2026-09-25', 'X', { ref_tipo: 'orden', tipo: 'entrada' })).label).toBe('⬇ Recepción de compra');
+    expect(tipoDeFila(entrada('2026-09-25', 'X', { ref_tipo: 'compra_directa', tipo: 'entrada' })).label).toBe('⬇ Compra directa');
+    expect(tipoDeFila(entrada('2026-09-25', 'X', { ref_tipo: 'ajuste_conteo', tipo: 'ajuste' })).label).toBe('⬇ Ajuste a conteo');
+    expect(tipoDeFila(entrada('2026-09-25', 'X', { ref_tipo: 'manual', tipo: 'ajuste' })).label).toBe('⬇ Ajuste manual (alza)');
+    expect(tipoDeFila(entrada('2026-09-25', 'X', { ref_tipo: 'manual', tipo: 'entrada' })).label).toBe('⬇ Entrada manual');
+    // Un cierre congelado antes del 09/10/2026 no trae tipo ni ref_tipo: sigue siendo una entrada.
+    expect(tipoDeFila(entrada('2026-09-25', 'X')).clave).toBe('entrada');
+  });
+  it('un traslado dice si salió o llegó', () => {
+    expect(tipoDeFila(traslado('2026-09-24', 'A')).clave).toBe('traslado:enviado');
+    expect(tipoDeFila(traslado('2026-09-24', 'A', { cantidad: 15 })).clave).toBe('traslado:recibido');
+  });
+  it('una merma se lee por su tipo y su origen', () => {
+    expect(tipoDeFila(merma('2026-09-26', 'A', { tipo: 'salida', ref_tipo: 'manual' })).label).toBe('⚠ Salida manual');
+    expect(tipoDeFila(merma('2026-09-26', 'A', { tipo: 'ajuste' })).label).toBe('⚠ Ajuste a la baja');
+    expect(tipoDeFila(merma('2026-09-26', 'A', { tipo: 'salida', ref_tipo: 'salida_modulo' })).label).toBe('⚠ Salida por Salidas');
+  });
+  it('un consumo es su comida, con el rótulo que le pasan', () => {
+    const t = tipoDeFila(comida('2026-09-25', 'C', 'desayuno', 1, 1), etiqueta);
+    expect(t).toEqual({ clave: 'consumo:desayuno', label: '🍳 Desayuno', clase: 'consumo' });
+  });
+});
+
+describe('tiposDeKardex · solo los que existen, con su cuenta', () => {
+  it('arma la lista de lo que hay, en orden de lectura', () => {
+    const tipos = tiposDeKardex([
+      ...FILAS,
+      entrada('2026-09-23', 'AZUCAR', { ref_tipo: 'orden', tipo: 'entrada' }),
+      entrada('2026-09-22', 'AZUCAR', { ref_tipo: 'orden', tipo: 'entrada' }),
+    ], etiqueta);
+    expect(tipos.map((t) => [t.clave, t.n])).toEqual([
+      ['entrada', 1], ['entrada:orden', 2], ['traslado:enviado', 1],
+      ['consumo:desayuno', 1], ['consumo:almuerzo', 1], ['merma:salida', 1],
+    ]);
+  });
+  it('sin filas, sin tipos', () => {
+    expect(tiposDeKardex([])).toEqual([]);
+  });
+});
+
+describe('buscarTipos y alternarTipo', () => {
+  const tipos = tiposDeKardex(FILAS, etiqueta);
+  it('busca en el rótulo sin tildes ni mayúsculas', () => {
+    expect(buscarTipos(tipos, 'DESAYÚNO').map((t) => t.clave)).toEqual(['consumo:desayuno']);
+    expect(buscarTipos(tipos, 'traslado').map((t) => t.clave)).toEqual(['traslado:enviado']);
+    expect(buscarTipos(tipos, '').length).toBe(tipos.length);
+  });
+  it('prende y apaga', () => {
+    expect(alternarTipo([], 'a')).toEqual(['a']);
+    expect(alternarTipo(['a', 'b'], 'a')).toEqual(['b']);
   });
 });
 
@@ -120,6 +176,37 @@ describe('filtrarKardex', () => {
 
   it('combina fecha y clase', () => {
     expect(filtrarKardex(FILAS, filtro({ clase: 'consumo', desde: '2026-09-25' })).length).toBe(1);
+  });
+
+  it('recorta por tipo fino; varios tipos se suman', () => {
+    expect(filtrarKardex(FILAS, filtro({ tipos: ['consumo:desayuno'] }), etiqueta).map((r) => r.kind)).toEqual(['consumo']);
+    expect(filtrarKardex(FILAS, filtro({ tipos: ['consumo:desayuno', 'merma:salida'] }), etiqueta).length).toBe(2);
+    expect(filtrarKardex(FILAS, filtro({ tipos: ['entrada:orden'] }), etiqueta).length).toBe(0);
+  });
+
+  it('el tipo fino se cruza con la clase y el texto', () => {
+    expect(filtrarKardex(FILAS, filtro({ tipos: ['consumo:desayuno'], clase: 'merma' }), etiqueta).length).toBe(0);
+    expect(filtrarKardex(FILAS, filtro({ tipos: ['consumo:desayuno', 'consumo:almuerzo'], texto: 'kelvin 120' }), etiqueta).length).toBe(1);
+  });
+
+  it('busca la cantidad como la muestra la tabla y sin separadores', () => {
+    const filas = [entrada('2026-09-25', 'HUEVO TIPO A', { cantidad: 1440, valor: 273.6 })];
+    for (const q of ['1440', '1.440', '1.440,00', '1440,00', '1440.00', '273,6', '273.6']) {
+      expect(filtrarKardex(filas, filtro({ texto: q }))).toHaveLength(1);
+    }
+    expect(filtrarKardex(filas, filtro({ texto: '1441' }))).toHaveLength(0);
+  });
+
+  it('busca por el tipo fino escrito y por quién hizo la entrada', () => {
+    const filas = [entrada('2026-09-25', 'AZUCAR', { ref_tipo: 'orden', tipo: 'entrada', actor_name: 'NAZARET' })];
+    expect(filtrarKardex(filas, filtro({ texto: 'recepcion compra' }))).toHaveLength(1);
+    expect(filtrarKardex(filas, filtro({ texto: 'nazaret azúcar' }))).toHaveLength(1);
+    expect(filtrarKardex(filas, filtro({ texto: 'compra directa' }))).toHaveLength(0);
+  });
+
+  it('en un consumo busca la cantidad de cada víver y los platos', () => {
+    expect(filtrarKardex(FILAS, filtro({ texto: 'arroz 4' }), etiqueta)).toHaveLength(2);
+    expect(filtrarKardex(FILAS, filtro({ texto: '120 platos' }), etiqueta)).toHaveLength(1);
   });
 });
 

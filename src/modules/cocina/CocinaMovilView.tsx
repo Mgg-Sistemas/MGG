@@ -18,6 +18,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { recargarCategoriasCocina } from './categoriasCocina';
+import { esSeleccionable, excesosDeConsumo, mensajeExcesos, type ViverParaConsumo } from './stockConsumo';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -220,12 +221,25 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
   useRealtime(['categorias_cocina'], () => { void recargarCategoriasCocina().then(() => listViveresGlobal(almacen)).then(setViveres).catch(() => {}); });
   const mapV = useMemo(() => new Map(viveres.map((v) => [v.producto.id, v])), [viveres]);
   const elegidos = useMemo(() => new Set(items.map((i) => i.id)), [items]);
-  const sugerencias = useMemo(() => {
+  /* Lo que la comida que se edita ya consumió vuelve al guardar: cuenta como disponible. */
+  const cantidadPrevia = useMemo(
+    () => new Map((comida?.items ?? []).map((it) => [it.producto_id, Number(it.cantidad) || 0] as const)),
+    [comida],
+  );
+  const disponibleDe = (id: string) => Math.round(((mapV.get(id)?.stock ?? 0) + (cantidadPrevia.get(id) ?? 0)) * 100) / 100;
+  // Las sugerencias son solo víveres CON stock: uno en cero no se puede cocinar y
+  // ofrecerlo era invitar a descontar lo que no hay. Los agotados que coinciden se
+  // nombran abajo, en gris, para que quede claro que existen pero no alcanzan.
+  const [sugerencias, agotados] = useMemo(() => {
     const q = buscar.trim().toLowerCase();
-    if (!q) return [];
-    return viveres.filter((v) => !elegidos.has(v.producto.id)
-      && (v.producto.nombre.toLowerCase().includes(q) || (v.producto.sku ?? '').toLowerCase().includes(q))).slice(0, 8);
-  }, [viveres, buscar, elegidos]);
+    if (!q) return [[], []] as const;
+    const coinciden = viveres.filter((v) => !elegidos.has(v.producto.id)
+      && (v.producto.nombre.toLowerCase().includes(q) || (v.producto.sku ?? '').toLowerCase().includes(q)));
+    return [
+      coinciden.filter((v) => esSeleccionable(v.stock, cantidadPrevia.has(v.producto.id))).slice(0, 8),
+      coinciden.filter((v) => !esSeleccionable(v.stock, cantidadPrevia.has(v.producto.id))).slice(0, 4),
+    ] as const;
+  }, [viveres, buscar, elegidos, cantidadPrevia]);
 
   function agregar(id: string) { setItems((xs) => [...xs, { id, cant: '' }]); setBuscar(''); }
   function setCant(id: string, cant: string) { setItems((xs) => xs.map((x) => (x.id === id ? { ...x, cant } : x))); }
@@ -239,6 +253,12 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
     if (!lineas.length) { setError('Agregá lo que se consumió: buscá cada víver y poné la cantidad.'); return; }
     if (lineas.some((l) => l.cantidad <= 0)) { setError('Falta la cantidad de algún víver (o quitalo con ✕).'); return; }
     if (!fecha || fecha > hoy) { setError('La fecha no puede ser posterior a hoy.'); return; }
+    // Nada por encima de lo que hay: el aviso dice el víver, lo pedido y lo que hay.
+    const paraConsumo = new Map<string, ViverParaConsumo>(viveres.map((v) => [v.producto.id, {
+      producto_id: v.producto.id, nombre: v.producto.nombre, unidad: v.producto.unidad ?? '', stock: v.stock, almacen: v.almacenMasStock,
+    }]));
+    const excesos = excesosDeConsumo(lineas, paraConsumo, cantidadPrevia);
+    if (excesos.length) { setError(mensajeExcesos(excesos, num)); return; }
     setGuardando(true); setEtapa('comida');
     try {
       const payload = { tipoComida: tipo, platos: nPersonas, items: lineas, nota: nota.trim() || null, cocinaId, almacen, fecha, actor, actorName };
@@ -306,19 +326,25 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
             ))}
           </div>
         )}
-        {buscar.trim() && !sugerencias.length && <small className="muted">Ningún víver de este centro coincide.</small>}
+        {!!agotados.length && (
+          <small className="muted" style={{ display: 'block', marginTop: '.3rem', opacity: 0.8 }}>
+            Sin stock (no se pueden elegir): {agotados.map((v) => v.producto.nombre).join(' · ')}
+          </small>
+        )}
+        {buscar.trim() && !sugerencias.length && !agotados.length && <small className="muted">Ningún víver de este centro coincide.</small>}
         {!!items.length && (
           <div style={{ display: 'grid', gap: '.4rem', marginTop: '.5rem' }}>
             {items.map((x) => {
               const v = mapV.get(x.id);
               const cant = Number(String(x.cant).replace(',', '.')) || 0;
-              const excede = !!v && cant > v.stock;
+              const disponible = disponibleDe(x.id);
+              const excede = !!v && cant > disponible;
               return (
                 <div key={x.id} className="card" style={{ margin: 0, padding: '.45rem .6rem', display: 'flex', alignItems: 'center', gap: '.5rem' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: '.95rem' }}>{v?.producto.nombre ?? comida?.items.find((it) => it.producto_id === x.id)?.nombre ?? 'Víver'}</div>
-                    <small className="muted" style={{ color: excede ? 'var(--warning)' : undefined }}>
-                      hay {num(v?.stock ?? 0)} {v?.producto.unidad ?? ''}{excede ? ' · supera lo que hay' : ''}
+                    <small className="muted" style={{ color: excede ? 'var(--danger)' : undefined }}>
+                      hay {num(disponible)} {v?.producto.unidad ?? ''}{excede ? ' · supera lo que hay: no se puede guardar' : ''}
                     </small>
                   </div>
                   <input className="input surt-input" type="number" inputMode="decimal" step="any" min={0} value={x.cant}

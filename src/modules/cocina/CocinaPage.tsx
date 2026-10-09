@@ -38,6 +38,7 @@ import {
 } from './mercados.repository';
 import { cicloQueSePisa, ventanaCicloDe } from './mercadoComparar';
 import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
+import { esSeleccionable, excesosDeConsumo, mensajeExcesos, type ViverParaConsumo } from './stockConsumo';
 import { MercadoPanel } from './MercadoPanel';
 import { SelectorListaMercado, subirListaMercado } from './ListaFisicaMercado';
 import { LeyendaMercado } from './LeyendaMercado';
@@ -520,7 +521,17 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
 
   // TODOS los víveres del inventario general (categoría VÍVERES), sin importar el almacén.
   useEffect(() => { listViveresGlobal(almacen).then(setViveres).catch(() => setViveres([])); }, [almacen]);
+  // En vivo: si otra pantalla descuenta o recibe, el stock de la lista cambia solo y
+  // un víver que se agotó deja de poder elegirse sin cerrar el formulario.
+  useRealtime(['productos', 'existencias'], () => { listViveresGlobal(almacen).then(setViveres).catch(() => {}); });
   const mapV = useMemo(() => new Map(viveres.map((v) => [v.producto.id, v])), [viveres]);
+  /* Lo que la comida que se edita ya tiene: ese stock lo consumió ella y vuelve al
+     guardar, así que cuenta como disponible y deja elegir el víver aunque hoy esté en 0. */
+  const cantidadPrevia = useMemo(
+    () => new Map((comida?.items ?? []).map((it) => [it.producto_id, Number(it.cantidad) || 0] as const)),
+    [comida],
+  );
+  const disponibleDe = (id: string) => r2((mapV.get(id)?.stock ?? 0) + (cantidadPrevia.get(id) ?? 0));
 
   const toggle = (id: string) => setSel((s) => {
     const n = { ...s };
@@ -562,6 +573,12 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
     if (!items.length) { setError('Marcá al menos un víver e indicá su cantidad.'); return; }
     if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
     if (!fecha) { setError('Indicá la fecha de la comida.'); return; }
+    // Nada por encima de lo que hay: el aviso dice el víver, lo pedido y lo que hay.
+    const paraConsumo = new Map<string, ViverParaConsumo>(viveres.map((v) => [v.producto.id, {
+      producto_id: v.producto.id, nombre: v.producto.nombre, unidad: v.producto.unidad ?? '', stock: v.stock, almacen: v.almacenMasStock,
+    }]));
+    const excesos = excesosDeConsumo(items, paraConsumo, cantidadPrevia);
+    if (excesos.length) { setError(mensajeExcesos(excesos, num)); return; }
     setSaving(true);
     try {
       const payload = { tipoComida: tipo, platos: nPlatos, items, nota: nota.trim() || null, cocinaId, almacen, fecha, actor, actorName };
@@ -659,19 +676,24 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
               const id = v.producto.id;
               const selected = id in sel;
               const cant = sel[id] ?? '';
-              const excede = selected && (Number(cant) || 0) > v.stock;
+              const disponible = disponibleDe(id);
+              // Sin stock no se elige: se ve, gris, con el aviso. Si ya está en la comida que
+              // se edita sí se puede, porque ese stock lo tiene la propia comida.
+              const seleccionable = esSeleccionable(v.stock, esEdicion && cantidadPrevia.has(id));
+              const excede = selected && (Number(cant) || 0) > disponible;
               return (
-                <div key={id} className="card" style={{ margin: 0, padding: '.5rem .65rem', display: 'flex', alignItems: 'center', gap: '.6rem', borderColor: selected ? 'var(--primary)' : 'var(--border)' }}>
-                  <input type="checkbox" checked={selected} onChange={() => toggle(id)} style={{ width: 18, height: 18, flexShrink: 0, accentColor: 'var(--primary)' }} />
-                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => toggle(id)}>
-                    <div style={{ fontWeight: 600, fontSize: '.88rem' }}>{v.producto.nombre}</div>
-                    <small className="hint muted" style={{ fontSize: '.72rem' }}>{money(v.precio)} · stock {num(v.stock)} {v.producto.unidad}{v.almacenMasStock ? ` · 📦 ${v.almacenMasStock}` : ''}{excede ? <span style={{ color: 'var(--warning)' }}> · supera el stock</span> : null}</small>
+                <div key={id} className="card" style={{ margin: 0, padding: '.5rem .65rem', display: 'flex', alignItems: 'center', gap: '.6rem', borderColor: selected ? 'var(--primary)' : 'var(--border)', opacity: seleccionable ? 1 : 0.55 }}
+                  aria-disabled={!seleccionable} title={seleccionable ? undefined : 'Sin stock en este centro: registrá primero la entrada.'}>
+                  <input type="checkbox" checked={selected} disabled={!seleccionable} onChange={() => seleccionable && toggle(id)} style={{ width: 18, height: 18, flexShrink: 0, accentColor: 'var(--primary)' }} />
+                  <div style={{ flex: 1, minWidth: 0, cursor: seleccionable ? 'pointer' : 'not-allowed' }} onClick={() => seleccionable && toggle(id)}>
+                    <div style={{ fontWeight: 600, fontSize: '.88rem' }}>{v.producto.nombre}{!seleccionable && <span className="badge" style={{ marginLeft: '.4rem', fontSize: '.64rem' }}>sin stock</span>}</div>
+                    <small className="hint muted" style={{ fontSize: '.72rem' }}>{money(v.precio)} · stock {num(v.stock)} {v.producto.unidad}{v.almacenMasStock ? ` · 📦 ${v.almacenMasStock}` : ''}{excede ? <span style={{ color: 'var(--danger)' }}> · supera lo que hay ({num(disponible)})</span> : null}</small>
                   </div>
                   {selected && (
                     <>
                       <input className="input mono" type="number" min={0} step="any" value={cant} autoFocus
                         onChange={(e) => setCant(id, e.target.value)} placeholder={`Cant. (${v.producto.unidad})`}
-                        style={{ width: 120, textAlign: 'right', borderColor: excede ? 'var(--warning)' : undefined }} />
+                        style={{ width: 120, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
                       <span className="mono" style={{ minWidth: 78, textAlign: 'right', fontSize: '.82rem', color: 'var(--primary-3)' }}>{money((Number(cant) || 0) * v.precio)}</span>
                     </>
                   )}
@@ -700,7 +722,7 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
             <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Detalle del servicio…" />
           </div>
         </div>
-        <small className="hint muted">Se genera un correlativo con fecha y hora, y se descuenta el stock de los víveres del inventario.</small>
+        <small className="hint muted">Se genera un correlativo con fecha y hora, y se descuenta el stock de los víveres del inventario. Una comida no puede descontar más de lo que hay: los víveres sin stock se ven en gris y no se eligen.</small>
         {/* Las fotos que se cargaron desde el teléfono (máx. 4): acá la analista las ve,
             agrega o quita. Se guardan aparte de la comida, así que no esperan al «Guardar». */}
         {esEdicion && comida && (

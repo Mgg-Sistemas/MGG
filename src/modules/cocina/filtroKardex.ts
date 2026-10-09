@@ -9,10 +9,15 @@
    Acá está lo que faltaba:
      · filtrar por RANGO DE FECHAS, por clase de movimiento y por tipo
        de comida;
+     · (09-10-2026) filtrar por el TIPO FINO del movimiento —recepción de
+       compra, compra directa, ajuste a conteo, salida manual, ajuste a la
+       baja, traslado enviado/recibido, desayuno/almuerzo/cena—, con la
+       lista armada de lo que de verdad hay en el ciclo y buscable;
      · un buscador que mira TODO lo que la fila muestra en pantalla
        —víver, código, almacén, contraparte, motivo, quién lo hizo,
-       cantidad, valor y la fecha escrita de las tres formas en que
-       uno la teclea—;
+       cantidad y valor escritos como los teclea uno («1.440», «1440»,
+       «1440,00»), el tipo fino y la fecha escrita de las tres formas—,
+       sin tildes y exigiendo todas las palabras;
      · páginas de 10, con índices 1, 2, 3… para saltar.
 
    Las fechas se leen en hora LOCAL, que es la que muestra la fila.
@@ -20,6 +25,7 @@
    cargaba de noche: la merma de las 21:00 del 26 aparecía como del 27
    y el filtro «del 26 al 26» la dejaba afuera.
    ============================================================ */
+import { formasDeNumero, normalizarBusqueda, palabrasDe } from '@/shared/lib/buscar';
 import type { KardexRow } from './mercados.repository';
 
 /** Las cuatro clases de movimiento del ciclo, más «todas». */
@@ -40,16 +46,21 @@ export interface FiltroKardex {
   clase: ClaseKardex;
   /** Tipo de comida. Vacío = todas. Solo recorta los consumos. */
   tipoComida: string;
+  /**
+   * Tipos finos elegidos (claves de `tipoDeFila`). Vacío = todos. Se suman entre sí
+   * (un movimiento pasa si es de CUALQUIERA de los elegidos) y se cruzan con el resto.
+   */
+  tipos: string[];
   texto: string;
 }
 
 export const FILTRO_KARDEX_VACIO: FiltroKardex = {
-  desde: '', hasta: '', clase: 'todos', tipoComida: '', texto: '',
+  desde: '', hasta: '', clase: 'todos', tipoComida: '', tipos: [], texto: '',
 };
 
 /** ¿Hay algún filtro puesto? Con todo vacío se muestra el ciclo entero. */
 export function hayFiltro(f: FiltroKardex): boolean {
-  return !!(f.desde || f.hasta || f.tipoComida || f.texto.trim()) || f.clase !== 'todos';
+  return !!(f.desde || f.hasta || f.tipoComida || f.texto.trim()) || f.clase !== 'todos' || (f.tipos?.length ?? 0) > 0;
 }
 
 /** El día del movimiento en hora local: el mismo que se lee en la fila. */
@@ -69,13 +80,99 @@ export function instanteDeFila(row: KardexRow): string {
   return row.kind === 'consumo' ? row.comida.at : row.at;
 }
 
-const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+/* ───────────────────────── Tipo fino del movimiento ───────────────────────── */
+
+/** Un tipo fino: la clave con la que se filtra y el rótulo con el que se muestra. */
+export interface TipoKardex {
+  clave: string;
+  label: string;
+  clase: Exclude<ClaseKardex, 'todos'>;
+}
+
+/** Un tipo fino con cuántos movimientos tiene en el ciclo que se está viendo. */
+export interface TipoKardexConCuenta extends TipoKardex { n: number }
+
+/**
+ * Qué fue exactamente este movimiento, leído de lo que el kardex sabe de él.
+ * Son los mismos nombres que usa Inventario para que las dos pantallas digan lo mismo.
+ */
+export function tipoDeFila(row: KardexRow, etiquetaComida: (t: string) => string = (t) => t): TipoKardex {
+  if (row.kind === 'entrada') {
+    const ref = (row.ref_tipo ?? '').toLowerCase();
+    const tipo = (row.tipo ?? '').toLowerCase();
+    if (ref === 'orden') return { clave: 'entrada:orden', label: '⬇ Recepción de compra', clase: 'entrada' };
+    if (ref === 'compra_directa') return { clave: 'entrada:compra_directa', label: '⬇ Compra directa', clase: 'entrada' };
+    if (ref === 'ajuste_conteo') return { clave: 'entrada:ajuste_conteo', label: '⬇ Ajuste a conteo', clase: 'entrada' };
+    if (tipo === 'creacion') return { clave: 'entrada:creacion', label: '⬇ Alta de producto', clase: 'entrada' };
+    if (tipo === 'ajuste') return { clave: 'entrada:ajuste', label: '⬇ Ajuste manual (alza)', clase: 'entrada' };
+    if (ref === 'manual') return { clave: 'entrada:manual', label: '⬇ Entrada manual', clase: 'entrada' };
+    return { clave: 'entrada', label: '⬇ Entrada', clase: 'entrada' };
+  }
+  if (row.kind === 'traslado') {
+    return row.cantidad < 0
+      ? { clave: 'traslado:enviado', label: '🔁 Traslado enviado', clase: 'traslado' }
+      : { clave: 'traslado:recibido', label: '🔁 Traslado recibido', clase: 'traslado' };
+  }
+  if (row.kind === 'merma') {
+    const tipo = (row.tipo ?? '').toLowerCase();
+    const ref = (row.ref_tipo ?? '').toLowerCase();
+    if (ref === 'salida_modulo') return { clave: 'merma:salida_modulo', label: '⚠ Salida por Salidas', clase: 'merma' };
+    if (ref === 'ajuste_conteo') return { clave: 'merma:ajuste_conteo', label: '⚠ Ajuste a conteo', clase: 'merma' };
+    if (tipo === 'ajuste') return { clave: 'merma:ajuste', label: '⚠ Ajuste a la baja', clase: 'merma' };
+    if (tipo === 'consumo') return { clave: 'merma:consumo', label: '⚠ Consumo en proceso', clase: 'merma' };
+    if (tipo === 'salida') return { clave: 'merma:salida', label: '⚠ Salida manual', clase: 'merma' };
+    return { clave: `merma:${tipo || 'otra'}`, label: `⚠ ${tipo || 'Salida'}`, clase: 'merma' };
+  }
+  const t = row.comida.tipo_comida;
+  const icono = t === 'desayuno' ? '🍳' : t === 'almuerzo' ? '🍽' : t === 'cena' ? '🌙' : '⬆';
+  return { clave: `consumo:${t}`, label: `${icono} ${etiquetaComida(t)}`, clase: 'consumo' };
+}
+
+const ORDEN_CLASE: Record<Exclude<ClaseKardex, 'todos'>, number> = { entrada: 0, traslado: 1, consumo: 2, merma: 3 };
+
+/**
+ * Los tipos finos que EXISTEN en estas filas, con su cuenta, en el orden en que
+ * se leen (entradas, traslados, consumos, mermas; dentro, por rótulo). Un tipo
+ * sin movimientos no ocupa lugar.
+ */
+export function tiposDeKardex(filas: KardexRow[], etiquetaComida: (t: string) => string = (t) => t): TipoKardexConCuenta[] {
+  const m = new Map<string, TipoKardexConCuenta>();
+  for (const row of filas) {
+    const t = tipoDeFila(row, etiquetaComida);
+    const prev = m.get(t.clave);
+    if (prev) prev.n += 1; else m.set(t.clave, { ...t, n: 1 });
+  }
+  // Las comidas van en el orden en que se sirven (desayuno → almuerzo → cena), no alfabético.
+  const ordenComida = (clave: string) => ['consumo:desayuno', 'consumo:almuerzo', 'consumo:cena'].indexOf(clave);
+  return [...m.values()].sort((a, b) =>
+    ORDEN_CLASE[a.clase] - ORDEN_CLASE[b.clase]
+    || (a.clase === 'consumo' && b.clase === 'consumo' ? ordenComida(a.clave) - ordenComida(b.clave) : 0)
+    || a.label.localeCompare(b.label, 'es'));
+}
+
+/** Los tipos cuyo rótulo contiene lo tecleado (sin tildes). Vacío = todos. */
+export function buscarTipos<T extends TipoKardex>(tipos: T[], q: string): T[] {
+  const palabras = palabrasDe(q);
+  if (!palabras.length) return tipos;
+  return tipos.filter((t) => {
+    const texto = normalizarBusqueda(`${t.label} ${t.clase}`);
+    return palabras.every((p) => texto.includes(p));
+  });
+}
+
+/** Prende o apaga un tipo en la lista elegida. */
+export function alternarTipo(elegidos: string[], clave: string): string[] {
+  return elegidos.includes(clave) ? elegidos.filter((c) => c !== clave) : [...elegidos, clave];
+}
+
+/* ───────────────────────── Texto buscable ───────────────────────── */
 
 /**
  * Todo lo que la fila muestra, en una sola tira de texto minúscula y sin
  * tildes. Incluye la fecha escrita de las formas en que uno la teclea
  * —26/09/2026, 26-09-2026, 2026-09-26— y la hora, porque «buscar por fecha»
- * casi siempre se hace tecleando el día en la misma caja del texto.
+ * casi siempre se hace tecleando el día en la misma caja del texto. Los
+ * números van como los muestra la tabla y sin separadores (ver `formasDeNumero`).
  */
 export function textoBuscable(row: KardexRow, etiquetaComida: (t: string) => string): string {
   const iso = instanteDeFila(row);
@@ -85,23 +182,28 @@ export function textoBuscable(row: KardexRow, etiquetaComida: (t: string) => str
   const hora = Number.isNaN(h.getTime())
     ? ''
     : `${String(h.getHours()).padStart(2, '0')}:${String(h.getMinutes()).padStart(2, '0')}`;
-  const fechas = dia ? `${dia} ${d}/${m}/${y} ${d}-${m}-${y} ${hora}` : '';
+  const fechas = dia ? `${dia} ${d}/${m}/${y} ${d}-${m}-${y} ${d}/${m} ${hora}` : '';
+  const tipo = tipoDeFila(row, etiquetaComida);
 
-  const partes: Array<string | number | null | undefined> = [fechas];
+  const partes: Array<string | number | null | undefined> = [fechas, tipo.label, tipo.clase];
   if (row.kind === 'entrada') {
-    partes.push('entrada', row.nombre, row.unidad, row.almacen, row.detalle, row.cantidad, row.valor);
+    partes.push('entrada', row.nombre, row.unidad, row.almacen, row.detalle, row.ref_tipo, row.actor_name,
+      formasDeNumero(row.cantidad), formasDeNumero(row.valor));
   } else if (row.kind === 'traslado') {
     partes.push('traslado', row.nombre, row.unidad, row.almacen, row.contraparte, row.codigo, row.detalle,
-      row.cantidad, row.valor, row.sinLlegada > 0 ? 'sin llegada' : '');
+      row.cantidad < 0 ? 'enviado salio' : 'recibido llego', row.interno ? 'dentro del centro' : '',
+      formasDeNumero(Math.abs(row.cantidad)), formasDeNumero(Math.abs(row.valor)),
+      row.sinLlegada > 0 ? `sin llegada ${formasDeNumero(row.sinLlegada)}` : '');
   } else if (row.kind === 'merma') {
-    partes.push('merma', 'salida', row.nombre, row.unidad, row.almacen, row.tipo, row.detalle,
-      row.actor_name, row.cantidad, row.valor);
+    partes.push('merma', 'salida', row.nombre, row.unidad, row.almacen, row.tipo, row.ref_tipo, row.detalle,
+      row.actor_name, formasDeNumero(row.cantidad), formasDeNumero(row.valor));
   } else {
     const c = row.comida;
     partes.push('consumo', 'comida', c.codigo, c.tipo_comida, etiquetaComida(c.tipo_comida), c.nota,
-      c.platos, c.valor_total, c.actor_name, (c.items ?? []).map((i) => i.nombre).join(' '));
+      formasDeNumero(c.platos), 'platos', formasDeNumero(c.valor_total), c.actor_name,
+      (c.items ?? []).map((i) => `${i.nombre} ${i.unidad ?? ''} ${formasDeNumero(i.cantidad)}`).join(' '));
   }
-  return sinTildes(partes.filter((p) => p != null && p !== '').join(' ').toLowerCase());
+  return normalizarBusqueda(partes.filter((p) => p != null && p !== '').join(' '));
 }
 
 /**
@@ -115,13 +217,15 @@ export function filtrarKardex(
   f: FiltroKardex,
   etiquetaComida: (t: string) => string = (t) => t,
 ): KardexRow[] {
-  const palabras = sinTildes(f.texto.trim().toLowerCase()).split(/\s+/).filter(Boolean);
+  const palabras = palabrasDe(f.texto);
+  const tipos = new Set(f.tipos ?? []);
   return filas.filter((row) => {
     if (f.clase !== 'todos' && claseDeFila(row) !== f.clase) return false;
     if (f.tipoComida) {
       if (row.kind !== 'consumo') return false;
       if (row.comida.tipo_comida !== f.tipoComida) return false;
     }
+    if (tipos.size && !tipos.has(tipoDeFila(row, etiquetaComida).clave)) return false;
     const dia = diaLocal(instanteDeFila(row));
     if (f.desde && (!dia || dia < f.desde)) return false;
     if (f.hasta && (!dia || dia > f.hasta)) return false;
