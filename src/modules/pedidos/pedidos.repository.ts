@@ -1951,18 +1951,37 @@ export async function recibirOrdenParcial(
       .eq('id', it.productoId)
       .maybeSingle();
     if (pErr) throw pErr;
-    const stockAntes = Number(prod?.stock ?? 0);
-    const stockDespues = stockAntes + rec;
     const almacenProd = destinoFinal || (prod?.almacen as string) || 'General';
+    // Dos stocks distintos, y NO se mezclan (09-10-2026):
+    //  · el GLOBAL del producto (todas las sedes) vive en `productos.stock`;
+    //  · el DEL ALMACÉN que recibe vive en `existencias` y es el «saldo en …»
+    //    que muestra el kardex de esa sede.
+    // Antes el kardex se anotaba con el global: la trazabilidad decía
+    // «saldo en Los Pinos: 7» cuando en Los Pinos había 2 (INS-068).
+    const stockGlobalAntes = Number(prod?.stock ?? 0);
+    const stockGlobalDespues = stockGlobalAntes + rec;
+    const { data: exPrev } = await supabase
+      .from('existencias')
+      .select('stock, costo_promedio')
+      .eq('producto_id', it.productoId)
+      .eq('almacen', almacenProd)
+      .maybeSingle();
+    const stockAntes = Number(exPrev?.stock) || 0;
+    const stockDespues = Math.round((stockAntes + rec) * 10000) / 10000;
     const precioActual = Number(prod?.precio_promedio ?? prod?.precio ?? 0);
+    const costoAlmacenAntes = Number(exPrev?.costo_promedio) || precioActual;
     // Costo en $: si la orden es en Bs, se divide por la tasa BCV (nunca entra el Bs crudo como $).
     // Y por unidad de USO: el precio del bulto ÷ lo que trae el bulto.
     const precioCompraUc = o.moneda === 'Bs' && tasaOrden
       ? Number(it.precio) / tasaOrden
       : Number(it.precio);
     const precioCompra = costoPorUnidadDeUso(it, precioCompraUc);
-    const precioPromedio = stockDespues > 0
-      ? Number(((stockAntes * precioActual + rec * precioCompra) / stockDespues).toFixed(4))
+    // PMP global (ficha del producto) y PMP del almacén (existencias y kardex).
+    const precioPromedio = stockGlobalDespues > 0
+      ? Number(((stockGlobalAntes * precioActual + rec * precioCompra) / stockGlobalDespues).toFixed(4))
+      : precioCompra;
+    const pmpAlmacen = stockDespues > 0
+      ? Number(((stockAntes * costoAlmacenAntes + rec * precioCompra) / stockDespues).toFixed(4))
       : precioCompra;
     // La marca que de verdad entró: la recibida si se indicó, si no la pedida.
     const marcaRec = marcaMap.get(it.sku)?.marca_recibida;
@@ -1991,7 +2010,7 @@ export async function recibirOrdenParcial(
       // Costo con el que entra (ya viene con el descuento por efectivo aplicado en la OC)
       // y el PMP resultante: se ven en la trazabilidad/kardex del producto.
       precio_unitario: precioCompra,
-      costo_promedio: precioPromedio,
+      costo_promedio: pmpAlmacen,
       marca: marcaEntra,
       detalle: (usaUnidadCompra(it)
         ? `Recepción de ${recCompra}/${it.cantidad} ${it.unidad_compra} ${it.sku} = ${textoCantidadCompra(it, recCompra)} @ ${precioCompra.toFixed(4)} por ${it.unidad ?? 'unidad'} (promedio: ${precioPromedio.toFixed(2)}) → ${almacenProd}`
@@ -2014,24 +2033,18 @@ export async function recibirOrdenParcial(
     const { error: uErr } = await supabase
       .from('productos')
       .update({
-        stock: stockDespues, precio: precioCompra, precio_promedio: precioPromedio,
+        stock: stockGlobalDespues, precio: precioCompra, precio_promedio: precioPromedio,
         ...(casaNueva ? { almacen: casaNueva } : {}),
         ...(identidad ?? {}),
       })
       .eq('id', it.productoId);
     if (uErr) throw uErr;
 
-    const { data: exRow } = await supabase
-      .from('existencias')
-      .select('stock')
-      .eq('producto_id', it.productoId)
-      .eq('almacen', almacenProd)
-      .maybeSingle();
-    const exStockNuevo = (Number(exRow?.stock) || 0) + rec;
+    // La existencia del almacén queda igual al saldo que acaba de anotar el kardex.
     const { error: exErr } = await supabase
       .from('existencias')
       .upsert(
-        { producto_id: it.productoId, almacen: almacenProd, stock: exStockNuevo, costo_promedio: precioPromedio, updated_at: new Date().toISOString() },
+        { producto_id: it.productoId, almacen: almacenProd, stock: stockDespues, costo_promedio: pmpAlmacen, updated_at: new Date().toISOString() },
         { onConflict: 'producto_id,almacen' },
       );
     if (exErr) throw exErr;
