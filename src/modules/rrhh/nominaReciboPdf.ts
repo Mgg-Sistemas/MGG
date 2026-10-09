@@ -2,6 +2,13 @@
    MGG · RRHH · Comprobante de pago de personal (recibo)
    PDF tipo factura/recibo, una página por trabajador, con el
    desglose del pago y las líneas de firma (trabajador y RRHH).
+
+   Compactado el 09-10-2026: al sumar el bloque del bono (con préstamos y
+   anticipos) las firmas se iban a una segunda hoja. Rellenos y espacios más
+   cortos para que recibo + conformidad + firmas entren en UNA carta; la
+   medida se comprobó armando el PDF en Node con todas las deducciones y
+   seriales de billetes. Si algún día no entra igual, las firmas pasan de hoja
+   enteras, nunca partidas.
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
@@ -65,14 +72,14 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
 
     doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
     doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-    y += 18;
+    y += 14;
 
     // Título grande.
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
     doc.text('COMPROBANTE DE PAGO', MARGIN, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
     doc.text(`Motivo: ${labelMotivo(meta.periodo.tipo)}`, PAGE_W - MARGIN, y, { align: 'right' });
-    y += 18;
+    y += 14;
 
     // Datos del trabajador.
     const cedula = meta.cedulas?.[r.personal_id ?? ''] || '';
@@ -90,11 +97,11 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       ],
       margin: MARGENES_TABLA_PDF,
       theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 5 },
+      styles: { fontSize: 8.5, cellPadding: 3 },
       columnStyles: { 0: { fontStyle: 'bold', cellWidth: 90 }, 2: { fontStyle: 'bold', cellWidth: 90 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 16;
+    y = (doc.lastAutoTable?.finalY ?? y) + 6;
 
     /* ── El desglose, en bolívares Y en dólares ──
        La tasa es la de la quincena: se guardó al cerrarla y no se recalcula.
@@ -147,7 +154,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['', 'NETO DEL RECIBO', bsStr(c.netoBs), usd(c.netoUsd), '', ''],
       ],
       margin: MARGENES_TABLA_PDF,
-      styles: { fontSize: 8.5, cellPadding: 4 },
+      styles: { fontSize: 8.5, cellPadding: 2.5 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       columnStyles: {
@@ -157,7 +164,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+    y = (doc.lastAutoTable?.finalY ?? y) + 6;
 
     /* EL BONO: el 80 %, en divisas. Va aparte porque no se paga en bolívares;
        mezclarlo arriba haría que el «pagado en bolívares» dijera un monto que
@@ -173,12 +180,12 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       foot: [['BONO A ENTREGAR EN DIVISAS', usd(c.bonoNetoUsd)]],
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       margin: MARGENES_TABLA_PDF,
-      styles: { fontSize: 8.5, cellPadding: 4 },
+      styles: { fontSize: 8.5, cellPadding: 2.5 },
       headStyles: { fillColor: [55, 55, 55], textColor: 255, fontStyle: 'bold' },
       columnStyles: { 1: { halign: 'right', cellWidth: 120 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+    y = (doc.lastAutoTable?.finalY ?? y) + 6;
 
     /* EL TOTAL: las dos partes juntas, cada una en la moneda en que se paga,
        con la tasa a la vista. Es lo que la persona se lleva. */
@@ -192,13 +199,13 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       ],
       foot: [['TOTAL RECIBIDO', '', usd(c.totalRecibidoUsd)]],
       margin: MARGENES_TABLA_PDF,
-      styles: { fontSize: 8.5, cellPadding: 4 },
+      styles: { fontSize: 8.5, cellPadding: 2.5 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       columnStyles: { 1: { halign: 'right', cellWidth: 115 }, 2: { halign: 'right', cellWidth: 115 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+    y = (doc.lastAutoTable?.finalY ?? y) + 6;
     // La conformidad. Dice los dos montos porque el pago se entrega en una
     // moneda pero el sueldo se pactó en la otra.
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
@@ -206,9 +213,9 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     const conformidad = `Certifico haber recibido ${bsStr(c.netoBs)} en bolívares (${usd(c.netoUsd)} a la tasa de ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$) más ${usd(c.bonoNetoUsd)} de bono en divisas${descuentoBono}, lo que hace un total de ${usd(c.totalRecibidoUsd)}, que comprende la totalidad de mi remuneración del período indicado, y firmo en señal de conformidad.`;
     const lineasConformidad = doc.splitTextToSize(conformidad, anchoUtilPdf(PAGE_W)) as string[];
     // Si no entra sobre el margen inferior, la conformidad pasa a la hoja siguiente.
-    if (y + 10 + lineasConformidad.length * 11 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN; }
+    if (y + 10 + lineasConformidad.length * 10 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN; }
     doc.text(lineasConformidad, MARGIN, y + 10);
-    y += 10 + lineasConformidad.length * 11;
+    y += 10 + lineasConformidad.length * 10;
 
     if (r.seriales_billetes && r.seriales_billetes.length) {
       doc.setFontSize(8);
@@ -218,19 +225,20 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       y += 8 + seriales.length * 10;
     }
 
-    // Firmas (al pie de la página). El bloque termina (fy + 26) dentro del margen
-    // inferior; si lo de arriba llegó hasta ahí, las firmas pasan a la hoja siguiente.
-    const fy = limiteInferiorPdf(PAGE_H) - 50;
-    if (y + 24 > fy) doc.addPage();
+    // Firmas (al pie de la página). El bloque termina (fy + 22) dentro del margen
+    // inferior; si lo de arriba llegó hasta la raya, las firmas pasan ENTERAS a la
+    // hoja siguiente (nunca la raya en una hoja y el nombre en la otra).
+    const fy = limiteInferiorPdf(PAGE_H) - 40;
+    if (y + 16 > fy) doc.addPage();
     const colW = (anchoUtilPdf(PAGE_W) - 40) / 2;
     doc.setDrawColor(120); doc.setLineWidth(0.7);
     doc.line(MARGIN, fy, MARGIN + colW, fy);
     doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text('Firma del trabajador', MARGIN + colW / 2, fy + 14, { align: 'center' });
-    doc.text(r.nombre, MARGIN + colW / 2, fy + 26, { align: 'center' });
-    doc.text('Firma de la Jefa de RRHH', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
-    doc.text('Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + 26, { align: 'center' });
+    doc.text('Firma del trabajador', MARGIN + colW / 2, fy + 11, { align: 'center' });
+    doc.text(r.nombre, MARGIN + colW / 2, fy + 22, { align: 'center' });
+    doc.text('Firma de la Jefa de RRHH', MARGIN + colW + 40 + colW / 2, fy + 11, { align: 'center' });
+    doc.text('Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + 22, { align: 'center' });
   });
 
   return doc;

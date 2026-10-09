@@ -4,13 +4,13 @@ import { FechaVe } from '@/shared/ui/FechaVe';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
-import { money, date, dateTime } from '@/shared/lib/format';
+import { money, date, dateTime, hoyISO } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { Personal, NominaRenglon } from '@/shared/lib/types';
 import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal,
-  subirFotoCarnet, digitosCedula, listHistorialSueldo, listCambiosSueldo,
+  subirFotoCarnet, digitosCedula, listHistorialSueldo, listCambiosSueldo, registrarSueldoHistorico, eliminarSueldoHistorico,
   listDocumentosPersonal, listDocumentosDeTodos, subirDocumentoPersonal,
   urlDocumentoPersonal, borrarDocumentoPersonal, renombrarDocumentoPersonal,
   type PersonalInput, type CambioSueldoRegistro, type DocumentoPersonal,
@@ -57,6 +57,8 @@ import {
   type RenglonHistoricoSalarial,
 } from './historicoSalarial';
 import { verHistoricoSalarialExcel, verHistoricoSalarialPdf } from './historicoSalarialReporte';
+import { MOTIVO_HISTORICO_POR_DEFECTO, esRenglonHistorico, sueldoPorAnio, sugerirSueldoAnterior, validarSueldoHistorico, vigenciaSueldoActual } from './sueldoHistorico';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
@@ -271,6 +273,7 @@ function FotoEncuadre({ url, posX, posY, zoom, onChange }: {
 export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
   canWrite: boolean; actor: string; actorName?: string | null; empresa?: Empresa;
 }) {
+  const { isAdmin } = usePermissions();
   const [lista, setLista] = useState<Personal[]>([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
@@ -693,7 +696,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         <ExportarPersonalModal todos={lista} visibles={visibles} hayFiltros={visibles.length !== lista.length}
           onClose={() => setExportando(false)} />
       )}
-      {historicoSalarial && <HistoricoSalarialModal personal={lista} onClose={() => setHistoricoSalarial(false)} />}
+      {historicoSalarial && <HistoricoSalarialModal personal={lista} canWrite={canWrite} isAdmin={isAdmin} actor={actor} actorName={actorName ?? null} onClose={() => setHistoricoSalarial(false)} />}
 
       {/* Las tarjetas se tocan y filtran, y SE COMBINAN entre sí. La primera es
           el «todos»: apaga las demás. */}
@@ -1404,7 +1407,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
       )}
 
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
-      {sueldoPersona && <HistorialSueldoModal persona={sueldoPersona} onClose={() => setSueldoPersona(null)} />}
+      {sueldoPersona && <HistorialSueldoModal persona={sueldoPersona} canWrite={canWrite} isAdmin={isAdmin} actor={actor} actorName={actorName ?? null} onClose={() => setSueldoPersona(null)} />}
       {fichaPersona && (
         <FichaTecnicaModal persona={fichaPersona} onClose={() => setFichaPersona(null)}
           onEditar={() => { const p = fichaPersona; setFichaPersona(null); editar(p); }} canWrite={canWrite} />
@@ -2056,22 +2059,38 @@ function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCa
 }
 
 /* ───────── Historial de sueldos: cuándo cambió, cuánto y por qué ───────── */
-function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
+function HistorialSueldoModal({ persona, canWrite, isAdmin, actor, actorName, onClose }: {
+  persona: Personal; canWrite: boolean; isAdmin: boolean; actor: string; actorName: string | null; onClose: () => void;
+}) {
   const [filas, setFilas] = useState<CambioSueldoRegistro[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cargarViejo, setCargarViejo] = useState(false);
+  const [quitar, setQuitar] = useState<CambioSueldoRegistro | null>(null);
 
-  useEffect(() => {
-    let vivo = true;
+  const cargar = useCallback(() => {
     listHistorialSueldo(persona.id)
-      .then((r) => { if (vivo) setFilas(r); })
-      .catch((e) => { if (vivo) setError(e instanceof Error ? e.message : 'No se pudo cargar el historial'); })
-      .finally(() => { if (vivo) setLoading(false); });
-    return () => { vivo = false; };
+      .then((r) => { setFilas(r); setError(null); })
+      .catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar el historial'))
+      .finally(() => setLoading(false));
   }, [persona.id]);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['personal_sueldos'], cargar);
 
   // Los cambios reales son los que movieron el número; la carga inicial no lo es.
   const cambios = filas.filter((f) => f.tipo !== 'inicial').length;
+  // En qué año cambió el sueldo, de un vistazo (09-10-2026).
+  const porAnio = useMemo(() => sueldoPorAnio(filas), [filas]);
+
+  async function quitarHistorico() {
+    if (!quitar) return;
+    try {
+      await eliminarSueldoHistorico(quitar.id);
+      toast('Renglón histórico quitado', 'success');
+      setQuitar(null);
+      cargar();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo quitar', 'error'); }
+  }
 
   // PDF y Excel del historial de ESTA persona, en vista previa (09-10-2026).
   const [generando, setGenerando] = useState<'pdf' | 'xlsx' | null>(null);
@@ -2090,6 +2109,11 @@ function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose
     <Modal title={`Historial de sueldos · ${persona.nombre} ${persona.apellido}`} size="lg" onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+        {canWrite && (
+          <button className="btn" onClick={() => setCargarViejo(true)} disabled={loading} title="Cargar un sueldo anterior al sistema (el histórico del Excel) sin tocar el sueldo actual">
+            🕰 Cargar sueldo viejo
+          </button>
+        )}
         <button className="btn" onClick={() => void exportar('xlsx')} disabled={loading || !!generando} title="Vista previa del Excel">
           {generando === 'xlsx' ? 'Generando…' : '📊 Excel'}
         </button>
@@ -2110,6 +2134,16 @@ function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose
           <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase' }}>Cambios registrados</div>
           <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 800 }}>{cambios}</div>
         </div>
+        {porAnio.length > 1 && (
+          <div style={{ flex: '1 1 260px' }}>
+            <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase' }}>Sueldo por año</div>
+            <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginTop: '.2rem' }}>
+              {porAnio.map((a) => (
+                <span key={a.anio} className="badge mono" title={`${a.cambios} renglón(es) en ${a.anio}`}>{a.anio}: {money(a.sueldo)}</span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="table-wrap" style={{ maxHeight: 400, overflowY: 'auto' }}>
@@ -2120,13 +2154,13 @@ function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose
               <th style={{ textAlign: 'right' }}>Antes</th>
               <th style={{ textAlign: 'right' }}>Después</th>
               <th style={{ textAlign: 'right' }}>Variación</th>
-              <th>Motivo</th><th>Cargado</th>
+              <th>Motivo</th><th>Cargado</th>{isAdmin && <th />}
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {loading && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
             {!loading && !filas.length && (
-              <tr><td colSpan={7}><EmptyState icon="💵" message="Sin cambios de sueldo registrados" /></td></tr>
+              <tr><td colSpan={8}><EmptyState icon="💵" message="Sin cambios de sueldo registrados" /></td></tr>
             )}
             {!loading && filas.map((r) => {
               const v = variacionSueldo(r.sueldoAnterior, r.sueldoNuevo);
@@ -2144,6 +2178,13 @@ function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose
                     {r.createdAt ? dateTime(r.createdAt) : '—'}
                     <div>{r.actorName || r.actor || ''}</div>
                   </td>
+                  {isAdmin && (
+                    <td style={{ textAlign: 'center' }}>
+                      {esRenglonHistorico(r) && (
+                        <button className="btn btn-sm btn-ghost" onClick={() => setQuitar(r)} title="Quitar este renglón histórico mal cargado (solo administrador)">🗑</button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -2153,17 +2194,131 @@ function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose
       <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
         Un renglón del historial <strong>no se edita ni se borra</strong>. Si alguno quedó mal cargado, se registra
         otro cambio que lo corrija: un historial que se puede reescribir no sirve para respaldar una nómina vieja.
+        La excepción son los <strong>sueldos viejos cargados a mano</strong> desde el Excel (🕰): no movieron la ficha, y el administrador puede quitarlos si quedaron mal.
       </small>
+      {cargarViejo && (
+        <SueldoHistoricoForm persona={persona} historial={filas} actor={actor} actorName={actorName}
+          onClose={() => setCargarViejo(false)} onGuardado={cargar} />
+      )}
+      {quitar && (
+        <ConfirmDialog
+          title="Quitar renglón histórico"
+          message={`¿Quitar el sueldo de ${money(quitar.sueldoNuevo)} que rige desde el ${date(quitar.vigenteDesde)} del historial de ${persona.nombre}? Solo se quitan renglones cargados a mano como históricos.`}
+          confirmText="Quitar" danger
+          onConfirm={() => void quitarHistorico()}
+          onCancel={() => setQuitar(null)} />
+      )}
     </Modal>
   );
 }
+
+/* ───────── Cargar un sueldo VIEJO al historial (09-10-2026) ─────────
+   Para pasar el histórico que se tiene en Excel: en qué año cambió el sueldo
+   y a cuánto. No toca el sueldo actual de la ficha; la base rechaza fechas
+   iguales o posteriores a la vigencia del sueldo de hoy y fechas a futuro. */
+function SueldoHistoricoForm({ persona, historial, actor, actorName, onClose, onGuardado }: {
+  persona: Personal; historial: CambioSueldoRegistro[]; actor: string; actorName: string | null;
+  onClose: () => void; onGuardado: () => void;
+}) {
+  const [vigenteDesde, setVigenteDesde] = useState('');
+  const [sueldo, setSueldo] = useState<number | null>(null);
+  const [anterior, setAnterior] = useState<number | null>(null);
+  const [anteriorTocado, setAnteriorTocado] = useState(false);
+  const [motivo, setMotivo] = useState(MOTIVO_HISTORICO_POR_DEFECTO);
+  const [guardando, setGuardando] = useState(false);
+  const [cargados, setCargados] = useState(0);
+  const hoy = hoyISO();
+  const vigenciaActual = vigenciaSueldoActual(historial);
+
+  // El «anterior» se sugiere con el renglón previo ya cargado; si la persona lo tocó, se respeta.
+  useEffect(() => {
+    if (anteriorTocado) return;
+    setAnterior(vigenteDesde ? sugerirSueldoAnterior(historial, vigenteDesde) : null);
+  }, [vigenteDesde, historial, anteriorTocado]);
+
+  const error = validarSueldoHistorico({ vigenteDesde, sueldoNuevo: sueldo ?? '', sueldoAnterior: anterior ?? 0, motivo, hoy, vigenciaActual, historial });
+  const tocado = vigenteDesde !== '' || sueldo !== null;
+
+  async function guardar(otro: boolean) {
+    if (error) { toast(error, 'error'); return; }
+    setGuardando(true);
+    try {
+      await registrarSueldoHistorico(persona.id, {
+        sueldoAnterior: anterior ?? 0, sueldoNuevo: sueldo ?? 0, vigenteDesde, motivo, actor, actorName,
+      });
+      toast(`Sueldo desde el ${date(vigenteDesde)} cargado al historial de ${persona.nombre}`, 'success');
+      onGuardado();
+      if (!otro) { onClose(); return; }
+      setCargados((n) => n + 1);
+      setVigenteDesde(''); setSueldo(null); setAnterior(null); setAnteriorTocado(false);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el sueldo', 'error'); }
+    finally { setGuardando(false); }
+  }
+
+  return (
+    <Modal title={`Cargar sueldo viejo · ${persona.nombre} ${persona.apellido ?? ''}`.trim()} size="md" onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>{cargados ? 'Listo' : 'Cancelar'}</button>
+        <button className="btn" onClick={() => void guardar(true)} disabled={guardando || !!error} title="Guarda este y deja el formulario listo para el siguiente renglón del Excel">
+          {guardando ? 'Guardando…' : '💾 Guardar y agregar otro'}
+        </button>
+        <button className="btn btn-primary" onClick={() => void guardar(false)} disabled={guardando || !!error}>
+          {guardando ? 'Guardando…' : '💾 Guardar'}
+        </button>
+      </>}>
+      <div className="card" style={{ marginBottom: '.7rem', fontSize: '.84rem' }}>
+        Es para pasar el <strong>histórico que está en Excel</strong>: desde cuándo rigió cada sueldo y a cuánto.
+        <strong> No cambia el sueldo actual</strong> ({Number(persona.sueldo_base) > 0 ? money(persona.sueldo_base) : '—'}
+        {vigenciaActual ? `, que rige desde el ${date(vigenciaActual)}` : ''}): un sueldo viejo tiene que regir <strong>antes</strong> de esa fecha.
+        Para cambiar el de hoy se usa «cambiar sueldo» en la ficha.
+        {cargados > 0 && <div style={{ marginTop: '.3rem' }}>✔ {cargados} renglón(es) cargado(s) en esta tanda.</div>}
+      </div>
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Rigió desde *</label>
+          <input className="input" type="date" value={vigenteDesde} max={hoy} onChange={(e) => setVigenteDesde(e.target.value)} autoFocus />
+          <small className="hint muted">La fecha del Excel desde la que la persona pasó a ganar ese sueldo.</small>
+        </div>
+        <div className="form-row">
+          <label>Sueldo mensual (USD) *</label>
+          <DecimalInput className="input mono" value={sueldo} onChange={setSueldo} placeholder="0,00" />
+        </div>
+        <div className="form-row">
+          <label>Sueldo anterior (USD)</label>
+          <DecimalInput className="input mono" value={anterior} onChange={(v) => { setAnterior(v); setAnteriorTocado(true); }} placeholder="0,00" />
+          <small className="hint muted">Se sugiere con el renglón previo ya cargado; corregilo si el Excel dice otra cosa. 0 si no hay nada antes.</small>
+        </div>
+        <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+          <label>Motivo / de dónde sale el dato *</label>
+          <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={300} />
+        </div>
+      </div>
+      {tocado && error && <div className="muted" style={{ marginTop: '.5rem', fontSize: '.82rem', color: 'var(--warning)' }}>⚠ {error}</div>}
+      {!error && vigenteDesde && sueldo !== null && (
+        <div className="muted" style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
+          Quedará: desde el <strong>{date(vigenteDesde)}</strong>, de {(anterior ?? 0) > 0 ? money(anterior ?? 0) : '—'} a <strong>{money(sueldo ?? 0)}</strong>, marcado <span className="badge">Histórico (carga manual)</span>.
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 
 /* ───────── Histórico salarial de TODO el personal (09-10-2026) ─────────
    Cada cambio de sueldo de cada persona, con búsqueda, filtro por cargo y por
    rango de vigencia, y PDF / Excel de lo que se esté viendo. Los inactivos
    también salen: sus cambios respaldan nóminas viejas. */
-function HistoricoSalarialModal({ personal, onClose }: { personal: Personal[]; onClose: () => void }) {
+function HistoricoSalarialModal({ personal, canWrite, isAdmin, actor, actorName, onClose }: {
+  personal: Personal[]; canWrite: boolean; isAdmin: boolean; actor: string; actorName: string | null; onClose: () => void;
+}) {
   const [cambios, setCambios] = useState<CambioSueldoRegistro[]>([]);
+  // Cargar sueldos viejos desde acá: se elige la persona y se abre su historial (09-10-2026).
+  const [elegirPersona, setElegirPersona] = useState(false);
+  const [personaId, setPersonaId] = useState('');
+  const [abrirDe, setAbrirDe] = useState<Personal | null>(null);
+  const opcionesPersonal = useMemo(() => [...personal]
+    .sort((a, b) => `${a.nombre} ${a.apellido ?? ''}`.localeCompare(`${b.nombre} ${b.apellido ?? ''}`, 'es'))
+    .map((p) => ({ value: p.id, label: `${p.nombre} ${p.apellido ?? ''}`.trim(), hint: `${p.cedula || ''} · ${p.cargo || ''}${p.activo === false ? ' · inactivo' : ''}` })), [personal]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [texto, setTexto] = useState('');
@@ -2201,6 +2356,11 @@ function HistoricoSalarialModal({ personal, onClose }: { personal: Personal[]; o
     <Modal title="Histórico salarial · Todo el personal" size="xl" onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+        {canWrite && (
+          <button className="btn" onClick={() => setElegirPersona(true)} title="Cargar al historial sueldos anteriores al sistema (el Excel), persona por persona">
+            🕰 Cargar sueldos viejos
+          </button>
+        )}
         <button className="btn" onClick={() => void exportar('xlsx')} disabled={loading || !!generando} title="Vista previa del Excel con lo que se está viendo">
           {generando === 'xlsx' ? 'Generando…' : '📊 Excel'}
         </button>
@@ -2263,8 +2423,25 @@ function HistoricoSalarialModal({ personal, onClose }: { personal: Personal[]; o
       </div>
       <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
         El PDF y el Excel salen con <strong>lo que se está viendo</strong> (búsqueda, cargo y rango puestos), en vista previa.
-        Un renglón del histórico <strong>no se edita ni se borra</strong>.
+        Un renglón del histórico <strong>no se edita ni se borra</strong>; los sueldos viejos cargados a mano (🕰) los puede quitar el administrador.
       </small>
+      {elegirPersona && (
+        <Modal title="¿De quién es el sueldo viejo?" size="sm" onClose={() => setElegirPersona(false)}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setElegirPersona(false)}>Cancelar</button>
+            <button className="btn btn-primary" disabled={!personaId}
+              onClick={() => { const p = personal.find((x) => x.id === personaId); if (p) { setAbrirDe(p); setElegirPersona(false); } }}>
+              Abrir su historial
+            </button>
+          </>}>
+          <div className="form-row">
+            <label>Persona</label>
+            <SearchSelect options={opcionesPersonal} value={personaId} onChange={setPersonaId} placeholder="Buscar por nombre, cédula o cargo…" />
+            <small className="hint muted">Se abre su historial de sueldos con el botón <strong>🕰 Cargar sueldo viejo</strong>, para pasar los renglones del Excel uno por uno.</small>
+          </div>
+        </Modal>
+      )}
+      {abrirDe && <HistorialSueldoModal persona={abrirDe} canWrite={canWrite} isAdmin={isAdmin} actor={actor} actorName={actorName} onClose={() => setAbrirDe(null)} />}
     </Modal>
   );
 }

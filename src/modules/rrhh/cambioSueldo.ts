@@ -16,7 +16,7 @@
    ============================================================ */
 
 /** Etiqueta opcional para agrupar los cambios. El motivo en palabras es aparte. */
-export type TipoCambioSueldo = 'aumento' | 'ajuste' | 'ascenso' | 'correccion' | 'rebaja' | 'inicial';
+export type TipoCambioSueldo = 'aumento' | 'ajuste' | 'ascenso' | 'correccion' | 'rebaja' | 'inicial' | 'historico';
 
 export const TIPOS_CAMBIO_SUELDO: { key: TipoCambioSueldo; label: string; ayuda: string }[] = [
   { key: 'aumento', label: 'Aumento', ayuda: 'Se le sube el sueldo por desempeño o acuerdo.' },
@@ -28,6 +28,8 @@ export const TIPOS_CAMBIO_SUELDO: { key: TipoCambioSueldo; label: string; ayuda:
 
 export function labelTipoCambio(t: TipoCambioSueldo | string | null | undefined): string {
   if (t === 'inicial') return 'Carga inicial';
+  // Sueldo viejo cargado a mano desde el Excel (09-10-2026): no movió la ficha.
+  if (t === 'historico') return 'Histórico (carga manual)';
   return TIPOS_CAMBIO_SUELDO.find((x) => x.key === t)?.label ?? '—';
 }
 

@@ -599,6 +599,40 @@ export async function cambiarSueldo(id: string, sueldoNuevo: number, cambio: Cam
 
 /* ───────── Historial de sueldos ───────── */
 
+export interface SueldoHistoricoOpts {
+  sueldoAnterior: number;
+  sueldoNuevo: number;
+  vigenteDesde: string;
+  motivo: string;
+  actor?: string | null;
+  actorName?: string | null;
+}
+
+/**
+ * Carga un sueldo VIEJO al historial (el Excel de antes del sistema), sin
+ * tocar el sueldo actual de la ficha. La base exige que rija antes del sueldo
+ * de hoy y nunca a futuro; el renglón queda tipo «historico».
+ */
+export async function registrarSueldoHistorico(personalId: string, o: SueldoHistoricoOpts): Promise<CambioSueldoRegistro> {
+  const { data, error } = await supabase.rpc('registrar_sueldo_historico', {
+    p_personal_id: personalId,
+    p_sueldo_anterior: aCentavos(o.sueldoAnterior),
+    p_sueldo_nuevo: aCentavos(o.sueldoNuevo),
+    p_vigente_desde: o.vigenteDesde,
+    p_motivo: o.motivo.trim(),
+    p_actor: o.actor ?? null,
+    p_actor_name: o.actorName ?? null,
+  });
+  if (error) throw new Error(error.message || 'No se pudo cargar el sueldo histórico.');
+  return aCambio(data as Record<string, unknown>);
+}
+
+/** Quita un renglón «historico» mal cargado. Solo administradores; los demás tipos no se borran nunca. */
+export async function eliminarSueldoHistorico(id: string): Promise<void> {
+  const { error } = await supabase.rpc('eliminar_sueldo_historico', { p_id: id });
+  if (error) throw new Error(error.message || 'No se pudo quitar el renglón.');
+}
+
 export interface CambioSueldoRegistro {
   id: string;
   personalId: string;
