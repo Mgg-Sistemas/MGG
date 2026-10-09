@@ -10,7 +10,7 @@ import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { Personal, NominaRenglon } from '@/shared/lib/types';
 import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal,
-  subirFotoCarnet, digitosCedula, listHistorialSueldo,
+  subirFotoCarnet, digitosCedula, listHistorialSueldo, listCambiosSueldo,
   listDocumentosPersonal, listDocumentosDeTodos, subirDocumentoPersonal,
   urlDocumentoPersonal, borrarDocumentoPersonal, renombrarDocumentoPersonal,
   type PersonalInput, type CambioSueldoRegistro, type DocumentoPersonal,
@@ -52,6 +52,11 @@ import {
   generarFrenteBlob, generarReversoBlob, descargarFrente, descargarReverso, carnetPdf, type ModoPdfCarnet, type TemaCarnet,
 } from './carnetImagen';
 import { descargarConstanciaTrabajoPdf } from './constanciaTrabajoPdf';
+import {
+  armarHistoricoSalarial, cargosDelHistorico, filtrarHistorico, textoPct, textoRangoHistorico,
+  type RenglonHistoricoSalarial,
+} from './historicoSalarial';
+import { verHistoricoSalarialExcel, verHistoricoSalarialPdf } from './historicoSalarialReporte';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
@@ -656,6 +661,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   // El cartel del navegador se reemplaza por el diálogo del sistema.
   const [porBorrar, setPorBorrar] = useState<Personal | null>(null);
   const [exportando, setExportando] = useState(false);
+  const [historicoSalarial, setHistoricoSalarial] = useState(false);
   async function confirmarBorrado() {
     if (!porBorrar) return;
     try { await eliminarPersonal(porBorrar.id); setPorBorrar(null); await recargar(); toast('Eliminado', 'success'); }
@@ -668,6 +674,9 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         {/* Exportar: con casillas se elige qué datos salen (ej. solo nombre y cédula). */}
         <button className="btn btn-ghost" onClick={() => setExportando(true)} disabled={!lista.length}
           title="Elegí qué datos y de quiénes, y bajalo en Excel o PDF">⬇ Exportar datos</button>
+        {/* Todos los cambios de sueldo de todo el personal, con PDF y Excel (09-10-2026). */}
+        <button className="btn btn-ghost" onClick={() => setHistoricoSalarial(true)}
+          title="Todos los cambios de sueldo del personal: quién, cuándo, de cuánto a cuánto y por qué">📜 Histórico salarial</button>
         {canWrite && (
           <>
             {/* La hoja en blanco es para ANTES de que exista la ficha: se imprime,
@@ -684,6 +693,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         <ExportarPersonalModal todos={lista} visibles={visibles} hayFiltros={visibles.length !== lista.length}
           onClose={() => setExportando(false)} />
       )}
+      {historicoSalarial && <HistoricoSalarialModal personal={lista} onClose={() => setHistoricoSalarial(false)} />}
 
       {/* Las tarjetas se tocan y filtran, y SE COMBINAN entre sí. La primera es
           el «todos»: apaga las demás. */}
@@ -2063,9 +2073,30 @@ function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose
   // Los cambios reales son los que movieron el número; la carga inicial no lo es.
   const cambios = filas.filter((f) => f.tipo !== 'inicial').length;
 
+  // PDF y Excel del historial de ESTA persona, en vista previa (09-10-2026).
+  const [generando, setGenerando] = useState<'pdf' | 'xlsx' | null>(null);
+  async function exportar(formato: 'pdf' | 'xlsx') {
+    setGenerando(formato);
+    try {
+      const renglones = armarHistoricoSalarial(filas, [persona]);
+      const o = { titulo: `Histórico salarial · ${persona.nombre} ${persona.apellido}`.trim(), subtitulo: `C.I. ${persona.cedula || '—'} · ${persona.cargo || 'sin cargo'}` };
+      if (formato === 'pdf') await verHistoricoSalarialPdf(renglones, o);
+      else await verHistoricoSalarialExcel(renglones, o);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el archivo', 'error'); }
+    finally { setGenerando(null); }
+  }
+
   return (
     <Modal title={`Historial de sueldos · ${persona.nombre} ${persona.apellido}`} size="lg" onClose={onClose}
-      footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+        <button className="btn" onClick={() => void exportar('xlsx')} disabled={loading || !!generando} title="Vista previa del Excel">
+          {generando === 'xlsx' ? 'Generando…' : '📊 Excel'}
+        </button>
+        <button className="btn" onClick={() => void exportar('pdf')} disabled={loading || !!generando} title="Vista previa del PDF">
+          {generando === 'pdf' ? 'Generando…' : '🖨 PDF'}
+        </button>
+      </>}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
 
       <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', marginBottom: '.6rem', fontSize: '.86rem' }}>
@@ -2122,6 +2153,117 @@ function HistorialSueldoModal({ persona, onClose }: { persona: Personal; onClose
       <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
         Un renglón del historial <strong>no se edita ni se borra</strong>. Si alguno quedó mal cargado, se registra
         otro cambio que lo corrija: un historial que se puede reescribir no sirve para respaldar una nómina vieja.
+      </small>
+    </Modal>
+  );
+}
+
+/* ───────── Histórico salarial de TODO el personal (09-10-2026) ─────────
+   Cada cambio de sueldo de cada persona, con búsqueda, filtro por cargo y por
+   rango de vigencia, y PDF / Excel de lo que se esté viendo. Los inactivos
+   también salen: sus cambios respaldan nóminas viejas. */
+function HistoricoSalarialModal({ personal, onClose }: { personal: Personal[]; onClose: () => void }) {
+  const [cambios, setCambios] = useState<CambioSueldoRegistro[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [texto, setTexto] = useState('');
+  const [cargo, setCargo] = useState('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [generando, setGenerando] = useState<'pdf' | 'xlsx' | null>(null);
+
+  const cargar = useCallback(() => {
+    listCambiosSueldo()
+      .then((r) => { setCambios(r); setError(null); })
+      .catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar el histórico'))
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['personal_sueldos'], cargar);
+
+  const todos: RenglonHistoricoSalarial[] = useMemo(() => armarHistoricoSalarial(cambios, personal), [cambios, personal]);
+  const filtro = { texto, cargo, desde, hasta };
+  const visibles = useMemo(() => filtrarHistorico(todos, filtro), [todos, texto, cargo, desde, hasta]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cargos = useMemo(() => cargosDelHistorico(todos), [todos]);
+  const hayFiltros = !!(texto || cargo || desde || hasta);
+
+  async function exportar(formato: 'pdf' | 'xlsx') {
+    setGenerando(formato);
+    try {
+      const o = { titulo: 'Histórico salarial · Todo el personal', subtitulo: textoRangoHistorico(filtro) };
+      if (formato === 'pdf') await verHistoricoSalarialPdf(visibles, o);
+      else await verHistoricoSalarialExcel(visibles, o);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el archivo', 'error'); }
+    finally { setGenerando(null); }
+  }
+
+  return (
+    <Modal title="Histórico salarial · Todo el personal" size="xl" onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+        <button className="btn" onClick={() => void exportar('xlsx')} disabled={loading || !!generando} title="Vista previa del Excel con lo que se está viendo">
+          {generando === 'xlsx' ? 'Generando…' : '📊 Excel'}
+        </button>
+        <button className="btn" onClick={() => void exportar('pdf')} disabled={loading || !!generando} title="Vista previa del PDF con lo que se está viendo">
+          {generando === 'pdf' ? 'Generando…' : '🖨 PDF'}
+        </button>
+      </>}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
+        <input className="input" placeholder="Buscar: nombre, cédula, cargo, motivo…" value={texto} onChange={(e) => setTexto(e.target.value)} style={{ minWidth: 240, flex: '1 1 240px' }} />
+        <select className="select" value={cargo} onChange={(e) => setCargo(e.target.value)} style={{ minWidth: 200 }}>
+          <option value="">Todos los cargos</option>
+          {cargos.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.3rem', fontSize: '.82rem' }}>
+          <span className="muted">Vigente desde</span>
+          <input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.3rem', fontSize: '.82rem' }}>
+          <span className="muted">hasta</span>
+          <input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
+        </label>
+        {hayFiltros && <button className="btn btn-sm btn-ghost" onClick={() => { setTexto(''); setCargo(''); setDesde(''); setHasta(''); }}>✕ Limpiar</button>}
+        <span className="muted" style={{ fontSize: '.82rem', marginLeft: 'auto' }}>{visibles.length} de {todos.length} cambio(s)</span>
+      </div>
+
+      <div className="table-wrap" style={{ maxHeight: 460, overflowY: 'auto' }}>
+        <table className="table" style={{ fontSize: '.8rem' }}>
+          <thead>
+            <tr>
+              <th>Fecha del cambio</th><th>Empleado</th><th>Cédula</th><th>Cargo</th>
+              <th style={{ textAlign: 'right' }}>Sueldo anterior</th>
+              <th style={{ textAlign: 'right' }}>Sueldo nuevo</th>
+              <th style={{ textAlign: 'center' }}>Var. %</th>
+              <th>Motivo</th><th>Vigente desde</th><th>Cambiado por</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !visibles.length && (
+              <tr><td colSpan={10}><EmptyState icon="💵" message={hayFiltros ? 'Ningún cambio coincide con los filtros' : 'Sin cambios de sueldo registrados'} /></td></tr>
+            )}
+            {!loading && visibles.map((r) => (
+              <tr key={r.id}>
+                <td className="mono muted" style={{ fontSize: '.74rem', whiteSpace: 'nowrap' }}>{r.fechaCambio ? dateTime(r.fechaCambio) : '—'}</td>
+                <td><strong>{r.empleado}</strong></td>
+                <td className="mono">{r.cedula || '—'}</td>
+                <td>{r.cargo || '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{r.sueldoAnterior > 0 ? money(r.sueldoAnterior) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.sueldoNuevo)}</td>
+                <td className="mono" style={{ textAlign: 'center', color: r.variacion.direccion === 'aumento' ? 'var(--success)' : r.variacion.direccion === 'rebaja' ? 'var(--danger)' : undefined }}>{textoPct(r.variacion)}</td>
+                <td style={{ maxWidth: 260, whiteSpace: 'normal' }}><span className="badge" style={{ marginRight: '.3rem' }}>{r.tipo}</span>{r.motivo}</td>
+                <td className="mono">{date(r.vigenteDesde)}</td>
+                <td className="muted" style={{ fontSize: '.74rem' }}>{r.cambiadoPor || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
+        El PDF y el Excel salen con <strong>lo que se está viendo</strong> (búsqueda, cargo y rango puestos), en vista previa.
+        Un renglón del histórico <strong>no se edita ni se borra</strong>.
       </small>
     </Modal>
   );

@@ -7,12 +7,14 @@ import { NominaTab } from './NominaTab';
 import { VacacionesTab } from './VacacionesTab';
 import { AdministrativoTab } from './AdministrativoTab';
 import { DescansosTab } from './DescansosTab';
+import { TabuladorTab } from './TabuladorTab';
 import { EMPRESA_POR_DEFECTO, definicionEmpresa } from './empresa';
 
-type Vista = 'personal' | 'anticipos' | 'nomina' | 'vacaciones' | 'descansos' | 'administrativo';
+type Vista = 'personal' | 'tabulador' | 'anticipos' | 'nomina' | 'vacaciones' | 'descansos' | 'administrativo';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'personal', label: 'Personal', icon: '👥' },
+  { key: 'tabulador', label: 'Tabulador', icon: '📐' },
   { key: 'anticipos', label: 'Anticipos / Préstamos', icon: '💵' },
   { key: 'nomina', label: 'Nómina', icon: '📋' },
   { key: 'vacaciones', label: 'Vacaciones', icon: '🏖' },
@@ -51,6 +53,7 @@ export function RrhhPage() {
       </div>
 
       {vista === 'personal' && <PersonalTab canWrite={canWrite} actor={actor} actorName={actorName} empresa={EMPRESA} />}
+      {vista === 'tabulador' && <TabuladorTab canWrite={canWrite} actor={actor} actorName={actorName} empresa={EMPRESA} />}
       {vista === 'anticipos' && <AnticiposTab canWrite={canWrite} actor={actor} actorName={actorName} empresa={EMPRESA} />}
       {vista === 'nomina' && <NominaTab canWrite={canWrite} actor={actor} actorName={actorName} empresa={EMPRESA} />}
       {vista === 'vacaciones' && <VacacionesTab canWrite={canWrite} actor={actor} actorName={actorName} empresa={EMPRESA} />}
