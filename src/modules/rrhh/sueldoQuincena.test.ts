@@ -164,12 +164,34 @@ describe('el recibo completo', () => {
     expect(aBs(r.reparto.sueldo, r.tasa)).toBe(126330);
   });
 
-  it('las deducciones restan de la parte en bolívares', () => {
+  it('las deducciones de ley restan de la parte en bolívares; los anticipos, del bono', () => {
     const r = calcularRecibo({ ...LEYDIS, deducciones: { anticipos: 50, faov: 10 } });
-    expect(r.totalDeduccionUsd).toBe(60);
-    expect(r.netoUsd).toBe(90);             // 150 − 60
-    expect(r.netoBs).toBe(75798);           // 90 × 842,20
-    expect(r.totalRecibidoUsd).toBe(690);   // 90 + 600 de bono
+    expect(r.totalDeduccionUsd).toBe(10);   // solo el FAOV baja de la tabla en Bs
+    expect(r.netoUsd).toBe(140);            // 150 − 10
+    expect(r.netoBs).toBe(117908);          // 140 × 842,20
+    expect(r.deduccionBonoUsd).toBe(50);
+    expect(r.bonoNetoUsd).toBe(550);        // 600 − 50
+    expect(r.totalRecibidoUsd).toBe(690);   // 140 + 550: lo mismo que cobra en total
+  });
+
+  it('préstamos y anticipos se cobran del bono en divisas (09-10-2026)', () => {
+    const r = calcularRecibo({ ...LEYDIS, deducciones: { prestamos: 100, anticipos: 20 } });
+    expect(r.lineasBono.map((l) => [l.concepto, l.usd])).toEqual([['Préstamos', 100], ['Anticipos', 20]]);
+    expect(r.lineas.filter((l) => l.tipo === 'deduccion').every((l) => l.usd === 0)).toBe(true);
+    expect(r.bonoUsd).toBe(600);
+    expect(r.bonoNetoUsd).toBe(480);
+    expect(r.netoUsd).toBe(150);
+    expect(r.totalRecibidoUsd).toBe(630);
+  });
+
+  it('si el bono no alcanza, el resto del préstamo baja a la tabla en bolívares', () => {
+    const r = calcularRecibo({ ...LEYDIS, deducciones: { prestamos: 650 } });
+    expect(r.deduccionBonoUsd).toBe(600);
+    expect(r.bonoNetoUsd).toBe(0);
+    const resto = r.lineas.find((l) => l.concepto === 'Préstamos (resto)');
+    expect(resto?.usd).toBe(50);
+    expect(r.netoUsd).toBe(100);            // 150 − 50
+    expect(r.totalRecibidoUsd).toBe(100);   // 750 − 650
   });
 
   it('bonos y viáticos extra suman al devengado de la tabla', () => {
@@ -183,12 +205,15 @@ describe('el recibo completo', () => {
     expect(r.netoUsd).toBeCloseTo(r.totalDevengadoUsd - r.totalDeduccionUsd, 2);
   });
 
-  it('trae los siete conceptos de deducción del recibo', () => {
+  it('la tabla en Bs trae las deducciones de ley; préstamos y anticipos van en el bloque del bono', () => {
     const r = calcularRecibo(LEYDIS);
     const deducciones = r.lineas.filter((l) => l.tipo === 'deduccion').map((l) => l.concepto);
-    expect(deducciones).toHaveLength(CONCEPTOS_DEDUCCION.length);
+    expect(deducciones).toHaveLength(CONCEPTOS_DEDUCCION.length - 2);
     expect(deducciones).toContain('Seguro Social Obligatorio');
     expect(deducciones).toContain('Reg. Prest. de Vivienda y Hábitat');
+    expect(deducciones).not.toContain('Préstamos');
+    expect(deducciones).not.toContain('Anticipos');
+    expect(r.lineasBono.map((l) => l.concepto)).toEqual(['Préstamos', 'Anticipos']);
   });
 
   it('una quincena sin días de descanso sigue cuadrando', () => {

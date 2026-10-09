@@ -98,6 +98,19 @@ export const CONCEPTOS_DEDUCCION = [
 
 export type ClaveDeduccion = typeof CONCEPTOS_DEDUCCION[number]['key'];
 
+/**
+ * Lo que se descuenta DEL BONO en divisas, no de la tabla en bolívares
+ * (regla de la administradora, 09-10-2026): préstamos y anticipos. La empresa
+ * los presta en dólares y los cobra de la parte que paga en dólares. Si el
+ * bono no alcanza, el resto sí baja a la tabla en bolívares: la deuda no se
+ * perdona por eso.
+ */
+export const DEDUCCIONES_DEL_BONO: readonly ClaveDeduccion[] = ['prestamos', 'anticipos'];
+
+export function seDescuentaDelBono(key: ClaveDeduccion): boolean {
+  return DEDUCCIONES_DEL_BONO.includes(key);
+}
+
 export interface LineaRecibo {
   concepto: string;
   /** Cantidad de días, cuando el renglón se paga por día. */
@@ -154,7 +167,13 @@ export interface ReciboCalculado {
   netoBs: number;
   /** El bono del 80 %: se entrega en divisas, fuera de la tabla en bolívares. */
   bonoUsd: number;
-  /** Lo que la persona se lleva: el neto de la tabla más el bono en divisas. */
+  /** Los descuentos que salen del bono (préstamos y anticipos), uno por renglón. */
+  lineasBono: LineaRecibo[];
+  /** Lo que se le descuenta al bono en total. */
+  deduccionBonoUsd: number;
+  /** El bono que de verdad se entrega: el 80 % menos préstamos y anticipos. */
+  bonoNetoUsd: number;
+  /** Lo que la persona se lleva: el neto de la tabla más el bono neto en divisas. */
   totalRecibidoUsd: number;
   tasa: number;
 }
@@ -200,13 +219,29 @@ export function calcularRecibo(d: DatosRecibo): ReciboCalculado {
     { concepto: 'Viáticos', dias: null, usd: round2(d.viaticos ?? 0), tipo: 'devengado' },
   ];
 
+  /* Préstamos y anticipos se cobran DEL BONO en divisas (09-10-2026). Se
+     descuentan en orden mientras el bono alcance; lo que no alcance baja a la
+     tabla en bolívares como «(resto)», para que la deuda se cobre completa. */
+  const lineasBono: LineaRecibo[] = [];
+  let bonoDisponible = reparto.bono;
   for (const c of CONCEPTOS_DEDUCCION) {
-    lineas.push({ concepto: c.label, dias: null, usd: round2(d.deducciones?.[c.key] ?? 0), tipo: 'deduccion' });
+    const monto = round2(d.deducciones?.[c.key] ?? 0);
+    if (!seDescuentaDelBono(c.key)) {
+      lineas.push({ concepto: c.label, dias: null, usd: monto, tipo: 'deduccion' });
+      continue;
+    }
+    const delBono = round2(Math.min(Math.max(0, monto), bonoDisponible));
+    bonoDisponible = round2(bonoDisponible - delBono);
+    lineasBono.push({ concepto: c.label, dias: null, usd: delBono, tipo: 'deduccion' });
+    const resto = round2(monto - delBono);
+    if (resto > 0) lineas.push({ concepto: `${c.label} (resto)`, dias: null, usd: resto, tipo: 'deduccion' });
   }
 
   const totalDevengadoUsd = round2(lineas.filter((l) => l.tipo === 'devengado').reduce((a, l) => a + l.usd, 0));
   const totalDeduccionUsd = round2(lineas.filter((l) => l.tipo === 'deduccion').reduce((a, l) => a + l.usd, 0));
   const netoUsd = round2(totalDevengadoUsd - totalDeduccionUsd);
+  const deduccionBonoUsd = round2(lineasBono.reduce((a, l) => a + l.usd, 0));
+  const bonoNetoUsd = round2(reparto.bono - deduccionBonoUsd);
   const tasa = Number(d.tasa) || 0;
 
   return {
@@ -215,10 +250,11 @@ export function calcularRecibo(d: DatosRecibo): ReciboCalculado {
     totalDevengadoBs: aBs(totalDevengadoUsd, tasa),
     totalDeduccionBs: aBs(totalDeduccionUsd, tasa),
     netoBs: aBs(netoUsd, tasa),
-    // El bono va en divisas, aparte de la tabla en bolívares.
+    // El bono va en divisas, aparte de la tabla en bolívares; de ahí salen préstamos y anticipos.
     bonoUsd: reparto.bono,
-    // Lo que la persona se lleva de verdad: lo de la tabla más el bono.
-    totalRecibidoUsd: round2(netoUsd + reparto.bono),
+    lineasBono, deduccionBonoUsd, bonoNetoUsd,
+    // Lo que la persona se lleva de verdad: lo de la tabla más el bono neto.
+    totalRecibidoUsd: round2(netoUsd + bonoNetoUsd),
     tasa,
   };
 }

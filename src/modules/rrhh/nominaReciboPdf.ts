@@ -161,11 +161,17 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
 
     /* EL BONO: el 80 %, en divisas. Va aparte porque no se paga en bolívares;
        mezclarlo arriba haría que el «pagado en bolívares» dijera un monto que
-       nunca pasó por bolívares. */
+       nunca pasó por bolívares. De acá se descuentan préstamos y anticipos
+       (09-10-2026): se prestan en dólares y se cobran en dólares. */
     autoTable(doc, {
       startY: y,
       head: [['BONO', 'Monto $']],
-      body: [['Bono de la quincena (80 % del total acordado)', usd(c.bonoUsd)]],
+      body: [
+        ['Bono de la quincena (80 % del total acordado)', usd(c.bonoUsd)],
+        ...c.lineasBono.map((l) => [`(−) ${l.concepto}`, l.usd ? `− ${usd(l.usd)}` : usd(0)]),
+      ],
+      foot: [['BONO A ENTREGAR EN DIVISAS', usd(c.bonoNetoUsd)]],
+      footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       margin: MARGENES_TABLA_PDF,
       styles: { fontSize: 8.5, cellPadding: 4 },
       headStyles: { fillColor: [55, 55, 55], textColor: 255, fontStyle: 'bold' },
@@ -182,7 +188,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       body: [
         ['Pagado en bolívares (sueldo, 20 %)', bsStr(c.netoBs), usd(c.netoUsd)],
         ['Tasa aplicada (BCV del día)', tasa > 0 ? `${bsStr(tasa)} / $` : '—', ''],
-        ['Bono en divisas', '', usd(c.bonoUsd)],
+        ['Bono en divisas (menos préstamos y anticipos)', '', usd(c.bonoNetoUsd)],
       ],
       foot: [['TOTAL RECIBIDO', '', usd(c.totalRecibidoUsd)]],
       margin: MARGENES_TABLA_PDF,
@@ -196,7 +202,8 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     // La conformidad. Dice los dos montos porque el pago se entrega en una
     // moneda pero el sueldo se pactó en la otra.
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-    const conformidad = `Certifico haber recibido ${bsStr(c.netoBs)} en bolívares (${usd(c.netoUsd)} a la tasa de ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$) más ${usd(c.bonoUsd)} de bono en divisas, lo que hace un total de ${usd(c.totalRecibidoUsd)}, que comprende la totalidad de mi remuneración del período indicado, y firmo en señal de conformidad.`;
+    const descuentoBono = c.deduccionBonoUsd > 0 ? ` (bono de ${usd(c.bonoUsd)} menos ${usd(c.deduccionBonoUsd)} de préstamos y anticipos)` : '';
+    const conformidad = `Certifico haber recibido ${bsStr(c.netoBs)} en bolívares (${usd(c.netoUsd)} a la tasa de ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$) más ${usd(c.bonoNetoUsd)} de bono en divisas${descuentoBono}, lo que hace un total de ${usd(c.totalRecibidoUsd)}, que comprende la totalidad de mi remuneración del período indicado, y firmo en señal de conformidad.`;
     const lineasConformidad = doc.splitTextToSize(conformidad, anchoUtilPdf(PAGE_W)) as string[];
     // Si no entra sobre el margen inferior, la conformidad pasa a la hoja siguiente.
     if (y + 10 + lineasConformidad.length * 11 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN; }
