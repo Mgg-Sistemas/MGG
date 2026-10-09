@@ -58,6 +58,9 @@ export interface DisponibleItem {
 export interface KardexEntrada {
   kind: 'entrada'; at: string; producto_id: string; nombre: string; unidad: string;
   cantidad: number; valor: number; detalle: string | null; almacen: string | null;
+  /** Qué clase de entrada fue (`movimientos.tipo` / `ref_tipo`) y quién la hizo. Opcionales: los
+   *  cierres congelados antes del 09/10/2026 no los traen. Alimentan el filtro por tipo del kardex. */
+  tipo?: string | null; ref_tipo?: string | null; actor_name?: string | null;
 }
 export interface KardexConsumo {
   kind: 'consumo'; at: string; comida: CocinaComida; items: number; cantidad: number;
@@ -82,6 +85,8 @@ export interface KardexMerma {
   /** Positivo: cuánto salió. */
   cantidad: number; valor: number; tipo: string; detalle: string | null; almacen: string | null;
   actor_name: string | null;
+  /** De dónde vino la salida (`manual`, `salida_modulo`, `ajuste_conteo`…). Opcional en cierres viejos. */
+  ref_tipo?: string | null;
 }
 export type KardexRow = KardexEntrada | KardexConsumo | KardexTraslado | KardexMerma;
 
@@ -408,7 +413,7 @@ async function entradasDe(
   const { desde, hasta } = ventana(m);
   const scope = await almacenesScope(almacen);
   let q = supabase.from('movimientos')
-    .select('producto_id, delta, at, precio_unitario, detalle, almacen, ref_tipo, tipo')
+    .select('producto_id, delta, at, precio_unitario, detalle, almacen, ref_tipo, tipo, actor_name')
     .gt('delta', 0).gte('at', desde).lte('at', hasta);
   if (scope) q = q.in('almacen', Array.from(scope));
   const { data, error } = await q.order('at', { ascending: false });
@@ -432,6 +437,8 @@ async function entradasDe(
     rows.push({
       kind: 'entrada', at: String(raw.at), producto_id: p.id, nombre: p.nombre, unidad: p.unidad ?? '',
       cantidad, valor, detalle: (raw.detalle as string) ?? null, almacen: (raw.almacen as string) ?? null,
+      tipo: (raw.tipo as string) ?? null, ref_tipo: (raw.ref_tipo as string) ?? null,
+      actor_name: (raw.actor_name as string) ?? null,
     });
     const a = agg.get(p.id) ?? { producto_id: p.id, sku: p.sku, nombre: p.nombre, unidad: p.unidad ?? '', cantidad: 0, valor: 0 };
     a.cantidad = r2(a.cantidad + cantidad); a.valor = r2(a.valor + valor);
@@ -684,6 +691,7 @@ async function mermasDe(
     rows.push({
       kind: 'merma', at: String(raw.at), producto_id: p.id, nombre: p.nombre, unidad: p.unidad ?? '',
       cantidad, valor, tipo, detalle, almacen: (raw.almacen as string) ?? null, actor_name,
+      ref_tipo: (raw.ref_tipo as string) ?? null,
     });
   }
 

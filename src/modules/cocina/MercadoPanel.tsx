@@ -37,7 +37,7 @@ import {
 import { alternarVista, vistaEncendida, TARJETAS_VISTA, type LlaveVista, type Vista } from './vistaMercado';
 import { explicarCifra, type ClaveCifra, type DatosCifra } from './explicacionCifra';
 import {
-  filtrarKardex, hayFiltro, numerosDePagina, paginar, totalesDeKardex,
+  alternarTipo, buscarTipos, filtrarKardex, hayFiltro, numerosDePagina, paginar, tiposDeKardex, totalesDeKardex,
   CLASES_KARDEX, FILTRO_KARDEX_VACIO, type FiltroKardex,
 } from './filtroKardex';
 
@@ -78,6 +78,8 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   const [verCifra, setVerCifra] = useState<ClaveCifra | null>(null);
   /** Todo lo que recorta el kardex. El buscador viejo era solo `texto`. */
   const [filtro, setFiltro] = useState<FiltroKardex>(FILTRO_KARDEX_VACIO);
+  /** Lo tecleado para encontrar un tipo fino entre las fichas (no filtra las filas, filtra las fichas). */
+  const [buscaTipo, setBuscaTipo] = useState('');
   const [pagina, setPagina] = useState(1);
   const [verQuietos, setVerQuietos] = useState(false);
   const [soloDif, setSoloDif] = useState(false);
@@ -133,6 +135,14 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `etiquetaComida` es una constante disfrazada
     [kardex, filtro],
   );
+  /* Los tipos finos que EXISTEN en este ciclo (recepción de compra, ajuste a conteo,
+     desayuno…), con su cuenta: las fichas salen de los datos, no de una lista fija. */
+  const tiposDelCiclo = useMemo(
+    () => tiposDeKardex(kardex, etiquetaComida),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- idem
+    [kardex],
+  );
+  const tiposVisibles = useMemo(() => buscarTipos(tiposDelCiclo, buscaTipo), [tiposDelCiclo, buscaTipo]);
   /** Los números del bloque de movimientos: son de lo que está a la vista. */
   const totalesKardex = useMemo(() => totalesDeKardex(kardexFiltrado), [kardexFiltrado]);
   // De a 10. `paginar` corrige sola la página cuando el filtro deja menos: pedir
@@ -590,17 +600,42 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
             <label>Búsqueda general</label>
             <input className="input" type="search" value={filtro.texto}
               onChange={(e) => cambiarFiltro({ texto: e.target.value })}
-              placeholder="🔍 víver, código, almacén, quién, motivo, 26/09/2026…" />
+              placeholder="🔍 víver, tipo, cantidad, código, almacén, quién, motivo, 26/09/2026…" />
           </div>
           {filtroPuesto && (
             <button type="button" className="btn btn-ghost"
-              onClick={() => { setFiltro(FILTRO_KARDEX_VACIO); setPagina(1); }}>
+              onClick={() => { setFiltro(FILTRO_KARDEX_VACIO); setBuscaTipo(''); setPagina(1); }}>
               ✕ Limpiar
             </button>
           )}
         </div>
+        {/* Fichas por tipo FINO (09-10-2026): recepción de compra, compra directa, ajuste a
+            conteo, salida manual, traslado enviado/recibido, desayuno… Solo las que hay en
+            este ciclo, con su cuenta; se tocan y se suman; la cajita las busca cuando son muchas. */}
+        {tiposDelCiclo.length > 0 && (
+          <div style={{ marginTop: '.55rem', display: 'flex', flexWrap: 'wrap', gap: '.3rem', alignItems: 'center' }}>
+            <span className="muted" style={{ fontSize: '.74rem', marginRight: '.2rem' }}>Tipos en este mercado:</span>
+            {tiposDelCiclo.length > 6 && (
+              <input className="input" type="search" value={buscaTipo} onChange={(e) => setBuscaTipo(e.target.value)}
+                placeholder="🔍 buscar tipo…" aria-label="Buscar tipo de movimiento"
+                style={{ width: 170, padding: '.2rem .5rem', fontSize: '.78rem' }} />
+            )}
+            {tiposVisibles.map((t) => {
+              const activo = filtro.tipos.includes(t.clave);
+              return (
+                <button key={t.clave} type="button" className={`btn btn-sm ${activo ? 'btn-primary' : 'btn-ghost'}`}
+                  aria-pressed={activo} title={activo ? 'Quitar este tipo del filtro' : 'Dejar solo este tipo (se suma a los demás elegidos)'}
+                  onClick={() => cambiarFiltro({ tipos: alternarTipo(filtro.tipos, t.clave) })}>
+                  {t.label} <span className="mono" style={{ opacity: 0.75 }}>({num(t.n)})</span>
+                </button>
+              );
+            })}
+            {!tiposVisibles.length && <span className="dim" style={{ fontSize: '.74rem' }}>Ningún tipo coincide con «{buscaTipo}».</span>}
+          </div>
+        )}
         <div className="dim" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>
-          La búsqueda mira todo lo que la fila muestra y exige todas las palabras: «pollo 26/09/2026»
+          La búsqueda mira todo lo que la fila muestra —víver, tipo, cantidad («1.440» o «1440»), código,
+          almacén, quién, motivo, fecha— sin tildes y exige todas las palabras: «pollo 26/09/2026»
           trae el pollo de ese día, no todo el pollo y todo el 26.
         </div>
       </div>

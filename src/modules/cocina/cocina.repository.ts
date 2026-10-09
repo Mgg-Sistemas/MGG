@@ -14,6 +14,12 @@ import { MODULO_ADJUNTO_COMIDA, eliminarFotosDe } from '@/modules/combustible/ad
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { movimientoDeViveres, type FichaViver, type FilaViver, type MovimientoViver } from './movimientoViveres';
 import { precioDelCentro } from './precioViver';
+import {
+  devolucionesDe, devueltoPorProducto, excesosDeConsumo, mensajeExcesos, netoDeComida,
+  type Devolucion, type MovimientoEfectivo, type ViverParaConsumo,
+} from './stockConsumo';
+import { num } from '@/shared/lib/format';
+import { bustCache } from '@/shared/lib/queryCache';
 
 const TABLE = 'cocina_comidas';
 /** Categoría del inventario que surte la cocina. */
@@ -216,6 +222,12 @@ export interface ViverDisponible {
   stock: number;          // suma de existencias en todos los almacenes
   precio: number;         // precio del inventario
   almacenMasStock: string | null; // almacén con más stock (de donde se descuenta)
+  /**
+   * Stock del almacén del que SE DESCUENTA (`almacenMasStock`). Casi siempre es
+   * igual a `stock` —los víveres viven solo en el principal de la sede—, pero es
+   * el número contra el que la base de datos compara al descontar (09-10-2026).
+   */
+  stockDescuento: number;
 }
 
 /**
@@ -242,13 +254,18 @@ export async function listViveres(almacen?: string | null): Promise<ViverDisponi
       // (cualquier producto que exista ahí, sin importar la categoría).
       const row = exs.find((e) => e.almacen === almacen);
       if (!row) continue;
-      out.push({ producto: p, stock: Math.round((Number(row.stock) || 0) * 100) / 100, precio: precioDelCentro([row], p.precio), almacenMasStock: almacen });
+      const stock = Math.round((Number(row.stock) || 0) * 100) / 100;
+      out.push({ producto: p, stock, precio: precioDelCentro([row], p.precio), almacenMasStock: almacen, stockDescuento: stock });
     } else {
       // Legado (sin almacén vinculado): solo Víveres y Proteína, agregando todos los almacenes.
       if (!esCategoriaCocina(p.categoria)) continue;
       const stock = exs.reduce((a, e) => a + (Number(e.stock) || 0), 0);
       const mejor = exs.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock))[0];
-      out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: precioDelCentro(exs, p.precio), almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
+      out.push({
+        producto: p, stock: Math.round(stock * 100) / 100, precio: precioDelCentro(exs, p.precio),
+        almacenMasStock: mejor?.almacen ?? p.almacen ?? null,
+        stockDescuento: Math.round((Number(mejor?.stock) || 0) * 100) / 100,
+      });
     }
   }
   return out.sort((a, b) => a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
@@ -306,7 +323,14 @@ export async function listViveresGlobal(preferAlmacen?: string | null): Promise<
     const preferido = (principalSede ? conStock.find((e) => e.almacen === principalSede) : undefined)
       ?? (preferAlmacen ? conStock.find((e) => e.almacen === preferAlmacen) : undefined);
     const mejor = preferido ?? conStock[0];
-    out.push({ producto: p, stock: Math.round(stock * 100) / 100, precio: precioDelCentro(exs, p.precio), almacenMasStock: mejor?.almacen ?? p.almacen ?? null });
+    // Sin stock en ningún almacén del centro, el descuento igual apunta al PRINCIPAL
+    // de la sede (no a `p.almacen`, que puede ser «General» de otra sede: el 06/10/2026
+    // una comida de Los Pinos descontó queso duro en el depósito de Matanzas).
+    out.push({
+      producto: p, stock: Math.round(stock * 100) / 100, precio: precioDelCentro(exs, p.precio),
+      almacenMasStock: mejor?.almacen ?? principalSede ?? preferAlmacen ?? p.almacen ?? null,
+      stockDescuento: Math.round((Number(mejor?.stock) || 0) * 100) / 100,
+    });
   }
   return out.sort((a, b) => a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
 }
@@ -378,6 +402,34 @@ async function nextCodigoCocina(year = new Date().getFullYear()): Promise<string
   return `COC-${year}-${String(max + 1).padStart(4, '0')}`;
 }
 
+/* ───────── Stock: el consumo no pasa de lo que hay ───────── */
+
+/** Los víveres en la forma que entiende `excesosDeConsumo`. */
+function paraConsumo(viveres: ViverDisponible[]): Map<string, ViverParaConsumo> {
+  return new Map(viveres.map((v) => [v.producto.id, {
+    producto_id: v.producto.id, nombre: v.producto.nombre, unidad: v.producto.unidad ?? '',
+    stock: v.stockDescuento, almacen: v.almacenMasStock,
+  }]));
+}
+
+/**
+ * Lo que una comida le hizo al inventario hasta ahora, leído de SU kardex
+ * (`ref_tipo = 'cocina'`, `ref_id` = la comida). Ver `netoDeComida`.
+ */
+async function netoEnKardexDe(comidaId: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase.from('movimientos')
+    .select('producto_id, almacen, stock_antes, stock_despues, delta')
+    .eq('ref_tipo', 'cocina').eq('ref_id', comidaId);
+  if (error) throw error;
+  return netoDeComida((data ?? []) as MovimientoEfectivo[]);
+}
+
+/** Lanza, con los números, si alguna línea pide más de lo que hay. */
+function exigirStock(lineas: { producto_id: string; cantidad: number }[], viveres: ViverDisponible[], devueltos?: Map<string, number>): void {
+  const excesos = excesosDeConsumo(lineas, paraConsumo(viveres), devueltos);
+  if (excesos.length) throw new Error(mensajeExcesos(excesos, num));
+}
+
 /* ───────── Crear movimiento de comida ───────── */
 
 export interface CrearComidaInput {
@@ -407,6 +459,8 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
 
   // Se resuelven contra TODOS los víveres del inventario (sin importar el almacén);
   // el descuento sale del almacén de la cocina si ahí hay stock, o del que más tenga.
+  // Fresco: la lista puede venir de la caché de hace segundos y acá se decide si alcanza.
+  bustCache(['existencias']);
   const viveres = await listViveresGlobal(input.almacen ?? null);
   const mapV = new Map(viveres.map((v) => [v.producto.id, v]));
 
@@ -422,6 +476,10 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
       almacen: v.almacenMasStock,
     });
   }
+  // ANTES de escribir nada: si un renglón pide más de lo que hay, la comida no se
+  // registra. Hasta el 09/10/2026 `registrarMovimiento` topeaba en cero y la comida
+  // quedaba con 700 pimentones anotados sobre un almacén que tenía 4,5.
+  exigirStock(lineas, viveres);
   const valorTotal = Math.round(items.reduce((a, it) => a + it.subtotal, 0) * 100) / 100;
 
   // Fecha de la comida: si se indicó una distinta de HOY (día desfasado), se registra ese
@@ -455,8 +513,8 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
   if (error) throw error;
   const comida = data as CocinaComida;
 
-  /* Descuenta el stock consumido (salida en el kardex). El movimiento de inventario
-     tope a 0 si no alcanza; no bloquea el registro de la comida.
+  /* Descuenta el stock consumido (salida en el kardex). Ya se comprobó que alcanza;
+     la base de datos lo vuelve a comprobar al insertar (trigger).
 
      El movimiento se fecha CON LA COMIDA (`comida.at`), no con el reloj (29-09-2026).
      Antes la comida podía decir «almuerzo del 12» y su salida de inventario quedaba
@@ -468,6 +526,7 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
      antes de que el ciclo empezara. Con la misma fecha en los dos lados, el libro y
      el almacén no pueden separarse. */
   const at = comida.at ?? undefined;
+  const sinDescontar: string[] = [];
   for (const it of items) {
     try {
       await registrarMovimiento({
@@ -477,7 +536,17 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
         detalle: `Cocina · ${labelTipoComida(input.tipoComida)} · ${codigo}`,
         precio_unitario: it.precio, at,
       });
-    } catch { /* no bloquea: la comida queda registrada igual */ }
+    } catch (e) {
+      sinDescontar.push(`${it.nombre} (${e instanceof Error ? e.message : 'error'})`);
+    }
+  }
+  /* Antes esto era un catch mudo: «no bloquea, la comida queda registrada igual».
+     El 06/10/2026, con la señal lenta, COC-2026-0443 guardó cinco renglones y el
+     inventario descontó dos; nadie se enteró hasta que el libro del mercado no
+     cuadró. La comida queda guardada —ya tiene correlativo—, pero lo que no bajó
+     se dice con nombre, para corregirlo en el acto. */
+  if (sinDescontar.length) {
+    throw new Error(`${codigo} se guardó, pero el inventario NO descontó: ${sinDescontar.join('; ')}. Revisá la señal y editá la comida para que descuente.`);
   }
   return comida;
 }
@@ -497,15 +566,25 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
   if (!lineas.length) throw new Error('Agregá al menos un víver con cantidad.');
   if ((Number(input.platos) || 0) <= 0) throw new Error('Indicá cuántos platos se realizaron.');
 
-  /* 1) Reversa el consumo anterior: devuelve al inventario el stock de cada víver
-     previo. Se fecha con el `at` de la comida ANTERIOR: el reverso tiene que caer
-     en el mismo ciclo donde cayó el consumo que anula, o uno queda cargado en un
-     corte y su devolución en otro. */
+  /* 0) Lo que la comida anterior le hizo DE VERDAD al inventario (su kardex), y
+     qué va a devolver. Con eso se comprueba que lo nuevo alcanza ANTES de mover
+     nada: stock de ahora + lo que vuelve ≥ lo que se pide. */
+  const devoluciones = devolucionesDe(comidaPrev.items ?? [], await netoEnKardexDe(comidaId));
+  const devueltos = devueltoPorProducto(devoluciones);
+  bustCache(['existencias']);
+  const viveresAntes = await listViveresGlobal(input.almacen ?? null);
+  exigirStock(lineas, viveresAntes, devueltos);
+
+  /* 1) Reversa el consumo anterior: devuelve al inventario lo que cada víver bajó
+     (no la cantidad escrita: una salida topeada en cero devolvía stock que nunca
+     existió, ver `stockConsumo.ts`). Se fecha con el `at` de la comida ANTERIOR:
+     el reverso tiene que caer en el mismo ciclo donde cayó el consumo que anula,
+     o uno queda cargado en un corte y su devolución en otro. */
   const atPrev = comidaPrev.at ?? undefined;
-  for (const it of comidaPrev.items ?? []) {
+  for (const { item: it, cantidad } of devoluciones) {
     try {
       await registrarMovimiento({
-        producto_id: it.producto_id, tipo: 'entrada', delta: Number(it.cantidad) || 0,
+        producto_id: it.producto_id, tipo: 'entrada', delta: cantidad,
         almacen: it.almacen ?? undefined, actor: input.actor, actor_name: input.actorName ?? null,
         ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comidaPrev.codigo,
         detalle: `Reverso por edición · ${comidaPrev.codigo}`, precio_unitario: it.precio,
@@ -518,8 +597,9 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
     }
   }
 
-  // 2) Resolver los nuevos ítems contra los víveres del centro (precios actuales).
-  const viveres = await listViveresGlobal(input.almacen ?? null);
+  // 2) Resolver los nuevos ítems contra los víveres del centro (precios actuales,
+  //    stock ya con lo devuelto: de ahí sale el almacén del que se descuenta).
+  const viveres = devoluciones.length ? await listViveresGlobal(input.almacen ?? null) : viveresAntes;
   const mapV = new Map(viveres.map((v) => [v.producto.id, v]));
   const items: ItemCocina[] = [];
   for (const l of lineas) {
@@ -596,12 +676,16 @@ export async function eliminarComida(comidaId: string, actor: string, actorName?
      vuelven a descontar los que ya se devolvieron y la comida se queda. Y si la
      comida no se puede borrar después de devolver, también se vuelve a
      descontar. El saldo y el libro siempre dicen lo mismo. */
-  const devueltos: ItemCocina[] = [];
+  /* Se devuelve lo que la comida bajó DE VERDAD (su kardex), renglón por renglón
+     (09-10-2026). Devolver la cantidad escrita inventaba stock cuando la salida
+     había quedado topeada en cero o nunca se había escrito. */
+  const devoluciones = devolucionesDe(comida.items ?? [], await netoEnKardexDe(comidaId));
+  const devueltos: Devolucion[] = [];
   const volverADescontar = async (motivo: string) => {
-    for (const it of devueltos) {
+    for (const { item: it, cantidad } of devueltos) {
       try {
         await registrarMovimiento({
-          producto_id: it.producto_id, tipo: 'salida', delta: -(Number(it.cantidad) || 0),
+          producto_id: it.producto_id, tipo: 'salida', delta: -cantidad,
           almacen: it.almacen ?? undefined, actor, actor_name: actorName ?? null,
           ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comida.codigo,
           detalle: `Reverso anulado (${motivo}) · ${comida.codigo}`, precio_unitario: it.precio, at,
@@ -609,16 +693,17 @@ export async function eliminarComida(comidaId: string, actor: string, actorName?
       } catch { /* ya se avisa abajo que hay que revisar */ }
     }
   };
-  for (const it of comida.items ?? []) {
+  for (const dev of devoluciones) {
+    const it = dev.item;
     try {
       await registrarMovimiento({
-        producto_id: it.producto_id, tipo: 'entrada', delta: Number(it.cantidad) || 0,
+        producto_id: it.producto_id, tipo: 'entrada', delta: dev.cantidad,
         almacen: it.almacen ?? undefined, actor, actor_name: actorName ?? null,
         ref_tipo: 'cocina', ref_id: comidaId, ref_codigo: comida.codigo,
         detalle: `Reverso por eliminación · ${comida.codigo}`, precio_unitario: it.precio,
         at,
       });
-      devueltos.push(it);
+      devueltos.push(dev);
     } catch (e) {
       await volverADescontar('no se pudo devolver todo');
       throw new Error(`No se eliminó ${comida.codigo}: no se pudo devolver «${it.nombre}» al inventario (${e instanceof Error ? e.message : 'error'}). Revisá la señal y volvé a intentar.`);
