@@ -1271,12 +1271,21 @@ export interface NominaPeriodo {
   periodo_hasta?: string | null;
   dias_base: number;
   tasa_bcv?: number | null;
+  /** 'pagada' = cerrada (pagada en su totalidad): ya no se modifica. */
   estado: 'cargada' | 'en_pago' | 'pagada';
   total_usd: number;
   notas?: string | null;
   creada_por?: string | null;
   actor_name?: string | null;
   created_at: string;
+  /**
+   * Papelera (borrado lógico, 09-10-2026). Una nómina eliminada no desaparece:
+   * queda con quién, cuándo y por qué; solo un administrador la recupera o la
+   * borra de verdad. Las listas normales no la muestran.
+   */
+  eliminado_en?: string | null;
+  eliminado_por?: string | null;
+  eliminado_motivo?: string | null;
 }
 
 /** Una deducción concreta aplicada a un renglón (referencia al anticipo/préstamo). */
@@ -1325,6 +1334,8 @@ export interface NominaRenglon {
   comprobante_path?: string | null;
   comprobante_nombre?: string | null;
   created_at: string;
+  /** Espejo de `nomina_periodos.eliminado_en` (lo copia la base): la cola de Tesorería lo filtra. */
+  eliminado_en?: string | null;
   /** Solo en consultas con join: el período al que pertenece. */
   periodo?: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv'> | null;
 }

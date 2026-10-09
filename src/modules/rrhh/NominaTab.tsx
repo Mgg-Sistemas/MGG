@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, date, dateTime, redondearArriba5 } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Personal, AnticipoPrestamo, NominaRenglon, DeduccionRef } from '@/shared/lib/types';
 import { getTasaHoy, round2 } from '../tesoreria/tasas.repository';
 import { listPersonal, setPersonalActivo } from './personal.repository';
@@ -14,40 +15,61 @@ import {
   agruparRecibosPorFecha, alternarGrupo, alternarUno, estadoDelGrupo, etiquetaGrupo,
   nombreNomina, nombreSugerido, seleccionados,
 } from './nominaLote';
+import {
+  MOTIVO_MINIMO, estaCerrada, etiquetaSeleccion, filtrarFilasPersonal, marcarFilas,
+  motivoEliminacionValido, motivoNoCargar, nominaAbierta,
+} from './nominaPeriodos';
 import { diasDeFecha, DIAS_TRABAJADOS } from './diasQuincena';
 // descargarNominaReciboPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import {
-  cargarNomina, listNominas, listRenglones, eliminarNomina, calcularRenglon,
+  cargarNomina, listNominas, listNominasEliminadas, listRenglones, eliminarNomina, recuperarNomina,
+  vaciarPapeleraNomina, calcularRenglon,
   type NominaPeriodoResumen, type RenglonInput,
 } from './nomina.repository';
+
+/** Aviso corto para los botones que una nómina cerrada ya no admite. */
+const HINT_CERRADA = 'Nómina cerrada (pagada en su totalidad): no se modifica ni se elimina.';
 
 const bs = (n: number) => 'Bs ' + Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
   canWrite: boolean; actor: string; actorName: string | null; empresa?: Empresa;
 }) {
+  const { isAdmin } = usePermissions();
   const [nominas, setNominas] = useState<NominaPeriodoResumen[]>([]);
+  const [eliminadas, setEliminadas] = useState<NominaPeriodoResumen[]>([]);
   const [loading, setLoading] = useState(true);
   const [cargarOpen, setCargarOpen] = useState(false);
   const [liqOpen, setLiqOpen] = useState(false);
+  const [papeleraOpen, setPapeleraOpen] = useState(false);
   const [verPeriodo, setVerPeriodo] = useState<NominaPeriodoResumen | null>(null);
 
   const recargar = useCallback(async () => {
     setLoading(true);
-    try { setNominas(await listNominas(empresa)); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
+    try {
+      const [vivas, enPapelera] = await Promise.all([listNominas(empresa), listNominasEliminadas(empresa)]);
+      setNominas(vivas); setEliminadas(enPapelera);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
     finally { setLoading(false); }
-  }, []);
+  }, [empresa]);
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['nomina_periodos', 'nomina_renglones'], () => { void recargar(); });
 
-  // El cartel del navegador (gris, con el dominio arriba) se reemplaza por el
-  // diálogo del sistema: mismo estilo que el resto de la aplicación.
+  // Una sola quincena abierta a la vez: mientras la anterior no se pague
+  // completa, «+ Cargar nómina» queda apagado y dice cuál es la que falta.
+  const abierta = useMemo(() => nominaAbierta(nominas), [nominas]);
+  const noCargar = motivoNoCargar(abierta);
+
+  // Eliminar = mandar a la papelera, con motivo. El diálogo es del sistema
+  // (no el cartel gris del navegador) y pide el porqué antes de habilitarse.
   const [porBorrar, setPorBorrar] = useState<NominaPeriodoResumen | null>(null);
-  async function confirmarBorrado() {
+  async function confirmarBorrado(motivo: string) {
     if (!porBorrar) return;
-    try { await eliminarNomina(porBorrar.id); setPorBorrar(null); await recargar(); toast('Nómina eliminada', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setPorBorrar(null); }
+    try {
+      await eliminarNomina(porBorrar.id, motivo, actor);
+      setPorBorrar(null); await recargar();
+      toast('Nómina enviada a la papelera', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setPorBorrar(null); }
   }
 
   // Comprobante de pago (PDF, uno por trabajador, con firmas).
@@ -62,22 +84,35 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
   }
 
   function estadoBadge(p: NominaPeriodoResumen) {
-    if (p.pendientes === 0 && p.total_renglones > 0) return <span className="badge" style={{ color: 'var(--success)' }}>✓ Nómina Pagada</span>;
+    if (estaCerrada(p) || (p.pendientes === 0 && p.total_renglones > 0)) {
+      return <span className="badge" style={{ color: 'var(--success)' }} title={HINT_CERRADA}>✓ Nómina Pagada · 🔒 cerrada</span>;
+    }
     if (p.pagados > 0) return <span className="badge" style={{ color: 'var(--warning)' }}>Faltan {p.pendientes} por pagar</span>;
     return <span className="badge" style={{ color: 'var(--primary)' }}>Cargada · {p.pendientes} por pagar</span>;
   }
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
         <div className="muted" style={{ fontSize: '.88rem' }}>Nómina quincenal · se paga desde Tesorería.</div>
-        {canWrite && (
-          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-            <button className="btn btn-ghost" onClick={() => setLiqOpen(true)}>🧾 Liquidación / pago extraordinario</button>
-            <button className="btn btn-primary" onClick={() => setCargarOpen(true)}>+ Cargar nómina</button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          {/* La papelera la ve cualquiera; recuperar y vaciar es solo del administrador. */}
+          <button className="btn btn-ghost" onClick={() => setPapeleraOpen(true)} title="Nóminas eliminadas: quién, cuándo y por qué">
+            🗑 Papelera ({eliminadas.length})
+          </button>
+          {canWrite && <button className="btn btn-ghost" onClick={() => setLiqOpen(true)}>🧾 Liquidación / pago extraordinario</button>}
+          {canWrite && (
+            <button className="btn btn-primary" onClick={() => setCargarOpen(true)} disabled={!!noCargar} title={noCargar ?? 'Cargar la nómina de la quincena'}>
+              + Cargar nómina
+            </button>
+          )}
+        </div>
       </div>
+      {noCargar && (
+        <div className="card" style={{ borderColor: 'var(--warning)', padding: '.55rem .75rem', marginBottom: '.8rem', fontSize: '.86rem' }}>
+          ⏳ {noCargar} Se paga desde <a href="#/app/tesoreria">Tesorería</a>.
+        </div>
+      )}
 
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
@@ -104,7 +139,13 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => setVerPeriodo(p)} title="Ver detalle">👁</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => pdfNomina(p)} title="Comprobante de pago (PDF con firmas)">📄 PDF</button>
-                  {canWrite && p.pagados === 0 && <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>}
+                  {/* Eliminar solo mientras no haya pagos. Cerrada → candado con el porqué;
+                      con pagos a medias → el aviso de siempre. */}
+                  {canWrite && (estaCerrada(p)
+                    ? <span className="muted" title={HINT_CERRADA} aria-label={HINT_CERRADA} style={{ padding: '0 .4rem', cursor: 'help' }}>🔒</span>
+                    : p.pagados === 0
+                      ? <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(p)} title="Eliminar (va a la papelera, con motivo)" style={{ color: 'var(--danger)' }}>🗑</button>
+                      : <span className="muted" title="Ya tiene pagos realizados: no se puede eliminar." style={{ padding: '0 .4rem', cursor: 'help' }}>🔒</span>)}
                 </td>
               </tr>
             ))}
@@ -116,14 +157,136 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
       {liqOpen && <LiquidacionModal empresa={empresa} actor={actor} actorName={actorName} onClose={() => setLiqOpen(false)} onSaved={async () => { setLiqOpen(false); await recargar(); }} />}
       {verPeriodo && <NominaDetalleModal periodo={verPeriodo} empresa={empresa} onClose={() => setVerPeriodo(null)} />}
       {porBorrar && (
-        <ConfirmDialog
-          title="Eliminar nómina"
-          message={`¿Eliminar la nómina «${nombreNomina(porBorrar)}» (${porBorrar.codigo})? Solo se puede si no tiene pagos.`}
-          confirmText="Eliminar" danger
-          onConfirm={() => void confirmarBorrado()}
-          onCancel={() => setPorBorrar(null)} />
+        <EliminarNominaModal periodo={porBorrar} onConfirm={(motivo) => void confirmarBorrado(motivo)} onCancel={() => setPorBorrar(null)} />
+      )}
+      {papeleraOpen && (
+        <PapeleraModal eliminadas={eliminadas} isAdmin={isAdmin} abierta={abierta} empresa={empresa}
+          onClose={() => setPapeleraOpen(false)} onChanged={recargar} />
       )}
     </div>
+  );
+}
+
+/* ───────── Eliminar (a la papelera) con motivo ───────── */
+function EliminarNominaModal({ periodo, onConfirm, onCancel }: {
+  periodo: NominaPeriodoResumen; onConfirm: (motivo: string) => void; onCancel: () => void;
+}) {
+  const [motivo, setMotivo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const valido = motivoEliminacionValido(motivo);
+  return (
+    <Modal title="Eliminar nómina" size="sm" onClose={() => !saving && onCancel()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onCancel} disabled={saving}>Cancelar</button>
+        <button className="btn btn-danger" disabled={!valido || saving} title={valido ? 'Mandar a la papelera' : `Escribí el motivo (mínimo ${MOTIVO_MINIMO} caracteres)`}
+          onClick={() => { setSaving(true); onConfirm(motivo.trim()); }}>
+          {saving ? 'Eliminando…' : '🗑 Eliminar'}
+        </button>
+      </>
+    }>
+      <p style={{ marginTop: 0 }}>
+        La nómina <strong>«{nombreNomina(periodo)}»</strong> <span className="mono muted">({periodo.codigo})</span> va a la <strong>papelera</strong>:
+        no desaparece, queda con quién la eliminó, cuándo y por qué. Un administrador puede recuperarla.
+      </p>
+      <div className="form-row">
+        <label htmlFor="nom-elim-motivo">Motivo (obligatorio)</label>
+        <textarea id="nom-elim-motivo" className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)}
+          placeholder="Ej.: se cargó con los días equivocados; se vuelve a cargar" autoFocus />
+        <small className="hint muted">Mínimo {MOTIVO_MINIMO} caracteres. Solo se puede eliminar si no tiene pagos.</small>
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────── Papelera ───────── */
+function PapeleraModal({ eliminadas, isAdmin, abierta, empresa, onClose, onChanged }: {
+  eliminadas: NominaPeriodoResumen[]; isAdmin: boolean; abierta: NominaPeriodoResumen | null; empresa: Empresa;
+  onClose: () => void; onChanged: () => Promise<void>;
+}) {
+  const [ocupado, setOcupado] = useState<string | null>(null);
+  const [vaciar, setVaciar] = useState(false);
+  const SOLO_ADMIN = 'Solo un administrador puede hacer esto.';
+
+  async function recuperar(p: NominaPeriodoResumen) {
+    setOcupado(p.id);
+    try { await recuperarNomina(p.id); await onChanged(); toast(`Nómina «${nombreNomina(p)}» recuperada`, 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo recuperar', 'error'); }
+    finally { setOcupado(null); }
+  }
+
+  async function confirmarVaciar() {
+    setVaciar(false); setOcupado('*');
+    try {
+      const n = await vaciarPapeleraNomina(empresa);
+      await onChanged();
+      toast(n ? `Papelera vaciada: ${n} nómina(s) borrada(s) definitivamente` : 'La papelera ya estaba vacía', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo vaciar la papelera', 'error'); }
+    finally { setOcupado(null); }
+  }
+
+  /** Por qué no se puede recuperar ESTA (además de no ser admin). */
+  function porQueNoRecuperar(p: NominaPeriodoResumen): string | null {
+    if (!isAdmin) return SOLO_ADMIN;
+    if (p.tipo === 'quincena' && !estaCerrada(p) && abierta) return `Ya hay una nómina abierta («${nombreNomina(abierta)}»): pagala completa antes de recuperar otra.`;
+    return null;
+  }
+
+  return (
+    <Modal title={`🗑 Papelera de nóminas (${eliminadas.length})`} size="lg" onClose={onClose} footer={
+      <>
+        {!!eliminadas.length && (
+          <button className="btn btn-danger" onClick={() => setVaciar(true)} disabled={!isAdmin || ocupado !== null}
+            title={isAdmin ? 'Borrar definitivamente todo lo que hay en la papelera' : SOLO_ADMIN}>
+            🧹 Vaciar papelera
+          </button>
+        )}
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      </>
+    }>
+      <p className="hint muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
+        Las nóminas eliminadas no se borran: quedan acá con quién, cuándo y por qué.
+        {isAdmin ? ' Como administrador podés recuperarlas o vaciar la papelera (eso sí es definitivo).' : ' Recuperar o vaciar es tarea del administrador.'}
+      </p>
+      {!eliminadas.length && <EmptyState message="La papelera está vacía" icon="🗑" />}
+      {!!eliminadas.length && (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.84rem' }}>
+            <thead><tr><th>Nómina</th><th style={{ textAlign: 'center' }}>Personas</th><th style={{ textAlign: 'right' }}>Total</th><th>Eliminada</th><th>Motivo</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
+            <tbody>
+              {eliminadas.map((p) => {
+                const bloqueo = porQueNoRecuperar(p);
+                return (
+                  <tr key={p.id}>
+                    <td>
+                      <strong>{nombreNomina(p)}</strong>
+                      <div className="mono muted" style={{ fontSize: '.7rem' }}>{p.codigo}{p.periodo_desde ? ` · ${date(p.periodo_desde)}` : ''}</div>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>{p.total_renglones}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(p.total_usd)}</td>
+                    <td className="muted">
+                      {p.eliminado_en ? dateTime(p.eliminado_en) : '—'}
+                      <div style={{ fontSize: '.72rem' }}>{p.eliminado_por || '—'}</div>
+                    </td>
+                    <td style={{ maxWidth: 260, whiteSpace: 'pre-wrap' }}>{p.eliminado_motivo || <span className="muted">—</span>}</td>
+                    <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => void recuperar(p)} disabled={!!bloqueo || ocupado !== null}
+                        title={bloqueo ?? 'Volver a ponerla en la lista'}>
+                        {ocupado === p.id ? 'Recuperando…' : '↩ Recuperar'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {vaciar && (
+        <ConfirmDialog title="Vaciar papelera" danger confirmText="Sí, borrar definitivamente"
+          message={`Se borran para siempre ${eliminadas.length} nómina(s) con sus renglones. Esto no se puede deshacer.`}
+          onConfirm={() => void confirmarVaciar()} onCancel={() => setVaciar(false)} />
+      )}
+    </Modal>
   );
 }
 
@@ -157,6 +320,10 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   const [notas, setNotas] = useState('');
   const [anticipos, setAnticipos] = useState<AnticipoPrestamo[]>([]);
   const [filas, setFilas] = useState<FilaUI[]>([]);
+  // Buscador sobre la lista de personal (nombre, cédula, cargo, departamento,
+  // ficha…; sin distinguir acentos). «Seleccionar / Desmarcar todos» actúan
+  // sobre lo que se ve con el filtro puesto; marcar de a uno sigue igual.
+  const [buscar, setBuscar] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -207,6 +374,11 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
 
   const incluidas = filas.filter((f) => f.incluido);
   const totalNeto = useMemo(() => round2(incluidas.reduce((a, f) => a + calcFila(f).neto_usd, 0)), [filas, anticipos]);
+  const visibles = useMemo(() => filtrarFilasPersonal(filas, buscar), [filas, buscar]);
+  const idsVisibles = visibles.map((f) => f.persona.id);
+  const visiblesMarcadas = visibles.filter((f) => f.incluido).length;
+  const setIncluido = (id: string, incluido: boolean) => setFilas((fs) => marcarFilas(fs, [id], incluido));
+  const cambiarFila = (id: string, cambio: Partial<FilaUI>) => setFilas((fs) => fs.map((x) => (x.persona.id === id ? { ...x, ...cambio } : x)));
 
   async function guardar() {
     setError(null);
@@ -285,6 +457,22 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
         </small>
       </div>
 
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.5rem' }}>
+        <input id="nom-buscar" className="input" style={{ flex: '1 1 220px' }} value={buscar} onChange={(e) => setBuscar(e.target.value)}
+          placeholder="🔍 Buscar por nombre, cédula, cargo, departamento, ficha…" aria-label="Buscar trabajador" />
+        <button type="button" className="btn btn-sm btn-ghost" disabled={!visibles.length || visiblesMarcadas === visibles.length}
+          onClick={() => setFilas((fs) => marcarFilas(fs, idsVisibles, true))} title="Marca los que se ven con el filtro puesto; no toca al resto">
+          ☑ {etiquetaSeleccion('Seleccionar', visibles.length, filas.length)}
+        </button>
+        <button type="button" className="btn btn-sm btn-ghost" disabled={!visiblesMarcadas}
+          onClick={() => setFilas((fs) => marcarFilas(fs, idsVisibles, false))} title="Desmarca los que se ven con el filtro puesto; no toca al resto">
+          ☐ {etiquetaSeleccion('Desmarcar', visibles.length, filas.length)}
+        </button>
+        <span className="muted" style={{ fontSize: '.8rem' }}>
+          {incluidas.length} de {filas.length} marcados{buscar.trim() ? ` · ${visibles.length} visibles` : ''}
+        </span>
+      </div>
+
       <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead><tr>
@@ -299,17 +487,18 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           </tr></thead>
           <tbody>
             {!filas.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Sin personal activo. Agregá trabajadores en la pestaña Personal.</td></tr>}
-            {filas.map((f, i) => {
+            {!!filas.length && !visibles.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Nadie coincide con «{buscar.trim()}».</td></tr>}
+            {visibles.map((f) => {
               const { deducciones, salario_bruto, neto_usd } = calcFila(f);
               const ants = anticiposDe(f.persona.id);
               return (
                 <tr key={f.persona.id} style={{ opacity: f.incluido ? 1 : 0.45 }}>
-                  <td><input type="checkbox" checked={f.incluido} onChange={(e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, incluido: e.target.checked } : x))} /></td>
-                  <td>{f.persona.nombre} {f.persona.apellido}<div className="muted" style={{ fontSize: '.72rem' }}>{f.persona.departamento || ''}{f.persona.cargo ? ` · ${f.persona.cargo}` : ''}</div></td>
+                  <td><input type="checkbox" checked={f.incluido} onChange={(e) => setIncluido(f.persona.id, e.target.checked)} aria-label={`Incluir a ${f.persona.nombre} ${f.persona.apellido}`} /></td>
+                  <td>{f.persona.nombre} {f.persona.apellido}<div className="muted" style={{ fontSize: '.72rem' }}>{f.persona.numero_ficha ? `N° ${f.persona.numero_ficha} · ` : ''}{f.persona.cedula ? `${f.persona.cedula} · ` : ''}{f.persona.departamento || ''}{f.persona.cargo ? ` · ${f.persona.cargo}` : ''}</div></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(f.persona.sueldo_base)}</td>
                   <td style={{ textAlign: 'center' }}>
                     <input className="input mono" type="number" min={0} max={31} value={f.dias} disabled={!f.incluido}
-                      onChange={(e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, dias: e.target.value } : x))}
+                      onChange={(e) => cambiarFila(f.persona.id, { dias: e.target.value })}
                       style={{ width: 56, textAlign: 'center' }} />
                   </td>
                   {/* Se pagan igual que los trabajados. Van aparte porque el
@@ -317,7 +506,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
                   <td style={{ textAlign: 'center' }}>
                     <input className="input mono" type="number" min={0} max={31} value={f.descanso} disabled={!f.incluido}
                       title="Días de descanso: se pagan al mismo sueldo diario, pero salen en su propio renglón del recibo"
-                      onChange={(e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, descanso: e.target.value } : x))}
+                      onChange={(e) => cambiarFila(f.persona.id, { descanso: e.target.value })}
                       style={{ width: 56, textAlign: 'center' }} />
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(salario_bruto)}</td>
@@ -326,7 +515,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
                       <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginBottom: '.2rem' }}>
                         <span className="badge" style={{ fontSize: '.68rem' }}>{a.tipo === 'anticipo' ? 'Ant.' : 'Prést.'}</span>
                         <input className="input mono" type="number" min={0} max={Number(a.saldo)} step="any" value={f.deduc[a.id] ?? ''} disabled={!f.incluido}
-                          onChange={(e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, deduc: { ...x.deduc, [a.id]: e.target.value } } : x))}
+                          onChange={(e) => cambiarFila(f.persona.id, { deduc: { ...f.deduc, [a.id]: e.target.value } })}
                           style={{ width: 90, textAlign: 'right' }} placeholder="0,00" />
                         <span className="muted" style={{ fontSize: '.7rem' }}>de {money(a.saldo)}</span>
                       </div>
@@ -508,6 +697,11 @@ function NominaDetalleModal({ periodo, empresa, onClose }: { periodo: NominaPeri
         {' · '}{periodo.pagados}/{periodo.total_renglones} pagados · Total <strong className="mono">{money(periodo.total_usd)}</strong>
         {periodo.tasa_bcv ? ` · BCV ${bs(periodo.tasa_bcv)}` : ''}
       </div>
+      {estaCerrada(periodo) && (
+        <div className="card" style={{ borderColor: 'var(--success)', padding: '.55rem .75rem', marginBottom: '.6rem', fontSize: '.86rem' }}>
+          🔒 <strong>Nómina cerrada:</strong> se pagó en su totalidad y ya no se modifica (ni el período ni sus renglones). Solo se consulta e imprime.
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
         <span className="muted" style={{ fontSize: '.78rem' }}>Se imprimen los marcados:</span>

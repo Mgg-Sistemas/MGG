@@ -33,6 +33,7 @@ import {
   CONFIG_POR_DEFECTO, capacidadRotacion, cargaPorDia, diasConChoque, diasDe, fechasEntre, fueraEl,
   generarPlan, minimoSimultaneo, seCruzan, sumarDias, type ConfigDescansos, type DescansoRango, type ResultadoPlan,
 } from './descansosPlan';
+import { alternar as alternarSel, desmarcarVisibles, marcarVisibles, todosMarcados } from './seleccion';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const DIA_SEM = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
@@ -551,7 +552,11 @@ function GenerarPlanModal({ empresa, personal, descansos, cfg, hoy, actor, actor
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo aplicar el plan', 'error'); setSaving(false); }
   }
 
-  const alternar = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  // Marcar de a uno, y en lote sobre lo que se ve (ver `seleccion.ts`).
+  const alternar = (id: string) => setSel((s) => alternarSel(s, id));
+  const idsVisibles = visibles.map((p) => p.id);
+  const todosVisiblesMarcados = todosMarcados(sel, idsVisibles);
+  const algunVisibleMarcado = idsVisibles.some((id) => sel.has(id));
 
   return (
     <Modal title="🗓 Generar plan de descansos" size="lg" onClose={() => !saving && onClose()} footer={
@@ -620,13 +625,14 @@ function GenerarPlanModal({ empresa, personal, descansos, cfg, hoy, actor, actor
           )}
           {/* «Marcar/Desmarcar» actúan sobre lo que se ve: con un departamento
               filtrado, se marca ese departamento entero de un toque. */}
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel((s) => new Set([...s, ...visibles.map((p) => p.id)]))}>
-            Marcar {visibles.length === personal.length ? 'todos' : `los ${visibles.length} visibles`}
+          <button type="button" className="btn btn-sm btn-ghost" disabled={!idsVisibles.length || todosVisiblesMarcados}
+            onClick={() => setSel((s) => marcarVisibles(s, idsVisibles))} title="Marca a los que se ven con el filtro puesto; no toca al resto">
+            ☑ Marcar {visibles.length === personal.length ? 'todos' : `los ${visibles.length} visibles`}
           </button>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => {
-            const fuera = new Set(visibles.map((p) => p.id));
-            setSel((s) => new Set([...s].filter((id) => !fuera.has(id))));
-          }}>Desmarcar {visibles.length === personal.length ? 'todos' : 'visibles'}</button>
+          <button type="button" className="btn btn-sm btn-ghost" disabled={!algunVisibleMarcado}
+            onClick={() => setSel((s) => desmarcarVisibles(s, idsVisibles))} title="Desmarca a los que se ven con el filtro puesto; no toca al resto">
+            ☐ Desmarcar {visibles.length === personal.length ? 'todos' : 'visibles'}
+          </button>
           <span className="muted" style={{ fontSize: '.8rem' }}>{sel.size} de {personal.length} salen</span>
         </div>
         <div className="desc-plan-lista">
