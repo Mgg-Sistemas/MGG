@@ -10,14 +10,14 @@ describe('costoUnitarioUsd', () => {
 
   it('caso real CD-2026-0054: la cafetera en Bs entra en dólares, no en bolívares', () => {
     // Tasa BCV real del 20/08/2026 (tasa_cambio): 777,42 Bs/$.
-    // Cafetera 367.606,68 Bs → $472,8547 (entró como $367.606,68); impresora 39.434,89 Bs → $50,7253.
-    expect(costoUnitarioUsd(367606.68, 1, 'Bs', 777.42)).toBe(472.8547);
-    expect(costoUnitarioUsd(39434.89, 1, 'Bs', 777.42)).toBe(50.7253);
+    // Cafetera 367.606,68 Bs → $472,85 (entró como $367.606,68); impresora 39.434,89 Bs → $50,73. A 2 decimales.
+    expect(costoUnitarioUsd(367606.68, 1, 'Bs', 777.42)).toBe(472.85);
+    expect(costoUnitarioUsd(39434.89, 1, 'Bs', 777.42)).toBe(50.73);
   });
 
-  it('en Bs conserva 4 decimales para artículos baratos', () => {
-    // 3 Bs por 10 unidades a 150 Bs/$ → $0,002 por unidad (a 2 decimales sería 0)
-    expect(costoUnitarioUsd(3, 10, 'Bs', 150)).toBe(0.002);
+  it('en Bs también redondea a 2 decimales, aunque el artículo sea muy barato', () => {
+    // 3 Bs por 10 unidades a 150 Bs/$ → $0,002 por unidad: a 2 decimales entra en 0 (09-10-2026, es la regla del inventario)
+    expect(costoUnitarioUsd(3, 10, 'Bs', 150)).toBe(0);
   });
 
   it('en Bs sin tasa NO deja entrar el costo: lanza error en español', () => {
@@ -74,7 +74,7 @@ describe('formatos', () => {
     expect(fmtTasa(777.42)).toBe('777,42 Bs/$');
     expect(fmtTasa(777.4215)).toBe('777,4215 Bs/$');
     expect(fmtTasa(null)).toBe('—');
-    expect(fmtUsd4(0.002)).toBe('$ 0,002');
+    expect(fmtUsd4(0.002)).toBe('$ 0,00');
     expect(fmtUsd4(472.8547)).toBe('$ 472,85');
     expect(fmtUsd4(9.2859)).toBe('$ 9,29');
     expect(fmtUsd4(8.5)).toBe('$ 8,50');

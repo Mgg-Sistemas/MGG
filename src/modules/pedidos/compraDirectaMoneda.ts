@@ -35,7 +35,8 @@ export function costoUnitarioUsd(gasto: number | null | undefined, cantidad: num
   if (!tasaValida(tasaBs)) {
     throw new Error('Esta compra está en bolívares y no hay tasa BCV para convertirla a dólares. Pedile a Compras que cargue la tasa en «✎ Factura/precios» y volvé a intentar.');
   }
-  return Math.round((g / c / tasaBs) * 10000) / 10000;
+  // A 2 decimales, como todo costo del inventario (09-10-2026, pedido de la administradora).
+  return Math.round((g / c / tasaBs) * 100) / 100;
 }
 
 /** Fecha (YYYY-MM-DD) en hora de Venezuela de un timestamp ISO. `tasa_cambio.fecha` se guarda en
@@ -66,14 +67,7 @@ export function fmtTasa(t: number | null | undefined): string {
   return `${t.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} Bs/$`;
 }
 
-/**
- * Costo en $ para la vista previa: 2 decimales, como todo monto en pantalla. Con 4
- * decimales «$ 9,2859» se leía como nueve mil (09-10-2026). Solo cuando el costo es
- * menor a un centavo (0,002 por unidad) se muestran los 4, para que no salga «0,00».
- * El kardex sigue guardando los 4 decimales.
- */
+/** Costo en $ para la vista previa: 2 decimales, los mismos con los que entra al inventario (09-10-2026). */
 export function fmtUsd4(n: number | null | undefined): string {
-  const v = Number(n) || 0;
-  const chico = v !== 0 && Math.abs(v) < 0.01;
-  return `$ ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: chico ? 4 : 2 })}`;
+  return `$ ${(Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
