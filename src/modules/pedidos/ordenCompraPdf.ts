@@ -263,16 +263,16 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     tecnFilas.push(
       ['Precio total (BCV)', money(precioBcv)],
       ['Precio en divisa efectivo', money(precioEfe)],
-      ['Ahorro por pago en efectivo', `${money(ahorro.diferencia)}  (−${ahorro.pct.toFixed(2)}%)`],
+      ['Ahorro por pago en efectivo', `${money(ahorro.diferencia)}  (-${ahorro.pct.toFixed(2)}%)`],
     );
   }
-  // Descuento OBTENIDO (negociado): subtotal − descuento = total a pagar.
+  // Descuento OBTENIDO (negociado): subtotal - descuento = total a pagar.
   const descObt = Number(orden.descuento_obtenido) || 0;
   if (descObt > 0) {
     const subtotalOc = Math.round(((Number(orden.total) || 0) + descObt) * 100) / 100;
     tecnFilas.push(
       ['Subtotal', money(subtotalOc)],
-      ['Descuento obtenido', `− ${money(descObt)}`],
+      ['Descuento obtenido', `- ${money(descObt)}`],
       ['Total a pagar (con descuento)', money(Number(orden.total) || 0)],
     );
   }

@@ -41,4 +41,9 @@ describe('texto seguro para los PDF', () => {
   it('una fila entera de tabla se limpia de una vez', () => {
     expect(filaPdf(['CACO₃', 'General', 65.5])).toEqual(['CACO3', 'General', '65.5']);
   });
+
+  it('el menos tipográfico (U+2212) pasa a guion: Helvetica no lo tiene y lo pintaba como comilla', () => {
+    expect(textoPdf('(−) Préstamos')).toBe('(-) Préstamos');
+    expect(textoPdf('− $ 40,00')).toBe('- $ 40,00');
+  });
 });

@@ -73,7 +73,7 @@ async function construir(orden: Orden, proveedor: Proveedor | null) {
   // ── Pago ──
   const metodos = orden.metodo_pago ?? [];
   const filasPago: Array<[string, string]> = [['Total OC', money(total, moneda)]];
-  if (desc > 0) { filasPago.push(['Descuento al pagar', `− ${money(desc, moneda)}`]); filasPago.push(['Monto pagado', money(aPagar, moneda)]); }
+  if (desc > 0) { filasPago.push(['Descuento al pagar', `- ${money(desc, moneda)}`]); filasPago.push(['Monto pagado', money(aPagar, moneda)]); }
   if (metodos.length) {
     metodos.forEach((m, i) => filasPago.push([metodos.length > 1 ? `Método de pago ${i + 1}` : 'Método de pago', `${labelMetodoPago(m.metodo)} · ${money(Number(m.monto) || 0, m.moneda || moneda)}`]));
   }

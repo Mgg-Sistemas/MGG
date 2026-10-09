@@ -103,12 +103,12 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
     y = (doc as any).lastAutoTable.finalY + 12;
   }
 
-  // Traslados del período, con signo: lo que el centro envió (−) y lo que recibió (+). Los
+  // Traslados del período, con signo: lo que el centro envió (-) y lo que recibió (+). Los
   // cierres anteriores al 14/09/2026 no los tienen: ahí lo recibido quedó en las entradas.
   if (snap.traslados?.length) {
     asegurar(40);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text(textoPdf('Traslados del período (− enviado · + recibido)'), MARGIN, y);
+    doc.text(textoPdf('Traslados del período (- enviado · + recibido)'), MARGIN, y);
     autoTable(doc, {
       startY: y + 6,
       head: [filaPdf(['VÍVER', 'CANTIDAD', 'VALOR $'])],
@@ -130,7 +130,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
     autoTable(doc, {
       startY: y + 6,
       head: [filaPdf(['VÍVER', 'CANTIDAD', 'VALOR $'])],
-      body: snap.mermas.map((v) => filaPdf([`${v.nombre} (${v.sku})`, `−${num(v.cantidad)}`, money(v.valor)])),
+      body: snap.mermas.map((v) => filaPdf([`${v.nombre} (${v.sku})`, `-${num(v.cantidad)}`, money(v.valor)])),
       styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 320 }, 1: { halign: 'right' }, 2: { halign: 'right' } },

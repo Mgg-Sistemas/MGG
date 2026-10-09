@@ -47,7 +47,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     ['Proveedor', compra.proveedor_nombre || '—'],
     ['Moneda', moneda === 'Bs' ? 'Bolívares (Bs)' : 'Dólares ($)'],
     ['Estado', compra.estado === 'finalizada' ? 'Finalizada (ingresó a inventario)' : 'En proceso'],
-    ...(descuentoMonto > 0 ? [['Descuento', `${compra.descuento_pct ? `${compra.descuento_pct}% · ` : ''}− ${monto(descuentoMonto)}`] as [string, string]] : []),
+    ...(descuentoMonto > 0 ? [['Descuento', `${compra.descuento_pct ? `${compra.descuento_pct}% · ` : ''}- ${monto(descuentoMonto)}`] as [string, string]] : []),
     ...(ivaMonto > 0 ? [['IVA', `+ ${monto(ivaMonto)}`] as [string, string]] : []),
     ...(igtfMonto > 0 ? [['IGTF', `+ ${monto(igtfMonto)}`] as [string, string]] : []),
     ...(retMonto > 0 ? [['Retención IVA', `${compra.retencion_pct}% · ${monto(retMonto)}`] as [string, string]] : []),

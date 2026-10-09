@@ -30,7 +30,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Consumo de Martillos · Molino H66', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text('Saldo $ = entregados − facturados · Restantes = entregados − a GT − consumidos', tx, y + 33);
+  doc.text('Saldo $ = entregados - facturados · Restantes = entregados - a GT - consumidos', tx, y + 33);
   doc.text(`LA ESPERANZA · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
   doc.text(`${movs.length} movimiento(s)`, PAGE_W - MARGIN, y + 33, { align: 'right' });
   y += 54;

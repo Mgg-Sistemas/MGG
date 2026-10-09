@@ -58,13 +58,13 @@ export async function descargarResumenRecepcionPdf(data: ResumenRecepcionData): 
   const recibidosOps = round2(pesajes.length ? sum(pesajes, (p) => p.total_neto_humedo) : centroAcopio);
   const netoSecos = round2(pesajes.length ? sum(pesajes, (p) => p.total_neto_seco) : recibidosOps);
 
-  // Merma "no llegó": la última conciliación si existe; si no, la diferencia Recibidos − Centro.
+  // Merma "no llegó": la última conciliación si existe; si no, la diferencia Recibidos - Centro.
   const conc = conciliaciones[conciliaciones.length - 1] ?? null;
   const mermaNoLlego = conc?.kg_no_llego != null ? round2(N(conc.kg_no_llego)) : round2(recibidosOps - centroAcopio);
   const pctNoLlego = conc?.pct_no_llego != null ? round2(N(conc.pct_no_llego))
     : recibidosOps ? round2((mermaNoLlego / recibidosOps) * 100) : 0;
 
-  // Merma humedad = neto húmedo − neto seco (de los pesajes).
+  // Merma humedad = neto húmedo - neto seco (de los pesajes).
   const mermaHumedad = round2(recibidosOps - netoSecos);
   const pctHumedad = recibidosOps ? round2((mermaHumedad / recibidosOps) * 100) : 0;
 

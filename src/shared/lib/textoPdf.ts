@@ -29,6 +29,10 @@ const REEMPLAZOS: Record<string, string> = {
   '→': '->', '←': '<-', '↔': '<->', '⇒': '=>',
   '≈': '~', '≤': '<=', '≥': '>=', '≠': '!=',
   '⁄': '/', '∙': '·', '∞': 'inf',
+  // El menos tipográfico (U+2212) no está en Windows-1252: en el recibo de nómina
+  // «(−) Préstamos» salía como «(" ) P r é s t a m o s» (09-10-2026). Los guiones
+  // – y — sí existen y se dejan.
+  '−': '-', '‒': '-', '―': '-', '∓': '-/+',
   // Espacios que no son el espacio normal: rompen el corte de línea.
   '\u00A0': ' ', '\u2007': ' ', '\u202F': ' ', '\u2009': ' ', '\u200B': '',
 };

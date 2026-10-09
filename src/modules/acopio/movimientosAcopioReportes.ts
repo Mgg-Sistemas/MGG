@@ -56,7 +56,7 @@ async function construirDoc(rows: MovAcopioRow[], meta: MovAcopioMeta = {}) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Movimientos del Centro de Costo', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text('Saldo Kg casiterita = saldo anterior + Kg Cerrados − Kg Recibidos por MGG', tx, y + 33);
+  doc.text('Saldo Kg casiterita = saldo anterior + Kg Cerrados - Kg Recibidos por MGG', tx, y + 33);
   doc.text(`LA ESPERANZA · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
   doc.text(`${rows.length} movimiento(s)${meta.filtro ? ` · ${meta.filtro}` : ''}`, PAGE_W - MARGIN, y + 33, { align: 'right' });
   y += 54;

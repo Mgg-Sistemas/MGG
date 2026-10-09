@@ -196,7 +196,7 @@ export async function generarReporteFundicionMatanzas(
     ['Rendimiento del período', pct(tot.rendimiento_pct), 'Rendimiento potencial', pct(tot.rendimiento_potencial_pct)],
     ['Duración promedio del ciclo', tot.duracion_prom_horas == null ? '—' : `${kg(tot.duracion_prom_horas)} h`, '', ''],
   ]);
-  parrafo(`La merma del período se mide en ESTAÑO: Sn teórico − (estaño obtenido + Sn recuperable de la escoria) = ${kg(tot.sn_teorico_kg)} − (${kg(tot.estano_kg)} + ${kg(tot.sn_recuperable_kg)}) = ${kg(tot.merma_kg)} kg. Se resta solo el contenido de estaño de la escoria, no su masa total, que incluye hierro, tántalo y niobio.`);
+  parrafo(`La merma del período se mide en ESTAÑO: Sn teórico - (estaño obtenido + Sn recuperable de la escoria) = ${kg(tot.sn_teorico_kg)} - (${kg(tot.estano_kg)} + ${kg(tot.sn_recuperable_kg)}) = ${kg(tot.merma_kg)} kg. Se resta solo el contenido de estaño de la escoria, no su masa total, que incluye hierro, tántalo y niobio.`);
 
   // ── 6. Análisis de escorias ──
   const conEscoria = filas.filter((f) => f.escoria_kg > 0);

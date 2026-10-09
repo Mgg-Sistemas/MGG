@@ -69,7 +69,7 @@ async function construirDoc(r: ReporteCierre) {
 
   seccion('INGRESOS (entradas)', filasMoneda(r.ingresos));
   seccion('GASTOS (egresos)', filasMoneda(r.gastos));
-  seccion('RESULTADO DEL MES (ingresos − gastos)', filasMoneda(r.resultado));
+  seccion('RESULTADO DEL MES (ingresos - gastos)', filasMoneda(r.resultado));
   seccion('CUENTAS POR COBRAR (abiertas)', filasMoneda(r.cxc));
   seccion('CUENTAS POR PAGAR (abiertas)', filasMoneda(r.cxp));
 

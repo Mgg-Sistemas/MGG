@@ -691,7 +691,7 @@ function NominaDetalleModal({ periodo, empresa, onClose }: { periodo: NominaPeri
     <Modal title={`Nómina · ${nombreNomina(periodo)}`} size="xl" onClose={onClose} footer={
       <>
         <button className="btn btn-primary" onClick={() => void imprimir(aImprimir)} disabled={!aImprimir.length}>
-          🖨 Imprimir {aImprimir.length} recibo{aImprimir.length === 1 ? '' : 's'}
+          🖨 Imprimir {aImprimir.length} trabajador{aImprimir.length === 1 ? '' : 'es'} · 2 recibos c/u
         </button>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
@@ -730,7 +730,7 @@ function NominaDetalleModal({ periodo, empresa, onClose }: { periodo: NominaPeri
                   onChange={() => setMarcados(alternarGrupo(g, marcados))} />
                 <strong style={{ fontSize: '.85rem' }}>{etiquetaGrupo(g.fecha, date)}</strong>
                 <span className="muted" style={{ fontSize: '.78rem' }}>
-                  {g.renglones.length} recibo{g.renglones.length === 1 ? '' : 's'} · <span className="mono">{money(g.totalUsd)}</span>
+                  {g.renglones.length} trabajador{g.renglones.length === 1 ? '' : 'es'} · 2 recibos c/u · <span className="mono">{money(g.totalUsd)}</span>
                 </span>
               </label>
               <div className="table-wrap">
@@ -742,7 +742,7 @@ function NominaDetalleModal({ periodo, empresa, onClose }: { periodo: NominaPeri
                         <td style={{ textAlign: 'center' }}>
                           <input type="checkbox" checked={marcados.has(r.id)}
                             onChange={() => setMarcados(alternarUno(r.id, marcados))}
-                            aria-label={`Imprimir el recibo de ${r.nombre}`} />
+                            aria-label={`Imprimir los dos recibos de ${r.nombre}`} />
                         </td>
                         <td>{r.nombre}<div className="muted" style={{ fontSize: '.7rem' }}>{r.departamento || ''}</div></td>
                         <td className="mono" style={{ textAlign: 'right' }}>{r.dias_trabajados}</td>
@@ -751,7 +751,7 @@ function NominaDetalleModal({ periodo, empresa, onClose }: { periodo: NominaPeri
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.neto_usd)}</td>
                         <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: r.estado === 'pagada' ? 'var(--success)' : 'var(--warning)' }}>{r.estado === 'pagada' ? 'Pagada' : 'Por pagar'}</span></td>
                         <td className="muted">{r.pagada_en ? `${dateTime(r.pagada_en)}${r.moneda_pago ? ` · ${r.moneda_pago}` : ''}` : '—'}</td>
-                        <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => void imprimir([r])} title="Ver solo este recibo">📄</button></td>
+                        <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => void imprimir([r])} title="Ver los dos recibos de esta persona (sueldo en Bs y bonificación en $)">📄</button></td>
                       </tr>
                     ))}
                   </tbody>

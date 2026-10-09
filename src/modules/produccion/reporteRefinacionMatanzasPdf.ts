@@ -175,7 +175,7 @@ export async function generarReporteRefinacionMatanzas(refinaciones: RefinacionR
   ]);
 
   barra('NOTA METODOLÓGICA');
-  parrafo('El rendimiento de refinación se mide contra el estaño CRUDO cargado al crisol (refinado ÷ crudo). La merma es la masa que no aparece ni como lingote ni como dross (crudo − refinado − dross). Los reactivos se informan aparte y en kg por tonelada de crudo, para comparar consumos entre lotes de distinto tamaño. El costo por kg reparte el costo total del proceso (material + mano de obra + indirectos) sobre el estaño refinado.');
+  parrafo('El rendimiento de refinación se mide contra el estaño CRUDO cargado al crisol (refinado ÷ crudo). La merma es la masa que no aparece ni como lingote ni como dross (crudo - refinado - dross). Los reactivos se informan aparte y en kg por tonelada de crudo, para comparar consumos entre lotes de distinto tamaño. El costo por kg reparte el costo total del proceso (material + mano de obra + indirectos) sobre el estaño refinado.');
   if (op.nota.trim()) parrafo(op.nota);
 
   barra('RESUMEN INDIVIDUAL POR REFINACIÓN');

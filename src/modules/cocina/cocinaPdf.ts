@@ -100,7 +100,7 @@ export async function descargarReporteCocinaPdf(
     y = doc.lastAutoTable.finalY + 8;
     doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
     const nota = doc.splitTextToSize(
-      'Había + Entró ± Traslados − Comido − Salidas/ajustes = Queda. «Había» se reconstruye desde el stock actual hacia atrás. Los totales mezclan unidades: sirven para cuadrar, no como cantidad.',
+      'Había + Entró ± Traslados - Comido - Salidas/ajustes = Queda. «Había» se reconstruye desde el stock actual hacia atrás. Los totales mezclan unidades: sirven para cuadrar, no como cantidad.',
       ANCHO,
     ) as string[];
     asegurar(nota.length * 9);
