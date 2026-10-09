@@ -751,7 +751,7 @@ function NominaDetalleModal({ periodo, empresa, onClose }: { periodo: NominaPeri
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.neto_usd)}</td>
                         <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: r.estado === 'pagada' ? 'var(--success)' : 'var(--warning)' }}>{r.estado === 'pagada' ? 'Pagada' : 'Por pagar'}</span></td>
                         <td className="muted">{r.pagada_en ? `${dateTime(r.pagada_en)}${r.moneda_pago ? ` · ${r.moneda_pago}` : ''}` : '—'}</td>
-                        <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => void imprimir([r])} title="Ver los dos recibos de esta persona (sueldo en Bs y bonificación en $)">📄</button></td>
+                        <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => void imprimir([r])} title="Ver los dos recibos de esta persona (pago en Bs y bonificación en $)">📄</button></td>
                       </tr>
                     ))}
                   </tbody>

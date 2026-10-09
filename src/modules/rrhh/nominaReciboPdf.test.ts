@@ -11,12 +11,14 @@ describe('recibos de nómina · dos por persona', () => {
   });
 
   it('los títulos dicen cuál de los dos es y en qué moneda se paga', () => {
-    expect(tituloRecibo('sueldo')).toBe('COMPROBANTE DE PAGO 1/2 · SUELDO EN BOLÍVARES');
+    expect(tituloRecibo('sueldo')).toBe('COMPROBANTE DE PAGO 1/2 · PAGO EN BOLÍVARES');
     expect(tituloRecibo('bono')).toBe('COMPROBANTE DE PAGO 2/2 · BONIFICACIÓN EN DIVISAS');
   });
 
-  it('el 1/2 certifica el neto en Bs y remite el bono al 2/2', () => {
+  it('el 1/2 certifica el neto en Bs, sin la palabra sueldo, y remite el bono al 2/2', () => {
     const t = textoConformidad('sueldo', c);
+    expect(t.toLowerCase()).not.toContain('sueldo');
+    expect(tituloRecibo('sueldo').toLowerCase()).not.toContain('sueldo');
     expect(t).toContain('Bs 15.637,88'); // 82,50 $ x 189,55 = 15.637,875
     expect(t).toContain('$ 82,50');
     expect(t).toContain('recibo 1 de 2');

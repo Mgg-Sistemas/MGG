@@ -3,13 +3,13 @@
 
    DOS recibos por trabajador (regla de la administradora, 09-10-2026):
 
-     1/2 · SUELDO EN BOLÍVARES — la parte «sueldo» (20 %) repartida en
+     1/2 · PAGO EN BOLÍVARES — la parte del 20 % repartida en
            días, más bonos extra y viáticos, menos las deducciones de ley
            (IVSS, RPE, FAOV, sindicato, otros). Es lo que se paga en Bs.
      2/2 · BONIFICACIÓN EN DIVISAS — el bono (80 %) menos préstamos y
            anticipos. Es lo que se entrega en dólares.
 
-   Antes iba todo en una hoja. Se separan porque se pagan en monedas
+   La palabra «sueldo» no va en el 1/2 (pedido de la administradora, 09-10): se llama «pago en bolívares». Antes iba todo en una hoja. Se separan porque se pagan en monedas
    distintas, muchas veces en días distintos, y cada entrega necesita su
    propia firma: quien cobra el sueldo firma el sueldo, quien recibe el bono
    firma el bono. Los dos recibos llevan el mismo código de nómina y se
@@ -52,7 +52,7 @@ export type HojaRecibo = 'sueldo' | 'bono';
 /** Título de cada recibo, como sale impreso debajo del encabezado. */
 export function tituloRecibo(hoja: HojaRecibo): string {
   return hoja === 'sueldo'
-    ? 'COMPROBANTE DE PAGO 1/2 · SUELDO EN BOLÍVARES'
+    ? 'COMPROBANTE DE PAGO 1/2 · PAGO EN BOLÍVARES'
     : 'COMPROBANTE DE PAGO 2/2 · BONIFICACIÓN EN DIVISAS';
 }
 
@@ -64,12 +64,12 @@ export function tituloRecibo(hoja: HojaRecibo): string {
 export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado): string {
   const tasaStr = c.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (hoja === 'sueldo') {
-    return `Certifico haber recibido ${bsStr(c.netoBs)} en bolívares (${usd(c.netoUsd)} a la tasa de ${tasaStr} Bs/$) por concepto de sueldo del período indicado, según el desglose de este recibo 1 de 2. La bonificación en divisas se entrega con el recibo 2 de 2. Firmo en señal de conformidad.`;
+    return `Certifico haber recibido ${bsStr(c.netoBs)} en bolívares (${usd(c.netoUsd)} a la tasa de ${tasaStr} Bs/$) por el período indicado, según el desglose de este recibo 1 de 2. La bonificación en divisas se entrega con el recibo 2 de 2. Firmo en señal de conformidad.`;
   }
   const descuento = c.deduccionBonoUsd > 0
     ? ` (bono de ${usd(c.bonoUsd)} menos ${usd(c.deduccionBonoUsd)} de préstamos y anticipos)`
     : '';
-  return `Certifico haber recibido ${usd(c.bonoNetoUsd)} de bonificación en divisas${descuento} por el período indicado, según este recibo 2 de 2. El sueldo en bolívares se entregó con el recibo 1 de 2 (${bsStr(c.netoBs)}, ${usd(c.netoUsd)}). Entre los dos recibos queda cubierta la totalidad de mi remuneración del período, ${usd(c.totalRecibidoUsd)}. Firmo en señal de conformidad.`;
+  return `Certifico haber recibido ${usd(c.bonoNetoUsd)} de bonificación en divisas${descuento} por el período indicado, según este recibo 2 de 2. El pago en bolívares se entregó con el recibo 1 de 2 (${bsStr(c.netoBs)}, ${usd(c.netoUsd)}). Entre los dos recibos queda cubierta la totalidad de mi remuneración del período, ${usd(c.totalRecibidoUsd)}. Firmo en señal de conformidad.`;
 }
 
 /** Lo que se le pasa al cálculo del recibo, sacado del renglón de nómina. */
@@ -208,7 +208,7 @@ function pie(l: Lienzo, r: NominaRenglon, hoja: HojaRecibo, c: ReciboCalculado, 
   doc.text('Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + 22, { align: 'center' });
 }
 
-/* ───────── Recibo 1/2 · sueldo en bolívares ───────── */
+/* ───────── Recibo 1/2 · pago en bolívares ───────── */
 function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalculado): void {
   const { doc, autoTable } = l;
   let y = cabecera(l, r, meta, 'sueldo');
@@ -254,7 +254,7 @@ function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalc
     startY: y,
     head: [['PAGO DE ESTE RECIBO', 'Bs', 'Equivalente $']],
     body: [
-      ['Sueldo en bolívares (parte sueldo, 20 %)', bsStr(c.netoBs), usd(c.netoUsd)],
+      ['Pago en bolívares (20 % del total acordado)', bsStr(c.netoBs), usd(c.netoUsd)],
       ['Tasa aplicada (BCV de la quincena)', tasa > 0 ? `${bsStr(tasa)} / $` : '—', ''],
       ['Bonificación en divisas', 'va en el recibo 2/2', usd(c.bonoNetoUsd)],
     ],
@@ -304,7 +304,7 @@ function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalcul
     startY: y,
     head: [['TOTAL DE LA QUINCENA (RECIBOS 1/2 + 2/2)', 'Bs', 'Equivalente $']],
     body: [
-      ['Recibo 1/2 · sueldo en bolívares', bsStr(c.netoBs), usd(c.netoUsd)],
+      ['Recibo 1/2 · pago en bolívares', bsStr(c.netoBs), usd(c.netoUsd)],
       ['Recibo 2/2 · bonificación en divisas (menos préstamos y anticipos)', '', usd(c.bonoNetoUsd)],
     ],
     foot: [['TOTAL RECIBIDO EN EL PERÍODO', '', usd(c.totalRecibidoUsd)]],
@@ -333,7 +333,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     PAGE_H: doc.internal.pageSize.getHeight(),
   };
 
-  // Dos recibos por persona, uno detrás del otro: 1/2 sueldo en Bs, 2/2 bono en $.
+  // Dos recibos por persona, uno detrás del otro: 1/2 pago en Bs, 2/2 bono en $.
   renglones.forEach((r, idx) => {
     const c = calcularDe(r, meta);
     if (idx > 0) doc.addPage();
