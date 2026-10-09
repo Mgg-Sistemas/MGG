@@ -22,6 +22,7 @@ import {
   crearSolicitudCombustible,
   aprobarSolicitudCombustible,
   finalizarSolicitudCombustible,
+  leerSaldoTanque,
   cancelarSolicitudCombustible,
   consumoCombustiblePorEquipo,
   movimientosDeEquipo,
@@ -67,6 +68,7 @@ import {
   reintentarTransferenciaCombustible,
 } from './transferenciasCombustibleInter.repository';
 import { litrosCilindroHorizontal, longitudDesdeCapacidad, capacidadCilindro, tablaCubicacion, litrosRectangular, capacidadRectangular, tablaCubicacionRect } from './cubicacion';
+import { errorSurtido, litrosTrasSurtido } from './saldoTanque';
 
 type Vista = 'kanban' | 'lista';
 const COLS: { key: SolicitudCombustible['estado']; label: string }[] = [
@@ -819,6 +821,12 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
   const vehiculosAct = vehiculos.filter((v) => v.estado === 'activo');
   const tipoInfo = TIPOS_MOVIMIENTO.find((t) => t.value === tipo)!;
   const litrosNum = Number(litros) || 0;
+  // Un movimiento que RESTA (consumo, merma) no puede dejar el tanque en negativo ni salir
+  // de un tanque en 0 L: se avisa en vivo y el botón se apaga. La base lo vuelve a chequear.
+  const sale = tipoInfo.signo === '−';
+  const dispTanque = tq ? Number(tq.litros) || 0 : 0;
+  const motivoSaldo = sale && tq ? errorSurtido(dispTanque, litrosNum, tq.nombre) : null;
+  const quedarian = sale && tq ? litrosTrasSurtido(dispTanque, litrosNum) : null;
 
   // Combustible del tanque elegido: su costo actual sirve para previsualizar el PMP de la carga.
   const combTanque = useMemo(() => (tq?.combustible_id ? combustibles.find((c) => c.id === tq.combustible_id) ?? null : null), [combustibles, tq]);
@@ -854,6 +862,7 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
     setError(null);
     if (!tanqueId) { setError('Elegí el tanque.'); return; }
     if (litrosNum <= 0) { setError('Indicá los litros del movimiento.'); return; }
+    if (motivoSaldo) { setError(motivoSaldo); return; }
     if (hi !== '' && hf !== '' && hfNum < hiNum) { setError('El horómetro final no puede ser menor que el inicial.'); return; }
     if (ci !== '' && cf !== '' && cfNum < ciNum) { setError('El contador final no puede ser menor que el inicial.'); return; }
     const fechaIso = fecha ? new Date(`${fecha}T${hora || '00:00'}:00`).toISOString() : new Date().toISOString();
@@ -880,7 +889,7 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cmb-mov" className="btn btn-primary" disabled={saving}>{saving ? 'Registrando…' : 'Registrar Movimiento'}</button>
+      <button type="submit" form="cmb-mov" className="btn btn-primary" disabled={saving || !!motivoSaldo} title={motivoSaldo ?? undefined}>{saving ? 'Registrando…' : 'Registrar Movimiento'}</button>
     </>
   );
   return (
@@ -933,7 +942,11 @@ function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, act
         ) : (
           <div className="form-row">
             <label>Litros</label>
-            <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required autoFocus />
+            <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required autoFocus
+              aria-invalid={motivoSaldo ? true : undefined} />
+            {tq && (motivoSaldo
+              ? <small role="alert" style={{ color: 'var(--danger)' }}>⛔ {motivoSaldo}</small>
+              : <small className="hint muted">Disponible en {tq.nombre}: <strong className="mono">{num(dispTanque)} L</strong>{quedarian != null ? <> · quedarían <strong className="mono">{num(quedarian)} L</strong></> : null}</small>)}
           </div>
         )}
         {ocultarEquipo ? (
@@ -1939,6 +1952,17 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
   // Modal de surtido: al finalizar, el usuario confirma litros + horómetros e indicadores.
   const [finalizarOpen, setFinalizarOpen] = useState(false);
   const [litrosSurtidos, setLitrosSurtidos] = useState(String(s.litros));
+  // Saldo del tanque de origen leído en la base al abrir el surtido: con el tanque en 0 L o
+  // pidiendo más de lo que tiene, el botón «Surtir» se apaga y se explica por qué.
+  const [tanqueVivo, setTanqueVivo] = useState<{ nombre: string; litros: number } | null>(null);
+  useEffect(() => {
+    if (!finalizarOpen || !s.tanque_id) { setTanqueVivo(null); return; }
+    let vivo = true;
+    leerSaldoTanque(s.tanque_id).then((t) => { if (vivo) setTanqueVivo(t); }).catch(() => { if (vivo) setTanqueVivo(null); });
+    return () => { vivo = false; };
+  }, [finalizarOpen, s.tanque_id]);
+  const litrosRealesNum = Number(litrosSurtidos.replace(',', '.')) || 0;
+  const motivoSaldo = tanqueVivo ? errorSurtido(tanqueVivo.litros, litrosRealesNum, tanqueVivo.nombre) : null;
   // Telemetría (mismas reglas de encadenado que un movimiento de tanque).
   const [hiVal, setHiVal] = useState(''); const [hfVal, setHfVal] = useState('');
   const [ciVal, setCiVal] = useState(''); const [cfVal, setCfVal] = useState('');
@@ -1987,6 +2011,7 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
   async function finalizar() {
     const reales = Number(litrosSurtidos.replace(',', '.'));
     if (!Number.isFinite(reales) || reales <= 0) { toast('Indicá los litros realmente surtidos.', 'error'); return; }
+    if (motivoSaldo) { toast(motivoSaldo, 'error'); return; }
     const tele = teleActual();
     if (tele.horometroInicial != null && tele.horometroFinal != null && tele.horometroFinal < tele.horometroInicial) { toast('El horómetro final no puede ser menor que el inicial.', 'error'); return; }
     if (tele.contadorIni != null && tele.contadorFin != null && tele.contadorFin < tele.contadorIni) { toast('El contador final no puede ser menor que el inicial.', 'error'); return; }
@@ -2112,7 +2137,7 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
         <Modal title="Confirmar surtido" size="md" onClose={() => !busy && setFinalizarOpen(false)} footer={
           <>
             <button className="btn btn-ghost" onClick={() => setFinalizarOpen(false)} disabled={busy}>Cancelar</button>
-            <button className="btn btn-primary" onClick={finalizar} disabled={busy}>{busy ? 'Surtiendo…' : `Surtir ${num(reales)} L`}</button>
+            <button className="btn btn-primary" onClick={finalizar} disabled={busy || !!motivoSaldo} title={motivoSaldo ?? undefined}>{busy ? 'Surtiendo…' : `Surtir ${num(reales)} L`}</button>
           </>
         }>
           <p style={{ marginTop: 0 }}>
@@ -2120,8 +2145,11 @@ function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
           </p>
           <div className="form-row">
             <label>Litros realmente surtidos</label>
-            <input className="input mono" type="number" min={0} step="any" autoFocus
+            <input className="input mono" type="number" min={0} step="any" autoFocus aria-invalid={motivoSaldo ? true : undefined}
               value={litrosSurtidos} onChange={(e) => setLitrosSurtidos(e.target.value)} />
+            {tanqueVivo && (motivoSaldo
+              ? <small role="alert" style={{ color: 'var(--danger)' }}>⛔ {motivoSaldo}</small>
+              : <small className="hint muted">Disponible en {tanqueVivo.nombre}: <strong className="mono">{num(tanqueVivo.litros)} L</strong>{litrosTrasSurtido(tanqueVivo.litros, reales) != null ? <> · quedarían <strong className="mono">{num(litrosTrasSurtido(tanqueVivo.litros, reales))} L</strong></> : null}</small>)}
             <small className="hint muted">Indicá cuánto echaste realmente (puede ser más o menos). Se descuentan estos litros del tanque y del inventario.</small>
           </div>
           {reales > 0 && dif !== 0 && (
@@ -2405,13 +2433,17 @@ function AgregarMovimientoModal({ tanques, vehiculos, actor, actorName, onClose,
   const lph = Number(litrosHora) || 0;
   const litros = horas > 0 ? Math.round(horas * lph * 100) / 100 : 0;
   const dispTanque = tanque ? Number(tanque.litros) || 0 : 0;
-  const excede = litros > dispTanque;
+  // El consumo de la planta sale del tanque: con el tanque en 0 L o por más litros de los
+  // que tiene, no se guarda (misma regla que un surtido; la base la vuelve a aplicar).
+  const motivoSaldo = tanque ? errorSurtido(dispTanque, litros, tanque.nombre) : null;
+  const excede = !!motivoSaldo;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!tanqueId) { setError('Elegí el tanque.'); return; }
     if (horas <= 0) { setError('El horómetro final debe ser mayor que el inicial.'); return; }
+    if (motivoSaldo) { setError(motivoSaldo); return; }
     setSaving(true);
     try {
       const { alerta, acumulado } = await crearPlantaMovimiento({
@@ -2430,7 +2462,7 @@ function AgregarMovimientoModal({ tanques, vehiculos, actor, actorName, onClose,
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="planta-mov" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar movimiento'}</button>
+      <button type="submit" form="planta-mov" className="btn btn-primary" disabled={saving || !!motivoSaldo} title={motivoSaldo ?? undefined}>{saving ? 'Guardando…' : 'Guardar movimiento'}</button>
     </>
   );
   return (
@@ -2478,12 +2510,12 @@ function AgregarMovimientoModal({ tanques, vehiculos, actor, actorName, onClose,
           </div>
         </div>
         {/* Resumen del consumo */}
-        <div className="card" style={{ marginTop: '.4rem', borderColor: excede ? 'var(--warning)' : 'var(--primary)' }}>
+        <div className="card" style={{ marginTop: '.4rem', borderColor: excede ? 'var(--danger)' : 'var(--primary)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
             <span className="muted">Total litros consumido</span>
             <strong className="mono" style={{ fontSize: '1.3rem', color: 'var(--primary-3)' }}>{num(litros)} L</strong>
           </div>
-          {excede && <small style={{ color: 'var(--warning)' }}>El consumo ({num(litros)} L) supera lo disponible en el tanque ({num(dispTanque)} L).</small>}
+          {motivoSaldo && <small role="alert" style={{ color: 'var(--danger)' }}>⛔ {motivoSaldo}</small>}
         </div>
         <div className="form-row" style={{ marginTop: '.6rem' }}>
           <label>Nota (opcional)</label>

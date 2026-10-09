@@ -21,6 +21,7 @@ import { createProducto, listProductos, siguienteSku } from '@/modules/inventari
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { claveEquipo } from './equipoVinculo';
 import { hiEncadenado } from './horometro';
+import { errorSurtido } from './saldoTanque';
 
 /** Categoría y unidad con que se da de alta cada combustible en el inventario. */
 const CATEGORIA_COMBUSTIBLE = 'Combustible';
@@ -511,6 +512,52 @@ export async function movimientosDeEquipo(equipo: string, desde: Date, hasta: Da
   });
 }
 
+/** Saldo de un tanque leído AHORA en la base (no el que trajo la pantalla). */
+export async function leerSaldoTanque(tanqueId: string): Promise<{ nombre: string; litros: number } | null> {
+  if (!tanqueId) return null;
+  const { data, error } = await supabase.from('combustible_tanques').select('nombre, litros').eq('id', tanqueId).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return { nombre: String((data as { nombre?: string }).nombre ?? ''), litros: Number((data as { litros?: number }).litros) || 0 };
+}
+
+/**
+ * Descuenta litros de un tanque sin dejarlo NUNCA en negativo.
+ *
+ * Vuelve a leer el saldo en la base justo antes de descontar (la pantalla pudo
+ * haber trabajado con un número viejo) y el UPDATE va condicionado a ese saldo
+ * leído: si otro surtidor se metió en el medio, el UPDATE no pega ninguna fila,
+ * se relee y se vuelve a juzgar con el saldo nuevo. Así dos surtidos a la vez
+ * no pueden sacar, entre los dos, más de lo que había.
+ *
+ * Es la ÚNICA puerta por la que salen litros de `combustible_tanques`: consumo,
+ * merma, traslado (pata que entrega), planta y surtido de una solicitud.
+ * Devuelve el saldo antes y después, que es lo que se anota en la fila del libro.
+ */
+export async function descontarLitrosTanque(tanqueId: string, litros: number, intentos = 3): Promise<{ antes: number; despues: number; nombre: string }> {
+  const pedidos = Number(litros) || 0;
+  if (pedidos <= 0) throw new Error('Los litros deben ser mayores que 0.');
+  for (let i = 0; i < intentos; i++) {
+    const { data: tq, error } = await supabase.from('combustible_tanques').select('nombre, litros').eq('id', tanqueId).maybeSingle();
+    if (error) throw error;
+    if (!tq) throw new Error('Tanque no encontrado.');
+    const nombre = String((tq as { nombre?: string }).nombre ?? '');
+    const antes = Number((tq as { litros?: number }).litros) || 0;
+    const motivo = errorSurtido(antes, pedidos, nombre);
+    if (motivo) throw new Error(motivo);
+    const despues = Math.max(0, antes - pedidos);
+    // `.eq('litros', <lo leído>)`: solo pega si nadie movió el tanque desde la lectura.
+    const { data: upd, error: uErr } = await supabase.from('combustible_tanques')
+      .update({ litros: despues, updated_at: new Date().toISOString() })
+      .eq('id', tanqueId)
+      .eq('litros', (tq as { litros: number | string }).litros)
+      .select('id');
+    if (uErr) throw uErr;
+    if (upd && upd.length) return { antes, despues, nombre };
+  }
+  throw new Error('El saldo del tanque cambió mientras se registraba (otra persona estaba surtiendo). Revisá los litros disponibles y volvé a intentar.');
+}
+
 /**
  * Salida DIRECTA de combustible de un tanque (sin pasar por una solicitud):
  * descuenta del inventario (almacén "casa"), de la tarjeta de combustible y del
@@ -529,7 +576,7 @@ export async function salidaCombustibleDirecta(input: {
   refCodigo?: string | null;
   actor: string;
   actorName?: string | null;
-}): Promise<{ movId: string }> {
+}): Promise<{ movId: string; tanque: { antes: number; despues: number } | null }> {
   const litros = Number(input.litros) || 0;
   if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
 
@@ -551,19 +598,15 @@ export async function salidaCombustibleDirecta(input: {
   const stockAlmacen = await stockEnAlmacen(productoId, almacen);
   if (litros > stockAlmacen) throw new Error(`Stock insuficiente en ${almacen}. Disponible: ${stockAlmacen} L.`);
 
-  let tanqueLitrosAntes: number | null = null;
-  if (input.tanqueId) {
-    const { data: tq, error: tqLeerErr } = await supabase.from('combustible_tanques').select('litros, nombre').eq('id', input.tanqueId).maybeSingle();
-    if (tqLeerErr) throw tqLeerErr;
-    if (tq) {
-      tanqueLitrosAntes = Number(tq.litros) || 0;
-      if (litros > tanqueLitrosAntes) throw new Error(`El tanque "${tq.nombre}" no tiene litros suficientes. Disponible: ${tanqueLitrosAntes} L.`);
-    }
-  }
   // Si la tarjeta del combustible quedó corta, el descuento la deja en 0: el faltante se
   // anota en el kardex en vez de desaparecer (el inventario y el tanque ya se validaron).
   const faltanEnTarjeta = Math.max(0, litros - litrosAntes);
   const litrosDespues = Math.max(0, litrosAntes - litros);
+
+  // 0) Tanque origen PRIMERO: relee el saldo en la base y descuenta con UPDATE
+  //    condicionado (ver descontarLitrosTanque). Si el tanque está en 0 L, no alcanza o
+  //    alguien se metió en el medio, acá se corta SIN haber tocado el inventario.
+  const tanque = input.tanqueId ? await descontarLitrosTanque(input.tanqueId, litros) : null;
 
   // 1) Sale del INVENTARIO.
   await registrarMovimiento({
@@ -605,15 +648,8 @@ export async function salidaCombustibleDirecta(input: {
     .eq('id', input.combustibleId);
   if (uErr) throw uErr;
 
-  // 3) Tanque origen: descuenta sus litros propios. El error se propaga (ver registrarIngreso).
-  if (input.tanqueId && tanqueLitrosAntes != null) {
-    const { error: tqErr } = await supabase.from('combustible_tanques')
-      .update({ litros: Math.max(0, tanqueLitrosAntes - litros), updated_at: new Date().toISOString() })
-      .eq('id', input.tanqueId);
-    if (tqErr) throw tqErr;
-  }
-
-  return { movId: (mov as { id: string }).id };
+  // 3) El tanque ya se descontó en el paso 0.
+  return { movId: (mov as { id: string }).id, tanque: tanque ? { antes: tanque.antes, despues: tanque.despues } : null };
 }
 
 /* ───────────── Tanques (depósitos físicos de combustible) ───────────── */
@@ -1161,9 +1197,16 @@ export async function crearTanqueMovimiento(input: {
   const litrosAntes = Number(tq.litros) || 0;
   if (suma && litrosAntes + litros > (Number(tq.capacidad_litros) || 0) + 0.0001)
     throw new Error(`El ingreso supera la capacidad del tanque "${tq.nombre}" (${tq.capacidad_litros} L).`);
-  if (!suma && litros > litrosAntes)
-    throw new Error(`El tanque "${tq.nombre}" no tiene litros suficientes. Disponible: ${litrosAntes} L.`);
-  const litrosDespues = suma ? litrosAntes + litros : litrosAntes - litros;
+  // Un surtido con el tanque en 0 L o por más litros de los que tiene se corta acá, antes
+  // de escribir nada. Es la misma regla que ve la pantalla (errorSurtido) y que vuelve a
+  // aplicar descontarLitrosTanque con el saldo releído en la base.
+  if (!suma) {
+    const motivoSaldo = errorSurtido(litrosAntes, litros, tq.nombre as string);
+    if (motivoSaldo) throw new Error(motivoSaldo);
+  }
+  // Saldo antes/después que se anota en la fila. En una salida lo devuelve el descuento
+  // real (relectura en la base), no la lectura de arriba.
+  let saldo = { antes: litrosAntes, despues: Math.max(0, suma ? litrosAntes + litros : litrosAntes - litros) };
 
   const etiqueta = TIPO_TANQUE_LABEL[input.tipo];
   const combustibleId = (tq.combustible_id as string | null) ?? null;
@@ -1181,24 +1224,28 @@ export async function crearTanqueMovimiento(input: {
       const almacen = await almacenCasaCombustible(combustibleId);
       await registrarIngreso({ combustibleId, almacen, tanqueId: tq.id, litros, costoLitro, actor: input.actor, actorName: input.actorName, detalle: etiqueta });
     } else {
-      await salidaCombustibleDirecta({
+      const salida = await salidaCombustibleDirecta({
         combustibleId, tanqueId: tq.id, litros,
         destino: input.destino?.trim() || input.equipo?.trim() || etiqueta,
         motivo: etiqueta, refTipo: 'tanque_movimiento', refId: tq.id,
         actor: input.actor, actorName: input.actorName,
       });
+      if (salida.tanque) saldo = salida.tanque;
     }
-  } else {
+  } else if (suma) {
     const { error } = await supabase.from('combustible_tanques')
-      .update({ litros: Math.max(0, litrosDespues), updated_at: new Date().toISOString() })
+      .update({ litros: saldo.despues, updated_at: new Date().toISOString() })
       .eq('id', tq.id);
     if (error) throw error;
+  } else {
+    // Tanque sin combustible asignado: igual sale por la única puerta que no deja negativo.
+    saldo = await descontarLitrosTanque(tq.id, litros);
   }
 
   const { data: creado, error: mErr } = await supabase.from('combustible_tanque_movimientos').insert({
     tanque_id: tq.id, tanque_nombre: tq.nombre, tipo: input.tipo,
     fecha: input.fecha ?? new Date().toISOString(),
-    litros, litros_antes: litrosAntes, litros_despues: Math.max(0, litrosDespues),
+    litros, litros_antes: saldo.antes, litros_despues: saldo.despues,
     horometro_inicial: input.horometroInicial ?? null, horometro_final: input.horometroFinal ?? null,
     kilometraje_final: input.kilometrajeFinal ?? null,
     contador_global_ini: input.contadorIni ?? null, contador_global_fin: input.contadorFin ?? null,
@@ -1263,9 +1310,9 @@ async function trasladarEntreTanques(input: {
     throw new Error(`"${origen.nombre}" y "${destino.nombre}" no guardan el mismo combustible: no se pueden trasladar entre sí.`);
   }
 
-  const origenAntes = Number(origen.litros) || 0;
   const destinoAntes = Number(destino.litros) || 0;
-  if (litros > origenAntes) throw new Error(`El tanque "${origen.nombre}" no tiene litros suficientes. Disponible: ${origenAntes} L.`);
+  const motivoSaldo = errorSurtido(Number(origen.litros) || 0, litros, origen.nombre as string);
+  if (motivoSaldo) throw new Error(motivoSaldo);
   const capDestino = Number(destino.capacidad_litros) || 0;
   if (capDestino && destinoAntes + litros > capDestino + 0.0001) {
     throw new Error(`No entra en "${destino.nombre}": tiene ${destinoAntes} L de ${capDestino} L.`);
@@ -1274,9 +1321,8 @@ async function trasladarEntreTanques(input: {
   const fecha = input.fecha ?? new Date().toISOString();
   const nota = input.observacion?.trim() || null;
 
-  const { error: e1 } = await supabase.from('combustible_tanques')
-    .update({ litros: origenAntes - litros, updated_at: new Date().toISOString() }).eq('id', origen.id);
-  if (e1) throw e1;
+  // El que entrega sale por la puerta que relee el saldo y no deja negativo.
+  const { antes: origenAntes, despues: origenDespues } = await descontarLitrosTanque(origen.id, litros);
   const { error: e2 } = await supabase.from('combustible_tanques')
     .update({ litros: destinoAntes + litros, updated_at: new Date().toISOString() }).eq('id', destino.id);
   if (e2) throw e2;
@@ -1297,7 +1343,7 @@ async function trasladarEntreTanques(input: {
     ...comun,
     tanque_id: origen.id, tanque_nombre: origen.nombre,
     tanque_destino_id: destino.id,
-    litros_antes: origenAntes, litros_despues: origenAntes - litros,
+    litros_antes: origenAntes, litros_despues: origenDespues,
     contador_global_ini: input.contadorIni, contador_global_fin: input.contadorFin,
     observacion: nota ?? `Traslado a ${destino.nombre}`,
   }).select('id').single();
@@ -1850,7 +1896,9 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
     if (tqErr) throw tqErr;
     if (tq) {
       tanqueLitrosAntes = Number(tq.litros) || 0;
-      if (litros > tanqueLitrosAntes) throw new Error(`El tanque "${tq.nombre}" no tiene litros suficientes. Disponible: ${tanqueLitrosAntes} L.`);
+      // Tanque en 0 L o litros por encima del saldo: se rechaza antes de reservar nada.
+      const motivoSaldo = errorSurtido(tanqueLitrosAntes, litros, tq.nombre as string);
+      if (motivoSaldo) throw new Error(motivoSaldo);
     }
   }
   // La tarjeta del combustible es la menos confiable de las tres cuentas: si quedó corta, el
@@ -1923,20 +1971,18 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
     // ── 5. Tanque de origen: descuenta sus litros propios ───────────────────────────
     let tanqueMovId: string | null = null;
     if (s.tanque_id && tanqueLitrosAntes != null) {
-      const { error: tqUpErr } = await supabase.from('combustible_tanques')
-        .update({ litros: Math.max(0, tanqueLitrosAntes - litros), updated_at: new Date().toISOString() })
-        .eq('id', s.tanque_id);
-      if (tqUpErr) throw tqUpErr;
+      // Relee el saldo en la base y descuenta con UPDATE condicionado: el chequeo del paso 1
+      // miró el tanque hace varias escrituras y otro surtido pudo haberse metido en el medio.
+      const saldoTq = await descontarLitrosTanque(s.tanque_id, litros);
 
       // 5b) Movimiento de tanque (consumo) SOLO para telemetría/cadena: el tanque ya se
       // descontó arriba, así que este insert NO vuelve a restar (no usa salidaCombustibleDirecta).
       // Mismas reglas de encadenado que un movimiento manual (horómetro x equipo, contador x
       // tanque). Así la solicitud finalizada aparece en el consumo por equipo.
-      const { data: tqRow } = await supabase.from('combustible_tanques').select('nombre').eq('id', s.tanque_id).maybeSingle();
       const { data: tmov, error: tmErr } = await supabase.from('combustible_tanque_movimientos').insert({
-        tanque_id: s.tanque_id, tanque_nombre: (tqRow?.nombre as string) ?? s.tanque_nombre ?? null,
+        tanque_id: s.tanque_id, tanque_nombre: saldoTq.nombre || s.tanque_nombre || null,
         tipo: 'consumo', fecha: new Date().toISOString(),
-        litros, litros_antes: tanqueLitrosAntes, litros_despues: Math.max(0, tanqueLitrosAntes - litros),
+        litros, litros_antes: saldoTq.antes, litros_despues: saldoTq.despues,
         horometro_inicial: tele?.horometroInicial ?? null, horometro_final: tele?.horometroFinal ?? null,
         contador_global_ini: tele?.contadorIni ?? null, contador_global_fin: tele?.contadorFin ?? null,
         equipo: s.destino?.trim() || null, destino: s.destino?.trim() || null,
@@ -2112,12 +2158,9 @@ export async function crearPlantaMovimiento(input: {
       actorName: input.actorName ?? null,
     });
   } else {
-    const disp = Number(tq.litros) || 0;
-    if (litros > disp) throw new Error(`El tanque "${tq.nombre}" solo tiene ${disp} L y el consumo es ${litros} L.`);
-    const { error: plUpErr } = await supabase.from('combustible_tanques')
-      .update({ litros: Math.max(0, disp - litros), updated_at: new Date().toISOString() })
-      .eq('id', input.tanqueId);
-    if (plUpErr) throw plUpErr;
+    // Sin combustible asignado: sale solo del tanque, por la puerta que relee el saldo
+    // en la base y no lo deja en negativo.
+    await descontarLitrosTanque(input.tanqueId, litros);
   }
 
   // Acumulado de consumo del tanque (suma de movimientos previos + este).

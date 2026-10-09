@@ -36,6 +36,7 @@ import {
   EMOJI_MOVIMIENTO, TITULO_MOVIMIENTO, compartirMovimiento, enlaceWhatsapp, mensajeMovimiento, puedeCompartir,
 } from './mensajeMovimiento';
 import { errorHorometro, horasTrabajadas, textoHorometro } from './horometro';
+import { errorSurtido, litrosTrasSurtido } from './saldoTanque';
 import { claveEquipo } from './equipoVinculo';
 
 /* La clave del rol vive con el resto de los permisos: el redirector de inicio la
@@ -331,6 +332,11 @@ function FormularioSurtido({ tipo, tanque, tanques, autorizados, ubicaciones, eq
   // Las horas trabajadas no se teclean: son HF − HI. Mismo cálculo que en la PC.
   const horas = horasTrabajadas(hi, hf);
   const avisoHorometro = errorHorometro(hi, hf);
+  // Lo que sale del tanque (surtido, traslado, merma) no puede dejarlo en negativo ni salir
+  // de un tanque en 0 L: se avisa en vivo y el botón se apaga. La base lo vuelve a chequear.
+  const dispTanque = Number(tanque.litros) || 0;
+  const motivoSaldo = sale ? errorSurtido(dispTanque, litrosNum, tanque.nombre) : null;
+  const quedarian = sale ? litrosTrasSurtido(dispTanque, litrosNum) : null;
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -342,9 +348,7 @@ function FormularioSurtido({ tipo, tanque, tanques, autorizados, ubicaciones, eq
     if (tipo === 'consumo' && !equipo) { setError('Indicá a qué equipo o camión va el combustible.'); return; }
     if (tipo === 'traslado' && !destinoId) { setError('Indicá a qué tanque pasa el combustible.'); return; }
     if (tipo === 'merma' && !observacion.trim()) { setError('Indicá el motivo de la merma (faltante, derrame, evaporación…).'); return; }
-    if (sale && litrosNum > (Number(tanque.litros) || 0)) {
-      setError(`El tanque tiene ${num(tanque.litros)} L: no alcanza para ${num(litrosNum)} L.`); return;
-    }
+    if (motivoSaldo) { setError(motivoSaldo); return; }
     // El HF de este surtido es el HI del próximo: un retroceso rompe la cadena del equipo.
     if (avisoHorometro) { setError(avisoHorometro); setMasDatos(true); return; }
     setGuardando(true); setEtapa('movimiento');
@@ -401,7 +405,11 @@ function FormularioSurtido({ tipo, tanque, tanques, autorizados, ubicaciones, eq
       <div className="surt-campo">
         <label htmlFor="surt-litros">{tipo === 'merma' ? 'Litros perdidos' : 'Litros'}</label>
         <input id="surt-litros" className="input surt-input surt-litros" type="number" inputMode="decimal" step="any" min={0}
-          value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required />
+          value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required
+          aria-invalid={motivoSaldo ? true : undefined} />
+        {sale && (motivoSaldo
+          ? <small className="surt-alerta" role="alert">⛔ {motivoSaldo}</small>
+          : <small className="muted">Disponible: {num(dispTanque)} L{quedarian != null ? ` · quedarían ${num(quedarian)} L` : ''}</small>)}
       </div>
 
       {tipo === 'ingreso' && (
@@ -560,7 +568,7 @@ function FormularioSurtido({ tipo, tanque, tanques, autorizados, ubicaciones, eq
           </div>
         </div>
       )}
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando}>
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!motivoSaldo} title={motivoSaldo ?? undefined}>
         {guardando
           ? (etapa === 'fotos' ? `Subiendo ${fotos.length === 1 ? 'la foto' : `${fotos.length} fotos`}…` : 'Guardando…')
           : `✔ Registrar ${tipo === 'consumo' ? 'surtido' : tipo === 'traslado' ? 'traslado' : tipo === 'ingreso' ? 'entrada' : 'merma'}`}
