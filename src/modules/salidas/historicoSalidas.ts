@@ -130,21 +130,44 @@ export function cancelacionDe(s: Pick<SolicitudSalida, 'estado' | 'historial'>):
 /** Cuántas filas del histórico se muestran de una vez (el resto, con «ver más»). */
 export const PAGINA_HISTORICO = 50;
 
-/** Correo → nombre para mostrar, juntando lo que traigan todas las solicitudes. */
+/**
+ * Correo → nombre para mostrar, juntando lo que traigan todas las solicitudes.
+ *
+ * Manda la solicitud MÁS NUEVA de cada correo. Antes ganaba la última que se
+ * recorría y, como el histórico viene de la más nueva a la más vieja, ganaba el
+ * nombre más viejo: la cuenta de Matanzas pasó de KELVIN a CARLOS (10-10-2026)
+ * y el histórico seguía diciendo «Creó · KELVIN» en solicitudes que CARLOS
+ * había sellado con su nombre.
+ */
 export function directorioDeActores(sols: SolicitudSalida[]): Map<string, string> {
   const dir = new Map<string, string>();
+  const fecha = new Map<string, string>();
   for (const s of sols) {
     const email = correo(s.actor);
     const nombre = limpio(s.actor_name);
-    if (email && nombre) dir.set(email, nombre);
+    if (!email || !nombre) continue;
+    const at = limpio(s.created_at);
+    const prev = fecha.get(email);
+    if (prev === undefined || at > prev) { dir.set(email, nombre); fecha.set(email, at); }
   }
   return dir;
 }
 
-/** Nombre de la persona; si no lo sabemos, el correo sin el dominio (KELVIN, no kelvin@…). */
-export function nombreDeActor(email: string | null | undefined, dir?: Map<string, string>): string {
+/**
+ * Nombre de la persona; si no lo sabemos, el correo sin el dominio (KELVIN, no kelvin@…).
+ *
+ * Con `sellado` (la solicitud en la que pasó la acción): si el actor es quien la
+ * creó, vale el nombre que ESA solicitud guardó al nacer. Así una solicitud vieja
+ * de Kelvin sigue diciendo Kelvin aunque la cuenta hoy sea de Carlos.
+ */
+export function nombreDeActor(
+  email: string | null | undefined,
+  dir?: Map<string, string>,
+  sellado?: Pick<SolicitudSalida, 'actor' | 'actor_name'> | null,
+): string {
   const e = correo(email);
   if (!e) return '—';
+  if (sellado && correo(sellado.actor) === e && limpio(sellado.actor_name)) return limpio(sellado.actor_name);
   return dir?.get(e) ?? e.split('@')[0];
 }
 

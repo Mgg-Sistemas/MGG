@@ -2637,7 +2637,7 @@ function OrdenDetailModal({
       {isOcCreada && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={onDesistir} title="Proveedor no cumplió">⚠ Proveedor desistió</button>
-          <button className="btn btn-ghost" onClick={onEditarOc} title="Editar cantidades, precios y condiciones de la OC antes de aprobarla">✎ Editar OC</button>
+          <button className="btn btn-ghost" onClick={onEditarOc} title="Antes de aprobarla se corrige todo: unidad y persona que solicita, motivo, finalidad, proveedor, productos (marca, cantidad, precio), descuento, IVA e IGTF, condición y nota">✎ Editar OC (todo)</button>
           <button className="btn btn-ghost" onClick={onModificar} title="Volver a la etapa de ofertas para re-elegir la oferta ganadora">↩ Re-elegir oferta</button>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
           <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (queda en estado Anulada)">⊘ Anular OC</button>
@@ -3602,7 +3602,12 @@ function Timeline({
 /* ─────────────────────────────────────────────
    Modal: Crear orden
    ───────────────────────────────────────────── */
-/* ───────────── Editar OC (oc_creada, antes de aprobarla) ───────────── */
+/* ───────────── Editar OC (oc_creada, antes de aprobarla) ─────────────
+   Mientras la OC espera al Gerente General se puede corregir TODO (10-10-2026,
+   pedido de la administradora): la unidad y la persona que solicita, motivo y
+   finalidad, urgencia, proveedor, cada ítem (nombre, marca/modelo, cantidad,
+   precio, finalidad), descuento, IVA e IGTF, condición de pago y nota. Después
+   de aprobada se vuelve al alcance de siempre (ítems, precios, proveedor…). */
 function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], actorEmail, onClose, onSaved }: {
   orden: Orden; proveedores?: Proveedor[]; proveedorMap?: Map<string, Proveedor>; productos?: Producto[]; actorEmail: string; onClose: () => void; onSaved: () => void;
 }) {
@@ -3614,6 +3619,40 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   const [descuentoStr, setDescuentoStr] = useState(orden.descuento_obtenido != null ? String(orden.descuento_obtenido) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Todo editable mientras está por aprobar ──
+  const puedeTodo = orden.estado === 'oc_creada';
+  const [unidadSol, setUnidadSol] = useState(orden.solicitante ?? '');
+  const [personaSol, setPersonaSol] = useState(orden.ci_solicitante ?? '');
+  const [motivo, setMotivo] = useState(orden.motivo ?? '');
+  const [finalidad, setFinalidad] = useState(orden.finalidad ?? '');
+  const [urgente, setUrgente] = useState(!!orden.urgente);
+  const [ivaStr, setIvaStr] = useState((Number(orden.iva) || 0) > 0 ? String(orden.iva) : '');
+  const [igtfStr, setIgtfStr] = useState((Number(orden.igtf) || 0) > 0 ? String(orden.igtf) : '');
+  // Unidad solicitante: catálogo + alta al vuelo (igual que al cargar la OP).
+  const [unidadesSol, setUnidadesSol] = useState<string[]>([]);
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [addingUnidad, setAddingUnidad] = useState(false);
+  useEffect(() => {
+    if (!puedeTodo) return;
+    listCatalogoPedido('unidad_solicitante', true)
+      .then((rows) => setUnidadesSol(rows.map((r) => r.nombre)))
+      .catch(() => setUnidadesSol([]));
+  }, [puedeTodo]);
+  async function handleAddUnidad() {
+    const n = nuevaUnidad.trim();
+    if (!n) { toast('Escribí el nombre de la unidad', 'error'); return; }
+    const existente = unidadesSol.find((u) => u.toLowerCase() === n.toLowerCase());
+    if (existente) { setUnidadSol(existente); setNuevaUnidad(''); toast(`La unidad "${existente}" ya existe — se seleccionó`, 'warning'); return; }
+    setAddingUnidad(true);
+    try {
+      await crearCatalogoPedido('unidad_solicitante', n, actorEmail);
+      setUnidadesSol((prev) => [...prev, n].sort((a, b) => a.localeCompare(b, 'es')));
+      setUnidadSol(n); setNuevaUnidad('');
+      toast(`Unidad "${n}" agregada al catálogo`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar la unidad', 'error'); }
+    finally { setAddingUnidad(false); }
+  }
 
   // Selector de proveedor: activos + el actual (aunque esté inactivo), sin duplicar.
   const proveedorActual = orden.proveedor_id ? proveedorMap?.get(orden.proveedor_id) ?? null : null;
@@ -3629,10 +3668,16 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 
   const subtotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
   const descuentoObt = Math.max(0, Math.round((Number(descuentoStr) || 0) * 100) / 100);
-  // Mismo cálculo que actualizarOc(): el IVA/IGTF de la OC se conservan al editar.
-  const ivaOc = Math.max(0, Number(orden.iva) || 0);
-  const igtfOc = Math.max(0, Number(orden.igtf) || 0);
-  const total = Math.round((Math.max(0, subtotal - descuentoObt) + ivaOc + igtfOc) * 100) / 100;
+  // Mismo cálculo que actualizarOc(): por aprobar, el IVA/IGTF son los de la pantalla;
+  // después de aprobada se conservan los de la OC.
+  const r2m = (s: string) => Math.max(0, Math.round((Number(s) || 0) * 100) / 100);
+  const ivaOc = puedeTodo ? r2m(ivaStr) : Math.max(0, Number(orden.iva) || 0);
+  const igtfOc = puedeTodo ? r2m(igtfStr) : Math.max(0, Number(orden.igtf) || 0);
+  const facturaNeta = Math.max(0, subtotal - descuentoObt);
+  const total = Math.round((facturaNeta + ivaOc + igtfOc) * 100) / 100;
+  // Ayuda: IVA/IGTF por % sobre la factura neta (subtotal − descuento), como en la cotización.
+  const pctDe = (monto: number) => (facturaNeta > 0 && monto > 0 ? Math.round((monto / facturaNeta) * 10000) / 100 : 0);
+  const aplicarPct = (pct: number, set: (s: string) => void) => set(pct > 0 && facturaNeta > 0 ? String(Math.round(facturaNeta * pct) / 100) : '');
   const upd = (idx: number, patch: Partial<ItemOrden>) =>
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
   const quitarItem = (idx: number) => setItems((prev) => prev.filter((_, k) => k !== idx));
@@ -3645,7 +3690,13 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   async function guardar() {
     setError(null); setSaving(true);
     try {
-      const guardada = await actualizarOc(orden, { items, condiciones_pago: cond || null, notas, proveedorId: proveedorId || null, descuentoObtenido: descuentoObt }, actorEmail);
+      const guardada = await actualizarOc(orden, {
+        items, condiciones_pago: cond || null, notas, proveedorId: proveedorId || null, descuentoObtenido: descuentoObt,
+        ...(puedeTodo ? {
+          solicitante: unidadSol, ci_solicitante: personaSol, motivo, finalidad, urgente,
+          iva: ivaOc, igtf: igtfOc,
+        } : {}),
+      }, actorEmail);
       if (guardada === orden) {
         // No había nada que guardar (mismos ítems, precios, proveedor, condición, nota):
         // no se toca la OC ni su estado, y tampoco se sincronizan nombres.
@@ -3673,8 +3724,44 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
         {orden.estado === 'oc_aprobada'
           ? <>Ajustá <strong>precios y cantidades</strong>: el nuevo total se <strong>sincroniza con Tesorería</strong> y la OC <strong>sigue en «Confirmada pagar»</strong> (queda en la trazabilidad). Si cambiás el <strong>proveedor</strong>, la OC vuelve a aprobación del Gerente General.</>
-          : <>Ajustá el proveedor, cantidades, precios y la condición de pago. El total se recalcula solo. Si cambiás <strong>ítems, precios, proveedor, condición o descuento</strong>, la OC vuelve a aprobación del Gerente General; corregir la <strong>nota</strong> o un <strong>nombre</strong> no la reabre.</>}
+          : puedeTodo
+            ? <>La OC todavía <strong>no la aprobó el Gerente General</strong>: acá se corrige <strong>todo</strong> —unidad y persona que solicita, motivo, finalidad, urgencia, proveedor, cada producto (nombre, marca/modelo, cantidad, precio, finalidad), descuento, <strong>IVA e IGTF</strong>, condición de pago y nota—. El total se recalcula solo y la OC sigue esperando su aprobación.</>
+            : <>Ajustá el proveedor, cantidades, precios y la condición de pago. El total se recalcula solo. Si cambiás <strong>ítems, precios, proveedor, condición o descuento</strong>, la OC vuelve a aprobación del Gerente General; corregir la <strong>nota</strong> o un <strong>nombre</strong> no la reabre.</>}
       </p>
+      {puedeTodo && (
+        <div className="card" style={{ padding: '.6rem .8rem', marginBottom: '.6rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '.82rem', marginBottom: '.4rem' }}>Solicitud</div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Unidad solicitante</label>
+              <SearchSelect
+                value={unidadSol}
+                onChange={setUnidadSol}
+                options={unidadesSol.map((u) => ({ value: u, label: u }))}
+                placeholder="Departamento / unidad que solicita"
+                emptyText="Sin unidades en el catálogo. Agregá una abajo."
+              />
+              <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+                <input className="input" style={{ flex: 1 }} placeholder="¿No está? Escribí la unidad nueva…" value={nuevaUnidad}
+                  onChange={(e) => setNuevaUnidad(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddUnidad(); } }} maxLength={60} />
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => void handleAddUnidad()} disabled={addingUnidad}>{addingUnidad ? 'Añadiendo…' : '+ Añadir'}</button>
+              </div>
+            </div>
+            <div className="form-row">
+              <label>Persona que solicita</label>
+              <input className="input" value={personaSol} onChange={(e) => setPersonaSol(e.target.value)} placeholder="Quién pide el material" />
+            </div>
+          </div>
+          <div className="form-grid">
+            <div className="form-row"><label>Motivo</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Por qué se compra" /></div>
+            <div className="form-row"><label>Finalidad</label><input className="input" value={finalidad} onChange={(e) => setFinalidad(e.target.value)} placeholder="Para qué se usa" /></div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontWeight: 700, color: urgente ? 'var(--danger)' : undefined }}>
+            <input type="checkbox" checked={urgente} onChange={(e) => setUrgente(e.target.checked)} /> 🚨 ORDEN: URGENTE
+          </label>
+        </div>
+      )}
       {proveedoresSel.length > 0 && (
         <div className="form-row" style={{ marginBottom: '.6rem' }}>
           <label>Proveedor</label>
@@ -3694,11 +3781,21 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
           <thead><tr><th>Producto</th><th style={{ textAlign: 'right', width: 110 }}>Cantidad</th><th style={{ textAlign: 'right', width: 130 }}>Precio unit.</th><th style={{ textAlign: 'right', width: 130 }}>Subtotal</th><th style={{ width: 40 }}></th></tr></thead>
           <tbody>
             {items.map((it, idx) => (
-              <tr key={it.sku ?? idx}>
+              <tr key={`${it.sku ?? idx}|${it.marca ?? ''}|${it.modelo ?? ''}`}>
                 <td>
                   <input className="input" value={it.nombre} onChange={(e) => upd(idx, { nombre: e.target.value.toUpperCase() })}
                     title="Editar nombre (se sincroniza con el inventario al guardar)" />
-                  <span className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</span>
+                  <span className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}{it.unidad ? ` · ${it.unidad}` : ''}</span>
+                  {puedeTodo && (
+                    <div style={{ display: 'flex', gap: '.3rem', marginTop: '.25rem' }}>
+                      <input className="input" style={{ flex: 1, fontSize: '.78rem' }} value={it.marca ?? ''} placeholder="Marca" title="Marca ofertada para este renglón"
+                        onChange={(e) => upd(idx, { marca: e.target.value.toUpperCase() || null })} />
+                      <input className="input" style={{ flex: 1, fontSize: '.78rem' }} value={it.modelo ?? ''} placeholder="Modelo" title="Modelo ofertado"
+                        onChange={(e) => upd(idx, { modelo: e.target.value.toUpperCase() || null })} />
+                      <input className="input" style={{ flex: 1.4, fontSize: '.78rem' }} value={it.finalidad ?? ''} placeholder="Finalidad del producto" title="Para qué se compra este producto"
+                        onChange={(e) => upd(idx, { finalidad: e.target.value })} />
+                    </div>
+                  )}
                 </td>
                 <td>
                   <input className="input mono" type="number" min={0} step="any" value={it.cantidad} onChange={(e) => upd(idx, { cantidad: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} />
@@ -3711,12 +3808,12 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
             ))}
           </tbody>
           <tfoot>
-            {descuentoObt > 0 && (
+            {(descuentoObt > 0 || ivaOc > 0 || igtfOc > 0) && (
               <>
                 <tr><td colSpan={3} style={{ textAlign: 'right' }}>Subtotal</td><td className="mono" style={{ textAlign: 'right' }}>{money(subtotal)}</td><td></td></tr>
-                {ivaOc > 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>IVA</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(ivaOc)}</td><td></td></tr>}
-                {igtfOc > 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>IGTF</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(igtfOc)}</td><td></td></tr>}
-                <tr><td colSpan={3} style={{ textAlign: 'right', color: 'var(--success)' }}>Descuento obtenido</td><td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>− {money(descuentoObt)}</td><td></td></tr>
+                {descuentoObt > 0 && <tr><td colSpan={3} style={{ textAlign: 'right', color: 'var(--success)' }}>Descuento obtenido</td><td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>− {money(descuentoObt)}</td><td></td></tr>}
+                {ivaOc > 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>IVA{puedeTodo && pctDe(ivaOc) > 0 ? ` (${num(pctDe(ivaOc))} %)` : ''}</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(ivaOc)}</td><td></td></tr>}
+                {igtfOc > 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>IGTF{puedeTodo && pctDe(igtfOc) > 0 ? ` (${num(pctDe(igtfOc))} %)` : ''}</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(igtfOc)}</td><td></td></tr>}
               </>
             )}
             <tr style={{ fontWeight: 700 }}><td colSpan={3} style={{ textAlign: 'right' }}>Total</td><td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td><td></td></tr>
@@ -3729,6 +3826,28 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
           onChange={(e) => setDescuentoStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
         <small className="hint muted">Descuento negociado que se le resta al total (la factura a pagar). Se sincroniza con Tesorería y se ve en el PDF y la trazabilidad.</small>
       </div>
+      {puedeTodo && (
+        <div className="form-grid" style={{ marginTop: '.4rem' }}>
+          <div className="form-row">
+            <label>IVA (monto)</label>
+            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+              <input className="input mono" type="number" min={0} step="any" value={ivaStr} onChange={(e) => setIvaStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 160 }} />
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPct(16, setIvaStr)} title="Calcular el 16 % sobre la factura neta (subtotal − descuento)">16 %</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIvaStr('')} title="Sin IVA">Quitar</button>
+            </div>
+            <small className="hint muted">Se calcula sobre la factura neta ({money(facturaNeta)}) y se suma al total. Dejalo vacío si la OC no lleva IVA.</small>
+          </div>
+          <div className="form-row">
+            <label>IGTF (monto)</label>
+            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+              <input className="input mono" type="number" min={0} step="any" value={igtfStr} onChange={(e) => setIgtfStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 160 }} />
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPct(3, setIgtfStr)} title="Calcular el 3 % sobre la factura neta">3 %</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIgtfStr('')} title="Sin IGTF">Quitar</button>
+            </div>
+            <small className="hint muted">Típico en pagos en divisas. Se suma al total a pagar.</small>
+          </div>
+        </div>
+      )}
       {/* Agregar a la OC un producto del inventario o uno nuevo (nace en el inventario). */}
       <AgregarProductoCompra
         skusPresentes={skusEnOc}

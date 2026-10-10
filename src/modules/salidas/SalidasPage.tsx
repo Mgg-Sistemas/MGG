@@ -14,6 +14,7 @@ import type {
 } from '@/shared/lib/types';
 import { SOL_COLS, colDe, etiquetaCol, etiquetaDe, type SolColKey } from './columnasSalida';
 import { HistoricoSolicitudes } from './HistoricoSolicitudes';
+import { directorioDeActores } from './historicoSalidas';
 import { TOPE_COLUMNA, cancelacionDe, conteoPorColumna, nombreDeActor, recorteDeColumna, type FiltroHistorico } from './historicoSalidas';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
@@ -183,8 +184,10 @@ export function SalidasPage() {
   );
   // Opciones de filtro (según lo que exista en el scope activo).
   const usuariosOpc = useMemo(() => {
-    const m = new Map<string, string>(); // actor(email) → nombre para mostrar
-    for (const s of solsVista) { const a = (s.actor ?? '').trim(); if (a) m.set(a, s.actor_name?.trim() || a); }
+    // actor(email) → nombre para mostrar: el de la solicitud más nueva (Kelvin → Carlos, 10-10-2026).
+    const nombres = directorioDeActores(solsVista);
+    const m = new Map<string, string>();
+    for (const s of solsVista) { const a = (s.actor ?? '').trim(); if (a) m.set(a, nombres.get(a.toLowerCase()) ?? a); }
     return Array.from(m.entries()).sort((x, y) => x[1].localeCompare(y[1]));
   }, [solsVista]);
   const solicitantesOpc = useMemo(

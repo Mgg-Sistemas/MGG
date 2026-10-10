@@ -21,7 +21,7 @@ function sol(p: Partial<SolicitudSalida> = {}): SolicitudSalida {
   } as SolicitudSalida;
 }
 
-describe('quién hizo qué en una solicitud', () => {
+describe('realizado por (quién hizo qué) en una solicitud', () => {
   it('lee el historial en orden, del primer evento al último', () => {
     const s = sol({
       historial: [
@@ -118,6 +118,25 @@ describe('las personas', () => {
     expect(nombreDeActor('kelvin@mgg.com', dir)).toBe('KELVIN');
     expect(nombreDeActor('isner@mgg.com', dir)).toBe('isner');
     expect(nombreDeActor(null, dir)).toBe('—');
+  });
+
+  // 10-10-2026: la cuenta de Matanzas pasó de KELVIN a CARLOS y el histórico seguía diciendo KELVIN.
+  it('cuando una cuenta cambia de persona, manda el nombre de la solicitud más nueva', () => {
+    const vieja = sol({ id: 'v', actor: 'kelvin@mgg.com', actor_name: 'KELVIN', created_at: '2026-09-01T10:00:00Z' });
+    const nueva = sol({ id: 'n', actor: 'kelvin@mgg.com', actor_name: 'CARLOS', created_at: '2026-10-09T19:22:00Z' });
+    // El histórico llega de la más nueva a la más vieja; el orden no debe importar.
+    expect(nombreDeActor('kelvin@mgg.com', directorioDeActores([nueva, vieja]))).toBe('CARLOS');
+    expect(nombreDeActor('kelvin@mgg.com', directorioDeActores([vieja, nueva]))).toBe('CARLOS');
+  });
+
+  it('cada solicitud muestra el nombre que selló al nacer, aunque la cuenta hoy sea de otro', () => {
+    const vieja = sol({ id: 'v', actor: 'kelvin@mgg.com', actor_name: 'KELVIN', created_at: '2026-09-01T10:00:00Z' });
+    const nueva = sol({ id: 'n', actor: 'kelvin@mgg.com', actor_name: 'CARLOS', created_at: '2026-10-09T19:22:00Z' });
+    const dir = directorioDeActores([nueva, vieja]);
+    expect(nombreDeActor('kelvin@mgg.com', dir, vieja)).toBe('KELVIN');
+    expect(nombreDeActor('kelvin@mgg.com', dir, nueva)).toBe('CARLOS');
+    // Quien aprobó (otra persona) sale del directorio, no del sello de la solicitud.
+    expect(nombreDeActor('leydis@mgg.com', new Map([['leydis@mgg.com', 'LEYDIS']]), vieja)).toBe('LEYDIS');
   });
 
   it('lista las personas del histórico ordenadas por nombre', () => {

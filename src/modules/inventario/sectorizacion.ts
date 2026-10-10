@@ -38,7 +38,7 @@ export const SIN_SEDE = 'Sin sede';
 export const RESPALDO_POR_CORREO: Record<string, { sedes: string[]; almacenRecepcion: string }> = {
   // ISNER → Los Pinos
   'almacen.pzo.lospinos@gmail.com': { sedes: ['LOS PINOS'], almacenRecepcion: 'Los Pinos' },
-  // KELVIN → Matanzas (recibe en el almacén "General")
+  // Matanzas (KELVIN; desde 10-10-2026 la cuenta es de CARLOS) → recibe en el almacén "General"
   'almacenmatanzas2026@gmail.com': { sedes: ['CENTRO DE FUNDICION - MATANZAS'], almacenRecepcion: 'General' },
 };
 

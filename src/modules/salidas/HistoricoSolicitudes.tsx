@@ -102,7 +102,7 @@ export function HistoricoSolicitudes({
                 <th>Material</th>
                 <th>{scope === 'traslado' ? 'Origen → Destino' : 'Origen → Dirigido a'}</th>
                 <th>Solicitante</th>
-                <th>Quién hizo qué</th>
+                <th>Realizado por</th>
               </tr>
             </thead>
             <tbody>
@@ -132,7 +132,7 @@ export function HistoricoSolicitudes({
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '.1rem' }}>
                         {acciones.map((a, i) => (
                           <span key={`${a.evento}-${a.at}-${i}`} className="muted" style={{ fontSize: '.7rem', whiteSpace: 'nowrap' }}>
-                            {verboEvento(a.evento)} · <strong style={{ color: 'var(--text)' }}>{nombreDeActor(a.actor, dir)}</strong>
+                            {verboEvento(a.evento)} · <strong style={{ color: 'var(--text)' }}>{nombreDeActor(a.actor, dir, s)}</strong>
                             {a.motivo && <span style={{ color: 'var(--danger)', whiteSpace: 'normal' }} title="Motivo"> · {a.motivo}</span>}
                           </span>
                         ))}

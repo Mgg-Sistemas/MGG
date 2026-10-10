@@ -533,6 +533,19 @@ export interface EditarOcInput {
   proveedorId?: string | null;
   /** Descuento obtenido (negociado), opcional: reduce el total → total = Σ ítems − descuento. */
   descuentoObtenido?: number | null;
+  /* ── Solo mientras la OC está «Pendiente por aprobación» (oc_creada), 10-10-2026:
+        la administradora pidió poder corregir TODO antes de que el Gerente la apruebe.
+        undefined = «no se tocó» (no se escribe); null/'' = «se vació». ── */
+  /** Unidad / departamento que solicita. */
+  solicitante?: string | null;
+  /** Persona que pide el material (se guarda en `ci_solicitante`, igual que la OP). */
+  ci_solicitante?: string | null;
+  motivo?: string | null;
+  finalidad?: string | null;
+  urgente?: boolean;
+  /** IVA / IGTF (montos) de la OC: entran al total a pagar. */
+  iva?: number | null;
+  igtf?: number | null;
 }
 
 /**
@@ -555,10 +568,13 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
   const descObt = input.descuentoObtenido !== undefined
     ? Math.max(0, Math.round((Number(input.descuentoObtenido) || 0) * 100) / 100)
     : (o.descuento_obtenido != null ? Math.max(0, Number(o.descuento_obtenido)) : 0);
-  // El IVA/IGTF de la OC (vienen de la oferta) se conservan: editar cantidades, precios o la
-  // nota NO puede hacerlos desaparecer del total (bug que dejaba total ≠ ítems + IVA).
-  const ivaOc = Math.max(0, Number(o.iva) || 0);
-  const igtfOc = Math.max(0, Number(o.igtf) || 0);
+  // El IVA/IGTF de la OC (vienen de la oferta) se conservan si no vienen en el input: editar
+  // cantidades, precios o la nota NO puede hacerlos desaparecer del total (bug que dejaba
+  // total ≠ ítems + IVA). Mientras la OC está por aprobar (10-10-2026) sí se pueden cambiar.
+  const puedeTodo = o.estado === 'oc_creada';
+  const r2 = (n: unknown) => Math.max(0, Math.round((Number(n) || 0) * 100) / 100);
+  const ivaOc = puedeTodo && input.iva !== undefined ? r2(input.iva) : Math.max(0, Number(o.iva) || 0);
+  const igtfOc = puedeTodo && input.igtf !== undefined ? r2(input.igtf) : Math.max(0, Number(o.igtf) || 0);
   const total = Math.round((Math.max(0, subtotal - descObt) + ivaOc + igtfOc) * 100) / 100;
   // Cambio de proveedor (opcional): si difiere del actual, la OC se reabre a aprobación.
   const cambiaProveedor = cambiaProveedorOc(o, input);
@@ -566,15 +582,22 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
   // descuento) devuelve a aprobación una OC ya confirmada. Guardar sin tocar nada, corregir
   // la nota o el nombre de un producto no la reabre: antes lo hacía siempre, y borraba la
   // firma del Gerente (caso SP-2026-0124).
-  const cambioMaterial = hayCambiosMateriales(o, input);
-  const cambioTexto = cambiaTexto(o, input);
+  const cambioMaterial = hayCambiosMateriales(o, puedeTodo ? input : { ...input, iva: undefined, igtf: undefined });
+  // Los datos de la solicitud (unidad, persona, motivo, finalidad, urgente) solo se editan
+  // por aprobar; son texto: se guardan sin reabrir nada.
+  const camposSolicitud = puedeTodo
+    ? camposDeEdicion({ solicitante: input.solicitante, ci_solicitante: input.ci_solicitante, motivo: input.motivo, finalidad: input.finalidad })
+    : {};
+  const cambiaSolicitud = Object.entries(camposSolicitud).some(([k, v]) => (v ?? '') !== ((o as unknown as Record<string, string | null>)[k] ?? '').toString().trim())
+    || (puedeTodo && input.urgente !== undefined && !!input.urgente !== !!o.urgente);
+  const cambioTexto = cambiaTexto(o, input) || cambiaSolicitud;
   // Un total desfasado (p. ej. una OC vieja a la que «Editar OC» le había borrado el IVA)
   // también es algo que vale la pena guardar: abrir y guardar la repara sin reabrirla.
   const totalDesfasado = Math.abs(total - (Number(o.total) || 0)) > 0.005;
   if (!cambioMaterial && !cambioTexto && !totalDesfasado) return o; // nada que guardar: sin evento
   const reabre = cambiaProveedor || (o.estado === 'confirmada_metodo' && cambioMaterial);
   const evento = reabre ? 'oc_reabierta_edicion'
-    : (cambioMaterial || totalDesfasado || cambianNombres(o, input)) ? 'oc_editada'
+    : (cambioMaterial || totalDesfasado || cambianNombres(o, input) || cambiaSolicitud) ? 'oc_editada'
     : 'nota_editada';
   const patch: Record<string, unknown> = {
     items: input.items,
@@ -583,7 +606,13 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
     condiciones_pago: input.condiciones_pago ?? o.condiciones_pago ?? null,
     notas: input.notas?.trim() || null,
     historial: appendHistorial(o, evento, actorEmail),
+    ...camposSolicitud,
   };
+  if (puedeTodo) {
+    if (input.iva !== undefined) patch.iva = ivaOc || null;
+    if (input.igtf !== undefined) patch.igtf = igtfOc || null;
+    if (input.urgente !== undefined) patch.urgente = !!input.urgente;
+  }
   if (cambiaProveedor) patch.proveedor_id = input.proveedorId ?? null;
   if (reabre) {
     // Vuelve a aprobación del Gerente General y se limpia la confirmación previa.

@@ -29,6 +29,9 @@ export interface OcComparable {
   descuento_obtenido?: number | null;
   proveedor_id?: string | null;
   notas?: string | null;
+  /** Impuestos de la OC (montos). Desde el 10-10-2026 se editan en «Pendiente por aprobar». */
+  iva?: number | null;
+  igtf?: number | null;
 }
 
 export interface EdicionComparable {
@@ -38,6 +41,9 @@ export interface EdicionComparable {
   descuentoObtenido?: number | null;
   proveedorId?: string | null;
   notas?: string | null;
+  /** IVA / IGTF (montos). undefined = no se tocaron. Cambiarlos es material: mueve el total a pagar. */
+  iva?: number | null;
+  igtf?: number | null;
 }
 
 const r2 = (n: unknown): number => Math.round((Number(n) || 0) * 100) / 100;
@@ -63,12 +69,15 @@ export function cambiaProveedorOc(oc: OcComparable, edicion: EdicionComparable):
   return txt(edicion.proveedorId) !== txt(oc.proveedor_id);
 }
 
-/** ¿Cambian ítems, variantes, cantidades, precios, proveedor, condición de pago o descuento? */
+/** ¿Cambian ítems, variantes, cantidades, precios, proveedor, condición de pago, descuento, IVA o IGTF? */
 export function hayCambiosMateriales(oc: OcComparable, edicion: EdicionComparable): boolean {
   if (huellaMaterial(oc.items) !== huellaMaterial(edicion.items)) return true;
   if (cambiaProveedorOc(oc, edicion)) return true;
   if (edicion.condiciones_pago !== undefined && txt(edicion.condiciones_pago) !== txt(oc.condiciones_pago)) return true;
   if (edicion.descuentoObtenido !== undefined && r2(edicion.descuentoObtenido) !== r2(oc.descuento_obtenido)) return true;
+  // Los impuestos cambian lo que se paga: son tan materiales como un precio.
+  if (edicion.iva !== undefined && r2(edicion.iva) !== r2(oc.iva)) return true;
+  if (edicion.igtf !== undefined && r2(edicion.igtf) !== r2(oc.igtf)) return true;
   return false;
 }
 
@@ -91,8 +100,8 @@ export function cambiaTexto(oc: OcComparable, edicion: EdicionComparable): boole
    Vive acá, y no dentro del repositorio, para poder probarlo sin base: es la
    pieza que decidía mal y el error no se veía hasta después de guardar. */
 
-/** Los campos de texto que una edición de OP puede tocar. */
-export type CampoEditableOp = 'notas' | 'solicitante' | 'solicitante_persona' | 'ci_solicitante';
+/** Los campos de texto que una edición de OP (o de OC por aprobar) puede tocar. */
+export type CampoEditableOp = 'notas' | 'solicitante' | 'solicitante_persona' | 'ci_solicitante' | 'motivo' | 'finalidad';
 
 /**
  * Traduce lo que el formulario mandó a lo que hay que ESCRIBIR.
@@ -105,7 +114,7 @@ export type CampoEditableOp = 'notas' | 'solicitante' | 'solicitante_persona' | 
  * al input sin tocar el formulario caería en lo mismo.
  */
 export function camposDeEdicion(input: Record<string, unknown>): Record<string, string | null> {
-  const campos: CampoEditableOp[] = ['notas', 'solicitante', 'solicitante_persona', 'ci_solicitante'];
+  const campos: CampoEditableOp[] = ['notas', 'solicitante', 'solicitante_persona', 'ci_solicitante', 'motivo', 'finalidad'];
   const out: Record<string, string | null> = {};
   for (const c of campos) {
     const v = input[c];

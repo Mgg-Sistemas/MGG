@@ -61,6 +61,17 @@ describe('hayCambiosMateriales', () => {
     expect(hayCambiosMateriales(oc, { items: mismos(), descuentoObtenido: 12.5 })).toBe(true);
   });
 
+  // 10-10-2026: por aprobar se edita hasta el IVA; cambiarlo mueve lo que se paga.
+  it('cambiar el IVA o el IGTF es material; mandarlos iguales o no mandarlos, no', () => {
+    const conIva = { ...oc, iva: 280.82, igtf: null };
+    expect(hayCambiosMateriales(conIva, { items: mismos(), iva: 300 })).toBe(true);
+    expect(hayCambiosMateriales(conIva, { items: mismos(), iva: 0 })).toBe(true);
+    expect(hayCambiosMateriales(conIva, { items: mismos(), igtf: 52.65 })).toBe(true);
+    expect(hayCambiosMateriales(conIva, { items: mismos(), iva: 280.82 })).toBe(false);
+    expect(hayCambiosMateriales(conIva, { items: mismos(), iva: 280.824, igtf: 0 })).toBe(false);
+    expect(hayCambiosMateriales(conIva, { items: mismos() })).toBe(false);
+  });
+
   it('el orden de los ítems y los decimales de más no cuentan como cambio', () => {
     const dos = { ...oc, items: [{ sku: 'A', cantidad: 1, precio: 2 }, { sku: 'B', cantidad: 3, precio: 4.5 }] };
     expect(hayCambiosMateriales(dos, { items: [{ sku: 'B', cantidad: 3.0, precio: 4.5 }, { sku: 'A', cantidad: 1, precio: 2.000 }] })).toBe(false);
@@ -125,6 +136,11 @@ describe('camposDeEdicion — una edición no borra lo que no le mandaron', () =
       ci_solicitante: 'ENDER MEJIAS',
       solicitante_persona: 'NAZARET SALAZAR',
     });
+  });
+
+  it('motivo y finalidad también viajan (edición de OC por aprobar)', () => {
+    expect(camposDeEdicion({ motivo: ' REPUESTO DE EMERGENCIA ', finalidad: '' })).toEqual({ motivo: 'REPUESTO DE EMERGENCIA', finalidad: null });
+    expect(camposDeEdicion({ solicitante: 'TALLER' })).toEqual({ solicitante: 'TALLER' });
   });
 
   it('ignora cualquier clave que no sea editable', () => {
