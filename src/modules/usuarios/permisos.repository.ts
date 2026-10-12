@@ -19,6 +19,7 @@ export type ModuleKey =
   | 'acopio_esmeralda'
   | 'acopio_pijiguaos'
   | 'maquinaria'
+  | 'choferes'
   | 'ventas'
   | 'tesoreria'
   | 'retenciones'
@@ -59,6 +60,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'acopio_esmeralda',label: 'C. Costo · La Esmeralda (Alí)', path: 'acopio/esmeralda-ali' },
   { key: 'acopio_pijiguaos',label: 'C. Costo · Los Pijiguaos', path: 'acopio/los-pijiguaos' },
   { key: 'maquinaria',  label: 'Control de Maquinaria y Vehículos' },
+  { key: 'choferes',    label: 'Choferes / Conductores' },
   { key: 'ventas',      label: 'Ventas' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'retenciones', label: 'Retenciones' },
@@ -209,6 +211,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     all.recepciones = { lectura: true, escritura: true, full: false };
     all.rrhh = { lectura: true, escritura: true, full: false };
     all.asignaciones = { lectura: true, escritura: true, full: false };
+    all.choferes = { lectura: true, escritura: true, full: false };
   } else if (role === ROL_SURTIDOR) {
     // Solo combustible, y en la práctica solo la vista de teléfono: el módulo de
     // escritorio lo rebota a `/app/combustible/surtidor`. Escritura porque su

@@ -23,6 +23,11 @@ export const TIPOS_VEHICULO: { key: string; label: string; icon: string }[] = [
   { key: 'camioneta', label: 'Camioneta', icon: '🛻' },
   { key: 'moto', label: 'Moto', icon: '🏍' },
   { key: 'camion', label: 'Camión', icon: '🚚' },
+  // Flota de Choferes / Conductores (12-10-2026): los tipos de carga que maneja MGG.
+  { key: 'furgon', label: 'Furgón', icon: '🚚' },
+  { key: 'cisterna', label: 'Cisterna', icon: '🛢' },
+  { key: 'plataforma', label: 'Plataforma / batea', icon: '🚛' },
+  { key: 'chuto', label: 'Chuto', icon: '🚛' },
   { key: 'bus', label: 'Autobús / van', icon: '🚐' },
   { key: 'maquinaria', label: 'Maquinaria', icon: '🚜' },
   { key: 'otro', label: 'Otro', icon: '🚘' },

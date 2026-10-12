@@ -38,14 +38,19 @@ export async function listDescansos(personalIds: string[]): Promise<Descanso[]> 
   return out;
 }
 
-export async function getConfigDescansos(empresa: Empresa): Promise<ConfigDescansos> {
+/* La CLAVE de configuración y de selecciones es la empresa ('MGG') o un ámbito
+   propio: Choferes / Conductores usa 'MGG·choferes' (12-10-2026) para tener su
+   tope de choferes fuera a la vez y sus selecciones, sobre los MISMOS descansos. */
+export type ClaveDescansos = Empresa | (string & {});
+
+export async function getConfigDescansos(empresa: ClaveDescansos): Promise<ConfigDescansos> {
   const { data, error } = await supabase.from(TABLA_CFG).select('dias_trabajo, dias_descanso, max_simultaneos')
     .eq('empresa', empresa).maybeSingle();
   if (error) throw error;
   return (data as ConfigDescansos | null) ?? CONFIG_POR_DEFECTO;
 }
 
-export async function guardarConfigDescansos(empresa: Empresa, cfg: ConfigDescansos, actor: string): Promise<void> {
+export async function guardarConfigDescansos(empresa: ClaveDescansos, cfg: ConfigDescansos, actor: string): Promise<void> {
   const { error } = await supabase.from(TABLA_CFG)
     .upsert({ empresa, ...cfg, updated_at: new Date().toISOString(), updated_by: actor }, { onConflict: 'empresa' });
   if (error) throw error;
@@ -92,7 +97,7 @@ export interface GrupoDescanso {
 
 const TABLA_GRUPOS = 'rrhh_descansos_grupos';
 
-export async function listGruposDescanso(empresa: Empresa): Promise<GrupoDescanso[]> {
+export async function listGruposDescanso(empresa: ClaveDescansos): Promise<GrupoDescanso[]> {
   const { data, error } = await supabase.from(TABLA_GRUPOS).select('id, nombre, personal_ids, created_at, actor_name')
     .eq('empresa', empresa).order('nombre');
   if (error) throw error;
@@ -101,7 +106,7 @@ export async function listGruposDescanso(empresa: Empresa): Promise<GrupoDescans
 
 /** Guarda la selección con ese nombre; si el nombre ya existe, la reemplaza. */
 export async function guardarGrupoDescanso(
-  empresa: Empresa, nombre: string, personalIds: string[], actor: string, actorName: string | null,
+  empresa: ClaveDescansos, nombre: string, personalIds: string[], actor: string, actorName: string | null,
 ): Promise<void> {
   const n = nombre.trim();
   if (!n) throw new Error('Poné un nombre a la selección.');

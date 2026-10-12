@@ -52,9 +52,18 @@ function finDePlan(desde: string, meses: number): string {
   return sumarDias(f.toISOString().slice(0, 10), -1);
 }
 
-export function DescansosTab({ empresa, canWrite, actor, actorName }: {
+export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal, claveConfig, etiquetaGente = 'activos en la nómina' }: {
   empresa: Empresa; canWrite: boolean; actor: string; actorName: string | null;
+  /**
+   * Choferes / Conductores (12-10-2026) reutiliza esta pestaña: muestra solo
+   * ESAS fichas y guarda su tope y sus selecciones bajo `claveConfig`
+   * ('MGG·choferes'). Los descansos son los mismos de RRHH: una sola verdad.
+   */
+  soloPersonal?: (p: Personal) => boolean;
+  claveConfig?: string;
+  etiquetaGente?: string;
 }) {
+  const clave = claveConfig ?? empresa;
   const hoy = useMemo(hoyVE, []);
   const [cursor, setCursor] = useState(() => ({ y: Number(hoy.slice(0, 4)), m: Number(hoy.slice(5, 7)) - 1 }));
   const [personal, setPersonal] = useState<Personal[]>([]);
@@ -77,16 +86,16 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
     try {
       // TODO el personal activo (30-09-2026). Antes era solo cocina; ahora quién
       // sale se elige a mano en el plan y se puede guardar la selección.
-      const ps = (await listPersonal(true, empresa)).sort((a, b) => nombre(a).localeCompare(nombre(b)));
+      const ps = (await listPersonal(true, empresa)).filter((p) => !soloPersonal || soloPersonal(p)).sort((a, b) => nombre(a).localeCompare(nombre(b)));
       const [ds, c, gs] = await Promise.all([
         listDescansos(ps.map((p) => p.id)),
-        getConfigDescansos(empresa).catch(() => CONFIG_POR_DEFECTO),
-        listGruposDescanso(empresa).catch(() => [] as GrupoDescanso[]),
+        getConfigDescansos(clave).catch(() => CONFIG_POR_DEFECTO),
+        listGruposDescanso(clave).catch(() => [] as GrupoDescanso[]),
       ]);
       setPersonal(ps); setDescansos(ds); setCfg(c); setGrupos(gs);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los descansos', 'error'); }
     finally { setLoading(false); }
-  }, [empresa]);
+  }, [empresa, clave, soloPersonal]);
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['rrhh_descansos', 'rrhh_descansos_config', 'rrhh_descansos_grupos', 'personal'], () => { void recargar(); });
 
@@ -161,7 +170,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
         <div className="kpi">
           <div className="label">Trabajando hoy</div>
           <div className="value">{Math.max(0, personal.length - fueraHoy.length)}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>de {personal.length} activos en la nómina</div>
+          <div className="muted" style={{ fontSize: '.78rem' }}>de {personal.length} {etiquetaGente}</div>
           <div className="icon" aria-hidden="true">⛏</div>
         </div>
         <button type="button" className="kpi desc-kpi" onClick={() => setLista('proximos')}>
@@ -278,11 +287,11 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
           onSaved={async () => { setEditar(null); await recargar(); }} />
       )}
       {ajustes && (
-        <AjustesModal empresa={empresa} cfg={cfg} personas={enRotacion.size} actor={actor}
+        <AjustesModal empresa={clave} cfg={cfg} personas={enRotacion.size} actor={actor}
           onClose={() => setAjustes(false)} onSaved={async () => { setAjustes(false); await recargar(); }} />
       )}
       {plan && (
-        <GenerarPlanModal empresa={empresa} personal={personal} descansos={descansos} cfg={cfg} hoy={hoy} actor={actor} actorName={actorName}
+        <GenerarPlanModal empresa={clave} personal={personal} descansos={descansos} cfg={cfg} hoy={hoy} actor={actor} actorName={actorName}
           grupos={grupos} departamentos={departamentos} enRotacion={enRotacion}
           onClose={() => setPlan(false)} onSaved={async () => { setPlan(false); await recargar(); }} />
       )}
@@ -455,7 +464,7 @@ function DescansoModal({ inicial, personal, descansos, cfg, canWrite, actor, act
 
 /* ───────── Ajustes de la rotación ───────── */
 function AjustesModal({ empresa, cfg, personas, actor, onClose, onSaved }: {
-  empresa: Empresa; cfg: ConfigDescansos; personas: number; actor: string; onClose: () => void; onSaved: () => void;
+  empresa: string; cfg: ConfigDescansos; personas: number; actor: string; onClose: () => void; onSaved: () => void;
 }) {
   const [v, setV] = useState({ ...cfg });
   const [saving, setSaving] = useState(false);
@@ -474,7 +483,7 @@ function AjustesModal({ empresa, cfg, personas, actor, onClose, onSaved }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); setSaving(false); }
   }
   return (
-    <Modal title={`⚙ Ajustes de descansos · ${empresa}`} size="md" onClose={() => !saving && onClose()} footer={
+    <Modal title={`⚙ Ajustes de descansos · ${empresa.replace('·', ' · ')}`} size="md" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving || !ok}>{saving ? 'Guardando…' : 'Guardar'}</button>
@@ -497,7 +506,7 @@ function AjustesModal({ empresa, cfg, personas, actor, onClose, onSaved }: {
 
 /* ───────── Generar plan ───────── */
 function GenerarPlanModal({ empresa, personal, descansos, cfg, hoy, actor, actorName, grupos, departamentos, enRotacion, onClose, onSaved }: {
-  empresa: Empresa; personal: Personal[]; descansos: Descanso[]; cfg: ConfigDescansos; hoy: string;
+  empresa: string; personal: Personal[]; descansos: Descanso[]; cfg: ConfigDescansos; hoy: string;
   actor: string; actorName: string | null;
   grupos: GrupoDescanso[]; departamentos: string[]; enRotacion: Set<string>;
   onClose: () => void; onSaved: () => void;

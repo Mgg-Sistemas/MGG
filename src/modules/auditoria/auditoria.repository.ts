@@ -98,6 +98,12 @@ const MAP: Record<string, ModuloInfo> = {
   nomina_renglones: { modulo: 'RRHH · Nómina', icon: '👥' },
   rrhh_eventos: { modulo: 'RRHH', icon: '👥' },
   personal: { modulo: 'RRHH · Personal', icon: '👤' },
+  rrhh_descansos: { modulo: 'RRHH · Descansos', icon: '🏠' },
+  choferes_conductores: { modulo: 'Choferes · Expediente', icon: '🪪' },
+  choferes_viajes: { modulo: 'Choferes · Rutas', icon: '🚛' },
+  choferes_viaticos: { modulo: 'Choferes · Viáticos', icon: '💵' },
+  choferes_pagos: { modulo: 'Choferes · Pagos por viaje', icon: '🧾' },
+  vehiculos_catalogo: { modulo: 'Flota de vehículos', icon: '🚚' },
   categorias_gasto: { modulo: 'Configuración · Categorías', icon: '⚙' },
 };
 

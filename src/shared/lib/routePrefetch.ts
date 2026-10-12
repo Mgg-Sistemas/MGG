@@ -17,6 +17,7 @@ const THUNKS: Record<string, () => Promise<unknown>> = {
   '/app/produccion': () => import('@/modules/produccion/ProduccionPage'),
   '/app/salidas': () => import('@/modules/salidas/SalidasPage'),
   '/app/combustible': () => import('@/modules/combustible/CombustiblePage'),
+  '/app/choferes': () => import('@/modules/choferes/ChoferesPage'),
   '/app/tesoreria': () => import('@/modules/tesoreria/TesoreriaPage'),
   '/app/retenciones': () => import('@/modules/retenciones/RetencionesPage'),
   '/app/rrhh': () => import('@/modules/rrhh/RrhhPage'),

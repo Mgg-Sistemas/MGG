@@ -40,7 +40,7 @@ export function AppShell() {
   const { can, role, appUser, soloTelefono } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('acopio') || can('ventas') || can('tesoreria');
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria');
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -355,6 +355,7 @@ export function AppShell() {
               <NavItem to="/app/maquinaria/servicio-mantenimiento" icon="🔧" label="Servicio de Mantenimiento" />
             </NavGroup>
           )}
+          {can('choferes') && <NavItem to="/app/choferes" icon="🚛" label="Choferes / Conductores" />}
           {(can('acopio') || can('acopio_reporte') || can('acopio_gmt') || can('acopio_peramanal') || can('acopio_esmeralda') || can('acopio_pijiguaos')) && (
             <NavGroup icon="🏭" label="Cajas Centro de Costo" defaultOpen={location.pathname.startsWith('/app/acopio')}>
               {can('acopio_reporte') && <NavItem to="/app/acopio/reporte-preliminar" icon="📅" label="Reporte Preliminar" />}

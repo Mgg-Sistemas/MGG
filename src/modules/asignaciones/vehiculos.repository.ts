@@ -24,11 +24,21 @@ export interface Vehiculo extends VehiculoBase {
   creado_por: string | null;
   created_at: string;
   updated_at: string;
+  /* ── Flota (Choferes / Conductores, 12-10-2026) ── */
+  /** operativo · taller · inactivo. */
+  estado_flota?: 'operativo' | 'taller' | 'inactivo' | null;
+  /** Vencimiento del seguro / RCV del vehículo. */
+  seguro_vence?: string | null;
+  /** Capacidad de carga en texto libre: «30 t», «12 m³», «15 pasajeros». */
+  capacidad?: string | null;
 }
 
 export interface VehiculoInput extends VehiculoBase {
   notas?: string | null;
   activo?: boolean;
+  estado_flota?: 'operativo' | 'taller' | 'inactivo' | null;
+  seguro_vence?: string | null;
+  capacidad?: string | null;
 }
 
 export async function listVehiculos(): Promise<Vehiculo[]> {
@@ -53,6 +63,10 @@ function fila(v: VehiculoInput) {
     notas: t(v.notas),
     activo: v.activo ?? true,
     updated_at: new Date().toISOString(),
+    // Campos de flota: solo se mandan si vienen, para no pisar lo que ya tiene el vehículo.
+    ...(v.estado_flota !== undefined ? { estado_flota: v.estado_flota ?? 'operativo' } : {}),
+    ...(v.seguro_vence !== undefined ? { seguro_vence: v.seguro_vence || null } : {}),
+    ...(v.capacidad !== undefined ? { capacidad: t(v.capacidad) } : {}),
   };
 }
 
