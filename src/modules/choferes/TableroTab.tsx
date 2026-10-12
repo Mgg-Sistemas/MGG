@@ -5,10 +5,10 @@
    en la vía, cuántos de descanso y qué documentos están vencidos o por
    vencer. Cada tarjeta lleva a la pestaña donde se resuelve.
    ============================================================ */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { money, date as fmtDate } from '@/shared/lib/format';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { ESTADO_CHOFER, ESTADO_FLOTA, alertasDocumentos, estadoChofer, liquidarViaticos, textoRuta, type EstadoFlota } from './choferes';
+import { ESTADO_CHOFER, ESTADO_FLOTA, alertasDocumentos, estadoChofer, liquidarViaticos, textoRuta, type EstadoChofer, type EstadoFlota } from './choferes';
 import { fechaHora, nombreConductor, textoVehiculo, type PropsTab } from './ChoferesPage';
 
 type Vista = 'tablero' | 'expediente' | 'viajes' | 'viaticos' | 'pagos' | 'descansos';
@@ -53,6 +53,26 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
 
   const porId = useMemo(() => new Map(conductores.map((c) => [c.id, c])), [conductores]);
   const vehiculoPorId = useMemo(() => new Map(flota.map((v) => [v.id, v])), [flota]);
+
+  /* «Estado de cada conductor hoy» (12-10-2026, «son muchos choferes»): en vez de
+     una nube de etiquetas, tres grupos —en ruta, de descanso, disponibles— con su
+     conteo, cada uno plegable, en una lista compacta de dos o tres columnas, y un
+     buscador por nombre. Lo que importa (quién está en la vía y con qué viaje)
+     va arriba; los disponibles, que son la mayoría, se despliegan si hace falta. */
+  const [busca, setBusca] = useState('');
+  const [plegados, setPlegados] = useState<Set<EstadoChofer>>(() => new Set(activos.length > 12 ? ['disponible'] : []));
+  const grupos = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    const viajeDe = new Map(enRuta.map((v) => [v.chofer_id, v]));
+    const m: Record<EstadoChofer, typeof activos> = { en_ruta: [], descanso: [], disponible: [], inactivo: [] };
+    for (const c of activos) {
+      if (q && !nombreConductor(c).toLowerCase().includes(q)) continue;
+      m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id) })].push(c);
+    }
+    for (const k of Object.keys(m) as EstadoChofer[]) m[k].sort((a, b) => nombreConductor(a).localeCompare(nombreConductor(b)));
+    return { m, viajeDe };
+  }, [activos, busca, enRuta, enRutaIds, descansoHoy]);
+  const togglePlegado = (k: EstadoChofer) => setPlegados((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   if (loading) return <div className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Cargando…</div>;
 
@@ -163,13 +183,46 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
           )}
         </div>
 
-        <div className="card">
-          <div className="card-title">👥 Estado de cada conductor hoy</div>
+        <div className="card" style={{ gridColumn: activos.length > 12 ? '1 / -1' : undefined }}>
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+            👥 Estado de cada conductor hoy <span className="muted" style={{ fontWeight: 400 }}>· {activos.length} activos</span>
+            {activos.length > 6 && (
+              <input className="input" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="🔍 Buscar conductor…"
+                style={{ marginLeft: 'auto', maxWidth: 240, fontSize: '.82rem', padding: '.25rem .5rem' }} aria-label="Buscar conductor" />
+            )}
+          </div>
           {!activos.length ? <EmptyState icon="🪪" message="Todavía no hay conductores con expediente. Ábrelos en «Expediente y flota»." /> : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
-              {activos.map((c) => {
-                const e = ESTADO_CHOFER[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id) })];
-                return <span key={c.id} className={`badge ${e.clase}`} title={e.label}>{e.icon} {nombreConductor(c)}</span>;
+            <div style={{ display: 'grid', gap: '.5rem' }}>
+              {(['en_ruta', 'descanso', 'disponible'] as EstadoChofer[]).map((k) => {
+                const e = ESTADO_CHOFER[k];
+                const lista = grupos.m[k];
+                const abierto = !plegados.has(k) || !!busca.trim();
+                return (
+                  <div key={k} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '.4rem .6rem' }}>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => togglePlegado(k)} aria-expanded={abierto}
+                      style={{ width: '100%', justifyContent: 'flex-start', gap: '.5rem', padding: '.15rem .2rem' }}>
+                      <span className={`badge ${e.clase}`}>{e.icon} {e.label}</span>
+                      <strong>{lista.length}</strong>
+                      <span className="muted" style={{ marginLeft: 'auto', fontSize: '.78rem' }}>{abierto ? '▴ ocultar' : '▾ ver'}</span>
+                    </button>
+                    {abierto && (lista.length
+                      ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '.15rem .8rem', marginTop: '.3rem', fontSize: '.82rem' }}>
+                          {lista.map((c) => {
+                            const v = k === 'en_ruta' ? grupos.viajeDe.get(c.id) : null;
+                            return (
+                              <div key={c.id} style={{ display: 'flex', gap: '.35rem', alignItems: 'baseline', minWidth: 0, padding: '.1rem 0', borderBottom: '1px dashed var(--border)' }}
+                                title={v ? `${v.numero} · ${textoRuta(v)}` : e.label}>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nombreConductor(c)}</span>
+                                {v && <span className="muted mono" style={{ fontSize: '.7rem', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{v.numero}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )
+                      : <div className="muted" style={{ fontSize: '.78rem', marginTop: '.2rem' }}>{busca.trim() ? 'Nadie con ese nombre en este grupo.' : 'Nadie.'}</div>)}
+                  </div>
+                );
               })}
             </div>
           )}

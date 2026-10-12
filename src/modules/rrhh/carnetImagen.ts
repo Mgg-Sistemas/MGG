@@ -3,22 +3,26 @@
    Carnet vertical CR80 (el tamaño estándar de las tarjetas): 53,98 × 85,6 mm,
    a 300 DPI (638×1011 px). También sale en PDF a tamaño real.
 
-   Formato «solo MGG» (12-10-2026), pedido por la administradora a partir del
-   carnet de La Cantera: se quitaron los logos de la CVM, de Motor Minero y
-   del Gobierno; queda únicamente la marca de Mineral Group Guayana.
-   · FRENTE: fondo blanco con borde dorado; ARRIBA el logo de MGG con su RIF;
-     la foto con marco naranja; nombre y C.I.; cargo y vigencia; y abajo,
-     centrado y GRANDE (≈21 mm), el QR que abre la verificación en vivo
-     (activo = datos; desactivado = logo de la empresa). Mover el logo arriba
-     es lo que le dio el espacio al QR: el chico de antes había que acercarlo
-     a la cara para leerlo.
-   · REVERSO: el logo de MGG arriba, el recuadro punteado con el texto de la
-     credencial y el contacto, la firma del autorizado y el sello de MGG, una
-     raya naranja y la razón social con el RIF al pie.
+   Formato «estilo La Cantera, con la marca MGG» (12-10-2026). La administradora
+   pidió quitar los logos de la CVM, de Motor Minero y del Gobierno y armar el
+   carnet PARECIDO (no igual) al de La Cantera (repo Mgg-Sistemas/lacantera,
+   src/lib/ficha/carnet.ts): se mide en milímetros, como la regla con la que
+   se comprueba el impreso.
+   · FRENTE: banda oscura arriba con el logo en un disco blanco y la razón
+     social con el RIF; la foto montada sobre la banda; el nombre; el cargo
+     en naranja; cinco filas de datos (cédula, departamento, ingreso, sangre,
+     vigencia) con sus rayitas; y la franja naranja del pie con la FICHA.
+   · REVERSO: el logo completo de MGG, «ESCANEE PARA VERIFICAR», el QR
+     GRANDE (30 mm) que abre la verificación en vivo (activo = datos;
+     desactivado = logo de la empresa), la cédula escrita debajo (para
+     buscar a mano si el QR no lee), la firma del autorizado y el sello de
+     MGG, y la misma franja naranja del pie.
    Todo se dibuja en un <canvas>: no depende de estilos ni fuentes web.
    ============================================================ */
 import qrcode from 'qrcode-generator';
 import type { Personal } from '@/shared/lib/types';
+import { date as fmtDate } from '@/shared/lib/format';
+import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { nombreDeCarnet } from './fichaPersonal';
 import { textoVence } from './carnetVence';
 import { lineasSaludQR } from './condicionesSalud';
@@ -29,6 +33,15 @@ const DPI = 300;
 const MM = DPI / 25.4;
 const W = Math.round(CARNET_MM.ancho * MM); // 638
 const H = Math.round(CARNET_MM.alto * MM);  // 1011
+/** Milímetros a píxeles del lienzo: el diseño se mide como el impreso. */
+const mm = (v: number) => v * MM;
+/** Puntos tipográficos a píxeles del lienzo. */
+const pt = (v: number) => (v / 72) * DPI;
+
+// La marca en el carnet: banda oscura, naranja MGG para el cargo y el pie.
+const BANDA = '#1c1c1c';
+const NARANJA = '#f28c00';
+const CARGO = '#b85c00';
 
 /**
  * El mismo formato en dos fondos (06-10-2026): BLANCO (el de imprimir) y NEGRO.
@@ -43,14 +56,16 @@ interface Paleta {
   naranja: string;    // marco de la foto y raya del reverso
   texto: string; gris: string; punteado: string;
   sinFoto: string;
+  /** La rayita bajo cada fila de datos. */
+  rayita: string;
   /** Logos sobre placas blancas (en el fondo negro). */
   placas: boolean;
   /** Color al que se repinta la firma y el sello (en negro, claro). */
   tinta?: string;
 }
 const PALETAS: Record<TemaCarnet, Paleta> = {
-  blanco: { fondo: '#ffffff', fondo2: '#ffffff', borde: '#c9a227', naranja: '#f28c00', texto: '#111111', gris: '#6b7280', punteado: '#1a1a1a', sinFoto: '#eef1f5', placas: false },
-  negro: { fondo: '#0d1014', fondo2: '#1a212b', borde: '#d4af37', naranja: '#f28c00', texto: '#f2f4f7', gris: '#9aa6b5', punteado: '#d6dbe2', sinFoto: '#252d38', placas: true, tinta: '#f2f4f7' },
+  blanco: { fondo: '#ffffff', fondo2: '#ffffff', borde: '#c9a227', naranja: NARANJA, texto: '#111111', gris: '#6b7280', punteado: '#1a1a1a', sinFoto: '#eef1f5', rayita: '#e9e4de', placas: false },
+  negro: { fondo: '#0d1014', fondo2: '#1a212b', borde: '#d4af37', naranja: NARANJA, texto: '#f2f4f7', gris: '#9aa6b5', punteado: '#d6dbe2', sinFoto: '#252d38', rayita: '#2a3240', placas: true, tinta: '#f2f4f7' },
 };
 const paleta = (t?: TemaCarnet | string | null): Paleta => (t === 'negro' ? PALETAS.negro : PALETAS.blanco);
 
@@ -139,7 +154,7 @@ function iniciales(p: Personal): string {
 }
 
 /** La foto (cover, con el encuadre que eligió el usuario) en marco naranja. */
-async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number, y: number, w: number, h: number, pal: Paleta) {
+async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number, y: number, w: number, h: number, pal: Paleta, marco: 'naranja' | 'ninguno' = 'naranja') {
   let img: HTMLImageElement | null = null;
   if (p.foto_url) {
     try { img = await loadImage(p.foto_url, 'anonymous'); } catch { img = null; }
@@ -164,39 +179,11 @@ async function dibujarFoto(ctx: CanvasRenderingContext2D, p: Personal, x: number
     ctx.fillText(iniciales(p), x + w / 2, y + h / 2);
   }
   ctx.restore();
+  if (marco === 'ninguno') return;
   ctx.lineWidth = 8;
   ctx.strokeStyle = pal.naranja;
   roundRect(ctx, x - 4, y - 4, w + 8, h + 8, 6);
   ctx.stroke();
-}
-
-/** Parte un texto en líneas que quepan en maxW. */
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let cur = '';
-  for (const w of words) {
-    const test = cur ? `${cur} ${w}` : w;
-    if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
-    else cur = test;
-  }
-  if (cur) lines.push(cur);
-  return lines;
-}
-
-/** Escribe un texto centrado bajando la letra hasta que entre en maxW (y en `maxLineas`). */
-function textoAjustado(ctx: CanvasRenderingContext2D, text: string, cx: number, y: number, maxW: number, size: number, min: number, maxLineas = 1, peso = 700): number {
-  let s = size;
-  ctx.font = `${peso} ${s}px ${FONT}`;
-  let lines = wrapText(ctx, text, maxW);
-  while ((lines.length > maxLineas || lines.some((l) => ctx.measureText(l).width > maxW)) && s > min) {
-    s -= 1;
-    ctx.font = `${peso} ${s}px ${FONT}`;
-    lines = wrapText(ctx, text, maxW);
-  }
-  let yy = y;
-  for (const ln of lines.slice(0, maxLineas)) { ctx.fillText(ln, cx, yy); yy += s + 4; }
-  return yy;
 }
 
 /**
@@ -316,14 +303,46 @@ function nuevoLienzo(pal: Paleta): { canvas: HTMLCanvasElement; ctx: CanvasRende
   return { canvas, ctx };
 }
 
-// Texto legal del reverso (según lo indicado por la empresa).
-const REV_P1 = 'Credencial de uso exclusivo para las alianzas en minerales estratégicos suscritas en la República Bolivariana de Venezuela. Agradecemos a todas las autoridades civiles, militares e institucionales prestar la mayor colaboración posible al portador de esta identificación.';
-// 12-10-2026: al quedar solo la marca MGG, la credencial habla por la empresa y no por la CVM.
-const REV_P2 = 'La persona portadora de esta credencial forma parte del personal de Mineral Group Guayana C.A.';
-const REV_RAZON = 'Mineral Group Guayana C.A.';
-const REV_RIF = 'RIF J-50221930-7 · Puerto Ordaz, Estado Bolívar';
-const REV_EMAIL = 'info@mineralgroupguayana.com';
-const REV_WHATSAPP = 'WhatsApp +58 424-9349731';
+const RAZON_SOCIAL = 'MINERAL GROUP GUAYANA';
+const FORMA_RIF = 'C.A. · RIF J-50221930-7';
+
+/** V-18425462 → V-18.425.462: con puntos se lee de un vistazo contra la cédula. */
+function cedulaLegible(c: string | null | undefined): string {
+  const s0 = (c ?? '').trim().toUpperCase().replace(/\s+/g, '');
+  const m = /^([VEJPG])?-?(\d+)$/.exec(s0);
+  if (!m) return s0 || '—';
+  return `${m[1] ?? 'V'}-${m[2].replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
+}
+
+/** Espaciado entre letras (lo soportan los navegadores actuales; si no, sale normal). */
+function espaciado(ctx: CanvasRenderingContext2D, px: number) {
+  const c = ctx as CanvasRenderingContext2D & { letterSpacing?: string };
+  if ('letterSpacing' in c) c.letterSpacing = `${px}px`;
+}
+
+/** La franja naranja del pie, igual en las dos caras: así se reconocen como del mismo carnet. */
+function franjaPie(ctx: CanvasRenderingContext2D): { y: number; alto: number } {
+  const alto = mm(7.1);
+  const y = H - alto;
+  ctx.fillStyle = NARANJA;
+  ctx.fillRect(0, y, W, alto);
+  return { y, alto };
+}
+
+/** El icono de MGG en un disco blanco (sobre la banda oscura no se vería sin él). */
+async function dibujarIconoEnDisco(ctx: CanvasRenderingContext2D, x: number, y: number, lado: number) {
+  let icono: HTMLImageElement | null = null;
+  try { icono = await loadImage(await loadLogoDataUrl()); } catch { icono = null; }
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x + lado / 2, y + lado / 2, lado / 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.clip();
+  if (icono) { const m = lado * 0.1; ctx.drawImage(icono, x + m, y + m, lado - 2 * m, lado - 2 * m); }
+  ctx.restore();
+}
 
 /** El logo completo de MGG (con el RIF). Si falta, el cuadrado de siempre. */
 function cargarLogoEmpresa(): Promise<HTMLImageElement | null> {
@@ -334,117 +353,146 @@ function cargarLogoEmpresa(): Promise<HTMLImageElement | null> {
 export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'blanco'): Promise<Blob> {
   const pal = paleta(tema);
   const { canvas, ctx } = nuevoLienzo(pal);
-  const cx = W / 2;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
 
-  // Borde dorado redondeado.
-  ctx.lineWidth = 9;
-  ctx.strokeStyle = pal.borde;
-  roundRect(ctx, 12, 12, W - 24, H - 24, 34);
-  ctx.stroke();
+  // ── Banda oscura con el logo y la razón social ──
+  const bandaH = mm(21);
+  ctx.fillStyle = BANDA;
+  ctx.fillRect(0, 0, W, bandaH);
+  ctx.fillStyle = NARANJA;
+  ctx.fillRect(0, bandaH, W, mm(0.8));
+  await dibujarIconoEnDisco(ctx, mm(4), mm(3), mm(8));
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `800 ${pt(7.2)}px ${FONT}`;
+  espaciado(ctx, mm(0.12));
+  ctx.fillText(RAZON_SOCIAL, mm(14.2), mm(7.6));
+  espaciado(ctx, 0);
+  ctx.fillStyle = 'rgba(255,255,255,.78)';
+  ctx.font = `400 ${pt(5.4)}px ${FONT}`;
+  ctx.fillText(FORMA_RIF, mm(14.2), mm(11.8));
 
-  // Arriba, solo el logo de la empresa con su RIF (12-10-2026).
-  const empresa = await cargarLogoEmpresa();
-  const logoY = 38;
-  const logoH = 148;
-  placa(ctx, pal, 60, logoY - 8, W - 120, logoH + 16, 16);
-  if (empresa) dibujarContenido(ctx, empresa, empresa.naturalWidth || empresa.width, empresa.naturalHeight || empresa.height, 66, logoY, W - 132, logoH);
+  // ── Foto montada sobre la banda, con marco blanco ──
+  const fx = mm(14); const fy = mm(15); const fw = mm(26); const fh = mm(29);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(fx, fy, fw, fh);
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  await dibujarFoto(ctx, p, fx + mm(1), fy + mm(1), fw - mm(2), fh - mm(2), pal, 'ninguno');
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
 
-  // Foto con marco naranja.
-  const fotoW = 236;
-  const fotoH = 290;
-  const fotoY = logoY + logoH + 32;
-  await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH, pal);
-
-  // Nombre (hasta dos líneas) y cédula.
+  // ── Nombre y cargo ──
+  ctx.textAlign = 'center';
   ctx.fillStyle = pal.texto;
   const nombre = nombreDeCarnet(p.nombre, p.apellido) || '—';
-  let y = fotoY + fotoH + 44;
-  y = textoAjustado(ctx, nombre, cx, y, W - 80, 36, 24, 2, 800);
-  y = textoAjustado(ctx, p.cedula ? `C.I. ${p.cedula}` : 'C.I. —', cx, y + 2, W - 80, 36, 24, 1, 800);
+  let size = 9.5;
+  ctx.font = `800 ${pt(size)}px ${FONT}`;
+  while (ctx.measureText(nombre).width > mm(46) && size > 6.5) { size -= 0.25; ctx.font = `800 ${pt(size)}px ${FONT}`; }
+  ctx.fillText(nombre, W / 2, mm(50.2));
+  const cargo = (p.cargo ?? '').trim().toUpperCase();
+  if (cargo) {
+    ctx.fillStyle = CARGO;
+    let sc = 6;
+    ctx.font = `700 ${pt(sc)}px ${FONT}`;
+    espaciado(ctx, mm(0.1));
+    while (ctx.measureText(cargo).width > mm(46) && sc > 4.4) { sc -= 0.2; ctx.font = `700 ${pt(sc)}px ${FONT}`; }
+    ctx.fillText(cargo, W / 2, mm(54.6));
+    espaciado(ctx, 0);
+  }
 
-  // Cargo y vigencia, centrados.
-  let ty = y + 12;
-  const cargo = (p.cargo ?? '').trim();
-  if (cargo) ty = textoAjustado(ctx, cargo, cx, ty, W - 90, 30, 20, 2, 800);
+  // ── Filas de datos: rótulo a la izquierda, valor a la derecha, rayita debajo ──
   const vence = textoVence(p.carnet_vence);
-  if (vence) { ctx.fillStyle = pal.gris; ty = textoAjustado(ctx, `Vigencia ${vence}`, cx, ty + 2, W - 90, 26, 18, 1, 700); ctx.fillStyle = pal.texto; }
+  const filas: Array<[string, string]> = [
+    ['Cédula', cedulaLegible(p.cedula)],
+    ['Departamento', (p.departamento ?? '').trim() || '—'],
+    ['Ingreso', p.fecha_ingreso ? fmtDate(p.fecha_ingreso) : '—'],
+    ['Sangre', (p.grupo_sanguineo ?? '').trim() || '—'],
+    ['Vigencia', vence || '—'],
+  ];
+  let y = mm(59.6);
+  for (const [clave, valor] of filas) {
+    ctx.textAlign = 'left';
+    ctx.font = `400 ${pt(6)}px ${FONT}`;
+    ctx.fillStyle = pal.gris;
+    ctx.fillText(clave, mm(4.5), y);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = clave === 'Vigencia' && vence && p.carnet_vence && p.carnet_vence < new Date().toISOString().slice(0, 10) ? '#e5484d' : pal.texto;
+    let sv = 6.2;
+    ctx.font = `700 ${pt(sv)}px ${FONT}`;
+    while (ctx.measureText(valor).width > mm(30) && sv > 4.6) { sv -= 0.2; ctx.font = `700 ${pt(sv)}px ${FONT}`; }
+    ctx.fillText(valor, mm(49.5), y);
+    ctx.fillStyle = pal.rayita;
+    ctx.fillRect(mm(4.5), y + mm(1.1), mm(45), Math.max(1, mm(0.25)));
+    y += mm(3.9);
+  }
 
-  // QR en vivo, grande y centrado abajo: ocupa todo lo que queda hasta el borde.
-  const qrAbajo = H - 40;
-  const qrSize = Math.max(140, Math.min(250, qrAbajo - (ty + 18)));
-  dibujarQR(ctx, urlQRCarnet(p), cx - qrSize / 2, qrAbajo - qrSize, qrSize);
+  // ── Franja del pie con la ficha ──
+  const pie = franjaPie(ctx);
+  ctx.fillStyle = BANDA;
+  ctx.textAlign = 'left';
+  ctx.font = `700 ${pt(5.2)}px ${FONT}`;
+  espaciado(ctx, mm(0.18));
+  ctx.fillText('FICHA', mm(4.5), pie.y + pie.alto - mm(2.5));
+  espaciado(ctx, 0);
+  ctx.textAlign = 'right';
+  ctx.font = `800 ${pt(11)}px ${FONT}`;
+  ctx.fillText(String(p.numero_ficha ?? '').trim() || '—', mm(49.5), pie.y + pie.alto - mm(2.2));
 
   return lienzoAPng(canvas);
 }
 
-/** Recuadro con borde punteado (cuadraditos), como el del formato. */
-function rectPunteado(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string) {
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 4;
-  ctx.setLineDash([4, 9]);
-  ctx.strokeRect(x, y, w, h);
-  ctx.restore();
-}
-
-/** Genera el REVERSO del carnet. */
-export async function generarReversoBlob(tema: TemaCarnet = 'blanco'): Promise<Blob> {
+/** Genera el REVERSO del carnet: la marca, el QR grande, la firma y el sello. */
+export async function generarReversoBlob(p: Personal, tema: TemaCarnet = 'blanco'): Promise<Blob> {
   const pal = paleta(tema);
   const { canvas, ctx } = nuevoLienzo(pal);
-  const cx = W / 2;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'center';
   const [empresa, firmaImg, selloImg] = await Promise.all([
     cargarLogoEmpresa(),
     cargarDePublic(['firma-autorizado-carnet.jpeg', 'firma-autorizado-carnet.jpg', 'firma-autorizado-carnet.png']),
     cargarDePublic(['sello-mgg.jpeg', 'sello-mgg.jpg', 'sello-mgg.png']),
   ]);
 
-  // Arriba, el logo de la empresa (el mismo del frente).
-  const logoY = 40;
-  const logoH = 140;
-  placa(ctx, pal, 70, logoY - 8, W - 140, logoH + 16, 16);
-  if (empresa) dibujarContenido(ctx, empresa, empresa.naturalWidth || empresa.width, empresa.naturalHeight || empresa.height, 76, logoY, W - 152, logoH);
+  // ── El logo completo (con el RIF), arriba y centrado ──
+  const lw = mm(40); const lh = mm(15);
+  placa(ctx, pal, W / 2 - lw / 2 - mm(2), mm(4), lw + mm(4), lh + mm(4), 18);
+  if (empresa) dibujarContenido(ctx, empresa, empresa.naturalWidth || empresa.width, empresa.naturalHeight || empresa.height, W / 2 - lw / 2, mm(6), lw, lh);
 
-  // Recuadro punteado con el texto de la credencial: su alto sale del texto, no al revés.
-  const boxX = 34;
-  const boxY = logoY + logoH + 30;
-  const boxW = W - 68;
-  const maxW = boxW - 50;
-  const linea = 29;
-  ctx.font = `400 22px ${FONT}`;
-  const l1 = wrapText(ctx, REV_P1, maxW);
-  const l2 = wrapText(ctx, REV_P2, maxW);
-  const boxH = 44 + (l1.length + l2.length) * linea + 20 + 22 + 2 * linea + 30;
-  rectPunteado(ctx, boxX, boxY, boxW, boxH, pal.punteado);
+  ctx.fillStyle = pal.rayita;
+  ctx.fillRect(mm(10), mm(24.5), W - mm(20), Math.max(1, mm(0.25)));
 
+  ctx.fillStyle = CARGO;
+  ctx.font = `700 ${pt(5.4)}px ${FONT}`;
+  espaciado(ctx, mm(0.15));
+  ctx.fillText('ESCANEE PARA VERIFICAR', W / 2, mm(28.6));
+  espaciado(ctx, 0);
+
+  // ── El QR en vivo, grande: se lee de medio metro y aguanta el plástico rayado ──
+  const lado = mm(30);
+  const qrY = mm(31.5);
+  dibujarQR(ctx, urlQRCarnet(p), W / 2 - lado / 2, qrY, lado);
+
+  // La cédula escrita, por si el QR no se lee: con eso se busca a mano en el sistema.
   ctx.fillStyle = pal.texto;
-  let y = boxY + 44;
-  for (const ln of l1) { ctx.fillText(ln, cx, y); y += linea; }
-  y += 20;
-  for (const ln of l2) { ctx.fillText(ln, cx, y); y += linea; }
-  y += 22;
-  ctx.fillText(REV_EMAIL, cx, y); y += linea;
-  ctx.fillText(REV_WHATSAPP, cx, y);
+  ctx.font = `700 ${pt(6.4)}px ${FONT}`;
+  espaciado(ctx, mm(0.2));
+  ctx.fillText(`C.I. ${cedulaLegible(p.cedula)}`, W / 2, qrY + lado + mm(4.4));
+  espaciado(ctx, 0);
 
-  // Firma del autorizado (izquierda) y sello de MGG (derecha), anclados al pie
-  // del carnet (13-10-2026, «baja esto»): el espacio libre queda entre el texto y
-  // la firma, no debajo de la razón social. Si el texto creciera, baja con él.
-  const filaH = 124;
-  const altoPie = 14 + 8 + 80;
-  const filaY = Math.max(boxY + boxH + 18, H - 36 - altoPie - filaH);
-  const cajaW = (W - 100) / 2;
-  if (firmaImg) { const cv = sinFondoBlanco(firmaImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, 40, filaY, cajaW, filaH); }
-  if (selloImg) { const cv = sinFondoBlanco(selloImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, 60 + cajaW, filaY, cajaW, filaH); }
+  // ── Firma del autorizado (izquierda) y sello de MGG (derecha) ──
+  const filaY = qrY + lado + mm(6.6);
+  const filaH = mm(78.3) - filaY;
+  const cajaW = (W - mm(12)) / 2;
+  if (firmaImg) { const cv = sinFondoBlanco(firmaImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, mm(4), filaY, cajaW, filaH); }
+  if (selloImg) { const cv = sinFondoBlanco(selloImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, mm(8) + cajaW, filaY, cajaW, filaH); }
 
-  // Raya naranja y, al pie, la razón social con el RIF.
-  const rayaY = filaY + filaH + 14;
-  ctx.fillStyle = pal.naranja;
-  ctx.fillRect(70, rayaY, W - 140, 8);
-  ctx.fillStyle = pal.texto;
-  ctx.font = `700 24px ${FONT}`;
-  ctx.fillText(REV_RAZON, cx, rayaY + 44);
-  ctx.fillStyle = pal.gris;
-  ctx.font = `400 19px ${FONT}`;
-  ctx.fillText(REV_RIF, cx, rayaY + 74);
+  // ── La misma franja del pie ──
+  const pie = franjaPie(ctx);
+  ctx.fillStyle = BANDA;
+  ctx.font = `700 ${pt(5)}px ${FONT}`;
+  ctx.textAlign = 'left';
+  ctx.fillText('RIF J-50221930-7', mm(4.5), pie.y + pie.alto - mm(2.5));
+  ctx.textAlign = 'right';
+  ctx.fillText('Puerto Ordaz · Edo. Bolívar', mm(49.5), pie.y + pie.alto - mm(2.5));
 
   return lienzoAPng(canvas);
 }
@@ -475,7 +523,7 @@ export async function descargarFrente(p: Personal, tema: TemaCarnet = 'blanco'):
 
 /** Descarga SOLO el reverso. */
 export async function descargarReverso(p: Personal, tema: TemaCarnet = 'blanco'): Promise<void> {
-  descargarBlob(await generarReversoBlob(tema), nombreArchivo(p, 'reverso', tema));
+  descargarBlob(await generarReversoBlob(p, tema), nombreArchivo(p, 'reverso', tema));
 }
 
 /** Genera y descarga las DOS caras (con una pausa: el navegador ignora la segunda si llegan juntas). */
@@ -516,7 +564,7 @@ export async function carnetPdf(p: Personal, modo: ModoPdfCarnet = 'carta', tema
     import('jspdf'),
     import('@/shared/lib/reportPreview'),
     generarFrenteBlob(p, tema).then(blobADataUrl),
-    generarReversoBlob(tema).then(blobADataUrl),
+    generarReversoBlob(p, tema).then(blobADataUrl),
   ]);
   const { ancho, alto } = CARNET_MM;
   const nombre = `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim();
