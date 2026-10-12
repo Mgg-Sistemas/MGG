@@ -15,6 +15,7 @@ import {
   type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
+import { mensajeDobleRegistro, normalizarFactura, retencionYaRegistrada } from './dobleRegistro';
 
 const T_CONFIG = 'retencion_config';
 const T_CONCEPTOS = 'retencion_conceptos';
@@ -250,6 +251,22 @@ export interface NuevaRetencion {
 }
 
 /**
+ * La retención vigente que ya ocupa la factura (mismo RIF y número, mismo
+ * impuesto y dirección), o null. La base trae las candidatas por los últimos
+ * dígitos del número; la comparación fina es `retencionYaRegistrada`.
+ */
+async function retencionVigenteDeLaFactura(input: NuevaRetencion): Promise<RetencionPracticada | null> {
+  const factura = normalizarFactura(input.facturaNumero);
+  if (input.tipo === 'igtf' || !factura || !input.contraparteRif?.trim()) return null;
+  const cola = factura.match(/\d+$/)?.[0] ?? factura;
+  const { data, error } = await supabase.from(T_RETENCIONES).select('*')
+    .eq('direccion', input.direccion).eq('tipo', input.tipo).eq('anulada', false)
+    .ilike('factura_numero', `%${cola}%`);
+  if (error) throw error;
+  return retencionYaRegistrada((data ?? []).map((r) => aRetencion(r as Record<string, unknown>)), input);
+}
+
+/**
  * Registra una retención en el libro.
  *
  * El correlativo AAAAMM + 8 dígitos lo asigna la BASE, y SOLO cuando la
@@ -259,6 +276,8 @@ export interface NuevaRetencion {
  */
 export async function registrarRetencion(input: NuevaRetencion): Promise<RetencionPracticada> {
   if (input.montoRetenido <= 0) throw new Error('La retención no tiene monto: revisá la base y el porcentaje.');
+  const previa = await retencionVigenteDeLaFactura(input);
+  if (previa) throw new Error(mensajeDobleRegistro(previa));
   let numero: string | null = input.numeroComprobante?.trim() || null;
   if (input.direccion === 'practicada' && input.tipo === 'iva') {
     const { data, error } = await supabase.rpc('siguiente_comprobante_retencion', { p_periodo: input.periodo });
