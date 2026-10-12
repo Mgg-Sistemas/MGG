@@ -14,7 +14,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Personal } from '@/shared/lib/types';
 import { nombreSeguro } from '@/modules/rrhh/documentosPersonal';
-import { MAX_FOTOS_ACTA, errorFotosActa } from './actas';
+import { MAX_FOTOS_ACTA, errorFotosActa, nombreCorto } from './actas';
 
 const TABLE = 'asignaciones_actas';
 const BUCKET = 'personal-docs';
@@ -85,7 +85,7 @@ export async function crearActa(input: ActaInput, a: { actor: string; actorName?
     fecha: input.fecha,
     personal_id: input.personal_id,
     entrega_personal_id: e?.id ?? null,
-    entrega_nombre: e ? `${e.nombre} ${e.apellido ?? ''}`.trim() : null,
+    entrega_nombre: e ? nombreCorto(e) : null,
     entrega_cedula: e?.cedula ?? null,
     entrega_cargo: e?.cargo ?? null,
     observaciones: (input.observaciones ?? '').trim() || null,
@@ -106,7 +106,7 @@ export async function actualizarActa(
   if (patch.entrega !== undefined) {
     const e = patch.entrega;
     fila.entrega_personal_id = e?.id ?? null;
-    fila.entrega_nombre = e ? `${e.nombre} ${e.apellido ?? ''}`.trim() : null;
+    fila.entrega_nombre = e ? nombreCorto(e) : null;
     fila.entrega_cedula = e?.cedula ?? null;
     fila.entrega_cargo = e?.cargo ?? null;
   }

@@ -11,7 +11,7 @@
    Al CORREGIR se edita un solo renglón —el que se tocó—, así que ahí no
    se agregan ni se quitan ítems.
    ============================================================ */
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, useRef } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { listVehiculos, type Vehiculo } from './vehiculos.repository';
@@ -25,7 +25,7 @@ import { numeroFicha } from '@/modules/rrhh/fichaPersonal';
 import {
   TIPOS_ASIGNACION, GRUPOS_ASIGNACION, tiposDelGrupo, definicionTipo, errorRenglones, retornablePorDefecto,
 } from './asignaciones';
-import { MAX_FOTOS_ACTA, cedulaConPuntos, entregaPorDefecto, errorFotosActa, errorNumeroActa, siguienteNumeroActa } from './actas';
+import { MAX_FOTOS_ACTA, cedulaConPuntos, entregaPorDefecto, errorFotosActa, errorNumeroActa, modoNumeroActa, nombreCorto } from './actas';
 import type { AsignacionInput, DatosActaEntrega } from './asignaciones.repository';
 
 /** Quién entregó la última vez, para proponerlo la próxima (por navegador). */
@@ -119,7 +119,13 @@ export function AsignacionFormModal({
   const vistasFotos = useMemo(() => fotos.map((f) => ({ f, url: URL.createObjectURL(f) })), [fotos]);
   useEffect(() => () => { vistasFotos.forEach((v) => URL.revokeObjectURL(v.url)); }, [vistasFotos]);
   const anioEntrega = Number((fecha || hoyIso()).slice(0, 4)) || new Date().getFullYear();
-  const proximoNumero = useMemo(() => siguienteNumeroActa(actasNumeros, anioEntrega), [actasNumeros, anioEntrega]);
+  // Manual la primera vez, incremental después; si se borró un acta, el número libre vuelve a ser manual.
+  const infoNumero = useMemo(() => modoNumeroActa(actasNumeros, anioEntrega), [actasNumeros, anioEntrega]);
+  const numeroTocado = useRef(false);
+  useEffect(() => {
+    if (infoNumero.modo === 'libre' && !numeroTocado.current) setNumeroActa(infoNumero.sugerido);
+    if (infoNumero.modo === 'auto' && !numeroTocado.current) setNumeroActa('');
+  }, [infoNumero]);
   const entrega = personal.find((p) => p.id === entregaId) ?? null;
   const [historico, setHistorico] = useState(editando?.historico ?? false);
   const [observaciones, setObservaciones] = useState(editando?.observaciones ?? '');
@@ -147,6 +153,13 @@ export function AsignacionFormModal({
     label: `${p.nombre} ${p.apellido ?? ''}`.trim(),
     hint: numeroFicha(p.numero_ficha),
     keywords: [p.cedula ?? '', p.cargo ?? '', p.departamento ?? ''],
+  })), [personal]);
+  // Quien suscribe el acta: nombre y apellido nada más (como firma la carta); se busca igual por el nombre completo.
+  const opcionesSuscribe = useMemo(() => personal.map((p) => ({
+    value: p.id,
+    label: nombreCorto(p),
+    hint: p.cargo ?? numeroFicha(p.numero_ficha),
+    keywords: [`${p.nombre} ${p.apellido ?? ''}`, p.cedula ?? '', p.cargo ?? ''],
   })), [personal]);
 
   const opcionesProducto = useMemo(() => productos
@@ -222,9 +235,12 @@ export function AsignacionFormModal({
     const sinVehiculo = renglones.find((r) => definicionTipo(r.tipo)?.pidePlaca && !r.vehiculoId);
     if (sinVehiculo) { setError('Elegí el vehículo del catálogo (o agregalo con 🚗 Catálogo).'); return; }
 
-    if (!editando) {
-      const malNumero = errorNumeroActa(numeroActa);
+    if (!editando && !actasSinInstalar) {
+      const n = numeroActa.trim();
+      if (infoNumero.modo === 'primera' && !n) { setError(`Es la primera acta de ${anioEntrega} en el sistema: escribe su número (como 026-2026) para seguir el correlativo que traía el Drive.`); return; }
+      const malNumero = errorNumeroActa(n);
       if (malNumero) { setError(malNumero); return; }
+      if (infoNumero.modo !== 'auto' && n && actasNumeros.includes(n)) { setError(`Ya existe el acta ${n}. ${infoNumero.libres.length ? `Libres: ${infoNumero.libres.join(', ')}.` : ''}`.trim()); return; }
       const malFotos = errorFotosActa(fotos);
       if (malFotos) { setError(malFotos); return; }
     }
@@ -247,7 +263,8 @@ export function AsignacionFormModal({
 
     if (editando) { onGuardar(inputs, null); return; }
     if (entregaId) guardarUltimaEntrega(entregaId);
-    onGuardar(inputs, { entrega, numero: numeroActa.trim(), fotos });
+    // En automático se manda vacío: la base pone el siguiente con candado (dos personas a la vez no lo repiten).
+    onGuardar(inputs, { entrega, numero: infoNumero.modo === 'auto' ? '' : numeroActa.trim(), fotos });
   }
 
   function agregarFotos(lista: FileList | null) {
@@ -297,12 +314,12 @@ export function AsignacionFormModal({
           {!editando && (
             <>
               <div className="form-row" style={{ flex: '2 1 260px' }}>
-                <label>Entrega por la empresa</label>
+                <label>Quien suscribe</label>
                 <SearchSelect
-                  options={opcionesPersonal}
+                  options={opcionesSuscribe}
                   value={entregaId}
                   onChange={setEntregaId}
-                  placeholder="🔍 Quién firma la entrega (Gerente General…)"
+                  placeholder="🔍 Quien suscribe el acta (Gerente General…)"
                   sinPreseleccion
                 />
                 <small className="hint muted" style={{ fontSize: '.74rem' }}>
@@ -311,8 +328,18 @@ export function AsignacionFormModal({
               </div>
               <div className="form-row" style={{ flex: '0 1 170px' }}>
                 <label>N° de acta</label>
-                <input className="input mono" value={numeroActa} onChange={(e) => setNumeroActa(e.target.value)} placeholder={actasSinInstalar ? '—' : proximoNumero} disabled={actasSinInstalar} />
-                <small className="hint muted" style={{ fontSize: '.74rem' }}>{actasSinInstalar ? 'Falta instalar las actas en la base.' : `Vacío = ${proximoNumero}. Escríbelo solo para una carga vieja del Drive (026-2026).`}</small>
+                <input className="input mono" value={infoNumero.modo === 'auto' ? infoNumero.sugerido : numeroActa}
+                  onChange={(e) => { numeroTocado.current = true; setNumeroActa(e.target.value); }}
+                  placeholder={actasSinInstalar ? '—' : infoNumero.modo === 'primera' ? '026-2026' : infoNumero.sugerido}
+                  readOnly={infoNumero.modo === 'auto'} disabled={actasSinInstalar} required={!actasSinInstalar && infoNumero.modo === 'primera'}
+                  title={infoNumero.modo === 'auto' ? 'Correlativo automático: sigue al último acta del año' : undefined}
+                  style={infoNumero.modo === 'auto' ? { background: 'var(--surface-2)', cursor: 'default' } : undefined} />
+                <small className="hint muted" style={{ fontSize: '.74rem' }}>
+                  {actasSinInstalar ? 'Falta instalar las actas en la base.'
+                    : infoNumero.modo === 'primera' ? `Primera acta de ${anioEntrega} en el sistema: escríbela a mano para seguir el correlativo del Drive. Después sale sola.`
+                    : infoNumero.modo === 'libre' ? `Se borró un acta y quedó libre el ${infoNumero.libres.join(', ')}: se propone; puedes escribir otro.`
+                    : 'Correlativo automático · sigue al último acta del año.'}
+                </small>
               </div>
             </>
           )}

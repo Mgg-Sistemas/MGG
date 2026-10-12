@@ -56,6 +56,32 @@ export function siguienteNumeroActa(existentes: readonly string[], anio: number)
   return numeroActa(max + 1, anio);
 }
 
+export type ModoNumeroActa = 'primera' | 'auto' | 'libre';
+
+/**
+ * Cómo se llena el N° de acta (regla de la administradora, 12-10-2026):
+ *  - 'primera': todavía no hay actas de ese año en el sistema → se escribe a mano
+ *    (para seguir el correlativo que traía el Drive, p. ej. 026-2026).
+ *  - 'auto': ya hay actas y la numeración está completa → el sistema pone el
+ *    siguiente (máximo + 1) y el campo no se toca.
+ *  - 'libre': se borró un acta y quedó un hueco entre la primera y la última →
+ *    el campo vuelve a ser manual, propuesto con el número libre más bajo.
+ */
+export function modoNumeroActa(existentes: readonly string[], anio: number): { modo: ModoNumeroActa; sugerido: string; libres: string[] } {
+  const usados = new Set<number>();
+  for (const n of existentes) {
+    const m = /^(\d+)-(\d{4})$/.exec((n ?? '').trim());
+    if (m && Number(m[2]) === anio) usados.add(Number(m[1]));
+  }
+  if (!usados.size) return { modo: 'primera', sugerido: '', libres: [] };
+  const min = Math.min(...usados);
+  const max = Math.max(...usados);
+  const libres: string[] = [];
+  for (let k = min + 1; k < max; k += 1) if (!usados.has(k)) libres.push(numeroActa(k, anio));
+  if (libres.length) return { modo: 'libre', sugerido: libres[0], libres };
+  return { modo: 'auto', sugerido: numeroActa(max + 1, anio), libres };
+}
+
 /** V-12874838 → V-12.874.838 (como se escribe en la carta). */
 export function cedulaConPuntos(c: string | null | undefined): string {
   const s = (c ?? '').trim().toUpperCase().replace(/\s+/g, '');
@@ -100,6 +126,16 @@ export function fechaCartaVE(iso: string | null | undefined, ciudad = 'Puerto Or
 /** Nombre completo de una ficha, en mayúsculas como va en la carta. */
 export function nombreCarta(p: Pick<Personal, 'nombre' | 'apellido'> | null | undefined): string {
   return `${p?.nombre ?? ''} ${p?.apellido ?? ''}`.trim().toUpperCase();
+}
+
+/**
+ * Quien suscribe el acta va con un solo nombre y un solo apellido, como firma
+ * la carta del Drive («Leydis Rengel», no «LEYDIS MARILIN RENGEL VAZQUEZ»):
+ * primera palabra del nombre + primera palabra del apellido (12-10-2026).
+ */
+export function nombreCorto(p: Pick<Personal, 'nombre' | 'apellido'> | null | undefined): string {
+  const primero = (s: string | null | undefined) => (s ?? '').trim().split(/\s+/)[0] ?? '';
+  return `${primero(p?.nombre)} ${primero(p?.apellido)}`.trim().toUpperCase();
 }
 
 /**

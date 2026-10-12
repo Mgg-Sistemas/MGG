@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   cantidadEnLetras, cedulaConPuntos, entregaPorDefecto, errorFotosActa, errorNumeroActa, fechaCartaVE,
-  listaItemsActa, numeroActa, parrafoActa, siguienteNumeroActa, textoItemActa,
+  listaItemsActa, modoNumeroActa, nombreCorto, numeroActa, parrafoActa, siguienteNumeroActa, textoItemActa,
 } from './actas';
 import type { Personal } from '@/shared/lib/types';
 
@@ -18,6 +18,19 @@ describe('el número del acta', () => {
     expect(siguienteNumeroActa(['026-2026', '003-2026', '040-2025'], 2026)).toBe('027-2026');
     expect(siguienteNumeroActa(['026-2026'], 2027)).toBe('001-2027');
     expect(numeroActa(7, 2026)).toBe('007-2026');
+  });
+
+  it('manual la primera vez, automático después, y vuelve a manual si se borró una (hueco)', () => {
+    expect(modoNumeroActa([], 2026)).toEqual({ modo: 'primera', sugerido: '', libres: [] });
+    expect(modoNumeroActa(['040-2025'], 2026).modo).toBe('primera');
+    expect(modoNumeroActa(['026-2026'], 2026)).toEqual({ modo: 'auto', sugerido: '027-2026', libres: [] });
+    expect(modoNumeroActa(['026-2026', '027-2026', '028-2026'], 2026).sugerido).toBe('029-2026');
+    // se borró la 027: queda libre y el campo vuelve a ser manual con ese número propuesto
+    expect(modoNumeroActa(['026-2026', '028-2026', '029-2026'], 2026)).toEqual({ modo: 'libre', sugerido: '027-2026', libres: ['027-2026'] });
+    // se borró la última (029): no hay hueco, el automático la vuelve a dar
+    expect(modoNumeroActa(['026-2026', '027-2026', '028-2026'], 2026).modo).toBe('auto');
+    // los números anteriores a la primera cargada (001-025 del Drive) NO cuentan como huecos
+    expect(modoNumeroActa(['026-2026', '027-2026'], 2026).libres).toEqual([]);
   });
 });
 
@@ -94,5 +107,14 @@ describe('quién entrega y las fotos', () => {
     expect(errorFotosActa([img('a.jpg')], 4)).toMatch(/hasta 4/);
     expect(errorFotosActa([{ name: 'x.pdf', type: 'application/pdf', size: 10 }])).toMatch(/no es una imagen/);
     expect(errorFotosActa([img('grande.jpg', 11 * 1024 * 1024)])).toMatch(/10 MB/);
+  });
+});
+
+describe('quien suscribe: nombre y apellido nada más', () => {
+  it('toma la primera palabra del nombre y la primera del apellido, en mayúsculas', () => {
+    expect(nombreCorto({ nombre: 'Leydis Marilin', apellido: 'Rengel Vazquez' })).toBe('LEYDIS RENGEL');
+    expect(nombreCorto({ nombre: '  JESUS ', apellido: 'LOZADA' })).toBe('JESUS LOZADA');
+    expect(nombreCorto({ nombre: 'Ana', apellido: '' })).toBe('ANA');
+    expect(nombreCorto(null)).toBe('');
   });
 });

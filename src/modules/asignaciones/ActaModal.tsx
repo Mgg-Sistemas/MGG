@@ -14,7 +14,7 @@ import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { Asignacion, Personal } from '@/shared/lib/types';
 import { numeroFicha } from '@/modules/rrhh/fichaPersonal';
 import { iconoTipo, labelTipo, textoEstado } from './asignaciones';
-import { MAX_FOTOS_ACTA, cedulaConPuntos, errorFotosActa } from './actas';
+import { MAX_FOTOS_ACTA, cedulaConPuntos, errorFotosActa, nombreCorto } from './actas';
 import {
   actualizarActa, dataUrlArchivoActa, quitarActaFirmada, quitarFotoActa, subirActaFirmada, subirFotosActa, urlArchivoActa,
   type ActaAsignacion,
@@ -112,7 +112,7 @@ export function ActaModal({ acta: inicial, items, personal, canWrite, actor, onC
   }
 
   const opcionesPersonal = useMemo(() => personal.filter((p) => p.activo).map((p) => ({
-    value: p.id, label: nombre(p), hint: p.cargo ?? numeroFicha(p.numero_ficha), keywords: [p.cedula ?? '', p.cargo ?? ''],
+    value: p.id, label: nombreCorto(p), hint: p.cargo ?? numeroFicha(p.numero_ficha), keywords: [nombre(p), p.cedula ?? '', p.cargo ?? ''],
   })), [personal]);
 
   return (
@@ -130,11 +130,11 @@ export function ActaModal({ acta: inicial, items, personal, canWrite, actor, onC
         </div>
         <div className="card" style={{ padding: '.55rem .7rem' }}>
           <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.04em', display: 'flex', gap: '.4rem', alignItems: 'center' }}>
-            ENTREGA (POR LA EMPRESA)
-            {canWrite && !editarEntrega && <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setEditarEntrega(true)} title="Cambiar quién entrega">✎</button>}
+            QUIEN SUSCRIBE (POR LA EMPRESA)
+            {canWrite && !editarEntrega && <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setEditarEntrega(true)} title="Cambiar quien suscribe">✎</button>}
           </div>
           {editarEntrega
-            ? <SearchSelect options={opcionesPersonal} value={acta.entrega_personal_id ?? ''} onChange={(id) => void cambiarEntrega(id)} placeholder="🔍 Buscar quién entrega…" sinPreseleccion />
+            ? <SearchSelect options={opcionesPersonal} value={acta.entrega_personal_id ?? ''} onChange={(id) => void cambiarEntrega(id)} placeholder="🔍 Buscar quien suscribe…" sinPreseleccion />
             : (
               <>
                 <strong>{acta.entrega_nombre || '— sin indicar —'}</strong>
