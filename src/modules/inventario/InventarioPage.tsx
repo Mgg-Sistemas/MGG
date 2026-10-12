@@ -57,6 +57,7 @@ import { contarSinCosto } from './sinCosto.repository';
 import { ImportarExcelModal } from './ImportarExcelModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
+import { pasaFiltroCategorias } from './filtroCategorias';
 import { AlmacenesView, SedesView, hijosDe, raices, type AlmacenLayout } from './AlmacenesView';
 import { ArbolAlmacenesPanel } from './ArbolAlmacenesPanel';
 import { MoverProductoModal } from './MoverProductoModal';
@@ -93,7 +94,7 @@ const INITIAL_UI: UiState = {
   view: 'productos',
   almacenLayout: 'kanban',
   filterText: '',
-  filterCat: '',
+  filterCat: [],
   filterClass: '',
   filterStock: '',
   filterEstado: 'activo',
@@ -107,7 +108,7 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   // Un producto dado de baja NO EXISTE: no se ve en el inventario ni en los almacenes.
   // Vive solo en el botón «Productos dados de baja», hasta que alguien lo reactive.
   if (p.estado !== 'activo') return false;
-  if (ui.filterCat && p.categoria !== ui.filterCat) return false;
+  if (!pasaFiltroCategorias(ui.filterCat, p.categoria)) return false;
   if (ui.filterClass && p._klass !== ui.filterClass) return false;
   if (ui.filterFundicion === 'si' && !p.receta_fundicion) return false;
   if (ui.filterFundicion === 'no' && p.receta_fundicion) return false;
@@ -775,7 +776,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   }
 
   // ─── almacenes ───
-  function setFilter2(key: keyof FilterValues, value: string) {
+  function setFilter2(key: keyof FilterValues, value: string | string[]) {
     setUi((prev) => ({ ...prev, [key]: value }) as UiState);
   }
 

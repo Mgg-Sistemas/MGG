@@ -1,5 +1,6 @@
 import type { AbcClass } from './restock';
 import { FILTRO_SIN_UBICACION } from './ubicacionProducto';
+import { MultiCheckFiltro } from '@/shared/ui/MultiCheckFiltro';
 
 export type StockFilter = '' | 'critico' | 'restock' | 'ok' | 'sin_mov';
 /** Se conserva para el exportador; el inventario ya solo muestra los activos. */
@@ -9,7 +10,8 @@ export type FundicionFilter = '' | 'si' | 'no' | 'en_proceso';
 /** Campos de filtrado compartidos por inventario general y por el detalle de almacén. */
 export interface FilterValues {
   filterText: string;
-  filterCat: string;
+  /** Categorías marcadas (varias a la vez, 12-10-2026). Vacío = todas. */
+  filterCat: string[];
   filterClass: '' | AbcClass;
   filterStock: StockFilter;
   filterEstado: EstadoFilter;
@@ -32,7 +34,7 @@ interface InventarioFilterbarProps {
   almacenTodosLabel?: string;
   /** title/tooltip del desplegable de ubicación (ej. "Subalmacén" dentro de un centro). */
   almacenPlaceholder?: string;
-  onChange: (key: keyof FilterValues, value: string) => void;
+  onChange: (key: keyof FilterValues, value: string | string[]) => void;
 }
 
 /** Barra de filtros reutilizable de inventario (búsqueda + categoría/fundición/ABC/stock/estado/almacén). */
@@ -45,17 +47,15 @@ export function InventarioFilterbar({ values, categorias, almacenes, almacenTodo
         value={values.filterText}
         onChange={(e) => onChange('filterText', e.target.value)}
       />
-      <select
-        className="select"
-        style={{ maxWidth: 180 }}
-        value={values.filterCat}
-        onChange={(e) => onChange('filterCat', e.target.value)}
-      >
-        <option value="">Todas las categorías</option>
-        {categorias.map((c) => (
-          <option key={c} value={c}>{c}</option>
-        ))}
-      </select>
+      {/* Varias categorías a la vez, con casillas (12-10-2026). */}
+      <MultiCheckFiltro
+        opciones={categorias}
+        seleccionadas={values.filterCat}
+        onChange={(v) => onChange('filterCat', v)}
+        todasLabel="Todas las categorías"
+        titulo="Marcá una o varias categorías"
+        maxWidth={200}
+      />
       {almacenes && (
         <select
           className="select"
