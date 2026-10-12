@@ -5,7 +5,10 @@
    paradas, carga, hora de salida y tarifa). Se INICIA cuando el chofer sale
    (hora y km reales), se van marcando las paradas, y se FINALIZA al llegar
    (hora y km). Después se liquidan sus viáticos y entra en un recibo de viaje.
-   Cancelar deja el motivo; nada se borra.
+   Cancelar deja el motivo; nada se borra. Un viaje que ya pasó (histórico o que
+   no se cargó a tiempo) se carga con «Viaje ya realizado»: entra directo como
+   FINALIZADO con sus horas y km reales, listo para liquidar; mientras no esté
+   liquidado ni en recibo se corrige con ✎ (12-10-2026).
 
    Avisos al programar: chofer de descanso ese día, documentos vencidos,
    vehículo en taller. La base no deja dos rutas EN RUTA del mismo chofer o
@@ -19,7 +22,7 @@ import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
 import { money } from '@/shared/lib/format';
 import {
-  ESTADO_VIAJE, alertasDocumentos, progresoParadas, textoRuta, type EstadoViaje, type Parada,
+  ESTADO_VIAJE, alertasDocumentos, errorViajeRealizado, progresoParadas, textoRuta, type EstadoViaje, type Parada,
 } from './choferes';
 import {
   cancelarViaje, crearViaje, editarViaje, finalizarViaje, guardarParadas, iniciarViaje,
@@ -70,7 +73,7 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
         </select>
         <div className="desc-acciones">
           <span className="chip">🚛 {conteo.en_ruta} en ruta · 📅 {conteo.programado} programados</span>
-          {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setForm('nuevo')} disabled={!conductores.some((c) => c.activo)} title={conductores.some((c) => c.activo) ? '' : 'Primero abre expedientes en «Expediente y flota»'}>+ Orden de ruta</button>}
+          {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setForm('nuevo')} disabled={!conductores.some((c) => c.activo)} title={conductores.some((c) => c.activo) ? 'Programar una ruta o cargar un viaje ya realizado' : 'Primero abre expedientes en «Expediente y flota»'}>+ Orden de ruta</button>}
         </div>
       </div>
 
@@ -104,7 +107,7 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
                       </td>
                       <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                         <button className="btn btn-sm btn-ghost" onClick={() => setDetalle(v)} title="Ver detalle y paradas">👁</button>
-                        {canWrite && (v.estado === 'programado' || v.estado === 'en_ruta') && <button className="btn btn-sm btn-ghost" onClick={() => setForm(v)} title="Editar">✎</button>}
+                        {canWrite && (v.estado === 'programado' || v.estado === 'en_ruta' || (v.estado === 'finalizado' && !v.liquidado_at && !v.pago_id)) && <button className="btn btn-sm btn-ghost" onClick={() => setForm(v)} title={v.estado === 'finalizado' ? 'Corregir el viaje (aún sin liquidar)' : 'Editar'}>✎</button>}
                         {canWrite && v.estado === 'programado' && <button className="btn btn-sm btn-primary" onClick={() => setAccion({ tipo: 'iniciar', viaje: v })} title="Iniciar ruta">▶</button>}
                         {canWrite && v.estado === 'en_ruta' && <button className="btn btn-sm btn-success" onClick={() => setAccion({ tipo: 'finalizar', viaje: v })} title="Finalizar ruta">🏁</button>}
                         {canWrite && (v.estado === 'programado' || v.estado === 'en_ruta') && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setAccion({ tipo: 'cancelar', viaje: v })} title="Cancelar">✖</button>}
@@ -145,7 +148,7 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
   const [destino, setDestino] = useState(inicial?.destino ?? '');
   const [paradas, setParadas] = useState<Parada[]>(inicial?.paradas ?? []);
   const [carga, setCarga] = useState(inicial?.carga ?? '');
-  const [salida, setSalida] = useState(inicial ? aDatetimeLocal(inicial.fecha_salida) : ahoraLocal());
+  const [salida, setSalida] = useState(inicial ? aDatetimeLocal(inicial.estado === 'finalizado' ? inicial.salida_real_at ?? inicial.fecha_salida : inicial.fecha_salida) : ahoraLocal());
   const [llegada, setLlegada] = useState(inicial?.llegada_prevista ? aDatetimeLocal(inicial.llegada_prevista) : '');
   const [tarifa, setTarifa] = useState<number | null>(inicial?.tarifa_usd ?? null);
   const [nota, setNota] = useState(inicial?.nota ?? '');
@@ -153,6 +156,11 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nuevaParada, setNuevaParada] = useState('');
+  // «Viaje ya realizado» (12-10-2026): se carga un viaje pasado directo como finalizado, con horas y km reales.
+  const [realizado, setRealizado] = useState(inicial?.estado === 'finalizado');
+  const [llegadaReal, setLlegadaReal] = useState(inicial?.llegada_real_at ? aDatetimeLocal(inicial.llegada_real_at) : '');
+  const [kmSalida, setKmSalida] = useState<number | null>(inicial?.km_salida ?? null);
+  const [kmLlegada, setKmLlegada] = useState<number | null>(inicial?.km_llegada ?? null);
 
   const chofer = conductores.find((c) => c.id === choferId) ?? null;
   const vehiculo = flota.find((v) => v.id === vehiculoId) ?? null;
@@ -170,16 +178,16 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
     if (chofer) {
       if (descansos.some((d) => d.personal_id === chofer.personal_id && d.desde <= diaSalida && diaSalida <= d.hasta)) out.push(`${nombreConductor(chofer)} está de descanso el ${diaSalida.split('-').reverse().join('/')}.`);
       for (const a of alertasDocumentos(chofer, hoy)) out.push(`${a.label} del chofer ${a.estado === 'vencido' ? 'VENCIDO' : 'por vencer'} (${a.vence?.split('-').reverse().join('/')}).`);
-      if (viajes.some((v) => v.id !== inicial?.id && v.chofer_id === chofer.id && v.estado === 'en_ruta')) out.push('Ese chofer está en ruta en otro viaje ahora mismo.');
+      if (!realizado && viajes.some((v) => v.id !== inicial?.id && v.chofer_id === chofer.id && v.estado === 'en_ruta')) out.push('Ese chofer está en ruta en otro viaje ahora mismo.');
     }
     if (vehiculo) {
       if (vehiculo.estado_flota === 'taller') out.push('El vehículo está en taller.');
       if (vehiculo.estado_flota === 'inactivo') out.push('El vehículo está inactivo.');
       if (vehiculo.seguro_vence && vehiculo.seguro_vence < hoy) out.push('El seguro del vehículo está vencido.');
-      if (viajes.some((v) => v.id !== inicial?.id && v.vehiculo_id === vehiculo.id && v.estado === 'en_ruta')) out.push('Ese vehículo está en ruta en otro viaje ahora mismo.');
+      if (!realizado && viajes.some((v) => v.id !== inicial?.id && v.vehiculo_id === vehiculo.id && v.estado === 'en_ruta')) out.push('Ese vehículo está en ruta en otro viaje ahora mismo.');
     }
     return out;
-  }, [chofer, vehiculo, descansos, diaSalida, hoy, viajes, inicial]);
+  }, [chofer, vehiculo, descansos, diaSalida, hoy, viajes, inicial, realizado]);
 
   function agregarParada() {
     const l = nuevaParada.trim();
@@ -196,12 +204,19 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
     const input: ViajeInput = {
       chofer_id: choferId, vehiculo_id: vehiculoId || null, origen, destino, paradas, carga,
       fecha_salida: salida, llegada_prevista: llegada || null, tarifa_usd: tarifa ?? 0, nota,
+      realizado: realizado ? { salida_real_at: salida, llegada_real_at: llegadaReal, km_salida: kmSalida, km_llegada: kmLlegada } : null,
     };
-    if (llegada && llegada < salida) { setError('La llegada prevista no puede ser antes de la salida.'); return; }
+    if (realizado) {
+      const e = errorViajeRealizado({ salida, llegada: llegadaReal, kmSalida, kmLlegada, ahora: ahoraLocal() });
+      if (e) { setError(e); return; }
+    } else if (llegada && llegada < salida) { setError('La llegada prevista no puede ser antes de la salida.'); return; }
     setSaving(true);
     try {
-      if (inicial) { await editarViaje(inicial.id, input); toast('Orden de ruta guardada', 'success'); }
-      else { const v = await crearViaje(input, actor, actorName); toast(`Orden de ruta ${v.numero} creada`, 'success'); }
+      if (inicial) { await editarViaje(inicial.id, input); toast(realizado ? 'Viaje corregido' : 'Orden de ruta guardada', 'success'); }
+      else {
+        const v = await crearViaje(input, actor, actorName);
+        toast(realizado ? `Viaje ${v.numero} cargado como finalizado. Ahora se pueden liquidar sus viáticos.` : `Orden de ruta ${v.numero} creada`, 'success');
+      }
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
   }
@@ -209,14 +224,23 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
   const activos = conductores.filter((c) => c.activo || c.id === inicial?.chofer_id);
 
   return (
-    <Modal title={inicial ? `🗺 Orden de ruta ${inicial.numero}` : '🗺 Nueva orden de ruta'} size="lg" onClose={() => !saving && onClose()} footer={
+    <Modal title={inicial ? `🗺 ${inicial.estado === 'finalizado' ? 'Corregir viaje' : 'Orden de ruta'} ${inicial.numero}` : realizado ? '🕓 Cargar viaje ya realizado' : '🗺 Nueva orden de ruta'} size="lg" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        {canWrite && <button type="submit" form="viaje-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : inicial ? 'Guardar cambios' : 'Crear orden'}</button>}
+        {canWrite && <button type="submit" form="viaje-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : inicial ? 'Guardar cambios' : realizado ? 'Cargar viaje finalizado' : 'Crear orden'}</button>}
       </>
     }>
       <form id="viaje-form" onSubmit={guardar}>
         {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div>{error}</div></div>}
+        {!inicial && (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.45rem', marginBottom: '.6rem', fontSize: '.88rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={realizado} onChange={(e) => setRealizado(e.target.checked)} style={{ marginTop: 3 }} />
+            <span><strong>🕓 Viaje ya realizado</strong> <span className="muted">· para cargar un viaje pasado: entra directo como <em>finalizado</em>, con sus horas y kilometraje reales, listo para liquidar viáticos y entrar en el recibo.</span></span>
+          </label>
+        )}
+        {inicial?.estado === 'finalizado' && (
+          <div className="aviso info sm" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">ℹ</span><div>Viaje finalizado sin liquidar: se puede corregir cualquier dato, incluidas las horas y el kilometraje reales.</div></div>
+        )}
         <div className="form-grid">
           <div className="form-row"><label htmlFor="vj-chofer">Chofer</label>
             <SearchSelect id="vj-chofer" value={choferId} onChange={elegirChofer} placeholder="🔍 Buscar chofer…"
@@ -229,14 +253,22 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
             </div></div>
           <div className="form-row"><label htmlFor="vj-origen">Origen</label><input id="vj-origen" className="input" value={origen} onChange={(e) => setOrigen(e.target.value)} required placeholder="Galpón Los Pinos" /></div>
           <div className="form-row"><label htmlFor="vj-destino">Destino</label><input id="vj-destino" className="input" value={destino} onChange={(e) => setDestino(e.target.value)} required placeholder="Centro de Fundición Matanzas" /></div>
-          <div className="form-row"><label htmlFor="vj-salida">Salida programada</label><input id="vj-salida" className="input" type="datetime-local" value={salida} onChange={(e) => setSalida(e.target.value)} required /></div>
-          <div className="form-row"><label htmlFor="vj-llegada">Llegada prevista</label><input id="vj-llegada" className="input" type="datetime-local" value={llegada} min={salida || undefined} onChange={(e) => setLlegada(e.target.value)} /></div>
+          <div className="form-row"><label htmlFor="vj-salida">{realizado ? 'Salida real (fecha y hora)' : 'Salida programada'}</label><input id="vj-salida" className="input" type="datetime-local" value={salida} max={realizado ? ahoraLocal() : undefined} onChange={(e) => setSalida(e.target.value)} required /></div>
+          {realizado ? (
+            <>
+              <div className="form-row"><label htmlFor="vj-llegada-real">Llegada real (fecha y hora)</label><input id="vj-llegada-real" className="input" type="datetime-local" value={llegadaReal} min={salida || undefined} max={ahoraLocal()} onChange={(e) => setLlegadaReal(e.target.value)} required /></div>
+              <div className="form-row"><label>Kilometraje de salida</label><DecimalInput className="input" value={kmSalida} onChange={setKmSalida} placeholder="opcional" aria-label="Kilometraje de salida" /></div>
+              <div className="form-row"><label>Kilometraje de llegada</label><DecimalInput className="input" value={kmLlegada} onChange={setKmLlegada} placeholder="opcional" aria-label="Kilometraje de llegada" /></div>
+            </>
+          ) : (
+            <div className="form-row"><label htmlFor="vj-llegada">Llegada prevista</label><input id="vj-llegada" className="input" type="datetime-local" value={llegada} min={salida || undefined} onChange={(e) => setLlegada(e.target.value)} /></div>
+          )}
           <div className="form-row"><label htmlFor="vj-carga">Carga / motivo</label><input id="vj-carga" className="input" value={carga} onChange={(e) => setCarga(e.target.value)} placeholder="Casiterita 20 t · víveres · repuestos…" /></div>
           <div className="form-row"><label>Tarifa del viaje ($)</label>
             <DecimalInput className="input" value={tarifa} onChange={setTarifa} placeholder="0,00" aria-label="Tarifa del viaje en dólares" />
             <span className="muted" style={{ fontSize: '.75rem' }}>Lo que se le paga al chofer por este viaje{chofer ? ` (su tarifa base: ${money(chofer.tarifa_viaje_usd)})` : ''}.</span></div>
           <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-            <label>Puntos de parada (en orden)</label>
+            <label>Puntos de parada (en orden){realizado && <span className="muted" style={{ fontWeight: 400 }}> · en un viaje ya realizado quedan marcadas como cumplidas a la hora de llegada</span>}</label>
             <div className="chf-paradas">
               {paradas.map((p, i) => (
                 <div key={i} className={`chf-parada${p.hecha_at ? ' hecha' : ''}`}>

@@ -258,6 +258,21 @@ export function textoRuta(v: { origen: string; destino: string }): string {
   return `${v.origen.trim()} → ${v.destino.trim()}`;
 }
 
+/**
+ * Validación de un «viaje ya realizado» (12-10-2026): se carga un viaje pasado directo como
+ * finalizado, así que necesita salida y llegada reales, la llegada no puede ser antes de la
+ * salida ni en el futuro, y el kilometraje de llegada no baja del de salida.
+ * Las fechas vienen como datetime-local (AAAA-MM-DDTHH:mm): comparan bien como texto.
+ */
+export function errorViajeRealizado(o: { salida: string; llegada: string; kmSalida: number | null; kmLlegada: number | null; ahora: string }): string | null {
+  if (!o.salida) return 'Indica la fecha y hora de salida.';
+  if (!o.llegada) return 'Indica la fecha y hora de llegada del viaje.';
+  if (o.llegada < o.salida) return 'La llegada no puede ser antes de la salida.';
+  if (o.llegada > o.ahora) return 'Un viaje ya realizado no puede terminar en el futuro. Si todavía no llegó, prográmalo y usa ▶ Iniciar.';
+  if (o.kmSalida != null && o.kmLlegada != null && o.kmLlegada < o.kmSalida) return 'El kilometraje de llegada no puede ser menor que el de salida.';
+  return null;
+}
+
 /** Fecha AAAA-MM-DD de hoy en Venezuela. */
 export function hoyVE(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());

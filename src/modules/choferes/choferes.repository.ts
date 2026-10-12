@@ -263,14 +263,40 @@ export interface ViajeInput {
   llegada_prevista?: string | null;
   tarifa_usd?: number | null;
   nota?: string | null;
+  /** Viaje ya realizado (12-10-2026): entra directo como finalizado con sus horas y km reales. */
+  realizado?: ViajeRealizado | null;
+}
+
+export interface ViajeRealizado {
+  salida_real_at: string;
+  llegada_real_at: string;
+  km_salida?: number | null;
+  km_llegada?: number | null;
 }
 
 function filaViaje(i: ViajeInput) {
   if (!i.chofer_id) throw new Error('Elige el chofer.');
   if (!limpio(i.origen) || !limpio(i.destino)) throw new Error('Indica el origen y el destino de la ruta.');
   if (!i.fecha_salida) throw new Error('Indica la fecha y hora de salida.');
-  const paradas = (i.paradas ?? []).map((p) => ({ lugar: limpio(p.lugar) ?? '', nota: limpio(p.nota), hecha_at: p.hecha_at ?? null })).filter((p) => p.lugar);
+  const r = i.realizado ?? null;
+  if (r) {
+    if (!r.llegada_real_at) throw new Error('Indica la fecha y hora de llegada del viaje.');
+    if (new Date(r.llegada_real_at) < new Date(r.salida_real_at || i.fecha_salida)) throw new Error('La llegada no puede ser antes de la salida.');
+    if (new Date(r.llegada_real_at) > new Date()) throw new Error('Un viaje ya realizado no puede terminar en el futuro.');
+    if (r.km_salida != null && r.km_llegada != null && r.km_llegada < r.km_salida) throw new Error('El kilometraje de llegada no puede ser menor que el de salida.');
+  }
+  const llegadaReal = r ? new Date(r.llegada_real_at).toISOString() : null;
+  // En un viaje ya realizado las paradas quedan cumplidas (a la hora de llegada) salvo que traigan su propia hora.
+  const paradas = (i.paradas ?? []).map((p) => ({ lugar: limpio(p.lugar) ?? '', nota: limpio(p.nota), hecha_at: p.hecha_at ?? llegadaReal })).filter((p) => p.lugar);
+  const realizado = r ? {
+    estado: 'finalizado' as const,
+    salida_real_at: new Date(r.salida_real_at || i.fecha_salida).toISOString(),
+    llegada_real_at: llegadaReal,
+    km_salida: r.km_salida ?? null,
+    km_llegada: r.km_llegada ?? null,
+  } : {};
   return {
+    ...realizado,
     chofer_id: i.chofer_id,
     vehiculo_id: i.vehiculo_id || null,
     origen: limpio(i.origen),
@@ -290,9 +316,12 @@ export async function crearViaje(i: ViajeInput, actor: string, actorName: string
   return normViaje(data as Record<string, unknown>);
 }
 
+/** Programado o en ruta se editan libremente; un finalizado solo se corrige mientras no esté liquidado ni en un recibo. */
 export async function editarViaje(id: string, i: ViajeInput): Promise<void> {
-  const { error } = await supabase.from(T_VIAJES).update(filaViaje(i)).eq('id', id).in('estado', ['programado', 'en_ruta']);
+  const { data, error } = await supabase.from(T_VIAJES).update(filaViaje(i)).eq('id', id)
+    .in('estado', ['programado', 'en_ruta', 'finalizado']).is('liquidado_at', null).is('pago_id', null).select('id');
   if (error) throw err(error, 'No se pudo guardar la orden de ruta.');
+  if (!data?.length) throw new Error('Ese viaje ya está liquidado o tiene recibo; reabre la liquidación antes de corregirlo.');
 }
 
 function errorEnRuta(e: { code?: string; message?: string }, respaldo: string): Error {

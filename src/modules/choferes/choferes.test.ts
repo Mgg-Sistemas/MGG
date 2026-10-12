@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  alertasDocumentos, calcularRecibo, diasHasta, estadoChofer, estadoVence, liquidarViaticos, peorEstadoDocumentos,
+  alertasDocumentos, calcularRecibo, diasHasta, errorViajeRealizado, estadoChofer, estadoVence, liquidarViaticos, peorEstadoDocumentos,
   progresoParadas, textoConformidadViaje, textoLiquidacion, textoRuta,
 } from './choferes';
 
@@ -92,5 +92,22 @@ describe('recibo de viaje', () => {
     expect(t).toContain('2 viajes');
     expect(textoConformidadViaje(c, 1, 'X')).toContain('un (1) viaje');
     expect(textoRuta({ origen: ' Los Pinos ', destino: 'Matanzas' })).toBe('Los Pinos → Matanzas');
+  });
+});
+
+describe('cargar un viaje ya realizado (viaje pasado)', () => {
+  const ahora = '2026-10-12T15:00';
+  it('acepta salida y llegada pasadas con km coherentes', () => {
+    expect(errorViajeRealizado({ salida: '2026-10-05T06:30', llegada: '2026-10-05T18:10', kmSalida: 120500, kmLlegada: 120980, ahora })).toBeNull();
+    expect(errorViajeRealizado({ salida: '2026-10-05T06:30', llegada: '2026-10-05T18:10', kmSalida: null, kmLlegada: null, ahora })).toBeNull();
+  });
+  it('exige la llegada y no la deja antes de la salida ni en el futuro', () => {
+    expect(errorViajeRealizado({ salida: '2026-10-05T06:30', llegada: '', kmSalida: null, kmLlegada: null, ahora })).toMatch(/llegada/);
+    expect(errorViajeRealizado({ salida: '2026-10-05T06:30', llegada: '2026-10-05T06:00', kmSalida: null, kmLlegada: null, ahora })).toMatch(/antes de la salida/);
+    expect(errorViajeRealizado({ salida: '2026-10-12T06:30', llegada: '2026-10-12T19:00', kmSalida: null, kmLlegada: null, ahora })).toMatch(/futuro/);
+    expect(errorViajeRealizado({ salida: '', llegada: '2026-10-05T18:10', kmSalida: null, kmLlegada: null, ahora })).toMatch(/salida/);
+  });
+  it('el kilometraje de llegada no baja del de salida', () => {
+    expect(errorViajeRealizado({ salida: '2026-10-05T06:30', llegada: '2026-10-05T18:10', kmSalida: 1000, kmLlegada: 900, ahora })).toMatch(/kilometraje/i);
   });
 });
