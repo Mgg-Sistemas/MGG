@@ -418,6 +418,15 @@ export async function urlAdjuntoCompra(path: string): Promise<string> {
   return data.signedUrl;
 }
 
+/** Cambia solo la nota para Tesorería (12-10-2026: se puede agregar desde la tarjeta pendiente). */
+export async function actualizarNotaCompra(compraId: string, nota: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('compras_directas')
+    .update({ nota: (nota ?? '').trim() || null, updated_at: new Date().toISOString() })
+    .eq('id', compraId);
+  if (error) throw error;
+}
+
 /**
  * Gestiona las FACTURAS de una compra ya creada (sirve para finalizadas): sube las nuevas
  * (PDF o imagen), borra del Storage las que se quitaron y guarda la lista resultante.

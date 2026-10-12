@@ -16,7 +16,7 @@ import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { fmtTasa } from './compraDirectaMoneda';
 import {
   crearCompraDirecta, editarCompraDirectaEnProceso, montarCompraDirecta, listComprasDirectas, eliminarCompraDirecta,
-  urlAdjuntoCompra, gestionarFacturasCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
+  urlAdjuntoCompra, gestionarFacturasCompra, actualizarNotaCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
 } from './compras.repository';
 import { FacturasModal } from './FacturasModal';
 import { cantidadEnUso, costoPorUnidadDeUso, normalizarUnidad, pideFactor, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
@@ -61,6 +61,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
   const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
   const [facturas, setFacturas] = useState<CompraDirecta | null>(null);
+  // Nota para Tesorería editable después de montar la compra (12-10-2026).
+  const [notaDe, setNotaDe] = useState<CompraDirecta | null>(null);
   const [editarProceso, setEditarProceso] = useState<CompraDirecta | null>(null);
   const [detalle, setDetalle] = useState<CompraDirecta | null>(null);
 
@@ -142,7 +144,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
                   <CompraCard key={c.id} compra={c} onVer={() => setDetalle(c)}
-                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onFacturas={() => setFacturas(c)} onEditar={() => setEditarProceso(c)} onEliminar={() => setEliminar(c)} />
+                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onFacturas={() => setFacturas(c)} onNota={() => setNotaDe(c)} onEditar={() => setEditarProceso(c)} onEliminar={() => setEliminar(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -168,7 +170,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td className="muted">{c.finalizada_at ? dateTime(c.finalizada_at) : '—'}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
-                    {c.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(c)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
+                    {c.estado !== 'en_proceso' && <button className="btn btn-sm btn-ghost" onClick={() => setFacturas(c)} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas{!c.facturas?.length ? ' ⚠' : ''}</button>}
+                    {c.estado !== 'en_proceso' && <button className="btn btn-sm btn-ghost" onClick={() => setNotaDe(c)} title="Agregar o cambiar la nota para Tesorería">📝 Nota</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" onClick={() => setEditarProceso(c)} title="Editar la compra: materiales, cantidades, proveedor y almacén">✎ Editar</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
                     {colDe(c) === 'abierta' && !estaPagada(c) && !estaRecibida(c) && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(c)} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
@@ -209,6 +212,10 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
         />
       )}
 
+      {notaDe && (
+        <NotaCompraModal compra={notaDe} onClose={() => setNotaDe(null)}
+          onSave={async (nota) => { await actualizarNotaCompra(notaDe.id, nota); toast('Nota guardada: Tesorería la ve al pagar', 'success'); setNotaDe(null); await reloadLista(); }} />
+      )}
       {facturas && (
         <FacturasModal
           title={`Facturas · ${facturas.codigo ?? 'Compra directa'}`}
@@ -248,7 +255,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
             <>
               <button className="btn btn-ghost" onClick={() => setDetalle(null)}>Cerrar</button>
               <button className="btn btn-ghost" onClick={() => handlePdf(detalle)}>↓ PDF</button>
-              {detalle.estado === 'finalizada' && <button className="btn btn-ghost" onClick={() => { setFacturas(detalle); setDetalle(null); }}>🧾 Facturas</button>}
+              {detalle.estado !== 'en_proceso' && <button className="btn btn-ghost" onClick={() => { setFacturas(detalle); setDetalle(null); }}>🧾 Facturas</button>}
+              {detalle.estado !== 'en_proceso' && <button className="btn btn-ghost" onClick={() => { setNotaDe(detalle); setDetalle(null); }}>📝 Nota</button>}
               {detalle.estado === 'en_proceso' && <button className="btn btn-ghost" onClick={() => { setEditarProceso(detalle); setDetalle(null); }}>✎ Editar</button>}
               {detalle.estado === 'en_proceso' && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>Cargar factura y precios</button>}
               {colDe(detalle) === 'abierta' && !estaPagada(detalle) && !estaRecibida(detalle) && <button className="btn btn-primary" onClick={() => { setFinalizar(detalle); setDetalle(null); }}>✎ Editar factura/precios</button>}
@@ -261,8 +269,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   );
 }
 
-function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditar, onEliminar }: {
-  compra: CompraDirecta; onVer: () => void; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onEditar: () => void; onEliminar: () => void;
+function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onNota, onEditar, onEliminar }: {
+  compra: CompraDirecta; onVer: () => void; onFinalizar: () => void; onPdf: () => void; onFacturas: () => void; onNota: () => void; onEditar: () => void; onEliminar: () => void;
 }) {
   return (
     <div className="card" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver el detalle">
@@ -293,6 +301,8 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditar, o
             {estaRecibida(compra) ? '✅ Recibida en inventario' : '📦 Pendiente de recepción (Inventario)'}
           </div>
           <div className="muted"><AdjuntoLink compra={compra} /></div>
+          {!compra.facturas?.length && <div style={{ color: 'var(--warning)', fontSize: '.72rem', marginTop: '.2rem' }}>⚠ Sin factura adjunta</div>}
+          {compra.nota?.trim() && <div style={{ fontSize: '.72rem', marginTop: '.25rem', padding: '.25rem .45rem', borderLeft: '3px solid var(--brand, #ff8a00)', background: 'rgba(255,138,0,.08)' }}>📝 {compra.nota}</div>}
         </div>
       )}
       {compra.estado === 'finalizada' && (
@@ -304,13 +314,43 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onEditar, o
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver detalle en PDF (vista previa)">↓ PDF</button>
-        {compra.estado === 'finalizada' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas</button>}
+        {/* Facturas y nota se pueden agregar después de montar la compra (12-10-2026): también estando pagada o recibida. */}
+        {compra.estado !== 'en_proceso' && <button className="btn btn-sm btn-ghost" onClick={onFacturas} title="Cargar nuevas facturas / quitar anteriores">🧾 Facturas{!compra.facturas?.length ? ' ⚠' : ''}</button>}
+        {compra.estado !== 'en_proceso' && <button className="btn btn-sm btn-ghost" onClick={onNota} title="Agregar o cambiar la nota para Tesorería">📝 Nota</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" onClick={onEditar} title="Editar la compra: materiales, cantidades, proveedor y almacén">✎ Editar</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
         {colDe(compra) === 'abierta' && !estaPagada(compra) && !estaRecibida(compra) && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura/precios (aún no pagada ni recibida)">✎ Factura/precios</button>}
         {compra.estado !== 'finalizada' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa (revierte caja e inventario si ya se pagó/recibió)">🗑 Eliminar</button>}
       </div>
     </div>
+  );
+}
+
+/** Agregar o cambiar la nota para Tesorería sin tocar precios ni facturas. */
+function NotaCompraModal({ compra, onSave, onClose }: { compra: CompraDirecta; onSave: (nota: string) => Promise<void>; onClose: () => void }) {
+  const [nota, setNota] = useState(compra.nota ?? '');
+  const [saving, setSaving] = useState(false);
+  async function guardar() {
+    setSaving(true);
+    try { await onSave(nota); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar la nota', 'error'); }
+    finally { setSaving(false); }
+  }
+  return (
+    <Modal title={`📝 Nota para Tesorería · ${compra.codigo ?? 'Compra directa'}`} size="md" onClose={() => !saving && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar nota'}</button>
+      </>
+    }>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}><strong>{compra.producto_nombre}</strong>{compra.proveedor_nombre ? ` · ${compra.proveedor_nombre}` : ''}</p>
+      <div className="form-row">
+        <label>Nota del analista</label>
+        <textarea className="input" rows={3} value={nota} autoFocus onChange={(e) => setNota(e.target.value)}
+          placeholder="Qué es y para quién, ej.: equipo switch solicitado por Joel, técnico de las cámaras, para el cableado de las oficinas nuevas" />
+        <small className="hint muted">Tesorería la ve resaltada en la lista de pendientes y al pagar.</small>
+      </div>
+    </Modal>
   );
 }
 
@@ -800,6 +840,8 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
     if (total <= 0) { setError('El total no puede quedar en 0 (revisá el descuento).'); return; }
     if (moneda === 'Bs' && tasaUsd <= 0) { setError('Colocá la tasa BCV (Bs por $): el inventario se valora en dólares y cada material entrará convertido con esa tasa.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
+    // La factura es obligatoria (12-10-2026, pedido de la administradora): sin ella Tesorería no paga.
+    if (!file && !compra.facturas?.length) { setError('Adjuntá la factura de la compra (PDF o imagen): es obligatoria para que pase a Tesorería.'); return; }
     if (pagoExterno && !pagoExternoDatos.trim()) { setError('Ingresá los datos de la persona externa que pagó (para reintegrarle).'); return; }
     const items: CompraDirectaItem[] = lineas.map((l) => ({
       producto_id: l.producto_id, producto_nombre: l.producto_nombre, producto_sku: l.producto_sku,
@@ -992,8 +1034,8 @@ function MontarCompraModal({ compra, actor, actorName, onClose, onSaved }: {
         </div>
 
         <div className="form-row">
-          <label>Adjuntar FACTURA de la compra · PDF o imagen</label>
-          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <label>Adjuntar FACTURA de la compra · PDF o imagen <span style={{ color: 'var(--danger)' }}>*</span> <span className="muted" style={{ fontWeight: 400 }}>obligatoria</span></label>
+          <input className="input" type="file" accept="application/pdf,image/*" required={!compra.facturas?.length} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           {file ? <small className="muted">{file.name}</small> : (compra.facturas?.length ? <small className="hint muted">Ya hay {compra.facturas.length} factura(s) cargada(s).</small> : null)}
         </div>
 
