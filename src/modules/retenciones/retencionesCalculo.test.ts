@@ -5,7 +5,7 @@ import {
   motivoCienTexto, periodoDe, quincenaDe, retieneCienPorCiento, sustraendoIslr,
   totalRetenido, totalesPorImpuesto,
   type ConceptoRetencion, type ConfigRetencion,
-  resumenLibro, significadoRetencion, esRecuperable, labelDireccion,
+  resumenLibro, significadoRetencion, esRecuperable, labelDireccion, totalesPorMoneda,
 } from './retencionesCalculo';
 
 const especial: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, esContribuyenteEspecial: true, valorUt: 9 };
@@ -247,5 +247,34 @@ describe('el libro tiene dos direcciones', () => {
   it('las direcciones se nombran en criollo', () => {
     expect(labelDireccion('recibida')).toBe('Nos la practicaron');
     expect(labelDireccion('practicada')).toBe('La practicamos');
+  });
+});
+
+/* Bs y $ no se suman: 120 Bs + 50 $ no son «170» de nada. El libro da un
+   total por moneda, y la moneda es la que trae cada fila (la base no la limita). */
+describe('los totales del libro, uno por moneda', () => {
+  const filas = [
+    { tipo: 'iva' as const, direccion: 'practicada' as const, estado: 'registrada' as const, monto: 120, moneda: 'Bs' },
+    { tipo: 'islr' as const, direccion: 'practicada' as const, estado: 'registrada' as const, monto: 50, moneda: 'USD' },
+    { tipo: 'iva' as const, direccion: 'recibida' as const, monto: 300, moneda: 'Bs' },
+    { tipo: 'islr' as const, direccion: 'practicada' as const, estado: 'registrada' as const, monto: 9999, moneda: 'USD', anulada: true },
+  ];
+
+  it('cada moneda lleva su propio total', () => {
+    const t = totalesPorMoneda(filas);
+    expect(t.map((x) => x.moneda)).toEqual(['Bs', 'USD']);
+    expect(t[0].resumen.porEnterar).toBe(120);
+    expect(t[0].resumen.aFavor).toBe(300);
+    expect(t[1].resumen.porEnterar).toBe(50);   // la anulada de 9999 $ no suma
+  });
+
+  it('una moneda que no es Bs ni USD tiene su propio total, no se pierde ni se mezcla', () => {
+    const t = totalesPorMoneda([...filas, { tipo: 'iva' as const, direccion: 'recibida' as const, monto: 10, moneda: 'EUR' }]);
+    expect(t.map((x) => x.moneda)).toEqual(['Bs', 'EUR', 'USD']);
+    expect(t[1].resumen.aFavor).toBe(10);
+  });
+
+  it('sin filas no inventa totales', () => {
+    expect(totalesPorMoneda([])).toEqual([]);
   });
 });

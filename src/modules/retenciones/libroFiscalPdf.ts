@@ -32,7 +32,8 @@ export interface ContextoLibro {
   hasta: string;
   direccion: DireccionRetencion | null;
   resumen: ResumenLibro;
-  moneda: string;
+  /** Un total por moneda: Bs y $ no se suman. */
+  totales: { moneda: string; resumen: ResumenLibro }[];
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -59,12 +60,14 @@ export async function verLibroFiscalPdf(
   doc.text(textoPdf(`${quien} · del ${fecha(ctx.desde)} al ${fecha(ctx.hasta)}`), W / 2, y + 40, { align: 'center' });
   y += 56;
 
-  // Los cuatro números, en una banda
-  const tarjetas: [string, string][] = [
-    ['A favor (nos retuvieron)', monto(ctx.resumen.aFavor, ctx.moneda)],
-    ['IGTF pagado (es costo)', monto(ctx.resumen.igtfPagado, ctx.moneda)],
-    ['Por enterar al fisco', monto(ctx.resumen.porEnterar, ctx.moneda)],
-    ['Registros', String(ctx.resumen.registros)],
+  // Los cuatro números, en una banda. Los montos, un renglón por moneda.
+  const enMonedas = (campo: 'aFavor' | 'igtfPagado' | 'porEnterar') =>
+    ctx.totales.length ? ctx.totales.map((t) => monto(t.resumen[campo], t.moneda)) : [monto(0, 'Bs')];
+  const tarjetas: [string, string[]][] = [
+    ['A favor (nos retuvieron)', enMonedas('aFavor')],
+    ['IGTF pagado (es costo)', enMonedas('igtfPagado')],
+    ['Por enterar al fisco', enMonedas('porEnterar')],
+    ['Registros', [String(ctx.resumen.registros)]],
   ];
   const ancho = (W - MARGIN * 2) / tarjetas.length;
   doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.8);
@@ -73,8 +76,9 @@ export async function verLibroFiscalPdf(
     doc.rect(x, y, ancho - 6, 40);
     doc.setFontSize(7); doc.setTextColor(110, 110, 110);
     doc.text(textoPdf(titulo.toUpperCase()), x + 8, y + 14);
-    doc.setFontSize(12); doc.setTextColor(20, 20, 20); doc.setFont('helvetica', 'bold');
-    doc.text(textoPdf(valor), x + 8, y + 31);
+    // Con más de una moneda, más chico para que los dos renglones quepan en la tarjeta.
+    doc.setFontSize(valor.length > 1 ? 9 : 12); doc.setTextColor(20, 20, 20); doc.setFont('helvetica', 'bold');
+    doc.text(valor.map((v) => textoPdf(v)), x + 8, valor.length > 1 ? y + 24 : y + 31);
     doc.setFont('helvetica', 'normal');
   });
   y += 54;

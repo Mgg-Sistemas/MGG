@@ -430,6 +430,20 @@ export function resumenLibro(filas: FilaLibro[]): ResumenLibro {
 }
 
 /**
+ * Los totales del libro, uno por moneda. Bs y $ no se suman entre sí: cada fila
+ * cuenta en la moneda que trae, sea cual sea (la base no la limita).
+ */
+export function totalesPorMoneda(filas: (FilaLibro & { moneda: string })[]): { moneda: string; resumen: ResumenLibro }[] {
+  const grupos = new Map<string, FilaLibro[]>();
+  for (const f of filas) {
+    const g = grupos.get(f.moneda);
+    if (g) g.push(f); else grupos.set(f.moneda, [f]);
+  }
+  return [...grupos.keys()].sort((a, b) => a.localeCompare(b))
+    .map((moneda) => ({ moneda, resumen: resumenLibro(grupos.get(moneda) ?? []) }));
+}
+
+/**
  * Qué significa un renglón, en una línea. Es el texto que explica por qué el
  * mismo monto es a favor en un caso y deuda en el otro.
  */
