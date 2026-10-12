@@ -536,15 +536,28 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
 
   // Opciones del filtro de SUBALMACÉN cuando estamos dentro de un centro/Matanzas:
   // los subalmacenes del scope actual (General o Casiterita), con nombre corto.
+  // Almacenes que todavía tienen algo: un almacén inactivo con stock no se esconde.
+  const almacenesConStock = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of existencias) if ((Number(e.stock) || 0) > 0) s.add(e.almacen);
+    return s;
+  }, [existencias]);
   const subalmacenesScopeOpts = useMemo<{ value: string; label: string }[] | undefined>(() => {
     if (!almacenesDeScope) return undefined;
     return almacenesScopeActual
-      .map((n) => {
-        const a = almacenes.find((x) => x.nombre === n);
-        return { value: n, label: a ? nombreCortoAlmacen(a, almacenes) : n };
-      })
+      .map((n) => ({ n, a: almacenes.find((x) => x.nombre === n) }))
+      /* Solo los ACTIVOS (12-10-2026). Los que se unificaron en septiembre quedaron
+         inactivos a propósito (los movimientos viejos los nombran) y el desplegable
+         los seguía ofreciendo: en Matanza salían DEPOSITO, Materias Primas, Papelería…
+         Un inactivo aparece solo si todavía tiene stock, marcado, para que nada quede
+         invisible hasta que se termine de vaciar. */
+      .filter(({ n, a }) => !a || a.estado === 'activo' || almacenesConStock.has(n))
+      .map(({ n, a }) => ({
+        value: n,
+        label: (a ? nombreCortoAlmacen(a, almacenes) : n) + (a && a.estado !== 'activo' ? ' (inactivo · con stock)' : ''),
+      }))
       .sort((x, y) => x.label.localeCompare(y.label, 'es'));
-  }, [almacenesDeScope, almacenesScopeActual, almacenes]);
+  }, [almacenesDeScope, almacenesScopeActual, almacenes, almacenesConStock]);
 
   // Almacén PRESELECCIONADO al registrar un movimiento (Entrada/Salida/…) dentro de una
   // sede/centro: prioriza el subalmacén filtrado; si no, el almacén de ESA sede donde el
