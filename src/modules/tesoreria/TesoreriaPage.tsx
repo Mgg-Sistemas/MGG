@@ -75,7 +75,7 @@ import {
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { listComprasDirectasCredito, getCompraDirectaByCajaMov, type CompraDirecta } from '@/modules/pedidos/compras.repository';
-import { cargarDirectosPorPagar, PagarDirectoModal, type DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
+import { cargarDirectosPorPagar, FacturasDirecto, PagarDirectoModal, type DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
 import { resumenDatosPago, DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { METODOS_CON_DATOS, type DatosPago } from '@/modules/pedidos/datosPago.repository';
 import type { Proveedor } from '@/shared/lib/types';
@@ -4352,7 +4352,11 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
                     {f.kind === 'compra' ? '🛒' : '🔧'} DIRECTO
                   </span>
                 </td>
-                <td>{f.titulo}{f.detalle ? <span className="muted"> · {f.detalle}</span> : null}</td>
+                <td>
+                  {f.titulo}{f.detalle ? <span className="muted"> · {f.detalle}</span> : null}
+                  {/* La factura se ve desde la lista, sin abrir la ventana de pago (12-10-2026). */}
+                  <FacturasDirecto fila={f} compacto />
+                </td>
                 <td className="muted" style={{ fontSize: '.78rem' }}>{f.generoPor}</td>
                 <td style={{ fontSize: '.78rem' }}>{f.categoria || '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{monto(f.total, f.moneda)}</td>

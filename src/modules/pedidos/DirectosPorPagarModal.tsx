@@ -4,6 +4,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { num, dosDecimales, dateTime } from '@/shared/lib/format';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
+import { textoDeError } from '@/shared/lib/errores';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import type { Caja, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
@@ -12,7 +13,7 @@ import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesore
 import { efectoTasaPago, explicacionTasaPago, montoQueCorresponde } from './tasaPagoDirecto';
 import { aPagarConRetencion, conceptoReembolsoDirecto, convertirRetencion, separarReembolso } from '@/modules/tesoreria/reembolsoPago';
 import {
-  listComprasPorPagar, pagarCompraDirecta, urlAdjuntoCompra, type CompraDirecta, type PagoLeg,
+  listComprasPorPagar, pagarCompraDirecta, urlAdjuntoCompra, type AdjuntoFactura, type CompraDirecta, type PagoLeg,
 } from './compras.repository';
 import {
   listServiciosPorPagar, pagarServicioDirecto, dejarServicioACredito, urlAdjuntoServicio, type ServicioDirecto,
@@ -40,6 +41,8 @@ export interface DirectoFila {
   pagoExternoDatos: string | null;
   adjuntoPath: string | null;
   adjuntoNombre: string | null;
+  /** TODAS las facturas adjuntas (PDF o imagen); adjuntoPath es solo la primera. */
+  facturas: AdjuntoFactura[];
   compra?: CompraDirecta;
   servicio?: ServicioDirecto;
 }
@@ -56,7 +59,7 @@ export async function cargarDirectosPorPagar(): Promise<DirectoFila[]> {
     total: Number(c.gasto) || 0, moneda: c.moneda === 'Bs' ? 'Bs' : 'USD', generoPor: c.actor_name || c.actor || '—',
     categoria: [c.gasto_categoria, c.gasto_subcategoria].filter(Boolean).join(' → '),
     pagoExterno: !!c.pago_externo, pagoExternoDatos: c.pago_externo_datos,
-    adjuntoPath: c.adjunto_path, adjuntoNombre: c.adjunto_nombre, compra: c,
+    adjuntoPath: c.adjunto_path, adjuntoNombre: c.adjunto_nombre, facturas: c.facturas ?? [], compra: c,
   }));
   const fs: DirectoFila[] = servicios.map((s) => ({
     kind: 'servicio', id: s.id, codigo: s.codigo ?? '—', titulo: s.descripcion,
@@ -64,9 +67,81 @@ export async function cargarDirectosPorPagar(): Promise<DirectoFila[]> {
     total: Number(s.gasto) || 0, moneda: s.moneda === 'Bs' ? 'Bs' : 'USD', generoPor: s.actor_name || s.actor || '—',
     categoria: [s.gasto_categoria, s.gasto_subcategoria].filter(Boolean).join(' → '),
     pagoExterno: !!s.pago_externo, pagoExternoDatos: s.pago_externo_datos,
-    adjuntoPath: s.adjunto_path, adjuntoNombre: s.adjunto_nombre, servicio: s,
+    adjuntoPath: s.adjunto_path, adjuntoNombre: s.adjunto_nombre, facturas: s.facturas ?? [], servicio: s,
   }));
   return [...fc, ...fs];
+}
+
+const esImagen = (f: AdjuntoFactura) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.filename || f.path);
+
+/**
+ * Las facturas de un directo, para verlas en Tesorería (12-10-2026).
+ *
+ * Antes la lista de pendientes no mostraba nada y la ventana de pago tenía un
+ * solo botón con la PRIMERA factura: la administradora reportó que «no se ve la
+ * factura cuando llega a Tesorería». Ahora salen TODAS, un botón por factura,
+ * y en la ventana de pago las imágenes se ven en miniatura sin hacer clic.
+ * `compacto` = solo los botones (para la fila de la lista).
+ */
+export function FacturasDirecto({ fila, compacto }: { fila: DirectoFila; compacto?: boolean }) {
+  const facturas: AdjuntoFactura[] = fila.facturas.length
+    ? fila.facturas
+    : (fila.adjuntoPath ? [{ path: fila.adjuntoPath, filename: fila.adjuntoNombre ?? 'factura', at: '' }] : []);
+  const [miniaturas, setMiniaturas] = useState<Record<string, string>>({});
+  const [abriendo, setAbriendo] = useState<string | null>(null);
+  const urlDe = (path: string) => (fila.kind === 'compra' ? urlAdjuntoCompra(path) : urlAdjuntoServicio(path));
+
+  // Miniaturas de las imágenes (solo en la ventana de pago): una URL firmada por factura.
+  useEffect(() => {
+    if (compacto) return;
+    let vivo = true;
+    (async () => {
+      const m: Record<string, string> = {};
+      for (const f of facturas.filter(esImagen)) {
+        try { m[f.path] = await urlDe(f.path); } catch { /* sin miniatura: queda el botón */ }
+      }
+      if (vivo) setMiniaturas(m);
+    })();
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fila.id, fila.kind, compacto]);
+
+  async function abrir(f: AdjuntoFactura) {
+    setAbriendo(f.path);
+    try { await previewFileUrl(await urlDe(f.path), f.filename || 'factura'); }
+    catch (e) { toast(`No se pudo abrir la factura: ${textoDeError(e, 'error desconocido')}`, 'error'); }
+    finally { setAbriendo(null); }
+  }
+
+  if (!facturas.length) {
+    return compacto
+      ? <span className="badge warning" style={{ fontSize: '.66rem' }} title="El analista no adjuntó la factura al montar la compra">Sin factura adjunta</span>
+      : <div className="aviso warning sm" style={{ marginTop: '.4rem' }}><span className="aviso-icono">⚠</span><div>Esta {fila.kind === 'compra' ? 'compra' : 'solicitud'} no tiene factura adjunta. El analista la agrega desde Compras → Directos → «Facturas».</div></div>;
+  }
+
+  return (
+    <div style={{ marginTop: compacto ? '.2rem' : '.4rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', alignItems: 'center' }}>
+        {facturas.map((f, i) => (
+          <button key={f.path} type="button" className="btn btn-sm btn-ghost" disabled={abriendo === f.path}
+            onClick={(e) => { e.stopPropagation(); void abrir(f); }}
+            title={f.filename}>
+            {abriendo === f.path ? 'Abriendo…' : `📎 ${facturas.length > 1 ? `Factura ${i + 1}/${facturas.length}` : 'Ver factura'}`}{!compacto && f.filename ? <span className="muted" style={{ fontWeight: 400 }}> · {f.filename.length > 28 ? f.filename.slice(0, 26) + '…' : f.filename}</span> : null}
+          </button>
+        ))}
+      </div>
+      {!compacto && Object.keys(miniaturas).length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', marginTop: '.4rem' }}>
+          {facturas.filter((f) => miniaturas[f.path]).map((f) => (
+            <button key={f.path} type="button" onClick={() => void abrir(f)} title={`Ampliar ${f.filename}`}
+              style={{ padding: 0, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface-2)', cursor: 'zoom-in', overflow: 'hidden' }}>
+              <img src={miniaturas[f.path]} alt={f.filename} style={{ display: 'block', maxHeight: 220, maxWidth: 320, objectFit: 'contain' }} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ───────── Modal: pagar UN directo (caja + multimoneda) ───────── */
@@ -366,15 +441,9 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
               {!aCredito && retencionMonto > 0 ? <> · a pagar <strong className="mono" style={{ color: 'var(--success)' }}>{montoCaja(aPagar, monedaBase)}</strong></> : null}
               {monedaBase === 'Bs' && tasaEff > 0 ? <span className="muted"> · ≈ {montoCaja(totalUsd, 'USD')}</span> : null}
             </span>
-            {fila.adjuntoPath && (
-              <button type="button" className="btn btn-sm btn-ghost" onClick={async () => {
-                try {
-                  const url = fila.kind === 'compra' ? await urlAdjuntoCompra(fila.adjuntoPath as string) : await urlAdjuntoServicio(fila.adjuntoPath as string);
-                  await previewFileUrl(url, fila.adjuntoNombre ?? 'factura');
-                } catch { toast('No se pudo abrir la factura', 'error'); }
-              }}>📎 Ver factura</button>
-            )}
           </div>
+          {/* Las facturas (todas) con miniatura: lo que Tesorería tiene que ver antes de pagar. */}
+          <FacturasDirecto fila={fila} />
         </div>
 
         {esServicio && (
