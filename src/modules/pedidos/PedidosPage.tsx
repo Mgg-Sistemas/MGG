@@ -4674,6 +4674,13 @@ function CrearOrdenModal({
       toast('Marcá al menos un artículo a comprar', 'error');
       return;
     }
+    // La nota es obligatoria (12-10-2026, pedido de la administradora): es lo que
+    // Tesorería lee al pagar para saber qué es y para quién. Se lee del DOM, como el resto.
+    if (!(notaRef.current?.value ?? notaOp).trim()) {
+      toast('Escribe la nota del analista: qué se pide y para quién. Tesorería la ve al pagar.', 'error');
+      notaRef.current?.focus();
+      return;
+    }
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
@@ -5019,13 +5026,15 @@ function CrearOrdenModal({
       </label>
 
       <div className="form-row">
-        <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        <label>Nota del analista <span style={{ color: 'var(--danger)' }}>*</span> <span className="muted" style={{ fontWeight: 400 }}>· la ve Tesorería al pagar</span></label>
         {/* `defaultValue=""` borraba la nota en cada edición: el guardado lee el
             DOM, así que el campo vacío se escribía sobre lo que había. La nota
-            suele traer el respaldo de quién pidió el material. */}
+            suele traer el respaldo de quién pidió el material. Obligatoria desde
+            el 12-10-2026: Tesorería paga sabiendo qué es y para quién. */}
         <textarea
           className="textarea"
-          placeholder="Cualquier observación o aclaratoria sobre la solicitud (opcional)…"
+          required
+          placeholder="Qué se pide y para quién, ej.: equipo switch solicitado por Joel, técnico de las cámaras, para el cableado de las oficinas nuevas"
           ref={notaRef}
           defaultValue={orden?.notas ?? ''}
           onChange={(e) => setNotaOp(e.target.value)}

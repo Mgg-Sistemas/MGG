@@ -4316,7 +4316,13 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
                   )}
                 </td>
                 <td className="mono">{r.orden.codigo}</td>
-                <td>{r.proveedorNombre}</td>
+                <td>
+                  {r.proveedorNombre}
+                  {/* La nota del analista se ve desde la lista (12-10-2026): obligatoria en la SP. */}
+                  {r.orden.notas?.trim() && (
+                    <div style={{ marginTop: '.3rem', padding: '.3rem .5rem', borderLeft: '3px solid var(--brand, #ff8a00)', background: 'rgba(255,138,0,.08)', fontSize: '.76rem', whiteSpace: 'normal' }}>📝 <strong>Nota del analista:</strong> {r.orden.notas}</div>
+                  )}
+                </td>
                 <td style={{ fontSize: '.78rem' }}>
                   {labelCondicionPago(r.orden.condiciones_pago)}
                   {r.esperandoMetodo && <div><span className="badge warning" style={{ fontSize: '.66rem', marginTop: '.2rem' }}>⏳ Esperando método de pago</span></div>}
@@ -4532,7 +4538,7 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
                               <div><span className="muted">Unidad solicitante:</span> {o.solicitante || '—'}</div>
                               <div><span className="muted">Solicitante:</span> {o.ci_solicitante || o.solicitante_email || '—'}</div>
                               <div style={{ gridColumn: '1 / -1' }}><span className="muted">Finalidad:</span> {finalidadDe(o)}</div>
-                              {o.notas && <div style={{ gridColumn: '1 / -1' }}><span className="muted">Notas:</span> {o.notas}</div>}
+                              {o.notas && <div style={{ gridColumn: '1 / -1', ...{ marginTop: '.3rem', padding: '.3rem .5rem', borderLeft: '3px solid var(--brand, #ff8a00)', background: 'rgba(255,138,0,.08)', fontSize: '.76rem', whiteSpace: 'normal' } }}>📝 <strong>Nota del analista:</strong> {o.notas}</div>}
                             </div>
                             <table className="table" style={{ fontSize: '.76rem' }}>
                               <thead><tr><th>SKU</th><th>Producto</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th><th style={{ textAlign: 'right' }}>Subtotal</th></tr></thead>
@@ -6344,7 +6350,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
               </span>
             </div>
             {resumenFinalidad && <div style={{ gridColumn: '1 / -1' }}><span className="muted">Finalidad:</span> {resumenFinalidad}</div>}
-            {o.notas && <div style={{ gridColumn: '1 / -1' }}><span className="muted">Notas:</span> {o.notas}</div>}
+            {o.notas && <div style={{ gridColumn: '1 / -1', ...{ marginTop: '.3rem', padding: '.3rem .5rem', borderLeft: '3px solid var(--brand, #ff8a00)', background: 'rgba(255,138,0,.08)', fontSize: '.84rem', whiteSpace: 'normal' } }}>📝 <strong>Nota del analista:</strong> {o.notas}</div>}
             {o.motivo && o.motivo !== o.notas && <div style={{ gridColumn: '1 / -1' }}><span className="muted">Motivo:</span> {o.motivo}</div>}
           </div>
         </div>
