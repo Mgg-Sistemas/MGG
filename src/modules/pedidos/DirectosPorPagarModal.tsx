@@ -5,6 +5,7 @@ import { notify } from '@/shared/lib/notify';
 import { num, dosDecimales, dateTime } from '@/shared/lib/format';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { textoDeError } from '@/shared/lib/errores';
+import { textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import type { Caja, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
@@ -424,6 +425,8 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           <div><strong>{fila.titulo}</strong>{fila.detalle ? <span className="muted"> · {fila.detalle}</span> : null}</div>
           {fila.categoria && <div className="muted" style={{ fontSize: '.78rem' }}>{fila.categoria}</div>}
           <div className="muted" style={{ fontSize: '.78rem' }}>Montó: {fila.generoPor}</div>
+          {/* Qué se compró o qué servicio es, renglón por renglón (12-10-2026): Tesorería paga sabiendo qué paga. */}
+          <ItemsDirecto fila={fila} />
           {fila.pagoExterno && (
             <div style={{ marginTop: '.4rem', padding: '.5rem .6rem', borderLeft: '3px solid var(--danger, #e5484d)', background: 'rgba(229,72,77,.1)', fontSize: '.82rem' }}>
               💳 <strong>Pago a externo — este pago REINTEGRA el dinero a la persona externa que ya pagó.</strong>
@@ -670,5 +673,41 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>Montado el {fila.kind === 'compra' ? dateTime(fila.compra?.updated_at ?? '') : dateTime(fila.servicio?.updated_at ?? '')}.</div>
       </form>
     </Modal>
+  );
+}
+
+/**
+ * Los renglones de una compra o un servicio directo: nombre, cantidad y monto.
+ * Es lo que Tesorería necesita ver antes de pagar «3 materiales» o «3 servicios».
+ */
+export function ItemsDirecto({ fila }: { fila: DirectoFila }) {
+  const moneda = fila.moneda || 'USD';
+  const filas: { nombre: string; cantidad: string; monto: number | null }[] = fila.kind === 'compra'
+    ? (fila.compra?.items ?? []).map((it) => ({
+      nombre: `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}${it.marca_recibida ? ` · ${it.marca_recibida}` : ''}`,
+      cantidad: usaUnidadCompra(it) ? textoCantidadCompra(it, Number(it.cantidad) || 0) : `${num(Number(it.cantidad) || 0)}${it.unidad ? ` ${it.unidad}` : ''}`,
+      monto: it.gasto ?? null,
+    }))
+    : (fila.servicio?.items ?? []).map((it) => ({
+      nombre: `${it.descripcion}${it.producto_nombre ? ` · repuesto: ${it.producto_nombre}${it.producto_cantidad ? ` ×${num(Number(it.producto_cantidad))}` : ''}` : ''}`,
+      cantidad: it.bombonas || it.kg_recarga ? [it.bombonas ? `${num(Number(it.bombonas))} bombona(s)` : '', it.kg_recarga ? `${num(Number(it.kg_recarga))} kg` : ''].filter(Boolean).join(' · ') : num(Number(it.cantidad) || 0),
+      monto: it.gasto ?? null,
+    }));
+  if (!filas.length) return null;
+  return (
+    <div className="table-wrap" style={{ marginTop: '.45rem' }}>
+      <table className="table" style={{ fontSize: '.78rem' }}>
+        <thead><tr><th>{fila.kind === 'compra' ? 'Material' : 'Servicio'}</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+        <tbody>
+          {filas.map((r, i) => (
+            <tr key={i}>
+              <td>{r.nombre}</td>
+              <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{r.cantidad}</td>
+              <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{r.monto != null ? montoCaja(Number(r.monto), moneda) : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

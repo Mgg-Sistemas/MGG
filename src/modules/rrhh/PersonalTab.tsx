@@ -1547,7 +1547,7 @@ function CarnetModal({ persona, onClose }: { persona: Personal; onClose: () => v
     let urls: string[] = [];
     let vivo = true;
     setFrente(null); setReverso(null); setError(null);
-    Promise.all([generarFrenteBlob(persona, tema), generarReversoBlob(persona, tema)])
+    Promise.all([generarFrenteBlob(persona, tema), generarReversoBlob(tema)])
       .then(([bf, br]) => {
         if (!vivo) return;
         const uf = URL.createObjectURL(bf);
