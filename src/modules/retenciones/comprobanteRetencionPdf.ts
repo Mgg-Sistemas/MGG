@@ -27,6 +27,21 @@ function fecha(iso: string | null | undefined): string {
   return y && m && d ? `${d}/${m}/${y}` : '—';
 }
 
+/** Las dos partes del comprobante, renglón por renglón: el agente que retiene y el sujeto retenido. */
+export function partesComprobante(r: RetencionPracticada, config: ConfigRetencion): { agente: string[]; sujeto: string[] } {
+  const empresa = [
+    config.razonSocial || 'Mineral Group Guayana C.A.',
+    `RIF: ${config.rif || '—'}`,
+    config.direccionFiscal || '',
+    [config.municipio, config.estado].filter(Boolean).join(' · '),
+  ].filter(Boolean);
+  const contraparte = [r.contraparteNombre || '—', `RIF: ${r.contraparteRif || '—'}`];
+  // Nos la practicaron: el agente es quien nos retuvo y el sujeto retenido es la empresa.
+  if (r.direccion === 'recibida') return { agente: contraparte, sujeto: empresa };
+  const sujeto = r.contraparteSujeto ? [...contraparte, labelSujeto(r.contraparteSujeto)] : contraparte;
+  return { agente: empresa, sujeto };
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function verComprobanteRetencionPdf(r: RetencionPracticada, config: ConfigRetencion): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
@@ -68,22 +83,11 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
 
   // ── Agente y sujeto retenido ──
   doc.setTextColor(0, 0, 0);
+  const partes = partesComprobante(r, config);
   autoTable(doc, {
     startY: y,
     head: [[textoPdf('AGENTE DE RETENCIÓN'), textoPdf('SUJETO RETENIDO')]],
-    body: [[
-      textoPdf([
-        config.razonSocial || 'Mineral Group Guayana C.A.',
-        `RIF: ${config.rif || '—'}`,
-        config.direccionFiscal || '',
-        [config.municipio, config.estado].filter(Boolean).join(' · '),
-      ].filter(Boolean).join('\n')),
-      textoPdf([
-        r.contraparteNombre || '—',
-        `RIF: ${r.contraparteRif || '—'}`,
-        r.contraparteSujeto ? labelSujeto(r.contraparteSujeto) : '',
-      ].filter(Boolean).join('\n')),
-    ]],
+    body: [[textoPdf(partes.agente.join('\n')), textoPdf(partes.sujeto.join('\n'))]],
     styles: { fontSize: 8.5, cellPadding: 6, overflow: 'linebreak', valign: 'top' },
     headStyles: { fillColor: [235, 235, 235], textColor: [20, 20, 20], fontStyle: 'bold', fontSize: 8 },
     columnStyles: { 0: { cellWidth: (W - MARGIN * 2) / 2 }, 1: { cellWidth: (W - MARGIN * 2) / 2 } },
