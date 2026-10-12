@@ -626,7 +626,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '1 1 140px' }}>
           <label>N° de factura</label>
-          <input className="input mono" value={facturaNumero} onChange={(e) => setFacturaNumero(e.target.value)} placeholder="El de la factura, no el de la OC" />
+          <input className="input mono" value={facturaNumero} onChange={(e) => setFacturaNumero(e.target.value)} placeholder="Número fiscal (no el código de la OC)" />
         </div>
         <div className="form-row" style={{ flex: '1 1 130px' }}>
           <label>N° de control</label>

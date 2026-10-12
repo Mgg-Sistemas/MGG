@@ -4,8 +4,8 @@ import { faltaEnLaCarga } from './validarCarga';
 describe('lo que la carga exige antes de registrar', () => {
   it('sin N° de factura no se registra una retención de IVA, ISLR o municipal', () => {
     for (const tipo of ['iva', 'islr', 'municipal', 'regional'] as const) {
-      expect(faltaEnLaCarga({ tipo, facturaNumero: '' })).toContain('N° de la factura');
-      expect(faltaEnLaCarga({ tipo, facturaNumero: '   ' })).toContain('N° de la factura');
+      expect(faltaEnLaCarga({ tipo, facturaNumero: '' })).toContain('N° de factura requerido');
+      expect(faltaEnLaCarga({ tipo, facturaNumero: '   ' })).toContain('N° de factura requerido');
     }
   });
 
