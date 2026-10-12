@@ -12,6 +12,6 @@ export function faltaEnLaCarga(c: { tipo: TipoImpuesto; facturaNumero: string; f
   if (c.tipo !== 'igtf' && !c.facturaNumero.trim()) {
     return 'N° de factura requerido (el número fiscal, no el código de la OC): figura en el comprobante y en el libro.';
   }
-  if (!FECHA.test(c.facturaFecha.trim())) return 'Poné la fecha de la factura: de ella salen el período y la quincena.';
+  if (!FECHA.test(c.facturaFecha.trim())) return 'Fecha de la factura requerida: determina el período y la quincena.';
   return null;
 }
