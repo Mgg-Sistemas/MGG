@@ -436,7 +436,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     setError(null);
     if (montoFinal <= 0) { setError(esManual ? 'Cargá el monto que dice el comprobante.' : calculo.explicacion); return; }
     if (esManual && !contraparte.trim()) { setError('Poné quién practicó la retención.'); return; }
-    const falta = faltaEnLaCarga({ tipo, facturaNumero }); if (falta) { setError(falta); return; }
+    const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
     setSaving(true);
     try {
       const periodo = periodoDe(facturaFecha);
