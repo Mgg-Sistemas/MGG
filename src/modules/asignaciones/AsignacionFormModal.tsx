@@ -25,7 +25,13 @@ import { numeroFicha } from '@/modules/rrhh/fichaPersonal';
 import {
   TIPOS_ASIGNACION, GRUPOS_ASIGNACION, tiposDelGrupo, definicionTipo, errorRenglones, retornablePorDefecto,
 } from './asignaciones';
-import type { AsignacionInput } from './asignaciones.repository';
+import { MAX_FOTOS_ACTA, cedulaConPuntos, entregaPorDefecto, errorFotosActa, errorNumeroActa, siguienteNumeroActa } from './actas';
+import type { AsignacionInput, DatosActaEntrega } from './asignaciones.repository';
+
+/** Quién entregó la última vez, para proponerlo la próxima (por navegador). */
+const CLAVE_ULTIMA_ENTREGA = 'mgg.asignaciones.entrega';
+function leerUltimaEntrega(): string | null { try { return localStorage.getItem(CLAVE_ULTIMA_ENTREGA); } catch { return null; } }
+function guardarUltimaEntrega(id: string): void { try { localStorage.setItem(CLAVE_ULTIMA_ENTREGA, id); } catch { /* sin memoria, igual sirve */ } }
 
 /** Hoy en formato yyyy-mm-dd, para que la fecha arranque puesta. */
 function hoyIso(): string {
@@ -89,18 +95,32 @@ function renglonDe(a: Asignacion): Renglon {
 }
 
 export function AsignacionFormModal({
-  editando, personal, productos, existencias, guardando, onGuardar, onClose,
+  editando, personal, productos, existencias, guardando, actasNumeros = [], actasSinInstalar = false, onGuardar, onClose,
 }: {
   editando: Asignacion | null;
   personal: Personal[];
   productos: Producto[];
   existencias: Existencia[];
   guardando: boolean;
-  onGuardar: (inputs: AsignacionInput[]) => void;
+  /** Los números de acta que ya existen: para mostrar cuál toca. */
+  actasNumeros?: string[];
+  /** La tabla de actas todavía no está en la base. */
+  actasSinInstalar?: boolean;
+  /** Al corregir, `acta` llega null: se edita un solo ítem y el acta no se toca. */
+  onGuardar: (inputs: AsignacionInput[], acta: DatosActaEntrega | null) => void;
   onClose: () => void;
 }) {
   const [personalId, setPersonalId] = useState(editando?.personal_id ?? '');
   const [fecha, setFecha] = useState(editando?.fecha_asignacion ?? hoyIso());
+  // El acta de entrega (12-10-2026): quién entrega por la empresa, el número y las fotos del anexo.
+  const [entregaId, setEntregaId] = useState(() => entregaPorDefecto(personal, leerUltimaEntrega()));
+  const [numeroActa, setNumeroActa] = useState('');
+  const [fotos, setFotos] = useState<File[]>([]);
+  const vistasFotos = useMemo(() => fotos.map((f) => ({ f, url: URL.createObjectURL(f) })), [fotos]);
+  useEffect(() => () => { vistasFotos.forEach((v) => URL.revokeObjectURL(v.url)); }, [vistasFotos]);
+  const anioEntrega = Number((fecha || hoyIso()).slice(0, 4)) || new Date().getFullYear();
+  const proximoNumero = useMemo(() => siguienteNumeroActa(actasNumeros, anioEntrega), [actasNumeros, anioEntrega]);
+  const entrega = personal.find((p) => p.id === entregaId) ?? null;
   const [historico, setHistorico] = useState(editando?.historico ?? false);
   const [observaciones, setObservaciones] = useState(editando?.observaciones ?? '');
   const [renglones, setRenglones] = useState<Renglon[]>(
@@ -202,6 +222,13 @@ export function AsignacionFormModal({
     const sinVehiculo = renglones.find((r) => definicionTipo(r.tipo)?.pidePlaca && !r.vehiculoId);
     if (sinVehiculo) { setError('Elegí el vehículo del catálogo (o agregalo con 🚗 Catálogo).'); return; }
 
+    if (!editando) {
+      const malNumero = errorNumeroActa(numeroActa);
+      if (malNumero) { setError(malNumero); return; }
+      const malFotos = errorFotosActa(fotos);
+      if (malFotos) { setError(malFotos); return; }
+    }
+
     for (let i = 0; i < renglones.length; i += 1) {
       const r = renglones[i];
       if (!r.delInventario) continue;
@@ -218,7 +245,18 @@ export function AsignacionFormModal({
       }
     }
 
-    onGuardar(inputs);
+    if (editando) { onGuardar(inputs, null); return; }
+    if (entregaId) guardarUltimaEntrega(entregaId);
+    onGuardar(inputs, { entrega, numero: numeroActa.trim(), fotos });
+  }
+
+  function agregarFotos(lista: FileList | null) {
+    const nuevas = Array.from(lista ?? []);
+    if (!nuevas.length) return;
+    const mal = errorFotosActa(nuevas, fotos.length);
+    if (mal) { setError(mal); return; }
+    setError(null);
+    setFotos((fs) => [...fs, ...nuevas].slice(0, MAX_FOTOS_ACTA));
   }
 
   const titulo = editando
@@ -251,9 +289,33 @@ export function AsignacionFormModal({
             sinPreseleccion
           />
         </div>
-        <div className="form-row" style={{ maxWidth: 220 }}>
-          <label>Fecha de la entrega *</label>
-          <input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-start' }}>
+          <div className="form-row" style={{ flex: '0 1 200px' }}>
+            <label>Fecha de la entrega *</label>
+            <input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+          </div>
+          {!editando && (
+            <>
+              <div className="form-row" style={{ flex: '2 1 260px' }}>
+                <label>Entrega por la empresa</label>
+                <SearchSelect
+                  options={opcionesPersonal}
+                  value={entregaId}
+                  onChange={setEntregaId}
+                  placeholder="🔍 Quién firma la entrega (Gerente General…)"
+                  sinPreseleccion
+                />
+                <small className="hint muted" style={{ fontSize: '.74rem' }}>
+                  {entrega ? `Va en el acta como ${entrega.nombre} ${entrega.apellido ?? ''}${entrega.cedula ? `, C.I. ${cedulaConPuntos(entrega.cedula)}` : ''}${entrega.cargo ? `, ${entrega.cargo}` : ''}.` : 'Quien suscribe el acta: su nombre, cédula y cargo salen de su ficha de RRHH.'}
+                </small>
+              </div>
+              <div className="form-row" style={{ flex: '0 1 170px' }}>
+                <label>N° de acta</label>
+                <input className="input mono" value={numeroActa} onChange={(e) => setNumeroActa(e.target.value)} placeholder={actasSinInstalar ? '—' : proximoNumero} disabled={actasSinInstalar} />
+                <small className="hint muted" style={{ fontSize: '.74rem' }}>{actasSinInstalar ? 'Falta instalar las actas en la base.' : `Vacío = ${proximoNumero}. Escríbelo solo para una carga vieja del Drive (026-2026).`}</small>
+              </div>
+            </>
+          )}
         </div>
 
         {/* ── Los ítems ── */}
@@ -407,8 +469,36 @@ export function AsignacionFormModal({
         <div className="form-row" style={{ marginTop: '.6rem' }}>
           <label>Observación</label>
           <textarea className="textarea" rows={2} value={observaciones} onChange={(e) => setObservaciones(e.target.value)}
-            placeholder="Estado de los equipos al entregarlos, accesorios incluidos…" />
+            placeholder="Para qué se entrega, estado de los equipos, accesorios incluidos… (va en el acta)" />
         </div>
+
+        {!editando && !actasSinInstalar && (
+          <div className="card" style={{ padding: '.7rem', marginTop: '.6rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: '.85rem' }}>📷 Anexo fotográfico</strong>
+              <span className="hint muted" style={{ fontSize: '.76rem' }}>· la foto de lo entregado, hasta {MAX_FOTOS_ACTA}; va en la segunda hoja del acta. Se pueden agregar después.</span>
+              {fotos.length < MAX_FOTOS_ACTA && (
+                <label className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto', cursor: 'pointer' }}>
+                  + Fotos
+                  <input type="file" accept="image/*" multiple hidden onChange={(e) => { agregarFotos(e.target.files); e.target.value = ''; }} />
+                </label>
+              )}
+            </div>
+            {!!vistasFotos.length && (
+              <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginTop: '.5rem' }}>
+                {vistasFotos.map((v, i) => (
+                  <div key={v.url} style={{ width: 120, fontSize: '.7rem' }}>
+                    <img src={v.url} alt={v.f.name} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--border)' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
+                      <span className="muted" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={v.f.name}>{v.f.name}</span>
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', color: 'var(--danger)' }} title="Quitar" onClick={() => setFotos((fs) => fs.filter((_, j) => j !== i))}>🗑</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {error && <p style={{ color: 'var(--danger)', margin: '.5rem 0 0', fontSize: '.85rem' }}>{error}</p>}
       </form>

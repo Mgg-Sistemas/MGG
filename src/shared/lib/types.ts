@@ -2216,6 +2216,8 @@ export interface Asignacion {
   vehiculo_id?: string | null;
   /** Vigencia de la autorización de circulación (vacío = hasta la devolución). */
   autorizacion_hasta?: string | null;
+  /** El acta de entrega numerada que agrupa los ítems de una misma entrega (12-10-2026). */
+  acta_id?: string | null;
   creado_por?: string | null;
   actor_name?: string | null;
   created_at: string;

@@ -17,8 +17,11 @@
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import type { Asignacion } from '@/shared/lib/types';
+import type { Asignacion, Personal } from '@/shared/lib/types';
 import { descuentaInventario, reingresaAlInventario, type EstadoAsignacion } from './asignaciones';
+import {
+  crearActa, eliminarActa, eliminarActaSiVacia, esTablaFaltante, subirFotosActa, type ActaAsignacion,
+} from './actas.repository';
 
 const TABLE = 'asignaciones';
 
@@ -40,6 +43,8 @@ export interface AsignacionInput {
   vehiculo_id?: string | null;
   /** Hasta cuándo vale la autorización de circulación (opcional). */
   autorizacion_hasta?: string | null;
+  /** El acta de entrega que agrupa esta tanda (la pone `crearEntrega`). */
+  acta_id?: string | null;
 }
 
 /**
@@ -153,6 +158,8 @@ export async function crearAsignacion(
     observaciones: (input.observaciones ?? '').trim() || null,
     vehiculo_id: input.vehiculo_id || null,
     autorizacion_hasta: input.autorizacion_hasta || null,
+    // Solo se manda cuando hay acta: si la columna aún no existe (falta el SQL), el insert sigue andando.
+    ...(input.acta_id ? { acta_id: input.acta_id } : {}),
     creado_por: a.actor,
     actor_name: a.actorName ?? null,
   }).select('*').single();
@@ -211,6 +218,59 @@ export async function crearAsignaciones(
     }
   }
   return { creadas, fallidas };
+}
+
+/** Lo que el formulario sabe del acta de una entrega nueva. */
+export interface DatosActaEntrega {
+  /** Quién entrega por la empresa (ficha de RRHH). */
+  entrega: Personal | null;
+  /** Vacío = el siguiente del año. */
+  numero: string;
+  /** Fotos del anexo fotográfico (máx. 4). */
+  fotos: File[];
+}
+
+export interface ResultadoEntrega extends ResultadoLote {
+  acta: ActaAsignacion | null;
+  /** Algo del acta no se pudo (la tabla no está instalada, una foto no subió): los ítems sí entraron. */
+  avisoActa?: string;
+}
+
+/**
+ * Registra una ENTREGA completa: el acta numerada y sus ítems.
+ *
+ * El acta se crea primero —es la que da el número— y los ítems quedan
+ * colgados de ella. Si ningún ítem entra, el acta se borra: un acta sin
+ * nada entregado sería un número gastado en vano. Si falta instalar la
+ * tabla de actas, los ítems se registran igual (sin acta) y se avisa: la
+ * entrega no se frena por un papel.
+ */
+export async function crearEntrega(
+  inputs: readonly AsignacionInput[], datos: DatosActaEntrega, quien: string, a: Actor,
+): Promise<ResultadoEntrega> {
+  let acta: ActaAsignacion | null = null;
+  let avisoActa: string | undefined;
+  const primero = inputs[0];
+  if (primero) {
+    try {
+      acta = await crearActa({
+        numero: datos.numero, fecha: primero.fecha_asignacion, personal_id: primero.personal_id,
+        entrega: datos.entrega, observaciones: primero.observaciones, historico: primero.historico,
+      }, a);
+    } catch (e) {
+      if (!esTablaFaltante(e)) throw e;
+      avisoActa = 'Los ítems se registraron SIN acta: falta ejecutar supabase/sql/asignaciones-actas.sql en la base.';
+    }
+  }
+  const res = await crearAsignaciones(inputs.map((i) => ({ ...i, acta_id: acta?.id ?? null })), quien, a);
+  if (acta && !res.creadas.length) {
+    await eliminarActa(acta).catch(() => undefined);
+    acta = null;
+  } else if (acta && datos.fotos.length) {
+    try { acta = await subirFotosActa(acta, datos.fotos); }
+    catch (e) { avisoActa = `El acta quedó registrada pero las fotos no subieron: ${e instanceof Error ? e.message : 'error al subir'}`; }
+  }
+  return { ...res, acta, avisoActa };
 }
 
 /**
@@ -340,4 +400,6 @@ export async function eliminarAsignacion(id: string, quien: string, a: Actor): P
 
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
+  // Si era el último ítem de su acta, el acta se va con sus fotos: un acta vacía no es nada.
+  if (fila?.acta_id) await eliminarActaSiVacia(fila.acta_id).catch(() => undefined);
 }

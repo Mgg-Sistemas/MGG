@@ -29,9 +29,11 @@ import {
   type EstadoAsignacion, type FiltroAsignaciones,
 } from './asignaciones';
 import {
-  actualizarAsignacion, crearAsignaciones, devolverAsignacion, eliminarAsignacion,
-  listAsignaciones, reabrirAsignacion, type AsignacionInput,
+  actualizarAsignacion, crearEntrega, devolverAsignacion, eliminarAsignacion,
+  listAsignaciones, reabrirAsignacion, type AsignacionInput, type DatosActaEntrega,
 } from './asignaciones.repository';
+import { esTablaFaltante, listActas, type ActaAsignacion } from './actas.repository';
+import { ActaModal } from './ActaModal';
 import { AsignacionFormModal } from './AsignacionFormModal';
 import { verConsolidadoAsignacionesPdf, verHistorialAsignacionesPdf } from './asignacionesPdf';
 import { listVehiculos, type Vehiculo } from './vehiculos.repository';
@@ -78,20 +80,32 @@ export function AsignacionesPage() {
   const [porReabrir, setPorReabrir] = useState<Asignacion | null>(null);
   const [verLista, setVerLista] = useState<'pendientes' | 'personas' | null>(null);
   const [historialDe, setHistorialDe] = useState<Personal | null>(null);
+  // Actas de entrega (12-10-2026): la carta numerada que se firmaba desde el Drive.
+  const [actas, setActas] = useState<ActaAsignacion[]>([]);
+  const [actasSinInstalar, setActasSinInstalar] = useState(false);
+  const [verActa, setVerActa] = useState<ActaAsignacion | null>(null);
 
   const recargar = useCallback(async () => {
     setLoading(true);
-    const [as, ps, pr, ex] = await Promise.all([
+    const [as, ps, pr, ex, ac] = await Promise.all([
       listAsignaciones().catch((e) => { toast(e instanceof Error ? e.message : 'No se pudieron cargar las asignaciones', 'error'); return [] as Asignacion[]; }),
       listPersonal().catch(() => [] as Personal[]),
       listProductos().catch(() => [] as Producto[]),
       listExistencias().catch(() => [] as Existencia[]),
+      listActas().catch((e) => { if (esTablaFaltante(e)) setActasSinInstalar(true); return [] as ActaAsignacion[]; }),
     ]);
-    setLista(as); setPersonal(ps); setProductos(pr); setExistencias(ex);
+    setLista(as); setPersonal(ps); setProductos(pr); setExistencias(ex); setActas(ac);
+    if (ac.length) setActasSinInstalar(false);
     setLoading(false);
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
-  useRealtime(['asignaciones', 'personal', 'existencias'], () => { void recargar(); });
+  useRealtime(['asignaciones', 'asignaciones_actas', 'personal', 'existencias'], () => { void recargar(); });
+
+  const actaPorId = useMemo(() => new Map(actas.map((a) => [a.id, a])), [actas]);
+  const actasNumeros = useMemo(() => actas.map((a) => a.numero), [actas]);
+  // La ventana del acta se refresca sola cuando llega un cambio (realtime o propio).
+  useEffect(() => { if (verActa) { const n = actaPorId.get(verActa.id); if (n && n !== verActa) setVerActa(n); } }, [actaPorId, verActa]);
+  const itemsDeActa = useCallback((actaId: string) => lista.filter((a) => a.acta_id === actaId), [lista]);
 
   const personaPorId = useMemo(() => new Map(personal.map((p) => [p.id, p])), [personal]);
   const nombreDe = useCallback((id: string | null | undefined) => {
@@ -113,7 +127,7 @@ export function AsignacionesPage() {
 
   const rangos = useMemo(() => rangosRapidos(), []);
 
-  async function guardar(inputs: AsignacionInput[]) {
+  async function guardar(inputs: AsignacionInput[], datosActa: DatosActaEntrega | null) {
     if (!inputs.length) return;
     setGuardando(true);
     try {
@@ -125,11 +139,16 @@ export function AsignacionesPage() {
         toast('Asignación corregida', 'success');
         setForm(null);
       } else {
-        const { creadas, fallidas } = await crearAsignaciones(inputs, quien, { actor, actorName });
+        const { creadas, fallidas, acta, avisoActa } = await crearEntrega(
+          inputs, datosActa ?? { entrega: null, numero: '', fotos: [] }, quien, { actor, actorName },
+        );
         // Una tanda puede salir a medias: lo que ya entró movió inventario y
         // está bien. Se dice qué entró y qué no, en vez de un «error» pelado.
-        toast(resumenLote(creadas.length, fallidas), fallidas.length ? 'warning' : 'success');
+        toast(acta && !fallidas.length ? `${resumenLote(creadas.length, fallidas)} · acta ${acta.numero}` : resumenLote(creadas.length, fallidas), fallidas.length ? 'warning' : 'success');
+        if (avisoActa) toast(avisoActa, 'warning');
         if (!fallidas.length) setForm(null);
+        // El acta se abre de una: lo siguiente es imprimirla y firmarla.
+        if (acta && !fallidas.length) setVerActa(acta);
       }
       await recargar();
     } catch (e) {
@@ -185,6 +204,16 @@ export function AsignacionesPage() {
           </p>
         </div>
       </div>
+
+      {actasSinInstalar && (
+        <div className="aviso warning" style={{ marginBottom: '1rem' }}>
+          <span className="aviso-icono">⚠</span>
+          <div>
+            <strong>Las actas de entrega todavía no están instaladas en la base.</strong> Hay que ejecutar
+            <code> supabase/sql/asignaciones-actas.sql</code> en el editor SQL de Supabase y recargar. Mientras, las asignaciones se registran sin número de acta ni fotos.
+          </div>
+        </div>
+      )}
 
       {/* ── Las tres tarjetas ── */}
       <div className="cards-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '.75rem', marginBottom: '1rem' }}>
@@ -329,6 +358,7 @@ export function AsignacionesPage() {
           <thead>
             <tr>
               <th>Fecha</th>
+              <th>Acta</th>
               <th>Trabajador</th>
               <th>Tipo</th>
               <th>Lo asignado</th>
@@ -341,9 +371,20 @@ export function AsignacionesPage() {
             {visibles.map((a) => {
               const persona = personaPorId.get(a.personal_id) ?? null;
               const pendiente = estaPendiente(a);
+              const acta = a.acta_id ? actaPorId.get(a.acta_id) ?? null : null;
               return (
                 <tr key={a.id}>
                   <td>{date(a.fecha_asignacion)}</td>
+                  <td>
+                    {acta
+                      ? (
+                        <button type="button" className="btn btn-sm btn-ghost mono" style={{ padding: '0 .35rem' }} onClick={() => setVerActa(acta)}
+                          title={`Acta de entrega ${acta.numero}: ver, imprimir, fotos y acta firmada`}>
+                          {acta.numero}{acta.firmada_path ? ' ✔' : ''}{acta.fotos.length ? ` 📷${acta.fotos.length}` : ''}
+                        </button>
+                      )
+                      : <span className="muted">—</span>}
+                  </td>
                   <td>
                     {nombreDe(a.personal_id)}
                     {persona?.numero_ficha && (
@@ -374,6 +415,10 @@ export function AsignacionesPage() {
                     )}
                   </td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {acta && (
+                      <button className="btn btn-icon btn-ghost" title="Acta de entrega en PDF (la carta para firmar con huella) y su anexo fotográfico"
+                        onClick={() => setVerActa(acta)}>📝</button>
+                    )}
                     {a.tipo === 'vehiculo' && (
                       <button className="btn btn-icon btn-ghost" title="Autorización de circulación en PDF (para firmar y llevar en el vehículo)"
                         onClick={() => void verAutorizacion(a)}>🪪</button>
@@ -417,9 +462,16 @@ export function AsignacionesPage() {
           productos={productos}
           existencias={existencias}
           guardando={guardando}
-          onGuardar={(input) => void guardar(input)}
+          actasNumeros={actasNumeros}
+          actasSinInstalar={actasSinInstalar}
+          onGuardar={(input, datosActa) => void guardar(input, datosActa)}
           onClose={() => setForm(null)}
         />
+      )}
+
+      {verActa && (
+        <ActaModal acta={verActa} items={itemsDeActa(verActa.id)} personal={personal} canWrite={canWrite} actor={actor}
+          onClose={() => setVerActa(null)} onChanged={recargar} />
       )}
 
       {devolviendo && (
