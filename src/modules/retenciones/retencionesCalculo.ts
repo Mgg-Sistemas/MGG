@@ -130,7 +130,7 @@ export interface MotivosIvaCien {
   ivaNoDiscriminado?: boolean;
   /** La factura no cumple los requisitos de la normativa de facturación. */
   facturaNoCumple?: boolean;
-  /** El proveedor no está inscrito en el RIF, o sus datos no coinciden. */
+  /** El Portal Fiscal lo marca sujeto a retención del 100%, o no está inscrito en el RIF. */
   proveedorNoInscrito?: boolean;
   /** El proveedor no está domiciliado en el país. */
   proveedorNoDomiciliado?: boolean;
@@ -149,7 +149,7 @@ export function motivoCienTexto(m: MotivosIvaCien | null | undefined): string | 
   if (!m) return null;
   if (m.ivaNoDiscriminado) return 'El IVA no está discriminado en la factura';
   if (m.facturaNoCumple) return 'La factura no cumple los requisitos de la normativa de facturación';
-  if (m.proveedorNoInscrito) return 'El proveedor no está inscrito en el RIF o sus datos no coinciden';
+  if (m.proveedorNoInscrito) return 'El proveedor está sujeto a retención del 100% según el Portal Fiscal, o no está inscrito en el RIF';
   if (m.proveedorNoDomiciliado) return 'El proveedor no está domiciliado en el país';
   if (m.metalesPreciosos) return 'Compra de metales o piedras preciosas';
   return null;
