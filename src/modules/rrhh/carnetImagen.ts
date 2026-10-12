@@ -3,16 +3,18 @@
    Carnet vertical CR80 (el tamaño estándar de las tarjetas): 53,98 × 85,6 mm,
    a 300 DPI (638×1011 px). También sale en PDF a tamaño real.
 
-   Formato «Aliados CVM» (06-10-2026), el que pidió la administradora a
-   partir del carnet de Golden Touch:
-   · FRENTE: fondo blanco con borde dorado; arriba el logo de la CVM y el de
-     Motor Minero en Marcha; la foto con marco naranja; nombre y C.I.; el logo
-     de MGG; cargo y vigencia. Un QR chico abajo a la derecha abre la
-     verificación en vivo (activo = datos; desactivado = logo de la empresa).
-   · REVERSO: el sello «CVM Aliados» sobre un recuadro punteado con el texto
-     legal y el contacto; firma del autorizado y sello de MGG; una raya
-     naranja y el logo del Gobierno Bolivariano / Ministerio de Desarrollo
-     Minero Ecológico.
+   Formato «solo MGG» (12-10-2026), pedido por la administradora a partir del
+   carnet de La Cantera: se quitaron los logos de la CVM, de Motor Minero y
+   del Gobierno; queda únicamente la marca de Mineral Group Guayana.
+   · FRENTE: fondo blanco con borde dorado; ARRIBA el logo de MGG con su RIF;
+     la foto con marco naranja; nombre y C.I.; cargo y vigencia; y abajo,
+     centrado y GRANDE (≈21 mm), el QR que abre la verificación en vivo
+     (activo = datos; desactivado = logo de la empresa). Mover el logo arriba
+     es lo que le dio el espacio al QR: el chico de antes había que acercarlo
+     a la cara para leerlo.
+   · REVERSO: el logo de MGG arriba, el recuadro punteado con el texto de la
+     credencial y el contacto, la firma del autorizado y el sello de MGG, una
+     raya naranja y la razón social con el RIF al pie.
    Todo se dibuja en un <canvas>: no depende de estilos ni fuentes web.
    ============================================================ */
 import qrcode from 'qrcode-generator';
@@ -92,34 +94,6 @@ async function cargarDePublic(candidatos: string[]): Promise<HTMLImageElement | 
     } catch { /* probamos el siguiente */ }
   }
   return null;
-}
-
-/**
- * Un logo en JPEG con su transparencia aparte (una máscara en grises): así
- * vinieron dentro del PDF del carnet. Sin la máscara el fondo sale negro.
- */
-async function logoConAlfa(jpg: string, alfa: string): Promise<CanvasImageSource & { width: number; height: number } | null> {
-  const [img, mask] = await Promise.all([cargarDePublic([jpg]), cargarDePublic([alfa])]);
-  if (!img) return null;
-  if (!mask) return img;
-  const cv = document.createElement('canvas');
-  cv.width = img.naturalWidth || img.width;
-  cv.height = img.naturalHeight || img.height;
-  const cx = cv.getContext('2d');
-  if (!cx) return img;
-  cx.drawImage(img, 0, 0);
-  const m = document.createElement('canvas');
-  m.width = cv.width; m.height = cv.height;
-  const mx = m.getContext('2d');
-  if (!mx) return img;
-  mx.drawImage(mask, 0, 0, cv.width, cv.height);
-  try {
-    const d = cx.getImageData(0, 0, cv.width, cv.height);
-    const a = mx.getImageData(0, 0, cv.width, cv.height).data;
-    for (let i = 0; i < d.data.length; i += 4) d.data[i + 3] = a[i];
-    cx.putImageData(d, 0, 0);
-  } catch { return img; }
-  return cv;
 }
 
 /** Dibuja una imagen dentro de una caja, sin deformarla y centrada. */
@@ -344,7 +318,10 @@ function nuevoLienzo(pal: Paleta): { canvas: HTMLCanvasElement; ctx: CanvasRende
 
 // Texto legal del reverso (según lo indicado por la empresa).
 const REV_P1 = 'Credencial de uso exclusivo para las alianzas en minerales estratégicos suscritas en la República Bolivariana de Venezuela. Agradecemos a todas las autoridades civiles, militares e institucionales prestar la mayor colaboración posible al portador de esta identificación.';
-const REV_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianzas de minerales estratégicos de la Corporación Venezolana de Minería.';
+// 12-10-2026: al quedar solo la marca MGG, la credencial habla por la empresa y no por la CVM.
+const REV_P2 = 'La persona portadora de esta credencial forma parte del personal de Mineral Group Guayana C.A.';
+const REV_RAZON = 'Mineral Group Guayana C.A.';
+const REV_RIF = 'RIF J-50221930-7 · Puerto Ordaz, Estado Bolívar';
 const REV_EMAIL = 'info@mineralgroupguayana.com';
 const REV_WHATSAPP = 'WhatsApp +58 424-9349731';
 
@@ -365,51 +342,37 @@ export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'blanco'
   roundRect(ctx, 12, 12, W - 24, H - 24, 34);
   ctx.stroke();
 
-  // Encabezado: CVM a la izquierda, Motor Minero en Marcha a la derecha.
-  const [cvm, motor, empresa] = await Promise.all([
-    logoConAlfa('carnet/cvm.jpg', 'carnet/cvm-alfa.png'),
-    logoConAlfa('carnet/motor-minero.jpg', 'carnet/motor-minero-alfa.png'),
-    cargarLogoEmpresa(),
-  ]);
-  // En negro, una franja blanca detrás de los dos logos.
-  placa(ctx, pal, 30, 28, W - 60, 182, 24);
-  if (cvm) dibujarContenido(ctx, cvm, cvm.width, cvm.height, 38, 40, 300, 150);
-  if (motor) dibujarContenido(ctx, motor, motor.width, motor.height, W - 38 - 175, 30, 175, 175);
+  // Arriba, solo el logo de la empresa con su RIF (12-10-2026).
+  const empresa = await cargarLogoEmpresa();
+  const logoY = 38;
+  const logoH = 148;
+  placa(ctx, pal, 60, logoY - 8, W - 120, logoH + 16, 16);
+  if (empresa) dibujarContenido(ctx, empresa, empresa.naturalWidth || empresa.width, empresa.naturalHeight || empresa.height, 66, logoY, W - 132, logoH);
 
   // Foto con marco naranja.
   const fotoW = 236;
   const fotoH = 290;
-  const fotoY = 218;
+  const fotoY = logoY + logoH + 32;
   await dibujarFoto(ctx, p, cx - fotoW / 2, fotoY, fotoW, fotoH, pal);
 
   // Nombre (hasta dos líneas) y cédula.
   ctx.fillStyle = pal.texto;
   const nombre = nombreDeCarnet(p.nombre, p.apellido) || '—';
-  let y = fotoY + fotoH + 46;
+  let y = fotoY + fotoH + 44;
   y = textoAjustado(ctx, nombre, cx, y, W - 80, 36, 24, 2, 800);
-  textoAjustado(ctx, p.cedula ? `C.I. ${p.cedula}` : 'C.I. —', cx, y + 2, W - 80, 36, 24, 1, 800);
-  y += 40;
+  y = textoAjustado(ctx, p.cedula ? `C.I. ${p.cedula}` : 'C.I. —', cx, y + 2, W - 80, 36, 24, 1, 800);
 
-  // Logo de la empresa.
-  const logoY = y + 22;
-  const logoH = 132;
-  placa(ctx, pal, 66, logoY - 8, W - 132, logoH + 16, 16);
-  if (empresa) dibujarContenido(ctx, empresa, empresa.naturalWidth || empresa.width, empresa.naturalHeight || empresa.height, 70, logoY, W - 140, logoH);
-
-  // Cargo y vigencia. El QR va abajo a la derecha: el texto se acomoda para no pisarlo.
-  const qrSize = 116;
-  const qrX = W - 34 - qrSize;
-  const qrY = H - 34 - qrSize;
-  const maxTexto = 2 * (qrX - 12 - cx);
-  ctx.fillStyle = pal.texto;
-  let ty = logoY + logoH + 42;
+  // Cargo y vigencia, centrados.
+  let ty = y + 12;
   const cargo = (p.cargo ?? '').trim();
-  if (cargo) ty = textoAjustado(ctx, cargo, cx, ty, maxTexto, 31, 20, 2, 800);
+  if (cargo) ty = textoAjustado(ctx, cargo, cx, ty, W - 90, 30, 20, 2, 800);
   const vence = textoVence(p.carnet_vence);
-  if (vence) textoAjustado(ctx, `Vigencia ${vence}`, cx, ty + 4, maxTexto, 31, 20, 1, 800);
+  if (vence) { ctx.fillStyle = pal.gris; ty = textoAjustado(ctx, `Vigencia ${vence}`, cx, ty + 2, W - 90, 26, 18, 1, 700); ctx.fillStyle = pal.texto; }
 
-  // QR en vivo (activo = datos; desactivado = logo de la empresa).
-  dibujarQR(ctx, urlQRCarnet(p), qrX, qrY, qrSize);
+  // QR en vivo, grande y centrado abajo: ocupa todo lo que queda hasta el borde.
+  const qrAbajo = H - 40;
+  const qrSize = Math.max(140, Math.min(250, qrAbajo - (ty + 18)));
+  dibujarQR(ctx, urlQRCarnet(p), cx - qrSize / 2, qrAbajo - qrSize, qrSize);
 
   return lienzoAPng(canvas);
 }
@@ -429,65 +392,56 @@ export async function generarReversoBlob(tema: TemaCarnet = 'blanco'): Promise<B
   const pal = paleta(tema);
   const { canvas, ctx } = nuevoLienzo(pal);
   const cx = W / 2;
-  const [aliados, gobierno, firmaImg, selloImg] = await Promise.all([
-    cargarDePublic(['carnet/cvm-aliados.jpg', 'cvm.jpg']),
-    cargarDePublic(['carnet/gobierno-minero.jpg']),
+  const [empresa, firmaImg, selloImg] = await Promise.all([
+    cargarLogoEmpresa(),
     cargarDePublic(['firma-autorizado-carnet.jpeg', 'firma-autorizado-carnet.jpg', 'firma-autorizado-carnet.png']),
     cargarDePublic(['sello-mgg.jpeg', 'sello-mgg.jpg', 'sello-mgg.png']),
   ]);
 
-  // Recuadro punteado; el sello «CVM Aliados» se monta sobre su borde de arriba.
-  const boxX = 34;
-  const boxY = 150;
-  const boxW = W - 68;
-  const boxH = 520;
-  rectPunteado(ctx, boxX, boxY, boxW, boxH, pal.punteado);
-  if (aliados) {
-    const lw = 250;
-    const lh = Math.round(lw * (aliados.height / aliados.width));
-    // Fondo detrás del sello para tapar el punteado que pasa por debajo
-    // (en negro, una placa blanca: el sello tiene letras oscuras).
-    // Solo hasta la línea de «Aliados» (80 % de la imagen): el resto es fondo
-    // blanco que en el carnet negro taparía la primera línea del texto.
-    const corte = 0.8;
-    const dh = Math.round(lh * corte);
-    if (pal.placas) placa(ctx, pal, cx - lw / 2 - 4, 14, lw + 8, dh + 14, 22);
-    else { ctx.fillStyle = pal.fondo; ctx.fillRect(cx - lw / 2 + 12, boxY - 10, lw - 24, Math.round(lh * 0.62)); }
-    ctx.drawImage(aliados, 0, 0, aliados.width, Math.round(aliados.height * corte), cx - lw / 2, 22, lw, dh);
-  }
+  // Arriba, el logo de la empresa (el mismo del frente).
+  const logoY = 40;
+  const logoH = 140;
+  placa(ctx, pal, 70, logoY - 8, W - 140, logoH + 16, 16);
+  if (empresa) dibujarContenido(ctx, empresa, empresa.naturalWidth || empresa.width, empresa.naturalHeight || empresa.height, 76, logoY, W - 152, logoH);
 
-  // Texto legal, centrado.
+  // Recuadro punteado con el texto de la credencial: su alto sale del texto, no al revés.
+  const boxX = 34;
+  const boxY = logoY + logoH + 30;
+  const boxW = W - 68;
   const maxW = boxW - 50;
+  const linea = 29;
+  ctx.font = `400 22px ${FONT}`;
+  const l1 = wrapText(ctx, REV_P1, maxW);
+  const l2 = wrapText(ctx, REV_P2, maxW);
+  const boxH = 44 + (l1.length + l2.length) * linea + 20 + 22 + 2 * linea + 30;
+  rectPunteado(ctx, boxX, boxY, boxW, boxH, pal.punteado);
+
   ctx.fillStyle = pal.texto;
-  ctx.font = `400 22px ${FONT}`;
-  let y = boxY + 130;
-  for (const ln of wrapText(ctx, REV_P1, maxW)) { ctx.fillText(ln, cx, y); y += 29; }
+  let y = boxY + 44;
+  for (const ln of l1) { ctx.fillText(ln, cx, y); y += linea; }
   y += 20;
-  for (const ln of wrapText(ctx, REV_P2, maxW)) { ctx.fillText(ln, cx, y); y += 29; }
+  for (const ln of l2) { ctx.fillText(ln, cx, y); y += linea; }
   y += 22;
-  ctx.font = `400 22px ${FONT}`;
-  ctx.fillText(REV_EMAIL, cx, y); y += 29;
+  ctx.fillText(REV_EMAIL, cx, y); y += linea;
   ctx.fillText(REV_WHATSAPP, cx, y);
 
   // Firma del autorizado (izquierda) y sello de MGG (derecha).
-  const filaY = boxY + boxH + 14;
-  const filaH = 128;
+  const filaY = boxY + boxH + 18;
+  const filaH = 124;
   const cajaW = (W - 100) / 2;
   if (firmaImg) { const cv = sinFondoBlanco(firmaImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, 40, filaY, cajaW, filaH); }
   if (selloImg) { const cv = sinFondoBlanco(selloImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, 60 + cajaW, filaY, cajaW, filaH); }
 
-  // Raya naranja y logo del Gobierno / Ministerio de Desarrollo Minero Ecológico.
-  const rayaY = filaY + filaH + 12;
+  // Raya naranja y, al pie, la razón social con el RIF.
+  const rayaY = filaY + filaH + 14;
   ctx.fillStyle = pal.naranja;
   ctx.fillRect(70, rayaY, W - 140, 8);
-  if (gobierno) {
-    // Se recorta la franja verde de abajo de la imagen: queda solo el logo.
-    const sx = 0; const sy = 40; const sw = gobierno.width; const sh = Math.round(gobierno.height * 0.66);
-    const dh = H - (rayaY + 18) - 22;
-    const dw = Math.round(dh * (sw / sh));
-    placa(ctx, pal, cx - dw / 2 - 10, rayaY + 12, dw + 20, dh + 10, 14);
-    ctx.drawImage(gobierno, sx, sy, sw, sh, cx - dw / 2, rayaY + 18, dw, dh);
-  }
+  ctx.fillStyle = pal.texto;
+  ctx.font = `700 24px ${FONT}`;
+  ctx.fillText(REV_RAZON, cx, rayaY + 44);
+  ctx.fillStyle = pal.gris;
+  ctx.font = `400 19px ${FONT}`;
+  ctx.fillText(REV_RIF, cx, rayaY + 74);
 
   return lienzoAPng(canvas);
 }
