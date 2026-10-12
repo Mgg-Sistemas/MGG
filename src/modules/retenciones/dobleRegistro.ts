@@ -47,5 +47,5 @@ export function mensajeDobleRegistro(r: ClaveRetencion & {
   const quien = r.contraparteNombre ? `${r.contraparteNombre} (${r.contraparteRif ?? '—'})` : (r.contraparteRif ?? '—');
   const num = r.numeroComprobante ? `, comprobante ${r.numeroComprobante}` : '';
   return `La factura ${r.facturaNumero ?? '—'} de ${quien} ya tiene una retención de ${labelImpuesto(r.tipo)} vigente${num}. `
-    + 'Una factura lleva una sola de cada impuesto: si hay que corregirla, anulá la anterior primero.';
+    + 'Una factura admite una sola retención por impuesto. Para corregirla, anular primero la retención vigente.';
 }

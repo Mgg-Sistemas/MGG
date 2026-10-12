@@ -51,6 +51,6 @@ describe('una sola retención de cada impuesto por factura', () => {
     expect(m).toContain('000123');
     expect(m).toContain('Proveedor de prueba');
     expect(m).toContain('20260900000001');
-    expect(m).toContain('anulá la anterior');
+    expect(m).toContain('anular primero la retención vigente');
   });
 });
