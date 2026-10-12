@@ -25,8 +25,8 @@ import { DescansosTab } from '@/modules/rrhh/DescansosTab';
 import { EMPRESA_POR_DEFECTO } from '@/modules/rrhh/empresa';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
-  TABLAS_CHOFERES, esTablaFaltante, listConductores, listFlota, listPagos, listViajes, listViaticos,
-  type Conductor, type PagoViaje, type VehiculoFlota, type Viaje, type Viatico,
+  TABLAS_CHOFERES, esTablaFaltante, listConductores, listDocumentosChofer, listFlota, listPagos, listViajes, listViaticos,
+  type Conductor, type DocumentoChofer, type PagoViaje, type VehiculoFlota, type Viaje, type Viatico,
 } from './choferes.repository';
 import { hoyVE } from './choferes';
 import { TableroTab } from './TableroTab';
@@ -57,6 +57,10 @@ export interface DatosChoferes {
   viaticos: Viatico[];
   pagos: PagoViaje[];
   descansos: Descanso[];
+  /** Documentos de los conductores (vigentes e históricos). */
+  documentos: DocumentoChofer[];
+  /** La tabla de documentos todavía no existe en la base (falta correr choferes-documentos.sql). */
+  docsSinInstalar: boolean;
   tasa: number | null;
   hoy: string;
   loading: boolean;
@@ -85,6 +89,8 @@ export function ChoferesPage() {
   const [viaticos, setViaticos] = useState<Viatico[]>([]);
   const [pagos, setPagos] = useState<PagoViaje[]>([]);
   const [descansos, setDescansos] = useState<Descanso[]>([]);
+  const [documentos, setDocumentos] = useState<DocumentoChofer[]>([]);
+  const [docsSinInstalar, setDocsSinInstalar] = useState(false);
   const [tasa, setTasa] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [sinInstalar, setSinInstalar] = useState(false);
@@ -98,10 +104,13 @@ export function ChoferesPage() {
         getTasaHoy().then((x) => x.usd ?? null).catch(() => null),
       ]);
       const ds = await listDescansos(cs.map((c) => c.personal_id)).catch(() => [] as Descanso[]);
+      // Los documentos tienen su propio SQL: si falta, el resto del módulo sigue andando.
+      const docs = await listDocumentosChofer().catch((e) => { if (esTablaFaltante(e)) { setDocsSinInstalar(true); return [] as DocumentoChofer[]; } throw e; });
       const porId = new Map(ps.map((p) => [p.id, p]));
       setPersonal(ps);
       setConductores(cs.map((c) => ({ ...c, personal: porId.get(c.personal_id) ?? null })));
       setFlota(fl); setViajes(vj); setViaticos(vt); setPagos(pg); setDescansos(ds); setTasa(t);
+      setDocumentos(docs); if (docs.length) setDocsSinInstalar(false);
       setSinInstalar(false);
     } catch (e) {
       if (esTablaFaltante(e)) setSinInstalar(true);
@@ -113,8 +122,8 @@ export function ChoferesPage() {
   useRealtime([...TABLAS_CHOFERES, 'cajas', 'caja_saldos'], () => { void recargar(); });
 
   const datos: DatosChoferes = useMemo(() => ({
-    conductores, personal, flota, viajes, viaticos, pagos, descansos, tasa, hoy, loading, recargar,
-  }), [conductores, personal, flota, viajes, viaticos, pagos, descansos, tasa, hoy, loading, recargar]);
+    conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, tasa, hoy, loading, recargar,
+  }), [conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, tasa, hoy, loading, recargar]);
 
   // Para la pestaña Descansos: solo las fichas con expediente de conductor activo.
   const idsConductores = useMemo(() => new Set(conductores.filter((c) => c.activo).map((c) => c.personal_id)), [conductores]);

@@ -22,6 +22,7 @@ import {
   iconoDocumento, tituloDocumento,
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa';
+import { crearEvento } from './eventos.repository';
 import {
   MAX_DETALLE_SALUD, errorCondicionesSalud, renglonesSalud, type RespuestaSalud,
 } from './condicionesSalud';
@@ -658,9 +659,27 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
     finally { setGuardando(false); }
   }
 
-  async function toggleActivo(p: Personal) {
-    try { await setPersonalActivo(p.id, !p.activo); await recargar(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
+  /* Reactivar / dar de baja (12-10-2026, pedido de la administradora): antes era
+     un icono sin aviso que solo se veía filtrando «Inactivos». Ahora se confirma
+     con un motivo y queda anotado en el historial de la persona (nota en
+     rrhh_eventos): «Reingreso a la empresa» o «Baja». */
+  const [cambioEstado, setCambioEstado] = useState<{ p: Personal; motivo: string; guardando: boolean } | null>(null);
+  async function confirmarCambioEstado() {
+    const c = cambioEstado;
+    if (!c) return;
+    setCambioEstado({ ...c, guardando: true });
+    const reactiva = !c.p.activo;
+    try {
+      await setPersonalActivo(c.p.id, reactiva);
+      const motivo = c.motivo.trim();
+      await crearEvento({
+        personal_id: c.p.id, tipo: 'nota', fecha_desde: hoyISO(),
+        descripcion: `${reactiva ? 'Reingreso a la empresa' : 'Baja de la empresa'}${motivo ? `: ${motivo}` : ''}`,
+      }, actor, actorName).catch(() => undefined);
+      toast(reactiva ? `${c.p.nombre} ${c.p.apellido ?? ''} vuelve a estar activo` : `${c.p.nombre} ${c.p.apellido ?? ''} quedó inactivo`, 'success');
+      setCambioEstado(null);
+      await recargar();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); setCambioEstado({ ...c, guardando: false }); }
   }
   // El cartel del navegador se reemplaza por el diálogo del sistema.
   const [porBorrar, setPorBorrar] = useState<Personal | null>(null);
@@ -929,7 +948,9 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   <button className="btn btn-sm btn-ghost" onClick={() => setDocsPersona(p)} title="Documentación: cédula, RIF y currículum">📁</button>
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
-                    <button className="btn btn-sm btn-ghost" onClick={() => toggleActivo(p)} title={p.activo ? 'Desactivar' : 'Activar'}>{p.activo ? '⏸' : '▶'}</button>
+                    {p.activo
+                      ? <button className="btn btn-sm btn-ghost" onClick={() => setCambioEstado({ p, motivo: '', guardando: false })} title="Dar de baja (queda inactivo, no se borra)">⏸</button>
+                      : <button className="btn btn-sm btn-success" onClick={() => setCambioEstado({ p, motivo: '', guardando: false })} title="Vuelve a la empresa: la ficha queda activa otra vez">▶ Reactivar</button>}
                     <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
                   </>}
                 </td>
@@ -1411,7 +1432,30 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
       {sueldoPersona && <HistorialSueldoModal persona={sueldoPersona} canWrite={canWrite} isAdmin={isAdmin} actor={actor} actorName={actorName ?? null} onClose={() => setSueldoPersona(null)} />}
       {fichaPersona && (
         <FichaTecnicaModal persona={fichaPersona} onClose={() => setFichaPersona(null)}
-          onEditar={() => { const p = fichaPersona; setFichaPersona(null); editar(p); }} canWrite={canWrite} />
+          onEditar={() => { const p = fichaPersona; setFichaPersona(null); editar(p); }} canWrite={canWrite}
+          onCambiarEstado={() => { const p = fichaPersona; setFichaPersona(null); setCambioEstado({ p, motivo: '', guardando: false }); }} />
+      )}
+      {cambioEstado && (
+        <Modal title={cambioEstado.p.activo ? '⏸ Dar de baja' : '▶ Reactivar en la empresa'} size="sm" onClose={() => !cambioEstado.guardando && setCambioEstado(null)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setCambioEstado(null)} disabled={cambioEstado.guardando}>Cancelar</button>
+            <button className={`btn ${cambioEstado.p.activo ? 'btn-danger' : 'btn-success'}`} onClick={() => void confirmarCambioEstado()} disabled={cambioEstado.guardando}>
+              {cambioEstado.guardando ? 'Guardando…' : cambioEstado.p.activo ? 'Sí, dar de baja' : 'Sí, reactivar'}
+            </button>
+          </>
+        }>
+          <p style={{ marginTop: 0, fontSize: '.9rem' }}>
+            <strong>{cambioEstado.p.nombre} {cambioEstado.p.apellido}</strong>{cambioEstado.p.cargo ? ` · ${cambioEstado.p.cargo}` : ''}.
+            {cambioEstado.p.activo
+              ? ' Queda INACTIVO: sale de la nómina, de los descansos y de las listas, pero la ficha y todo su histórico se conservan. Se puede reactivar cuando vuelva.'
+              : ' Vuelve a estar ACTIVO: entra de nuevo en la nómina, los descansos y las listas, con la misma ficha, número y antigüedad.'}
+          </p>
+          <div className="form-row"><label htmlFor="rrhh-motivo-estado">Motivo (opcional)</label>
+            <input id="rrhh-motivo-estado" className="input" value={cambioEstado.motivo} autoFocus
+              onChange={(e) => setCambioEstado({ ...cambioEstado, motivo: e.target.value })}
+              placeholder={cambioEstado.p.activo ? 'Renuncia, fin de contrato, despido…' : 'Vuelve a la empresa, reingreso por contrato, error al darlo de baja…'} /></div>
+          <p className="muted" style={{ fontSize: '.78rem' }}>Queda anotado en el historial de la persona (eventos de RRHH) con la fecha de hoy.</p>
+        </Modal>
       )}
       {docsPersona && (
         <DocumentacionModal persona={docsPersona} canWrite={canWrite} actor={actor} actorName={actorName ?? null}
@@ -1666,8 +1710,8 @@ function Tarjeta({ titulo, icono, valor, pie, color, activa, onClick }: {
 }
 
 /* ───────── Ficha técnica: todo de una persona, en una hoja ───────── */
-function FichaTecnicaModal({ persona, canWrite, onClose, onEditar }: {
-  persona: Personal; canWrite: boolean; onClose: () => void; onEditar: () => void;
+function FichaTecnicaModal({ persona, canWrite, onClose, onEditar, onCambiarEstado }: {
+  persona: Personal; canWrite: boolean; onClose: () => void; onEditar: () => void; onCambiarEstado?: () => void;
 }) {
   const [familia, setFamilia] = useState<FamiliarPersonal[]>([]);
   const [docs, setDocs] = useState<DocumentoPersonal[]>([]);
@@ -1701,6 +1745,9 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar }: {
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
           {canWrite && <button className="btn btn-ghost" onClick={onEditar}>✎ Editar datos</button>}
+          {canWrite && onCambiarEstado && (persona.activo
+            ? <button className="btn btn-ghost" onClick={onCambiarEstado} title="Queda inactivo; la ficha se conserva">⏸ Dar de baja</button>
+            : <button className="btn btn-success" onClick={onCambiarEstado} title="Vuelve a la empresa">▶ Reactivar</button>)}
           <button className="btn btn-primary" onClick={() => void verPdf()} disabled={generando}>
             {generando ? 'Generando…' : '📄 Ver ficha en PDF'}
           </button>

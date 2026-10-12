@@ -29,7 +29,8 @@ import {
   crearConductor, editarConductor, esCargoDeChofer, importarConductoresDesdeRrhh, setConductorActivo,
   type Conductor, type ConductorInput, type VehiculoFlota,
 } from './choferes.repository';
-import { nombreConductor, type PropsTab } from './ChoferesPage';
+import { fechaHora, nombreConductor, type PropsTab } from './ChoferesPage';
+import { DocumentosConductorModal } from './DocumentosConductorModal';
 
 const normal = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -45,8 +46,20 @@ export function BadgeVence({ vence, hoy }: { vence: string | null | undefined; h
 }
 
 export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
-  const { conductores, personal, flota, viajes, descansos, hoy, loading, recargar } = datos;
+  const { conductores, personal, flota, viajes, descansos, documentos, docsSinInstalar, hoy, loading, recargar } = datos;
   const [texto, setTexto] = useState('');
+  const [docsDe, setDocsDe] = useState<Conductor | null>(null);
+  // Por conductor: cuántos documentos vigentes tiene y cuál fue la última subida.
+  const resumenDocs = useMemo(() => {
+    const m = new Map<string, { vigentes: number; ultimo: { at: string; quien: string | null; que: string } | null }>();
+    for (const d of documentos) {
+      const r = m.get(d.chofer_id) ?? { vigentes: 0, ultimo: null };
+      if (d.vigente) r.vigentes++;
+      if (!r.ultimo || d.created_at > r.ultimo.at) r.ultimo = { at: d.created_at, quien: d.subido_por_nombre, que: d.etiqueta || d.tipo };
+      m.set(d.chofer_id, r);
+    }
+    return m;
+  }, [documentos]);
   const [soloAlertas, setSoloAlertas] = useState(false);
   const [verInactivos, setVerInactivos] = useState(false);
   const [form, setForm] = useState<Conductor | 'nuevo' | null>(null);
@@ -123,7 +136,7 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
               <thead>
                 <tr>
                   <th>Conductor</th><th>Cédula · ficha</th><th>Licencia</th><th>Certificado médico</th><th>Seguro</th>
-                  <th style={{ textAlign: 'right' }}>Tarifa / viaje</th><th>Hoy</th><th></th>
+                  <th style={{ textAlign: 'right' }}>Tarifa / viaje</th><th>Documentos</th><th>Hoy</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -143,6 +156,19 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
                       <td><BadgeVence vence={c.certificado_medico_vence} hoy={hoy} /></td>
                       <td><BadgeVence vence={c.seguro_vence} hoy={hoy} /></td>
                       <td className="mono" style={{ textAlign: 'right' }}>{money(c.tarifa_viaje_usd)}</td>
+                      <td>
+                        {(() => {
+                          const r = resumenDocs.get(c.id);
+                          return (
+                            <button className="btn btn-sm btn-ghost" onClick={() => setDocsDe(c)} title="Documentos del conductor: subir, ver y el histórico de cada uno" style={{ textAlign: 'left' }}>
+                              📁 {r?.vigentes ?? 0}
+                              {r?.ultimo
+                                ? <span className="muted" style={{ fontWeight: 400, fontSize: '.72rem', display: 'block' }}>último {fechaHora(r.ultimo.at)}{r.ultimo.quien ? ` · ${r.ultimo.quien}` : ''}</span>
+                                : <span className="muted" style={{ fontWeight: 400, fontSize: '.72rem', display: 'block' }}>sin archivos</span>}
+                            </button>
+                          );
+                        })()}
+                      </td>
                       <td><span className={`badge ${e.clase}`}>{e.icon} {e.label}</span></td>
                       <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                         <button className="btn btn-sm btn-ghost" onClick={() => setForm(c)} title={canWrite ? 'Editar expediente' : 'Ver expediente'}>{canWrite ? '✎' : '👁'}</button>
@@ -168,6 +194,11 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
           actor={actor} actorName={actorName} hoy={hoy} onClose={() => setForm(null)} onSaved={async () => { setForm(null); await recargar(); }} />
       )}
       {verFlota && <FlotaModal flota={flota} canWrite={canWrite} actor={actor} hoy={hoy} onClose={() => setVerFlota(false)} onChanged={recargar} />}
+      {docsDe && (
+        <DocumentosConductorModal conductor={conductores.find((x) => x.id === docsDe.id) ?? docsDe} documentos={documentos.filter((d) => d.chofer_id === docsDe.id)}
+          sinInstalar={docsSinInstalar} canWrite={canWrite} actor={actor} actorName={actorName} hoy={hoy}
+          onClose={() => setDocsDe(null)} onChanged={recargar} />
+      )}
       {cambiarEstado && (
         <ConfirmDialog title={cambiarEstado.activo ? 'Desactivar conductor' : 'Reactivar conductor'} danger={cambiarEstado.activo} confirmText={cambiarEstado.activo ? 'Sí, desactivar' : 'Sí, reactivar'}
           message={cambiarEstado.activo

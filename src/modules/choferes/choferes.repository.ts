@@ -19,14 +19,18 @@ import { registrarGasto, registrarIngresoCaja } from '@/modules/tesoreria/tesore
 import type { CuentaCaja } from '@/shared/lib/types';
 import type { Vehiculo } from '@/modules/asignaciones/vehiculos.repository';
 import type { Liquidacion, LineaRecibo, Parada, ReciboCalculado } from './choferes';
+import { mensajeErrorDocumento, nombreSeguro, validarArchivoDocumento } from '@/modules/rrhh/documentosPersonal';
 
 const T_CONDUCTORES = 'choferes_conductores';
 const T_VIAJES = 'choferes_viajes';
 const T_VIATICOS = 'choferes_viaticos';
 const T_PAGOS = 'choferes_pagos';
 const T_FLOTA = 'vehiculos_catalogo';
+const T_DOCS = 'choferes_documentos';
+/** Los archivos van al bucket privado de RRHH (sus políticas ya cubren a todo usuario registrado). */
+const BUCKET_DOCS = 'personal-docs';
 
-export const TABLAS_CHOFERES = [T_CONDUCTORES, T_VIAJES, T_VIATICOS, T_PAGOS, T_FLOTA, 'personal', 'rrhh_descansos'];
+export const TABLAS_CHOFERES = [T_CONDUCTORES, T_VIAJES, T_VIATICOS, T_PAGOS, T_DOCS, T_FLOTA, 'personal', 'rrhh_descansos'];
 
 /* ───────────── Tipos ───────────── */
 
@@ -480,4 +484,108 @@ export async function marcarPagado(p: PagoViaje, o: { metodo: string; caja?: Caj
 export async function anularPago(id: string, actor: string): Promise<void> {
   const { error } = await supabase.rpc('choferes_pago_anular', { p_id: id, p_actor: actor });
   if (error) throw err(error, 'No se pudo anular el recibo.');
+}
+
+/* ───────────── Documentos del conductor (con histórico) ─────────────
+   Cada subida es una fila nueva; la anterior del mismo tipo queda como versión
+   vieja (vigente = false) y no se borra sola: así se sabe cuándo fue la última
+   vez que se subió cada papel y quién lo subió. */
+
+export type TipoDocumentoChofer = 'licencia' | 'certificado_medico' | 'seguro' | 'otro';
+
+export const TIPOS_DOCUMENTO_CHOFER: { key: TipoDocumentoChofer; label: string; icon: string; campoVence: 'licencia_vence' | 'certificado_medico_vence' | 'seguro_vence' | null }[] = [
+  { key: 'licencia', label: 'Licencia de conducir', icon: '🪪', campoVence: 'licencia_vence' },
+  { key: 'certificado_medico', label: 'Certificado médico', icon: '🩺', campoVence: 'certificado_medico_vence' },
+  { key: 'seguro', label: 'Seguro', icon: '🛡', campoVence: 'seguro_vence' },
+  { key: 'otro', label: 'Otros documentos', icon: '📄', campoVence: null },
+];
+
+export interface DocumentoChofer {
+  id: string;
+  chofer_id: string;
+  tipo: TipoDocumentoChofer;
+  etiqueta: string | null;
+  path: string;
+  nombre: string;
+  mime: string | null;
+  tamano: number | null;
+  vence: string | null;
+  vigente: boolean;
+  subido_por: string | null;
+  subido_por_nombre: string | null;
+  created_at: string;
+}
+
+/** Todos los documentos (vigentes e históricos), del más nuevo al más viejo. */
+export async function listDocumentosChofer(): Promise<DocumentoChofer[]> {
+  try {
+    return await todasLasFilas<DocumentoChofer>((d, h) =>
+      supabase.from(T_DOCS).select('*').order('created_at', { ascending: false }).order('id').range(d, h));
+  } catch (e) {
+    if (esTablaFaltante(e)) throw e; // la página decide qué mostrar
+    throw err(e, 'No se pudieron cargar los documentos.');
+  }
+}
+
+/**
+ * Sube un documento y lo deja como el vigente de su tipo (los anteriores quedan
+ * como histórico). Si trae fecha de vencimiento, actualiza también la del
+ * expediente (licencia / certificado médico / seguro).
+ */
+export async function subirDocumentoChofer(
+  c: Pick<Conductor, 'id' | 'personal_id'>,
+  tipo: TipoDocumentoChofer,
+  file: File,
+  o: { etiqueta?: string | null; vence?: string | null; actor: string; actorName: string | null },
+): Promise<DocumentoChofer> {
+  const falla = validarArchivoDocumento(file);
+  if (falla) throw new Error(falla);
+  const etiqueta = limpio(o.etiqueta);
+  if (tipo === 'otro' && !etiqueta) throw new Error('Ponle un nombre al documento (ej.: Certificado de antecedentes).');
+
+  const rand = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const path = `choferes/${tipo}/${c.personal_id}/${rand}_${nombreSeguro(file.name)}`;
+  const { error: errSubir } = await supabase.storage.from(BUCKET_DOCS)
+    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+  if (errSubir) throw new Error(mensajeErrorDocumento(errSubir));
+
+  const { data, error } = await supabase.from(T_DOCS).insert({
+    chofer_id: c.id, tipo, etiqueta, path, nombre: file.name, mime: file.type || null, tamano: file.size ?? null,
+    vence: o.vence || null, vigente: true, subido_por: o.actor, subido_por_nombre: o.actorName,
+  }).select('*').single();
+  if (error) {
+    await supabase.storage.from(BUCKET_DOCS).remove([path]).catch(() => undefined);
+    throw err(error, mensajeErrorDocumento(error));
+  }
+  const nuevo = data as DocumentoChofer;
+
+  // Los anteriores del mismo tipo (y, en «otros», de la misma etiqueta) pasan al histórico.
+  let q = supabase.from(T_DOCS).update({ vigente: false }).eq('chofer_id', c.id).eq('tipo', tipo).neq('id', nuevo.id);
+  if (tipo === 'otro') q = q.eq('etiqueta', etiqueta as string);
+  await q;
+
+  // El vencimiento del documento es el del expediente.
+  const def = TIPOS_DOCUMENTO_CHOFER.find((t) => t.key === tipo);
+  if (o.vence && def?.campoVence) await supabase.from(T_CONDUCTORES).update({ [def.campoVence]: o.vence }).eq('id', c.id);
+  return nuevo;
+}
+
+export async function urlDocumentoChofer(path: string): Promise<string> {
+  const { data, error } = await supabase.storage.from(BUCKET_DOCS).createSignedUrl(path, 60 * 10);
+  if (error) throw err(error, 'No se pudo abrir el documento.');
+  return data.signedUrl;
+}
+
+/** Quita un documento (fila y archivo). Si era el vigente, el anterior del mismo tipo vuelve a serlo. */
+export async function eliminarDocumentoChofer(d: DocumentoChofer): Promise<void> {
+  const { data, error } = await supabase.from(T_DOCS).delete().eq('id', d.id).select('id');
+  if (error) throw err(error, 'No se pudo eliminar el documento.');
+  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
+  if (d.vigente) {
+    let q = supabase.from(T_DOCS).select('id').eq('chofer_id', d.chofer_id).eq('tipo', d.tipo).order('created_at', { ascending: false }).limit(1);
+    if (d.tipo === 'otro') q = q.eq('etiqueta', d.etiqueta ?? '');
+    const { data: ant } = await q;
+    if (ant?.[0]) await supabase.from(T_DOCS).update({ vigente: true }).eq('id', ant[0].id);
+  }
+  await supabase.storage.from(BUCKET_DOCS).remove([d.path]).catch(() => undefined);
 }
