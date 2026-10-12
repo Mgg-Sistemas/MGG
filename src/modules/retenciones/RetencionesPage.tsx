@@ -16,6 +16,7 @@ import {
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
 import { LibroFiscalView, RegistrarRetencionModal, type SemillaRetencion } from './LibroFiscal';
+import { semillaDeItem } from './semillaRetencion';
 
 type Vista = 'pendientes' | 'hechas' | 'libro';
 
@@ -203,26 +204,6 @@ export function RetencionesPage() {
       )}
     </div>
   );
-}
-
-/**
- * Con qué datos se abre el libro desde una fila: el documento, la contraparte y
- * la base. La compra directa trae el IVA de la factura; la OC no lo separa, así
- * que ahí la base es el total y el IVA se carga a mano si lo hay.
- */
-function semillaDeItem(it: RetencionItem): SemillaRetencion {
-  const iva = it.kind === 'compra_directa' ? Number(it.compra?.iva) || 0 : 0;
-  const igtf = it.kind === 'compra_directa' ? Number(it.compra?.igtf) || 0 : 0;
-  return {
-    direccion: 'practicada',
-    docKind: it.kind, docId: it.id, codigo: it.ocCodigo,
-    contraparteId: it.proveedorId,
-    contraparteNombre: it.proveedorNombre,
-    contraparteRif: it.proveedorRif,
-    moneda: it.moneda === 'USD' ? 'USD' : it.moneda,
-    total: it.total, iva,
-    baseImponible: Math.max(0, it.total - iva - igtf),
-  };
 }
 
 function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: {
