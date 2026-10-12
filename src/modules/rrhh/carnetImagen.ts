@@ -363,9 +363,12 @@ export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'blanco'
   ctx.fillStyle = NARANJA;
   ctx.fillRect(0, bandaH, W, mm(0.8));
   await dibujarIconoEnDisco(ctx, mm(4), mm(3), mm(8));
+  // La razón social se encoge hasta entrar en la banda (a 7,2 pt se salía por la derecha).
   ctx.fillStyle = '#ffffff';
-  ctx.font = `800 ${pt(7.2)}px ${FONT}`;
-  espaciado(ctx, mm(0.12));
+  espaciado(ctx, mm(0.1));
+  let sr = 7.2;
+  ctx.font = `800 ${pt(sr)}px ${FONT}`;
+  while (ctx.measureText(RAZON_SOCIAL).width > W - mm(14.2) - mm(3) && sr > 5) { sr -= 0.1; ctx.font = `800 ${pt(sr)}px ${FONT}`; }
   ctx.fillText(RAZON_SOCIAL, mm(14.2), mm(7.6));
   espaciado(ctx, 0);
   ctx.fillStyle = 'rgba(255,255,255,.78)';
