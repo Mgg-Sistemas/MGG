@@ -425,9 +425,12 @@ export async function generarReversoBlob(tema: TemaCarnet = 'blanco'): Promise<B
   ctx.fillText(REV_EMAIL, cx, y); y += linea;
   ctx.fillText(REV_WHATSAPP, cx, y);
 
-  // Firma del autorizado (izquierda) y sello de MGG (derecha).
-  const filaY = boxY + boxH + 18;
+  // Firma del autorizado (izquierda) y sello de MGG (derecha), anclados al pie
+  // del carnet (13-10-2026, «baja esto»): el espacio libre queda entre el texto y
+  // la firma, no debajo de la razón social. Si el texto creciera, baja con él.
   const filaH = 124;
+  const altoPie = 14 + 8 + 80;
+  const filaY = Math.max(boxY + boxH + 18, H - 36 - altoPie - filaH);
   const cajaW = (W - 100) / 2;
   if (firmaImg) { const cv = sinFondoBlanco(firmaImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, 40, filaY, cajaW, filaH); }
   if (selloImg) { const cv = sinFondoBlanco(selloImg, pal.tinta); dibujarContenido(ctx, cv, cv.width, cv.height, 60 + cajaW, filaY, cajaW, filaH); }
