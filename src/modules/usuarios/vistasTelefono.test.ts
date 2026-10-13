@@ -48,12 +48,12 @@ describe('vistas de teléfono según permisos (02-10)', () => {
   });
 });
 
-describe('Inventario desde el teléfono (06-10)', () => {
-  it('quien tiene Inventario tiene la pantalla; un rol «solo teléfono» entra directo a ella', () => {
-    expect(vistasTelefonoDe('almacen_telefono', ['inventario']).map((v) => v.ruta)).toEqual(['inventario/telefono']);
-    expect(rutaDeInicio('almacen_telefono', ['inventario'], true)).toBe('/app/inventario/telefono');
+describe('Inventario no tiene vista de teléfono (se quitó el 13-10)', () => {
+  it('tener Inventario no da ninguna pantalla de teléfono', () => {
+    expect(vistasTelefonoDe('almacen_telefono', ['inventario'])).toEqual([]);
+    expect(vistasTelefonoDe('admin', ['inventario', 'combustible', 'cocina']).map((v) => v.ruta)).toEqual(['combustible/surtidor', 'cocina/telefono']);
   });
-  it('un rol de escritorio con Inventario sigue entrando al escritorio', () => {
+  it('un rol con Inventario entra al escritorio', () => {
     expect(rutaDeInicio('admin', ['inventario'], false)).toBe('/app/inventario');
   });
 });
