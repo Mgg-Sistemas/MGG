@@ -117,70 +117,12 @@ export function esRolCocina(role: RoleKey | null | undefined): boolean {
   return (role ?? '').trim().toLowerCase() === ROL_COCINA;
 }
 
-/* Inventario NO tiene vista de teléfono: la que existió (06-10) se quitó el
-   13-10-2026 por decisión de la administradora. Inventario es solo de PC. */
+/* ───────────── Pantallas de teléfono por rol (13-10-2026, traído de Golden Touch) ─────────────
+   Las pantallas (surtidor, comidas) se dan POR ROL en Roles y Permisos y viven en
+   `roles_permisos.vistas_telefono`; ya no salen solas del permiso del módulo.
+   El registro de pantallas y la regla de acceso están en auth/vistasTelefono.ts.
+   La marca «solo teléfono» sigue en el rol (custom_roles.solo_telefono). */
 
-/* ───────────── Las vistas de teléfono, en UN solo registro (02-10-2026) ─────────────
-   Pedido de la administradora: una persona de teléfono puede necesitar varias
-   pantallas (el que carga combustible también sirve la comida). Los accesos ya
-   no dependen del rol sino de los PERMISOS: quien tenga el módulo marcado ve su
-   vista de teléfono. Para montar una vista nueva basta agregarla acá; el menú, el
-   inicio y los atajos entre vistas la toman solos. */
-
-/** Una pantalla pensada para el celular. */
-export interface VistaTelefono {
-  /** Módulo cuyo permiso de lectura la habilita. */
-  modulo: ModuleKey;
-  /** Ruta bajo `/app/`. */
-  ruta: string;
-  icono: string;
-  label: string;
-  /** El rol que vive SOLO en esta vista (entra ahí y no ve el escritorio). */
-  rolPropio: RoleKey;
-}
-
-export const VISTAS_TELEFONO: readonly VistaTelefono[] = [
-  { modulo: 'combustible', ruta: RUTA_SURTIDOR, icono: '⛽', label: 'Surtidor', rolPropio: ROL_SURTIDOR },
-  { modulo: 'cocina', ruta: RUTA_COCINA_TELEFONO, icono: '🍳', label: 'Comidas', rolPropio: ROL_COCINA },
-];
-
-/**
- * ¿Este rol trabaja desde el teléfono? FALLBACK por nombre (surtidor, cocina),
- * para cuando la marca `solo_telefono` del rol no se pudo leer. La que manda es
- * la marca, que vive en `custom_roles` y llega por `usePermissions().soloTelefono`.
- */
-export function esRolDeTelefono(role: RoleKey | null | undefined): boolean {
-  const r = (role ?? '').trim().toLowerCase();
-  return VISTAS_TELEFONO.some((v) => v.rolPropio === r);
-}
-
-/**
- * Las vistas de teléfono que le tocan a alguien según sus PERMISOS. La del rol
- * propio va primera (es a la que entra); las demás, en el orden del registro.
- */
-export function vistasTelefonoDe(role: RoleKey | null | undefined, permitidos: ModuleKey[]): VistaTelefono[] {
-  const r = (role ?? '').trim().toLowerCase();
-  const propias = VISTAS_TELEFONO.filter((v) => v.rolPropio === r && permitidos.includes(v.modulo));
-  const otras = VISTAS_TELEFONO.filter((v) => v.rolPropio !== r && permitidos.includes(v.modulo));
-  return [...propias, ...otras];
-}
-
-/**
- * A dónde mandar a alguien que acaba de entrar.
- *
- * Un rol marcado «solo teléfono» va a su vista de celular aunque ese no sea su
- * primer módulo: para él, el módulo ES la vista de teléfono. Si tiene varias,
- * entra a la de su rol propio (o a la primera del registro) y las demás quedan
- * en el menú. `soloTelefono` es la marca del rol; sin ella se cae al nombre.
- */
-export function rutaDeInicio(role: RoleKey | null | undefined, permitidos: ModuleKey[], soloTelefono?: boolean | null): string {
-  if (soloTelefono ?? esRolDeTelefono(role)) {
-    const vista = vistasTelefonoDe(role, permitidos)[0];
-    if (vista) return `/app/${vista.ruta}`;
-  }
-  const primero = permitidos[0];
-  return primero ? `/app/${modulePath(primero)}` : '/app/sin-acceso';
-}
 
 export const emptyPermission: ModulePermission = { lectura: false, escritura: false, full: false };
 
@@ -289,4 +231,43 @@ export async function savePermisos(all: AllPermisos, actorEmail: string): Promis
 export async function eliminarPermisosRol(role: RoleKey): Promise<void> {
   const { error } = await supabase.from(TABLE).delete().eq('role', role);
   if (error) throw error;
+}
+
+/* ───────── Pantallas de teléfono del rol (13-10-2026) ───────── */
+
+interface FilaTelefono { role?: RoleKey; permisos?: RolePermisos; vistas_telefono?: unknown }
+function vistasDe(r: FilaTelefono): string[] {
+  return Array.isArray(r.vistas_telefono) ? r.vistas_telefono.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** Lo que la sesión necesita de su rol: la matriz y sus pantallas de teléfono. `null` si no hay fila. */
+export async function loadAccesoRol(role: RoleKey): Promise<{ permisos: RolePermisos | null; vistas: string[] } | null> {
+  const { data, error } = await supabase.from(TABLE).select('permisos, vistas_telefono').eq('role', role).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const fila = data as FilaTelefono;
+  return { permisos: fila.permisos ?? null, vistas: vistasDe(fila) };
+}
+
+/** Las pantallas de teléfono de todos los roles, para el panel de Roles y Permisos. */
+export async function loadTelefonoRoles(): Promise<Record<RoleKey, string[]>> {
+  const { data, error } = await supabase.from(TABLE).select('role, vistas_telefono');
+  if (error) throw error;
+  const out: Record<RoleKey, string[]> = {};
+  for (const r of (data ?? []) as FilaTelefono[]) if (r.role) out[r.role] = vistasDe(r);
+  return out;
+}
+
+/**
+ * Guarda las pantallas de teléfono de UN rol (autoguardado). Solo toca esa
+ * columna: la matriz de módulos queda como está. Si el rol todavía no tiene fila,
+ * se crea con `permisosSiFalta`.
+ */
+export async function saveTelefonoRol(role: RoleKey, vistas: string[], actorEmail: string, permisosSiFalta: RolePermisos): Promise<void> {
+  const cambios = { vistas_telefono: [...new Set(vistas)], updated_at: new Date().toISOString(), updated_by: actorEmail };
+  const { data, error } = await supabase.from(TABLE).update(cambios).eq('role', role).select('role');
+  if (error) throw error;
+  if (data?.length) return;
+  const { error: eIns } = await supabase.from(TABLE).insert({ role, permisos: permisosSiFalta, ...cambios });
+  if (eIns) throw eIns;
 }

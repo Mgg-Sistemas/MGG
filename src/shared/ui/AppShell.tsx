@@ -37,10 +37,10 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function AppShell() {
   const { user } = useSession();
-  const { can, role, appUser, soloTelefono } = usePermissions();
+  const { can, role, appUser, soloTelefono, vistasTelefono } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria');
+  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria'));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -302,14 +302,22 @@ export function AppShell() {
           </NavLink>
         </div>
 
+        {/* Rol «solo teléfono» (13-10): el menú son SUS pantallas, dadas en Roles y Permisos. */}
+        {soloTelefono && (
+          <>
+            <div className="sidebar-section">Teléfono</div>
+            <nav className="nav">
+              {vistasTelefono.length > 1 && <NavItem to="/app/telefono" icon="📱" label="Mis pantallas" />}
+              {vistasTelefono.map((v) => <NavItem key={v.key} to={v.ruta} icon={v.icono} label={v.label} />)}
+            </nav>
+          </>
+        )}
         {showOperacion && <div className="sidebar-section">Operación</div>}
-        <nav className="nav">
+        {!soloTelefono && <nav className="nav">
           {can('dashboard') && <NavItem to="/app/dashboard" icon="▦" label="Dashboard" />}
           {can('pedidos') && <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
-          {/* Un rol «solo teléfono» con Inventario ve su pantalla de celular, no el escritorio. */}
-          {soloTelefono && can('inventario') && <NavItem to="/app/inventario/telefono" icon="📦" label="Inventario" />}
-          {!soloTelefono && (can('inventario') || can('deposito')) && (
+          {(can('inventario') || can('deposito')) && (
             can('deposito') ? (
               <NavGroup icon="⬢" label="Inventario" defaultOpen={location.pathname.startsWith('/app/inventario') || location.pathname.startsWith('/app/deposito')}>
                 {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario" />}
@@ -339,16 +347,8 @@ export function AppShell() {
             )
           )}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
-          {/* El cocinero trabaja desde el teléfono: el menú le ofrece SU pantalla. */}
-          {/* Un rol marcado «solo teléfono» ve la vista de celular de CADA módulo que
-              tenga permitido (02-10): el menú le ofrece sus pantallas, no los módulos
-              de escritorio —que igual lo rebotarían—. La marca vive en el rol. */}
-          {can('cocina') && (soloTelefono
-            ? <NavItem to="/app/cocina/telefono" icon="🍳" label="Comidas" />
-            : <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />)}
-          {can('combustible') && (soloTelefono
-            ? <NavItem to="/app/combustible/surtidor" icon="⛽" label="Surtidor" />
-            : <NavItem to="/app/combustible" icon="⛽" label="Combustible" />)}
+          {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />}
+          {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
           {can('maquinaria') && (
             <NavGroup icon="🚜" label="Control de Maquinaria y Vehículos" defaultOpen={location.pathname.startsWith('/app/maquinaria')}>
               <NavItem to="/app/maquinaria" icon="🚜" label="Equipos" />
@@ -374,7 +374,7 @@ export function AppShell() {
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
           {can('asignaciones') && <NavItem to="/app/asignaciones" icon="🎒" label="Asignaciones" />}
           {can('documentacion') && <NavItem to="/app/documentacion" icon="📁" label="Documentación" />}
-        </nav>
+        </nav>}
 
         {showSistema && <div className="sidebar-section">Sistema</div>}
         <nav className="nav">

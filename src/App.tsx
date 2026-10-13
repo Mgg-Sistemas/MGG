@@ -4,7 +4,7 @@ import { LandingPage } from './modules/landing/LandingPage';
 import { LoginPage } from './modules/auth/LoginPage';
 import { AppShell } from './shared/ui/AppShell';
 import { ProtectedRoute } from './modules/auth/ProtectedRoute';
-import { PermissionsProvider, RequireModule, HomeRedirect } from './modules/auth/PermissionsContext';
+import { PermissionsProvider, RequireModule, RequireVistaTelefono, HomeRedirect } from './modules/auth/PermissionsContext';
 import { ToastHost } from './shared/ui/Toast';
 import { PasswordChangeGate } from './modules/usuarios/PasswordChangeGate';
 import { lazyReload, ChunkErrorBoundary } from './shared/lib/lazyReload';
@@ -24,6 +24,7 @@ const RefinacionPage = lazyReload(() => import('./modules/produccion/ProduccionP
 const SalidasPage = lazyReload(() => import('./modules/salidas/SalidasPage').then((m) => ({ default: m.SalidasPage })));
 const CocinaPage = lazyReload(() => import('./modules/cocina/CocinaPage').then((m) => ({ default: m.CocinaPage })));
 const CocinaMovilView = lazyReload(() => import('./modules/cocina/CocinaMovilView').then((m) => ({ default: m.CocinaMovilView })));
+const TelefonoInicioPage = lazyReload(() => import('./modules/auth/TelefonoInicioPage').then((m) => ({ default: m.TelefonoInicioPage })));
 const CombustiblePage = lazyReload(() => import('./modules/combustible/CombustiblePage').then((m) => ({ default: m.CombustiblePage })));
 const AcopioPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.AcopioPage })));
 const ReportePreliminarPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.ReportePreliminarPage })));
@@ -140,16 +141,18 @@ export function App() {
           <Route path="pedidos/historico" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><HistoricoPage /></Suspense></RequireModule>} />
           <Route path="proveedores" element={<RequireModule module="proveedores"><Suspense fallback={<PageLoader />}><ProveedoresPage /></Suspense></RequireModule>} />
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
-          {/* Inventario desde el teléfono: producto nuevo y entradas en el almacén elegido. */}
           <Route path="deposito" element={<RequireModule module="deposito"><Suspense fallback={<PageLoader />}><DepositoPage /></Suspense></RequireModule>} />
           <Route path="almacenes/:sede" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><AlmacenCentroPage /></Suspense></RequireModule>} />
           <Route path="produccion" element={<RequireModule module="produccion"><Suspense fallback={<PageLoader />}><ProduccionPage /></Suspense></RequireModule>} />
           <Route path="refinacion" element={<RequireModule module="refinacion"><Suspense fallback={<PageLoader />}><RefinacionPage /></Suspense></RequireModule>} />
           <Route path="salidas" element={<RequireModule module="salidas"><Suspense fallback={<PageLoader />}><SalidasPage /></Suspense></RequireModule>} />
           <Route path="cocina" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaPage /></Suspense></RequireModule>} />
-          <Route path="cocina/telefono" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaMovilView /></Suspense></RequireModule>} />
+          {/* Pantallas de teléfono (13-10): hace falta la pantalla dada al rol Y lectura en su módulo. */}
+          <Route path="cocina/telefono" element={<RequireVistaTelefono vista="comidas"><Suspense fallback={<PageLoader />}><CocinaMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="combustible" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><CombustiblePage /></Suspense></RequireModule>} />
-          <Route path="combustible/surtidor" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><SurtidorMovilView /></Suspense></RequireModule>} />
+          <Route path="combustible/surtidor" element={<RequireVistaTelefono vista="surtidor"><Suspense fallback={<PageLoader />}><SurtidorMovilView /></Suspense></RequireVistaTelefono>} />
+          {/* «Mis pantallas»: el inicio de un rol solo teléfono con más de una pantalla. */}
+          <Route path="telefono" element={<Suspense fallback={<PageLoader />}><TelefonoInicioPage /></Suspense>} />
           <Route path="acopio" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><AcopioPage /></Suspense></RequireModule>} />
           <Route path="acopio/reporte-preliminar" element={<RequireModule module="acopio_reporte"><Suspense fallback={<PageLoader />}><ReportePreliminarPage /></Suspense></RequireModule>} />
           <Route path="acopio/global-mineral-tin" element={<RequireModule module="acopio_gmt"><Suspense fallback={<PageLoader />}><GlobalMineralTinPage /></Suspense></RequireModule>} />

@@ -5,6 +5,8 @@ import { ConfirmDialog } from '@/shared/ui/Modal';
 import { useSession } from '@/modules/auth/authStore';
 import {
   loadPermisos,
+  loadTelefonoRoles,
+  saveTelefonoRol,
   savePermisosRole,
   eliminarPermisosRol,
   normalizeRolePermisos,
@@ -17,8 +19,10 @@ import {
   type RoleKey,
   type RolePermisos,
 } from './permisos.repository';
+import { VISTAS_TELEFONO } from '@/modules/auth/vistasTelefono';
 import {
   listRoles,
+  actualizarRol,
   eliminarRol,
   contarUsuariosPorRol,
   type CustomRole,
@@ -48,6 +52,8 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [permisos, setPermisos] = useState<AllPermisos>({} as AllPermisos);
+  // Pantallas de teléfono dadas a cada rol (13-10): se otorgan aparte del módulo.
+  const [telefono, setTelefono] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [autoEstado, setAutoEstado] = useState<'idle' | 'guardando' | 'guardado' | 'error'>('idle');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
@@ -62,14 +68,16 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
   async function refresh() {
     setLoading(true);
     try {
-      const [rolesList, remote, c] = await Promise.all([
+      const [rolesList, remote, c, tel] = await Promise.all([
         listRoles(),
         loadPermisos(),
         contarUsuariosPorRol(),
+        loadTelefonoRoles().catch(() => ({} as Record<string, string[]>)),
       ]);
       setRolesCache(rolesList);
       setRoles(rolesList);
       setCounts(c);
+      setTelefono(tel);
       if (remote) {
         setPermisos(normalize(remote, rolesList));
       } else {
@@ -127,6 +135,28 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
       setAutoEstado('error');
       toast(e instanceof Error ? e.message : 'No se pudo guardar el permiso', 'error');
     }
+  }
+
+  /** Marca o desmarca una pantalla de teléfono del rol (autoguardado en roles_permisos). */
+  function cambiarVista(role: RoleKey, vista: string) {
+    const actuales = telefono[role] ?? [];
+    const next = actuales.includes(vista) ? actuales.filter((x) => x !== vista) : [...actuales, vista];
+    setTelefono((prev) => ({ ...prev, [role]: next }));
+    setAutoEstado('guardando');
+    saveTelefonoRol(role, next, user?.email ?? 'sistema', permisos[role] ?? defaultsFor(role))
+      .then(() => setAutoEstado('guardado'))
+      .catch((e) => { setAutoEstado('error'); toast(e instanceof Error ? e.message : 'No se pudo guardar la pantalla', 'error'); });
+  }
+
+  /** La marca «solo teléfono» vive en el rol (custom_roles): se cambia ahí y se recarga la lista. */
+  async function cambiarSoloTelefono(role: RoleKey, valor: boolean) {
+    setAutoEstado('guardando');
+    try {
+      await actualizarRol(role, { soloTelefono: valor });
+      setRoles((prev) => prev.map((r) => (r.key === role ? { ...r, solo_telefono: valor } : r)));
+      setAutoEstado('guardado');
+      onRolesChanged?.();
+    } catch (e) { setAutoEstado('error'); toast(e instanceof Error ? e.message : 'No se pudo cambiar la marca', 'error'); }
   }
 
   function resetRol(role: RoleKey) {
@@ -277,6 +307,45 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                   </tbody>
                 </table>
                 </div>
+
+                {/* Pantallas de teléfono (13-10, como en Golden Touch): se dan aparte del módulo.
+                    El administrador ve todas las pantallas: no hay nada que elegir. */}
+                {rc.key !== 'admin' && (() => {
+                  const vistas = telefono[rc.key] ?? [];
+                  const solo = rc.solo_telefono === true;
+                  return (
+                    <div style={{ marginTop: '.9rem', paddingTop: '.75rem', borderTop: '1px solid var(--border)', display: 'grid', gap: '.4rem' }}>
+                      <div style={{ fontWeight: 700, fontSize: '.85rem' }}>📱 Pantallas de teléfono</div>
+                      {VISTAS_TELEFONO.map((v) => {
+                        const marcada = vistas.includes(v.key);
+                        const mod = permisos[rc.key]?.[v.modulo];
+                        const sinModulo = !(mod?.lectura || mod?.full);
+                        const modLabel = MODULES.find((m) => m.key === v.modulo)?.label ?? v.modulo;
+                        return (
+                          <label key={v.key} htmlFor={`tel-${rc.key}-${v.key}`} style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', fontSize: '.82rem', cursor: readOnly ? 'default' : 'pointer' }}>
+                            <input id={`tel-${rc.key}-${v.key}`} type="checkbox" disabled={readOnly} checked={marcada} onChange={() => cambiarVista(rc.key, v.key)} />
+                            <span>
+                              {v.icono} {v.label}
+                              {marcada && sinModulo && (
+                                <small style={{ display: 'block', color: 'var(--warning)' }}>No se abre: falta lectura en {modLabel}.</small>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+                      <label htmlFor={`tel-${rc.key}-solo`} style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', fontSize: '.82rem', marginTop: '.2rem', cursor: readOnly ? 'default' : 'pointer' }}>
+                        <input id={`tel-${rc.key}-solo`} type="checkbox" disabled={readOnly} checked={solo} onChange={() => void cambiarSoloTelefono(rc.key, !solo)} />
+                        <span>
+                          <strong>Solo teléfono</strong>
+                          <small className="muted" style={{ display: 'block' }}>Entra directo a sus pantallas de teléfono y no ve las de PC, salvo Ajustes.</small>
+                          {solo && !vistas.length && (
+                            <small style={{ display: 'block', color: 'var(--danger)' }}>Sin pantallas marcadas, este rol no tiene nada que abrir.</small>
+                          )}
+                        </span>
+                      </label>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
