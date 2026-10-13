@@ -40,6 +40,9 @@ export function AppShell() {
   const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono } = usePermissions();
   // Quien tiene pantallas de teléfono dadas las ve en su propia sección del menú (13-10).
   const mostrarTelefono = !isAdmin && (soloTelefono || vistasTelefono.length > 0);
+  // Si el rol tiene la pantalla de teléfono de un módulo, ese módulo ya abre como teléfono:
+  // en «Operación» no se repite (vería «Surtidor» arriba y «Combustible» abajo para lo mismo).
+  const tienePantalla = (key: 'surtidor' | 'comidas') => !isAdmin && vistasTelefono.some((v) => v.key === key);
   const navigate = useNavigate();
   const location = useLocation();
   const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria'));
@@ -350,8 +353,8 @@ export function AppShell() {
             )
           )}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
-          {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />}
-          {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
+          {can('cocina') && !tienePantalla('comidas') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />}
+          {can('combustible') && !tienePantalla('surtidor') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
           {can('maquinaria') && (
             <NavGroup icon="🚜" label="Control de Maquinaria y Vehículos" defaultOpen={location.pathname.startsWith('/app/maquinaria')}>
               <NavItem to="/app/maquinaria" icon="🚜" label="Equipos" />
