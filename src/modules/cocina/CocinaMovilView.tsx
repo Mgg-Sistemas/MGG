@@ -102,7 +102,7 @@ export function CocinaMovilView() {
           <h1>🍳 Comidas</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}>{actorName ?? actor}</div>
         </div>
-        {!esCocinero && <Link to="/app/cocina" className="btn btn-ghost">🖥 Módulo completo</Link>}
+        {!esCocinero && <Link to="/app/cocina?completo=1" className="btn btn-ghost">🖥 Módulo completo</Link>}
       </header>
       <AtajosTelefono actual={RUTA_COCINA_TELEFONO} />
 

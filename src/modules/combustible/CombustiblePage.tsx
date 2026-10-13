@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -164,7 +164,11 @@ function ComboBuscador({ value, onChange, opciones, placeholder, icono }: {
 
 export function CombustiblePage() {
   const { user } = useSession();
-  const { can: canPerm, appUser, soloTelefono, loading: cargandoPermisos } = usePermissions();
+  const { can: canPerm, appUser, soloTelefono, puedeVista, isAdmin, loading: cargandoPermisos } = usePermissions();
+  // «🖥 Módulo completo» desde el surtidor llega con ?completo=1: es la única puerta a la PC
+  // para quien tiene la pantalla del surtidor dada (13-10).
+  const [paramsUrl] = useSearchParams();
+  const pidioCompleto = paramsUrl.get('completo') === '1';
   const canWrite = canPerm('combustible', 'escritura');
   const actor = user?.email ?? 'sistema';
   // Nombre de la persona logueada (no el correo) para precargar "quién solicita".
@@ -261,7 +265,9 @@ export function CombustiblePage() {
   // PC. Va acá abajo y no arriba del componente porque un `return` antes de los
   // hooks rompe el orden con el que React los identifica.
   // Un rol marcado «solo teléfono» trabaja desde el celular: no ve el escritorio.
-  if (!cargandoPermisos && soloTelefono) return <Navigate to={`/app/${RUTA_SURTIDOR}`} replace />;
+  // Y quien tiene la pantalla del surtidor dada (13-10) entra a Combustible POR el
+  // teléfono: la PC solo con «🖥 Módulo completo» (?completo=1). El admin, a la PC.
+  if (!cargandoPermisos && (soloTelefono || (!isAdmin && puedeVista('surtidor') && !pidioCompleto))) return <Navigate to={`/app/${RUTA_SURTIDOR}`} replace />;
 
   return (
     <div>

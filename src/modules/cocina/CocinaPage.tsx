@@ -5,7 +5,7 @@
    - Tabla filtrable + reporte PDF con vista previa.
    ============================================================ */
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { RUTA_COCINA_TELEFONO } from '@/modules/usuarios/permisos.repository';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -57,7 +57,11 @@ function fmtDiaCorto(iso: string): string {
 /* ───────────── Página: tarjetas de cocinas ───────────── */
 export function CocinaPage() {
   const { user } = useSession();
-  const { can, soloTelefono, loading: cargandoPermisos } = usePermissions();
+  const { can, soloTelefono, puedeVista, isAdmin, loading: cargandoPermisos } = usePermissions();
+  // «🖥 Módulo completo» desde Comidas llega con ?completo=1 (13-10): única puerta a la PC
+  // para quien tiene esa pantalla dada.
+  const [paramsUrl] = useSearchParams();
+  const pidioCompleto = paramsUrl.get('completo') === '1';
   const canWrite = can('cocina', 'escritura');
   const actor = user?.email ?? 'sistema';
 
@@ -96,7 +100,7 @@ export function CocinaPage() {
 
   // El rol COCINA (cocinero) trabaja desde el teléfono: no ve el módulo de PC.
   // Va acá abajo, después de los hooks, para no romper el orden con que React los identifica.
-  if (!cargandoPermisos && soloTelefono) return <Navigate to={`/app/${RUTA_COCINA_TELEFONO}`} replace />;
+  if (!cargandoPermisos && (soloTelefono || (!isAdmin && puedeVista('comidas') && !pidioCompleto))) return <Navigate to={`/app/${RUTA_COCINA_TELEFONO}`} replace />;
 
   return (
     <div>

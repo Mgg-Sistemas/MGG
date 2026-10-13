@@ -152,7 +152,7 @@ export function SurtidorMovilView() {
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-ghost" onClick={() => setReporte(true)} disabled={!tanques.length}
             title="Movimientos por rango de fechas, agrupados por tipo, con sus fotos">📊 Reporte</button>
-          {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost">🖥 Módulo completo</Link>}
+          {!esSurtidor && <Link to="/app/combustible?completo=1" className="btn btn-ghost">🖥 Módulo completo</Link>}
         </div>
       </header>
       <AtajosTelefono actual={RUTA_SURTIDOR} />
