@@ -766,3 +766,14 @@ export async function serviciosDirectosPorEquipo(): Promise<Map<string, Servicio
   }
   return out;
 }
+
+/** Servicios directos con al menos un renglón casado al equipo (más reciente primero). Lo pide el expediente de Maquinaria (13-10). */
+export async function listServiciosDirectosDeEquipo(equipoId: string): Promise<ServicioDirecto[]> {
+  if (!equipoId) return [];
+  const { data, error } = await supabase
+    .from('servicios_directos').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? [])
+    .map((row) => normalizar(row as Record<string, unknown>))
+    .filter((s) => s.equipo_id === equipoId || s.items.some((it) => it.equipo_id === equipoId));
+}

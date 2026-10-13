@@ -6,6 +6,8 @@
 @import './surtidor.css';
 @import './descansos.css';
 @import './choferes.css';
+@import './flota.css';
+@import './flotaDetalle.css';
 
 @tailwind utilities;
 

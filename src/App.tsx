@@ -34,6 +34,11 @@ const EsmeraldaAliPage = lazyReload(() => import('./modules/acopio/AcopioPage').
 const PijiguaosPage = lazyReload(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.PijiguaosPage })));
 const MaquinariaPage = lazyReload(() => import('./modules/maquinaria/MaquinariaPage').then((m) => ({ default: m.MaquinariaPage })));
 const ServicioMantenimientoPage = lazyReload(() => import('./modules/maquinaria/ServicioMantenimientoPage').then((m) => ({ default: m.ServicioMantenimientoPage })));
+const EquipoExpedientePage = lazyReload(() => import('./modules/maquinaria/EquipoExpedientePage').then((m) => ({ default: m.EquipoExpedientePage })));
+const OrdenesServicioPage = lazyReload(() => import('./modules/maquinaria/OrdenesServicioPage').then((m) => ({ default: m.OrdenesServicioPage })));
+const AveriasEstadosPage = lazyReload(() => import('./modules/maquinaria/AveriasEstadosPage').then((m) => ({ default: m.AveriasEstadosPage })));
+const LavadosPage = lazyReload(() => import('./modules/maquinaria/LavadosPage').then((m) => ({ default: m.LavadosPage })));
+const RepuestosComprasPage = lazyReload(() => import('./modules/maquinaria/RepuestosComprasPage').then((m) => ({ default: m.RepuestosComprasPage })));
 const ChoferesPage = lazyReload(() => import('./modules/choferes/ChoferesPage').then((m) => ({ default: m.ChoferesPage })));
 const VentasPage = lazyReload(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const TesoreriaPage = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
@@ -161,6 +166,11 @@ export function App() {
           <Route path="acopio/los-pijiguaos" element={<RequireModule module="acopio_pijiguaos"><Suspense fallback={<PageLoader />}><PijiguaosPage /></Suspense></RequireModule>} />
           <Route path="maquinaria" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/servicio-mantenimiento" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><ServicioMantenimientoPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/equipo/:id" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><EquipoExpedientePage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/ordenes" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><OrdenesServicioPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/averias" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><AveriasEstadosPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/lavados" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><LavadosPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/repuestos" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><RepuestosComprasPage /></Suspense></RequireModule>} />
           <Route path="choferes" element={<RequireModule module="choferes"><Suspense fallback={<PageLoader />}><ChoferesPage /></Suspense></RequireModule>} />
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />

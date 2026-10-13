@@ -242,3 +242,28 @@ export function SearchSelect({
     </div>
   );
 }
+
+/**
+ * Combobox con buscador que ADEMAS permite escribir un valor nuevo (creable).
+ * Para campos tipo ubicacion / categoria donde el texto se guarda en un
+ * catalogo si no existia. El `value` es texto libre (no un id). Traido de
+ * Golden Touch (13-10); por dentro es el SearchSelect de MGG con `allowCreate`.
+ */
+export function SearchCreateSelect({
+  options, value, onChange, placeholder = 'Escribe o elige…', emptyText = 'Sin coincidencias', style, id, disabled = false,
+}: {
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  emptyText?: string;
+  style?: CSSProperties;
+  id?: string;
+  disabled?: boolean;
+}) {
+  const opts = useMemo(() => options.map((o) => ({ value: o, label: o })), [options]);
+  return (
+    <SearchSelect options={opts} value={value} onChange={onChange} placeholder={placeholder} emptyText={emptyText}
+      style={style} id={id} disabled={disabled} allowCreate />
+  );
+}

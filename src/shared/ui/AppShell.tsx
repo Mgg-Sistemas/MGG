@@ -357,7 +357,11 @@ export function AppShell() {
           {can('combustible') && !tienePantalla('surtidor') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
           {can('maquinaria') && (
             <NavGroup icon="🚜" label="Control de Maquinaria y Vehículos" defaultOpen={location.pathname.startsWith('/app/maquinaria')}>
-              <NavItem to="/app/maquinaria" icon="🚜" label="Equipos" />
+              <NavItem to="/app/maquinaria" icon="🚜" label="Flota" />
+              <NavItem to="/app/maquinaria/ordenes" icon="🧾" label="Órdenes de servicio" />
+              <NavItem to="/app/maquinaria/averias" icon="🔴" label="Averías y estados" />
+              <NavItem to="/app/maquinaria/lavados" icon="🚿" label="Lavados" />
+              <NavItem to="/app/maquinaria/repuestos" icon="🛒" label="Repuestos y compras" />
               <NavItem to="/app/maquinaria/servicio-mantenimiento" icon="🔧" label="Servicio de Mantenimiento" />
             </NavGroup>
           )}

@@ -31,3 +31,6 @@ export function textoDeError(e: unknown, respaldo: string): string {
   }
   return respaldo;
 }
+
+/** Mismo helper con el nombre que usan las pantallas traídas de Golden Touch (13-10). */
+export const mensajeError = textoDeError;

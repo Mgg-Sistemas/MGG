@@ -23,30 +23,24 @@ export interface ResumenMantRow {
 const n = (v: number | null | undefined) =>
   Number(v ?? 0).toLocaleString('es-VE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-/** Un movimiento de la bitácora para el PDF de detalle por equipo. */
-export interface MovEquipoRow {
-  fecha: string;
-  tipo: string | null;
-  horometro: number | null;
-  kilometraje: number | null;
-  aceite: number | null;
-  gasoil: number | null;
-  refrigerante: number | null;
-  filtros: number | null;
-  filtrosTipo: string | null;
-  /** Repuestos/insumos cambiados, ya formateados: "CAUCHOS ×6, PINTURA ×2". */
-  insumos: string;
-  trabajo: string | null;
-  mecanico: string | null;
+/** Un movimiento del historial del equipo (bitácora o servicio) para el PDF. */
+export interface MovimientoEquipoRow {
+  fecha: string;       // ISO o yyyy-mm-dd
+  origen: string;      // 'Bitácora' | 'Servicio'
+  tipo: string;        // etiqueta del tipo / código del servicio
+  detalle: string;     // qué se consumió/hizo (ej. "Cambio de cauchos ×6")
+  /** Repuesto del inventario que llevó, «sin repuesto» si se declaró que no lleva,
+   *  o «sin declarar» cuando nadie contestó la pregunta. */
+  repuesto?: string;
 }
 
 /**
- * PDF de TODOS los movimientos de un equipo en un rango de fechas: qué se consumió
- * y cuándo (ej.: "25/06/2026 · Cambio de cauchos · CAUCHOS ×6"). Vista previa.
+ * PDF del historial de movimientos/consumos de un equipo en un rango de fechas:
+ * qué se hizo y cuándo. Une la bitácora y las solicitudes de servicio del equipo.
  */
 export async function descargarMovimientosEquipoPdf(
   equipo: string,
-  rows: MovEquipoRow[],
+  rows: MovimientoEquipoRow[],
   rango: { desde: string; hasta: string },
 ): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
@@ -56,16 +50,16 @@ export async function descargarMovimientosEquipoPdf(
     import('@/shared/lib/pdfLogo'),
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = MARGEN_PDF; // 2 cm
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-  doc.text('BITÁCORA DE MANTENIMIENTO', W / 2 + 28, y + 20, { align: 'center' });
+  doc.text('HISTORIAL DE MANTENIMIENTO', W / 2 + 28, y + 18, { align: 'center' });
   doc.setFontSize(11); doc.setTextColor(60, 60, 60);
-  doc.text(equipo, W / 2 + 28, y + 38, { align: 'center' });
+  doc.text(equipo, W / 2 + 28, y + 36, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 56;
 
@@ -76,45 +70,22 @@ export async function descargarMovimientosEquipoPdf(
   doc.text(rangoTxt, MARGIN, y); y += 14;
   doc.setTextColor(0, 0, 0);
 
-  const body = rows.map((r) => [
-    fmt.date(r.fecha),
-    r.tipo ?? '—',
-    r.horometro != null ? n(r.horometro) : '—',
-    r.kilometraje != null ? n(r.kilometraje) : '—',
-    r.aceite != null ? n(r.aceite) : '—',
-    r.gasoil != null ? n(r.gasoil) : '—',
-    r.refrigerante != null ? n(r.refrigerante) : '—',
-    r.filtros != null ? `${n(r.filtros)}${r.filtrosTipo ? ` (${r.filtrosTipo})` : ''}` : '—',
-    r.insumos || '—',
-    r.trabajo || r.mecanico ? [r.trabajo, r.mecanico].filter(Boolean).join(' · ') : '—',
-  ]);
+  const body = rows.map((r) => [fmt.date(r.fecha), r.origen, r.tipo, r.detalle, r.repuesto ?? '—']);
 
   autoTable(doc, {
     startY: y,
-    head: [['FECHA', 'TIPO', 'HORÓM.', 'KM', 'ACEITE', 'GASOIL', 'REFRIG.', 'FILTROS', 'REPUESTOS / INSUMOS', 'TRABAJO']],
-    body,
-    styles: { fontSize: 7.5, cellPadding: 3, valign: 'middle', overflow: 'linebreak' },
+    head: [['FECHA', 'ORIGEN', 'TIPO', 'DETALLE / CONSUMO', 'REPUESTO']],
+    body: body.length ? body : [['—', '—', '—', 'Sin movimientos en el período.', '—']],
+    styles: { fontSize: 8.5, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
-    columnStyles: {
-      0: { cellWidth: 58 },
-      1: { cellWidth: 95 },
-      2: { halign: 'right', cellWidth: 50 },
-      3: { halign: 'right', cellWidth: 50 },
-      4: { halign: 'right', cellWidth: 45 },
-      5: { halign: 'right', cellWidth: 45 },
-      6: { halign: 'right', cellWidth: 48 },
-      7: { halign: 'right', cellWidth: 60 },
-      // Suman 678 pt: caben en el ancho útil de la carta apaisada con 2 cm por lado.
-      8: { cellWidth: 130 },
-      9: { cellWidth: 97 },
-    },
+    columnStyles: { 0: { cellWidth: 62 }, 1: { cellWidth: 60 }, 2: { cellWidth: 120 }, 3: { cellWidth: 'auto' }, 4: { cellWidth: 90 } },
     margin: MARGEN_TABLA_CON_PIE,
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
   doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} movimiento(s) · ${equipo} · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(doc.internal.pageSize.getHeight()));
 
-  previewPdfDoc(doc, `bitacora-${equipo.toLowerCase().replace(/\s+/g, '-')}.pdf`);
+  previewPdfDoc(doc, `movimientos-${equipo.toLowerCase().replace(/\s+/g, '-')}.pdf`);
 }
 
 export async function descargarResumenMantenimientoPdf(

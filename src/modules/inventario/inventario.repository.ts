@@ -568,3 +568,75 @@ export async function listRecepcionesPendientes(): Promise<Orden[]> {
   if (error) throw error;
   return (data ?? []) as Orden[];
 }
+
+/* ───────── Lo que pide Control de Maquinaria (Flota y Servicio, 13-10) ───────── */
+
+/** Productos por id (los que hagan falta y nada más). Devuelve también los inactivos:
+ *  si un equipo gastó un producto que después se dio de baja, hay que poder decirlo. */
+export async function listProductosPorIds(ids: string[]): Promise<Producto[]> {
+  const limpios = [...new Set(ids.filter(Boolean))];
+  if (!limpios.length) return [];
+  const { data, error } = await supabase.from('productos').select('*').in('id', limpios);
+  if (error) throw error;
+  return (data ?? []) as Producto[];
+}
+
+export interface ProductoParecido {
+  id: string;
+  sku: string;
+  nombre: string;
+  categoria: string;
+  unidad: string;
+  marca: string | null;
+  modelo: string | null;
+  almacen: string | null;
+  stock: number;
+  /** 0 a 1. 1 = idéntico. */
+  parecido: number;
+  misma_categoria: boolean;
+}
+
+const normParecido = (s: string | null | undefined) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const palabrasParecido = (s: string | null | undefined) => normParecido(s).split(/[^a-z0-9]+/).filter((p) => p.length >= 2);
+
+/**
+ * Productos ACTIVOS de nombre parecido al dado (para no dar de alta un duplicado):
+ * comparten al menos la mitad de las palabras, o uno contiene al otro. Es una
+ * ayuda, no un control: si la consulta falla, devuelve vacío y no bloquea nada.
+ */
+export async function buscarProductosParecidos(nombre: string, categoria?: string | null, limite = 6): Promise<ProductoParecido[]> {
+  const n = (nombre ?? '').trim();
+  if (n.length < 3) return [];
+  const ref = normParecido(n);
+  const palabras = palabrasParecido(n);
+  try {
+    const { data, error } = await supabase.from('productos')
+      .select('id, sku, nombre, categoria, unidad, marca, modelo, almacen, stock, nombre_busqueda')
+      .eq('estado', 'activo');
+    if (error) return [];
+    const out: ProductoParecido[] = [];
+    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+      const nom = normParecido(r.nombre as string);
+      const alias = normParecido(r.nombre_busqueda as string | null);
+      let parecido = 0;
+      if (nom === ref || (alias && alias === ref)) parecido = 1;
+      else if (nom.includes(ref) || ref.includes(nom) || (alias && (alias.includes(ref) || ref.includes(alias)))) parecido = 0.85;
+      else if (palabras.length) {
+        const suyas = new Set(palabrasParecido(nom));
+        const comunes = palabras.filter((p) => suyas.has(p)).length;
+        const base = Math.max(palabras.length, suyas.size, 1);
+        parecido = comunes / base;
+      }
+      if (parecido < 0.5) continue;
+      out.push({
+        id: r.id as string, sku: r.sku as string, nombre: r.nombre as string, categoria: r.categoria as string,
+        unidad: r.unidad as string, marca: (r.marca as string | null) ?? null, modelo: (r.modelo as string | null) ?? null,
+        almacen: (r.almacen as string | null) ?? null, stock: Number(r.stock) || 0, parecido,
+        misma_categoria: !!categoria && normParecido(categoria) === normParecido(r.categoria as string),
+      });
+    }
+    return out.sort((a, b) => b.parecido - a.parecido || a.nombre.localeCompare(b.nombre, 'es')).slice(0, limite);
+  } catch {
+    return [];
+  }
+}

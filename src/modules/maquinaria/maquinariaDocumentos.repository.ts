@@ -10,6 +10,8 @@ import { textoDeError } from '@/shared/lib/errores';
 import { MAX_DOCS_EQUIPO, limpiarNombreDoc, nombreArchivoSeguro, nombreDescarga, validarArchivoDoc } from './documentosEquipo';
 
 export const BUCKET_DOCS_EQUIPO = 'equipos-docs';
+/** Mismo bucket, con el nombre que usan las pantallas de Flota y Servicio (13-10). */
+export const BUCKET_DOCUMENTOS = BUCKET_DOCS_EQUIPO;
 const TABLE = 'maquinaria_documentos';
 
 export interface DocumentoEquipo {
@@ -25,12 +27,49 @@ export interface DocumentoEquipo {
   created_at: string;
   updated_by: string | null;
   updated_at: string;
+  /* Los mismos datos con los nombres de Golden Touch (los calcula `conAlias`, no están en la base). */
+  espacio: number;
+  archivo: string | null;
+  content_type: string | null;
+  tamano: number | null;
+  subido_por: string | null;
+  subido_por_nombre: string | null;
+}
+
+/** Fila de la base + los alias que esperan las pantallas traídas de Golden Touch. */
+function conAlias(r: Record<string, unknown>): DocumentoEquipo {
+  const d = r as unknown as Omit<DocumentoEquipo, 'espacio' | 'archivo' | 'content_type' | 'tamano' | 'subido_por' | 'subido_por_nombre'>;
+  return {
+    ...d,
+    espacio: Number(d.slot) || 0, archivo: d.filename ?? null, content_type: d.mime ?? null,
+    tamano: d.size_bytes ?? null, subido_por: d.updated_by ?? d.created_by ?? null, subido_por_nombre: null,
+  };
 }
 
 export async function listDocumentosEquipo(equipoId: string): Promise<DocumentoEquipo[]> {
   const { data, error } = await supabase.from(TABLE).select('*').eq('equipo_id', equipoId).order('slot', { ascending: true });
   if (error) throw new Error(textoDeError(error, 'No se pudieron leer los documentos del equipo.'));
-  return (data ?? []) as DocumentoEquipo[];
+  return ((data ?? []) as Record<string, unknown>[]).map(conAlias);
+}
+
+/** URL firmada (10 min) para ver un documento (nombre que usan las pantallas de Flota y Servicio). */
+export async function urlDocumentoEquipo(path: string): Promise<string> {
+  const { data, error } = await supabase.storage.from(BUCKET_DOCS_EQUIPO).createSignedUrl(path, 60 * 10);
+  if (error || !data) throw new Error(textoDeError(error, 'No se pudo abrir el documento.'));
+  return data.signedUrl;
+}
+
+/** Rutas de los archivos de un equipo (antes de eliminar el equipo). */
+export async function pathsDocumentosDeEquipo(equipoId: string): Promise<string[]> {
+  const { data, error } = await supabase.from(TABLE).select('path').eq('equipo_id', equipoId);
+  if (error) throw error;
+  return ((data ?? []) as { path: string }[]).map((r) => r.path);
+}
+
+/** Borra archivos del bucket de documentos (los registros se van por la FK en cascada). */
+export async function borrarArchivosDocumentos(paths: string[]): Promise<void> {
+  if (!paths.length) return;
+  await supabase.storage.from(BUCKET_DOCS_EQUIPO).remove(paths).catch(() => undefined);
 }
 
 /** Cuántos documentos tiene cada equipo (para el contador del botón 📁). */
@@ -81,7 +120,7 @@ export async function guardarDocumento(input: {
     const { data, error } = await supabase.from(TABLE).update(campos).eq('id', input.anterior.id).select('*').single();
     if (error) { await borrarArchivo(path); throw new Error(textoDeError(error, 'No se pudo cambiar el archivo.')); }
     await borrarArchivo(input.anterior.path);
-    return data as DocumentoEquipo;
+    return conAlias(data as Record<string, unknown>);
   }
 
   const { data, error } = await supabase.from(TABLE)
@@ -92,7 +131,7 @@ export async function guardarDocumento(input: {
     if ((error as { code?: string }).code === '23505') throw new Error(`El documento ${slot} ya está cargado. Recargá la ventana.`);
     throw new Error(textoDeError(error, 'No se pudo guardar el documento.'));
   }
-  return data as DocumentoEquipo;
+  return conAlias(data as Record<string, unknown>);
 }
 
 /** Cambia solo el nombre del documento (el archivo queda igual). */

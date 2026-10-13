@@ -1,0 +1,134 @@
+/* ============================================================
+   MGG · Control de Maquinaria · Detalle de estado y fotos de la OS
+   · Tarjetas y filas que se tocan enteras (botón estirado) sin perder
+     los botones que llevan adentro (chip «📄 Informe técnico»).
+   · Ventana de detalle del estado del equipo (.flo-det-*).
+   · Registro fotográfico de la orden de servicio (.flo-osf-*).
+   Va aparte de flota.css; usa los mismos tokens del tema.
+   ============================================================ */
+
+/* ───────── Tarjeta / fila que se toca entera ───────── */
+.flo-clic { position: relative; }
+.flo-clic > .flo-estirar {
+  position: absolute; inset: 0; z-index: 1;
+  margin: 0; padding: 0; border: 0; border-radius: inherit;
+  background: transparent; cursor: pointer;
+}
+.flo-clic > .flo-estirar:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.flo-clic .flo-sobre { position: relative; z-index: 2; }
+.flo-row.flo-clic:hover { border-color: var(--border-strong); }
+.flo-timeline li.flo-clic { border-radius: var(--r-md); }
+.flo-timeline li.flo-clic:hover { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+.flo-timeline li.flo-clic > div { padding-right: .25rem; }
+.flo-aviso.flo-clic:hover { border-color: var(--tone); }
+
+/* Texto que se corta con «…» (el detalle lo muestra completo). */
+.flo-corta2 {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+.flo-timeline .flo-ev-pie { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin-top: .25rem; }
+
+.flo-chip-btn { cursor: pointer; font: inherit; font-size: .74rem; font-weight: 700; min-height: 32px; }
+.flo-chip-btn:hover { background: color-mix(in srgb, var(--tone, var(--text-dim)) 28%, transparent); }
+.flo-chip-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ───────── Ventana de detalle ───────── */
+.flo-det { display: grid; gap: .9rem; width: 100%; max-width: 920px; margin: 0 auto; min-width: 0; overflow-wrap: anywhere; }
+.flo-det h4 { margin: 0 0 .45rem; font-size: .92rem; }
+.flo-det-eq { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: .85rem; align-items: start; }
+.flo-det-foto {
+  width: 112px; height: 112px; padding: 0; border-radius: var(--r-md); overflow: hidden;
+  border: 1px solid var(--border); background: var(--surface-2); cursor: zoom-in;
+  display: grid; place-items: center; font-size: 2.4rem;
+}
+.flo-det-foto.sin { cursor: default; }
+.flo-det-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.flo-det-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .35rem .9rem; margin: .5rem 0 0; }
+.flo-det-datos dt, .flo-det-motivo dt { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); }
+.flo-det-datos dd { margin: 0; font-size: .86rem; font-weight: 600; overflow-wrap: anywhere; }
+.flo-det-card {
+  --tone: var(--info);
+  display: grid; gap: .5rem; padding: .8rem .9rem; border-radius: var(--r-md);
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, var(--border)); border-left: 4px solid var(--tone);
+  background: color-mix(in srgb, var(--tone) 8%, var(--surface));
+}
+.flo-det-fila { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; font-size: .82rem; }
+.flo-det-cambio { margin: 0; font-weight: 700; font-size: .9rem; }
+.flo-det-motivo { display: grid; gap: .45rem; margin: 0; }
+.flo-det-motivo dd { margin: .05rem 0 0; font-size: .88rem; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.flo-det-sec { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); padding: .75rem .85rem; min-width: 0; }
+.flo-det-vacio { margin: 0; font-size: .84rem; }
+.flo-det-notas { display: grid; gap: .3rem; padding: .55rem .7rem; border-radius: var(--r-md); background: var(--surface-2); }
+.flo-det-notas + .flo-det-notas { margin-top: .5rem; }
+.flo-det-notas strong { font-size: .84rem; color: var(--primary-2, var(--primary)); }
+.flo-det-notas p { margin: 0; font-size: .86rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.flo-det-informe {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .6rem; align-items: center;
+  padding: .6rem .7rem; border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--info) 45%, var(--border));
+  background: color-mix(in srgb, var(--info) 8%, var(--surface)); margin-bottom: .55rem;
+}
+.flo-det-informe.otro { border-color: var(--border); background: var(--surface); }
+.flo-det-informe .ico { font-size: 1.5rem; }
+.flo-det-informe strong { display: block; font-size: .88rem; }
+.flo-det-informe small { display: block; font-size: .74rem; color: var(--text-muted); }
+.flo-det-informe .btn { min-height: 44px; justify-content: center; }
+.flo-det-fotos { list-style: none; margin: 0 0 .55rem; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: .5rem; }
+.flo-det-fotos li { display: grid; gap: .25rem; min-width: 0; }
+.flo-det-fotos li > span { font-size: .74rem; color: var(--text-muted); }
+.flo-det-fotos button { padding: 0; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; cursor: zoom-in; background: var(--surface-2); }
+.flo-det-fotos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+.flo-det-ordenes { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+.flo-det-ordenes a {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .35rem .6rem;
+  min-height: 44px; padding: .45rem .65rem; border-radius: var(--r-md); border: 1px solid var(--border);
+  color: inherit; text-decoration: none; font-size: .84rem;
+}
+.flo-det-ordenes a:hover { border-color: var(--border-strong); }
+.flo-det-opciones { display: grid; gap: .5rem; }
+.flo-det-opciones .btn { min-height: 44px; justify-content: center; }
+.modal:has(.flo-det) .modal-footer { flex-wrap: wrap; }
+
+/* ───────── Fotos de la orden de servicio ───────── */
+.flo-osf { display: grid; gap: .5rem; min-width: 0; }
+.flo-osf-head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; flex-wrap: wrap; font-size: .86rem; }
+.flo-osf-head label { margin: 0; }
+.flo-osf-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; }
+.flo-osf-item {
+  position: relative; aspect-ratio: 1; border-radius: var(--r-md); overflow: hidden;
+  border: 1px solid var(--border); background: var(--surface-2); display: grid; place-items: center;
+}
+.flo-osf-item .ver { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.flo-osf-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.flo-osf-item .cargando { font-size: .74rem; color: var(--text-muted); padding: .3rem; text-align: center; }
+.flo-osf-item .n {
+  position: absolute; left: 6px; bottom: 6px; min-width: 22px; text-align: center;
+  font-size: .72rem; font-weight: 700; color: #fff; background: rgba(0, 0, 0, .6); border-radius: 999px; padding: .05rem .4rem;
+  pointer-events: none;
+}
+.flo-osf-item .quitar {
+  position: absolute; top: 4px; right: 4px; width: 44px; height: 44px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .35); background: rgba(10, 12, 15, .7); color: #fff;
+  font-size: 1rem; font-weight: 700; cursor: pointer; display: grid; place-items: center;
+}
+.flo-osf-item .quitar:hover { background: var(--danger); }
+.flo-osf-acc { display: flex; flex-wrap: wrap; gap: .45rem; }
+.flo-osf-acc .btn { flex: 1 1 170px; min-height: 44px; justify-content: center; }
+.flo-osf-nota { margin: 0; font-size: .78rem; color: var(--text-muted); }
+.flo-osf-confirm { display: block; width: 100%; max-height: 220px; object-fit: contain; margin-top: .6rem; border-radius: var(--r-md); }
+.flo-orden .flo-osf { padding-top: .2rem; border-top: 1px dashed var(--border); }
+
+/* ───────── Teléfono ───────── */
+@media (max-width: 640px) {
+  .flo-chip-btn { min-height: 44px; padding-inline: .75rem; }
+  .flo-det-eq { grid-template-columns: 84px minmax(0, 1fr); gap: .65rem; }
+  .flo-det-foto { width: 84px; height: 84px; }
+  .flo-det-datos { grid-template-columns: 1fr 1fr; }
+  .flo-det-informe { grid-template-columns: auto minmax(0, 1fr); }
+  .flo-det-informe .btn { grid-column: 1 / -1; width: 100%; }
+  .flo-det-fotos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .modal:has(.flo-det) .modal-footer .btn { flex: 1 1 calc(50% - .5rem); min-height: 44px; justify-content: center; white-space: normal; }
+}
+@media (max-width: 480px) {
+  .flo-osf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

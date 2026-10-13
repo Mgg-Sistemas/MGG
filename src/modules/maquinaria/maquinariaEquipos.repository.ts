@@ -6,8 +6,10 @@
    se traen del módulo de Combustible.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { ultimoHorometroEquipo, consumoCombustiblePorEquipo } from '@/modules/combustible/combustible.repository';
-import { claveEquipo } from '@/modules/combustible/equipoVinculo';
+import { ultimoHorometroEquipo, consumoPorEquipo } from '@/modules/combustible/tanques.repository';
+import { norm } from '@/shared/lib/texto';
+import { pathsDocumentosDeEquipo, borrarArchivosDocumentos } from './maquinariaDocumentos.repository';
+import { pathsFotosDeEquipo, borrarArchivosFotosOrden } from './osFotos.repository';
 
 export interface MaquinariaEquipo {
   id: string;
@@ -30,13 +32,14 @@ export interface MaquinariaEquipo {
   ficha_mantenimiento: string | null;
   documentacion: string | null;
   mantenimiento_cada_hrs: number | null;
-  /** Nivel de DISPARO de alerta (objetivo) fijado en la ficha; lecturas vienen de Combustible. */
-  alerta_km: number | null;
-  alerta_horometro: number | null;
-  /** Intervalos de servicio por ítem (horas de horómetro) para el control de ESTADO CRÍTICO. */
-  aceite_cada_hrs: number | null;
-  filtro_cada_hrs: number | null;
-  combustible_cada_hrs: number | null;
+  /** Intervalo de mantenimiento por KILOMETRAJE (km). Alerta al acercarse al próximo múltiplo. */
+  mantenimiento_cada_km: number | null;
+  /** Horómetro registrado al ÚLTIMO mantenimiento (base del contador de horas restantes).
+   *  La reinicia el USUARIO a la lectura vigente («✔ Mantt. hecho», 13/10/2026) → el próximo
+   *  toca `base + mantenimiento_cada_hrs`. null = todavía sin base (usa el múltiplo del horómetro). */
+  mantenimiento_base_hrs: number | null;
+  /** Kilometraje al último mantenimiento (base del contador de km restantes). */
+  mantenimiento_base_km: number | null;
   combustible_equipo: string | null;
   /** Grupo del submódulo Servicio de Mantenimiento (ver GRUPOS_MANTENIMIENTO). */
   grupo_mantenimiento: string | null;
@@ -46,6 +49,12 @@ export interface MaquinariaEquipo {
   esp_tecnicas: boolean;
   revision_mina: boolean;
   notas: string | null;
+  /** Estado operativo (Flota y Servicio, 09/10/2026). null = se deduce de status/activo
+   *  (ver `estadoEfectivo` en flota.ts). Lo cambia el RPC `maquinaria_cambiar_estado`. */
+  estado_operativo?: string | null;
+  /** Motivo del estado actual («se le dañó el gato»). */
+  estado_nota?: string | null;
+  estado_desde?: string | null;
   activo: boolean;
   created_by: string | null;
   created_at: string;
@@ -87,8 +96,9 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
     combustible: v(input.combustible), litros_consume: n(input.litros_consume),
     ficha_tecnica: v(input.ficha_tecnica), ficha_mantenimiento: v(input.ficha_mantenimiento),
     documentacion: v(input.documentacion), mantenimiento_cada_hrs: n(input.mantenimiento_cada_hrs),
-    alerta_km: n(input.alerta_km), alerta_horometro: n(input.alerta_horometro),
-    aceite_cada_hrs: n(input.aceite_cada_hrs), filtro_cada_hrs: n(input.filtro_cada_hrs), combustible_cada_hrs: n(input.combustible_cada_hrs),
+    mantenimiento_cada_km: n(input.mantenimiento_cada_km),
+    // NB: mantenimiento_base_hrs/km NO se tocan aquí (los maneja reiniciarMantenimientoDeEquipo,
+    // que escribe directo). Así editar la ficha del equipo no borra el contador.
     combustible_equipo: v(input.combustible_equipo),
     grupo_mantenimiento: v(input.grupo_mantenimiento),
     doc_fisico: !!input.doc_fisico, ficha_mantt: !!input.ficha_mantt, doc_drive: !!input.doc_drive,
@@ -98,7 +108,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
 }
 
 export async function addEquipo(input: MaquinariaEquipoInput, actor: string): Promise<MaquinariaEquipo> {
-  if (!input.equipo?.trim()) throw new Error('Indicá el equipo.');
+  if (!input.equipo?.trim()) throw new Error('Indica el equipo.');
   const { data, error } = await supabase.from(TABLE)
     .insert({ ...sanitize(input), created_by: actor })
     .select('*').single();
@@ -107,7 +117,7 @@ export async function addEquipo(input: MaquinariaEquipoInput, actor: string): Pr
 }
 
 export async function updateEquipo(id: string, input: MaquinariaEquipoInput): Promise<void> {
-  if (!input.equipo?.trim()) throw new Error('Indicá el equipo.');
+  if (!input.equipo?.trim()) throw new Error('Indica el equipo.');
   const { error } = await supabase.from(TABLE)
     .update({ ...sanitize(input), updated_at: new Date().toISOString() })
     .eq('id', id);
@@ -119,9 +129,51 @@ export async function setEquipoActivo(id: string, activo: boolean): Promise<void
   if (error) throw error;
 }
 
+/**
+ * Elimina un equipo de forma definitiva. Primero borra su bitácora de
+ * mantenimientos (para no chocar contra la FK) y luego el equipo.
+ */
 export async function eliminarEquipo(id: string): Promise<void> {
+  // Rutas de sus documentos (📎): los registros se van solos por la FK en cascada,
+  // pero los archivos del bucket hay que borrarlos a mano, y solo si el equipo se borró.
+  const archivos = await pathsDocumentosDeEquipo(id).catch(() => [] as string[]);
+  // Igual con las fotos de sus órdenes de servicio (bucket maquinaria-os-fotos).
+  const fotosOs = await pathsFotosDeEquipo(id).catch(() => [] as string[]);
+  // Borra la bitácora del equipo (mantenimientos) antes que el equipo.
+  await supabase.from('maquinaria_mantenimientos').delete().eq('equipo_id', id);
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
+  await borrarArchivosDocumentos(archivos);
+  await borrarArchivosFotosOrden(fotosOs);
+}
+
+/**
+ * REINICIA el contador de mantenimiento de un equipo: fija la base de horas (y de km, si
+ * hay lectura) en el horómetro/kilometraje VIGENTE, de modo que el próximo mantenimiento
+ * pase a tocar en `base + intervalo`. Se llama automáticamente cuando se concreta la compra
+ * del mantenimiento (servicio directo casado al equipo finalizado) y también desde el botón
+ * manual «Mantenimiento hecho». Best-effort: si el equipo no tiene lectura, no rompe nada.
+ * Devuelve las lecturas usadas como base (null si no había dato).
+ */
+export async function reiniciarMantenimientoDeEquipo(equipoId: string): Promise<{ horas: number | null; km: number | null }> {
+  if (!equipoId) return { horas: null, km: null };
+  const eq = await getEquipo(equipoId);
+  if (!eq) return { horas: null, km: null };
+  // Lectura vigente UNIFICADA (09/10/2026): la mayor entre Combustible, las lecturas
+  // registradas en Maquinaria y la bitácora (desde la última corrección).
+  const { data: vig } = await supabase.rpc('maquinaria_lecturas_vigentes');
+  const fila = ((vig ?? []) as Array<{ equipo_id: string; horometro: number | null; kilometraje: number | null }>).find((x) => x.equipo_id === equipoId);
+  const horas: number | null = fila?.horometro != null ? Number(fila.horometro) : null;
+  const km: number | null = fila?.kilometraje != null ? Number(fila.kilometraje) : null;
+  // Escribe la base vía RPC SECURITY DEFINER: así el reinicio funciona aunque quien
+  // finaliza la compra (p. ej. Tesorería) no tenga permiso de escritura en Maquinaria.
+  // coalesce en el servidor no pisa con null la dimensión sin lectura.
+  if (horas != null || km != null) {
+    await supabase.rpc('reiniciar_mantenimiento_equipo', {
+      p_equipo_id: equipoId, p_horas: horas, p_km: km,
+    });
+  }
+  return { horas, km };
 }
 
 /* ───────── Integración con Combustible ───────── */
@@ -147,12 +199,8 @@ export async function datosCombustibleDeEquipo(
   const h = hasta ?? new Date();
   const [horometro, consumo] = await Promise.all([
     ultimoHorometroEquipo(nombre).catch(() => null),
-    consumoCombustiblePorEquipo(d, h).catch(() => [] as { nombre: string; cantidad: number; valor: number }[]),
+    consumoPorEquipo(d, h).catch(() => [] as { nombre: string; cantidad: number; valor: number }[]),
   ]);
-  // Se cruza por CLAVE normalizada: `consumoCombustiblePorEquipo` agrupa las variantes
-  // («Camión NHR», «CAMION NHR») en una sola fila y expone como `nombre` la primera que
-  // encontró, que es arbitraria. Comparar el texto crudo dejaba el gasoil del equipo en 0.
-  const clave = claveEquipo(nombre);
-  const fila = consumo.find((c) => claveEquipo(c.nombre) === clave);
+  const fila = consumo.find((c) => norm(c.nombre) === norm(nombre));
   return { horometro, gasoilLts: fila?.cantidad ?? 0, gasoilUsd: fila?.valor ?? 0 };
 }

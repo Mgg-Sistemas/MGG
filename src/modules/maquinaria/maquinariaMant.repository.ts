@@ -392,3 +392,31 @@ export async function horasUltimoPorEquipo(): Promise<Map<string, { horasUltimo:
   }
   return out;
 }
+
+/** Tipos de mantenimiento / servicio de la bitácora (traído de Golden Touch, 13-10). */
+export const TIPOS_MANTENIMIENTO: ReadonlyArray<{ value: string; label: string; icon: string }> = [
+  { value: 'cambio_aceite', label: 'Cambio de aceite', icon: '🛢' },
+  { value: 'cambio_filtro', label: 'Cambio de filtro', icon: '🧯' },
+  { value: 'cambio_caucho', label: 'Cambio de cauchos / neumáticos', icon: '🛞' },
+  { value: 'repuestos', label: 'Repuestos', icon: '🔩' },
+  { value: 'cambio_pieza', label: 'Cambio de pieza', icon: '⚙' },
+  { value: 'pintura', label: 'Pintura / latonería', icon: '🎨' },
+  { value: 'frenos', label: 'Frenos', icon: '🛑' },
+  { value: 'bateria', label: 'Batería', icon: '🔋' },
+  { value: 'sistema_electrico', label: 'Sistema eléctrico', icon: '💡' },
+  { value: 'sistema_hidraulico', label: 'Sistema hidráulico', icon: '💧' },
+  { value: 'soldadura', label: 'Soldadura', icon: '🔥' },
+  { value: 'engrase', label: 'Engrase / lubricación', icon: '🧴' },
+  { value: 'refrigerante', label: 'Refrigerante', icon: '❄' },
+  { value: 'servicio', label: 'Servicio / preventivo', icon: '🔧' },
+  { value: 'reparacion', label: 'Reparación', icon: '🛠' },
+  { value: 'inspeccion', label: 'Inspección', icon: '🔍' },
+  { value: 'lectura', label: 'Lectura de horómetro', icon: '⏱' },
+  { value: 'otro', label: 'Otro', icon: '•' },
+];
+
+/** Etiqueta legible (con ícono) de un tipo de mantenimiento; '—' si no tiene. */
+export function etiquetaTipoMant(tipo?: string | null): string {
+  const t = TIPOS_MANTENIMIENTO.find((x) => x.value === tipo);
+  return t ? `${t.icon} ${t.label}` : (tipo ? tipo : '—');
+}

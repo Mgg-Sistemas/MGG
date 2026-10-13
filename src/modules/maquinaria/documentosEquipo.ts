@@ -51,3 +51,8 @@ export function nombreDescarga(nombreDoc: string, filename: string): string {
   const base = nombreArchivoSeguro(limpiarNombreDoc(nombreDoc) || 'DOCUMENTO').replace(/\.[a-zA-Z0-9]{1,5}$/, '');
   return `${base}${ext}`;
 }
+
+/** Nombre con el que se descarga un documento, tolerando archivo nulo (pantallas de Flota y Servicio, 13-10). */
+export function nombreDescargaDocumento(nombre: string, archivo: string | null | undefined): string {
+  return nombreDescarga(nombre, archivo ?? '');
+}

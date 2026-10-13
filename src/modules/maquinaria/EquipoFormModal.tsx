@@ -1,9 +1,9 @@
-﻿import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
-import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { listActivosMaquinaria } from './maquinaria.repository';
-import { listVehiculos, listCatalogo } from '@/modules/combustible/combustible.repository';
+import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { addEquipo, updateEquipo, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
 
 const COMBUSTIBLES = ['GASOIL', 'GASOLINA', 'GAS', 'ELÉCTRICO', 'N/A'];
@@ -32,11 +32,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     combustible: equipo?.combustible ?? 'GASOIL',
     litros_consume: equipo?.litros_consume ?? null,
     mantenimiento_cada_hrs: equipo?.mantenimiento_cada_hrs ?? null,
-    alerta_km: equipo?.alerta_km ?? null,
-    alerta_horometro: equipo?.alerta_horometro ?? null,
-    aceite_cada_hrs: equipo?.aceite_cada_hrs ?? null,
-    filtro_cada_hrs: equipo?.filtro_cada_hrs ?? null,
-    combustible_cada_hrs: equipo?.combustible_cada_hrs ?? null,
+    mantenimiento_cada_km: equipo?.mantenimiento_cada_km ?? null,
     combustible_equipo: equipo?.combustible_equipo ?? null,
     grupo_mantenimiento: equipo?.grupo_mantenimiento ?? null,
     documentacion: equipo?.documentacion ?? null,
@@ -52,7 +48,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   const [tipos, setTipos] = useState<string[]>([]);
   const [props, setProps] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
-  const [combEquipos, setCombEquipos] = useState<string[]>([]);
+  const [combEquipos, setCombEquipos] = useState<string[]>([]);        // solo activos: lo que ofrece el selector
+  const [combEquiposTodos, setCombEquiposTodos] = useState<string[]>([]); // todos: para saber si el vinculo existe
   const [ubicaciones, setUbicaciones] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +58,18 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     listActivosMaquinaria('tipo_maquinaria').then(setTipos).catch(() => {});
     listActivosMaquinaria('propietario').then(setProps).catch(() => {});
     listActivosMaquinaria('status').then((s) => setStatuses(s.length ? s : ['ACTIVO'])).catch(() => setStatuses(['ACTIVO']));
-    // Equipos (vehículos/máquinas) y UBICACIONES se traen del módulo de Combustible (fuente única).
-    listVehiculos().then((vs) => setCombEquipos(vs.filter((v) => v.estado === 'activo').map((v) => v.nombre))).catch(() => {});
-    listCatalogo('combustible_ubicaciones').then((u) => setUbicaciones(u.filter((x) => x.estado === 'activo').map((x) => x.nombre))).catch(() => {});
+    // Equipos y UBICACIONES se traen del catálogo de Combustible (fuente única).
+    // Se guardan DOS listas de equipos a propósito: el desplegable solo ofrece los
+    // ACTIVOS (no tiene sentido elegir uno dado de baja), pero para decidir si el
+    // vínculo está roto valen TODOS — apuntar a un valor inactivo no es un vínculo
+    // roto, el equipo sigue viendo su horómetro y su gasoil. Con una sola lista, un
+    // vínculo sano a un valor inactivo se marcaba en rojo sin motivo.
+    listCatalogos().then((c) => {
+      const equipos = c.filter((x) => x.tipo === 'equipo');
+      setCombEquipos(equipos.filter((x) => x.activo).map((x) => x.valor));
+      setCombEquiposTodos(equipos.map((x) => x.valor));
+      setUbicaciones(c.filter((x) => x.tipo === 'ubicacion' && x.activo).map((x) => x.valor));
+    }).catch(() => {});
   }, []);
 
   const set = <K extends keyof MaquinariaEquipoInput>(k: K, v: MaquinariaEquipoInput[K]) => setF((p) => ({ ...p, [k]: v }));
@@ -72,10 +78,23 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
 
   const combOpts = useMemo(() => combEquipos.map((e) => ({ value: e, label: e })), [combEquipos]);
 
+  // GT-INT-15 · El vínculo con Combustible es por TEXTO. Si renombraron el valor en el
+  // catálogo, la ficha queda apuntando a un nombre que ya no existe y el equipo pierde su
+  // horómetro y su gasoil — con lo cual la alerta de mantenimiento se apaga sin avisar.
+  // Aquí se avisa. Se mira contra TODOS los valores, no solo los activos: apuntar a uno
+  // dado de baja no rompe nada (el vínculo es por texto y los movimientos se siguen
+  // viendo), así que marcarlo en rojo sería una falsa alarma.
+  // (La lista vacía todavía no cargó: no se acusa un vínculo roto de más.)
+  const vinculoRoto = useMemo(() => {
+    const v = (f.combustible_equipo ?? '').trim();
+    if (!v || !combEquiposTodos.length) return false;
+    return !combEquiposTodos.some((e) => e.trim() === v);
+  }, [f.combustible_equipo, combEquiposTodos]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!f.equipo?.trim()) { setError('Indicá el nombre del equipo.'); return; }
+    if (!f.equipo?.trim()) { setError('Indica el nombre del equipo.'); return; }
     setSaving(true);
     try {
       if (esNuevo) await addEquipo(f, actor);
@@ -112,14 +131,14 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
           </div>
           <div className="form-row">
             <label>Tipo de maquinaria</label>
-            <SearchSelect value={f.tipo ?? ''} onChange={(v) => set('tipo', v || null)} options={tipos.map((t) => ({ value: t, label: t }))} placeholder="— elegí el tipo —" />
+            <SearchSelect value={f.tipo ?? ''} onChange={(v) => set('tipo', v || null)} options={tipos.map((t) => ({ value: t, label: t }))} placeholder="— elige el tipo —" />
           </div>
         </div>
 
         <div className="form-grid">
           <div className="form-row">
             <label>Propietario</label>
-            <SearchSelect value={f.propietario ?? ''} onChange={(v) => set('propietario', v || null)} options={props.map((t) => ({ value: t, label: t }))} placeholder="— elegí el propietario —" />
+            <SearchSelect value={f.propietario ?? ''} onChange={(v) => set('propietario', v || null)} options={props.map((t) => ({ value: t, label: t }))} placeholder="— elige el propietario —" />
           </div>
           <div className="form-row">
             <label>Status</label>
@@ -132,11 +151,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Última ubicación</label>
-            <input className="input" list="maq-ubicaciones" value={f.ubicacion ?? ''}
-              onChange={(e) => set('ubicacion', upper(e.target.value) || null)}
-              placeholder="Buscá una ubicación de Combustible o escribí una nueva…" />
-            <datalist id="maq-ubicaciones">{ubicaciones.map((u) => <option key={u} value={u} />)}</datalist>
-            <small className="hint muted">Se traen del catálogo de Combustible → Ubicaciones.</small>
+            <SearchCreateSelect value={f.ubicacion ?? ''} onChange={(v) => set('ubicacion', upper(v) || null)} options={ubicaciones} placeholder="Busca una ubicación de Combustible o escribe una nueva…" />
+            <small className="muted">Se traen del catálogo de Combustible → Ubicaciones.</small>
           </div>
           <div className="form-row">
             <label>Año</label>
@@ -174,52 +190,21 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
           <div className="form-row">
             <label>Mantenimiento cada (hrs)</label>
             <input name="f-mantenimiento_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.mantenimiento_cada_hrs ?? ''} onChange={(e) => set('mantenimiento_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
-            <small className="hint muted">Frecuencia para la alerta de mantenimiento preventivo.</small>
+            <small className="muted">Frecuencia (por horómetro) para la alerta de mantenimiento. Maquinaria pesada / plantas.</small>
           </div>
-        </div>
-
-        {/* Alerta por KILOMETRAJE: el usuario fija el objetivo; la lectura vigente sale de Combustible. */}
-        <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)', margin: '.25rem 0 .75rem' }}>
-          <small className="hint muted" style={{ display: 'block', marginBottom: '.4rem' }}>🛣️ <strong>Alerta por kilometraje / horómetro objetivo</strong>. Al acercarse, salta una tarjeta en Equipos. La lectura vigente se toma de <strong>Combustible</strong> (el km y el horómetro se cargan ahí).</small>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Alerta a los (km)</label>
-              <input name="f-alerta_km" className="input mono" type="number" step="any" defaultValue={f.alerta_km ?? ''} onChange={(e) => set('alerta_km', numField(e.target.value))} placeholder="Ej. 50000" />
-            </div>
-            <div className="form-row">
-              <label>Alerta al horómetro (hrs)</label>
-              <input name="f-alerta_horometro" className="input mono" type="number" step="any" defaultValue={f.alerta_horometro ?? ''} onChange={(e) => set('alerta_horometro', numField(e.target.value))} placeholder="Opcional" />
-            </div>
-          </div>
-        </div>
-
-        {/* Intervalos por ítem para el ESTADO CRÍTICO: vencido cuando (horómetro − último servicio) ≥ intervalo. */}
-        <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)', margin: '.25rem 0 .75rem' }}>
-          <small className="hint muted" style={{ display: 'block', marginBottom: '.4rem' }}>🛢 <strong>Intervalos de servicio</strong> (horas de horómetro). Se marca <strong>crítico</strong> cuando el equipo pasa el intervalo desde su último cambio (registrado en la bitácora).</small>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Aceite cada (hrs)</label>
-              <input name="f-aceite_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.aceite_cada_hrs ?? ''} onChange={(e) => set('aceite_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
-            </div>
-            <div className="form-row">
-              <label>Filtro cada (hrs)</label>
-              <input name="f-filtro_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.filtro_cada_hrs ?? ''} onChange={(e) => set('filtro_cada_hrs', numField(e.target.value))} placeholder="Ej. 500" />
-            </div>
-            <div className="form-row">
-              <label>Combustible cada (hrs)</label>
-              <input name="f-combustible_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.combustible_cada_hrs ?? ''} onChange={(e) => set('combustible_cada_hrs', numField(e.target.value))} placeholder="Ej. 50" />
-            </div>
+          <div className="form-row">
+            <label>Mantenimiento cada (km)</label>
+            <input name="f-mantenimiento_cada_km" className="input mono" type="number" step="any" defaultValue={f.mantenimiento_cada_km ?? ''} onChange={(e) => set('mantenimiento_cada_km', numField(e.target.value))} placeholder="Ej. 10000" />
+            <small className="muted">Frecuencia (por kilometraje) para la alerta. Vehículos. El km vigente se trae de Combustible.</small>
           </div>
         </div>
 
         <div className="form-grid">
           <div className="form-row">
             <label>Grupo · Servicio de Mantenimiento</label>
-            <select className="select" value={f.grupo_mantenimiento ?? ''} onChange={(e) => set('grupo_mantenimiento', e.target.value || null)}>
-              <option value="">— sin grupo —</option>
-              {GRUPOS_MANTENIMIENTO.map((g) => <option key={g} value={g}>{g}</option>)}
-            </select>
-            <small className="hint muted">Define bajo qué switch aparece el equipo en el submódulo <strong>Servicio de Mantenimiento</strong>.</small>
+            <SearchSelect value={f.grupo_mantenimiento ?? ''} onChange={(v) => set('grupo_mantenimiento', v || null)}
+              options={GRUPOS_MANTENIMIENTO.map((g) => ({ value: g, label: g }))} placeholder="— sin grupo —" />
+            <small className="muted">Agrupa el equipo en el submódulo <strong>Servicio de Mantenimiento</strong> (FLOTA PESADA / VEHÍCULOS DE CARGA / PLANTAS ELÉCTRICAS).</small>
           </div>
         </div>
 
@@ -228,7 +213,16 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
           <div className="form-row" style={{ margin: 0 }}>
             <label>⛽ Equipo de Combustible vinculado</label>
             <SearchSelect value={f.combustible_equipo ?? ''} onChange={(v) => set('combustible_equipo', v || null)} options={combOpts} placeholder="— sin vincular —" />
-            <small className="hint muted">Al vincularlo, el <strong>horómetro</strong> y el <strong>gasoil consumido</strong> se traen del módulo de Combustible.</small>
+            {vinculoRoto ? (
+              <small style={{ color: 'var(--danger)' }}>
+                ⚠ <strong>Vínculo roto.</strong> Este equipo apunta a «{f.combustible_equipo}», que ya no
+                existe en el catálogo de Combustible — seguramente lo renombraron. Mientras siga así,
+                el equipo <strong>no ve su horómetro ni su gasoil</strong> y su{' '}
+                <strong>alerta de mantenimiento no suena</strong>. Elige arriba el nombre correcto.
+              </small>
+            ) : (
+              <small className="muted">Al vincularlo, el <strong>horómetro</strong> y el <strong>gasoil consumido</strong> se traen del módulo de Combustible.</small>
+            )}
           </div>
         </div>
 
