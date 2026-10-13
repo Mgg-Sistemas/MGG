@@ -6,6 +6,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { sedeDe } from './sedesCombustible';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
@@ -87,11 +88,10 @@ const SEDES_COMBUSTIBLE: { key: string; tarjeta: string; titulo: string }[] = [
   { key: 'LOS PINOS', tarjeta: 'LOS PINOS', titulo: 'COMBUSTIBLE LOS PINOS' },
   { key: 'MATANZAS', tarjeta: 'MGG', titulo: 'COMBUSTIBLE MGG - MATANZAS' },
 ];
-const SEDE_POR_DEFECTO = 'MATANZAS'; // los datos legados (sin sede) cuentan acá.
 // Caso particular: en esta sede el movimiento NO lleva equipo/máquina ni horómetro/km
 // (es solo carga/consumo del tanque). El resto de sedes se maneja como siempre.
 const SEDE_SIN_EQUIPO = 'LA GUAIRA COLISEO - DIESEL';
-function sedeDe(x: { sede?: string | null }): string { return (x.sede || '').trim() || SEDE_POR_DEFECTO; }
+// sedeDe y la sede por defecto viven en sedesCombustible.ts: el teléfono también los usa (13-10).
 // Tipos de movimiento de tanque (suman / restan).
 const TIPOS_MOVIMIENTO: { value: TipoMovimientoTanque; label: string; signo: '+' | '−' }[] = [
   { value: 'ingreso', label: 'Ingreso (carga al tanque)', signo: '+' },

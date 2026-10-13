@@ -8,6 +8,17 @@
 .surt-head h1 { margin: 0; font-size: 1.5rem; }
 
 .surt-rotulo { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 700; margin: .5rem 0 .35rem; }
+/* Tarjetas de sede (paso previo a los tanques, 13-10) */
+.surt-sedes { display: grid; grid-template-columns: 1fr; gap: .75rem; margin-bottom: 1rem; }
+.surt-sede {
+  min-height: 96px; padding: .9rem 1.1rem; text-align: left; cursor: pointer; font: inherit; color: var(--text);
+  border: 2px solid var(--primary); border-radius: var(--r-lg); background: var(--surface-2);
+}
+.surt-sede .nombre { font-weight: 800; font-size: 1.15rem; letter-spacing: .02em; }
+.surt-sede .saldo { font-family: var(--font-mono); font-size: 1.5rem; font-weight: 800; color: var(--primary-2); }
+.surt-sede .saldo small { font-size: .8rem; font-weight: 600; }
+.surt-sede .sub { color: var(--muted); font-size: .85rem; }
+.surt-sede-titulo { font-size: 1rem; font-weight: 600; color: var(--muted); }
 .surt-tanques { display: flex; gap: .5rem; overflow-x: auto; padding-bottom: .4rem; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
 .surt-tanque {
   flex: 0 0 auto; min-width: 150px; min-height: 64px; padding: .65rem .9rem;

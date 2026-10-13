@@ -1,8 +1,8 @@
 /* ============================================================
    MGG · Combustible · Surtidor (vista de teléfono)
 
-   La pantalla del que está al lado del tanque con el celular: elige el
-   tanque, toca «Surtir a un equipo», «Pasar a otro tanque», «Entrada» o
+   La pantalla del que está al lado del tanque con el celular: elige la
+   sede (LOS PINOS, MATANZAS…), después el tanque, toca «Surtir a un equipo», «Pasar a otro tanque», «Entrada» o
    «Merma», pone los litros, a qué equipo va, quién autorizó, le saca
    fotos y guarda. Abajo ve los últimos movimientos del tanque y puede
    abrir cada uno para ver o agregar fotos, mandarlo por WhatsApp o
@@ -28,7 +28,9 @@ import type { CatalogoCombustible, TanqueMovimiento, Tanque, TipoMovimientoTanqu
 import {
   listTanques, listCatalogo, listVehiculos, listTanqueMovimientos, crearTanqueMovimiento,
   eliminarTanqueMovimiento, ultimoHorometroEquipo, ultimoContadorTanque, kilometrajesVigentesPorEquipo,
+  listSedesCombustible, type SedeCombustible,
 } from './combustible.repository';
+import { resumenTanquesPorSede, tanquesDeSede } from './sedesCombustible';
 import { contarFotos, eliminarFotosDe, subirFotos } from './adjuntosCombustible.repository';
 import { FotosDelMovimiento, SelectorFotos } from './FotosMovimiento';
 import { SurtidorReporteMovil } from './SurtidorReporteMovil';
@@ -83,7 +85,10 @@ export function SurtidorMovilView() {
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
-  const [tanques, setTanques] = useState<Tanque[]>([]);
+  // Como en la PC: primero se elige la sede y después se ven SOLO sus tanques (13-10).
+  const [sedes, setSedes] = useState<SedeCombustible[]>([]);
+  const [sedeActiva, setSedeActiva] = useState<string | null>(null);
+  const [todosTanques, setTodosTanques] = useState<Tanque[]>([]);
   const [autorizados, setAutorizados] = useState<CatalogoCombustible[]>([]);
   const [ubicaciones, setUbicaciones] = useState<CatalogoCombustible[]>([]);
   const [equipos, setEquipos] = useState<VehiculoMaquina[]>([]);
@@ -97,19 +102,30 @@ export function SurtidorMovilView() {
   const [reporte, setReporte] = useState(false);
 
   const reloadBase = useCallback(async () => {
-    const [ts, aut, ubi, eq] = await Promise.all([
+    const [ts, aut, ubi, eq, sd] = await Promise.all([
       listTanques(),
       listCatalogo('combustible_autorizados'),
       listCatalogo('combustible_ubicaciones'),
       listVehiculos(),
+      listSedesCombustible().catch(() => [] as SedeCombustible[]),
     ]);
     const activos = ts.filter((t) => (t as { estado?: string }).estado !== 'inactivo');
-    setTanques(activos);
+    setTodosTanques(activos);
+    setSedes(sd);
     setAutorizados(aut.filter((c) => c.estado === 'activo'));
     setUbicaciones(ubi.filter((c) => c.estado === 'activo'));
     setEquipos(eq.filter((v) => v.estado === 'activo'));
-    setSelId((prev) => (prev && activos.some((t) => t.id === prev) ? prev : activos[0]?.id ?? ''));
   }, []);
+
+  // Tanques de la sede elegida; el tanque seleccionado siempre es uno de ellos.
+  const tanques = useMemo(() => (sedeActiva ? tanquesDeSede(todosTanques, sedeActiva) : []), [todosTanques, sedeActiva]);
+  useEffect(() => {
+    setSelId((prev) => (prev && tanques.some((t) => t.id === prev) ? prev : tanques[0]?.id ?? ''));
+  }, [tanques]);
+  const resumenSedes = useMemo(() => resumenTanquesPorSede(sedes, todosTanques), [sedes, todosTanques]);
+  const sedeNombre = sedes.find((s) => s.clave === sedeActiva)?.nombre ?? sedeActiva ?? '';
+  function elegirSede(clave: string) { setSedeActiva(clave); setPaso('inicio'); setDetalle(null); }
+  function volverASedes() { setSedeActiva(null); setPaso('inicio'); setDetalle(null); setReporte(false); }
 
   // Solo los últimos 10 del tanque, del más nuevo al más viejo: en el teléfono no se
   // lee un libro mayor, se mira lo que acaba de pasar.
@@ -130,7 +146,7 @@ export function SurtidorMovilView() {
     return () => { cancel = true; };
   }, [reloadBase]);
   useEffect(() => { void reloadMovs(selId).catch(() => {}); }, [selId, reloadMovs]);
-  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_adjuntos'], () => {
+  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_adjuntos', 'combustible_sedes'], () => {
     void reloadBase().catch(() => {});
     void reloadMovs(selId).catch(() => {});
   });
@@ -146,21 +162,43 @@ export function SurtidorMovilView() {
     <div className="surtidor">
       <header className="surt-head">
         <div>
-          <h1>⛽ Surtidor</h1>
+          <h1>⛽ Surtidor{sedeActiva ? <span className="surt-sede-titulo"> · {sedeNombre}</span> : null}</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}>{actorName ?? actor}</div>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-ghost" onClick={() => setReporte(true)} disabled={!tanques.length}
-            title="Movimientos por rango de fechas, agrupados por tipo, con sus fotos">📊 Reporte</button>
+          {sedeActiva && <button type="button" className="btn btn-ghost" onClick={volverASedes} title="Elegir otra sede">← Sedes</button>}
+          {sedeActiva && <button type="button" className="btn btn-ghost" onClick={() => setReporte(true)} disabled={!tanques.length}
+            title="Movimientos por rango de fechas, agrupados por tipo, con sus fotos">📊 Reporte</button>}
           {!esSurtidor && <Link to="/app/combustible?completo=1" className="btn btn-ghost">🖥 Módulo completo</Link>}
         </div>
       </header>
       <AtajosTelefono actual={RUTA_SURTIDOR} />
 
       {loading && <p className="muted">Cargando…</p>}
-      {!loading && !tanques.length && <EmptyState icon="⛽" message="No hay tanques activos. Se crean desde el módulo en la PC." />}
 
-      {!!tanques.length && (
+      {/* Paso 1: la sede. Igual que en la PC, nada se muestra hasta elegirla. */}
+      {!loading && sedeActiva === null && (
+        <>
+          <div className="surt-rotulo">¿En qué sede estás?</div>
+          {!sedes.length && <EmptyState icon="⛽" message="No hay sedes de combustible. Se crean desde el módulo en la PC." />}
+          <div className="surt-sedes">
+            {resumenSedes.map((r) => {
+              const s = sedes.find((x) => x.clave === r.clave);
+              return (
+                <button key={r.clave} type="button" className="surt-sede" onClick={() => elegirSede(r.clave)}>
+                  <div className="nombre">⛽ {s?.nombre ?? r.clave}</div>
+                  <div className="saldo">{num(r.litros)} <small>L</small></div>
+                  <div className="sub">{r.nTanques} tanque(s)</div>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {!loading && sedeActiva !== null && !tanques.length && <EmptyState icon="⛽" message={`${sedeNombre} no tiene tanques activos. Se crean desde el módulo en la PC.`} />}
+
+      {sedeActiva !== null && !!tanques.length && (
         <>
           <div className="surt-rotulo">Tanque</div>
           <div className="surt-tanques" role="tablist" aria-label="Tanque">
