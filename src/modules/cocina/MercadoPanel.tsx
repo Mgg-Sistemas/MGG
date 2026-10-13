@@ -83,6 +83,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   const [pagina, setPagina] = useState(1);
   const [verQuietos, setVerQuietos] = useState(false);
   const [soloDif, setSoloDif] = useState(false);
+  const [buscaViver, setBuscaViver] = useState('');
   const [verHistorial, setVerHistorial] = useState(false);
   // Víveres cuyo saldo cambió alguien a mano al ajustar. Se marcan en la tabla:
   // «quién ajustó» sin «qué ajustó» obliga a cruzar dos pantallas.
@@ -122,11 +123,18 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   // Con 50 víveres y 10 descuadrados, encontrarlos a ojo entre las barras naranjas
   // es el trabajo que el filtro evita: se pide «solo los descuadrados» y la tabla
   // queda con esos y nada más.
-  const filas = useMemo(() => {
+  // Las filas antes del buscador: el conteo «N de M» del aviso de descuadre habla de estas.
+  const filasBase = useMemo(() => {
     const base = [...movidos, ...quietosConDif];
     if (soloDif) return base.filter((d) => difPorProducto.has(d.producto_id));
     return verQuietos ? [...base, ...quietosOk] : base;
   }, [movidos, quietosConDif, quietosOk, verQuietos, soloDif, difPorProducto]);
+  // Buscador por nombre o SKU (13-10-2026): son muchos víveres y la tabla es larga.
+  const filas = useMemo(() => {
+    const q = buscaViver.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!q) return filasBase;
+    return filasBase.filter((d) => `${d.nombre} ${d.sku}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(q));
+  }, [filasBase, buscaViver]);
   // `labelTipoComida` pide un `TipoComida` y el kardex guarda el tipo como texto:
   // un tipo viejo que ya no esté en la lista se muestra tal cual, no rompe.
   const etiquetaComida = (t: string) => labelTipoComida(t as TipoComida);
@@ -435,23 +443,30 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
 
       {vista !== 'movimientos' && vista !== 'distribucion' && (
       <div className="card" style={{ marginBottom: '.9rem' }}>
-        <div className="card-title" style={{ marginBottom: '.5rem' }}>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas ± traslados − consumos − mermas · tocá un víver para el detalle</span></div>
+        <div className="card-title" style={{ marginBottom: '.5rem', display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+          <span>Disponible a consumir <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· saldo inicial + entradas ± traslados − consumos − mermas · tocá un víver para el detalle</span></span>
+          <input className="input" value={buscaViver} onChange={(e) => setBuscaViver(e.target.value)} placeholder="🔍 Buscar víver o SKU…" aria-label="Buscar víver"
+            style={{ marginLeft: 'auto', maxWidth: 260, fontSize: '.82rem', padding: '.25rem .5rem', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }} />
+          {buscaViver.trim() && <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontSize: '.78rem' }}>{filas.length} de {filasBase.length}</span>}
+        </div>
         {/* Una tabla filtrada que no lo dice se lee como si fuera todo el mercado, y
             ahí el filtro deja de ayudar y empieza a engañar. El aviso lleva su propia
             salida, para no tener que volver a la tira de arriba. */}
         {soloDif && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem', padding: '.4rem .6rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-2, rgba(255,255,255,.03))', borderRadius: 'var(--r-sm, 4px)', fontSize: '.79rem' }}>
             <span style={{ color: 'var(--warning)' }}>
-              Mostrando solo los <strong>{filas.length}</strong> víveres descuadrados de {disponible.length}
+              Mostrando solo los <strong>{filasBase.length}</strong> víveres descuadrados de {disponible.length}
             </span>
             <button className="btn btn-sm btn-ghost" onClick={() => setSoloDif(false)}>↩ Ver todos</button>
           </div>
         )}
         {!filas.length ? (
           <p className="hint muted" style={{ margin: 0 }}>
-            {soloDif
-              ? 'Ya no queda ningún víver descuadrado: el mercado y el inventario coinciden.'
-              : 'Sin víveres movidos en este mercado todavía.'}
+            {buscaViver.trim()
+              ? `Ningún víver coincide con «${buscaViver.trim()}».`
+              : soloDif
+                ? 'Ya no queda ningún víver descuadrado: el mercado y el inventario coinciden.'
+                : 'Sin víveres movidos en este mercado todavía.'}
           </p>
         ) : (
           <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
