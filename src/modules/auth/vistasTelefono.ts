@@ -65,3 +65,14 @@ export function vistasPermitidas(
 export function inicioTelefono(vistas: readonly VistaTelefono[]): string {
   return vistas.length === 1 ? vistas[0].ruta : RUTA_TELEFONO;
 }
+
+/**
+ * ¿Entra por el teléfono? Regla de la administradora (13-10-2026): quien tiene
+ * una pantalla de teléfono dada en su rol (p. ej. el Surtidor) ENTRA por ella al
+ * iniciar sesión, sea o no «solo teléfono»; el escritorio le queda en el menú y
+ * en «🖥 Módulo completo». El administrador entra siempre por el escritorio.
+ */
+export function entraPorTelefono(o: { isAdmin: boolean; soloTelefono: boolean; vistas: readonly VistaTelefono[] }): boolean {
+  if (o.isAdmin) return false;
+  return o.soloTelefono || o.vistas.length > 0;
+}

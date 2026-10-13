@@ -37,7 +37,9 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function AppShell() {
   const { user } = useSession();
-  const { can, role, appUser, soloTelefono, vistasTelefono } = usePermissions();
+  const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono } = usePermissions();
+  // Quien tiene pantallas de teléfono dadas las ve en su propia sección del menú (13-10).
+  const mostrarTelefono = !isAdmin && (soloTelefono || vistasTelefono.length > 0);
   const navigate = useNavigate();
   const location = useLocation();
   const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria'));
@@ -302,8 +304,9 @@ export function AppShell() {
           </NavLink>
         </div>
 
-        {/* Rol «solo teléfono» (13-10): el menú son SUS pantallas, dadas en Roles y Permisos. */}
-        {soloTelefono && (
+        {/* Pantallas de teléfono dadas en Roles y Permisos (13-10): sección propia; para un rol
+            «solo teléfono» es todo su menú. */}
+        {mostrarTelefono && (
           <>
             <div className="sidebar-section">Teléfono</div>
             <nav className="nav">

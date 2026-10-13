@@ -13,7 +13,7 @@ import {
   type RolePermisos,
 } from '@/modules/usuarios/permisos.repository';
 import { soloTelefonoDeRol } from '@/modules/usuarios/roles.repository';
-import { VISTAS_TELEFONO, inicioTelefono, vistasPermitidas, type VistaTelefono, type VistaTelefonoKey } from './vistasTelefono';
+import { VISTAS_TELEFONO, entraPorTelefono, inicioTelefono, vistasPermitidas, type VistaTelefono, type VistaTelefonoKey } from './vistasTelefono';
 
 export type PermLevel = keyof ModulePermission; // 'lectura' | 'escritura' | 'full'
 
@@ -126,9 +126,10 @@ export function usePermissions(): PermissionsValue {
   return ctx;
 }
 
-/** Adónde va el usuario cuando entra o cuando cae en algo que no puede ver. */
-function destinoInicial(p: Pick<PermissionsValue, 'allowedModules' | 'soloTelefono' | 'vistasTelefono'>): string {
-  if (p.soloTelefono) return inicioTelefono(p.vistasTelefono);
+/** Adónde va el usuario cuando entra o cuando cae en algo que no puede ver.
+ *  Quien tiene una pantalla de teléfono dada (el Surtidor, por ejemplo) entra por ella (13-10). */
+function destinoInicial(p: Pick<PermissionsValue, 'allowedModules' | 'soloTelefono' | 'vistasTelefono' | 'isAdmin'>): string {
+  if (entraPorTelefono({ isAdmin: p.isAdmin, soloTelefono: p.soloTelefono, vistas: p.vistasTelefono })) return inicioTelefono(p.vistasTelefono);
   const first = p.allowedModules[0];
   return first ? `/app/${modulePath(first)}` : '/app/sin-acceso';
 }

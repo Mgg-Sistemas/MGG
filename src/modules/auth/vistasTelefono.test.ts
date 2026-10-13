@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RUTA_TELEFONO, VISTAS_TELEFONO, inicioTelefono, normalizarVistas, vistasPermitidas } from './vistasTelefono';
+import { RUTA_TELEFONO, VISTAS_TELEFONO, entraPorTelefono, inicioTelefono, normalizarVistas, vistasPermitidas } from './vistasTelefono';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
 const conModulos = (...mods: ModuleKey[]) => (m: ModuleKey) => mods.includes(m);
@@ -39,6 +39,21 @@ describe('inicioTelefono · adónde entra un rol solo teléfono', () => {
   it('con varias, o con ninguna, al menú de pantallas', () => {
     expect(inicioTelefono(VISTAS_TELEFONO)).toBe(RUTA_TELEFONO);
     expect(inicioTelefono([])).toBe(RUTA_TELEFONO);
+  });
+});
+
+describe('entraPorTelefono · quien tiene una pantalla dada entra por ella (13-10)', () => {
+  const [surtidor] = VISTAS_TELEFONO;
+  it('con el surtidor dado entra por el teléfono aunque no sea solo teléfono', () => {
+    expect(entraPorTelefono({ isAdmin: false, soloTelefono: false, vistas: [surtidor] })).toBe(true);
+    expect(inicioTelefono([surtidor])).toBe('/app/combustible/surtidor');
+  });
+  it('sin pantallas dadas entra por el escritorio; solo teléfono entra por el teléfono igual', () => {
+    expect(entraPorTelefono({ isAdmin: false, soloTelefono: false, vistas: [] })).toBe(false);
+    expect(entraPorTelefono({ isAdmin: false, soloTelefono: true, vistas: [] })).toBe(true);
+  });
+  it('el administrador entra siempre por el escritorio', () => {
+    expect(entraPorTelefono({ isAdmin: true, soloTelefono: false, vistas: VISTAS_TELEFONO })).toBe(false);
   });
 });
 
