@@ -19,7 +19,7 @@
    ============================================================ */
 import qrcode from 'qrcode-generator';
 import type { Personal } from '@/shared/lib/types';
-import { nombreDeCarnet } from './fichaPersonal';
+import { cedulaConPuntos, nombreDeCarnet } from './fichaPersonal';
 import { textoVence } from './carnetVence';
 import { lineasSaludQR } from './condicionesSalud';
 
@@ -216,7 +216,7 @@ export function textoQR(p: Personal): string {
   return [
     'MGG · CARNET',
     `Nombre: ${nombre}`,
-    p.cedula ? `Cédula: ${p.cedula}` : '',
+    p.cedula ? `Cédula: ${cedulaConPuntos(p.cedula)}` : '',
     p.carnet_vence ? `Carnet vence: ${textoVence(p.carnet_vence)}` : '',
     p.cargo ? `Cargo: ${p.cargo}` : '',
     p.departamento ? `Departamento: ${p.departamento}` : '',
@@ -360,7 +360,7 @@ export async function generarFrenteBlob(p: Personal, tema: TemaCarnet = 'blanco'
   const nombre = nombreDeCarnet(p.nombre, p.apellido) || '—';
   let y = fotoY + fotoH + 44;
   y = textoAjustado(ctx, nombre, cx, y, W - 80, 36, 24, 2, 800);
-  y = textoAjustado(ctx, p.cedula ? `C.I. ${p.cedula}` : 'C.I. —', cx, y + 2, W - 80, 36, 24, 1, 800);
+  y = textoAjustado(ctx, p.cedula ? `C.I. ${cedulaConPuntos(p.cedula)}` : 'C.I. —', cx, y + 2, W - 80, 36, 24, 1, 800);
 
   // Cargo y vigencia, centrados.
   let ty = y + 12;

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   SIN_DATO, agruparPersonal, antiguedad, cantidadHijos, edadEn, filtrarPersonal, grupoDe,
   hijosMenores, labelEstadoCivil, labelGenero, labelParentesco, numeroFicha, porDepartamento,
-  errorNumeroFicha, normalizarNumeroFicha, nombreDeCarnet, claveFicha, duenoDeFicha, errorCambioFicha,
+  errorNumeroFicha, normalizarNumeroFicha, nombreDeCarnet, claveFicha, duenoDeFicha, errorCambioFicha, cedulaConPuntos,
   errorCorreo, normalizarCorreo, GRADOS_INSTRUCCION, labelGradoInstruccion, ordenarPorFicha,
   gradoMasAlto, gradosTexto, trabajoAnteriorTexto,
   resumenPersonal, textoEdad, tieneHijos,
@@ -469,5 +469,23 @@ describe('N° de ficha editable sin repetirse (02-10-2026)', () => {
     expect(errorCambioFicha('001', '')).toMatch(/no se borra/);
     expect(errorCambioFicha('001', '005')).toBeNull();
     expect(errorCambioFicha(null, '')).toBeNull();
+  });
+});
+
+describe('cedulaConPuntos (carnet)', () => {
+  it('pone los puntos de miles', () => {
+    expect(cedulaConPuntos('27514395')).toBe('27.514.395');
+    expect(cedulaConPuntos('8123456')).toBe('8.123.456');
+    expect(cedulaConPuntos('801')).toBe('801');
+  });
+  it('conserva la letra si la trae y limpia espacios o puntos viejos', () => {
+    expect(cedulaConPuntos('V-27514395')).toBe('V-27.514.395');
+    expect(cedulaConPuntos('e 801')).toBe('E-801');
+    expect(cedulaConPuntos(' 27.514.395 ')).toBe('27.514.395');
+  });
+  it('deja como está lo que no es una cédula y vacío si no hay', () => {
+    expect(cedulaConPuntos('PASAPORTE AB123')).toBe('PASAPORTEAB123');
+    expect(cedulaConPuntos(null)).toBe('');
+    expect(cedulaConPuntos('')).toBe('');
   });
 });

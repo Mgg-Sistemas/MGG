@@ -527,3 +527,16 @@ export function nombreDeCarnet(nombre?: string | null, apellido?: string | null)
   const primera = (s?: string | null) => (s ?? '').trim().split(/\s+/)[0] ?? '';
   return [primera(nombre), primera(apellido)].filter(Boolean).join(' ');
 }
+
+/**
+ * Cédula con puntos de miles para el carnet: 27514395 → 27.514.395.
+ * Si trae letra (V-, E-…) se conserva tal cual delante; lo que no sea cédula se devuelve como está.
+ */
+export function cedulaConPuntos(c: string | null | undefined): string {
+  const s = (c ?? '').trim().replace(/\s+/g, '');
+  if (!s) return '';
+  const m = /^([A-Za-z])?[-.]?(\d{1,12})$/.exec(s.replace(/\./g, ''));
+  if (!m) return s;
+  const digitos = m[2].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return m[1] ? `${m[1].toUpperCase()}-${digitos}` : digitos;
+}

@@ -12,6 +12,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '@/shared/lib/supabase';
 import { lineasSaludQR } from './condicionesSalud';
 import { carnetVencido, textoVence } from './carnetVence';
+import { cedulaConPuntos } from './fichaPersonal';
 
 interface CarnetPublico {
   activo: boolean;
@@ -61,7 +62,7 @@ export function CarnetPublicoPage() {
   const salud = lineasSaludQR(datos);
   const emerg = [datos.contacto_emergencia, datos.contacto_emergencia_tlf].filter(Boolean).join(' · ');
   const filas: [string, string | null | undefined][] = [
-    ['Cédula', datos.cedula],
+    ['Cédula', cedulaConPuntos(datos.cedula)],
     ['Cargo', datos.cargo],
     ['Departamento', datos.departamento],
     ['Teléfono', datos.telefono],
