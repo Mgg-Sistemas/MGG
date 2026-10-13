@@ -182,3 +182,135 @@ export function filtrarHistorialPorCargo<T extends { cargo: string }>(filas: T[]
   if (!c) return filas;
   return filas.filter((f) => normalizarCargo(f.cargo) === c);
 }
+
+/* ───────── Armar el tabulador desde los cargos que existen (13-10-2026) ───────── */
+
+/** De dónde sale el «sueldo actual» de un cargo en la propuesta. */
+export type ReferenciaSueldo = 'tabulador' | 'personal' | 'varios' | 'ninguna';
+
+export interface RenglonArmado {
+  cargo: string;
+  /** La fila del tabulador si el cargo ya está (activa o no). */
+  fila: FilaTabulador | null;
+  /** Personas activas con ese cargo. */
+  activos: number;
+  /** Sueldo anterior de referencia: el del tabulador; si no está, lo que cobra el personal cuando todos cobran igual. */
+  sueldoActual: number | null;
+  referencia: ReferenciaSueldo;
+  /** Montos distintos que cobra el personal activo del cargo, de menor a mayor. */
+  sueldosPersonal: number[];
+}
+
+/**
+ * Todos los cargos que existen —catálogo, fichas del personal activo y lo que
+ * ya está en el tabulador— en una sola lista, cada uno con su sueldo actual.
+ * Es la base de «📋 Armar desde cargos»: de ahí se escribe el sueldo nuevo.
+ */
+export function armarTabuladorDesdeCargos(
+  cargos: readonly string[], personal: readonly PersonaParaTabulador[], tabulador: readonly FilaTabulador[],
+): RenglonArmado[] {
+  const nombres = new Set<string>();
+  const poner = (c: unknown) => { const n = normalizarCargo(c); if (n) nombres.add(n); };
+  tabulador.forEach((f) => poner(f.cargo));
+  cargos.forEach(poner);
+  personal.forEach((p) => { if (p.activo) poner(p.cargo); });
+  const porCargo = new Map(tabulador.map((f) => [normalizarCargo(f.cargo), f] as const));
+  const out: RenglonArmado[] = [];
+  for (const cargo of nombres) {
+    const fila = porCargo.get(cargo) ?? null;
+    const sueldos = personal.filter((p) => p.activo && normalizarCargo(p.cargo) === cargo).map((p) => aCentavos(p.sueldo_base));
+    const distintos = [...new Set(sueldos)].sort((a, b) => a - b);
+    let sueldoActual: number | null = null;
+    let referencia: ReferenciaSueldo = 'ninguna';
+    if (fila && aCentavos(fila.sueldoBase) > 0) { sueldoActual = aCentavos(fila.sueldoBase); referencia = 'tabulador'; }
+    else if (distintos.length === 1 && distintos[0] > 0) { sueldoActual = distintos[0]; referencia = 'personal'; }
+    else if (distintos.length > 1) referencia = 'varios';
+    out.push({ cargo, fila, activos: sueldos.length, sueldoActual, referencia, sueldosPersonal: distintos });
+  }
+  return out.sort((a, b) => a.cargo.localeCompare(b.cargo, 'es'));
+}
+
+export interface CambioArmado {
+  cargo: string;
+  accion: 'alta' | 'cambio';
+  anterior: number;
+  nuevo: number;
+  activos: number;
+  variacion: VariacionSueldo;
+}
+
+/**
+ * Qué filas se guardarían con los montos nuevos escritos: ALTA del cargo que
+ * no estaba (solo si se le puso monto, aunque sea 0) y CAMBIO del que ya
+ * estaba y cambia de monto. Lo vacío o igual no se toca.
+ */
+export function cambiosArmado(renglones: readonly RenglonArmado[], nuevos: Readonly<Record<string, number | null | undefined>>): CambioArmado[] {
+  const out: CambioArmado[] = [];
+  for (const r of renglones) {
+    const v = nuevos[normalizarCargo(r.cargo)];
+    if (v == null || !Number.isFinite(Number(v)) || Number(v) < 0) continue;
+    const nuevo = aCentavos(v);
+    if (!r.fila) {
+      const anterior = r.sueldoActual ?? 0;
+      out.push({ cargo: r.cargo, accion: 'alta', anterior, nuevo, activos: r.activos, variacion: variacionSueldo(anterior, nuevo) });
+      continue;
+    }
+    const anterior = aCentavos(r.fila.sueldoBase);
+    if (!huboCambioSueldo(anterior, nuevo)) continue;
+    out.push({ cargo: r.cargo, accion: 'cambio', anterior, nuevo, activos: r.activos, variacion: variacionSueldo(anterior, nuevo) });
+  }
+  return out;
+}
+
+/* ───────── Lo que se imprime (PDF / Excel) ───────── */
+
+export interface FilaExportTabulador {
+  cargo: string;
+  activos: number;
+  anterior: number | null;
+  nuevo: number | null;
+  vigenteDesde: string | null;
+}
+
+/** La propuesta completa: anterior = sueldo actual de referencia, nuevo = lo escrito (o el mismo si no se tocó). */
+export function filasExportArmado(
+  renglones: readonly RenglonArmado[], nuevos: Readonly<Record<string, number | null | undefined>>, vigenteDesde: string | null,
+): FilaExportTabulador[] {
+  return renglones.map((r) => {
+    const anterior = r.fila && aCentavos(r.fila.sueldoBase) > 0 ? aCentavos(r.fila.sueldoBase) : r.sueldoActual;
+    const v = nuevos[normalizarCargo(r.cargo)];
+    const nuevo = v == null || !Number.isFinite(Number(v)) ? anterior : aCentavos(v);
+    const cambia = nuevo != null && anterior != null ? huboCambioSueldo(anterior, nuevo) : nuevo != null;
+    return { cargo: r.cargo, activos: r.activos, anterior, nuevo, vigenteDesde: cambia ? vigenteDesde : (r.fila?.vigenteDesde || null) };
+  });
+}
+
+/** Por cargo, el sueldo que decía el tabulador ANTES de su último cambio de monto (el historial viene del más nuevo al más viejo). */
+export function anteriorPorCargo(historial: readonly HistorialTabulador[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const h of historial) {
+    const c = normalizarCargo(h.cargo);
+    if (m.has(c)) continue;
+    if (h.accion !== 'alta' && h.accion !== 'cambio') continue;
+    if (h.accion === 'cambio' && !huboCambioSueldo(h.sueldoAnterior, h.sueldoNuevo)) continue; // cambio de vigencia sin monto: no cuenta
+    m.set(c, aCentavos(h.sueldoAnterior));
+  }
+  return m;
+}
+
+/** El tabulador vigente para imprimir: sueldo anterior (del historial) y sueldo actual, con las personas activas de cada cargo. */
+export function filasExportTabulador(
+  filas: readonly FilaTabulador[], historial: readonly HistorialTabulador[], personal: readonly PersonaParaTabulador[], incluirInactivos = false,
+): FilaExportTabulador[] {
+  const ant = anteriorPorCargo(historial);
+  const activos = new Map<string, number>();
+  for (const p of personal) { if (!p.activo) continue; const c = normalizarCargo(p.cargo); if (c) activos.set(c, (activos.get(c) ?? 0) + 1); }
+  return filas
+    .filter((f) => incluirInactivos || f.activo)
+    .map((f) => {
+      const c = normalizarCargo(f.cargo);
+      const anterior = ant.get(c);
+      return { cargo: f.cargo, activos: activos.get(c) ?? 0, anterior: anterior != null && anterior > 0 ? anterior : null, nuevo: aCentavos(f.sueldoBase), vigenteDesde: f.vigenteDesde || null };
+    })
+    .sort((a, b) => a.cargo.localeCompare(b.cargo, 'es'));
+}

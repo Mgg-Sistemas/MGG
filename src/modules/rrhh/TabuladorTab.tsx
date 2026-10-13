@@ -6,6 +6,10 @@
    tabulador. «⚡ Aplicar tabulador» pone a todo el personal activo en el sueldo
    de su cargo, con vista previa y confirmación, en una sola transacción, y
    cada persona tocada queda con su renglón en el historial salarial.
+
+   13-10-2026: «📋 Armar desde cargos» abre todos los cargos que existen con
+   su sueldo actual y una casilla de sueldo nuevo (altas y cambios de una
+   vez); 📄 PDF y 📊 Excel imprimen el tabulador con sueldo anterior y nuevo.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
@@ -26,6 +30,9 @@ import {
 } from './tabulador';
 import { aplicarTabulador, guardarFilaTabulador, listHistorialTabulador, listTabulador } from './tabulador.repository';
 import { textoPct } from './historicoSalarial';
+import { ArmarTabuladorModal } from './ArmarTabuladorModal';
+import { filasExportTabulador } from './tabulador';
+import { descargarTabuladorExcel, descargarTabuladorPdf } from './tabuladorExport';
 
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 
@@ -41,6 +48,20 @@ export function TabuladorTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
   const [estadoDe, setEstadoDe] = useState<FilaTabulador | null>(null);
   const [historialAbierto, setHistorialAbierto] = useState(false);
   const [aplicando, setAplicando] = useState(false);
+  const [armando, setArmando] = useState(false);
+  const [exportando, setExportando] = useState(false);
+
+  // El tabulador vigente en PDF o Excel: el «sueldo anterior» sale del historial (lo que decía antes del último cambio).
+  async function exportar(tipo: 'pdf' | 'excel') {
+    setExportando(true);
+    try {
+      const hist = await listHistorialTabulador();
+      const filasExp = filasExportTabulador(filas, hist, personal, verInactivos);
+      const meta = { titulo: 'Tabulador de sueldos por cargo', emitidoPor: actorName || actor };
+      if (tipo === 'pdf') await descargarTabuladorPdf(filasExp, meta); else await descargarTabuladorExcel(filasExp, meta);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el archivo', 'error'); }
+    finally { setExportando(false); }
+  }
 
   const recargar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true);
@@ -90,8 +111,11 @@ export function TabuladorTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => setHistorialAbierto(true)} title="Cada cambio del tabulador, con su motivo">📜 Historial</button>
+          <button className="btn btn-ghost" onClick={() => void exportar('pdf')} disabled={exportando || loading || !filas.length} title="Imprimir el tabulador con sueldo anterior y nuevo">📄 PDF</button>
+          <button className="btn btn-ghost" onClick={() => void exportar('excel')} disabled={exportando || loading || !filas.length} title="Bajar el tabulador en Excel con sueldo anterior y nuevo">📊 Excel</button>
           {canWrite && (
             <>
+              <button className="btn" onClick={() => setArmando(true)} disabled={loading} title="Todos los cargos que existen, con su sueldo actual y una casilla para el nuevo">📋 Armar desde cargos</button>
               <button className="btn" onClick={() => setAplicando(true)} disabled={loading || !filas.length}
                 title="Poner a todo el personal activo en el sueldo de su cargo (con vista previa)">
                 ⚡ Aplicar tabulador{diff.cambios.length ? ` (${diff.cambios.length})` : ''}
@@ -173,6 +197,10 @@ export function TabuladorTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
           onClose={() => setEstadoDe(null)} onGuardado={() => { setEstadoDe(null); void recargar(true); }} />
       )}
       {historialAbierto && <HistorialTabuladorModal cargos={filas.map((f) => f.cargo)} onClose={() => setHistorialAbierto(false)} />}
+      {armando && (
+        <ArmarTabuladorModal filas={filas} personal={personal} actor={actor} actorName={actorName}
+          onClose={() => setArmando(false)} onGuardado={() => { setArmando(false); void recargar(true); }} />
+      )}
       {aplicando && (
         <AplicarTabuladorModal personal={personal} filas={filas} actor={actor} actorName={actorName}
           onClose={() => setAplicando(false)} onAplicado={() => { setAplicando(false); void recargar(true); }} />
