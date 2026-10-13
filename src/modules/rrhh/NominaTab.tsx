@@ -19,7 +19,7 @@ import {
   MOTIVO_MINIMO, estaCerrada, etiquetaSeleccion, filtrarFilasPersonal, marcarFilas,
   motivoEliminacionValido, motivoNoCargar, nominaAbierta,
 } from './nominaPeriodos';
-import { diasDeFecha, DIAS_TRABAJADOS } from './diasQuincena';
+import { diasDeFecha, diasDesdeIngreso, ingresaEnLaQuincena, rangoQuincena } from './diasQuincena';
 import { ResumenNominaModal } from './ResumenNominaModal';
 // descargarNominaReciboPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import {
@@ -315,7 +315,9 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   const mesLabel = ahora.toLocaleDateString('es-VE', { month: 'long', year: 'numeric', timeZone: 'America/Caracas' });
   // Los días de ESTA quincena: 11 trabajados fijos + el descanso que traiga el
   // mes (16 días en los de 31, 13 en febrero). Antes se cargaban a mano.
+  // Quien ingresó dentro de la quincena cobra desde su ingreso (13-10-2026).
   const diasDeHoy = diasDeFecha(hoyIso);
+  const quincena = rangoQuincena(hoyIso);
   const [diasBase, setDiasBase] = useState(diasDeHoy.total);
   const [tasa, setTasa] = useState(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
@@ -336,30 +338,36 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
     getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); }).catch(() => {});
     Promise.all([listPersonal(true, empresa), listAnticiposActivos(empresa)]).then(([ps, as]) => {
       setAnticipos(as);
-      setFilas(ps.map((p) => ({
+      setFilas(ps.map((p) => {
+        const d = diasDesdeIngreso(hoyIso, p.fecha_ingreso);
+        return {
         persona: p,
-        incluido: true,
-        dias: String(diasDeHoy.trabajados),
-        descanso: String(diasDeHoy.descanso),
+        incluido: d.total > 0,
+        dias: String(d.trabajados),
+        descanso: String(d.descanso),
         deduc: as.filter((a) => a.personal_id === p.id).reduce<Record<string, string>>((acc, a) => {
           const sug = a.cuota_sugerida != null ? Math.min(Number(a.cuota_sugerida), Number(a.saldo)) : 0;
           acc[a.id] = sug > 0 ? String(round2(sug)) : '';
           return acc;
         }, {}),
-      })));
+        };
+      }));
     }).catch(() => {});
   }, []);
 
   // Al cambiar los días base, sincroniza las filas que aún no se tocaron individualmente.
   /**
    * Cambiar los días base reparte: los 11 trabajados no se mueven y el resto
-   * es descanso. Si alguien pone menos de 11 —media quincena, un ingreso a
-   * mitad de mes— todos esos días son trabajados y no queda descanso.
+   * es descanso. Si alguien pone menos de 11 —media quincena— todos esos
+   * días son trabajados y no queda descanso. Quien ingresó dentro de la
+   * quincena nunca pasa de los días que van de su ingreso al fin de ella.
    */
   function aplicarDiasBase(n: number) {
     setDiasBase(n);
-    const trabajados = Math.min(DIAS_TRABAJADOS, Math.max(0, n));
-    setFilas((fs) => fs.map((f) => ({ ...f, dias: String(trabajados), descanso: String(Math.max(0, n - trabajados)) })));
+    setFilas((fs) => fs.map((f) => {
+      const d = diasDesdeIngreso(hoyIso, f.persona.fecha_ingreso, n);
+      return { ...f, dias: String(d.trabajados), descanso: String(d.descanso) };
+    }));
   }
 
   const anticiposDe = (pid: string) => anticipos.filter((a) => a.personal_id === pid);
@@ -443,7 +451,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           <div className="form-row" style={{ minWidth: 130 }}>
             <label style={{ fontSize: '.72rem' }}>Días base (quincena)</label>
             <input className="input mono" type="number" min={1} max={31} value={diasBase} onChange={(e) => aplicarDiasBase(Number(e.target.value) || 0)}
-              title="11 trabajados fijos + el descanso que traiga el mes" />
+              title="11 trabajados fijos + el descanso que traiga el mes. Quien ingresó dentro de la quincena cobra desde su ingreso." />
             <small className="hint muted" style={{ fontSize: '.68rem' }}>{diasDeHoy.trabajados} trab. + {diasDeHoy.descanso} desc.</small>
           </div>
           <div className="form-row" style={{ minWidth: 170 }}>
@@ -499,7 +507,15 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
               return (
                 <tr key={f.persona.id} style={{ opacity: f.incluido ? 1 : 0.45 }}>
                   <td><input type="checkbox" checked={f.incluido} onChange={(e) => setIncluido(f.persona.id, e.target.checked)} aria-label={`Incluir a ${f.persona.nombre} ${f.persona.apellido}`} /></td>
-                  <td>{f.persona.nombre} {f.persona.apellido}<div className="muted" style={{ fontSize: '.72rem' }}>{f.persona.numero_ficha ? `N° ${f.persona.numero_ficha} · ` : ''}{f.persona.cedula ? `${f.persona.cedula} · ` : ''}{f.persona.departamento || ''}{f.persona.cargo ? ` · ${f.persona.cargo}` : ''}</div></td>
+                  <td>{f.persona.nombre} {f.persona.apellido}<div className="muted" style={{ fontSize: '.72rem' }}>{f.persona.numero_ficha ? `N° ${f.persona.numero_ficha} · ` : ''}{f.persona.cedula ? `${f.persona.cedula} · ` : ''}{f.persona.departamento || ''}{f.persona.cargo ? ` · ${f.persona.cargo}` : ''}</div>
+                    {ingresaEnLaQuincena(hoyIso, f.persona.fecha_ingreso) && (
+                      <div style={{ fontSize: '.72rem', color: 'var(--warning)' }} title={`Quincena del ${date(quincena.desde)} al ${date(quincena.hasta)}: cobra desde su ingreso`}>
+                        🆕 Ingresó el {date(f.persona.fecha_ingreso)} · {diasDesdeIngreso(hoyIso, f.persona.fecha_ingreso).total} día(s) de esta quincena
+                      </div>
+                    )}
+                    {!!f.persona.fecha_ingreso && String(f.persona.fecha_ingreso).slice(0, 10) > quincena.hasta && (
+                      <div style={{ fontSize: '.72rem', color: 'var(--danger)' }}>Ingresa el {date(f.persona.fecha_ingreso)}, después de esta quincena: 0 días</div>
+                    )}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(f.persona.sueldo_base)}</td>
                   <td style={{ textAlign: 'center' }}>
                     <input className="input mono" type="number" min={0} max={31} value={f.dias} disabled={!f.incluido}

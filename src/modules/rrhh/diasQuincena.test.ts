@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DIAS_TRABAJADOS, DIAS_DESCANSO, DIAS_QUINCENA,
   diasDelMes, quincenaDeFecha, diasDeQuincena, diasDeFecha, etiquetaQuincena,
+  rangoQuincena, diasDesdeIngreso, repartirDias, ingresaEnLaQuincena,
 } from './diasQuincena';
 
 describe('la quincena tipo', () => {
@@ -102,5 +103,42 @@ describe('el nombre de la quincena', () => {
   it('dice cuál es', () => {
     expect(etiquetaQuincena('2026-09-10')).toBe('Primera quincena');
     expect(etiquetaQuincena('2026-09-23')).toBe('Segunda quincena');
+  });
+});
+
+describe('quien ingresó dentro de la quincena cobra desde su ingreso', () => {
+  it('el rango de la quincena', () => {
+    expect(rangoQuincena('2026-10-13')).toEqual({ desde: '2026-10-01', hasta: '2026-10-15' });
+    expect(rangoQuincena('2026-10-20')).toEqual({ desde: '2026-10-16', hasta: '2026-10-31' });
+    expect(rangoQuincena('2026-02-20')).toEqual({ desde: '2026-02-16', hasta: '2026-02-28' });
+  });
+  it('ingresó el 10: del 10 al 15 son 6 días, todos trabajados', () => {
+    expect(diasDesdeIngreso('2026-10-13', '2026-10-10')).toEqual({ trabajados: 6, descanso: 0, total: 6 });
+    expect(diasDesdeIngreso('2026-10-13', '2026-10-11')).toEqual({ trabajados: 5, descanso: 0, total: 5 });
+    expect(diasDesdeIngreso('2026-10-13', '2026-10-15')).toEqual({ trabajados: 1, descanso: 0, total: 1 });
+  });
+  it('ingresó el 1 o antes, o sin fecha: la quincena completa', () => {
+    expect(diasDesdeIngreso('2026-10-13', '2026-10-01')).toEqual({ trabajados: 11, descanso: 4, total: 15 });
+    expect(diasDesdeIngreso('2026-10-13', '2026-09-21')).toEqual({ trabajados: 11, descanso: 4, total: 15 });
+    expect(diasDesdeIngreso('2026-10-13', null)).toEqual({ trabajados: 11, descanso: 4, total: 15 });
+    expect(diasDesdeIngreso('2026-10-20', '2025-01-01')).toEqual({ trabajados: 11, descanso: 5, total: 16 });
+  });
+  it('ingresó el 2 de la segunda quincena de un mes de 31: 14 días → 11 + 3', () => {
+    expect(diasDesdeIngreso('2026-10-20', '2026-10-18')).toEqual({ trabajados: 11, descanso: 3, total: 14 });
+  });
+  it('todavía no ingresó: nada', () => {
+    expect(diasDesdeIngreso('2026-10-13', '2026-10-20')).toEqual({ trabajados: 0, descanso: 0, total: 0 });
+  });
+  it('los días base a mano acotan, pero nunca pasan de lo que da el ingreso', () => {
+    expect(diasDesdeIngreso('2026-10-13', '2026-10-10', 15)).toEqual({ trabajados: 6, descanso: 0, total: 6 });
+    expect(diasDesdeIngreso('2026-10-13', '2026-10-10', 3)).toEqual({ trabajados: 3, descanso: 0, total: 3 });
+    expect(diasDesdeIngreso('2026-10-13', null, 12)).toEqual({ trabajados: 11, descanso: 1, total: 12 });
+    expect(repartirDias(16)).toEqual({ trabajados: 11, descanso: 5, total: 16 });
+  });
+  it('quién ingresa en la quincena', () => {
+    expect(ingresaEnLaQuincena('2026-10-13', '2026-10-10')).toBe(true);
+    expect(ingresaEnLaQuincena('2026-10-13', '2026-10-01')).toBe(false);
+    expect(ingresaEnLaQuincena('2026-10-13', '2026-10-16')).toBe(false);
+    expect(ingresaEnLaQuincena('2026-10-13', null)).toBe(false);
   });
 });
