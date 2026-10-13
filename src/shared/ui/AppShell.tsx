@@ -355,16 +355,8 @@ export function AppShell() {
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('cocina') && !tienePantalla('comidas') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación" />}
           {can('combustible') && !tienePantalla('surtidor') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
-          {can('maquinaria') && (
-            <NavGroup icon="🚜" label="Control de Maquinaria y Vehículos" defaultOpen={location.pathname.startsWith('/app/maquinaria')}>
-              <NavItem to="/app/maquinaria" icon="🚜" label="Flota" />
-              <NavItem to="/app/maquinaria/ordenes" icon="🧾" label="Órdenes de servicio" />
-              <NavItem to="/app/maquinaria/averias" icon="🔴" label="Averías y estados" />
-              <NavItem to="/app/maquinaria/lavados" icon="🚿" label="Lavados" />
-              <NavItem to="/app/maquinaria/repuestos" icon="🛒" label="Repuestos y compras" />
-              <NavItem to="/app/maquinaria/servicio-mantenimiento" icon="🔧" label="Servicio de Mantenimiento" />
-            </NavGroup>
-          )}
+          {/* Los submódulos (Flota, Órdenes, Averías, Lavados, Repuestos, Servicio) van en la tira del propio módulo: una sola entrada en el menú. */}
+          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" exact={false} />}
           {can('choferes') && <NavItem to="/app/choferes" icon="🚛" label="Choferes / Conductores" />}
           {(can('acopio') || can('acopio_reporte') || can('acopio_gmt') || can('acopio_peramanal') || can('acopio_esmeralda') || can('acopio_pijiguaos')) && (
             <NavGroup icon="🏭" label="Cajas Centro de Costo" defaultOpen={location.pathname.startsWith('/app/acopio')}>
@@ -666,12 +658,15 @@ function NavItem({
   label,
   disabled,
   soon,
+  exact = true,
 }: {
   to: string;
   icon: ReactNode;
   label: string;
   disabled?: boolean;
   soon?: boolean;
+  /** false: la entrada queda marcada también en sus subrutas (p. ej. /app/maquinaria/ordenes). */
+  exact?: boolean;
 }) {
   if (disabled) {
     return (
@@ -686,7 +681,7 @@ function NavItem({
     <NavLink
       to={to}
       className={({ isActive }) => (isActive ? 'active' : '')}
-      end
+      end={exact}
       onMouseEnter={() => prefetchRoute(to)}
       onFocus={() => prefetchRoute(to)}
     >
