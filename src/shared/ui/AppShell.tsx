@@ -18,6 +18,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { prefetchRoute } from '@/shared/lib/routePrefetch';
 import { ensureSession, heartbeat, endSession } from '@/modules/usuarios/userSessions.repository';
 import { ayudasOcultas, aplicarAyudas } from '@/shared/lib/ayudas';
+import { asegurarEmpresas } from '@/modules/rrhh/empresas.repository';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -123,6 +124,9 @@ export function AppShell() {
 
   // Inicializa el contexto de audio (se "desbloquea" en el primer click/tecla).
   useEffect(() => { initSound(); }, []);
+  // Las empresas de la nómina (rrhh_empresas) en memoria desde el arranque: los
+  // PDF fuera de RRHH (recibos de chofer, flota) imprimen la razón social correcta.
+  useEffect(() => { asegurarEmpresas().catch(() => { /* sin tabla o sin red: MGG */ }); }, []);
 
   // Supervisión de actividad: abre/retoma una sesión, manda latidos cada 60s y la
   // cierra al salir (logout, cierre de pestaña). Permite ver quién está conectado

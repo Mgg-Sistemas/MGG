@@ -478,3 +478,58 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
    botones viven en `.actions`, así que el <p> suelto solo puede ser la
    descripción. */
 .ayudas-ocultas .page-head p { display: none !important; }
+
+
+/* ═══ RRHH · encabezado con el switch de nóminas (14-10-2026, de Golden Touch) ═══
+   Título a la izquierda, pastillas (o lista buscable) a la derecha: la activa
+   rellena de naranja con texto oscuro; cada pastilla lleva entre paréntesis
+   cuánta gente ACTIVA tiene esa nómina. La línea naranja separa del resto. */
+.rrhh-cabecera { margin-bottom: 1rem; }
+.rrhh-cabecera-fila {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem 1rem; flex-wrap: wrap;
+  padding-bottom: .6rem;
+  border-bottom: 3px solid var(--primary);
+}
+.rrhh-titulo {
+  margin: 0; min-width: 0;
+  font-size: 1.85rem; font-weight: 700; line-height: 1.2;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.rrhh-titulo-nomina { color: var(--primary); }
+.rrhh-nominas {
+  display: flex; align-items: center; gap: .25rem; flex-wrap: wrap;
+  padding: .25rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.rrhh-nomina-btn {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .4rem .9rem;
+  border: 0; border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit; font-weight: 600; white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.rrhh-nomina-btn:hover { background: var(--surface-3); color: var(--text); }
+.rrhh-nomina-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.rrhh-nomina-btn.activa {
+  background: var(--primary);
+  color: var(--bg-0);
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+.rrhh-nomina-btn.activa:hover { background: var(--primary-2); color: var(--bg-0); }
+.rrhh-nomina-cuenta { font-size: .8em; font-weight: 600; color: var(--text-dim); }
+.rrhh-nomina-btn:hover .rrhh-nomina-cuenta { color: var(--text-muted); }
+.rrhh-nomina-btn.activa .rrhh-nomina-cuenta { color: inherit; opacity: .7; }
+.rrhh-cabecera-nota { margin: .5rem 0 0; }
+@media (max-width: 640px) {
+  .rrhh-cabecera-fila { align-items: flex-start; }
+  .rrhh-titulo { font-size: 1.4rem; }
+  .rrhh-nomina-btn { padding: .35rem .7rem; font-size: .85rem; }
+}

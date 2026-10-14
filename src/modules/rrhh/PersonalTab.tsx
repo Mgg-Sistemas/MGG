@@ -21,7 +21,8 @@ import {
   MAX_DOCUMENTOS_OTROS, MIN_ETIQUETA, TIPO_OTRO, errorEtiquetaDocumento,
   iconoDocumento, tituloDocumento,
 } from './documentosPersonal';
-import { EMPRESA_POR_DEFECTO, definicionEmpresa, type Empresa } from './empresa';
+import { EMPRESA_POR_DEFECTO, definicionEmpresa, destinosDeTransferencia, type DefinicionEmpresa, type Empresa } from './empresa';
+import { TransferirEmpresaModal } from './EmpresasModal';
 import { crearEvento } from './eventos.repository';
 import {
   MAX_DETALLE_SALUD, errorCondicionesSalud, renglonesSalud, type RespuestaSalud,
@@ -272,8 +273,10 @@ function FotoEncuadre({ url, posX, posY, zoom, onChange }: {
   );
 }
 
-export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
+export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO, empresas = [] }: {
   canWrite: boolean; actor: string; actorName?: string | null; empresa?: Empresa;
+  /** Las nóminas activas (para ↔ Transferir a otra nómina). */
+  empresas?: DefinicionEmpresa[];
 }) {
   const { isAdmin } = usePermissions();
   const [lista, setLista] = useState<Personal[]>([]);
@@ -293,6 +296,9 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   // agrupar por «con hijos» sin preguntar persona por persona.
   const [familiaPorPersona, setFamiliaPorPersona] = useState<Map<string, FamiliarPersonal[]>>(new Map());
   const [fichaPersona, setFichaPersona] = useState<Personal | null>(null);
+  // ↔ Transferir a otra nómina (14-10-2026): solo si hay otra nómina activa.
+  const [transferir, setTransferir] = useState<Personal | null>(null);
+  const hayOtraNomina = canWrite && destinosDeTransferencia(empresa, empresas).length > 0;
   // La familia que se está editando en el formulario. Se guarda al guardar la
   // ficha, para que al crear a alguien se pueda cargar todo de una vez.
   const [familiaForm, setFamiliaForm] = useState<FamiliarUI[]>([]);
@@ -948,6 +954,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   <button className="btn btn-sm btn-ghost" onClick={() => setDocsPersona(p)} title="Documentación: cédula, RIF y currículum">📁</button>
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
+                    {hayOtraNomina && <button className="btn btn-sm btn-ghost" onClick={() => setTransferir(p)} title="Transferir a otra nómina">↔</button>}
                     {p.activo
                       ? <button className="btn btn-sm btn-ghost" onClick={() => setCambioEstado({ p, motivo: '', guardando: false })} title="Dar de baja (queda inactivo, no se borra)">⏸</button>
                       : <button className="btn btn-sm btn-success" onClick={() => setCambioEstado({ p, motivo: '', guardando: false })} title="Vuelve a la empresa: la ficha queda activa otra vez">▶ Reactivar</button>}
@@ -1430,8 +1437,13 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
 
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {sueldoPersona && <HistorialSueldoModal persona={sueldoPersona} canWrite={canWrite} isAdmin={isAdmin} actor={actor} actorName={actorName ?? null} onClose={() => setSueldoPersona(null)} />}
+      {transferir && (
+        <TransferirEmpresaModal persona={transferir} empresas={empresas} actor={actor} actorName={actorName ?? null}
+          onClose={() => setTransferir(null)} onDone={() => { setTransferir(null); void recargar(); }} />
+      )}
       {fichaPersona && (
         <FichaTecnicaModal persona={fichaPersona} onClose={() => setFichaPersona(null)}
+          onTransferir={hayOtraNomina ? () => { const p = fichaPersona; setFichaPersona(null); setTransferir(p); } : undefined}
           onEditar={() => { const p = fichaPersona; setFichaPersona(null); editar(p); }} canWrite={canWrite}
           onCambiarEstado={() => { const p = fichaPersona; setFichaPersona(null); setCambioEstado({ p, motivo: '', guardando: false }); }} />
       )}
@@ -1710,8 +1722,8 @@ function Tarjeta({ titulo, icono, valor, pie, color, activa, onClick }: {
 }
 
 /* ───────── Ficha técnica: todo de una persona, en una hoja ───────── */
-function FichaTecnicaModal({ persona, canWrite, onClose, onEditar, onCambiarEstado }: {
-  persona: Personal; canWrite: boolean; onClose: () => void; onEditar: () => void; onCambiarEstado?: () => void;
+function FichaTecnicaModal({ persona, canWrite, onClose, onEditar, onCambiarEstado, onTransferir }: {
+  persona: Personal; canWrite: boolean; onClose: () => void; onEditar: () => void; onCambiarEstado?: () => void; onTransferir?: () => void;
 }) {
   const [familia, setFamilia] = useState<FamiliarPersonal[]>([]);
   const [docs, setDocs] = useState<DocumentoPersonal[]>([]);
@@ -1745,6 +1757,7 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar, onCambiarEsta
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
           {canWrite && <button className="btn btn-ghost" onClick={onEditar}>✎ Editar datos</button>}
+          {canWrite && onTransferir && <button className="btn btn-ghost" onClick={onTransferir} title="Pasar a otra nómina">↔ Transferir</button>}
           {canWrite && onCambiarEstado && (persona.activo
             ? <button className="btn btn-ghost" onClick={onCambiarEstado} title="Queda inactivo; la ficha se conserva">⏸ Dar de baja</button>
             : <button className="btn btn-success" onClick={onCambiarEstado} title="Vuelve a la empresa">▶ Reactivar</button>)}

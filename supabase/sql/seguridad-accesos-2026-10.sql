@@ -70,7 +70,7 @@ create unique index if not exists proveedores_rif_normalizado_unico
 -- ───────── 10. Tabla esqueleto sin uso: queda solo de lectura ─────────
 drop policy if exists "retenciones_esqueleto_2026_09 write op" on public.retenciones_esqueleto_2026_09;
 drop policy if exists retenciones_write on public.retenciones_esqueleto_2026_09;
-revoke insert, update, delete on public.retenciones_esqueleto_2026_09 from authenticated, anon;
+revoke insert, update, delete, truncate, references, trigger on public.retenciones_esqueleto_2026_09 from authenticated, anon;
 
 -- ───────── 6. Auditoría reconoce las anulaciones de compras directas ─────────
 -- La función de Auditoría busca el par anulada_por / anulada_en; la tabla guardaba anulada_at.
