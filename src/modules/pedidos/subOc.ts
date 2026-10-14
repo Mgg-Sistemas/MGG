@@ -139,3 +139,37 @@ export function recortarOfertaAHija<T extends ItemRecortable>(
     fraccion,
   };
 }
+
+/* ───────── La sub-OC compra lo que el proveedor COTIZÓ (14-10-2026) ─────────
+   Caso SP-2026-0184-1: la hija nacía con las cantidades de la SOLICITUD y sin
+   los renglones que el proveedor agregó en su cotización (una salsa inglesa que
+   la cocina no había pedido), así el kanban decía $2.887,88 y la oferta aceptada
+   $2.945,57. La cotización aceptada es la compra: cantidad y unidad de compra
+   salen de ella; el contexto del solicitante (finalidad, área) se conserva. */
+
+/** Renglones que el proveedor agregó en su cotización y que la solicitud no pedía (con precio). */
+export function itemsAgregadosPorOferta<T extends ItemRecortable>(itemsOferta: T[], skusOp: Iterable<string>): T[] {
+  const pedidos = new Set(skusOp);
+  return (itemsOferta ?? []).filter((it) => !pedidos.has(it.sku) && it.comprar !== false && (Number(it.precio) || 0) > 0);
+}
+
+/**
+ * El renglón de la hija a partir del de la solicitud y el de la cotización: cantidad y
+ * unidad de compra como las cotizó el proveedor (si cotizó cantidad > 0); finalidad, área
+ * y nombre como los puso el solicitante; el precio en la moneda elegida.
+ */
+export function itemHijaDesdeOferta<T extends ItemRecortable & { nombre?: string; finalidad?: string | null; area?: string | null }>(
+  itemOp: T, itemOferta: Partial<T> | undefined, precio: number,
+): T {
+  const cantOf = Number(itemOferta?.cantidad) || 0;
+  return {
+    ...itemOp,
+    ...(itemOferta ?? {}),
+    nombre: itemOp.nombre ?? itemOferta?.nombre,
+    finalidad: itemOp.finalidad ?? itemOferta?.finalidad ?? null,
+    area: itemOp.area ?? itemOferta?.area ?? null,
+    cantidad: cantOf > 0 ? cantOf : Number(itemOp.cantidad) || 0,
+    precio,
+    comprar: true,
+  } as T;
+}

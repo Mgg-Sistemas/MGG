@@ -8,7 +8,7 @@ import { ordenesConOfertasDe } from './ordenDeOfertas';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas } from './score';
 import { asignarProveedoresAOrden, listSubOcs, type AsignacionProveedor } from './pedidos.repository';
-import { recortarOfertaAHija } from './subOc';
+import { itemHijaDesdeOferta, itemsAgregadosPorOferta, recortarOfertaAHija } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 
 /**
@@ -122,8 +122,20 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
       const precio = precioDe(prov, it.sku) ?? 0;
       const cur = m.get(prov) ?? { items: 0, total: 0, iva: 0, igtf: 0 };
       cur.items += 1;
-      cur.total += (Number(it.cantidad) || 0) * precio;
+      // Con la cantidad COTIZADA (misma regla que al crear la sub-OC).
+      const cantOf = Number(ofertaDe.get(prov)?.items?.find((x) => x.sku === it.sku)?.cantidad) || 0;
+      cur.total += (cantOf > 0 ? cantOf : Number(it.cantidad) || 0) * precio;
       m.set(prov, cur);
+    }
+    // Más lo que el proveedor agregó en su cotización (entra a su sub-OC).
+    for (const [prov, cur] of m) {
+      const moneda = monedaDe(prov);
+      for (const extra of itemsAgregadosPorOferta(ofertaDe.get(prov)?.items ?? [], opItems.map((i) => i.sku))) {
+        const precio = precioEnMoneda(prov, extra.sku, moneda);
+        if (precio == null) continue;
+        cur.items += 1;
+        cur.total += (Number(extra.cantidad) || 0) * precio;
+      }
     }
     // Prorratea IVA/IGTF (y descuento/efectivo) de cada oferta por lo asignado, con la MISMA
     // regla con la que se crea la sub-OC (recortarOfertaAHija): así el preview iguala a la OC.
@@ -139,7 +151,10 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
           iva: enDivisa ? null : of?.iva,
           igtf: enDivisa ? null : of?.igtf,
         },
-        opItems.filter((it) => asignado[it.sku] === prov).map((it) => it.sku),
+        [
+          ...opItems.filter((it) => asignado[it.sku] === prov).map((it) => it.sku),
+          ...itemsAgregadosPorOferta(of?.items ?? [], opItems.map((i) => i.sku)).map((it) => it.sku),
+        ],
       );
       r.iva = rec.iva ?? 0;
       r.igtf = rec.igtf ?? 0;
@@ -165,8 +180,17 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
       const precio = precioDe(prov, it.sku);
       if (precio == null) { setError(`El proveedor no cotizó «${it.nombre}».`); return; }
       const arr = porProv.get(prov) ?? [];
-      arr.push({ ...it, precio, comprar: true });
+      // La cantidad (y la unidad de compra) salen de la COTIZACIÓN, no de la solicitud (14-10-2026).
+      arr.push(itemHijaDesdeOferta(it, ofertaDe.get(prov)?.items?.find((x) => x.sku === it.sku), precio));
       porProv.set(prov, arr);
+    }
+    // Lo que el proveedor agregó en su cotización y la solicitud no pedía va a SU sub-OC.
+    for (const [prov, arr] of porProv) {
+      const moneda = monedaDe(prov);
+      for (const extra of itemsAgregadosPorOferta(ofertaDe.get(prov)?.items ?? [], opItems.map((i) => i.sku))) {
+        const precio = precioEnMoneda(prov, extra.sku, moneda);
+        if (precio != null && !arr.some((x) => x.sku === extra.sku)) arr.push({ ...extra, precio, comprar: true });
+      }
     }
     const asignaciones: AsignacionProveedor[] = Array.from(porProv.entries()).map(([proveedorId, items]) => {
       const of = ofertaDe.get(proveedorId);

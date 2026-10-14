@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { grossDe, ofertaCubreTodoLoPendiente, recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
+import { grossDe, itemHijaDesdeOferta, itemsAgregadosPorOferta, ofertaCubreTodoLoPendiente, recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
 
 // Caso real SP-2026-0116 (27/08/2026).
 const TU_PUNTO = {
@@ -169,5 +169,31 @@ describe('ofertaCubreTodoLoPendiente', () => {
     const orden = [{ sku: 'F-1' }, { sku: 'F-2' }, { sku: 'F-3', comprar: false }];
     const oferta = [{ sku: 'F-1', precio: 5 }, { sku: 'F-2', precio: 5 }];
     expect(ofertaCubreTodoLoPendiente(orden, [], oferta)).toBe(true);
+  });
+});
+
+describe('la sub-OC compra lo que el proveedor cotizó (SP-2026-0184-1, 14-10-2026)', () => {
+  const op = { sku: 'VIV-139', nombre: 'CUBITO DE POLLO MAGGI', cantidad: 240, precio: 0, unidad: 'und', finalidad: 'Cocina', area: 'COCINA', comprar: true as boolean | undefined };
+  it('la cantidad sale de la cotización; finalidad y área del solicitante se conservan', () => {
+    const h = itemHijaDesdeOferta(op, { sku: 'VIV-139', nombre: 'CUBITO MAGGI 10G', cantidad: 250, precio: 0.19, unidad: 'und' }, 0.19);
+    expect(h.cantidad).toBe(250);
+    expect(h.precio).toBe(0.19);
+    expect(h.nombre).toBe('CUBITO DE POLLO MAGGI');
+    expect(h.finalidad).toBe('Cocina');
+    expect(h.comprar).toBe(true);
+  });
+  it('sin cantidad cotizada (o sin renglón) queda la de la solicitud', () => {
+    expect(itemHijaDesdeOferta(op, { sku: 'VIV-139', cantidad: 0, precio: 0.19 }, 0.19).cantidad).toBe(240);
+    expect(itemHijaDesdeOferta(op, undefined, 0.19).cantidad).toBe(240);
+  });
+  it('los renglones que el proveedor agregó entran a su sub-OC; los de $0 o descartados no', () => {
+    const oferta = [
+      { sku: 'VIV-139', cantidad: 250, precio: 0.19 },
+      { sku: 'VIV-124', cantidad: 2, precio: 23.9 },
+      { sku: 'LIM-020', cantidad: 3, precio: 0 },
+      { sku: 'INS-999', cantidad: 1, precio: 5, comprar: false },
+    ];
+    expect(itemsAgregadosPorOferta(oferta, ['VIV-139']).map((x) => x.sku)).toEqual(['VIV-124']);
+    expect(itemsAgregadosPorOferta(oferta, ['VIV-139', 'VIV-124'])).toEqual([]);
   });
 });
