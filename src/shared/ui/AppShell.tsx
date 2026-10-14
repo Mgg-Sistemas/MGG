@@ -12,6 +12,7 @@ import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomati
 import { Modal } from '@/shared/ui/Modal';
 import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
+import { leerUltimoEscaneo, marcarEscaneo, tocaEscanear } from '@/modules/notificaciones/escaneoStock';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -99,13 +100,17 @@ export function AppShell() {
      El escaneo baja la tabla `productos` ENTERA (más de mil filas, paginadas)
      para ver qué llegó al mínimo. Lo pagaba TODO usuario en TODO arranque,
      compitiendo por la conexión justo mientras la primera página pedía sus
-     datos. Sigue corriendo igual; solo deja pasar primero a la página. */
+     datos. Deja pasar primero a la página y, desde el 14-10-2026, corre a lo
+     sumo una vez cada 30 minutos por navegador (ver escaneoStock.ts): medido,
+     era una de las consultas más repetidas de la base. */
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
     void refreshUnread();
     const escanear = () => {
       if (cancelled) return;
+      if (!tocaEscanear(leerUltimoEscaneo()) || document.hidden) return;
+      marcarEscaneo();
       scanStockAndNotify()
         .then(() => { if (!cancelled) void refreshUnread(); })
         .catch(() => {/* RLS u offline: el contador inicial sigue válido */});
