@@ -21,6 +21,8 @@ import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { FotosNuevaOrden, FotosOrden } from './FotosOrdenServicio';
 import { useFotosLocales } from './useFotosLocales';
 import { subirFotosOrden } from './osFotos.repository';
+import { tocaEnServicio, proximoServicioNominal, nombreRepuesto, type RepuestoEquipo } from './repuestosEquipo';
+import { listRepuestosEquipo } from './repuestosEquipo.repository';
 
 interface Linea {
   productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null;
@@ -99,6 +101,8 @@ export function OrdenServicioModal({
   // «¿Es alguno de estos?»: productos de nombre parecido antes de agregar una pieza nueva.
   const [sugeridos, setSugeridos] = useState<{ nombre: string; lista: ProductoParecido[] } | null>(null);
   const [buscandoParecidos, setBuscandoParecidos] = useState(false);
+  // Ficha de repuestos del equipo (14/10/2026): se carga con un botón lo que toca en este servicio.
+  const [fichaRep, setFichaRep] = useState<RepuestoEquipo[]>([]);
   // En el teléfono las piezas nuevas van siempre a REPUESTOS; en la computadora se puede cambiar.
   const [categoriaFija] = useState(categoriaFijaEnTelefono);
   // Fotos (hasta 4): se comprimen al elegirlas y se suben al crear la orden.
@@ -115,6 +119,35 @@ export function OrdenServicioModal({
       }));
     }).catch(() => setProductos([]));
   }, []);
+
+  useEffect(() => {
+    if (!editables) return;
+    listRepuestosEquipo(equipo.id).then(setFichaRep).catch(() => setFichaRep([]));
+  }, [equipo.id, editables]);
+  const proximo = {
+    horas: proximoServicioNominal(equipo.mantenimiento_cada_hrs, horometro, equipo.mantenimiento_base_hrs),
+    km: proximoServicioNominal(equipo.mantenimiento_cada_km, kilometraje, equipo.mantenimiento_base_km),
+  };
+  const deFicha = fichaRep.map((r) => ({ r, toca: tocaEnServicio(r, proximo) }));
+  const tocan = deFicha.filter((x) => x.toca).length;
+  /** Agrega a la orden los renglones de la ficha (los que tocan, o todos), sin repetir los que ya están. */
+  function cargarDeFicha(todos: boolean) {
+    const porId = new Map(productos.map((p) => [p.id, p]));
+    const out = [...lineas];
+    let agregados = 0;
+    for (const { r, toca } of deFicha) {
+      if (!todos && !toca) continue;
+      const p = r.producto_id ? porId.get(r.producto_id) : null;
+      const nombre = p ? p.nombre : nombreRepuesto(r);
+      if (out.some((l) => (p ? l.productoId === p.id : !l.productoId && l.nombre === nombre))) continue;
+      out.push(p
+        ? { productoId: p.id, nombre: p.nombre, unidad: p.unidad || 'und', cantidad: r.cantidad, stock: Math.max(0, Number(p.stock) || 0), almacen: p.almacen || null }
+        : { productoId: null, nombre, unidad: r.unidad || 'und', cantidad: r.cantidad, stock: 0, almacen: null, categoria: CATEGORIA_REPUESTOS });
+      agregados += 1;
+    }
+    setLineas(out);
+    toast(agregados ? `📋 ${agregados} repuesto(s) de la ficha agregados a la orden` : 'Todo lo de la ficha ya estaba en la orden.', agregados ? 'success' : 'info');
+  }
 
   const resultados = useMemo(() => {
     const q = norm(busqueda);
@@ -333,6 +366,15 @@ export function OrdenServicioModal({
 
         {paso === 1 && editables && (
           <>
+            {fichaRep.length > 0 && (
+              <div className="aviso info sm"><span className="aviso-icono">📋</span><div style={{ display: 'grid', gap: '.4rem', minWidth: 0 }}>
+                <strong>Ficha de repuestos de {equipo.equipo}: {fichaRep.length} renglón(es) · {tocan} {tocan === 1 ? 'toca' : 'tocan'} en este servicio{proximo.horas != null ? ` (el de ${fmtNum(proximo.horas)} h)` : proximo.km != null ? ` (el de ${fmtNum(proximo.km)} km)` : ''}.</strong>
+                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-sm btn-primary" disabled={!tocan} onClick={() => cargarDeFicha(false)}>📋 Cargar los que tocan ({tocan})</button>
+                  {tocan < fichaRep.length && <button type="button" className="btn btn-sm" onClick={() => cargarDeFicha(true)}>Cargar toda la ficha ({fichaRep.length})</button>}
+                </div>
+              </div></div>
+            )}
             <div className="form-row"><label htmlFor="os-inv">Buscar en inventario</label>
               <input id="os-inv" className="input" type="search" autoComplete="off" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="🔍 Filtro, caucho, aceite, manguera…" />
             </div>

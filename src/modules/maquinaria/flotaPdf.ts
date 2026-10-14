@@ -16,6 +16,7 @@ import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import type { FotoEquipo, LavadoEquipo, OrdenServicio } from './flota.repository';
 import { fotosOrdenConUrl } from './osFotos.repository';
 import { ESTADOS_EQUIPO, ORDEN_ESTADOS, URGENCIAS, estadoEfectivo, servicioPorId, etiquetaServicio, type EstadoEquipo } from './flota';
+import { agruparPorSistema, textoCada, type RepuestoEquipo } from './repuestosEquipo';
 
 type AutoTable = (doc: JsPDF, opts: Record<string, unknown>) => void;
 
@@ -125,7 +126,7 @@ export interface DatosFicha {
 }
 
 /** Ficha técnico-operativa del equipo. */
-export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ordenes: OrdenServicio[], fotos: FotoEquipo[], lavados: LavadoEquipo[] = []): Promise<void> {
+export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ordenes: OrdenServicio[], fotos: FotoEquipo[], lavados: LavadoEquipo[] = [], repuestos: RepuestoEquipo[] = []): Promise<void> {
   const { jsPDF, autoTable } = await cargarPdf();
   const doc = new jsPDF({ unit: 'mm', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
@@ -221,6 +222,25 @@ export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ord
       styles: { fontSize: 8, cellPadding: 2.2, lineColor: BORDE, lineWidth: 0.25, textColor: TINTA },
       headStyles: { fillColor: NARANJA, textColor: [26, 14, 0], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 30 }, 2: { cellWidth: 38 }, 3: { cellWidth: 32 } },
+    });
+  }
+
+  // Ficha de repuestos y consumibles (14/10/2026): lo que lleva el equipo, por sistema.
+  if (repuestos.length) {
+    let yr = ordenes.length || lavados.length ? finalY(doc) + 10 : y;
+    if (yr + 30 > H - 20) { doc.addPage(); yr = 20; }
+    yr = sec(yr, 'REPUESTOS Y CONSUMIBLES');
+    autoTable(doc, {
+      startY: yr, margin: { left: M, right: M },
+      head: [['Sistema', 'Repuesto', 'N° de parte / equivalencias', 'Especificación', 'Por servicio', 'Cada']],
+      body: agruparPorSistema(repuestos).flatMap((g) => g.items.map((r) => [
+        g.sistema.label, r.tipo, [r.numero_parte, r.equivalencias].filter(Boolean).join(' · '), r.especificacion ?? '',
+        `${fmtNum(r.cantidad)} ${r.unidad}`, textoCada(r, fmtNum),
+      ])),
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2.2, lineColor: BORDE, lineWidth: 0.25, textColor: TINTA },
+      headStyles: { fillColor: NARANJA, textColor: [26, 14, 0], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 36 }, 4: { cellWidth: 22 }, 5: { cellWidth: 26 } },
     });
   }
 

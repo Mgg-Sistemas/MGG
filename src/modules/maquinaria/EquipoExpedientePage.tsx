@@ -29,7 +29,13 @@ import {
   type OrdenServicio, type EventoEstado, type CompraEquipo, type FotoEquipo,
   type LecturaVigente, type LecturaMedidor, type UltimoSurtido,
 } from './flota.repository';
-import { fichaEquipoPdf, ordenServicioPdf } from './flotaPdf';
+import { fichaEquipoPdf, ordenServicioPdf, listadoFlotaPdf, type ListadoFlota } from './flotaPdf';
+import { listadoFlotaExcel } from './flotaExcel';
+import type { Producto } from '@/shared/lib/types';
+import { agruparPorSistema, estadoStock, ESTADOS_STOCK, nombreRepuesto, detalleRepuesto, textoCada, sistemaDe, type RepuestoEquipo } from './repuestosEquipo';
+import { listRepuestosEquipo, productosDeFichas, eliminarRepuestoEquipo } from './repuestosEquipo.repository';
+import { RepuestoEquipoModal } from './RepuestoEquipoModal';
+import { CopiarRepuestosModal } from './CopiarRepuestosModal';
 import { EstadoEquipoModal, type ModoEstado } from './EstadoEquipoModal';
 import { OrdenServicioModal } from './OrdenServicioModal';
 import { PedirCompraModal } from './PedirCompraModal';
@@ -45,10 +51,11 @@ import { EstadoDetalleModal } from './EstadoDetalleModal';
 import { BorrarOrdenDialog } from './BorrarOrdenDialog';
 import { SeguimientoCompraModal } from './SeguimientoCompraModal';
 
-type Tab = 'resumen' | 'servicios' | 'compras' | 'contador' | 'lavados' | 'fotos' | 'ficha';
+type Tab = 'resumen' | 'servicios' | 'repuestos' | 'compras' | 'contador' | 'lavados' | 'fotos' | 'ficha';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'servicios', label: 'Servicios' },
+  { id: 'repuestos', label: 'Repuestos' },
   { id: 'compras', label: 'Compras' },
   { id: 'contador', label: 'Contador' },
   { id: 'lavados', label: 'Lavados' },
@@ -101,6 +108,13 @@ export function EquipoExpedientePage() {
   const [salidas, setSalidas] = useState<Map<string, { codigo: string; estado: string }>>(new Map());
   const [fotos, setFotos] = useState<FotoEquipo[]>([]);
   const [lavados, setLavados] = useState<LavadoEquipo[]>([]);
+  // Ficha de repuestos y consumibles del equipo (14/10/2026) con el stock de los productos vinculados.
+  const [fichaRep, setFichaRep] = useState<RepuestoEquipo[]>([]);
+  const [productosRep, setProductosRep] = useState<Map<string, Producto>>(new Map());
+  const [nuevoRep, setNuevoRep] = useState(false);
+  const [editarRep, setEditarRep] = useState<RepuestoEquipo | null>(null);
+  const [borrarRep, setBorrarRep] = useState<RepuestoEquipo | null>(null);
+  const [copiarRep, setCopiarRep] = useState(false);
 
   const [modoEstado, setModoEstado] = useState<ModoEstado | null>(null);
   const [nuevaOrden, setNuevaOrden] = useState(false);
@@ -133,7 +147,7 @@ export function EquipoExpedientePage() {
       if (!e) return;
       const vinc = (e.combustible_equipo ?? '').trim();
       // Contador vigente UNIFICADO (Combustible, Maquinaria y bitácora): el mismo que usa el surtidor.
-      const [vig, lecs, surt, ords, evs, fts, lavs] = await Promise.all([
+      const [vig, lecs, surt, ords, evs, fts, lavs, reps] = await Promise.all([
         lecturaVigenteEquipo(e.id).catch(() => null),
         listLecturasEquipo(e.id).catch(() => [] as LecturaMedidor[]),
         ultimoSurtidoEquipo(vinc).catch(() => null),
@@ -141,6 +155,7 @@ export function EquipoExpedientePage() {
         listEventosEstado(e.id).catch(() => [] as EventoEstado[]),
         fotosDeEquipos(e.id).catch(() => [] as FotoEquipo[]),
         listLavados(e.id).catch(() => [] as LavadoEquipo[]),
+        listRepuestosEquipo(e.id).catch(() => [] as RepuestoEquipo[]),
       ]);
       setVigente(vig);
       setHorometro(vig?.horometro ?? null);
@@ -151,12 +166,15 @@ export function EquipoExpedientePage() {
       setEventos(evs);
       setFotos(fts);
       setLavados(lavs);
-      const [cps, sals] = await Promise.all([
+      setFichaRep(reps);
+      const [cps, sals, prods] = await Promise.all([
         comprasDeEquipo(e.id, ords).catch(() => [] as CompraEquipo[]),
         salidasDeOrdenes(ords).catch(() => new Map<string, { codigo: string; estado: string }>()),
+        productosDeFichas(reps).catch(() => new Map<string, Producto>()),
       ]);
       setCompras(cps);
       setSalidas(sals);
+      setProductosRep(prods);
     } catch (err) {
       toast(errMsg(err, 'No se pudo cargar el equipo'), 'error');
     } finally { setLoading(false); }
@@ -164,7 +182,7 @@ export function EquipoExpedientePage() {
   useEffect(() => { setLoading(true); void cargar(); }, [cargar]);
   useRealtime([
     'maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_estado_eventos', 'maquinaria_mantenimientos',
-    'maquinaria_documentos', 'maquinaria_lavados', 'maquinaria_lecturas', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
+    'maquinaria_documentos', 'maquinaria_lavados', 'maquinaria_lecturas', 'maquinaria_repuestos_equipo', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
   ], () => { void cargar(); });
 
   const estado = eq ? estadoEfectivo(eq) : 'operativa';
@@ -178,7 +196,7 @@ export function EquipoExpedientePage() {
   const puede = (a: AccionEquipo) => acciones.includes(a);
   const abiertas = ordenes.filter((o) => ordenAbierta(o.estado));
   const comprasAbiertas = compras.filter((c) => compraAbierta(c.estado));
-  const cuenta: Partial<Record<Tab, number>> = { servicios: abiertas.length, compras: comprasAbiertas.length, lavados: lavados.length, fotos: fotos.length };
+  const cuenta: Partial<Record<Tab, number>> = { servicios: abiertas.length, repuestos: fichaRep.length, compras: comprasAbiertas.length, lavados: lavados.length, fotos: fotos.length };
   const lavado = ultimoLavado(lavados);
 
   if (loading && !eq) return <EmptyState message="Cargando expediente…" />;
@@ -200,8 +218,29 @@ export function EquipoExpedientePage() {
       await fichaEquipoPdf(eq, {
         horometro, km, restantesHrs: avisoH?.restante ?? null, restantesKm: avisoK?.restante ?? null,
         ultimoSurtido: ultimoSurtido ? `${fmtDate(ultimoSurtido.fecha)} · ${fmtNum(ultimoSurtido.litros)} L${ultimoSurtido.tanque ? ` · ${ultimoSurtido.tanque}` : ''}` : null,
-      }, ordenes, fotos, lavados);
+      }, ordenes, fotos, lavados, fichaRep);
     } catch (e) { toast(errMsg(e, 'No se pudo generar la ficha'), 'error'); }
+  }
+
+  /** La ficha de repuestos del equipo como listado (PDF / Excel) para el mecánico o para pedir cotización. */
+  function listadoRepuestos(): ListadoFlota & { numeros: number[] } {
+    if (!eq) throw new Error('Sin equipo');
+    return {
+      titulo: `FICHA DE REPUESTOS · ${eq.equipo}`,
+      subtitulo: [eq.marca, eq.modelo, eq.serial ? `Serial ${eq.serial}` : '', eq.placa ? `Placa ${eq.placa}` : ''].filter(Boolean).join(' · ') || 'Repuestos y consumibles',
+      archivo: `ficha-repuestos-${eq.equipo}-${new Date().toISOString().slice(0, 10)}`,
+      encabezados: ['Sistema', 'Repuesto', 'N° de parte', 'Equivalencias', 'Especificación', 'Cant.', 'Unidad', 'Cada', 'Producto', 'Stock', 'Nota'],
+      anchos: [1.8, 2.8, 2.2, 3.2, 2.6, 1, 1.2, 2, 3, 1.4, 2.6],
+      numeros: [5, 9],
+      filas: agruparPorSistema(fichaRep).flatMap((g) => g.items.map((r) => {
+        const p = r.producto_id ? productosRep.get(r.producto_id) : null;
+        return [g.sistema.label, r.tipo, r.numero_parte, r.equivalencias, r.especificacion, r.cantidad, r.unidad, textoCada(r, fmtNum), p ? `${p.nombre} (${p.sku})` : 'No está en el inventario', p ? Math.max(0, Number(p.stock) || 0) : null, r.nota];
+      })),
+    };
+  }
+  async function exportarRepuestos(tipo: 'pdf' | 'excel') {
+    try { if (tipo === 'pdf') await listadoFlotaPdf(listadoRepuestos()); else await listadoFlotaExcel(listadoRepuestos()); }
+    catch (e) { toast(errMsg(e, 'No se pudo exportar la ficha de repuestos'), 'error'); }
   }
 
   async function pdfOrden(o: OrdenServicio) {
@@ -373,6 +412,11 @@ export function EquipoExpedientePage() {
               onEditar={setEditarOrden} onBorrar={setBorrarOrden}
             />
           )}
+          {tab === 'repuestos' && (
+            <TabRepuestos ficha={fichaRep} productos={productosRep} puedeEditar={perm.maquinaria}
+              onNuevo={() => setNuevoRep(true)} onCopiar={() => setCopiarRep(true)} onEditar={setEditarRep} onBorrar={setBorrarRep}
+              onPdf={() => void exportarRepuestos('pdf')} onExcel={() => void exportarRepuestos('excel')} />
+          )}
           {tab === 'compras' && <TabCompras compras={compras} puedePedidos={perm.pedidos} onVer={setVerCompra} />}
           {tab === 'contador' && <TabContador eq={eq} vigente={vigente} lecturas={lecturas} ultimoSurtido={ultimoSurtido} puede={puede('lectura')} onRegistrar={() => setLecturaOpen(true)}
             puedeEditar={perm.maquinaria} isAdmin={isAdmin} onEditar={setEditarLectura} onBorrar={setBorrarLectura} />}
@@ -428,6 +472,19 @@ export function EquipoExpedientePage() {
             const l = borrarLectura; setBorrarLectura(null);
             void eliminarLectura(l.referencia).then(() => { toast('Lectura borrada: el contador vigente se recalculó.', 'success'); void cargar(); })
               .catch((e) => toast(errMsg(e, 'No se pudo borrar la lectura'), 'error'));
+          }} />
+      )}
+      {nuevoRep && <RepuestoEquipoModal equipo={eq} ficha={fichaRep} actor={{ email: actor, nombre: actorName }} onClose={() => setNuevoRep(false)} onSaved={() => void cargar()} />}
+      {editarRep && <RepuestoEquipoModal equipo={eq} ficha={fichaRep} repuesto={editarRep} actor={{ email: actor, nombre: actorName }} onClose={() => setEditarRep(null)} onSaved={() => void cargar()} />}
+      {copiarRep && <CopiarRepuestosModal equipo={eq} ficha={fichaRep} actor={{ email: actor, nombre: actorName }} onClose={() => setCopiarRep(false)} onDone={() => void cargar()} />}
+      {borrarRep && (
+        <ConfirmDialog title="Quitar de la ficha" danger confirmText="Quitar"
+          message={<>Se quita <strong>{nombreRepuesto(borrarRep)}</strong> de la ficha de repuestos de {eq.equipo}. Las órdenes de servicio que ya lo pidieron no cambian.</>}
+          onCancel={() => setBorrarRep(null)}
+          onConfirm={() => {
+            const r = borrarRep; setBorrarRep(null);
+            void eliminarRepuestoEquipo(r.id).then(() => { toast(`${nombreRepuesto(r)} quitado de la ficha`, 'success'); void cargar(); })
+              .catch((e) => toast(errMsg(e, 'No se pudo quitar'), 'error'));
           }} />
       )}
       {editarLavado && (
@@ -904,5 +961,67 @@ function CerrarOrdenModal({ orden, estado, equipo, horometro, km, actor, actorNa
         )}
       </div>
     </Modal>
+  );
+}
+
+/** Ficha de repuestos y consumibles del equipo: por sistema, con el stock del producto vinculado. */
+function TabRepuestos({ ficha, productos, puedeEditar, onNuevo, onCopiar, onEditar, onBorrar, onPdf, onExcel }: {
+  ficha: RepuestoEquipo[]; productos: Map<string, Producto>; puedeEditar: boolean;
+  onNuevo: () => void; onCopiar: () => void; onEditar: (r: RepuestoEquipo) => void; onBorrar: (r: RepuestoEquipo) => void;
+  onPdf: () => void; onExcel: () => void;
+}) {
+  const grupos = agruparPorSistema(ficha);
+  const resumen = { hay: 0, no_hay: 0, sin_producto: 0 };
+  for (const r of ficha) resumen[estadoStock(r, r.producto_id ? productos.get(r.producto_id) : null).estado] += 1;
+  return (
+    <>
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        {puedeEditar && <button className="btn btn-primary" onClick={onNuevo}>🔩 Agregar repuesto</button>}
+        {puedeEditar && <button className="btn" onClick={onCopiar}>📋 Copiar de otro equipo</button>}
+        <button className="btn btn-ghost" disabled={!ficha.length} onClick={onPdf}>↓ PDF</button>
+        <button className="btn btn-ghost" disabled={!ficha.length} onClick={onExcel}>↓ Excel</button>
+      </div>
+      <Link className="flo-ver-todo" to="/app/maquinaria/repuestos">¿Para qué equipo sirve un repuesto? · Qué comprar para el próximo servicio →</Link>
+      <div className="flo-stats">
+        <div className="flo-stat"><small>En la ficha</small><strong>{ficha.length}</strong></div>
+        <div className="flo-stat"><small>🟢 Hay en inventario</small><strong>{resumen.hay}</strong></div>
+        <div className="flo-stat"><small>🔴 No hay suficiente</small><strong>{resumen.no_hay}</strong></div>
+        <div className="flo-stat"><small>⚪ No está en inventario</small><strong>{resumen.sin_producto}</strong></div>
+      </div>
+      {ficha.length ? grupos.map((g) => (
+        <div className="flo-sec" key={g.sistema.id}>
+          <div className="flo-sec-head"><h3>{g.sistema.icon} {g.sistema.label}</h3><span className="muted" style={{ fontSize: '.76rem' }}>{g.items.length}</span></div>
+          <div className="flo-hist">
+            {g.items.map((r) => {
+              const p = r.producto_id ? productos.get(r.producto_id) : null;
+              const st = estadoStock(r, p);
+              return (
+                <div key={r.id}>
+                  <span title={ESTADOS_STOCK[st.estado].label} aria-label={ESTADOS_STOCK[st.estado].label}>{ESTADOS_STOCK[st.estado].icon}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <strong>{r.tipo} <span className="mono" style={{ fontWeight: 600 }}>· {fmtNum(r.cantidad)} {r.unidad}</span></strong>
+                    <small>{detalleRepuesto(r) || 'sin número de parte'} · {textoCada(r, fmtNum)}</small>
+                    <small>{p ? `${p.nombre} (${p.sku}) · ${st.stock != null && st.stock > 0 ? `${fmtNum(st.stock)} ${p.unidad} en stock` : 'sin stock'}` : 'No está en el inventario: se pide por número de parte'}{r.nota ? ` · ${r.nota}` : ''}</small>
+                  </div>
+                  {puedeEditar ? (
+                    <span style={{ display: 'flex', gap: '.25rem' }}>
+                      <button className="btn btn-sm btn-ghost" aria-label={`Editar ${r.tipo}`} onClick={() => onEditar(r)}>✎</button>
+                      <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} aria-label={`Quitar ${r.tipo}`} onClick={() => onBorrar(r)}>🗑</button>
+                    </span>
+                  ) : <span />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )) : (
+        <div className="flo-sec">
+          <EmptyState icon="🔩" message={puedeEditar
+            ? 'Sin ficha de repuestos. Agrega lo que lleva este equipo (aceite, filtros, cauchos, batería…) con su número de parte y sus equivalencias, o cópiala de un equipo igual.'
+            : 'Este equipo todavía no tiene ficha de repuestos.'} />
+        </div>
+      )}
+      <p className="muted" style={{ fontSize: '.76rem', margin: 0 }}>Sistemas: {agruparPorSistema(ficha).length ? grupos.map((g) => g.sistema.label).join(', ') : sistemaDe('motor').label + '…'}. El stock es el del producto vinculado al cargar la pestaña.</p>
+    </>
   );
 }
