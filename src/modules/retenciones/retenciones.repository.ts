@@ -9,6 +9,7 @@
    Archivos en el bucket `compras-oc` (mismo de factura/retención de OC).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Orden } from '@/shared/lib/types';
 import { listComprasConRetencion, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
@@ -64,8 +65,11 @@ export interface RetencionItem {
 export interface ProveedorBreve { nombre: string; rif: string | null }
 
 async function mapProveedores(): Promise<Map<string, ProveedorBreve>> {
-  const { data } = await supabase.from('proveedores').select('id, razon_social, rif');
-  return new Map((data ?? []).map((p) => [
+  // Por páginas (N3): pasadas las 1.000 filas, Supabase corta sin avisar. Un error sigue dando
+  // el mapa vacío, como antes: Tesorería no cambia.
+  const data = await todasLasFilas<Record<string, unknown>>((d, h) =>
+    supabase.from('proveedores').select('id, razon_social, rif').order('id').range(d, h)).catch(() => []);
+  return new Map(data.map((p) => [
     p.id as string,
     { nombre: (p.razon_social as string) ?? '—', rif: (p.rif as string) ?? null },
   ]));
@@ -113,31 +117,29 @@ function compraToItem(c: CompraDirecta, pm: Map<string, ProveedorBreve>): Retenc
 
 /** Retenciones por realizar: OC con comprobante + compras directas con retención, sin finalizar. */
 export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
-  const [{ data, error }, pm, compras] = await Promise.all([
-    supabase.from(TABLE).select('*')
+  const [data, pm, compras] = await Promise.all([
+    todasLasFilas<Orden>((d, h) => supabase.from(TABLE).select('*')
       .or(FILTRO_COMPROBANTE)
       .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
-      .order('metodo_pago_en', { ascending: true }),
+      .order('metodo_pago_en', { ascending: true }).order('id').range(d, h)),
     mapProveedores(),
     listComprasConRetencion(false).catch(() => [] as CompraDirecta[]),
   ]);
-  if (error) throw error;
-  const ocs = (data ?? []).map((o) => ocToItem(o as Orden, pm));
+  const ocs = data.map((o) => ocToItem(o, pm));
   return [...ocs, ...compras.map((c) => compraToItem(c, pm))];
 }
 
 /** Retenciones ya finalizadas (comprobantes cargados). */
 export async function listRetencionesHechas(): Promise<RetencionItem[]> {
-  const [{ data, error }, pm, compras] = await Promise.all([
-    supabase.from(TABLE).select('*')
+  const [data, pm, compras] = await Promise.all([
+    todasLasFilas<Orden>((d, h) => supabase.from(TABLE).select('*')
       .or(FILTRO_COMPROBANTE)
       .eq('retencion_finalizada', true)
-      .order('retencion_finalizada_en', { ascending: false }),
+      .order('retencion_finalizada_en', { ascending: false }).order('id').range(d, h)),
     mapProveedores(),
     listComprasConRetencion(true).catch(() => [] as CompraDirecta[]),
   ]);
-  if (error) throw error;
-  const items = [...(data ?? []).map((o) => ocToItem(o as Orden, pm)), ...compras.map((c) => compraToItem(c, pm))];
+  const items = [...data.map((o) => ocToItem(o, pm)), ...compras.map((c) => compraToItem(c, pm))];
   // Historial ordenado por fecha de finalización (desc).
   return items.sort((a, b) => (b.finalizadaEn ?? '').localeCompare(a.finalizadaEn ?? ''));
 }
