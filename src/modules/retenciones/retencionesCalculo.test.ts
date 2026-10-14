@@ -56,6 +56,13 @@ describe('retención de IVA · Providencia SNAT/2015/0049', () => {
     expect(retieneCienPorCiento(null)).toBe(false);
   });
 
+  it('el numeral 3 del art. 5 nombra al proveedor sujeto al 100% según el Portal Fiscal, o no inscrito en el RIF', () => {
+    const t = motivoCienTexto({ proveedorNoInscrito: true }) ?? '';
+    expect(t).toContain('Portal Fiscal');
+    expect(t).toContain('no está inscrito en el RIF');
+    expect(t).not.toContain('no coinciden');
+  });
+
   it('una factura sin IVA no genera retención', () => {
     expect(calcularRetencionIva({ baseImponible: 1000, ivaFactura: 0 }, especial).montoRetenido).toBe(0);
   });

@@ -574,7 +574,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           {([
             ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],
             ['facturaNoCumple', 'La factura no cumple los requisitos de facturación'],
-            ['proveedorNoInscrito', 'El proveedor no está inscrito en el RIF o sus datos no coinciden'],
+            ['proveedorNoInscrito', 'El proveedor está sujeto a retención del 100% según el Portal Fiscal, o no está inscrito en el RIF'],
             ['proveedorNoDomiciliado', 'El proveedor no está domiciliado en el país'],
             ['metalesPreciosos', 'Compra de metales o piedras preciosas'],
           ] as Array<[keyof MotivosIvaCien, string]>).map(([k, label]) => (
