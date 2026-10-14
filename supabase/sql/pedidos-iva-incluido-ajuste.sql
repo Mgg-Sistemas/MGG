@@ -106,3 +106,34 @@ update public.ordenes
 -- Cotejo:
 -- select codigo, oc_codigo, total, iva, iva_incluido, ajuste from ordenes where oc_codigo = 'OC-2026-0186';
 --   → SP-2026-0184-1 · 2946.59 · 144.69 · true · 2.52
+
+-- ─── Segunda pasada (14-10-2026, 15:45): una edición desde el front anterior pisó el ajuste ───
+-- OC-2026-0186: a las 19:30:56Z (front anterior) una edición de la OC pisó el ajuste:
+-- borró el IVA y cambió tres precios para forzar la suma a 2.946,59. Se vuelven los
+-- precios de la factura 11208 (los de la cotización aceptada) y se repone IVA/ajuste.
+update public.ordenes o
+   set items = (
+         select jsonb_agg(
+           case i->>'sku'
+             when 'COC-039' then i || jsonb_build_object('precio', 3.35)
+             when 'LIM-019' then i || jsonb_build_object('precio', 6.3)
+             when 'VIV-124' then i || jsonb_build_object('precio', 23.9)
+             else i
+           end order by ord)
+         from jsonb_array_elements(o.items) with ordinality t(i, ord)
+       ),
+       total = 2946.59,
+       iva = 144.69,
+       igtf = null,
+       iva_incluido = true,
+       ajuste = 2.52,
+       ajuste_motivo = 'Redondeo de precios unitarios · factura 11208 del 14-10-2026 (2.586.808,60 Bs a 877,90)',
+       historial = coalesce(historial, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+         'at', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+         'evento', 'oc_editada',
+         'actor', 'admin@gmail.com',
+         'detalle', 'Ajustada a la factura 11208 de SUPER HOME (14-10-2026): se vuelven los precios de la factura en jarra 2 L (3,35), Glade (6,30) y salsa inglesa (23,90), que una edición anterior había subido para forzar el total; los renglones (2.944,07) ya traen el IVA (16 % = 144,69 $ / 127.027,50 Bs, base sin IVA 2.801,90 $) y se declara +2,52 $ de redondeo de precios unitarios; total 2.946,59 $ = 2.586.808,60 Bs a 877,90.'
+       ))
+ where o.id = '75efe339-fa80-4db2-8b00-990848268a14'
+   and o.oc_codigo = 'OC-2026-0186'
+   and o.estado = 'oc_creada';
