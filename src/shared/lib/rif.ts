@@ -18,3 +18,14 @@ export function partirRif(rif: string): { letra: string; numero: string } {
   const numero = limpio.replace(/^[A-Z]/, '').slice(0, 10);
   return { letra, numero };
 }
+
+/**
+ * Forma ÚNICA de guardar el RIF (14-10-2026): «LETRA-DÍGITOS», sin puntos, guiones ni
+ * espacios en el número («J-123456789»). La usan el formulario de Proveedores, el alta
+ * de proveedor desde una oferta y el alta rápida desde compra o servicio directo, así
+ * «J-12345678-9» y «J-123456789» son el mismo proveedor. Sin dígitos devuelve ''.
+ */
+export function normalizarRif(rif: string | null | undefined): string {
+  const { letra, numero } = partirRif(rif ?? '');
+  return numero ? `${letra}-${numero}` : '';
+}

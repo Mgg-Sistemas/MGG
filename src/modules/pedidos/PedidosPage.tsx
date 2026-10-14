@@ -57,6 +57,7 @@ import {
   getCurrentUsuario,
   getHistoricoPreciosPorSku,
   listOrdenes,
+  getOrdenById,
   listProductosActivos,
   listProveedoresActivos,
   listProveedores,
@@ -361,12 +362,17 @@ export function PedidosPage() {
   useEffect(() => {
     const id = searchParams.get('detalle');
     if (!id || !ordenes.length) return;
-    if (ordenes.some((o) => o.id === id)) {
-      setModal({ kind: 'detail', ordenId: id });
-      const next = new URLSearchParams(searchParams);
-      next.delete('detalle');
-      setSearchParams(next, { replace: true });
-    }
+    const limpiar = () => { const next = new URLSearchParams(searchParams); next.delete('detalle'); setSearchParams(next, { replace: true }); };
+    if (ordenes.some((o) => o.id === id)) { setModal({ kind: 'detail', ordenId: id }); limpiar(); return; }
+    // No está en la lista cargada (orden vieja o recién creada en otra sesión): se pide por su id (14-10-2026).
+    let vivo = true;
+    void getOrdenById(id).then((o) => {
+      if (!vivo) return;
+      if (o) { setOrdenes((prev) => (prev.some((x) => x.id === o.id) ? prev : [...prev, o])); setModal({ kind: 'detail', ordenId: o.id }); }
+      else toast('Esa orden no existe o fue eliminada.', 'warning');
+      limpiar();
+    }).catch(() => { if (vivo) { toast('No se pudo abrir la orden.', 'error'); limpiar(); } });
+    return () => { vivo = false; };
   }, [ordenes, searchParams, setSearchParams]);
 
   // Callback estable para abrir el detalle: evita re-renderizar todas las tarjetas

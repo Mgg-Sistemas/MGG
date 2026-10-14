@@ -6,7 +6,7 @@ import { ordenDeOfertas, avisoProveedoresOcultos } from './ordenDeOfertas';
 import { ConversorBcv } from '@/shared/ui/ConversorBcv';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
-import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
+import { PREFIJOS_RIF, normalizarRif, partirRif } from '@/shared/lib/rif';
 import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico, OfertaProveedor, Producto } from '@/shared/lib/types';
 import { AgregarProductoCompra } from './AgregarProductoCompra';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, type EditarOfertaInput } from './ofertas.repository';
@@ -470,7 +470,7 @@ export function AgregarOfertaModal({
         }
         const creado = await crearProveedor({
           razon_social: provRazon.trim().toUpperCase(),
-          rif: `${rifPartes.letra}-${rifPartes.numero}`,
+          rif: normalizarRif(provRif),
           contacto: null,
           telefono: provTelefono.trim() || null,
           email: emailClean || null,

@@ -22,6 +22,7 @@ import {
 import type { Producto, CuentaCaja } from '@/shared/lib/types';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
 import { costoUnitarioUsd, esCompraEnBs, fechaTasaCompra, fmtTasa, tasaValida, type AnclajeTasa } from './compraDirectaMoneda';
+import { errorMontajeConRetencion } from './compraRetencionGuard';
 import { faltanPorEntrar } from './comprasRecepcion';
 import { textoDeError } from '@/shared/lib/errores';
 
@@ -506,6 +507,9 @@ export async function montarCompraDirecta(input: MontarCompraInput): Promise<voi
   if (compra.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');
   // Una compra anulada es terminal: montarla la revivría a 'abierta'.
   if (compra.estado === 'anulada') throw new Error('Esta compra está anulada.');
+  // Con la retención de IVA finalizada o declarada no se cambia IVA, % ni moneda (14-10-2026).
+  const errRet = errorMontajeConRetencion(compra, { moneda: input.moneda, iva: input.iva, retencionPct: input.retencionPct });
+  if (errRet) throw new Error(errRet);
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('La compra no tiene materiales.');
   const subtotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;

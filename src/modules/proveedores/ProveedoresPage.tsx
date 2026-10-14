@@ -7,7 +7,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
+import { PREFIJOS_RIF, normalizarRif, partirRif } from '@/shared/lib/rif';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { EstadoGenerico, Orden, Proveedor } from '@/shared/lib/types';
 import {
@@ -469,10 +469,9 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       toast('El correo no tiene un formato válido', 'error');
       return;
     }
-    const { letra, numero } = partirRif(form.rif);
     const payload: ProveedorInput = {
       ...form,
-      rif: numero ? `${letra}-${numero}` : '',
+      rif: normalizarRif(form.rif),
       razon_social: form.razon_social.trim().toUpperCase(),
       // Estaba fijo en null: editar cualquier otro dato borraba el contacto de
       // los proveedores que lo tenían cargado.
@@ -481,7 +480,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       email: emailClean || null,
       direccion: form.direccion?.trim().toUpperCase() || null,
     };
-    if (!numero || !payload.razon_social) {
+    if (!payload.rif || !payload.razon_social) {
       toast('RIF (con número) y razón social son obligatorios', 'error');
       return;
     }

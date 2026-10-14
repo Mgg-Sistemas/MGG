@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { normalizarRif } from '@/shared/lib/rif';
 import type { EstadoGenerico, Orden, Proveedor } from '@/shared/lib/types';
 
 export type ProveedorInput = Omit<Proveedor, 'id' | 'created_at' | 'updated_at'>;
@@ -125,10 +126,11 @@ export async function insert(payload: ProveedorInput): Promise<Proveedor> {
  * nacional por defecto; los demás datos se completan luego desde Proveedores.
  */
 export async function crearProveedorRapido(razonSocial: string, rif: string): Promise<Proveedor> {
-  const nombre = razonSocial.trim();
-  const r = rif.trim().toUpperCase();
+  const nombre = razonSocial.trim().toUpperCase();
+  // Mismo formato que Proveedores y que el alta desde una oferta: «J-12345678-9» y «J-123456789» no duplican.
+  const r = normalizarRif(rif);
   if (!nombre) throw new Error('Indicá la razón social del proveedor.');
-  if (!r) throw new Error('Indicá el RIF del proveedor.');
+  if (!r) throw new Error('Indicá el RIF del proveedor (letra y número).');
   const { data: existente } = await supabase.from('proveedores').select('*').eq('rif', r).maybeSingle();
   if (existente) return existente as Proveedor;
   return insert({

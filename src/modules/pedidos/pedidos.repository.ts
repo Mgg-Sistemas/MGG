@@ -68,13 +68,12 @@ async function assertAdmin(accion: string): Promise<void> {
 
 const TABLE = 'ordenes';
 
+/** Todas las órdenes, por páginas: Supabase corta en 1.000 filas sin avisar (14-10-2026). */
 export async function listOrdenes(): Promise<Orden[]> {
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as Orden[];
+  return todasLasFilas<Orden>((desde, hasta) =>
+    supabase.from(TABLE).select('*')
+      .order('created_at', { ascending: false }).order('id', { ascending: true })
+      .range(desde, hasta), PAGINA_SUPABASE);
 }
 
 export async function getOrdenById(id: string): Promise<Orden | null> {

@@ -264,26 +264,7 @@ export interface MovimientoCaja {
   caja?: { nombre: string; moneda: Moneda } | null;
 }
 
-/* ───────────── Retenciones e impuestos (Tesorería) ───────────── */
-
-export type TipoRetencion = 'IVA' | 'ISLR' | 'MUNICIPAL';
-
-export interface Retencion {
-  id: string;
-  tipo: TipoRetencion;
-  proveedor_id?: string | null;
-  orden_id?: string | null;
-  base: number;
-  porcentaje: number;
-  monto: number;
-  moneda: string;
-  comprobante_nro?: string | null;
-  fecha: string;
-  descripcion?: string | null;
-  actor?: string | null;
-  actor_name?: string | null;
-  created_at: string;
-}
+/* Retenciones: los tipos viven en src/modules/retenciones (en minúsculas, como la base). */
 
 /* ───────────── Combustible ───────────── */
 

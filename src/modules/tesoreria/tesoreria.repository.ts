@@ -6,7 +6,7 @@
    disponibilidad financiera (USD + equivalente Bs) y retenciones.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { Caja, MovimientoCaja, Retencion, TipoRetencion, CuentaCaja } from '@/shared/lib/types';
+import type { Caja, MovimientoCaja, CuentaCaja } from '@/shared/lib/types';
 import { getTasaHoy, round2 } from './tasas.repository';
 
 const TABLE = 'cajas';
@@ -509,40 +509,5 @@ export async function eliminarMovimientoCaja(mov: MovimientoCaja): Promise<void>
   if ((mov.ref_orden_id || mov.categoria === 'pago_oc') && mov.categoria !== 'reembolso_oc') await revertirOrdenSiPagoBorrado(mov);
 }
 
-/* ───────────── Retenciones e impuestos ───────────── */
-
-export async function crearRetencion(input: {
-  tipo: TipoRetencion; base: number; porcentaje: number; moneda: string;
-  proveedorId?: string | null; ordenId?: string | null;
-  comprobanteNro?: string | null; fecha?: string; descripcion?: string | null;
-  actor: string; actorName?: string | null;
-}): Promise<Retencion> {
-  const base = round2(Number(input.base) || 0);
-  const porcentaje = Number(input.porcentaje) || 0;
-  if (base <= 0) throw new Error('Indicá la base imponible.');
-  if (porcentaje <= 0) throw new Error('Indicá el porcentaje de retención.');
-  const monto = round2(base * (porcentaje / 100));
-
-  const { data, error } = await supabase.from('retenciones').insert({
-    tipo: input.tipo, base, porcentaje, monto, moneda: input.moneda || 'Bs',
-    proveedor_id: input.proveedorId ?? null, orden_id: input.ordenId ?? null,
-    comprobante_nro: input.comprobanteNro?.trim() || null,
-    fecha: input.fecha || new Date().toISOString().slice(0, 10),
-    descripcion: input.descripcion?.trim() || null,
-    actor: input.actor, actor_name: input.actorName ?? null,
-  }).select('*').single();
-  if (error) throw error;
-  return data as Retencion;
-}
-
-export async function listRetenciones(filtros: {
-  tipo?: TipoRetencion; desde?: string; hasta?: string;
-} = {}): Promise<Retencion[]> {
-  let q = supabase.from('retenciones').select('*').order('fecha', { ascending: false });
-  if (filtros.tipo) q = q.eq('tipo', filtros.tipo);
-  if (filtros.desde) q = q.gte('fecha', filtros.desde);
-  if (filtros.hasta) q = q.lte('fecha', filtros.hasta);
-  const { data, error } = await q;
-  if (error) throw error;
-  return (data ?? []) as Retencion[];
-}
+/* Las retenciones viven en el módulo Retenciones (retencionesFiscal.repository, tipos en minúsculas
+   como la CHECK de la tabla). Las funciones viejas de aquí, sin uso, se quitaron el 14-10-2026. */
