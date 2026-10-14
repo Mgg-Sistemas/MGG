@@ -34,8 +34,9 @@ import { ExpedienteTab } from './ExpedienteTab';
 import { ViajesTab } from './ViajesTab';
 import { ViaticosTab } from './ViaticosTab';
 import { PagosTab } from './PagosTab';
+import { GuiasTab } from './GuiasTab';
 
-type Vista = 'tablero' | 'expediente' | 'viajes' | 'viaticos' | 'pagos' | 'descansos';
+type Vista = 'tablero' | 'expediente' | 'viajes' | 'viaticos' | 'pagos' | 'guias' | 'descansos';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'tablero', label: 'Tablero', icon: '📊' },
@@ -43,6 +44,7 @@ const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'viajes', label: 'Rutas y viajes', icon: '🗺' },
   { key: 'viaticos', label: 'Viáticos y caja chica', icon: '💵' },
   { key: 'pagos', label: 'Pagos por viaje', icon: '🧾' },
+  { key: 'guias', label: 'Guías', icon: '📑' },
   { key: 'descansos', label: 'Descansos', icon: '🏠' },
 ];
 
@@ -161,6 +163,7 @@ export function ChoferesPage() {
       {vista === 'viajes' && <ViajesTab {...props} />}
       {vista === 'viaticos' && <ViaticosTab {...props} />}
       {vista === 'pagos' && <PagosTab {...props} />}
+      {vista === 'guias' && <GuiasTab {...props} />}
       {vista === 'descansos' && (
         <DescansosTab canWrite={canWrite} actor={actor} actorName={actorName} empresa={EMPRESA_POR_DEFECTO}
           soloPersonal={soloChoferes} claveConfig={CLAVE_DESCANSOS_CHOFERES} etiquetaGente="conductores activos" />
