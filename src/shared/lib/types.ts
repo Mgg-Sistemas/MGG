@@ -720,6 +720,8 @@ export interface Proveedor {
   telefono?: string | null;
   email?: string | null;
   direccion?: string | null;
+  /** Código CIIU (SENIAT) de la actividad económica; el texto vive en actividades_economicas. */
+  actividad_economica?: string | null;
   categorias: string[];
   origen: OrigenProveedor;
   estado: EstadoGenerico;

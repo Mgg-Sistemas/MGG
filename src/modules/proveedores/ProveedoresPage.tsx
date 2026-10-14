@@ -8,6 +8,7 @@ import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { PREFIJOS_RIF, normalizarRif, partirRif } from '@/shared/lib/rif';
+import { ActividadEconomicaSelect, TextoActividad } from './ActividadEconomicaSelect';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { EstadoGenerico, Orden, Proveedor } from '@/shared/lib/types';
 import {
@@ -38,6 +39,7 @@ const EMPTY_FORM: ProveedorInput = {
   telefono: '',
   email: '',
   direccion: '',
+  actividad_economica: null,
   categorias: [],
   origen: 'nacional',
   estado: 'activo',
@@ -118,7 +120,7 @@ export function ProveedoresPage() {
       if (filterEstado && p.estado !== filterEstado) return false;
       if (filterCategoria && !(p.categorias ?? []).includes(filterCategoria)) return false;
       if (q) {
-        const hay = [p.razon_social, p.rif, p.contacto, p.email]
+        const hay = [p.razon_social, p.rif, p.contacto, p.email, p.actividad_economica]
           .map((v) => (v ?? '').toLowerCase())
           .some((v) => v.includes(q));
         if (!hay) return false;
@@ -272,6 +274,7 @@ export function ProveedoresPage() {
                 <th>RIF</th>
                 <th>Razón social</th>
                 <th>Teléfono</th>
+                <th>Actividad</th>
                 <th>Categorías</th>
                 <th>Estado</th>
                 <th></th>
@@ -292,6 +295,7 @@ export function ProveedoresPage() {
                     )}
                   </td>
                   <td className="mono">{p.telefono || '—'}</td>
+                  <td className="mono" title="Código CIIU de la actividad económica">{p.actividad_economica || '—'}</td>
                   <td>
                     <EtiquetasProveedor categorias={p.categorias ?? []} />
                   </td>
@@ -398,6 +402,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       telefono: initial.telefono ?? '',
       email: initial.email ?? '',
       direccion: initial.direccion ?? '',
+      actividad_economica: initial.actividad_economica ?? null,
       categorias: [...(initial.categorias ?? [])],
       origen: initial.origen ?? 'nacional',
       estado: initial.estado,
@@ -479,6 +484,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       telefono: form.telefono?.trim() || null,
       email: emailClean || null,
       direccion: form.direccion?.trim().toUpperCase() || null,
+      actividad_economica: form.actividad_economica || null,
     };
     if (!payload.rif || !payload.razon_social) {
       toast('RIF (con número) y razón social son obligatorios', 'error');
@@ -584,6 +590,11 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
             value={form.direccion ?? ''}
             onChange={(e) => update('direccion', e.target.value.toUpperCase())}
           />
+        </div>
+
+        <div className="form-row">
+          <label>Actividad económica <span className="muted" style={{ fontWeight: 400 }}>(código CIIU del SENIAT)</span></label>
+          <ActividadEconomicaSelect value={form.actividad_economica ?? ''} onChange={(c) => update('actividad_economica', c || null)} />
         </div>
 
         <div className="form-row">
@@ -704,6 +715,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Teléfono" value={proveedor.telefono || '—'} />
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
+        <DetailRow label="Actividad económica" value={<TextoActividad codigo={proveedor.actividad_economica} />} />
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
         <DetailRow
           label="Categorías"
