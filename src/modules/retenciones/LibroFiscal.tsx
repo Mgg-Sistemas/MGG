@@ -40,6 +40,7 @@ import {
   guardarConfigRetencion, listConceptos, listRetenciones, marcarDeclarada, registrarRetencion,
   type RetencionPracticada,
 } from './retencionesFiscal.repository';
+import { faltaEnLaCarga } from './validarCarga';
 
 const BUCKET = 'compras-oc';
 
@@ -392,7 +393,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [rif, setRif] = useState(semilla.contraparteRif ?? '');
   const [moneda, setMoneda] = useState(semilla.moneda ?? 'Bs');
   const [numero, setNumero] = useState('');
-  const [facturaNumero, setFacturaNumero] = useState(semilla.codigo ?? '');
+  const [facturaNumero, setFacturaNumero] = useState('');
   const [facturaControl, setFacturaControl] = useState('');
   const [facturaFecha, setFacturaFecha] = useState(hoyIso());
   const [baseStr, setBaseStr] = useState(String(semilla.baseImponible ?? semilla.total ?? 0));
@@ -435,6 +436,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     setError(null);
     if (montoFinal <= 0) { setError(esManual ? 'Cargá el monto que dice el comprobante.' : calculo.explicacion); return; }
     if (esManual && !contraparte.trim()) { setError('Poné quién practicó la retención.'); return; }
+    const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
     setSaving(true);
     try {
       const periodo = periodoDe(facturaFecha);
@@ -624,7 +626,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '1 1 140px' }}>
           <label>N° de factura</label>
-          <input className="input mono" value={facturaNumero} onChange={(e) => setFacturaNumero(e.target.value)} />
+          <input className="input mono" value={facturaNumero} onChange={(e) => setFacturaNumero(e.target.value)} placeholder="Número fiscal (no el código de la OC)" />
         </div>
         <div className="form-row" style={{ flex: '1 1 130px' }}>
           <label>N° de control</label>
